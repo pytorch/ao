@@ -23,6 +23,7 @@ from torchao.prototype.moe_training.kernels.mxfp8 import (
 )
 from torchao.prototype.moe_training.utils import generate_jagged_offs
 from torchao.prototype.mx_formats.mx_tensor import to_mx
+from torchao.utils import is_MI350
 
 device = torch.device("cuda")
 
@@ -115,13 +116,17 @@ def run_experiment(
         fp8_rowwise_us = bench_fp8_rowwise_grouped_mm(A, B_t, offs)
 
     # benchmark mxfp8 grouped mm
-    if torch.cuda.get_device_capability() != (10, 0):
+    if torch.cuda.get_device_capability() == (10, 0):
+        mxfp8_us = bench_mxfp8_grouped_mm(A, B_t, offs)
+    elif is_MI350():
+        mxfp8_us = bench_mxfp8_grouped_mm_rocm(A, B_t, offs)
+    else:
         logging.warning(
-            f"Skipping MXFP8 benchmarks, only supported on compute capability 10.0 and found {torch.cuda.get_device_capability()}"
+            f"Skipping MXFP8 benchmarks, only supported on CUDA SM 10.0 or MI350+ "
+            f"(found device_capability={torch.cuda.get_device_capability()}, "
+            f"hip={torch.version.hip})"
         )
         mxfp8_us = float("inf")
-    else:
-        mxfp8_us = bench_mxfp8_grouped_mm(A, B_t, offs)
 
     return ExperimentResult(
         bf16_us=round(bf16_us, 3),
@@ -148,13 +153,12 @@ def print_results(experiments: List[Experiment]):
     rows = []
     for experiment in experiments:
         # calculate tflops
-        e, m, n, k = (
-            experiment.config.e,
+        m, n, k = (
             experiment.config.m,
             experiment.config.n,
             experiment.config.k,
         )
-        flops = 2 * e * m * n * k
+        flops = 2 * m * n * k
         bf16_tflops = (flops / 1e12) / (experiment.result.bf16_us / 1e6)
         fp8_rowwise_tflops = (flops / 1e12) / (experiment.result.fp8_rowwise_us / 1e6)
         mxfp8_tflops = (flops / 1e12) / (experiment.result.mxfp8_us / 1e6)
@@ -243,6 +247,30 @@ def bench_mxfp8_grouped_mm(A, B_t, offs, block_size=32) -> float:
         A_scales_blocked,
         B_scales_blocked,
         offs=offs,
+    )
+    return mxfp8_us
+
+
+def bench_mxfp8_grouped_mm_rocm(A, B_t, offs, block_size=32) -> float:
+    from torchao.prototype.moe_training.kernels.mxfp8.rocm_mxfp8_mm import (
+        triton_mxfp8_grouped_mm,
+    )
+
+    A_scales, A_fp8 = to_mx(A, elem_dtype=torch.float8_e4m3fn, block_size=block_size)
+    B_nkK = B_t.transpose(-2, -1).contiguous()
+    B_scales, B_fp8 = to_mx(B_nkK, elem_dtype=torch.float8_e4m3fn, block_size=block_size)
+
+    E = offs.shape[0]
+    Mg = A.shape[0]
+    offs_mxfp8 = generate_jagged_offs(E, Mg, multiple_of=block_size)
+
+    mxfp8_us = benchmark_cuda_function_in_microseconds(
+        triton_mxfp8_grouped_mm,
+        A_fp8,
+        B_fp8,
+        A_scales,
+        B_scales,
+        offs_mxfp8,
     )
     return mxfp8_us
 

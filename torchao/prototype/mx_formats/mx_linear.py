@@ -29,6 +29,9 @@ def _to_mxfp8_then_scaled_mm(
     kernel_preference: KernelPreference,
     scale_calculation_mode: ScaleCalculationMode,
     wgrad_with_hp: bool = False,
+    mxfp8_dim1_cast_kernel_choice: MXFP8Dim1CastKernelChoice = (
+        MXFP8Dim1CastKernelChoice.CUDA
+    ),
 ) -> torch.Tensor:
     """
     Performs a matrix multiplication with MXFP8 quantization on both forward and backward passes.
@@ -47,6 +50,11 @@ def _to_mxfp8_then_scaled_mm(
         kernel_preference: Whether to use AUTO (best kernel for each operation) or EMULATED mode
         scale_calculation_mode: Scale calculation method (RCEIL or FLOOR) for MXFP8 quantization
         wgrad_with_hp: If True, compute grad_weight in high precision instead of MXFP8. Default: False
+        mxfp8_dim1_cast_kernel_choice: Which kernel to use for the MXFP8 dim1
+            quantization in the backward. Default is
+            ``MXFP8Dim1CastKernelChoice.CUDA`` (best for CUDA SM100+). On
+            backends without the CUDA kernel (e.g. ROCm), set this to
+            ``MXFP8Dim1CastKernelChoice.TRITON``.
 
     Returns:
         Output tensor of shape [..., out_features] in high precision
@@ -55,14 +63,12 @@ def _to_mxfp8_then_scaled_mm(
         Forward and backward grad_input are always computed using MXFP8 with block_size=32
         and element_dtype=float8_e4m3fn. Backward grad_weight uses MXFP8 by default, but can
         optionally use high precision when wgrad_with_hp=True for improved accuracy.
-        The Triton kernel is used for dim0 quantization and CUDA kernel for dim1 quantization.
     """
     in_elem_dtype = torch.float8_e4m3fn
     w_elem_dtype = torch.float8_e4m3fn
     grad_elem_dtype = torch.float8_e4m3fn
     block_size = 32
     mxfp8_dim0_cast_kernel_choice = MXFP8Dim0CastKernelChoice.TRITON
-    mxfp8_dim1_cast_kernel_choice = MXFP8Dim1CastKernelChoice.CUDA
 
     return mx_mm.apply(
         input_hp,

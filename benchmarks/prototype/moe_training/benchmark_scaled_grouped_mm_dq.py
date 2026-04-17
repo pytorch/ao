@@ -249,9 +249,13 @@ def main(args: argparse.Namespace):
         elif config.recipe in (
             MXFP8TrainingRecipe.MXFP8_RCEIL,
             MXFP8TrainingRecipe.MXFP8_RCEIL_WGRAD_WITH_HP,
-        ) and torch.cuda.get_device_capability() != (10, 0):
+        ) and not (
+            torch.cuda.get_device_capability() == (10, 0) or is_MI350()
+        ):
             logging.warning(
-                f"Skipping MXFP8 benchmarks, only supported on compute capability 10.0 and found {torch.cuda.get_device_capability()}"
+                f"Skipping MXFP8 benchmarks, only supported on CUDA SM 10.0 or MI350+ "
+                f"(found device_capability={torch.cuda.get_device_capability()}, "
+                f"hip={torch.version.hip})"
             )
             continue
 
