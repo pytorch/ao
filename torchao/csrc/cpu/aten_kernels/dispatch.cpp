@@ -155,8 +155,8 @@ declare_all_kernels(DEFAULT)
 
 /********** DA8W4 Linear Kernel Dispatch **********/
 declare_da8w4_linear_prepack_impl {
-// BUILD_AVX10_2 should be only set when __GNUC__ >= 15. Here is just a double check. Same below.
-#if defined(BUILD_AVX10_2) && __GNUC__ >= 15
+// BUILD_AVX10_2 is only defined when the compiler passed the AVX10.2 ISA probe in setup.py.
+#if defined(BUILD_AVX10_2)
   if (kHasAVX10_2) {
     return AVX10_2::call_da8w4_linear_prepack_impl();
   }
@@ -170,7 +170,7 @@ declare_da8w4_linear_prepack_impl {
 }
 
 declare_da8w4_linear_impl {
-#if defined(BUILD_AVX10_2) && __GNUC__ >= 15
+#if defined(BUILD_AVX10_2)
   if (kHasAVX10_2) {
     return AVX10_2::call_da8w4_linear_impl();
   }
@@ -185,7 +185,7 @@ declare_da8w4_linear_impl {
 
 /********** FLOAT8 Linear Kernel Dispatch **********/
 declare_float8_linear_prepack_impl {
-#if defined(BUILD_AVX10_2) && __GNUC__ >= 15
+#if defined(BUILD_AVX10_2)
   if (kHasAVX10_2) {
     return AVX10_2::call_float8_linear_prepack_impl();
   }
@@ -199,7 +199,7 @@ declare_float8_linear_prepack_impl {
 }
 
 declare_float8_linear_impl {
-#if defined(BUILD_AVX10_2) && __GNUC__ >= 15
+#if defined(BUILD_AVX10_2)
   if (kHasAVX10_2) {
     return AVX10_2::call_float8_linear_impl();
   }
@@ -214,7 +214,7 @@ declare_float8_linear_impl {
 
 /********** Scaled Embedding Bag Kernel Dispatch **********/
 declare_scaled_embedding_bag_impl {
-#if defined(BUILD_AVX10_2) && __GNUC__ >= 15
+#if defined(BUILD_AVX10_2)
   if (kHasAVX10_2) {
     return AVX10_2::call_scaled_embedding_bag_impl();
   }
@@ -229,7 +229,7 @@ declare_scaled_embedding_bag_impl {
 
 /********** Quantized SDPA Kernel **********/
 declare_qscaled_dot_product_impl {
-#if defined(BUILD_AVX10_2) && __GNUC__ >= 15
+#if defined(BUILD_AVX10_2)
   if (kHasAVX10_2) {
     return AVX10_2::call_qscaled_dot_product_impl();
   }

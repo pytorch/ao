@@ -387,77 +387,136 @@ def bool_to_on_off(value):
 class X86KernelBuild:
     """Class for all x86-kernel-specific build logic"""
 
-    # Preferred GCC major version required for full AVX10.2 support.
-    # Minimum GCC major version required for building x86 kernels.
-    _PREFERRED_GCC_MAJOR = 15
-    _MINIMUM_GCC_MAJOR = 11
-    _cxx = None
-    _cxx_major = None
-    _cxx_checked = False
+    # ISA capability levels, in increasing order of capability.
+    #   None      – The default level
+    #   "avx512"  – AVX-512F/BW/VL/DQ/VNNI, etc.
+    #   "avx10_2" – avx512 + AVX10.2
+    _ISA_LEVELS = [None, "avx512", "avx10_2"]
 
-    @staticmethod
-    def _gcc_major(exe: str) -> "int | None":
-        """Return the GCC major version reported by *exe*, or None on failure."""
-        try:
-            out = subprocess.run(
-                [exe, "--version"],
-                capture_output=True,
-                text=True,
-                timeout=10,
-            ).stdout
-            # Extract the first MAJOR.MINOR.PATCH version in the output.
-            m = re.search(r"\b(\d+)\.\d+\.\d+", out)
-            if m:
-                return int(m.group(1))
-        except Exception:
-            pass
-        return None
+    _cxx = None  # resolved compiler path
+    _cxx_checked = False  # True once find_cxx_compiler() has run
+    _isa_level = None  # set by _probe_isa(); one of _ISA_LEVELS
+    _isa_probed = False  # True once _probe_isa() has run
 
     @staticmethod
     def find_cxx_compiler() -> "str | None":
-        """Find a C++ compiler
+        """Find a C++ compiler.
 
         Checks $CXX first, then ``g++`` on $PATH.
-        Returns the compiler path or None.
+        Returns the resolved compiler path, or None if not found.
         """
         if X86KernelBuild._cxx_checked:
             return X86KernelBuild._cxx
 
-        def _check(exe: str) -> "str | None":
+        def _resolve(exe: str) -> "str | None":
             if not exe:
                 return None
-            if os.sep not in exe:
-                exe = shutil.which(exe) or ""
-            if not os.path.isfile(exe):
-                return None
-            major = X86KernelBuild._gcc_major(exe)
-            return exe if major is not None else None
+            resolved = shutil.which(exe) if os.sep not in exe else exe
+            return resolved if resolved and os.path.isfile(resolved) else None
 
-        cxx = _check(os.environ.get("CXX", ""))
-        if _check(cxx):
-            X86KernelBuild._cxx = cxx
-            X86KernelBuild._cxx_major = X86KernelBuild._gcc_major(cxx)
-        elif _check("g++"):
-            X86KernelBuild._cxx = "g++"
-            X86KernelBuild._cxx_major = X86KernelBuild._gcc_major("g++")
+        X86KernelBuild._cxx = _resolve(os.environ.get("CXX", "")) or _resolve("g++")
         X86KernelBuild._cxx_checked = True
         return X86KernelBuild._cxx
+
+    @staticmethod
+    def _try_compile(cxx: str, march: str, snippet: str) -> bool:
+        """Return True if *cxx* can compile *snippet* with the given *march* flag."""
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            src = os.path.join(tmpdir, "probe.cpp")
+            obj = os.path.join(tmpdir, "probe.o")
+            with open(src, "w") as f:
+                f.write(snippet)
+            try:
+                subprocess.check_call(
+                    [cxx, "-std=c++20", march, "-c", src, "-o", obj],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    timeout=30,
+                )
+                return True
+            except Exception:
+                return False
+
+    @staticmethod
+    def _probe_isa() -> None:
+        """Probe which ISA level the compiler supports by compiling test snippets."""
+        if X86KernelBuild._isa_probed:
+            return
+
+        # Snippet that exercises AVX512 + VNNI (the minimum for our kernels).
+        # _mm512_dpbusd_epi32 requires avx512f + avx512vnni.
+        _AVX512_SNIPPET = """\
+#include <immintrin.h>
+int main() {
+    __m512i a = _mm512_setzero_epi32();
+    // avx512-vnni
+    __m512i c = _mm512_dpbusd_epi32(a, a, a);
+    (void)c;
+    return 0;
+}
+"""
+        # Snippet that exercises AVX10.2 fp8 hardware conversions.
+        # _mm256_cvthf8_ph requires -march=diamondrapids and GCC >= 15.
+        _AVX10_2_SNIPPET = """\
+#include <immintrin.h>
+int main() {
+    __m128i a = _mm_setzero_si128();
+    // avx10.2 fp8 -> fp16 hardware convert
+    __m256h b = _mm256_cvthf8_ph(a);
+    (void)b;
+    return 0;
+}
+"""
+        cxx = X86KernelBuild._cxx
+        if cxx is None:
+            X86KernelBuild._isa_probed = True
+            return
+
+        if X86KernelBuild._try_compile(cxx, "-march=diamondrapids", _AVX10_2_SNIPPET):
+            X86KernelBuild._isa_level = "avx10_2"
+        elif X86KernelBuild._try_compile(cxx, "-march=sapphirerapids", _AVX512_SNIPPET):
+            X86KernelBuild._isa_level = "avx512"
+        else:
+            X86KernelBuild._isa_level = None
+
+        print("[X86 Build] compiler check")
+        print("- Found compiler:", cxx)
+        print(
+            "- AVX512 support:",
+            "Yes" if X86KernelBuild._isa_at_least("avx512") else "No",
+        )
+        print(
+            "- AVX10.2 support:",
+            "Yes" if X86KernelBuild._isa_at_least("avx10_2") else "No",
+        )
+        X86KernelBuild._isa_probed = True
+
+    @staticmethod
+    def _isa_at_least(level: str) -> bool:
+        """Return True if the probed ISA level is >= *level*."""
+        levels = X86KernelBuild._ISA_LEVELS
+        return levels.index(X86KernelBuild._isa_level) >= levels.index(level)
 
     @staticmethod
     def is_enabled() -> bool:
         """Return True when CPU aten_kernels should be included in the build."""
         enabled = bool(use_cpu_kernels and is_linux and is_x86_64)
-        if enabled and not X86KernelBuild._cxx_checked:
+        if enabled and not X86KernelBuild._isa_probed:
             X86KernelBuild.find_cxx_compiler()
-            if (
-                not X86KernelBuild._cxx
-                or X86KernelBuild._cxx_major < X86KernelBuild._MINIMUM_GCC_MAJOR
-            ):
+            if not X86KernelBuild._cxx:
                 raise RuntimeError(
-                    "You are building with `USE_CPU_KERNELS=1` but "
-                    "no suitable C++ compiler found for building X86 kernels. "
-                    "Please set the CXX environment variable to a GCC compiler "
-                    "(version 15 for full features, 11 or higher required)."
+                    "[X86 Build] You are building X86 kernels but no C++ compiler was found. "
+                    "Please set the CXX environment variable to point to g++."
+                )
+            X86KernelBuild._probe_isa()
+            if not X86KernelBuild._isa_at_least("avx512"):
+                raise RuntimeError(
+                    "[X86 Build] You are building X86 kernels but the compiler "
+                    f"({X86KernelBuild._cxx}) does not support the required ISA "
+                    "features (AVX512F + AVX512-VNNI). Please install a compatible "
+                    "compiler (GCC >= 11.2, GCC 15 for full features)."
                 )
         return enabled
 
@@ -489,9 +548,10 @@ class X86KernelBuild:
             "-fno-tree-vectorize",
             "-fopenmp",
         ]
-        if X86KernelBuild._cxx_major >= X86KernelBuild._MINIMUM_GCC_MAJOR:
+        # Gate defines on probed ISA capability, not compiler version.
+        if X86KernelBuild._isa_at_least("avx512"):
             flags.append("-DBUILD_AVX512")
-        if X86KernelBuild._cxx_major >= X86KernelBuild._PREFERRED_GCC_MAJOR:
+        if X86KernelBuild._isa_at_least("avx10_2"):
             flags.append("-DBUILD_AVX10_2")
         extra_compile_args["cxx"].extend(flags)
 
@@ -532,13 +592,13 @@ class X86KernelBuild:
         build_configs = [
             {
                 "isa": "AVX512",
-                "gcc_min_ver": X86KernelBuild._MINIMUM_GCC_MAJOR,
+                "isa_level": "avx512",
                 "defines": avx512_defines + ["-DCPU_CAPABILITY=AVX512"],
                 "flags": ["-march=sapphirerapids"],
             },
             {
                 "isa": "AVX10_2",
-                "gcc_min_ver": X86KernelBuild._PREFERRED_GCC_MAJOR,
+                "isa_level": "avx10_2",
                 "defines": avx10_2_defines + ["-DCPU_CAPABILITY=AVX10_2"],
                 "flags": ["-march=diamondrapids"],
             },
@@ -551,21 +611,22 @@ class X86KernelBuild:
             shutil.copy2(src, temp_src)
             obj = os.path.join(build_dir, f"{stem}.{config['isa']}.o")
             cmd = [cxx] + cxx_flags + ["-c", temp_src, "-o", obj]
-            print(f"[X86 {config['isa']}] Compiling {src} -> {os.path.basename(obj)}")
+            print(
+                f"[X86 Build] {config['isa']}: Compiling {src} -> {os.path.basename(obj)}"
+            )
             try:
                 subprocess.check_call(cmd)
                 return obj
             except subprocess.CalledProcessError as e:
                 print(
-                    f"[ERROR] Unable to compile {config['isa']} variant of {src}:\n{e}\n"
+                    f"[X86 Build] [ERROR] Unable to compile {config['isa']} variant of {src}:\n{e}\n"
                 )
                 raise e
 
         for config in build_configs:
-            if X86KernelBuild._cxx_major < config["gcc_min_ver"]:
+            if not X86KernelBuild._isa_at_least(config["isa_level"]):
                 print(
-                    f"[WARNING] GCC {config['gcc_min_ver']} or higher is required to build {config['isa']} kernels. "
-                    f"Current compiler: {cxx} (GCC {X86KernelBuild._cxx_major}). "
+                    f"[X86 Build] [WARNING] Compiler does not support {config['isa']} ISA. "
                     f"{config['isa']} kernels will not be built."
                 )
                 continue
