@@ -4,7 +4,6 @@
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
 import types
-from dataclasses import dataclass
 from typing import Callable, Optional
 
 import torch
@@ -23,7 +22,6 @@ from torchao.quantization.transform_module import (
     _QUANTIZE_CONFIG_HANDLER,
     register_quantize_module_handler,
 )
-from torchao.sparsity.blocksparse import BlockSparseTensor
 
 
 # Sparsity helper functions
@@ -44,30 +42,6 @@ def apply_fake_sparsity(model, **kwargs):
     sparsifier.prepare(model, sparse_config)
     sparsifier.step()
     sparsifier.squash_mask()
-
-
-@dataclass
-class BlockSparseWeightConfig(AOBaseConfig):
-    blocksize: int = 64
-
-    def __post_init__(self):
-        torch._C._log_api_usage_once("torchao.sparsity.BlockSparseWeightConfig")
-
-
-# for bc
-block_sparse_weight = BlockSparseWeightConfig
-
-
-@register_quantize_module_handler(BlockSparseWeightConfig)
-def _block_sparse_weight_transform(
-    module: torch.nn.Module,
-    config: BlockSparseWeightConfig,
-):
-    blocksize = config.blocksize
-    new_weight = BlockSparseTensor.from_dense(module.weight, blocksize)
-    module.weight = torch.nn.Parameter(new_weight, requires_grad=False)
-    module.extra_repr = types.MethodType(_linear_extra_repr, module)
-    return module
 
 
 class SemiSparseWeightConfig(AOBaseConfig):

@@ -1,5 +1,10 @@
 # Sparsifier
 # Scheduler
+from torchao.prototype.sparsity.blocksparse import BlockSparseTensor
+from torchao.prototype.sparsity.blocksparse_config import (
+    BlockSparseWeightConfig,
+    block_sparse_weight,
+)
 from torchao.prototype.sparsity.scheduler.base_scheduler import BaseScheduler
 from torchao.prototype.sparsity.scheduler.cubic_scheduler import CubicSL
 from torchao.prototype.sparsity.scheduler.lambda_scheduler import LambdaSL
@@ -30,4 +35,7 @@ __all__ = [
     "get_arg_info_from_tensor_fqn",
     "module_to_fqn",
     "WeightNormSparsifier",
+    "BlockSparseTensor",
+    "BlockSparseWeightConfig",
+    "block_sparse_weight",
 ]

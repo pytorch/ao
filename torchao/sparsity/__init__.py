@@ -4,9 +4,10 @@
 # This source code is licensed under the license found in the
 # LICENSE file in the root directory of this source tree.
 
+import warnings
+
 from .sparse_api import (
     apply_fake_sparsity,
-    block_sparse_weight,
     semi_sparse_weight,
     sparsify_,
 )
@@ -22,4 +23,24 @@ __all__ = [
     "sparsify_",
     "semi_sparse_weight",
     "block_sparse_weight",
+    "BlockSparseWeightConfig",
 ]
+
+
+def __getattr__(name):
+    if name in ("block_sparse_weight", "BlockSparseWeightConfig"):
+        warnings.warn(
+            f"Importing {name} from torchao.sparsity is deprecated, "
+            "please use torchao.prototype.sparsity instead. "
+            "See https://github.com/pytorch/ao/issues/4230 for more details.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        from torchao.prototype.sparsity.blocksparse_config import (
+            BlockSparseWeightConfig as _BlockSparseWeightConfig,
+        )
+
+        if name == "BlockSparseWeightConfig":
+            return _BlockSparseWeightConfig
+        return _BlockSparseWeightConfig  # block_sparse_weight is alias
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
