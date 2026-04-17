@@ -22,7 +22,7 @@ from torchao.quantization.quant_primitives import (
 )
 from torchao.quantization.quantize_.workflows.int8.int8_tensor import (
     Int8Tensor,
-    _should_reduce_range,
+    should_reduce_range,
 )
 from torchao.quantization.utils import compute_error, get_block_size
 from torchao.testing.model_architectures import ToyTwoLinearModel
@@ -68,7 +68,7 @@ class TestInt8TensorCPU(TorchAOIntegrationTestCase):
             )
         else:
             act_granularity, _ = Int8Tensor._normalize_granularity(granularity)
-            reduce_range = _should_reduce_range(input_tensor.device)
+            reduce_range = should_reduce_range(input_tensor.device)
             quant_min, quant_max = _DTYPE_TO_QVALUE_BOUNDS[torch.int8]
             if reduce_range:
                 quant_min, quant_max = quant_min // 2, quant_max // 2

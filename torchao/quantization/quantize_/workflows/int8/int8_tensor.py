@@ -32,12 +32,13 @@ from torchao.utils import TorchAOBaseTensor, _cpu_is_vnni_supported, fill_defaul
 __all__ = [
     "Int8Tensor",
     "QuantizeTensorToInt8Kwargs",
+    "should_reduce_range",
 ]
 
 aten = torch.ops.aten
 
 
-def _should_reduce_range(device: torch.device) -> bool:
+def should_reduce_range(device: torch.device) -> bool:
     return device.type == "cpu" and not _cpu_is_vnni_supported()
 
 
@@ -48,14 +49,13 @@ class QuantizeTensorToInt8Kwargs(QuantizeTensorKwargs):
     Args:
         granularity: the granularity for the Tensor, currently either PerRow() or PerTensor()
         mapping_type: whether to use symmetric or asymmetric quant
-        reduce_range: If None, choose the int8 quantization range automatically.
-            Use the reduced range on CPU without VNNI, otherwise use the full range.
-            If True or False, use that value directly.
+        reduce_range: optional flag for reduced int8 quantization range to avoid overflow
+            on CPU without VNNI support. Users can call should_reduce_range() to help determine.
     """
 
     granularity: Granularity
     mapping_type: MappingType = MappingType.SYMMETRIC
-    reduce_range: Optional[bool] = None
+    reduce_range: Optional[bool] = False
 
 
 class Int8Tensor(TorchAOBaseTensor):
@@ -188,17 +188,11 @@ class Int8Tensor(TorchAOBaseTensor):
         act_quant_scale: Optional[torch.Tensor] = None,
         act_quant_zero_point: Optional[torch.Tensor] = None,
         act_pre_scale: Optional[torch.Tensor] = None,
-        reduce_range: Optional[bool] = None,
+        reduce_range: Optional[bool] = False,
     ):
         """Create Int8Tensor from high-precision tensor"""
         block_size = get_block_size(hp_tensor.shape, granularity)
         block_size = list(block_size)
-
-        if reduce_range is None:
-            # If users do not set reduce_range explicitly, set it automatically.
-            reduce_range = _should_reduce_range(hp_tensor.device)
-            if act_quant_kwargs is not None and act_quant_kwargs.reduce_range is None:
-                act_quant_kwargs.reduce_range = reduce_range
 
         quant_min, quant_max = _DTYPE_TO_QVALUE_BOUNDS[torch.int8]
         if reduce_range:

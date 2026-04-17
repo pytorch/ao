@@ -853,9 +853,7 @@ class Int8WeightOnlyConfig(AOBaseConfig):
 
 def _int8_weight_only_quantize_tensor(weight, config):
     assert config.version == 2, f"Unexpected version: {config.version}"
-    new_weight = Int8Tensor.from_hp(
-        weight, granularity=config.granularity, reduce_range=False
-    )
+    new_weight = Int8Tensor.from_hp(weight, granularity=config.granularity)
     return new_weight
 
 
@@ -934,10 +932,8 @@ class Int8DynamicActivationInt8WeightConfig(AOBaseConfig):
         set_inductor_config: bool = True - If True, adjusts `torchinductor` settings to recommended values
             for better performance with this quantization scheme.
         version (int): the version of the config
-        reduce_range (Optional[bool] = None): If None, decide automatically whether to use
-            reduced range in activation and weight quantization. Use reduced
-            range on CPU without VNNI instructions and full range otherwise. If set to
-            True or False, that value is used directly.
+        reduce_range (Optional[bool] = False): If True, use reduced activation and weight quantization ranges
+            to avoid overflow on CPU without VNNI. Users can call should_reduce_range() to help determine.
 
     Example:
 
@@ -952,7 +948,7 @@ class Int8DynamicActivationInt8WeightConfig(AOBaseConfig):
     ] = PerRow()
     set_inductor_config: bool = True
     version: int = 2
-    reduce_range: Optional[bool] = None
+    reduce_range: Optional[bool] = False
 
     def __post_init__(self):
         torch._C._log_api_usage_once(
@@ -1050,10 +1046,8 @@ class Int8StaticActivationInt8WeightConfig(AOBaseConfig):
         act_mapping_type (MappingType): The mapping type for activation quantization. SYMMETRIC and ASYMMETRIC are supported.
         set_inductor_config (bool): if True, adjusts `torchinductor` settings to recommended values.
         version (int): the version of the config
-        reduce_range (Optional[bool] = None): If None, decide automatically whether to use
-            reduced range in activation and weight quantization. Use reduced
-            range on CPU without VNNI instructions and full range otherwise. If set to
-            True or False, that value is used directly.
+        reduce_range (Optional[bool] = False): If True, use reduced activation and weight quantization ranges
+            to avoid overflow on CPU without VNNI. Users can call should_reduce_range() to help determine.
     """
 
     act_quant_scale: Optional[torch.Tensor] = None
@@ -1064,7 +1058,7 @@ class Int8StaticActivationInt8WeightConfig(AOBaseConfig):
     act_mapping_type: Optional[MappingType] = MappingType.SYMMETRIC
     set_inductor_config: bool = True
     version: int = 1
-    reduce_range: Optional[bool] = None
+    reduce_range: Optional[bool] = False
 
     def __post_init__(self):
         torch._C._log_api_usage_once(

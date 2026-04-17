@@ -460,7 +460,7 @@ class TestDynamicQuant(unittest.TestCase):
         y_test = m(x)
 
         sqnr = compute_error(y_ref, y_test)
-        self.assertGreater(sqnr, 38.0)
+        self.assertGreater(sqnr, 40.0)
 
 
 class TestWeightOnlyInt8Quant(unittest.TestCase):
