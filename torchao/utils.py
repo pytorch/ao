@@ -1169,18 +1169,6 @@ def is_cuda_version_at_least(major: int, minor: int) -> bool:
     return (cuda_major, cuda_minor) >= (major, minor)
 
 
-def check_cpu_version(device, version="2.6.0"):
-    if isinstance(device, torch.device):
-        device = device.type
-    return device == "cpu" and torch_version_at_least(version)
-
-
-def check_xpu_version(device, version="2.8.0"):
-    if isinstance(device, torch.device):
-        device = device.type
-    return device == "xpu" and torch_version_at_least(version)
-
-
 def ceil_div(a, b):
     return (a + b - 1) // b
 
