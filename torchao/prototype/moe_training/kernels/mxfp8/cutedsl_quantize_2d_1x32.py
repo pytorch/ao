@@ -84,7 +84,7 @@ def _compile_mxfp8_quantize_2d_cutedsl(
     k_tiles_per_cta: int,
     is_full_k_tiles: bool,
     blocked_scale_output: bool,
-    offs: Optional[torch.Tensor] = None,
+    has_offs: bool = False,
 ):
     """Compile the 2D MXFP8 quantization kernel using CuTeDSL.
 
@@ -935,7 +935,7 @@ def _compile_mxfp8_quantize_2d_cutedsl(
         )
     fake_stream = make_fake_stream()
 
-    if offs is not None:
+    if has_offs:
         offs_stride = cute.sym_int()
         fake_offs = make_fake_tensor(
             cutlass.Int32,
@@ -1054,7 +1054,7 @@ def mxfp8_quantize_cutedsl_2d_1x32(
         k_tiles_per_cta,
         is_full_k_tiles,
         blocked_scale_output,
-        offs,
+        has_offs=offs is not None,
     )
 
     import cuda.bindings.driver as cuda
