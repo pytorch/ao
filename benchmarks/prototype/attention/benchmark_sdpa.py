@@ -56,6 +56,11 @@ _HADAMARD_MODE = {
     "fa3_fp8_hadamard_v": "V_ONLY",
 }
 
+_SDPA_BACKEND = {
+    "fa2": SDPBackend.FLASH_ATTENTION,
+    "fa3": SDPBackend.FLASH_ATTENTION,
+}
+
 
 def _run_attention(backend: str, q, k, v, is_causal: bool):
     """Run a single attention call for the given backend."""
@@ -63,7 +68,7 @@ def _run_attention(backend: str, q, k, v, is_causal: bool):
         return fp8_fa3_sdpa(
             q, k, v, is_causal=is_causal, hadamard=_HADAMARD_MODE[backend]
         )
-    with sdpa_kernel(SDPBackend.FLASH_ATTENTION):
+    with sdpa_kernel(_SDPA_BACKEND[backend]):
         return F.scaled_dot_product_attention(q, k, v, is_causal=is_causal)
 
 
