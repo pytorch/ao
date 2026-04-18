@@ -39,8 +39,16 @@ from torchao.prototype.attention import (
 )
 
 BACKENDS = {
-    "fa2": {"flash_impl": None, "fp8": False, "sdpa_backend": SDPBackend.FLASH_ATTENTION},
-    "fa3": {"flash_impl": "FA3", "fp8": False, "sdpa_backend": SDPBackend.FLASH_ATTENTION},
+    "fa2": {
+        "flash_impl": None,
+        "fp8": False,
+        "sdpa_backend": SDPBackend.FLASH_ATTENTION,
+    },
+    "fa3": {
+        "flash_impl": "FA3",
+        "fp8": False,
+        "sdpa_backend": SDPBackend.FLASH_ATTENTION,
+    },
     "fa3_fp8": {
         "flash_impl": "FA3",
         "fp8": True,
