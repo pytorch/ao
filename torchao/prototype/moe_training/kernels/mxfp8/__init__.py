@@ -19,3 +19,6 @@ from torchao.prototype.moe_training.kernels.mxfp8.triton_dispatch_quantize impor
     triton_mxfp8_dispatch_and_quantize,  # noqa: F401
     triton_mxfp8_pad_and_quantize,  # noqa: F401
 )
+from torchao.prototype.moe_training.kernels.mxfp8.triton_grad_quantize import (
+    triton_mxfp8_quantize_dim0_dim1,  # noqa: F401
+)

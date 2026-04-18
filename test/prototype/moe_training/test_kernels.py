@@ -51,6 +51,7 @@ from torchao.prototype.moe_training.kernels.mxfp8 import (
     triton_mx_block_rearrange_per_group_3d,
     triton_mxfp8_dispatch_and_quantize,
     triton_mxfp8_pad_and_quantize,
+    triton_mxfp8_quantize_dim0_dim1,
 )
 from torchao.prototype.moe_training.kernels.mxfp8.quant import (
     _mxfp8_cuda_kernels_available,
@@ -883,6 +884,95 @@ def test_triton_mxfp8_dispatch_and_quantize_numerics(
     _assert_blocked_scales_equal(
         blocked_fused, blocked_ref, padded_M, k // 32
     )
+
+
+@pytest.mark.skipif(
+    not _is_sm_10x(),
+    reason="requires CUDA SM 10.x (blocked scale GEMM hw)",
+)
+@skip_if_rocm("ROCm enablement in progress")
+@pytest.mark.parametrize(
+    "M,N",
+    [
+        (128, 128),
+        (256, 512),
+        (1024, 2048),
+        (4096, 2048),
+        (8192, 2048),
+        (16384, 2048),
+        (2048, 5120),
+    ],
+)
+@pytest.mark.parametrize("scaling_mode_str", ["rceil", "floor"])
+def test_triton_mxfp8_quantize_dim0_dim1_numerics(
+    M: int, N: int, scaling_mode_str: str
+):
+    """Fused dim0+dim1 MXFP8 quantization with blocked scales should be
+    bit-exactly equivalent to the decoupled 4-kernel reference pipeline:
+
+        qdata0, scales0_rm = triton_to_mxfp8_dim0(x, 32, mode)
+        qdata1_t, scales1_rm = triton_to_mxfp8_dim1(x, 32, mode)
+        scales0_blocked = triton_mx_block_rearrange_2d_M_groups(scales0_rm, [M])
+        scales1_blocked = triton_mx_block_rearrange_2d_M_groups(scales1_rm, [N])
+    """
+    from torchao.prototype.mx_formats.kernels import (
+        triton_to_mxfp8_dim0,
+        triton_to_mxfp8_dim1,
+    )
+
+    device = "cuda"
+    torch.manual_seed(2024)
+    x = torch.randn(M, N, dtype=torch.bfloat16, device=device)
+
+    # Fused kernel under test.
+    qdata0_fused, qdata1_t_fused, scales0_fused, scales1_fused = (
+        triton_mxfp8_quantize_dim0_dim1(x, scaling_mode=scaling_mode_str)
+    )
+
+    # Reference dim0 pipeline: quantize along N, then blocked-rearrange.
+    qdata0_ref, scales0_ref_rm = triton_to_mxfp8_dim0(
+        x, inner_block_size=32, scaling_mode=scaling_mode_str
+    )
+    one_group_offsets_m = torch.tensor([M], dtype=torch.int32, device=device)
+    scales0_blocked_ref = triton_mx_block_rearrange_2d_M_groups(
+        scales0_ref_rm, one_group_offsets_m
+    )
+
+    # Reference dim1 pipeline: quantize along M (returns transposed data),
+    # then blocked-rearrange.
+    qdata1_t_ref, scales1_ref_rm = triton_to_mxfp8_dim1(
+        x, inner_block_size=32, scaling_mode=scaling_mode_str
+    )
+    one_group_offsets_n = torch.tensor([N], dtype=torch.int32, device=device)
+    scales1_blocked_ref = triton_mx_block_rearrange_2d_M_groups(
+        scales1_ref_rm, one_group_offsets_n
+    )
+
+    # qdata_dim0: (M, N) row-major e4m3 - bit-exact parity.
+    assert qdata0_fused.shape == (M, N)
+    assert qdata0_fused.dtype == torch.float8_e4m3fn
+    assert torch.equal(
+        qdata0_fused.view(torch.uint8), qdata0_ref.view(torch.uint8)
+    ), "fused dim0 fp8 data differs from triton_to_mxfp8_dim0 reference"
+
+    # qdata_dim1_t: (N, M) row-major e4m3 - bit-exact parity vs.
+    # transposed dim1 reference. ``triton_to_mxfp8_dim1`` returns its data
+    # as a ``.t()`` view of an (N, M) row-major column-major-of-x tensor,
+    # so calling ``.t()`` on the reference peels the view back to the raw
+    # (N, M) row-major storage we produce.
+    assert qdata1_t_fused.shape == (N, M)
+    assert qdata1_t_fused.dtype == torch.float8_e4m3fn
+    qdata1_t_ref_rowmajor = qdata1_t_ref.t().contiguous()
+    assert torch.equal(
+        qdata1_t_fused.view(torch.uint8),
+        qdata1_t_ref_rowmajor.view(torch.uint8),
+    ), "fused dim1-transpose fp8 data differs from triton_to_mxfp8_dim1 reference"
+
+    # Blocked scales for dim0: compare via from_blocked canonical view
+    # (128x4 blocks may have gap cells that are legitimately uninitialized).
+    _assert_blocked_scales_equal(scales0_fused, scales0_blocked_ref, M, N // 32)
+    # Blocked scales for dim1 live in an (N, M/32) logical tensor.
+    _assert_blocked_scales_equal(scales1_fused, scales1_blocked_ref, N, M // 32)
 
 
 @pytest.mark.parametrize("round_scales_to_power_of_2", [True, False])
