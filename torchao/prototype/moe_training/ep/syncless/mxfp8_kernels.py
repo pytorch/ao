@@ -250,9 +250,9 @@ def mxfp8_dequant_requant_col_major(
         scale_block_size: Scale block size (must be 32)
     """
     assert scale_block_size == 32, "scale_block_size must be 32"
-    assert (
-        sym_mem_buffer_rows % scale_block_size == 0
-    ), f"sym_mem_buffer_rows ({sym_mem_buffer_rows}) must be divisible by {scale_block_size}"
+    assert sym_mem_buffer_rows % scale_block_size == 0, (
+        f"sym_mem_buffer_rows ({sym_mem_buffer_rows}) must be divisible by {scale_block_size}"
+    )
 
     dim = e4m3_data.shape[1]
     scale_dim = e8m0_scales.shape[1]
@@ -283,9 +283,10 @@ def mxfp8_dequant_requant_col_major(
 
 
 @triton_op(
-    "torchao::triton_scale_blocked_layout_saved_activation_buffer", mutates_args=()
+    "torchao::triton_scale_blocked_layout_output_saved_activation_buffer",
+    mutates_args=(),
 )
-def triton_scale_blocked_layout_saved_activation_buffer(
+def triton_scale_blocked_layout_output_saved_activation_buffer(
     scales_buffer: torch.Tensor,
     input_col_offset: torch.Tensor,
     num_scale_cols: int = -1,
@@ -543,14 +544,65 @@ def _mxfp8_dequant_buffer_kernel(
     )
 
 
-# ---------------------------------------------------------------------------
-# Scale block rearrange with GPU-resident num_tokens bound.
-#
-# Identical to ``triton_mx_block_rearrange`` from mx_formats/kernels.py,
-# but only processes ``num_tokens`` rows (GPU tensor) instead of the full
-# overallocated buffer.  Avoids launching threadblocks and touching memory
-# for empty rows.
-# ---------------------------------------------------------------------------
+@triton_op(
+    "torchao::triton_mx_block_rearrange_input_sym_mem_buffer",
+    mutates_args=(),
+)
+def triton_mx_block_rearrange_input_sym_mem_buffer(
+    scale_tensor: torch.Tensor,
+    num_tokens: torch.Tensor,
+) -> torch.Tensor:
+    """Rearrange E8M0 scales to blocked swizzle format, bounded by num_tokens.
+
+    Only processes ``num_tokens`` rows of the input scale tensor (GPU-resident,
+    zero D2H sync).  Rows beyond num_tokens are zero-filled.  Output is padded
+    to multiples of (128, 4) as required by the blocked layout.
+
+    Args:
+        scale_tensor: (rows, scale_cols) uint8 or float8_e8m0fnu scale tensor.
+            ``rows`` may be larger than ``num_tokens`` (overallocated buffer).
+        num_tokens: Scalar int64 GPU tensor — number of valid rows.
+
+    Returns:
+        Flat uint8 tensor in blocked swizzle format, sized for ``num_tokens``
+        rows (padded to 128).
+    """
+    assert scale_tensor.ndim == 2
+    assert scale_tensor.element_size() == 1
+
+    # We size the output based on the static buffer rows, but only read
+    # num_tokens rows.  The grid is sized to cover rows (overallocated),
+    # and the kernel masks reads beyond num_tokens.
+    rows = scale_tensor.shape[0]
+    cols = scale_tensor.shape[1]
+
+    BLOCK_ROWS, BLOCK_COLS = 128, 4
+
+    n_row_blocks = triton.cdiv(rows, BLOCK_ROWS)
+    n_col_blocks = triton.cdiv(cols, BLOCK_COLS)
+    padded_rows = n_row_blocks * BLOCK_ROWS
+    padded_cols = n_col_blocks * BLOCK_COLS
+
+    out = scale_tensor.new_empty(padded_rows * padded_cols, dtype=torch.uint8)
+
+    stride_per_block = BLOCK_ROWS * BLOCK_COLS
+    out_stride_per_row_of_blocks = BLOCK_ROWS * BLOCK_COLS * n_col_blocks
+
+    grid = (n_row_blocks, n_col_blocks)
+    wrap_triton(_scale_swizzle_num_tokens_kernel)[grid](
+        scale_tensor.view(torch.uint8),
+        num_tokens,
+        cols,
+        out,
+        scale_tensor.stride(0),
+        scale_tensor.stride(1),
+        OUT_STRIDE_PER_BLOCK=stride_per_block,
+        OUT_STRIDE_PER_ROW_OF_BLOCKS=out_stride_per_row_of_blocks,
+        BLOCK_ROWS=BLOCK_ROWS,
+        BLOCK_COLS=BLOCK_COLS,
+    )
+
+    return out.view(torch.float8_e8m0fnu)
 
 
 @triton.jit
@@ -607,64 +659,3 @@ def _scale_swizzle_num_tokens_kernel(
         output_ptr + block_offset + dest_indices_flat,
         scales_flat,
     )
-
-
-@triton_op(
-    "torchao::triton_mx_block_rearrange_num_tokens",
-    mutates_args=(),
-)
-def triton_mx_block_rearrange_num_tokens(
-    scale_tensor: torch.Tensor,
-    num_tokens: torch.Tensor,
-) -> torch.Tensor:
-    """Rearrange E8M0 scales to blocked swizzle format, bounded by num_tokens.
-
-    Only processes ``num_tokens`` rows of the input scale tensor (GPU-resident,
-    zero D2H sync).  Rows beyond num_tokens are zero-filled.  Output is padded
-    to multiples of (128, 4) as required by the blocked layout.
-
-    Args:
-        scale_tensor: (rows, scale_cols) uint8 or float8_e8m0fnu scale tensor.
-            ``rows`` may be larger than ``num_tokens`` (overallocated buffer).
-        num_tokens: Scalar int64 GPU tensor — number of valid rows.
-
-    Returns:
-        Flat uint8 tensor in blocked swizzle format, sized for ``num_tokens``
-        rows (padded to 128).
-    """
-    assert scale_tensor.ndim == 2
-    assert scale_tensor.element_size() == 1
-
-    # We size the output based on the static buffer rows, but only read
-    # num_tokens rows.  The grid is sized to cover rows (overallocated),
-    # and the kernel masks reads beyond num_tokens.
-    rows = scale_tensor.shape[0]
-    cols = scale_tensor.shape[1]
-
-    BLOCK_ROWS, BLOCK_COLS = 128, 4
-
-    n_row_blocks = triton.cdiv(rows, BLOCK_ROWS)
-    n_col_blocks = triton.cdiv(cols, BLOCK_COLS)
-    padded_rows = n_row_blocks * BLOCK_ROWS
-    padded_cols = n_col_blocks * BLOCK_COLS
-
-    out = scale_tensor.new_empty(padded_rows * padded_cols, dtype=torch.uint8)
-
-    stride_per_block = BLOCK_ROWS * BLOCK_COLS
-    out_stride_per_row_of_blocks = BLOCK_ROWS * BLOCK_COLS * n_col_blocks
-
-    grid = (n_row_blocks, n_col_blocks)
-    wrap_triton(_scale_swizzle_num_tokens_kernel)[grid](
-        scale_tensor.view(torch.uint8),
-        num_tokens,
-        cols,
-        out,
-        scale_tensor.stride(0),
-        scale_tensor.stride(1),
-        OUT_STRIDE_PER_BLOCK=stride_per_block,
-        OUT_STRIDE_PER_ROW_OF_BLOCKS=out_stride_per_row_of_blocks,
-        BLOCK_ROWS=BLOCK_ROWS,
-        BLOCK_COLS=BLOCK_COLS,
-    )
-
-    return out.view(torch.float8_e8m0fnu)

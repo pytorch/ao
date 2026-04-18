@@ -26,6 +26,10 @@ import triton
 import triton.language as tl
 from torch.library import triton_op, wrap_triton
 
+from torchao.prototype.moe_training.ep.syncless.mxfp8_kernels import (
+    _calculate_scale_rceil,
+)
+
 
 @triton.jit
 def _silu_mul_fw_kernel(
@@ -112,6 +116,190 @@ def silu_mul_fw(
         BLOCK_SIZE=BLOCK_SIZE,
     )
     return output
+
+
+@triton.jit
+def _silu_mul_fw_mxfp8_kernel(
+    input_ptr,
+    output_data_ptr,
+    output_scales_ptr,
+    offset_ptr,
+    num_tokens_ptr,
+    hidden_dim: tl.constexpr,
+    input_stride_row: tl.constexpr,
+    output_data_stride_row: tl.constexpr,
+    sym_mem_buffer_rows,
+    n_scale_col_blocks: tl.constexpr,
+    TILE_M: tl.constexpr,
+    TILE_K: tl.constexpr,
+    SCALE_BLOCK_SIZE: tl.constexpr,
+):
+    """Fused SwiGLU forward + MXFP8 quantization with blocked scale layout.
+
+    Computes silu(h1) * h3, quantizes to MXFP8, and writes FP8 data + blocked
+    E8M0 scales directly. Eliminates the BF16 intermediate and separate scale
+    rearrangement kernel.
+
+    Grid: (cdiv(sym_mem_buffer_rows, TILE_M), cdiv(hidden_dim, TILE_K))
+    """
+    SCALE_BLOCKS_PER_TILE: tl.constexpr = TILE_K // SCALE_BLOCK_SIZE
+    BLOCK_ROWS: tl.constexpr = TILE_M
+    BLOCK_COLS: tl.constexpr = SCALE_BLOCKS_PER_TILE
+    OUT_STRIDE_PER_BLOCK: tl.constexpr = BLOCK_ROWS * BLOCK_COLS
+    OUT_STRIDE_PER_ROW_OF_BLOCKS: tl.constexpr = (
+        BLOCK_ROWS * BLOCK_COLS * n_scale_col_blocks
+    )
+
+    pid_row = tl.program_id(0)
+    pid_col = tl.program_id(1)
+
+    offset = tl.load(offset_ptr).to(tl.int64)
+    num_tokens = tl.load(num_tokens_ptr).to(tl.int64)
+
+    row_offs = pid_row * TILE_M + tl.arange(0, TILE_M)
+    col_offs = pid_col * TILE_K + tl.arange(0, TILE_K)
+
+    valid_mask = row_offs < num_tokens
+    col_mask = col_offs < hidden_dim
+
+    # Load h1 and h3 from input_buffer[offset + row, col] and [offset + row, hidden_dim + col]
+    input_rows = offset + row_offs
+    h1_offs = input_rows[:, None] * input_stride_row + col_offs[None, :]
+    h3_offs = input_rows[:, None] * input_stride_row + hidden_dim + col_offs[None, :]
+
+    load_mask = valid_mask[:, None] & col_mask[None, :]
+    h1 = tl.load(input_ptr + h1_offs, mask=load_mask, other=0.0)
+    h3 = tl.load(input_ptr + h3_offs, mask=load_mask, other=0.0)
+
+    # Compute silu(h1) * h3 in f32, then cast to BF16 to match the
+    # 2-step path (silu_mul_fw outputs BF16, then triton_to_mxfp8_dim0
+    # quantizes from BF16). The BF16 round-trip ensures identical numerics.
+    h1_f32 = h1.to(tl.float32)
+    h3_f32 = h3.to(tl.float32)
+    silu_h1_f32 = h1_f32 * tl.sigmoid(h1_f32)
+    result_bf16 = (silu_h1_f32 * h3_f32).to(tl.bfloat16)
+
+    # Zero out invalid rows
+    result_bf16 = tl.where(valid_mask[:, None], result_bf16, 0.0)
+
+    # Quantize to MXFP8: reshape to groups of SCALE_BLOCK_SIZE (32)
+    # Cast back to f32 for scale computation (matches triton_to_mxfp8_dim0)
+    result_f32 = result_bf16.to(tl.float32)
+    result_r = tl.reshape(
+        result_f32, (TILE_M * SCALE_BLOCKS_PER_TILE, SCALE_BLOCK_SIZE)
+    )
+    abs_result_r = tl.abs(result_r)
+
+    # Compute E8M0 scale per block using rceil PTX path
+    descale_fp, scale_e8m0 = _calculate_scale_rceil(abs_result_r, 1, True)
+
+    # Multiply by reciprocal scale and cast to FP8
+    quantized_r = result_r * descale_fp[:, None]
+    quantized = tl.reshape(quantized_r, (TILE_M, TILE_K))
+    quantized_fp8 = quantized.to(tl.float8e4nv)
+
+    # Store FP8 data in row-major layout
+    data_offs = row_offs[:, None] * output_data_stride_row + col_offs[None, :]
+    store_mask = (row_offs[:, None] < sym_mem_buffer_rows) & (
+        col_offs[None, :] < hidden_dim
+    )
+    tl.store(output_data_ptr + data_offs, quantized_fp8, mask=store_mask)
+
+    # Apply blocked layout swizzle to scales and store directly
+    scale_2d = tl.reshape(scale_e8m0, (BLOCK_ROWS, BLOCK_COLS))
+
+    rows = tl.arange(0, BLOCK_ROWS)[:, None]
+    cols = tl.arange(0, BLOCK_COLS)[None, :]
+
+    r_div_32 = rows // 32
+    r_mod_32 = rows % 32
+    dest_indices = r_mod_32 * 16 + r_div_32 * 4 + cols
+
+    dest_indices_flat = tl.reshape(dest_indices, (BLOCK_ROWS * BLOCK_COLS,))
+    scales_flat = tl.reshape(scale_2d, (BLOCK_ROWS * BLOCK_COLS,))
+
+    block_offset = (
+        pid_row * OUT_STRIDE_PER_ROW_OF_BLOCKS + pid_col * OUT_STRIDE_PER_BLOCK
+    )
+    tl.store(output_scales_ptr + block_offset + dest_indices_flat, scales_flat)
+
+
+@triton_op("torchao::silu_mul_fw_mxfp8", mutates_args={})
+def silu_mul_fw_mxfp8(
+    input_buffer: torch.Tensor,
+    saved_activation_buffer_offset: torch.Tensor,
+    num_tokens: torch.Tensor,
+    sym_mem_buffer_rows: int,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Fused SwiGLU forward + MXFP8 quantization with blocked scale layout.
+
+    Computes ``silu(h1) * h3`` and quantizes directly to MXFP8 with blocked
+    E8M0 scales, eliminating the BF16 intermediate tensor and separate scale
+    rearrangement kernel.
+
+    Args:
+        input_buffer: ``(saved_activations_buffer_rows, 2*hidden_dim)`` BF16
+            shared saved-activations buffer.
+        saved_activation_buffer_offset: Scalar int64 GPU tensor — start row in ``input_buffer``.
+        num_tokens: Scalar int64 GPU tensor — number of valid rows.
+        sym_mem_buffer_rows: Total output rows (Python int).
+
+    Returns:
+        output_e4m3: ``(sym_mem_buffer_rows, hidden_dim)`` float8_e4m3fn row-major.
+        output_scales_blocked: ``(padded_rows * padded_scale_cols,)`` float8_e8m0fnu
+            in tcgen05 blocked layout.
+    """
+    hidden_dim = input_buffer.shape[1] // 2
+    block_size = 32
+
+    # Allocate FP8 data output
+    output_data = torch.empty(
+        sym_mem_buffer_rows,
+        hidden_dim,
+        device=input_buffer.device,
+        dtype=torch.float8_e4m3fn,
+    )
+
+    # Compute blocked scale layout dimensions
+    scale_cols = hidden_dim // block_size
+    BLOCK_ROWS, BLOCK_COLS = 128, 4
+    n_row_blocks = (sym_mem_buffer_rows + BLOCK_ROWS - 1) // BLOCK_ROWS
+    n_col_blocks = (scale_cols + BLOCK_COLS - 1) // BLOCK_COLS
+    padded_rows = n_row_blocks * BLOCK_ROWS
+    padded_scale_cols = n_col_blocks * BLOCK_COLS
+
+    # Allocate blocked scale output
+    output_scales = torch.empty(
+        padded_rows * padded_scale_cols,
+        device=input_buffer.device,
+        dtype=torch.uint8,
+    )
+
+    TILE_M = 128
+    TILE_K = 128
+
+    grid = (
+        (sym_mem_buffer_rows + TILE_M - 1) // TILE_M,
+        (hidden_dim + TILE_K - 1) // TILE_K,
+    )
+
+    wrap_triton(_silu_mul_fw_mxfp8_kernel)[grid](
+        input_buffer,
+        output_data,
+        output_scales,
+        saved_activation_buffer_offset,
+        num_tokens,
+        hidden_dim=hidden_dim,
+        input_stride_row=input_buffer.stride(0),
+        output_data_stride_row=output_data.stride(0),
+        sym_mem_buffer_rows=sym_mem_buffer_rows,
+        n_scale_col_blocks=n_col_blocks,
+        TILE_M=TILE_M,
+        TILE_K=TILE_K,
+        SCALE_BLOCK_SIZE=block_size,
+    )
+
+    return output_data, output_scales.view(torch.float8_e8m0fnu)
 
 
 @triton.jit

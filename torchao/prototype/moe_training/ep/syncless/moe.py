@@ -29,27 +29,24 @@ from torchao.prototype.moe_training.ep.syncless.cutedsl_mxfp8_gmm import (
 )
 from torchao.prototype.moe_training.ep.syncless.mxfp8_kernels import (
     mxfp8_dequant_requant_col_major,
-    triton_mx_block_rearrange_num_tokens,
-    triton_scale_blocked_layout_saved_activation_buffer,
+    triton_mx_block_rearrange_input_sym_mem_buffer,
+    triton_scale_blocked_layout_output_saved_activation_buffer,
 )
 from torchao.prototype.moe_training.ep.syncless.silu_mul_kernel import (
     silu_mul_bw,
-    silu_mul_fw,
+    silu_mul_fw_mxfp8,
 )
 from torchao.prototype.moe_training.kernels.mxfp8 import (
     triton_mx_block_rearrange_per_group_3d,
 )
 from torchao.prototype.moe_training.mxfp8_grouped_mm import (
     _compute_dgrad,
-    _compute_fwd,
 )
 from torchao.prototype.mx_formats.config import ScaleCalculationMode
 from torchao.prototype.mx_formats.kernels import (
     triton_to_mxfp8_dim0,
 )
 from torchao.quantization.quantize_.common import KernelPreference
-
-USE_BF16 = False
 
 
 class MXFP8GroupedExpertsFunc(torch.autograd.Function):
@@ -116,7 +113,7 @@ class MXFP8GroupedExpertsFunc(torch.autograd.Function):
         # corresponding data over the a2a dispatch.
         # blocked layout would require a bunch of slow discontiguous reads and is harder to reason about.
         scale_a = output_scales_e8m0.view(torch.float8_e8m0fnu)
-        scale_a_blocked = triton_mx_block_rearrange_num_tokens(
+        scale_a_blocked = triton_mx_block_rearrange_input_sym_mem_buffer(
             scale_a, num_tokens
         )
 
@@ -135,25 +132,31 @@ class MXFP8GroupedExpertsFunc(torch.autograd.Function):
             out_dtype=torch.bfloat16,
         )
 
-        # Fused SwiGLU forward: reads from saved-activations buffer at
-        # GPU-determined offset, computes silu(h1)*h3, zero-pads to M rows.
-        # No D2H sync (.item()) needed.
-        h = silu_mul_fw(
+        # Fused SwiGLU forward + MXFP8 quantization: reads from
+        # saved-activations buffer at GPU-determined offset, computes
+        # silu(h1)*h3, quantizes to MXFP8 with blocked scale layout.
+        # Eliminates the BF16 intermediate and separate scale rearrangement.
+        h_e4m3, h_scales_blocked = silu_mul_fw_mxfp8(
             buf.swiglu_input,
             saved_activation_buffer_offset=offset,
             num_tokens=num_tokens,
             sym_mem_buffer_rows=M,
         )
 
-        # Second GEMM: out = h @ w2.T (no out= — output goes to combine)
-        out = _compute_fwd(
-            h,
-            w2.transpose(-2, -1),
-            group_end_offs,
-            block_size,
-            torch.bfloat16,
-            ScaleCalculationMode.RCEIL,
-            KernelPreference.AUTO,
+        # Quantize w2 weights to FP8 and rearrange scales to blocked layout
+        w2_e4m3, w2_scales = triton_to_mxfp8_dim0(
+            w2, inner_block_size=block_size, scaling_mode="rceil"
+        )
+        w2_scales_blocked = triton_mx_block_rearrange_per_group_3d(w2_scales)
+
+        # Second GEMM: out = h @ w2.T (direct MXFP8 GEMM with fused outputs)
+        out = torch._scaled_grouped_mm(
+            h_e4m3,
+            w2_e4m3.transpose(-2, -1),
+            h_scales_blocked.view(h_e4m3.shape[0], -1),
+            w2_scales_blocked,
+            offs=group_end_offs,
+            out_dtype=torch.bfloat16,
         )
 
         ctx.offset = offset
@@ -191,23 +194,15 @@ class MXFP8GroupedExpertsFunc(torch.autograd.Function):
 
         # w2 dgrad: grad_h = grad_out @ w2
         # TODO: fused quant grad_out and grad_out_t (read once, write twice)
-        if USE_BF16:
-            grad_h = torch._grouped_mm(
-                grad_out,
-                w2,
-                offs=group_end_offs,
-                out_dtype=torch.bfloat16,
-            )
-        else:
-            grad_h = _compute_dgrad(
-                grad_out,
-                w2.transpose(-2, -1),
-                group_end_offs,
-                block_size,
-                torch.bfloat16,
-                ScaleCalculationMode.RCEIL,
-                KernelPreference.AUTO,
-            )
+        grad_h = _compute_dgrad(
+            grad_out,
+            w2.transpose(-2, -1),
+            group_end_offs,
+            block_size,
+            torch.bfloat16,
+            ScaleCalculationMode.RCEIL,
+            KernelPreference.AUTO,
+        )
 
         # recompute 'h' and calc grad_h13 in single kernel
         h, grad_h13 = silu_mul_bw(
@@ -227,7 +222,7 @@ class MXFP8GroupedExpertsFunc(torch.autograd.Function):
         )
 
         # Rearrange x scales from the buffer into blocked layout.
-        x_scales_blocked = triton_scale_blocked_layout_saved_activation_buffer(
+        x_scales_blocked = triton_scale_blocked_layout_output_saved_activation_buffer(
             buf.e8m0_scales.view(torch.float8_e8m0fnu),
             input_col_offset=offset,
         )
@@ -260,23 +255,15 @@ class MXFP8GroupedExpertsFunc(torch.autograd.Function):
         # w13 backward
         # dgrad: grad_x = grad_h13 @ w13
         # TODO: use prequantized grad_h13 when silu_mul_bw quantizes
-        if USE_BF16:
-            grad_x = torch._grouped_mm(
-                grad_h13,
-                w13,
-                offs=group_end_offs,
-                out_dtype=torch.bfloat16,
-            )
-        else:
-            grad_x = _compute_dgrad(
-                grad_h13,
-                w13.transpose(-2, -1),
-                group_end_offs,
-                block_size,
-                torch.bfloat16,
-                ScaleCalculationMode.RCEIL,
-                KernelPreference.AUTO,
-            )
+        grad_x = _compute_dgrad(
+            grad_h13,
+            w13.transpose(-2, -1),
+            group_end_offs,
+            block_size,
+            torch.bfloat16,
+            ScaleCalculationMode.RCEIL,
+            KernelPreference.AUTO,
+        )
 
         # free buffer allocation (GPU-side, no sync)
         buf.free(offset)

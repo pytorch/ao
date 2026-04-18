@@ -4,13 +4,15 @@ import torch
 # Import requant kernel
 from torchao.prototype.moe_training.ep.syncless.mxfp8_kernels import (
     mxfp8_dequant_requant_col_major,
-    triton_scale_blocked_layout_saved_activation_buffer,
+    triton_mx_block_rearrange_input_sym_mem_buffer,
+    triton_scale_blocked_layout_output_saved_activation_buffer,
 )
 
 # Import silu_mul kernels
 from torchao.prototype.moe_training.ep.syncless.silu_mul_kernel import (
     silu_mul_bw,
     silu_mul_fw,
+    silu_mul_fw_mxfp8,
 )
 
 # Import quantization kernels for reference
@@ -112,9 +114,9 @@ def test_silu_mul_fw_kernel(
 
     # Verify zero-padding beyond num_tokens
     if num_tokens < sym_mem_buffer_rows:
-        assert torch.all(
-            kernel_output[num_tokens:] == 0
-        ), "Rows beyond num_tokens should be zero"
+        assert torch.all(kernel_output[num_tokens:] == 0), (
+            "Rows beyond num_tokens should be zero"
+        )
 
 
 @pytest.mark.parametrize("num_tokens", [32, 128, 256, 512])
@@ -163,13 +165,11 @@ def test_silu_mul_bw_kernel(
     ref_grad_h13_padded[:num_tokens] = ref_grad_h13
 
     # Kernel computation
-    silu_mul_bw(
+    h_out, grad_h13_out = silu_mul_bw(
         h13_buffer,
         grad_h,
         saved_activation_buffer_offset,
         num_tokens_tensor,
-        h_out,
-        grad_h13_out,
     )
 
     # Verify shapes
@@ -187,18 +187,18 @@ def test_silu_mul_bw_kernel(
 
     # Verify zero-padding beyond num_tokens
     if num_tokens < sym_mem_buffer_rows:
-        assert torch.all(
-            h_out[num_tokens:] == 0
-        ), "h_out rows beyond num_tokens should be zero"
-        assert torch.all(
-            grad_h13_out[num_tokens:] == 0
-        ), "grad_h13_out rows beyond num_tokens should be zero"
+        assert torch.all(h_out[num_tokens:] == 0), (
+            "h_out rows beyond num_tokens should be zero"
+        )
+        assert torch.all(grad_h13_out[num_tokens:] == 0), (
+            "grad_h13_out rows beyond num_tokens should be zero"
+        )
 
 
-@pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float16])
-def test_silu_mul_kernels_gradient_correctness(dtype: torch.dtype):
+def test_silu_mul_kernels_gradient_correctness():
     """Test that silu_mul kernels produce correct gradients via autograd."""
     device = "cuda"
+    dtype = torch.bfloat16
     num_tokens = 64
     hidden_dim = 512
     sym_mem_buffer_rows = 128
@@ -233,13 +233,11 @@ def test_silu_mul_kernels_gradient_correctness(dtype: torch.dtype):
     )
 
     # Backward pass with kernel
-    silu_mul_bw(
+    h_out, grad_h13_out = silu_mul_bw(
         input_buffer,
         grad_h,
         saved_activation_buffer_offset,
         num_tokens_tensor,
-        h_out,
-        grad_h13_out,
     )
 
     # Verify forward recomputation matches (relaxed tolerances for BF16)
@@ -374,15 +372,15 @@ def test_mxfp8_dequant_requant_col_major(
     # Verify zero-padding beyond num_tokens
     if num_tokens < sym_mem_buffer_rows:
         fused_data_f32 = fused_data.to(torch.float32)
-        assert torch.all(
-            fused_data_f32[num_tokens:, :] == 0
-        ), "Rows beyond num_tokens should be zero"
+        assert torch.all(fused_data_f32[num_tokens:, :] == 0), (
+            "Rows beyond num_tokens should be zero"
+        )
 
     # Verify output buffer is untouched outside the written region
     before_region = out_data[:, :out_offset_val]
-    assert torch.all(
-        before_region.to(torch.float32) == 0
-    ), "Output buffer before out_offset should be untouched"
+    assert torch.all(before_region.to(torch.float32) == 0), (
+        "Output buffer before out_offset should be untouched"
+    )
 
 
 # for test reference
@@ -423,7 +421,7 @@ def _torch_mxfp8_dequant_buffer(
 @pytest.mark.parametrize("m", [256, 512, 1024])
 @pytest.mark.parametrize("total_k", [1024, 2048, 4096])
 @pytest.mark.parametrize("offset", [0, 32, 64])
-def test_triton_scale_blocked_layout_saved_activation_buffer(
+def test_triton_scale_blocked_layout_output_saved_activation_buffer(
     m: int,
     total_k: int,
     offset: int,
@@ -459,7 +457,7 @@ def test_triton_scale_blocked_layout_saved_activation_buffer(
 
     offset_tensor = torch.tensor(offset, dtype=torch.int64, device=device)
 
-    result = triton_scale_blocked_layout_saved_activation_buffer(
+    result = triton_scale_blocked_layout_output_saved_activation_buffer(
         scales_buffer.view(torch.float8_e8m0fnu),
         input_col_offset=offset_tensor,
         num_scale_cols=scale_cols,
@@ -471,3 +469,72 @@ def test_triton_scale_blocked_layout_saved_activation_buffer(
         rtol=0,
         atol=0,
     )
+
+
+@skip_if_rocm("ROCm enablement in progress")
+@pytest.mark.parametrize("num_tokens", [128, 256, 512])
+@pytest.mark.parametrize("hidden_dim", [256, 512, 1024])
+@pytest.mark.parametrize("sym_mem_buffer_rows", [128, 256, 512])
+def test_silu_mul_fw_mxfp8_kernel(
+    num_tokens: int, hidden_dim: int, sym_mem_buffer_rows: int
+):
+    """Test fused silu_mul_fw_mxfp8 against 2-step: silu_mul_fw → triton_to_mxfp8_dim0 + scale rearrange.
+
+    Verifies both FP8 data and blocked E8M0 scales match the reference path.
+    """
+    if sym_mem_buffer_rows < num_tokens:
+        pytest.skip("sym_mem_buffer_rows must be >= num_tokens")
+
+    device = "cuda"
+    block_size = 32
+    saved_activations_buffer_rows = sym_mem_buffer_rows + 128
+
+    # Create test inputs
+    input_buffer = torch.randn(
+        saved_activations_buffer_rows,
+        2 * hidden_dim,
+        dtype=torch.bfloat16,
+        device=device,
+    )
+    offset = torch.tensor(64, dtype=torch.int64, device=device)
+    num_tokens_t = torch.tensor(num_tokens, dtype=torch.int64, device=device)
+
+    # --- Reference: 2-step approach ---
+    ref_h = silu_mul_fw(input_buffer, offset, num_tokens_t, sym_mem_buffer_rows)
+    ref_e4m3, ref_scales = triton_to_mxfp8_dim0(
+        ref_h, inner_block_size=block_size, scaling_mode="rceil"
+    )
+    ref_scales_blocked = triton_mx_block_rearrange_input_sym_mem_buffer(
+        ref_scales, num_tokens_t
+    )
+
+    # --- Fused kernel ---
+    fused_e4m3, fused_scales_blocked = silu_mul_fw_mxfp8(
+        input_buffer, offset, num_tokens_t, sym_mem_buffer_rows
+    )
+
+    # Verify shapes
+    assert fused_e4m3.shape == (sym_mem_buffer_rows, hidden_dim)
+    assert fused_e4m3.dtype == torch.float8_e4m3fn
+
+    # Verify FP8 data matches
+    torch.testing.assert_close(
+        fused_e4m3.to(torch.float32),
+        ref_e4m3.to(torch.float32),
+        rtol=0,
+        atol=0,
+    )
+
+    # Verify blocked scales match
+    torch.testing.assert_close(
+        fused_scales_blocked.view(torch.uint8),
+        ref_scales_blocked.view(torch.uint8),
+        rtol=0,
+        atol=0,
+    )
+
+    # Verify zero-padding: FP8 data beyond num_tokens should be zero
+    if num_tokens < sym_mem_buffer_rows:
+        assert torch.all(fused_e4m3[num_tokens:].to(torch.float32) == 0), (
+            "FP8 data rows beyond num_tokens should be zero"
+        )

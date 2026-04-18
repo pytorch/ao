@@ -63,8 +63,18 @@ from torchao.prototype.moe_training.ep.syncless.saved_activations_buffer import 
     SavedActivationsBuffer,
 )
 from torchao.quantization.quant_api import quantize_
+from torchao.testing.training.roofline_utils import get_specs
 
 device = torch.device("cuda")
+
+
+def _measure_peak_memory_fwd_bwd(fn) -> float:
+    """Run fn() once and return peak GPU memory allocated in MiB."""
+    torch.cuda.reset_peak_memory_stats()
+    torch.cuda.synchronize()
+    fn()
+    torch.cuda.synchronize()
+    return torch.cuda.max_memory_allocated() / (1024 * 1024)
 
 
 @dataclass(frozen=True)
@@ -78,18 +88,70 @@ class ExperimentConfig:
 
 @dataclass(frozen=True)
 class ExperimentResult:
-    ref_ms: float
-    torchao_mxfp8_ms: float
-    syncless_ms: float
     ref_fwd_bwd_ms: float
     torchao_mxfp8_fwd_bwd_ms: float
     syncless_fwd_bwd_ms: float
+    ref_mfu_pct: float
+    torchao_mxfp8_mfu_pct: float
+    syncless_mfu_pct: float
+    ref_peak_mem_mib: float
+    torchao_mxfp8_peak_mem_mib: float
+    syncless_peak_mem_mib: float
 
 
 @dataclass(frozen=True)
 class Experiment:
     config: ExperimentConfig
     result: ExperimentResult
+
+
+def _compute_mfu(
+    config: ExperimentConfig,
+    top_k: int,
+    time_ms: float,
+    approach: str,
+) -> float:
+    """Compute MFU % for a given approach, accounting for mixed bf16/fp8 precision.
+
+    Expert FFN per rank (fwd+bwd) has two linear layers:
+      w13 layer (fused w1+w3): 3 GEMMs, each 2*M*dim*2H -> 12*M*dim*H total
+      w2 layer:                3 GEMMs, each 2*M*H*dim  ->  6*M*H*dim total
+
+    Precision breakdown by approach:
+      ref:      all 6 GEMMs bf16
+      torchao:  all 6 GEMMs mxfp8
+      syncless: 5 GEMMs mxfp8, 1 GEMM bf16 (w2 wgrad = grad_out.T @ h)
+    """
+    specs = get_specs()
+    bf16_peak = specs["bf16_peak_tops"]
+    fp8_peak = specs["fp8_peak_tops"]
+
+    # Tokens processed by this rank's local experts (load-balanced)
+    M = config.batch_size * config.seq_len * top_k
+    D = config.dim
+    H = config.hidden_dim
+
+    w13_flops = 12 * M * D * H  # 3 GEMMs of (M, D) x (D, 2H)
+    w2_flops = 6 * M * H * D  # 3 GEMMs of (M, H) x (H, D)
+    total_flops = w13_flops + w2_flops  # = 18 * M * H * D
+
+    if approach == "ref":
+        # All GEMMs bf16
+        theoretical_peak_time_s = total_flops / bf16_peak
+    elif approach == "torchao":
+        # All expert GEMMs mxfp8
+        theoretical_peak_time_s = total_flops / fp8_peak
+    elif approach == "syncless":
+        # w13: all 3 GEMMs mxfp8 (12*M*D*H)
+        # w2: fwd + dgrad mxfp8 (4*M*H*D), wgrad bf16 (2*M*H*D)
+        fp8_flops = w13_flops + 4 * M * H * D
+        bf16_flops = 2 * M * H * D
+        theoretical_peak_time_s = fp8_flops / fp8_peak + bf16_flops / bf16_peak
+    else:
+        raise ValueError(f"Unknown approach: {approach}")
+
+    actual_time_s = time_ms / 1000.0
+    return theoretical_peak_time_s / actual_time_s * 100.0
 
 
 def get_configs() -> List[ExperimentConfig]:
@@ -104,6 +166,7 @@ def _build_ref_model(config: ExperimentConfig) -> nn.Module:
     """Build standard MoE (bf16), unparallelized."""
     moe_args = MoEArgs(
         num_experts=config.num_experts,
+        top_k=4,
         num_shared_experts=0,
         use_grouped_mm=True,
         _debug_force_load_balance=True,
@@ -121,6 +184,7 @@ def _build_syncless_model(
     """Build SynclessMXFP8MoE and copy weights from the ref model."""
     moe_args = SynclessMoEArgs(
         num_experts=config.num_experts,
+        top_k=4,
         num_shared_experts=0,
         use_grouped_mm=True,
         _debug_force_load_balance=True,
@@ -177,7 +241,8 @@ def run_experiment(
 
     buffer_manager = SymmetricMemoryBufferManager()
     total_tokens = config.batch_size * config.seq_len
-    max_output_rows = total_tokens * world_size
+    top_k = 4  # must match the top_k used in _build_ref_model / _build_syncless_model
+    max_output_rows = total_tokens * top_k
     buffer_manager.preallocate_buffers(
         max_output_rows_per_rank=max_output_rows,
         data_shape=(config.dim,),
@@ -220,14 +285,6 @@ def run_experiment(
     with torch.no_grad():
         ref_out = ref_model(x)
 
-    # ref model timing (forward)
-    torch.cuda.synchronize()
-    ref_start_time = time.perf_counter()
-    for _ in range(NUM_ITERS):
-        ref_model(x)
-    torch.cuda.synchronize()
-    ref_ms = (time.perf_counter() - ref_start_time) * 1e3 / NUM_ITERS
-
     def ref_fwd_bwd():
         ref_model.zero_grad()
         y = ref_model(x)
@@ -251,6 +308,9 @@ def run_experiment(
         [ref_model.experts.w1.grad.to_local(), ref_model.experts.w3.grad.to_local()],
         dim=1,
     ).clone()
+
+    # Peak memory measurement
+    ref_peak_mem_mib = _measure_peak_memory_fwd_bwd(ref_fwd_bwd)
 
     if args.profile:
 
@@ -291,14 +351,6 @@ def run_experiment(
         torchao_model = torch.compile(torchao_model)
     warmup(lambda: torchao_model(x))
 
-    # torchao MXFP8 forward timing
-    torch.cuda.synchronize()
-    torchao_start = time.perf_counter()
-    for _ in range(NUM_ITERS):
-        torchao_model(x)
-    torch.cuda.synchronize()
-    torchao_mxfp8_ms = (time.perf_counter() - torchao_start) * 1e3 / NUM_ITERS
-
     def torchao_fwd_bwd():
         torchao_model.zero_grad()
         y = torchao_model(x)
@@ -314,6 +366,9 @@ def run_experiment(
     torchao_mxfp8_fwd_bwd_ms = (
         (time.perf_counter() - torchao_fb_start) * 1e3 / NUM_ITERS
     )
+
+    # Peak memory measurement
+    torchao_mxfp8_peak_mem_mib = _measure_peak_memory_fwd_bwd(torchao_fwd_bwd)
 
     if args.profile:
 
@@ -334,7 +389,6 @@ def run_experiment(
     # Approach 3: Syncless ExpertParallel
     # =========================================================================
 
-    # syncless model timing (forward)
     if args.compile:
         syncless_model = torch.compile(syncless_model)
     warmup(lambda: syncless_model(x))
@@ -342,13 +396,6 @@ def run_experiment(
     # Save one output for correctness check
     with torch.no_grad():
         syncless_out = syncless_model(x)
-
-    torch.cuda.synchronize()
-    start_time = time.perf_counter()
-    for _ in range(NUM_ITERS):
-        syncless_model(x)
-    torch.cuda.synchronize()
-    syncless_ms = (time.perf_counter() - start_time) * 1e3 / NUM_ITERS
 
     # ---- syncless model timing (forward + backward) -----------------------
     def syncless_fwd_bwd():
@@ -366,6 +413,10 @@ def run_experiment(
     torch.cuda.synchronize()
     syncless_fwd_bwd_ms = (time.perf_counter() - syncless_fb_start) * 1e3 / NUM_ITERS
 
+    # Peak memory measurement (clear buffer first)
+    saved_act_buffer.free_all()
+    syncless_peak_mem_mib = _measure_peak_memory_fwd_bwd(syncless_fwd_bwd)
+
     if args.profile:
 
         def syncless_batch():
@@ -378,6 +429,8 @@ def run_experiment(
             profile_name="syncless_ep_moe_fwd",
             active_steps=1,
         )
+
+    # ---- correctness check
 
     # ---- correctness check -----------------------------------------------
     out_sqnr = compute_error(syncless_out, ref_out)
@@ -405,13 +458,21 @@ def run_experiment(
 
     del syncless_model, ref_out, syncless_out
 
+    # Compute MFU %
+    ref_mfu = _compute_mfu(config, top_k, ref_fwd_bwd_ms, "ref")
+    torchao_mfu = _compute_mfu(config, top_k, torchao_mxfp8_fwd_bwd_ms, "torchao")
+    syncless_mfu = _compute_mfu(config, top_k, syncless_fwd_bwd_ms, "syncless")
+
     return ExperimentResult(
-        ref_ms=ref_ms,
-        torchao_mxfp8_ms=torchao_mxfp8_ms,
-        syncless_ms=syncless_ms,
         ref_fwd_bwd_ms=ref_fwd_bwd_ms,
         torchao_mxfp8_fwd_bwd_ms=torchao_mxfp8_fwd_bwd_ms,
         syncless_fwd_bwd_ms=syncless_fwd_bwd_ms,
+        ref_mfu_pct=ref_mfu,
+        torchao_mxfp8_mfu_pct=torchao_mfu,
+        syncless_mfu_pct=syncless_mfu,
+        ref_peak_mem_mib=ref_peak_mem_mib,
+        torchao_mxfp8_peak_mem_mib=torchao_mxfp8_peak_mem_mib,
+        syncless_peak_mem_mib=syncless_peak_mem_mib,
     )
 
 
@@ -425,14 +486,17 @@ def print_results(experiments: List[Experiment]):
         "shape (B,S,D)",
         "num_experts",
         "num_ranks",
-        "ref_fwd_ms",
-        "torchao_fwd_ms",
-        "syncless_fwd_ms",
         "ref_fwd_bwd_ms",
         "torchao_fwd_bwd_ms",
         "syncless_fwd_bwd_ms",
         "torchao_fb_speedup",
         "syncless_fb_speedup",
+        "ref_MFU%",
+        "torchao_MFU%",
+        "syncless_MFU%",
+        "ref_mem_MiB",
+        "torchao_mem_MiB",
+        "syncless_mem_MiB",
     ]
     rows = []
     for exp in experiments:
@@ -452,14 +516,17 @@ def print_results(experiments: List[Experiment]):
                 f"({c.batch_size}, {c.seq_len}, {c.dim})",
                 c.num_experts,
                 dist.get_world_size(),
-                f"{r.ref_ms:.2f}",
-                f"{r.torchao_mxfp8_ms:.2f}",
-                f"{r.syncless_ms:.2f}",
                 f"{r.ref_fwd_bwd_ms:.2f}",
                 f"{r.torchao_mxfp8_fwd_bwd_ms:.2f}",
                 f"{r.syncless_fwd_bwd_ms:.2f}",
                 f"{torchao_fb_speedup:.2f}x",
                 f"{syncless_fb_speedup:.2f}x",
+                f"{r.ref_mfu_pct:.1f}",
+                f"{r.torchao_mxfp8_mfu_pct:.1f}",
+                f"{r.syncless_mfu_pct:.1f}",
+                f"{r.ref_peak_mem_mib:.0f}",
+                f"{r.torchao_mxfp8_peak_mem_mib:.0f}",
+                f"{r.syncless_peak_mem_mib:.0f}",
             ]
         )
     print("\n" + "=" * 120)
