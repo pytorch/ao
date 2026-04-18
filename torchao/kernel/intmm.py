@@ -162,10 +162,10 @@ def _int_scaled_matmul_cpu(
         comp = b.sum(dim=0, keepdim=True, dtype=torch.int32) * 128
         c.sub_(comp)
         return c.to(scales1.dtype) * scales1
-    else:  # s8s8: Computation done with AMX, ARM (aarch64) optimized path, or fallback.
-        if platform.machine() == "aarch64":
-            c = torch._int_mm_acc_f32(a, b)
-        else:
+    else:
+        if platform.machine() == "aarch64": # s8s8 ARM (aarch64) optimized path
+            c = torch._int_mm_acc(a, b, out_dtype=torch.float32)
+        else:  #s8s8: Computation done with AMX or as the fallback.
             c = torch._int_mm(a, b)
         return c.to(scales1.dtype) * scales1
 
