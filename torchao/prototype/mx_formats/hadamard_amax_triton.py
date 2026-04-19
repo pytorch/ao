@@ -13,15 +13,22 @@ from torch.utils._triton import has_triton
 
 from torchao.utils import torch_version_at_least
 
-_DEFAULT_SCALING_TYPE = getattr(getattr(F, "ScalingType", None), "TensorWise", None)
+_DEFAULT_SCALING_TYPE = (
+    int(F.ScalingType.TensorWise) if hasattr(F, "ScalingType") else 0
+)
 
 if torch_version_at_least("2.10.0") and has_triton():
     import itertools
+    from typing import List, Tuple
 
     import triton
     import triton.language as tl
 
-    from torchao.prototype.mx_formats.hadamard_utils import _compute_pid, get_rht_matrix
+    from torchao.prototype.mx_formats.hadamard_utils import (
+        _compute_pid,
+        get_rht_matrix,
+        prepare_for_cuda_graph,
+    )
     from torchao.utils import is_sm_at_least_100
 
     # SM100+ autotune configs. BLOCK_M must be divisible by 16 (RHT reshape constraint).
@@ -131,25 +138,25 @@ if torch_version_at_least("2.10.0") and has_triton():
         tile_a_amax = tl.max(tl.max(cumulative_a_amax, axis=1), axis=0)
         tl.atomic_max(global_a_amax_ptr, tile_a_amax.to(tl.float32))
 
+    @torch.library.custom_op("torchao::triton_rht_amax", mutates_args=())
     def triton_rht_amax(
         A: torch.Tensor,
-        sign_vector: tuple[int, ...] | None = None,
+        sign_vector: List[int] | None = None,
         hadamard_dimension: int = 16,
-        scaling_type: F.ScalingType = F.ScalingType.TensorWise,
-    ) -> tuple[torch.Tensor, torch.Tensor]:
+        scaling_type: int = int(F.ScalingType.TensorWise),
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
         """Apply RHT to A and return global absolute maxima without materializing output.
 
         Args:
             A: (M, N) bfloat16 tensor, row-major. M must be divisible by 16.
-            sign_vector: Optional sign vector for the RHT. If None, a random one is generated.
+            sign_vector: Optional sign vector for the RHT as a list of ints. If None, a random one is generated.
             hadamard_dimension: Dimension of the Hadamard matrix (default 16).
-            scaling_type: ScalingType controlling reduction granularity. Only
-                ``ScalingType.TensorWise`` is currently supported.
+            scaling_type: int encoding of F.ScalingType. Only TensorWise is supported.
 
         Returns:
-            Tuple of (global_rht_amax, global_a_amax):
-              - global_rht_amax: scalar float32 containing max(abs(RHT(A))).
-              - global_a_amax: scalar float32 containing max(abs(A)).
+            Tuple of (col_amax, row_amax):
+              - col_amax: scalar float32 containing max(abs(RHT(A))).
+              - row_amax: scalar float32 containing max(abs(A)).
 
         Raises:
             NotImplementedError: If hardware is pre-SM100.
@@ -168,52 +175,59 @@ if torch_version_at_least("2.10.0") and has_triton():
             raise ValueError("A must be row-major (contiguous)")
         if A.shape[0] % 16 != 0:
             raise ValueError(f"M must be divisible by 16, got M={A.shape[0]}")
-        if scaling_type != F.ScalingType.TensorWise:
+        if scaling_type != int(F.ScalingType.TensorWise):
             raise ValueError(
                 f"scaling_type={scaling_type!r} is not supported; "
                 "only ScalingType.TensorWise is implemented."
             )
         M, N = A.shape
 
+        if hasattr(triton, "set_allocator"):
+            _ws = prepare_for_cuda_graph(A.device)
+            triton.set_allocator(lambda size, align, stream: _ws[: max(size, 1)])
+
         NUM_SMS = torch.cuda.get_device_properties(A.device).multi_processor_count
         GROUP_SIZE_N: int = 8  # L2 reuse grouping along M
 
-        # tl.make_tensor_descriptor requires a Triton allocator for per-CTA scratch space.
-        # Outside torch.compile, none is set by default; mirror what torch._inductor does.
-        if hasattr(triton, "set_allocator"):
-            triton.set_allocator(
-                lambda size, align, stream: torch.empty(
-                    size, dtype=torch.int8, device=A.device
-                )
-            )
-
-        B = get_rht_matrix(
-            sign_vector=sign_vector,
-            device=A.device,
-            hadamard_dimension=hadamard_dimension,
-        ).to(torch.bfloat16)
+        sv = tuple(sign_vector) if sign_vector else None
+        B = get_rht_matrix(sv, A.device, torch.bfloat16, hadamard_dimension)
         global_rht_amax = torch.zeros((), dtype=torch.float32, device=A.device)
         global_a_amax = torch.zeros((), dtype=torch.float32, device=A.device)
 
-        _hadamard_amax_kernel[(NUM_SMS,)](
-            A,
-            B,
-            global_rht_amax,
-            global_a_amax,
-            M,
-            N,
-            GROUP_SIZE_N=GROUP_SIZE_N,
-            NUM_SMS=NUM_SMS,
-        )
+        try:
+            _hadamard_amax_kernel[(NUM_SMS,)](
+                A,
+                B,
+                global_rht_amax,
+                global_a_amax,
+                M,
+                N,
+                GROUP_SIZE_N=GROUP_SIZE_N,
+                NUM_SMS=NUM_SMS,
+            )
+        finally:
+            if hasattr(triton, "set_allocator"):
+                triton.set_allocator(None)
         return global_rht_amax, global_a_amax
+
+    @triton_rht_amax.register_fake
+    def _(
+        A,
+        sign_vector=None,
+        hadamard_dimension=16,
+        scaling_type=int(F.ScalingType.TensorWise),
+    ):
+        col_amax = A.new_empty((), dtype=torch.float32)
+        row_amax = A.new_empty((), dtype=torch.float32)
+        return col_amax, row_amax
 
 else:
 
     def triton_rht_amax(
         A: torch.Tensor,
-        sign_vector: tuple[int, ...] | None = None,
+        sign_vector: list[int] | None = None,
         hadamard_dimension: int = 16,
-        scaling_type: object = _DEFAULT_SCALING_TYPE,
+        scaling_type: int = _DEFAULT_SCALING_TYPE,
     ) -> tuple[torch.Tensor, torch.Tensor]:
         raise NotImplementedError(
             "triton_rht_amax requires torch 2.10.0+ and triton installed"

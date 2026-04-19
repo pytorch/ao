@@ -10,6 +10,46 @@ import math
 import torch
 from torch.utils._triton import has_triton
 
+_TMA_WORKSPACES: dict = {}
+
+
+def _device_key(device) -> str:
+    """Normalize device to a canonical string key (e.g. 'cuda' and 'cuda:0' → 'cuda:0').
+
+    torch.device('cuda') and torch.device('cuda:0') stringify differently but refer
+    to the same physical device. Without normalization, callers using one form miss
+    cache entries created by callers using the other, causing spurious re-allocations
+    inside FakeTensor tracing mode (which produce FakeTensors instead of real tensors).
+    """
+    d = torch.device(device)
+    if d.type == "cuda" and d.index is None:
+        return f"cuda:{torch.cuda.current_device()}"
+    return str(d)
+
+
+def prepare_for_cuda_graph(device, nbytes: int = 131072) -> torch.Tensor:
+    """Pre-allocate per-device persistent state required for torch.compile CUDA graphs.
+
+    Must be called once per device before torch.compile to ensure allocations
+    happen outside the CUDA graph pool. Subsequent calls return the cached TMA
+    workspace (no new allocation). Kernels run sequentially in the same CUDA stream
+    and safely alias the TMA buffer.
+
+    Also pre-warms get_rht_matrix (lru_cache) to prevent pool-allocation errors
+    during graph capture.
+    """
+    key = _device_key(device)
+    if key not in _TMA_WORKSPACES:
+        _TMA_WORKSPACES[key] = torch.empty(nbytes, dtype=torch.uint8, device=device)
+    # Pre-warm both lru_cache call signatures used at runtime so CUDA graph
+    # capture hits the cache instead of allocating inside the pool. Do this
+    # every call because tests and callers may clear get_rht_matrix's cache
+    # after the workspace has already been initialized.
+    _dev = torch.device(key)
+    get_rht_matrix(None, _dev, torch.bfloat16, 16)
+    get_rht_matrix(sign_vector=None, device=_dev, hadamard_dimension=16)
+    return _TMA_WORKSPACES[key]
+
 
 def get_wgrad_sign_vector(
     shape, device, dtype: torch.dtype = torch.bfloat16
