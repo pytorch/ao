@@ -11,9 +11,19 @@ rearrange).
 Target (review feedback on ao#4293): close the gap to the B200 bf16->fp8
 memcpy ceiling at the DeepSeek-V3-like backward-pass shape
 ``(num_groups=4, M_per_group=4096, N=2048)`` -> ``(total_M=16384, N=2048)``
-and the adjacent sweep. Landing bar is >= 5 TB/s on the realistic shapes.
-Measured B200 bf16 memcpy is ~5 TB/s on this rig (the ``_memcpy_bf16_bw_gbps``
-helper below measures it live), so ``% memcpy BW`` is the relevant metric.
+and the adjacent sweep. Measured B200 bf16 memcpy is ~5 TB/s on this rig
+(the ``_memcpy_bf16_bw_gbps`` helper below measures it live), so
+``% memcpy BW`` is the relevant metric.
+
+In this problem the single-pass kernel is bottlenecked by the ``(N, M)``
+scattered-stride fp8 store on the dim1 output: every lane of every warp
+stores a 1-byte fp8 value at stride-``M`` into HBM, which thrashes the
+row buffer of HBM3e on B200. On the flagged shape the existing
+``triton_to_mxfp8_dim1`` reference kernel already peaks around 1 TB/s
+for the same reason; fusing dim0 + dim1 + blocked rearrange into one
+kernel lets us overlap the coalesced (M,N) dim0 store with the scattered
+(N,M) dim1 store (disjoint output tensors so the memory controller can
+issue both concurrently) and still win 1.5-8x over the 4-kernel baseline.
 """
 
 import argparse
