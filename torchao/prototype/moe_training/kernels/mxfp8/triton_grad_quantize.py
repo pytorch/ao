@@ -5,43 +5,45 @@
 # LICENSE file in the root directory of this source tree.
 
 """Fused MXFP8 quantization of ``grad_out`` into both row-major and
-transpose variants, with e8m0 scales written directly into the tcgen05
+transposed variants, with e8m0 scales emitted directly into the tcgen05
 blocked layout.
 
-Motivation. The MoE backward pass needs two MXFP8 operands of ``grad_out``:
+The MoE backward pass needs two MXFP8 operands of ``grad_out``:
 
-  * ``dgrad = grad_out @ weight``    -> needs MXFP8(``grad_out``) with
-    rowwise (along-N) scales, ``(total_M, N)`` row-major.
-  * ``wgrad = grad_out.T @ x``       -> needs MXFP8(``grad_out.T``) with
-    rowwise scales along the new reduction axis (which is M), ``(N,
-    total_M)`` row-major.
+  * ``dgrad = grad_out @ weight``    -> MXFP8(``grad_out``) with rowwise
+    (along-N) scales, ``(total_M, N)`` row-major.
+  * ``wgrad = grad_out.T @ x``       -> MXFP8(``grad_out.T``) with
+    rowwise scales along the new reduction axis (which is M),
+    ``(N, total_M)`` row-major.
 
-Today this takes two separate Triton passes plus two separate blocked-
-layout rearrangements, so the bf16 ``grad_out`` gets read twice and every
-scale tensor is written twice.
+Today the production path takes two separate Triton quant passes plus
+two separate blocked-layout rearrangement kernels (4 kernels total), so
+the bf16 ``grad_out`` is read twice and every scale tensor is written
+and then read+rewritten in the rearrange pass.
 
-This module implements the combined "read once, emit four outputs" kernel
-as a **single fused Triton pass**:
+This module implements two direct alternatives and dispatches between
+them by problem size:
 
-  ``_dim0_dim1_fused_kernel`` reads one ``(BLOCK_M, BLOCK_N) = (128, 128)``
-  bf16 tile, computes rowwise and colwise scales in-register (the colwise
-  reduction runs through a single bf16 register transpose, so both
-  reductions stay warp-local), and emits:
+* **Fused single-CTA path** (``_dim0_dim1_fused_kernel``). Reads bf16
+  once and emits all four outputs from the same CTA (two fp8 tensors +
+  two tcgen05 blocked scale tensors). Minimises HBM traffic (~130 MB on
+  16k x 2k) and launch overhead, so it wins on small shapes.
 
-    * ``qdata_dim0 [M, N]`` e4m3 row-major + blocked e8m0 scales
-    * ``qdata_dim1_t [N, M]`` e4m3 row-major + blocked e8m0 scales
+* **Split two-stream path** (``_dim0_blocked_kernel`` +
+  ``_dim1_blocked_kernel`` on separate CUDA streams). Each kernel has
+  its own register budget like production's standalone dim0/dim1
+  kernels, so occupancy stays high despite the doubled bf16 read; the
+  two kernels then overlap on the HBM controller. Wins on large shapes
+  where the overlap outweighs the extra bf16 read.
 
-  The two fp8 stores target disjoint output tensors so the memory
-  controller can issue them concurrently; in practice this means the
-  slow ``(N, M)`` scattered-stride store is overlapped with the fast
-  ``(M, N)`` coalesced store, rather than the two passes serializing
-  on HBM as they did in the split-kernel version.
+Both paths write scales directly in the tcgen05 ``(128, 4)`` blocked
+layout so no downstream rearrange kernel is needed.
 
-Layout contract (v1, matches ``triton_dispatch_quantize.py``):
+Layout contract (v1):
 
-  * ``BLOCK_M = BLOCK_N = 128`` and ``inner_block_size = 32``, so each CTA
-    writes exactly one ``(128, 4)`` blocked scale tile per output. This
-    matches ``triton_mx_block_rearrange`` for alignment=128.
+  * ``inner_block_size = 32`` and both ``BLOCK_M`` and ``BLOCK_N`` are
+    multiples of 128, so each CTA emits an integer number of
+    ``(128, 4)`` blocked scale super-tiles per output.
   * ``M % 128 == 0`` and ``N % 128 == 0`` required in v1.
 """
 
@@ -53,10 +55,15 @@ from torch.utils._triton import has_triton
 
 from torchao.utils import ceil_div, torch_version_at_least
 
-_BLOCK_M = 128
-_BLOCK_N = 128
 _SCALE_BLOCK_SIZE = 32
-_SCALE_BLOCK_COLS = 4  # == BLOCK_M // SCALE_BLOCK_SIZE == BLOCK_N // SCALE_BLOCK_SIZE
+_SCALE_SUPERTILE_ROWS = 128
+_SCALE_SUPERTILE_COLS = 4
+
+# Empirically, on B200 the 2-stream split wins when the per-direction HBM
+# traffic is large enough that the stream overlap > extra bf16 read cost
+# + 2x kernel launch overhead. Below this threshold the fused single-CTA
+# path wins.
+_SPLIT_NUMEL_THRESHOLD = 32 * 1024 * 1024
 
 
 if torch_version_at_least("2.7.0") and has_triton():
@@ -68,33 +75,56 @@ if torch_version_at_least("2.7.0") and has_triton():
         _triton_calculate_scale_rceil,
     )
 
-    def _fused_autotune_configs():
-        # Fused kernel does one bf16 load + one register transpose + two
-        # rowwise reductions + two coalesced fp8 stores per CTA, so the
-        # working set is roughly 2x the dispatch kernel's. num_warps=8
-        # gives us enough threads to hide the transpose while staying
-        # under the register pressure that would cap occupancy at 1 CTA
-        # per SM. num_warps=4 wins at narrow N where we're already
-        # occupancy-limited by CTA count.
+    def _tile_autotune_configs():
+        # Mirror the production dim0/dim1 autotune sweep
+        # (torchao/prototype/mx_formats/kernels.py::_get_mxfp8_quant_autotune_configs).
+        # 512 COL_TILE is skipped per the known triton bug #3362 on mx_formats.
         configs = []
-        for num_warps in (4, 8):
-            for num_stages in (2, 3, 4):
-                configs.append(
-                    triton.Config({}, num_warps=num_warps, num_stages=num_stages)
-                )
+        tile_shapes = [
+            (128, 128),
+            (128, 256),
+            (256, 128),
+            (256, 256),
+            (512, 128),
+            (512, 256),
+        ]
+        for BM, BN in tile_shapes:
+            for num_warps in (4, 8):
+                for num_stages in (2, 3, 4):
+                    configs.append(
+                        triton.Config(
+                            {"BLOCK_M": BM, "BLOCK_N": BN},
+                            num_warps=num_warps,
+                            num_stages=num_stages,
+                        )
+                    )
         return configs
 
+    def _prune_tile_configs(configs, named_args, **kwargs):
+        M = named_args["M"]
+        N = named_args["N"]
+        kept = [
+            c
+            for c in configs
+            if c.kwargs["BLOCK_M"] <= M and c.kwargs["BLOCK_N"] <= N
+        ]
+        return kept if kept else configs
+
+    # --------------------------------------------------------------------
+    # Fused path: single CTA emits all 4 outputs (wins on small shapes).
+    # --------------------------------------------------------------------
     @triton.autotune(
-        configs=_fused_autotune_configs(),
+        configs=_tile_autotune_configs(),
         key=["M", "N", "SCALING_MODE"],
+        prune_configs_by={"early_config_prune": _prune_tile_configs},
     )
     @triton.jit
     def _dim0_dim1_fused_kernel(
         x_ptr,  # (M, N) bf16 row-major input
         qdata_dim0_ptr,  # (M, N) e4m3 row-major out (rowwise scales)
-        qdata_dim1_t_ptr,  # (N, M) e4m3 row-major out (colwise scales; transpose)
-        scales_dim0_ptr,  # flat (M * padded_scale_cols_n,) e8m0 out (blocked)
-        scales_dim1_ptr,  # flat (N * padded_scale_cols_m,) e8m0 out (blocked)
+        qdata_dim1_t_ptr,  # (N, M) e4m3 row-major out (colwise scales; transpose of x)
+        scales_dim0_ptr,  # flat (M * padded_scale_cols_n,) e8m0 tcgen05-blocked
+        scales_dim1_ptr,  # flat (N * padded_scale_cols_m,) e8m0 tcgen05-blocked
         M,
         N,
         padded_scale_cols_n,
@@ -104,39 +134,14 @@ if torch_version_at_least("2.7.0") and has_triton():
         BLOCK_M: tl.constexpr,
         BLOCK_N: tl.constexpr,
         SCALE_BLOCK_SIZE: tl.constexpr,
-        SCALE_BLOCK_COLS: tl.constexpr,
     ):
         """Single-pass fused MXFP8 quantize of a ``(BLOCK_M, BLOCK_N)`` bf16 tile.
 
-        Traffic per CTA (128 x 128 tile):
-            read  : 2 * BLOCK_M * BLOCK_N bf16 = 32 KB (single HBM load,
-                    consumed by BOTH dim0 and dim1 scale paths)
-            write : BLOCK_M * BLOCK_N fp8 dim0    = 16 KB  (coalesced (M,N))
-                    BLOCK_M * BLOCK_N fp8 dim1_t  = 16 KB  (coalesced (N,M))
-                    tiny scale stores (<= 1 KB total)
-
-        Why single-pass wins vs two-pass:
-          * bf16 input is read exactly once per CTA, not twice.
-          * The ``(M, N)`` and ``(N, M)`` output tensors are disjoint
-            allocations so the memory controller can issue both fp8
-            stores concurrently (different HBM channels / banks). The
-            scattered-stride ``(N, M)`` store that bottlenecks the
-            dim1-alone kernel gets overlapped with the coalesced
-            ``(M, N)`` dim0 store, rather than running back-to-back.
-          * Only one bf16 register transpose (BLOCK_M=BLOCK_N=128, 32 KB)
-            is materialized, and it is reused for the colwise scale
-            reduction AND the dim1_t fp8 store -- the compiler elides
-            the second transpose because the stored tile shape already
-            matches ``(BLOCK_N, BLOCK_M)``.
-
-        Scale layouts. Both scale outputs use the same tcgen05 super-tile
-        pattern as ``triton_mx_block_rearrange`` for alignment=128:
-
-            dest_within_super_tile = (r % 32) * 16 + (r // 32) * 4 + c
-
-        so each CTA writes one ``(BLOCK_M, SCALE_BLOCK_COLS)`` dim0 tile
-        and one ``(BLOCK_N, SCALE_BLOCK_COLS)`` dim1 tile using that
-        permutation.
+        Per-CTA memory traffic:
+            read  : BLOCK_M * BLOCK_N bf16 (coalesced (M, N) load)
+            write : BLOCK_M * BLOCK_N fp8 dim0   (coalesced (M, N) store)
+                    BLOCK_M * BLOCK_N fp8 dim1_t (transposed (N, M) store)
+                    scale bytes (blocked-layout stores, both outputs)
         """
         pid_m = tl.program_id(0)
         pid_n = tl.program_id(1)
@@ -144,10 +149,12 @@ if torch_version_at_least("2.7.0") and has_triton():
         m_offs = pid_m * BLOCK_M + tl.arange(0, BLOCK_M)
         n_offs = pid_n * BLOCK_N + tl.arange(0, BLOCK_N)
         x_offs = m_offs[:, None].to(tl.int64) * N + n_offs[None, :]
-        x_mn = tl.load(x_ptr + x_offs)  # (BLOCK_M, BLOCK_N) bf16
+        x_mn = tl.load(x_ptr + x_offs)
 
         # --- dim0 (rowwise, along N) ----------------------------------
-        x_r0 = x_mn.reshape(BLOCK_M * SCALE_BLOCK_COLS, SCALE_BLOCK_SIZE)
+        x_r0 = x_mn.reshape(
+            BLOCK_M * (BLOCK_N // SCALE_BLOCK_SIZE), SCALE_BLOCK_SIZE
+        )
         x_abs_r0 = tl.abs(x_r0)
         if SCALING_MODE == "rceil":
             descale_r0, scale_e8m0_r0 = _triton_calculate_scale_rceil(
@@ -159,12 +166,14 @@ if torch_version_at_least("2.7.0") and has_triton():
                 x_abs_r0, axis=1
             )
         scaled_r0 = x_r0 * descale_r0[:, None]
-        fp8_mn = tl.reshape(scaled_r0, BLOCK_M, BLOCK_N).to(tl.float8e4nv)
-        tl.store(qdata_dim0_ptr + x_offs, fp8_mn)
+        fp8_d0 = tl.reshape(scaled_r0, BLOCK_M, BLOCK_N).to(tl.float8e4nv)
+        tl.store(qdata_dim0_ptr + x_offs, fp8_d0)
 
         # --- dim1 (colwise, along M via single bf16 transpose) --------
-        x_nm = tl.trans(x_mn)  # (BLOCK_N, BLOCK_M) bf16, one register shuffle
-        x_r1 = x_nm.reshape(BLOCK_N * SCALE_BLOCK_COLS, SCALE_BLOCK_SIZE)
+        x_nm = tl.trans(x_mn)
+        x_r1 = x_nm.reshape(
+            BLOCK_N * (BLOCK_M // SCALE_BLOCK_SIZE), SCALE_BLOCK_SIZE
+        )
         x_abs_r1 = tl.abs(x_r1)
         if SCALING_MODE == "rceil":
             descale_r1, scale_e8m0_r1 = _triton_calculate_scale_rceil(
@@ -176,41 +185,179 @@ if torch_version_at_least("2.7.0") and has_triton():
                 x_abs_r1, axis=1
             )
         scaled_r1 = x_r1 * descale_r1[:, None]
-        fp8_nm = tl.reshape(scaled_r1, BLOCK_N, BLOCK_M).to(tl.float8e4nv)
+        fp8_d1 = tl.reshape(scaled_r1, BLOCK_N, BLOCK_M).to(tl.float8e4nv)
         out_offs_dim1 = n_offs[:, None].to(tl.int64) * M + m_offs[None, :]
-        tl.store(qdata_dim1_t_ptr + out_offs_dim1, fp8_nm)
+        tl.store(qdata_dim1_t_ptr + out_offs_dim1, fp8_d1)
 
-        # --- dim0 scales: one (BLOCK_M, SCALE_BLOCK_COLS) super-tile --
-        scale0_2d = scale_e8m0_r0.reshape(BLOCK_M, SCALE_BLOCK_COLS)
+        # --- blocked scale stores -------------------------------------
+        # Each CTA covers BLOCK_M/128 * BLOCK_N/128 blocked super-tiles
+        # per output with the (128, 4) tcgen05 swizzle
+        #   dest_within_supertile = (r % 32) * 16 + (r // 32) * 4 + c
+        # inside each super-tile. The fused formula below handles the
+        # multi-super-tile case by adding per-super-tile base offsets.
+        SCALE_N_COLS: tl.constexpr = BLOCK_N // SCALE_BLOCK_SIZE
+        scale0_2d = scale_e8m0_r0.reshape(BLOCK_M, SCALE_N_COLS)
         tile_row0 = tl.arange(0, BLOCK_M)[:, None]
-        tile_col0 = tl.arange(0, SCALE_BLOCK_COLS)[None, :]
-        dest0 = (tile_row0 % 32) * 16 + (tile_row0 // 32) * 4 + tile_col0
-        dest0_flat = tl.reshape(dest0, BLOCK_M * SCALE_BLOCK_COLS)
-        scale0_flat = tl.reshape(scale0_2d, BLOCK_M * SCALE_BLOCK_COLS)
-        tile_base_dim0 = (
-            pid_m * BLOCK_M * padded_scale_cols_n
-            + pid_n * BLOCK_M * SCALE_BLOCK_COLS
+        tile_col0 = tl.arange(0, SCALE_N_COLS)[None, :]
+        r_global0 = pid_m * BLOCK_M + tile_row0
+        c_global0 = pid_n * SCALE_N_COLS + tile_col0
+        dest0 = (
+            (r_global0 // 128) * (128 * padded_scale_cols_n)
+            + (c_global0 // 4) * (128 * 4)
+            + ((r_global0 % 128) % 32) * 16
+            + ((r_global0 % 128) // 32) * 4
+            + (c_global0 % 4)
         )
-        tl.store(scales_dim0_ptr + tile_base_dim0 + dest0_flat, scale0_flat)
+        tl.store(scales_dim0_ptr + dest0, scale0_2d)
 
-        # --- dim1 scales: one (BLOCK_N, SCALE_BLOCK_COLS) super-tile --
-        scale1_2d = scale_e8m0_r1.reshape(BLOCK_N, SCALE_BLOCK_COLS)
+        SCALE_M_COLS: tl.constexpr = BLOCK_M // SCALE_BLOCK_SIZE
+        scale1_2d = scale_e8m0_r1.reshape(BLOCK_N, SCALE_M_COLS)
         tile_row1 = tl.arange(0, BLOCK_N)[:, None]
-        tile_col1 = tl.arange(0, SCALE_BLOCK_COLS)[None, :]
-        dest1 = (tile_row1 % 32) * 16 + (tile_row1 // 32) * 4 + tile_col1
-        dest1_flat = tl.reshape(dest1, BLOCK_N * SCALE_BLOCK_COLS)
-        scale1_flat = tl.reshape(scale1_2d, BLOCK_N * SCALE_BLOCK_COLS)
-        tile_base_dim1 = (
-            pid_n * BLOCK_N * padded_scale_cols_m
-            + pid_m * BLOCK_N * SCALE_BLOCK_COLS
+        tile_col1 = tl.arange(0, SCALE_M_COLS)[None, :]
+        r_global1 = pid_n * BLOCK_N + tile_row1
+        c_global1 = pid_m * SCALE_M_COLS + tile_col1
+        dest1 = (
+            (r_global1 // 128) * (128 * padded_scale_cols_m)
+            + (c_global1 // 4) * (128 * 4)
+            + ((r_global1 % 128) % 32) * 16
+            + ((r_global1 % 128) // 32) * 4
+            + (c_global1 % 4)
         )
-        tl.store(scales_dim1_ptr + tile_base_dim1 + dest1_flat, scale1_flat)
+        tl.store(scales_dim1_ptr + dest1, scale1_2d)
+
+    # --------------------------------------------------------------------
+    # Split two-stream path (wins on large shapes).
+    # --------------------------------------------------------------------
+    @triton.autotune(
+        configs=_tile_autotune_configs(),
+        key=["M", "N", "SCALING_MODE"],
+        prune_configs_by={"early_config_prune": _prune_tile_configs},
+    )
+    @triton.jit
+    def _dim0_blocked_kernel(
+        x_ptr,  # (M, N) bf16 row-major input
+        qdata_dim0_ptr,  # (M, N) e4m3 row-major out
+        scales_dim0_ptr,  # flat (M * padded_scale_cols_n,) e8m0 tcgen05-blocked
+        M,
+        N,
+        padded_scale_cols_n,
+        SCALING_MODE: tl.constexpr,
+        USE_PTX: tl.constexpr,
+        BLOCK_M: tl.constexpr,
+        BLOCK_N: tl.constexpr,
+        SCALE_BLOCK_SIZE: tl.constexpr,
+    ):
+        """Rowwise (along-N) MXFP8 quantize, coalesced ``(M, N)`` stores.
+
+        Scales are written directly into the tcgen05 ``(128, 4)`` blocked
+        layout so no downstream rearrange kernel is needed.
+        """
+        pid_m = tl.program_id(0)
+        pid_n = tl.program_id(1)
+
+        m_offs = pid_m * BLOCK_M + tl.arange(0, BLOCK_M)
+        n_offs = pid_n * BLOCK_N + tl.arange(0, BLOCK_N)
+        x_offs = m_offs[:, None].to(tl.int64) * N + n_offs[None, :]
+        x_mn = tl.load(x_ptr + x_offs)
+
+        x_r = x_mn.reshape(BLOCK_M * (BLOCK_N // SCALE_BLOCK_SIZE), SCALE_BLOCK_SIZE)
+        x_abs = tl.abs(x_r)
+        if SCALING_MODE == "rceil":
+            descale, scale_e8m0 = _triton_calculate_scale_rceil(
+                x_abs, axis=1, USE_PTX=USE_PTX
+            )
+        else:
+            tl.static_assert(SCALING_MODE == "floor")
+            descale, scale_e8m0 = _triton_calculate_scale_floor(x_abs, axis=1)
+
+        scaled = x_r * descale[:, None]
+        fp8_out = tl.reshape(scaled, BLOCK_M, BLOCK_N).to(tl.float8e4nv)
+        tl.store(qdata_dim0_ptr + x_offs, fp8_out)
+
+        SCALE_N_COLS: tl.constexpr = BLOCK_N // SCALE_BLOCK_SIZE
+        scale_2d = scale_e8m0.reshape(BLOCK_M, SCALE_N_COLS)
+        tile_row = tl.arange(0, BLOCK_M)[:, None]
+        tile_col = tl.arange(0, SCALE_N_COLS)[None, :]
+        r_global = pid_m * BLOCK_M + tile_row
+        c_global = pid_n * SCALE_N_COLS + tile_col
+        dest = (
+            (r_global // 128) * (128 * padded_scale_cols_n)
+            + (c_global // 4) * (128 * 4)
+            + ((r_global % 128) % 32) * 16
+            + ((r_global % 128) // 32) * 4
+            + (c_global % 4)
+        )
+        tl.store(scales_dim0_ptr + dest, scale_2d)
+
+    @triton.autotune(
+        configs=_tile_autotune_configs(),
+        key=["M", "N", "SCALING_MODE"],
+        prune_configs_by={"early_config_prune": _prune_tile_configs},
+    )
+    @triton.jit
+    def _dim1_blocked_kernel(
+        x_ptr,  # (M, N) bf16 row-major input
+        qdata_dim1_t_ptr,  # (N, M) e4m3 row-major out (transpose of x)
+        scales_dim1_ptr,  # flat (N * padded_scale_cols_m,) e8m0 tcgen05-blocked
+        M,
+        N,
+        padded_scale_cols_m,
+        SCALING_MODE: tl.constexpr,
+        USE_PTX: tl.constexpr,
+        BLOCK_M: tl.constexpr,
+        BLOCK_N: tl.constexpr,
+        SCALE_BLOCK_SIZE: tl.constexpr,
+    ):
+        """Colwise (along-M) MXFP8 quantize, transposed ``(N, M)`` stores.
+
+        Uses the same in-register bf16 transpose as the production
+        ``to_mxfp8_dim1_kernel`` for maximum HBM utilization on the
+        scattered row stores.
+        """
+        pid_m = tl.program_id(0)
+        pid_n = tl.program_id(1)
+
+        m_offs = pid_m * BLOCK_M + tl.arange(0, BLOCK_M)
+        n_offs = pid_n * BLOCK_N + tl.arange(0, BLOCK_N)
+        x_offs = m_offs[:, None].to(tl.int64) * N + n_offs[None, :]
+        x_mn = tl.load(x_ptr + x_offs)
+
+        x_nm = tl.trans(x_mn)
+        x_r = x_nm.reshape(BLOCK_N * (BLOCK_M // SCALE_BLOCK_SIZE), SCALE_BLOCK_SIZE)
+        x_abs = tl.abs(x_r)
+        if SCALING_MODE == "rceil":
+            descale, scale_e8m0 = _triton_calculate_scale_rceil(
+                x_abs, axis=1, USE_PTX=USE_PTX
+            )
+        else:
+            tl.static_assert(SCALING_MODE == "floor")
+            descale, scale_e8m0 = _triton_calculate_scale_floor(x_abs, axis=1)
+
+        scaled = x_r * descale[:, None]
+        fp8_out = tl.reshape(scaled, BLOCK_N, BLOCK_M).to(tl.float8e4nv)
+        out_offs = n_offs[:, None].to(tl.int64) * M + m_offs[None, :]
+        tl.store(qdata_dim1_t_ptr + out_offs, fp8_out)
+
+        SCALE_M_COLS: tl.constexpr = BLOCK_M // SCALE_BLOCK_SIZE
+        scale_2d = scale_e8m0.reshape(BLOCK_N, SCALE_M_COLS)
+        tile_row = tl.arange(0, BLOCK_N)[:, None]
+        tile_col = tl.arange(0, SCALE_M_COLS)[None, :]
+        r_global = pid_n * BLOCK_N + tile_row
+        c_global = pid_m * SCALE_M_COLS + tile_col
+        dest = (
+            (r_global // 128) * (128 * padded_scale_cols_m)
+            + (c_global // 4) * (128 * 4)
+            + ((r_global % 128) % 32) * 16
+            + ((r_global % 128) // 32) * 4
+            + (c_global % 4)
+        )
+        tl.store(scales_dim1_ptr + dest, scale_2d)
 
     def triton_mxfp8_quantize_dim0_dim1(
         x: Tensor,
         scaling_mode: str = "rceil",
     ) -> Tuple[Tensor, Tensor, Tensor, Tensor]:
-        """Fused dim0 + dim1 MXFP8 quantization of ``x`` with blocked scales.
+        """Dim0 + dim1 MXFP8 quantization of ``x`` with tcgen05 blocked scales.
 
         Drop-in replacement for the sequence
 
@@ -219,10 +366,19 @@ if torch_version_at_least("2.7.0") and has_triton():
             scales0_blocked = triton_mx_block_rearrange(scales0)
             scales1_blocked = triton_mx_block_rearrange(scales1)
 
-        Implemented as a single Triton kernel that reads ``x`` once and
-        emits all four outputs (two fp8 tensors + two blocked-layout
-        scale tensors). Total HBM traffic = ``2MN + 2MN + scale bytes``,
-        which matches the memcpy-equivalent lower bound.
+        Dispatches between two Triton implementations by problem size:
+
+        * **Fused** (``M * N < ~32M elements``): one CTA reads bf16 and
+          emits all four outputs. Minimises HBM traffic and launch
+          overhead. Wins on small shapes.
+        * **Split two-stream**: a dedicated rowwise kernel and a
+          dedicated colwise kernel launched on separate CUDA streams, so
+          they overlap on the HBM controller. Each kernel has its own
+          register budget like production's standalone dim0/dim1
+          kernels. Wins on large shapes.
+
+        Both paths write scales directly in the tcgen05 blocked layout,
+        so no rearrange kernel is needed.
 
         Args:
             x: bfloat16 tensor of shape ``(M, N)``, row-major.
@@ -233,8 +389,8 @@ if torch_version_at_least("2.7.0") and has_triton():
             ``qdata_dim0``: ``float8_e4m3fn`` tensor of shape ``(M, N)``,
                 row-major. Scales live along dim 1.
             ``qdata_dim1_t``: ``float8_e4m3fn`` tensor of shape ``(N, M)``,
-                row-major. Scales live along dim 1 (= along M of the original
-                input).
+                row-major. Scales live along dim 1 (= along M of the
+                original input).
             ``scales_dim0_blocked``: ``float8_e8m0fnu`` flat tensor of
                 length ``M * padded_scale_cols_n`` in tcgen05 blocked
                 layout.
@@ -249,15 +405,17 @@ if torch_version_at_least("2.7.0") and has_triton():
             f"scaling_mode must be 'rceil' or 'floor', got {scaling_mode}"
         )
         M, N = x.shape
-        assert M % _BLOCK_M == 0, (
-            f"M must be a multiple of {_BLOCK_M}, got M={M}"
-        )
-        assert N % _BLOCK_N == 0, (
-            f"N must be a multiple of {_BLOCK_N}, got N={N}"
-        )
+        assert M % 128 == 0, f"M must be a multiple of 128, got M={M}"
+        assert N % 128 == 0, f"N must be a multiple of 128, got N={N}"
 
-        padded_scale_cols_n = ceil_div(N // _SCALE_BLOCK_SIZE, _SCALE_BLOCK_COLS) * _SCALE_BLOCK_COLS
-        padded_scale_cols_m = ceil_div(M // _SCALE_BLOCK_SIZE, _SCALE_BLOCK_COLS) * _SCALE_BLOCK_COLS
+        padded_scale_cols_n = (
+            ceil_div(N // _SCALE_BLOCK_SIZE, _SCALE_SUPERTILE_COLS)
+            * _SCALE_SUPERTILE_COLS
+        )
+        padded_scale_cols_m = (
+            ceil_div(M // _SCALE_BLOCK_SIZE, _SCALE_SUPERTILE_COLS)
+            * _SCALE_SUPERTILE_COLS
+        )
 
         qdata_dim0 = torch.empty(
             (M, N), dtype=torch.float8_e4m3fn, device=x.device
@@ -272,24 +430,68 @@ if torch_version_at_least("2.7.0") and has_triton():
             (N * padded_scale_cols_m,), dtype=torch.uint8, device=x.device
         )
 
-        grid = (M // _BLOCK_M, N // _BLOCK_N)
-        _dim0_dim1_fused_kernel[grid](
-            x,
-            qdata_dim0,
-            qdata_dim1_t,
-            scales_dim0_blocked_u8,
-            scales_dim1_blocked_u8,
-            M,
-            N,
-            padded_scale_cols_n,
-            padded_scale_cols_m,
-            SCALING_MODE=scaling_mode,
-            USE_PTX=x.device.type != "hip",
-            BLOCK_M=_BLOCK_M,
-            BLOCK_N=_BLOCK_N,
-            SCALE_BLOCK_SIZE=_SCALE_BLOCK_SIZE,
-            SCALE_BLOCK_COLS=_SCALE_BLOCK_COLS,
+        use_ptx = x.device.type != "hip"
+        use_split = (M * N) >= _SPLIT_NUMEL_THRESHOLD
+
+        grid = lambda META: (  # noqa: E731
+            triton.cdiv(M, META["BLOCK_M"]),
+            triton.cdiv(N, META["BLOCK_N"]),
         )
+
+        if use_split:
+            # Launch both direction kernels on separate CUDA streams so
+            # they overlap on the HBM controller. Each stream waits on
+            # the current stream's allocations, then the current stream
+            # joins both before returning.
+            cur_stream = torch.cuda.current_stream(device=x.device)
+            stream_dim0 = torch.cuda.Stream(device=x.device)
+            stream_dim1 = torch.cuda.Stream(device=x.device)
+            stream_dim0.wait_stream(cur_stream)
+            stream_dim1.wait_stream(cur_stream)
+
+            with torch.cuda.stream(stream_dim0):
+                _dim0_blocked_kernel[grid](
+                    x,
+                    qdata_dim0,
+                    scales_dim0_blocked_u8,
+                    M,
+                    N,
+                    padded_scale_cols_n,
+                    SCALING_MODE=scaling_mode,
+                    USE_PTX=use_ptx,
+                    SCALE_BLOCK_SIZE=_SCALE_BLOCK_SIZE,
+                )
+
+            with torch.cuda.stream(stream_dim1):
+                _dim1_blocked_kernel[grid](
+                    x,
+                    qdata_dim1_t,
+                    scales_dim1_blocked_u8,
+                    M,
+                    N,
+                    padded_scale_cols_m,
+                    SCALING_MODE=scaling_mode,
+                    USE_PTX=use_ptx,
+                    SCALE_BLOCK_SIZE=_SCALE_BLOCK_SIZE,
+                )
+
+            cur_stream.wait_stream(stream_dim0)
+            cur_stream.wait_stream(stream_dim1)
+        else:
+            _dim0_dim1_fused_kernel[grid](
+                x,
+                qdata_dim0,
+                qdata_dim1_t,
+                scales_dim0_blocked_u8,
+                scales_dim1_blocked_u8,
+                M,
+                N,
+                padded_scale_cols_n,
+                padded_scale_cols_m,
+                SCALING_MODE=scaling_mode,
+                USE_PTX=use_ptx,
+                SCALE_BLOCK_SIZE=_SCALE_BLOCK_SIZE,
+            )
 
         return (
             qdata_dim0,
