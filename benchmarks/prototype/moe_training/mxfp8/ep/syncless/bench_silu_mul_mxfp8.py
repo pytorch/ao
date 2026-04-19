@@ -57,8 +57,8 @@ class Experiment:
 
 def get_configs() -> List[ExperimentConfig]:
     configs = []
-    for num_tokens in [1 * 8192, 2 * 8192, 4 * 8192, 8 * 8192]:
-        for hidden_dim in [2048, 4096]:
+    for num_tokens in [1 * 4096, 2 * 4096, 4 * 4096]:
+        for hidden_dim in [2048, 7168]:
             configs.append(
                 ExperimentConfig(num_tokens=num_tokens, hidden_dim=hidden_dim)
             )

@@ -544,6 +544,195 @@ def _mxfp8_dequant_buffer_kernel(
     )
 
 
+@triton.jit
+def _mxfp8_quant_and_transpose_kernel(
+    # Input pointer
+    input_ptr,
+    # Output pointers (non-transpose)
+    out_e4m3_ptr,
+    out_scales_ptr,
+    # Output pointers (transpose)
+    out_t_e4m3_ptr,
+    out_t_scales_ptr,
+    # Dimensions
+    M,
+    N,
+    # Strides
+    input_stride_row,
+    out_stride_row,
+    out_t_stride_row,
+    # Scale layout
+    n_col_blocks,
+    n_col_blocks_t,
+    # Constants
+    TILE_M: tl.constexpr,
+    TILE_K: tl.constexpr,
+    SCALE_BLOCK_SIZE: tl.constexpr,
+    BLOCKS_PER_TILE: tl.constexpr,
+    BLOCK_ROWS: tl.constexpr,
+    BLOCK_COLS: tl.constexpr,
+):
+    """Fused MXFP8 quantize + transpose kernel.
+
+    Reads BF16 input once and produces:
+    1. Non-transposed FP8 data + blocked E8M0 scales (1x32 row-wise)
+    2. Transposed FP8 data + blocked E8M0 scales (1x32 on transposed = 32x1 on original)
+
+    Grid: (cdiv(M, TILE_M), cdiv(N, TILE_K))
+    """
+    pid_row = tl.program_id(0)
+    pid_col = tl.program_id(1)
+
+    row_offs = pid_row * TILE_M + tl.arange(0, TILE_M)
+    col_offs = pid_col * TILE_K + tl.arange(0, TILE_K)
+
+    row_mask = row_offs < M
+    col_mask = col_offs < N
+
+    # Step 1: Load BF16 tile -> f32
+    input_offsets = row_offs[:, None] * input_stride_row + col_offs[None, :]
+    mask = row_mask[:, None] & col_mask[None, :]
+    data_f32 = tl.load(input_ptr + input_offsets, mask=mask, other=0.0).to(tl.float32)
+
+    # Step 2: Non-transpose quantization (1x32 along N)
+    data_r = tl.reshape(data_f32, (TILE_M * BLOCKS_PER_TILE, SCALE_BLOCK_SIZE))
+    abs_data_r = tl.abs(data_r)
+    descale_fp, scale_e8m0 = _calculate_scale_rceil(abs_data_r, 1, True)
+    quant_r = data_r * descale_fp[:, None]
+    quant = tl.reshape(quant_r, (TILE_M, TILE_K))
+    quant_fp8 = quant.to(tl.float8e4nv)
+
+    # Store non-transpose FP8 data
+    out_offsets = row_offs[:, None] * out_stride_row + col_offs[None, :]
+    tl.store(out_e4m3_ptr + out_offsets, quant_fp8, mask=mask)
+
+    # Store non-transpose blocked scales with swizzle
+    scale_2d = tl.reshape(scale_e8m0, (TILE_M, BLOCKS_PER_TILE))
+
+    # Blocked scale layout: each (128, 4) block
+    s_rows = tl.arange(0, BLOCK_ROWS)[:, None]
+    s_cols = tl.arange(0, BLOCK_COLS)[None, :]
+    r_div_32 = s_rows // 32
+    r_mod_32 = s_rows % 32
+    dest_indices = r_mod_32 * 16 + r_div_32 * 4 + s_cols
+
+    dest_flat = tl.reshape(dest_indices, (BLOCK_ROWS * BLOCK_COLS,))
+    scales_flat = tl.reshape(scale_2d, (BLOCK_ROWS * BLOCK_COLS,))
+
+    # block_offset = pid_row * (512 * n_col_blocks) + pid_col * 512
+    OUT_STRIDE_PER_BLOCK: tl.constexpr = BLOCK_ROWS * BLOCK_COLS
+    block_offset = pid_row * (OUT_STRIDE_PER_BLOCK * n_col_blocks) + pid_col * OUT_STRIDE_PER_BLOCK
+    tl.store(out_scales_ptr + block_offset + dest_flat, scales_flat)
+
+    # Step 3: Transpose quantization (1x32 along M)
+    data_t = tl.trans(data_f32)  # (TILE_K, TILE_M)
+
+    data_t_r = tl.reshape(data_t, (TILE_K * BLOCKS_PER_TILE, SCALE_BLOCK_SIZE))
+    abs_data_t_r = tl.abs(data_t_r)
+    descale_fp_t, scale_e8m0_t = _calculate_scale_rceil(abs_data_t_r, 1, True)
+    quant_t_r = data_t_r * descale_fp_t[:, None]
+    quant_t = tl.reshape(quant_t_r, (TILE_K, TILE_M))
+    quant_t_fp8 = quant_t.to(tl.float8e4nv)
+
+    # Store transpose FP8 data at swapped position: (pid_col*128, pid_row*128)
+    t_row_offs = pid_col * TILE_K + tl.arange(0, TILE_K)
+    t_col_offs = pid_row * TILE_M + tl.arange(0, TILE_M)
+    t_row_mask = t_row_offs < N
+    t_col_mask = t_col_offs < M
+    t_mask = t_row_mask[:, None] & t_col_mask[None, :]
+
+    out_t_offsets = t_row_offs[:, None] * out_t_stride_row + t_col_offs[None, :]
+    tl.store(out_t_e4m3_ptr + out_t_offsets, quant_t_fp8, mask=t_mask)
+
+    # Store transpose blocked scales with swizzle (swapped block position)
+    scale_t_2d = tl.reshape(scale_e8m0_t, (TILE_K, BLOCKS_PER_TILE))
+    scales_t_flat = tl.reshape(scale_t_2d, (BLOCK_ROWS * BLOCK_COLS,))
+
+    # block_offset_t: indices swapped for transposed output
+    block_offset_t = pid_col * (OUT_STRIDE_PER_BLOCK * n_col_blocks_t) + pid_row * OUT_STRIDE_PER_BLOCK
+    tl.store(out_t_scales_ptr + block_offset_t + dest_flat, scales_t_flat)
+
+
+@triton_op("torchao::mxfp8_quant_and_transpose", mutates_args=())
+def mxfp8_quant_and_transpose(
+    input: torch.Tensor,
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    """Fused MXFP8 quantize + transpose.
+
+    Reads BF16 input (M, N) once and produces:
+    1. e4m3 (M, N) + blocked E8M0 scales (1x32 row-wise)
+    2. e4m3 (N, M) transposed + blocked E8M0 scales (1x32 on transposed)
+
+    Both scale outputs are in tcgen05 blocked (128, 4) swizzle format.
+
+    Args:
+        input: (M, N) BF16 tensor
+
+    Returns:
+        out_e4m3: (M, N) float8_e4m3fn row-major
+        out_scales_blocked: flat float8_e8m0fnu blocked scales for (M, N)
+        out_t_e4m3: (N, M) float8_e4m3fn row-major (transposed)
+        out_t_scales_blocked: flat float8_e8m0fnu blocked scales for (N, M)
+    """
+    assert input.ndim == 2
+    M, N = input.shape
+    SCALE_BLOCK_SIZE = 32
+    TILE_M = 128
+    TILE_K = 128
+    BLOCK_ROWS = 128
+    BLOCK_COLS = 4
+    BLOCKS_PER_TILE = TILE_K // SCALE_BLOCK_SIZE  # 4
+
+    n_row_blocks = triton.cdiv(M, TILE_M)
+    n_col_blocks = triton.cdiv(N, TILE_K)
+    padded_M = n_row_blocks * TILE_M
+    padded_N_scale_cols = n_col_blocks * BLOCK_COLS
+
+    n_row_blocks_t = triton.cdiv(N, TILE_M)
+    n_col_blocks_t = triton.cdiv(M, TILE_K)
+    padded_N = n_row_blocks_t * TILE_M
+    padded_M_scale_cols = n_col_blocks_t * BLOCK_COLS
+
+    # Allocate outputs
+    out_e4m3 = torch.empty(M, N, dtype=torch.float8_e4m3fn, device=input.device)
+    out_scales = torch.empty(
+        padded_M * padded_N_scale_cols, dtype=torch.uint8, device=input.device
+    )
+    out_t_e4m3 = torch.empty(N, M, dtype=torch.float8_e4m3fn, device=input.device)
+    out_t_scales = torch.empty(
+        padded_N * padded_M_scale_cols, dtype=torch.uint8, device=input.device
+    )
+
+    grid = (n_row_blocks, n_col_blocks)
+    wrap_triton(_mxfp8_quant_and_transpose_kernel)[grid](
+        input,
+        out_e4m3,
+        out_scales,
+        out_t_e4m3,
+        out_t_scales,
+        M=M,
+        N=N,
+        input_stride_row=input.stride(0),
+        out_stride_row=out_e4m3.stride(0),
+        out_t_stride_row=out_t_e4m3.stride(0),
+        n_col_blocks=n_col_blocks,
+        n_col_blocks_t=n_col_blocks_t,
+        TILE_M=TILE_M,
+        TILE_K=TILE_K,
+        SCALE_BLOCK_SIZE=SCALE_BLOCK_SIZE,
+        BLOCKS_PER_TILE=BLOCKS_PER_TILE,
+        BLOCK_ROWS=BLOCK_ROWS,
+        BLOCK_COLS=BLOCK_COLS,
+    )
+
+    return (
+        out_e4m3,
+        out_scales.view(torch.float8_e8m0fnu),
+        out_t_e4m3,
+        out_t_scales.view(torch.float8_e8m0fnu),
+    )
+
+
 @triton_op(
     "torchao::triton_mx_block_rearrange_input_sym_mem_buffer",
     mutates_args=(),

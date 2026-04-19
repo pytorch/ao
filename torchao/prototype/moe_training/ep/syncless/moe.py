@@ -29,6 +29,7 @@ from torchao.prototype.moe_training.ep.syncless.cutedsl_mxfp8_gmm import (
 )
 from torchao.prototype.moe_training.ep.syncless.mxfp8_kernels import (
     mxfp8_dequant_requant_col_major,
+    mxfp8_quant_and_transpose,
     triton_mx_block_rearrange_input_sym_mem_buffer,
     triton_scale_blocked_layout_output_saved_activation_buffer,
 )
@@ -38,6 +39,8 @@ from torchao.prototype.moe_training.ep.syncless.silu_mul_kernel import (
 )
 from torchao.prototype.moe_training.kernels.mxfp8 import (
     triton_mx_block_rearrange_per_group_3d,
+    mxfp8_quantize_cuda_3d,
+    mxfp8_quantize_2d_32x1_cutedsl,
 )
 from torchao.prototype.moe_training.mxfp8_grouped_mm import (
     _compute_dgrad,
@@ -192,16 +195,24 @@ class MXFP8GroupedExpertsFunc(torch.autograd.Function):
         buf = ctx.saved_activations_buffer
         block_size = 32
 
+        # Read grad_out once, write two quantized outputs: grad_out and grad_out_t
+        (
+            grad_out_e4m3,
+            grad_out_scales_blocked,
+            grad_out_t_e4m3,
+            grad_out_t_scales_blocked,
+        ) = mxfp8_quant_and_transpose(grad_out)
+
+        w2_e4m3, w2_scales_blocked = mxfp8_quantize_cuda_3d(w2)
+
         # w2 dgrad: grad_h = grad_out @ w2
-        # TODO: fused quant grad_out and grad_out_t (read once, write twice)
-        grad_h = _compute_dgrad(
-            grad_out,
-            w2.transpose(-2, -1),
-            group_end_offs,
-            block_size,
-            torch.bfloat16,
-            ScaleCalculationMode.RCEIL,
-            KernelPreference.AUTO,
+        grad_h = torch._scaled_grouped_mm(
+            grad_out_e4m3,
+            w2_e4m3,
+            grad_out_scales_blocked.view(grad_out_e4m3.shape[0], -1),
+            w2_scales_blocked.view(w2_e4m3.shape[0], -1),
+            offs=group_end_offs,
+            out_dtype=torch.bfloat16,
         )
 
         # recompute 'h' and calc grad_h13 in single kernel
@@ -210,11 +221,6 @@ class MXFP8GroupedExpertsFunc(torch.autograd.Function):
             grad_h,
             saved_activation_buffer_offset=offset,
             num_tokens=num_tokens,
-        )
-
-        # Quantize grad_h13 with 32×1 scaling, producing blocked scales directly.
-        from torchao.prototype.moe_training.kernels.mxfp8 import (
-            mxfp8_quantize_2d_32x1_cutedsl,
         )
 
         grad_h13_fp8, grad_h13_scales_blocked = mxfp8_quantize_2d_32x1_cutedsl(
@@ -244,11 +250,15 @@ class MXFP8GroupedExpertsFunc(torch.autograd.Function):
         )
 
         # w2 wgrad: grad_w2 = grad_out.T @ h  (per group)
-        # TODO: mxfp8 when silu_mul_bw quantizes and we have fused grad_out+grad_out_t quant kernel
-        wgrad_w2 = torch._grouped_mm(
-            grad_out.transpose(-2, -1),
-            h,
-            offs=group_end_offs,
+        # note: have to use cutedsl gmm here because torch._scaled_grouped_mm requires the scale shapes be 2d to match the 2d tensor,
+        # but quantization kernels return scales in flattened (1d) blocked layout, so can't
+        h_e4m3, h_scales_blocked = mxfp8_quantize_2d_32x1_cutedsl(h)
+        wgrad_w2 = cutedsl_grouped_gemm(
+            grad_out_t_e4m3,
+            h_e4m3,
+            grad_out_t_scales_blocked,
+            h_scales_blocked,
+            group_end_offs,
             out_dtype=torch.bfloat16,
         )
 
@@ -272,6 +282,7 @@ class MXFP8GroupedExpertsFunc(torch.autograd.Function):
 
 
 class MXFP8GroupedExperts(nn.Module):
+
     def __init__(
         self,
         dim: int,
