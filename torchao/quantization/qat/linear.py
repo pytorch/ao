@@ -22,7 +22,6 @@ from torchao.quantization.quant_primitives import (
     TorchAODType,
     ZeroPointDomain,
 )
-from torchao.quantization.unified import TwoStepQuantizer
 from torchao.quantization.utils import get_group_qparams_symmetric
 from torchao.utils import _is_device
 
@@ -34,6 +33,7 @@ from .fake_quantize_config import (
 from .fake_quantizer import (
     FakeQuantizerBase,
 )
+from .two_step_quantizer import TwoStepQuantizer
 from .utils import (
     _get_qmin_qmax,
 )

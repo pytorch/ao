@@ -12,7 +12,7 @@ from torch._higher_order_ops.out_dtype import out_dtype
 
 from torchao.utils import (
     _cpu_is_vnni_supported,
-    check_cpu_version,
+    _is_device,
     torch_version_at_least,
 )
 
@@ -183,7 +183,7 @@ def int_scaled_matmul(
     assert 1 == scales1.size(1)
     assert scales1.is_contiguous()
 
-    if check_cpu_version(scales1.device):
+    if _is_device("cpu", scales1.device):
         return _int_scaled_matmul_cpu(a, b, scales1)
 
     scales1 = scales1.expand((M, N))

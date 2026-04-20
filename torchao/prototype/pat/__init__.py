@@ -17,7 +17,7 @@ from .group import (  # noqa: F401
 )
 from .optim import (  # noqa: F401
     ProxGroupLasso,
-    ProxGroupLassoReduce,
+    ProxGroupLassoVectorized,
     ProxLasso,
     ProxNuclearNorm,
     PruneOptimizer,

@@ -12,9 +12,6 @@ from .granularity import (
     PerTensor,
     PerToken,
 )
-from .linear_activation_scale import (
-    to_weight_tensor_with_linear_activation_scale_metadata,
-)
 from .linear_quant_modules import (
     Int4WeightOnlyQuantizer,
     Int8DynActInt4WeightLinear,
@@ -61,9 +58,10 @@ from .quantize_.workflows import (
     Int8Tensor,
     IntxOpaqueTensor,
     IntxUnpackedToInt8Tensor,
+    NF4Tensor,
+    to_nf4,
 )
 from .transform_module import register_quantize_module_handler
-from .unified import Quantizer, TwoStepQuantizer
 from .utils import (
     compute_error,
 )
@@ -99,9 +97,10 @@ __all__ = [
     "IntxUnpackedToInt8Tensor",
     "Int4TilePackedTo4dTensor",
     "Float8Tensor",
+    "NF4Tensor",
+    "to_nf4",
     "compute_error",
     # building blocks
-    "to_weight_tensor_with_linear_activation_scale_metadata",
     "AffineQuantizedMinMaxObserver",
     "AffineQuantizedObserverBase",
     # quant primitive ops
@@ -128,7 +127,5 @@ __all__ = [
     "Int4WeightOnlyQuantizer",
     "Int8DynActInt4WeightQuantizer",
     "Int8DynActInt4WeightLinear",
-    "TwoStepQuantizer",
-    "Quantizer",
     "Float8MMConfig",
 ]

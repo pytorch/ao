@@ -8,7 +8,7 @@ import sys
 
 from torch.optim import Optimizer
 
-from .group_lasso import ProxGroupLasso, ProxGroupLassoReduce  # noqa: F401
+from .group_lasso import ProxGroupLasso, ProxGroupLassoVectorized  # noqa: F401
 from .lasso import ProxLasso  # noqa: F401
 from .nuclear_norm import ProxNuclearNorm  # noqa: F401
 from .proxmap import ProxMap  # noqa: F401

@@ -138,15 +138,15 @@ to increase as MKN increases.
 > python benchmarks/float8/float8_inference_roofline.py --recipe_name mxfp8_cublas --enable_fusion_modeling True --skip_printing_detailed_metrics True
 ...
 GPU                     NVIDIA B200
-torch version           2.12.0.dev20260218+cu130
-torchao version         0.17.0+git3075bb624
+torch version           2.12.0.dev20260414+cu130
+torchao version         0.17.0+gitbd7717d20
 ...
    fwd_M  fwd_K  fwd_N  r_fp8_gemm_and_ovhd_spdp  b_fp8_e2e_spdp
-0   1024   1024   1024                      1.00            0.93
-1   2048   2048   2048                      1.75            1.20
-2   4096   4096   4096                      1.90            1.46
+0   1024   1024   1024                      1.00            0.96
+1   2048   2048   2048                      1.76            1.22
+2   4096   4096   4096                      1.89            1.50
 3   8192   8192   8192                      1.94            1.76
-4  16384  16384  16384                      1.97            1.77
+4  16384  16384  16384                      1.97            1.81
 
 #
 # nvfp4 with dynamic global scaling
