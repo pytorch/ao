@@ -9,9 +9,9 @@ from collections.abc import Iterable
 
 import torch
 import torch.distributed as dist
-from packaging import version
 from torch.distributed._tensor import DTensor
 
+from packaging import version
 from torchao.prototype.blockwise_fp8_training.linear import (
     Float8BlockwiseLinear,
     Float8BlockwiseLinearConfig,
