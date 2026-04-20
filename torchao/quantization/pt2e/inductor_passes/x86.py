@@ -1781,30 +1781,54 @@ def _register_smooth_quant_int_mm_pattern():
     """
     The pattern is:
        (no bias)
-         [reshape(a)] -> _int_mm -> convert_element_type -> mul(x_scale) ->
-         [convert_element_type (scaled matmul)] -> mul(w_scale)
+         [reshape(a)] -> [convert(i32) -> add -> convert(u8)] -> _int_mm -> [sub] -> convert -> mul(x_scale) ->
+         [convert (scaled matmul)] -> mul(w_scale)
        (with bias)
          pattern_no_bias -> add
     """
 
-    # get_pattern_no_bias models the core int_mm + scaling computation without bias.
-    #   - reshape_a controls whether we expect an input reshape on `a` before _int_mm.
-    #   - convert_scaled_matmul controls whether there is an extra convert_element_type applied to
-    #     the result of the x_scale multiplication.
     def get_pattern_no_bias(
-        reshape_a: bool = True, convert_scaled_matmul: bool = False
+        reshape_a: bool = True,
+        convert_scaled_matmul: bool = False,
+        use_u8s8: bool = False,
     ):
-        int_mm_pattern = CallFunction(
-            aten._int_mm.default,
+        int_mm_input_pattern = (
             CallFunction(
                 aten.reshape.default,
                 KeywordArg("a"),
                 KeywordArg("in_shape"),
             )
             if reshape_a
-            else KeywordArg("a"),
+            else KeywordArg("a")
+        )
+
+        if use_u8s8:
+            int_mm_input_pattern = CallFunction(
+                prims.convert_element_type.default,
+                CallFunction(
+                    aten.add.Tensor,
+                    CallFunction(
+                        prims.convert_element_type.default,
+                        int_mm_input_pattern,
+                        KeywordArg("x_type_i32"),
+                    ),
+                    KeywordArg("x_zp_u8"),
+                ),
+                KeywordArg("x_type_u8"),
+            )
+
+        int_mm_pattern = CallFunction(
+            aten._int_mm.default,
+            int_mm_input_pattern,
             KeywordArg("b"),
         )
+
+        if use_u8s8:
+            int_mm_pattern = CallFunction(
+                aten.sub.Tensor,
+                int_mm_pattern,
+                KeywordArg("comp"),
+            )
 
         mul_x_scale_pattern = CallFunction(
             aten.mul.Tensor,
@@ -1891,6 +1915,62 @@ def _register_smooth_quant_int_mm_pattern():
         KeywordArg("output_dtype"),
     )
 
+    pattern_u8s8_no_reshape_no_bias = get_pattern_no_bias(
+        reshape_a=False, use_u8s8=True
+    )
+    pattern_u8s8_no_reshape_with_bias = CallFunction(
+        aten.add.Tensor,
+        pattern_u8s8_no_reshape_no_bias,
+        KeywordArg("bias"),
+    )
+    pattern_u8s8_no_reshape_no_bias_with_matmul_convert = get_pattern_no_bias(
+        reshape_a=False,
+        convert_scaled_matmul=True,
+        use_u8s8=True,
+    )
+    pattern_u8s8_no_reshape_no_bias_with_output_convert = CallFunction(
+        prims.convert_element_type.default,
+        pattern_u8s8_no_reshape_no_bias_with_matmul_convert,
+        KeywordArg("output_dtype"),
+    )
+    pattern_u8s8_no_reshape_with_bias_with_matmul_convert = CallFunction(
+        aten.add.Tensor,
+        pattern_u8s8_no_reshape_no_bias_with_matmul_convert,
+        KeywordArg("bias"),
+    )
+    pattern_u8s8_no_reshape_with_bias_with_output_convert = CallFunction(
+        prims.convert_element_type.default,
+        pattern_u8s8_no_reshape_with_bias_with_matmul_convert,
+        KeywordArg("output_dtype"),
+    )
+
+    pattern_u8s8_with_reshape_no_bias = _with_outer_reshape(
+        get_pattern_no_bias(use_u8s8=True)
+    )
+    pattern_u8s8_with_reshape_no_bias_with_matmul_convert = _with_outer_reshape(
+        get_pattern_no_bias(convert_scaled_matmul=True, use_u8s8=True)
+    )
+    pattern_u8s8_with_reshape_no_bias_with_output_convert = CallFunction(
+        prims.convert_element_type.default,
+        pattern_u8s8_with_reshape_no_bias_with_matmul_convert,
+        KeywordArg("output_dtype"),
+    )
+    pattern_u8s8_with_reshape_with_bias = CallFunction(
+        aten.add.Tensor,
+        pattern_u8s8_with_reshape_no_bias,
+        KeywordArg("bias"),
+    )
+    pattern_u8s8_with_reshape_with_bias_with_matmul_convert = CallFunction(
+        aten.add.Tensor,
+        pattern_u8s8_with_reshape_no_bias_with_matmul_convert,
+        KeywordArg("bias"),
+    )
+    pattern_u8s8_with_reshape_with_bias_with_output_convert = CallFunction(
+        prims.convert_element_type.default,
+        pattern_u8s8_with_reshape_with_bias_with_matmul_convert,
+        KeywordArg("output_dtype"),
+    )
+
     def _validate_pattern(match: Match):
         # Valid node counts correspond to different pattern variations:
         # 4: pattern_no_reshape_no_bias (int_mm + convert + mul + mul)
@@ -1903,7 +1983,8 @@ def _register_smooth_quant_int_mm_pattern():
         #    pattern_with_reshape_with_bias (pattern_with_reshape_no_bias + add)
         # 8: pattern_with_reshape_no_bias_with_output_convert (pattern_with_reshape_no_bias with scaled matmul + output convert)
         # 9: pattern_with_reshape_with_bias_with_output_convert (pattern_with_reshape_with_bias with scaled matmul + output convert)
-        if len(match.nodes) not in [4, 5, 6, 7, 8, 9]:
+        # 8-13: u8s8 decomposed equivalents with input shift and compensation subtraction.
+        if len(match.nodes) not in [4, 5, 6, 7, 8, 9, 10, 11, 12, 13]:
             return False
         # Make sure weight is a constant
         aten_int_mm_node = filter_nodes(match.nodes, aten._int_mm.default)[0]
@@ -1911,28 +1992,23 @@ def _register_smooth_quant_int_mm_pattern():
             return False
         if aten_int_mm_node.args[1].op != "get_attr":
             return False
-
-        # If the pattern includes a bias add, validate bias shape.
-        bias_add_nodes = [n for n in match.nodes if n.target is aten.add.Tensor]
-        if bias_add_nodes:
-            add_node = bias_add_nodes[0]
-            # Bias is expected to be the second positional argument of the add node.
-            if len(add_node.args) < 2:
-                return False
-            bias_node = add_node.args[1]
-            if not isinstance(bias_node, torch.fx.node.Node):
-                return False
-            if len(bias_node.meta.get("tensor_meta").shape) != 1:  # type: ignore[union-attr]
-                return False
         return True
 
     pattern_to_pass_number = {
+        pattern_u8s8_with_reshape_with_bias_with_output_convert: 0,
+        pattern_u8s8_with_reshape_with_bias: 0,
         pattern_with_reshape_with_bias_with_output_convert: 0,
         pattern_with_reshape_with_bias: 0,
+        pattern_u8s8_with_reshape_no_bias_with_output_convert: 1,
+        pattern_u8s8_with_reshape_no_bias: 1,
         pattern_with_reshape_no_bias_with_output_convert: 1,
         pattern_with_reshape_no_bias: 1,
+        pattern_u8s8_no_reshape_with_bias_with_output_convert: 2,
+        pattern_u8s8_no_reshape_with_bias: 2,
         pattern_no_reshape_with_bias_with_output_convert: 2,
         pattern_no_reshape_with_bias: 2,
+        pattern_u8s8_no_reshape_no_bias_with_output_convert: 3,
+        pattern_u8s8_no_reshape_no_bias: 3,
         pattern_no_reshape_no_bias_with_output_convert: 3,
         pattern_no_reshape_no_bias: 3,
     }
@@ -1960,6 +2036,25 @@ def _register_smooth_quant_int_mm_pattern():
             if has_free_symbols(x_shape):
                 # For dynamic shape case, we can't get activation shape ahead of runtime.
                 x_shape = None
+            x_type_i32 = kwargs.get("x_type_i32", None)
+            x_zp_u8 = kwargs.get("x_zp_u8", None)
+            x_type_u8 = kwargs.get("x_type_u8", None)
+            comp = kwargs.get("comp", None)
+            if x_type_i32 is not None:
+                assert x_type_i32 == torch.int32
+            if x_zp_u8 is not None:
+                assert x_zp_u8 == 128
+            if x_type_u8 is not None:
+                assert x_type_u8 == torch.uint8
+
+            # Check if all u8s8 related parameters are present
+            use_u8s8 = (
+                x_type_i32 is not None
+                and x_zp_u8 is not None
+                and x_type_u8 is not None
+                and comp is not None
+            )
+            w_zp = None
 
             out_node = match.output_node()
             with match.graph.inserting_before(out_node):
@@ -1978,7 +2073,6 @@ def _register_smooth_quant_int_mm_pattern():
                     packed_weight_op, args=packed_weight_inputs
                 )
 
-                dummy_zp = None
                 w_scale = match.graph.call_function(
                     prims.convert_element_type.default, args=(w_scale, torch.float32)
                 )
@@ -1993,14 +2087,35 @@ def _register_smooth_quant_int_mm_pattern():
 
                 new_args: tuple[Any, ...]
                 if x_scale_is_scalar:
-                    # in this case, we can call onednn.qlinear directly
+                    if use_u8s8:
+                        x_i32 = match.graph.call_function(
+                            prims.convert_element_type.default,
+                            args=(x, torch.int32),
+                        )
+                        x_add_128 = match.graph.call_function(
+                            aten.add.Tensor,
+                            args=(x_i32, 128),
+                        )
+                        x_qlinear = match.graph.call_function(
+                            prims.convert_element_type.default,
+                            args=(x_add_128, torch.uint8),
+                        )
+                        x_zp = match.graph.call_function(
+                            aten.scalar_tensor.default,
+                            args=(128,),
+                            kwargs={"dtype": torch.int32},
+                        )
+                    else:
+                        x_qlinear = x
+                        x_zp = None
+
                     new_args = (
-                        x,
+                        x_qlinear,
                         x_scale,
-                        dummy_zp,  # x_zp
+                        x_zp,  # x_zp
                         prepack_weight_node,
                         w_scale,
-                        dummy_zp,  # w_zp
+                        w_zp,  # w_zp
                         bias,
                         1.0,  # output_scale
                         0,  # output_zero_point
@@ -2025,13 +2140,32 @@ def _register_smooth_quant_int_mm_pattern():
                         x_reshaped = match.graph.call_function(
                             aten.reshape.default, args=(x, in_shape)
                         )
+
+                    if use_u8s8:
+                        x_i32 = match.graph.call_function(
+                            prims.convert_element_type.default,
+                            args=(x_reshaped, torch.int32),
+                        )
+                        x_add_128 = match.graph.call_function(
+                            aten.add.Tensor,
+                            args=(x_i32, 128),
+                        )
+                        x_qlinear = match.graph.call_function(
+                            prims.convert_element_type.default,
+                            args=(x_add_128, torch.uint8),
+                        )
+                        x_zp = 128
+                    else:
+                        x_qlinear = x_reshaped
+                        x_zp = 0
+
                     new_args = (
-                        x_reshaped,
+                        x_qlinear,
                         1.0,  # x_scale
-                        0,  # x_zp
+                        x_zp,  # x_zp
                         prepack_weight_node,
                         w_scale,
-                        dummy_zp,  # w_zp
+                        w_zp,  # w_zp
                         None,  # bias
                         1.0,  # output_scale
                         0,  # output_zero_point

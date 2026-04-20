@@ -62,6 +62,8 @@ from torchao.quantization.quantize_.common.quantization_step import (
 )
 from torchao.testing.pt2e.utils import _generate_ref_quantized_model, qdq_fp8
 from torchao.utils import (
+    _cpu_is_amx_tile_supported,
+    _cpu_is_vnni_supported,
     should_reduce_range,
     torch_version_at_least,
 )
@@ -272,6 +274,18 @@ class TestPatternMatcherBase(TestCase):
             if not check_quantization:
                 # Skip due to reduce range setting for Quantization on preCI system.
                 torch.testing.assert_close(actual, expected, atol=atol, rtol=rtol)
+
+
+def _should_use_u8s8() -> bool:
+    """
+    Determine if the u8s8 decomposition path should be used.
+    This matches the logic in torchao/kernel/intmm.py::_int_scaled_matmul_cpu
+    """
+    return (
+        not _cpu_is_amx_tile_supported()
+        and _cpu_is_vnni_supported()
+        and torch_version_at_least("2.12.0.dev")
+    )
 
 
 @unittest.skipIf(not torch_version_at_least("2.8.0"), "Requires torch 2.8+")
@@ -2834,6 +2848,8 @@ class TestPatternMatcher(TestPatternMatcherBase):
                 expected_nodes = 8 if enable_autocast else 6
                 if has_bias:
                     expected_nodes += 1  # add bias operation
+            if _should_use_u8s8():
+                expected_nodes += 4
 
             if counters["inductor"]["removed_pointless_view_pair"] == 0:
                 # Removing pointless view pairs affect how the pattern
