@@ -462,7 +462,8 @@ def _is_valid_quantized_op_binary_optimization_pattern(
             return False
         binary_node_inputs = next(iter(compute_node.users)).args
         assert len(binary_node_inputs) == 2, "Expects binary node with 2 inputs"
-        is_fp8 = match.kwargs["x"].meta["val"].dtype is torch.float8_e4m3fn
+        x_meta_val = match.kwargs["x"].meta.get("val", None)
+        is_fp8 = x_meta_val is not None and x_meta_val.dtype is torch.float8_e4m3fn
         if output_dtype in [torch.float32, torch.bfloat16]:
             extra_input_of_binary_node = None
             for arg in binary_node_inputs:

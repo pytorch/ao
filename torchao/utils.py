@@ -36,6 +36,7 @@ __all__ = [
     "is_package_at_least",
     "DummyModule",
     "register_as_pytree_constant",
+    "_cpu_is_amx_tile_supported",
 ]
 
 
