@@ -11,6 +11,7 @@
 
 import copy
 import unittest
+import warnings
 
 import torch
 from torch import Tensor
@@ -202,6 +203,69 @@ class TestQuantizePT2E(PT2EQuantizationTestCase):
                 torch.testing.assert_close(ref_outputs, traced_outputs)
                 torch.testing.assert_close(traced_outputs, prepared_outputs)
                 # Verify BN nodes are removed from the graph
+                for node in prepared_model.graph.nodes:
+                    self.assertNotEqual(
+                        node.target,
+                        torch.ops.aten._native_batch_norm_legit_no_training.default,
+                    )
+                    self.assertNotEqual(
+                        node.target,
+                        torch.ops.aten.batch_norm.default,
+                    )
+
+    def test_linear_bn_fusion_skipped_for_3d_input(self):
+        """Verify that Linear+BN fusion is skipped when input is >2-D.
+
+        When the linear input is 3-D (N, C, L), Linear operates on the last
+        dim while BatchNorm1d normalizes along dim 1.  Fusing them silently
+        produces incorrect results.  See https://github.com/pytorch/ao/issues/4116
+        """
+        for bias in [True, False]:
+            m = torch.nn.Sequential(
+                torch.nn.Linear(3, 5, bias=bias),
+                torch.nn.BatchNorm1d(5),
+            )
+            m.eval()
+            # 3-D input: (batch=2, channels=5, length=3)
+            example_inputs = (torch.randn(2, 5, 3),)
+            ref_outputs = m(*example_inputs)
+            traced_model = torch.export.export(m, example_inputs, strict=True).module()
+            with warnings.catch_warnings(record=True) as w:
+                warnings.simplefilter("always")
+                prepared_model = prepare_pt2e(traced_model, XNNPACKQuantizer())
+                # Should emit a warning about skipping fusion
+                fusion_warnings = [
+                    x for x in w if "Not fusing linear+bn" in str(x.message)
+                ]
+                self.assertGreater(
+                    len(fusion_warnings),
+                    0,
+                    "Expected a warning about skipping 3-D linear+bn fusion",
+                )
+            prepared_outputs = prepared_model(*example_inputs)
+            # Outputs must match the reference (no silent corruption)
+            torch.testing.assert_close(
+                ref_outputs, prepared_outputs, atol=1e-5, rtol=1e-5
+            )
+
+    def test_linear_bn_fusion_correct_for_2d_input(self):
+        """Verify that 2-D Linear+BN fusion still works and BN is removed."""
+        for bias in [True, False]:
+            for N, M in [(8, 16), (5, 5)]:
+                m = torch.nn.Sequential(
+                    torch.nn.Linear(N, M, bias=bias),
+                    torch.nn.BatchNorm1d(M),
+                )
+                m.eval()
+                example_inputs = (torch.randn(4, N),)
+                ref_outputs = m(*example_inputs)
+                traced_model = torch.export.export(
+                    m, example_inputs, strict=True
+                ).module()
+                prepared_model = prepare_pt2e(traced_model, XNNPACKQuantizer())
+                prepared_outputs = prepared_model(*example_inputs)
+                torch.testing.assert_close(ref_outputs, prepared_outputs)
+                # BN nodes should be removed after fusion
                 for node in prepared_model.graph.nodes:
                     self.assertNotEqual(
                         node.target,
@@ -3261,6 +3325,74 @@ class TestQuantizePT2E(PT2EQuantizationTestCase):
             if node.name == "quantize_per_tensor_default":
                 # Ensure the quant node is not fused with the mutable buffer
                 self.assertTrue(node.op == "call_function")
+
+        # Verify the quantized model works
+        result = m(*example_inputs)
+        self.assertIsNotNone(result)
+
+    def test_quantize_in_place_index_put(self):
+        class IndexPutQuantizer(Quantizer):
+            def __init__(self) -> None:
+                super().__init__()
+                self.qspec = QuantizationSpec(
+                    dtype=torch.int8,
+                    observer_or_fake_quant_ctr=observer.default_observer,
+                    quant_min=-128,
+                    quant_max=127,
+                    qscheme=torch.per_tensor_symmetric,
+                )
+
+            def annotate(self, model: torch.fx.GraphModule) -> torch.fx.GraphModule:
+                for node in model.graph.nodes:
+                    if node.op != "call_function":
+                        continue
+                    if node.target != torch.ops.aten.index_put_.default:
+                        continue
+
+                    dst = node.args[0]
+                    value = node.args[2]
+                    node.meta["quantization_annotation"] = QuantizationAnnotation(
+                        input_qspec_map={
+                            dst: self.qspec,
+                            value: SharedQuantizationSpec((dst, node)),
+                        },
+                        output_qspec=SharedQuantizationSpec((dst, node)),
+                        _annotated=True,
+                    )
+                return model
+
+            def transform_for_annotation(
+                self, model: torch.fx.GraphModule
+            ) -> torch.fx.GraphModule:
+                return model
+
+            def validate(self, model: torch.fx.GraphModule) -> None:
+                return None
+
+        class M(torch.nn.Module):
+            def __init__(self) -> None:
+                super().__init__()
+                self.register_buffer("buf", torch.zeros(4, dtype=torch.float32))
+
+            def forward(self, x: torch.Tensor, idx: torch.Tensor) -> torch.Tensor:
+                updated = self.buf.index_put_((idx,), x)
+                return updated.clone()
+
+        m = M().eval()
+        quantizer = IndexPutQuantizer()
+        example_inputs = (
+            torch.tensor([1.0, 2.0], dtype=torch.float32),
+            torch.tensor([1, 3], dtype=torch.int64),
+        )
+        m = torch.export.export(m, example_inputs, strict=True).module()
+
+        m = prepare_pt2e(m, quantizer)
+        m(*example_inputs)
+        m = convert_pt2e(m, fold_quantize=True)
+
+        # Check that the named buffer is not folded
+        # If it folded it will be named _frozen_param0
+        self.assertTrue("buf" in dict(m.named_buffers()))
 
         # Verify the quantized model works
         result = m(*example_inputs)

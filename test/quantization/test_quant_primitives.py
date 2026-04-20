@@ -35,8 +35,7 @@ from torchao.quantization.utils import (
     groupwise_affine_quantize_tensor_from_qparams,
 )
 from torchao.utils import (
-    check_cpu_version,
-    check_xpu_version,
+    _is_device,
     get_current_accelerator_device,
     is_fbcode,
 )
@@ -152,9 +151,9 @@ def _groupwise_affine_quantize_tensor_from_qparams(
             .reshape_as(w)
         )
 
-    if (not (check_cpu_version(w.device))) and (not (check_xpu_version(w.device))):
+    if (not (_is_device("cpu", w.device))) and (not (_is_device("xpu", w.device))):
         w_int4x8 = (w_int4x8[::, ::2] << 4 | w_int4x8[::, 1::2]).to(torch.uint8)
-    if check_xpu_version(w.device):
+    if _is_device("xpu", w.device):
         w_int4x8 = (w_int4x8[::, 1::2] << 4 | w_int4x8[::, ::2]).to(torch.uint8)
 
     return w_int4x8
@@ -708,11 +707,11 @@ class TestQuantPrimitives(unittest.TestCase):
             if zero_point_domain == ZeroPointDomain.INT:
                 zeros = torch.randint(0, 15, (10, 2), dtype=torch.int32)
             input_tmp = input
-            if (not (check_cpu_version(input.device))) and (
-                not (check_xpu_version(input.device))
+            if (not (_is_device("cpu", input.device))) and (
+                not (_is_device("xpu", input.device))
             ):
                 input_tmp = (input[::, ::2] << 4 | input[::, 1::2]).to(torch.uint8)
-            if check_xpu_version(input.device):
+            if _is_device("xpu", input.device):
                 input_tmp = (input[::, 1::2] << 4 | input[::, ::2]).to(torch.uint8)
             w_bf16 = groupwise_affine_dequantize_tensor_from_qparams(
                 input_tmp, scales, zeros, n_bit, groupsize, zero_point_domain

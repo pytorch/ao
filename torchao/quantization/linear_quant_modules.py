@@ -15,14 +15,12 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from torchao.dtypes.utils import is_device
-from torchao.utils import find_multiple
+from torchao.utils import _is_device, find_multiple
 
 from .quant_primitives import (
     MappingType,
     dequantize_affine,
 )
-from .unified import Quantizer
 from .utils import (
     group_quantize_tensor_symmetric,
     groupwise_affine_quantize_tensor,
@@ -57,7 +55,7 @@ def linear_forward_int4(
 ):
     origin_x_size = x.size()
     x = x.reshape(-1, origin_x_size[-1])
-    if is_device(x.device.type, "cpu"):
+    if _is_device(x.device.type, "cpu"):
         c = torch.ops.aten._weight_int4pack_mm_for_cpu(
             x.to(precision),
             weight_int4pack,
@@ -117,7 +115,7 @@ class WeightOnlyInt4Linear(torch.nn.Module):
         assert in_features % (inner_k_tiles * 16) == 0, (
             "require in_features % (innerKTiles * 16) == 0"
         )
-        if is_device(device.type, "cpu"):
+        if _is_device(device.type, "cpu"):
             self.register_buffer(
                 "weight",
                 torch.zeros(
@@ -233,7 +231,7 @@ def replace_linear_int4(
     )
 
 
-class Int4WeightOnlyQuantizer(Quantizer):
+class Int4WeightOnlyQuantizer:
     def __init__(
         self,
         groupsize: int = 256,
@@ -296,7 +294,7 @@ class Int4WeightOnlyQuantizer(Quantizer):
                     self.precision,  # dtype for scales_and_zeros
                 )
                 # TODO: just get the device from mod.weight.device?
-                if is_device(w_int4x8.device.type, "cpu"):
+                if _is_device(w_int4x8.device.type, "cpu"):
                     weight_int4pack = (
                         torch.ops.aten._convert_weight_to_int4pack_for_cpu(
                             w_int4x8.to(self.device), self.inner_k_tiles
@@ -344,7 +342,7 @@ def linear_forward_8da4w(
     groupsize,
     output_precision,
 ):
-    # uses fp32 to match torchao.quantization.quant_api._int8_asymm_per_token_quant
+    # uses fp32 to match the PTQ activation quantization scale dtype
     # and activation_scale_dtype in QAT configs
     # TODO: in future add ability to specify activation_scale_dtype to PTQ configs
     # and enable similar change here
@@ -533,7 +531,7 @@ def replace_linear_8da4w(
     )
 
 
-class Int8DynActInt4WeightQuantizer(Quantizer):
+class Int8DynActInt4WeightQuantizer:
     def __init__(
         self,
         groupsize: int = 256,

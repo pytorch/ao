@@ -32,6 +32,7 @@ from torchao.prototype.attention.quantization.triton_hadamard_utils import (
 )
 from torchao.prototype.attention.quantization.triton_qkv_quantization import (
     group_reduce_kernel,
+    single_phase1_kernel,
     single_phase2_kernel,
     single_reduce_kernel,
 )
@@ -123,6 +124,7 @@ def triton_fp8_hadamard_sdpa_quantize(
     k: torch.Tensor,
     v: torch.Tensor,
     num_chunks: Optional[int] = None,
+    v_only: bool = False,
 ) -> Tuple[
     torch.Tensor,
     torch.Tensor,
@@ -207,13 +209,14 @@ def triton_fp8_hadamard_sdpa_quantize(
     k_fp8 = torch.empty_like(k, dtype=torch.float8_e4m3fn)
     v_fp8 = torch.empty_like(v, dtype=torch.float8_e4m3fn)
 
-    # Intermediate buffers for Hadamard'd values (same layout/dtype as input)
-    q_had = torch.empty_like(q)
-    k_had = torch.empty_like(k)
+    # Intermediate buffers for Hadamard'd values
+    if not v_only:
+        q_had = torch.empty_like(q)
+        k_had = torch.empty_like(k)
+        q_temp = torch.empty(
+            B, H_q, q_num_chunks, D, dtype=torch.float32, device=q.device
+        )
     v_had = torch.empty_like(v)
-
-    # Temp buffers for Hadamard butterfly (one D-vector per (b, h, chunk) triple)
-    q_temp = torch.empty(B, H_q, q_num_chunks, D, dtype=torch.float32, device=q.device)
     kv_temp = torch.empty(
         B, H_kv, kv_num_chunks, D, dtype=torch.float32, device=q.device
     )
@@ -240,55 +243,85 @@ def triton_fp8_hadamard_sdpa_quantize(
     q_grid = (B, H_q, q_num_chunks)
     kv_grid = (B, H_kv, kv_num_chunks)
 
-    # ---- Phase 1: Hadamard + max for Q ----
-    hadamard_single_phase1_kernel[q_grid](
-        q,
-        q_had,
-        q_temp,
-        q_partial_max,
-        q.stride(0),
-        q.stride(1),
-        q.stride(2),
-        q.stride(3),
-        q_temp.stride(0),
-        q_temp.stride(1),
-        q_temp.stride(2),
-        q_temp.stride(3),
-        S_q,
-        H_q,
-        q_chunk_size,
-        q_num_chunks,
-        D=D,
-        LOG2_D=LOG2_D,
-        USE_BFLOAT16=use_bfloat16,
-    )
+    # ---- Phase 1: Q ----
+    if v_only:
+        single_phase1_kernel[q_grid](
+            q,
+            q_partial_max,
+            q.stride(0),
+            q.stride(1),
+            q.stride(2),
+            q.stride(3),
+            S_q,
+            D,
+            H_q,
+            q_chunk_size,
+            q_num_chunks,
+        )
+    else:
+        hadamard_single_phase1_kernel[q_grid](
+            q,
+            q_had,
+            q_temp,
+            q_partial_max,
+            q.stride(0),
+            q.stride(1),
+            q.stride(2),
+            q.stride(3),
+            q_temp.stride(0),
+            q_temp.stride(1),
+            q_temp.stride(2),
+            q_temp.stride(3),
+            S_q,
+            H_q,
+            q_chunk_size,
+            q_num_chunks,
+            D=D,
+            LOG2_D=LOG2_D,
+            USE_BFLOAT16=use_bfloat16,
+        )
 
-    # ---- Phase 1: Hadamard + max for K ----
-    hadamard_single_phase1_kernel[kv_grid](
-        k,
-        k_had,
-        kv_temp,
-        k_partial_max,
-        k.stride(0),
-        k.stride(1),
-        k.stride(2),
-        k.stride(3),
-        kv_temp.stride(0),
-        kv_temp.stride(1),
-        kv_temp.stride(2),
-        kv_temp.stride(3),
-        S_kv,
-        H_kv,
-        kv_chunk_size,
-        kv_num_chunks,
-        D=D,
-        LOG2_D=LOG2_D,
-        USE_BFLOAT16=use_bfloat16,
-    )
+    # ---- Phase 1: K ----
+    if v_only:
+        single_phase1_kernel[kv_grid](
+            k,
+            k_partial_max,
+            k.stride(0),
+            k.stride(1),
+            k.stride(2),
+            k.stride(3),
+            S_kv,
+            D,
+            H_kv,
+            kv_chunk_size,
+            kv_num_chunks,
+        )
+    else:
+        hadamard_single_phase1_kernel[kv_grid](
+            k,
+            k_had,
+            kv_temp,
+            k_partial_max,
+            k.stride(0),
+            k.stride(1),
+            k.stride(2),
+            k.stride(3),
+            kv_temp.stride(0),
+            kv_temp.stride(1),
+            kv_temp.stride(2),
+            kv_temp.stride(3),
+            S_kv,
+            H_kv,
+            kv_chunk_size,
+            kv_num_chunks,
+            D=D,
+            LOG2_D=LOG2_D,
+            USE_BFLOAT16=use_bfloat16,
+        )
 
-    # ---- Phase 1: Hadamard + max for V ----
-    # kv_temp reused from K: safe because both launches are on the same CUDA
-    # stream, so K's kernel fully completes before V's starts.
+    # ---- Phase 1: Hadamard + max for V (always Hadamard) ----
+    # kv_temp reused from K (when not v_only): safe because both launches are
+    # on the same CUDA stream, so K's kernel fully completes before V's starts.
     hadamard_single_phase1_kernel[kv_grid](
         v,
         v_had,
@@ -324,15 +357,16 @@ def triton_fp8_hadamard_sdpa_quantize(
         v_partial_max, v_scale, v_descale, H_kv, kv_num_chunks
     )
 
-    # ---- Phase 2: Quantize Q from Hadamard'd intermediate ----
+    # ---- Phase 2: Quantize Q ----
+    q_phase2_input = q if v_only else q_had
     single_phase2_kernel[q_grid](
-        q_had,
+        q_phase2_input,
         q_fp8,
         q_scale,
-        q_had.stride(0),
-        q_had.stride(1),
-        q_had.stride(2),
-        q_had.stride(3),
+        q_phase2_input.stride(0),
+        q_phase2_input.stride(1),
+        q_phase2_input.stride(2),
+        q_phase2_input.stride(3),
         S_q,
         D,
         H_q,
@@ -342,14 +376,15 @@ def triton_fp8_hadamard_sdpa_quantize(
     )
 
     # ---- Phase 2: Quantize K ----
+    k_phase2_input = k if v_only else k_had
     single_phase2_kernel[kv_grid](
-        k_had,
+        k_phase2_input,
         k_fp8,
         k_scale,
-        k_had.stride(0),
-        k_had.stride(1),
-        k_had.stride(2),
-        k_had.stride(3),
+        k_phase2_input.stride(0),
+        k_phase2_input.stride(1),
+        k_phase2_input.stride(2),
+        k_phase2_input.stride(3),
         S_kv,
         D,
         H_kv,
@@ -358,7 +393,7 @@ def triton_fp8_hadamard_sdpa_quantize(
         1,
     )
 
-    # ---- Phase 2: Quantize V ----
+    # ---- Phase 2: Quantize V (always from Hadamard'd intermediate) ----
     single_phase2_kernel[kv_grid](
         v_had,
         v_fp8,

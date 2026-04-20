@@ -8,7 +8,7 @@ import copy
 import logging
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any, List, Optional, Tuple
+from typing import Any, Optional, Tuple
 
 import torch
 
@@ -17,7 +17,6 @@ from torchao.quantization.transform_module import (
     _QUANTIZE_CONFIG_HANDLER,
     register_quantize_module_handler,
 )
-from torchao.quantization.unified import TwoStepQuantizer
 
 from .embedding import FakeQuantizedEmbedding
 from .fake_quantize_config import (
@@ -27,6 +26,7 @@ from .fake_quantize_config import (
     _infer_fake_quantize_configs,
 )
 from .linear import FakeQuantizedLinear
+from .two_step_quantizer import TwoStepQuantizer
 from .utils import _log_deprecation_warning
 
 
@@ -440,7 +440,7 @@ class ComposableQATQuantizer(TwoStepQuantizer):
         model = my_quantizer.convert(model)
     """
 
-    def __init__(self, quantizers: List[TwoStepQuantizer]):
+    def __init__(self, quantizers: list[TwoStepQuantizer]):
         torch._C._log_api_usage_once("torchao.quantization.qat.ComposableQATQuantizer")
         self.quantizers = quantizers
 
