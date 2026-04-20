@@ -37,6 +37,7 @@ __all__ = [
     "DummyModule",
     "register_as_pytree_constant",
     "_cpu_is_vnni_supported",
+    "should_reduce_range",
 ]
 
 

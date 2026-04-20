@@ -30,13 +30,11 @@ from torchao.quantization.utils import get_block_size
 from torchao.utils import (
     TorchAOBaseTensor,
     fill_defaults,
-    should_reduce_range,
 )
 
 __all__ = [
     "Int8Tensor",
     "QuantizeTensorToInt8Kwargs",
-    "should_reduce_range",
 ]
 
 aten = torch.ops.aten
