@@ -59,16 +59,17 @@ class TestInt8TensorCPU(TorchAOIntegrationTestCase):
         input_tensor = torch.randn(M, K, dtype=dtype, device=device)
         model = ToyTwoLinearModel(K, N, K, dtype=dtype, device=device).eval()
         model_q = copy.deepcopy(model)
+        reduce_range = should_reduce_range(input_tensor.device)
 
         if config_mode == "dynamic":
             config = Int8DynamicActivationInt8WeightConfig(
                 version=2,
                 granularity=granularity,
                 act_mapping_type=act_mapping_type,
+                reduce_range=reduce_range,
             )
         else:
             act_granularity, _ = Int8Tensor._normalize_granularity(granularity)
-            reduce_range = should_reduce_range(input_tensor.device)
             quant_min, quant_max = _DTYPE_TO_QVALUE_BOUNDS[torch.int8]
             if reduce_range:
                 quant_min, quant_max = quant_min // 2, quant_max // 2
@@ -90,6 +91,7 @@ class TestInt8TensorCPU(TorchAOIntegrationTestCase):
                 act_quant_zero_point=act_quant_zero_point,
                 granularity=granularity,
                 act_mapping_type=act_mapping_type,
+                reduce_range=reduce_range,
             )
 
         quantize_(model_q, config)
