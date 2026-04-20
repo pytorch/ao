@@ -46,9 +46,7 @@ from ._distributed_test_utils import (
     assert_close,
     assert_dtensor_parameter_grads_match,
     assert_dtensor_parameter_values_match,
-    assert_tp_ffn_weight_placements,
     get_blockwise_linear_skip_reason,
-    make_ffn_tp_plan,
     make_quantized_toy_model_pair,
 )
 
@@ -403,10 +401,11 @@ class TestBlockwiseFP8DTensorSharding(DTensorTestBase):
         mesh = self._build_cuda_mesh()
         device = torch.device(f"cuda:{self.rank % torch.cuda.device_count()}")
         size = 128
-        tp_plan = make_ffn_tp_plan(
-            colwise_parallel_cls=ColwiseParallel,
-            rowwise_parallel_cls=RowwiseParallel,
-        )
+        tp_plan = {
+            "ffn.w1": ColwiseParallel(),
+            "ffn.w2": ColwiseParallel(),
+            "ffn.out_proj": RowwiseParallel(),
+        }
 
         for use_triton in (False, True):
             with self.subTest(use_triton=use_triton):
@@ -418,7 +417,12 @@ class TestBlockwiseFP8DTensorSharding(DTensorTestBase):
                 )
 
                 tp_model = parallelize_module(tp_model, mesh, tp_plan)
-                assert_tp_ffn_weight_placements(tp_model)
+                self.assertIsInstance(tp_model.ffn.w1.weight, DTensor)
+                self.assertIsInstance(tp_model.ffn.w2.weight, DTensor)
+                self.assertIsInstance(tp_model.ffn.out_proj.weight, DTensor)
+                self.assertEqual(tp_model.ffn.w1.weight.placements, (Shard(0),))
+                self.assertEqual(tp_model.ffn.w2.weight.placements, (Shard(0),))
+                self.assertEqual(tp_model.ffn.out_proj.weight.placements, (Shard(1),))
 
                 ref_optim = torch.optim.SGD(ref_model.parameters(), lr=1e-2)
                 tp_optim = torch.optim.SGD(tp_model.parameters(), lr=1e-2)

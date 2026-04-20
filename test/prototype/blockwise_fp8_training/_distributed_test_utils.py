@@ -11,7 +11,6 @@ import torch
 import torch.distributed as dist
 from packaging import version
 from torch.distributed._tensor import DTensor
-from torch.distributed.tensor import Shard
 
 from torchao.prototype.blockwise_fp8_training.linear import (
     Float8BlockwiseLinear,
@@ -27,6 +26,11 @@ def get_blockwise_linear_skip_reason(
     triton_module,
     min_cuda_devices: int,
 ) -> str | None:
+    """Shared module-level gating for Float8BlockwiseLinear distributed tests.
+
+    This is intentionally separate from the lower-level kernel test gating because
+    the module swap currently requires SM90+ and the newer scaled_mm/Triton path.
+    """
     if not torch.cuda.is_available():
         return "CUDA not available"
     if torch.cuda.device_count() < min_cuda_devices:
@@ -39,6 +43,7 @@ def get_blockwise_linear_skip_reason(
 
 
 def full_tensor(tensor: torch.Tensor) -> torch.Tensor:
+    """Materialize a DTensor for parity checks, otherwise return the tensor as-is."""
     return tensor.full_tensor() if isinstance(tensor, DTensor) else tensor
 
 
@@ -49,6 +54,7 @@ def assert_close(
     atol: float = 2e-2,
     rtol: float = 2e-2,
 ) -> None:
+    """Compare eager tensors and DTensors using a common float32 tolerance path."""
     torch.testing.assert_close(
         full_tensor(actual).float(),
         full_tensor(expected).float(),
@@ -118,6 +124,12 @@ def get_replicated_local_batch(
     size: int = 128,
     device: str | torch.device = "cuda",
 ) -> tuple[torch.Tensor, torch.Tensor]:
+    """Build one global batch and hand each replica its deterministic local slice.
+
+    TP peers should see the same sample, while different data-parallel replicas
+    should see different samples. Broadcasting from rank 0 keeps the reference
+    and distributed models aligned across all ranks.
+    """
     torch.manual_seed(100 + iter_idx)
     global_input = torch.randn(
         replica_count,
@@ -134,18 +146,6 @@ def get_replicated_local_batch(
         global_input[replica_index].contiguous(),
         global_target[replica_index].contiguous(),
     )
-
-
-def make_ffn_tp_plan(
-    *,
-    colwise_parallel_cls,
-    rowwise_parallel_cls,
-) -> dict[str, object]:
-    return {
-        "ffn.w1": colwise_parallel_cls(),
-        "ffn.w2": colwise_parallel_cls(),
-        "ffn.out_proj": rowwise_parallel_cls(),
-    }
 
 
 def assert_parameters_are_dtensors(parameters: Iterable[torch.Tensor]) -> None:
@@ -184,12 +184,3 @@ def assert_dtensor_parameter_values_match(
     for ref_param, dist_param in zip(ref_parameters, dist_parameters, strict=True):
         assert isinstance(dist_param, DTensor)
         assert_close(dist_param, ref_param)
-
-
-def assert_tp_ffn_weight_placements(model: torch.nn.Module) -> None:
-    assert isinstance(model.ffn.w1.weight, DTensor)
-    assert isinstance(model.ffn.w2.weight, DTensor)
-    assert isinstance(model.ffn.out_proj.weight, DTensor)
-    assert model.ffn.w1.weight.placements == (Shard(0),)
-    assert model.ffn.w2.weight.placements == (Shard(0),)
-    assert model.ffn.out_proj.weight.placements == (Shard(1),)

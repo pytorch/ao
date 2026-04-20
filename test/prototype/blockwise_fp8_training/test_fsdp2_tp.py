@@ -45,7 +45,6 @@ from _distributed_test_utils import (
     assert_parameters_are_dtensors,
     get_blockwise_linear_skip_reason,
     get_replicated_local_batch,
-    make_ffn_tp_plan,
     make_quantized_toy_model_pair,
 )
 
@@ -74,10 +73,11 @@ def setup_distributed() -> DeviceMesh:
 
 
 def _test_blockwise_mlp_fsdp2_tp_parity(mesh: DeviceMesh, size: int = 128) -> None:
-    tp_plan = make_ffn_tp_plan(
-        colwise_parallel_cls=ColwiseParallel,
-        rowwise_parallel_cls=RowwiseParallel,
-    )
+    tp_plan = {
+        "ffn.w1": ColwiseParallel(),
+        "ffn.w2": ColwiseParallel(),
+        "ffn.out_proj": RowwiseParallel(),
+    }
     dp_rank, _tp_rank = mesh.get_coordinate()
     dp_mesh = mesh["dp"]
 

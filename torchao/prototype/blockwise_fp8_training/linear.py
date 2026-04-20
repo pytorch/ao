@@ -11,7 +11,10 @@ from torch.distributed._tensor import DTensor
 
 from torchao.core.config import AOBaseConfig
 from torchao.prototype.blockwise_fp8_training.kernels import (
+    BLOCKWISE_1X128_SCALING_TYPE,
+    BLOCKWISE_128X128_SCALING_TYPE,
     _prepare_blockwise_scaled_mm_rhs_scale,
+    _scaling_type_value,
     blockwise_scaled_mm,
     triton_fp8_blockwise_act_quant_lhs,
     triton_fp8_blockwise_act_quant_rhs,
@@ -53,9 +56,9 @@ def _scaled_mm(
         mat_a,
         mat_b,
         scale_a,
-        scale_recipe_a.value,
+        _scaling_type_value(scale_recipe_a),
         scale_b,
-        scale_recipe_b.value,
+        _scaling_type_value(scale_recipe_b),
         out_dtype,
     )
 
@@ -117,9 +120,9 @@ class fp8_blockwise_mm(torch.autograd.Function):
             mat_a=x_fp8,
             mat_b=weight_t_fp8,
             scale_a=x_scale,
-            scale_recipe_a=F.ScalingType.BlockWise1x128,
+            scale_recipe_a=BLOCKWISE_1X128_SCALING_TYPE,
             scale_b=weight_t_scale,
-            scale_recipe_b=F.ScalingType.BlockWise128x128,
+            scale_recipe_b=BLOCKWISE_128X128_SCALING_TYPE,
             out_dtype=out_dtype,
         )
         out = out.reshape(*x_orig_shape[:-1], out.shape[-1])
@@ -164,9 +167,9 @@ class fp8_blockwise_mm(torch.autograd.Function):
             mat_a=grad_output_fp8,
             mat_b=weight_fp8,
             scale_a=grad_output_scale,
-            scale_recipe_a=F.ScalingType.BlockWise1x128,
+            scale_recipe_a=BLOCKWISE_1X128_SCALING_TYPE,
             scale_b=weight_scale,
-            scale_recipe_b=F.ScalingType.BlockWise128x128,
+            scale_recipe_b=BLOCKWISE_128X128_SCALING_TYPE,
             out_dtype=out_dtype,
         )
 
@@ -192,9 +195,9 @@ class fp8_blockwise_mm(torch.autograd.Function):
             mat_a=grad_output_t_fp8,
             mat_b=x_fp8,
             scale_a=grad_output_t_scale,
-            scale_recipe_a=F.ScalingType.BlockWise1x128,
+            scale_recipe_a=BLOCKWISE_1X128_SCALING_TYPE,
             scale_b=x_scale.transpose(-1, -2),
-            scale_recipe_b=F.ScalingType.BlockWise1x128,
+            scale_recipe_b=BLOCKWISE_1X128_SCALING_TYPE,
             triton_scale_b=x_scale,
             out_dtype=out_dtype,
         )

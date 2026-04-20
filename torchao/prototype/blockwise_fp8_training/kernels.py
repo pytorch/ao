@@ -31,6 +31,18 @@ fp8_gemm_configs_max_autotune = [
 
 EPS = 1e-12
 
+_SCALING_TYPE = getattr(F, "ScalingType", getattr(torch._C, "_ScalingType", None))
+BLOCKWISE_1X128_SCALING_TYPE = (
+    _SCALING_TYPE.BlockWise1x128 if _SCALING_TYPE is not None else 4
+)
+BLOCKWISE_128X128_SCALING_TYPE = (
+    _SCALING_TYPE.BlockWise128x128 if _SCALING_TYPE is not None else 5
+)
+
+
+def _scaling_type_value(scale_recipe) -> int:
+    return scale_recipe.value if hasattr(scale_recipe, "value") else scale_recipe
+
 
 def _pad_blockwise_128x128_scale_k_major(scale: torch.Tensor) -> torch.Tensor:
     # cuBLASLt requires BLK128x128 scales to be K-major with the K stride padded to a multiple of 4.
@@ -47,12 +59,11 @@ def _pad_blockwise_128x128_scale_k_major(scale: torch.Tensor) -> torch.Tensor:
 
 def _prepare_blockwise_scaled_mm_rhs_scale(
     scale: torch.Tensor,
-    scale_recipe: F.ScalingType | int,
+    scale_recipe,
 ) -> torch.Tensor:
-    scale_recipe_value = (
-        scale_recipe.value if isinstance(scale_recipe, F.ScalingType) else scale_recipe
-    )
-    if scale_recipe_value != F.ScalingType.BlockWise128x128.value:
+    if _scaling_type_value(scale_recipe) != _scaling_type_value(
+        BLOCKWISE_128X128_SCALING_TYPE
+    ):
         return scale
     return _pad_blockwise_128x128_scale_k_major(scale)
 
