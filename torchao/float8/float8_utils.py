@@ -62,7 +62,10 @@ def tensor_to_amax(
     axiswise_dim: Optional[int] = None,
 ) -> torch.Tensor:
     if scaling_granularity is ScalingGranularity.TENSORWISE:
-        amax = torch.max(torch.abs(x))
+        if x.numel() > 0:
+            amax = torch.max(torch.abs(x))
+        else:
+            amax = torch.tensor(EPS, device=x.device, dtype=x.dtype)
     else:
         assert scaling_granularity is ScalingGranularity.AXISWISE, "unsupported"
         assert axiswise_dim is not None, "unsupported"
