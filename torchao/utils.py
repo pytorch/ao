@@ -1170,12 +1170,6 @@ def is_cuda_version_at_least(major: int, minor: int) -> bool:
     return (cuda_major, cuda_minor) >= (major, minor)
 
 
-def check_cpu_version(device, version="2.6.0"):
-    if isinstance(device, torch.device):
-        device = device.type
-    return device == "cpu" and torch_version_at_least(version)
-
-
 def _cpu_is_vnni_supported() -> bool:
     """
     Safely query AVX512_VNNI support, guarding against private API absence.
@@ -1189,10 +1183,12 @@ def _cpu_is_vnni_supported() -> bool:
     return False
 
 
-def check_xpu_version(device, version="2.8.0"):
-    if isinstance(device, torch.device):
-        device = device.type
-    return device == "xpu" and torch_version_at_least(version)
+def should_reduce_range(device: torch.device) -> bool:
+    """
+    Helper to determine if int8 tensor quantization range should be reduced
+    to avoid overflow on CPUs without VNNI support.
+    """
+    return device.type == "cpu" and not _cpu_is_vnni_supported()
 
 
 def ceil_div(a, b):

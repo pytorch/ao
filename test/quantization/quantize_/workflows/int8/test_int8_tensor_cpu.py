@@ -20,15 +20,13 @@ from torchao.quantization.quant_primitives import (
     MappingType,
     choose_qparams_affine,
 )
-from torchao.quantization.quantize_.workflows.int8.int8_tensor import (
-    Int8Tensor,
-    should_reduce_range,
-)
+from torchao.quantization.quantize_.workflows.int8.int8_tensor import Int8Tensor
 from torchao.quantization.utils import compute_error, get_block_size
 from torchao.testing.model_architectures import ToyTwoLinearModel
 from torchao.testing.utils import TorchAOIntegrationTestCase
 from torchao.utils import (
     is_ROCM,
+    should_reduce_range,
 )
 
 

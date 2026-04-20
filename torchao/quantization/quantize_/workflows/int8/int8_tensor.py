@@ -27,7 +27,11 @@ from torchao.quantization.quantize_.common import (
     _choose_quant_func_and_quantize_tensor,
 )
 from torchao.quantization.utils import get_block_size
-from torchao.utils import TorchAOBaseTensor, _cpu_is_vnni_supported, fill_defaults
+from torchao.utils import (
+    TorchAOBaseTensor,
+    fill_defaults,
+    should_reduce_range,
+)
 
 __all__ = [
     "Int8Tensor",
@@ -36,10 +40,6 @@ __all__ = [
 ]
 
 aten = torch.ops.aten
-
-
-def should_reduce_range(device: torch.device) -> bool:
-    return device.type == "cpu" and not _cpu_is_vnni_supported()
 
 
 @dataclass
@@ -452,6 +452,8 @@ def _(func, types, args, kwargs):
         is_pinned = is_pinned and args[0].act_quant_scale.is_pinned()
     if args[0].act_quant_zero_point is not None:
         is_pinned = is_pinned and args[0].act_quant_zero_point.is_pinned()
+    if args[0].act_pre_scale is not None:
+        is_pinned = is_pinned and args[0].act_pre_scale.is_pinned()
     return is_pinned
 
 
