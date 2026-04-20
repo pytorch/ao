@@ -15,6 +15,9 @@ from torchao.prototype.gptq import (
     gptq_quantize,
 )
 from torchao.prototype.gptq.observer import GPTQObserverTensor
+from torchao.prototype.mx_formats.inference_workflow import (
+    NVFP4DynamicActivationNVFP4WeightConfig,
+)
 from torchao.quantization import Int4WeightOnlyConfig, Int8WeightOnlyConfig, quantize_
 from torchao.quantization.granularity import PerRow
 from torchao.utils import _is_mslk_available
@@ -435,6 +438,13 @@ class TestGPTQFlow:
             pytest.param(
                 Int8WeightOnlyConfig(granularity=PerRow(), version=2), id="int8"
             ),
+            pytest.param(
+                NVFP4DynamicActivationNVFP4WeightConfig(
+                    use_dynamic_per_tensor_scale=True,
+                    use_triton_kernel=True,
+                ),
+                id="nvfp4",
+            ),
         ],
     )
     def test_gptq_quantize_better_than_naive(self, base_config):
@@ -506,6 +516,13 @@ class TestGPTQFlow:
             pytest.param(
                 Int8WeightOnlyConfig(granularity=PerRow(), version=2), id="int8"
             ),
+            pytest.param(
+                NVFP4DynamicActivationNVFP4WeightConfig(
+                    use_dynamic_per_tensor_scale=True,
+                    use_triton_kernel=True,
+                ),
+                id="nvfp4",
+            ),
         ],
     )
     def test_gptq_sqnr(self, base_config):
@@ -556,6 +573,10 @@ class TestGPTQFlow:
             assert sqnr_gptq > 25, f"GPTQ SQNR: {sqnr_gptq} is too low"
         elif isinstance(base_config, Int8WeightOnlyConfig):
             assert sqnr_gptq > 30, f"GPTQ SQNR: {sqnr_gptq} is too low"
+        elif isinstance(base_config, NVFP4DynamicActivationNVFP4WeightConfig):
+            assert sqnr_gptq > 15, f"GPTQ SQNR: {sqnr_gptq} is too low"
+        else:
+            raise AssertionError("unsupported")
         assert sqnr_gptq > sqnr_rtn, (
             f"GPTQ SQNR: {sqnr_gptq} is not better than RTN SQNR: {sqnr_rtn}"
         )
