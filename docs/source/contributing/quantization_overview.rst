@@ -89,7 +89,9 @@ So in general we structure Tensor subclasses by dervied dtpype and packing forma
      - preshuffled (special format to optimize for loading)
      - float8 act + int4 weight dynamic quantization and int4 weight only quantization
    * - Int8Tensor
+     - scaled int8
      - plain (no packing needed)
+     - int8 act + int8 weight dynamic quantization and int8 weight only quantization
 
 .. note::
    We don't have granularity specific tensor subclasses, i.e. no Float8RowwiseTensor or Float8BlockwiseTensor, all granularities are implemented in the same Tensor, we typically use a general `block_size` attribute to distinguish between different granularities, and each Tensor is allowed to support only a subset of all possible granularity options.
