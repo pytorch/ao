@@ -275,7 +275,7 @@ def main(
             )
 
     # use bfloat16 for the entire notebook
-    torch.autocast(device_type="cuda", dtype=torch.bfloat16).__enter__()
+    # torch.autocast(device_type="cuda", dtype=torch.bfloat16).__enter__()
     torch.backends.cuda.matmul.allow_tf32 = True
     torch.backends.cudnn.allow_tf32 = True
 
@@ -296,7 +296,9 @@ def main(
         # hydra_overrides_extra=hydra_overrides_extra,
     )
     predictor._frame_batch_size = frame_batch_size
-    predictor.image_encoder.trunk = predictor.image_encoder.trunk.to(torch.bfloat16)
+    # predictor.image_encoder = predictor.image_encoder.to(torch.bfloat16)
+    predictor = predictor.to(torch.bfloat16)
+    predictor.sam_mask_decoder._src_dtype = torch.bfloat16
     from torchao._models.sam2.modeling.sam.transformer import RoPEAttention
 
     rope_attention_modules = [
