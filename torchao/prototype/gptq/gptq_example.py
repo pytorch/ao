@@ -17,6 +17,9 @@ from tqdm import tqdm
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from torchao.prototype.gptq import GPTQConfig
+from torchao.prototype.mx_formats.inference_workflow import (
+    NVFP4DynamicActivationNVFP4WeightConfig,
+)
 from torchao.quantization import Int4WeightOnlyConfig, Int8WeightOnlyConfig, quantize_
 from torchao.quantization.granularity import PerRow
 
@@ -98,6 +101,8 @@ def prepare_dataset(
     hf_dataset_id = dataset_map.get(dataset_id, dataset_id)
 
     # Load dataset and preprocess
+    # TODO(before land): clean up below
+    dataset_split = "train"
     train_dataset_raw = load_dataset(hf_dataset_id, split=dataset_split, streaming=True)
     train_dataset_raw = train_dataset_raw.shuffle(seed=seed, buffer_size=1_000)
 
@@ -149,7 +154,8 @@ def parse_args():
     parser.add_argument(
         "--num-calibration-samples",
         type=int,
-        default=128,
+        # default=128,
+        default=2,
         help="Number of calibration samples to use",
     )
     parser.add_argument(
@@ -177,6 +183,9 @@ def parse_args():
             "int8-rtn",
             "int8-gptq-sequential",
             "int8-gptq-nonsequential",
+            "nvfp4-rtn",
+            "nvfp4-gptq-sequential",
+            "nvfp4-gptq-nonsequential",
         ],
         help="Quantization method to use",
     )
@@ -241,6 +250,8 @@ def main():
         "int4-gptq-nonsequential",
         "int8-gptq-sequential",
         "int8-gptq-nonsequential",
+        "nvfp4-gptq-sequential",
+        "nvfp4-gptq-nonsequential",
     ]:
         output_dir += f"_{args.dataset_id}_n{args.num_calibration_samples}"
         output_dir += f"_damp{args.percdamp}_bs{args.gptq_block_size}"
@@ -250,29 +261,51 @@ def main():
     # Handle different quantization methods
     quantization_start_time = time.time()
 
+    def skip_lm_head(module, fqn):
+        # TODO(before land): remove o_proj from below, it's just for debugging
+        return isinstance(module, torch.nn.Linear) and "lm_head" not in fqn and "o_proj" in fqn
+
+
     if args.quantization == "int4-rtn":
         print("Applying Int4 RTN (Round-To-Nearest) quantization...")
         config = Int4WeightOnlyConfig(group_size=args.group_size)
-        quantize_(model, config, filter_fn=None)
+        quantize_(model, config, filter_fn=skip_lm_head)
 
     elif args.quantization == "int8-rtn":
         print("Applying Int8 RTN (Round-To-Nearest) quantization...")
         config = Int8WeightOnlyConfig(version=2, granularity=PerRow())
-        quantize_(model, config, filter_fn=None)
+        quantize_(model, config, filter_fn=skip_lm_head)
+
+    elif args.quantization == "nvfp4-rtn":
+        print("Applying NVFP4 RTN (Round-To-Nearest) quantization...")
+
+        config = NVFP4DynamicActivationNVFP4WeightConfig(
+            use_dynamic_per_tensor_scale=True,
+            use_triton_kernel=True,
+        )
+        quantize_(model, config, filter_fn=skip_lm_head)
 
     elif args.quantization in [
         "int4-gptq-sequential",
         "int4-gptq-nonsequential",
         "int8-gptq-sequential",
         "int8-gptq-nonsequential",
+        "nvfp4-gptq-sequential",
+        "nvfp4-gptq-nonsequential",
     ]:
         # Determine base config based on quantization type
         if "int4" in args.quantization:
             base_config = Int4WeightOnlyConfig(group_size=args.group_size)
             quant_type = "Int4"
-        else:  # int8
+        elif "int8" in args.quantization:
             base_config = Int8WeightOnlyConfig(granularity=PerRow(), version=2)
             quant_type = "Int8"
+        else:  # nvfp4
+            base_config = NVFP4DynamicActivationNVFP4WeightConfig(
+                use_dynamic_per_tensor_scale=True,
+                use_triton_kernel=True,
+            )
+            quant_type = "NVFP4"
 
         # First application: wrap weights with GPTQObserverTensor (observe step)
         print(
@@ -284,7 +317,7 @@ def main():
             percdamp=args.percdamp,
             gptq_quantize_block_size=args.gptq_block_size,
         )
-        quantize_(model, observe_config, filter_fn=None)
+        quantize_(model, observe_config, filter_fn=skip_lm_head)
 
         # Prepare calibration dataset
         print(
@@ -316,7 +349,7 @@ def main():
             for seq in tqdm(dataset, desc="Calibrating"):
                 model(seq.to(input_device))
             # Apply quantization
-            quantize_(model, convert_config, filter_fn=None)
+            quantize_(model, convert_config, filter_fn=skip_lm_head)
         else:  # sequential
             print(f"Applying {quant_type} GPTQ quantization (sequential)...")
             sequential_quantize(model, dataset, convert_config)
@@ -334,6 +367,23 @@ def main():
     # Save model to generated output directory
     print(f"Saving model to {output_dir}...")
     tokenizer.save_pretrained(output_dir)
+    print(model)
+    if model.config.tie_word_embeddings:
+        model.config.tie_word_embeddings = False
+        model._tied_weights_keys = {}
+        model.lm_head.weight = torch.nn.Parameter(
+            model.lm_head.weight.clone(), requires_grad=False
+        )
+
+        # monkey patch huggingface to skip weight tie checks
+        # TODO(before land): debug why i'm hitting this error here,
+        # as nvfp4 works in other hf models just fine
+        # import transformers.modeling_utils
+        # transformers.modeling_utils.remove_tied_weights_from_state_dict = lambda state_dict, model: state_dict
+
+        import transformers
+        assert transformers.__version__ == '4.57.6', "unsupported"
+
     model.save_pretrained(output_dir, safe_serialization=False)
 
     print("DONE!")
