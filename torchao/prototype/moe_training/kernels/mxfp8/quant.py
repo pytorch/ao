@@ -16,12 +16,18 @@ from torchao.prototype.moe_training.kernels.mxfp8.cute_utils import (
     _cutedsl_runtime_available,
     _missing_cutedsl_runtime_packages,
 )
+from torchao.prototype.moe_training.kernels.mxfp8.flydsl_utils import (
+    _flydsl_runtime_available,
+    _missing_flydsl_runtime_packages,
+)
 from torchao.prototype.mx_formats.config import ScaleCalculationMode
 from torchao.prototype.mx_formats.mx_tensor import to_mx
 from torchao.prototype.mx_formats.utils import to_blocked
 from torchao.utils import (
     ceil_div,
     is_cuda_version_at_least,
+    is_MI300,
+    is_MI350,
     torch_version_at_least,
 )
 
@@ -1552,3 +1558,238 @@ def mxfp8_quantize_2d_32x1_cutedsl(
         offs=offs,
     )
     return qdata, scales
+
+
+# =============================================================================
+# FlyDSL MXFP8 quantize kernels (AMD CDNA3+ / RDNA4+ via the FlyDSL stack).
+#
+# These mirror the CuteDSL trio above and target AMD GPUs (MI300, MI350) using
+# FlyDSL — a Python DSL with an MLIR-based ROCm backend. They expose the same
+# torchao::* custom-op API surface so callers on AMD hardware can use them as a
+# drop-in replacement, and torch.compile sees identical fake/symbolic shapes.
+#
+# Initial scope (matches each kernel module's docstring):
+#   * FLOOR scaling mode only (RCEIL deferred — no AMD analog to NVIDIA's
+#     ``cvt.rp.satfinite.ue8m0x2.f32``).
+#   * Plain (non-blocked) scale layout. blocked_scale_output is ignored — the
+#     blocked layout is tcgen05-specific and only meaningful on SM 10.x.
+#   * No ``offs`` token-group support yet; passing ``offs`` raises.
+#   * No multi-stage TMA pipeline (AMD has no TMA on CDNA3/CDNA4); the
+#     ``stage_count`` argument is accepted but ignored.
+# =============================================================================
+_mxfp8_flydsl_kernels_available = (
+    torch.cuda.is_available()
+    and (is_MI300() or is_MI350())
+    and _flydsl_runtime_available()
+)
+
+
+def _raise_if_flydsl_unavailable(opname: str) -> None:
+    if _mxfp8_flydsl_kernels_available:
+        return
+    missing = _missing_flydsl_runtime_packages()
+    if missing:
+        raise NotImplementedError(
+            f"{opname} requires FlyDSL — missing package(s): {', '.join(missing)}. "
+            "Build FlyDSL and add its python_packages dir to PYTHONPATH."
+        )
+    raise NotImplementedError(
+        f"{opname} requires an AMD GPU (MI300 or MI350) with the FlyDSL runtime."
+    )
+
+
+@torch.library.custom_op("torchao::mxfp8_quantize_3d_flydsl", mutates_args=())
+def _mxfp8_quantize_3d_flydsl_custom_op(
+    x: torch.Tensor,
+    block_size: int = 32,
+    scaling_mode: str = "floor",
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    from torchao.prototype.moe_training.kernels.mxfp8.flydsl_quantize_3d import (
+        mxfp8_quantize_flydsl_3d,
+    )
+
+    return mxfp8_quantize_flydsl_3d(
+        x,
+        block_size=block_size,
+        scaling_mode=scaling_mode,
+    )
+
+
+@_mxfp8_quantize_3d_flydsl_custom_op.register_fake
+def _fake_mxfp8_quantize_3d_flydsl_custom_op(
+    x: torch.Tensor,
+    block_size: int = 32,
+    scaling_mode: str = "floor",
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    assert x.ndim == 3, "input tensor must be 3D"
+    assert block_size == 32, "Only block_size=32 is supported"
+    e, n, k = x.shape
+    # Per-expert column-major (N, K) — same layout as the cutedsl variant.
+    q_data = torch.empty_strided(
+        (e, n, k),
+        (n * k, 1, n),
+        device=x.device,
+        dtype=torch.float8_e4m3fn,
+    )
+    n_blocks = n // block_size
+    # Plain scale layout: (E, N//32, K). No blocked layout on AMD.
+    scales = x.new_empty(
+        (e, n_blocks, k),
+        dtype=torch.float8_e8m0fnu,
+    )
+    return q_data, scales
+
+
+@torch.library.custom_op("torchao::mxfp8_quantize_2d_1x32_flydsl", mutates_args=())
+def _mxfp8_quantize_2d_1x32_flydsl_custom_op(
+    x: torch.Tensor,
+    block_size: int = 32,
+    scaling_mode: str = "floor",
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    from torchao.prototype.moe_training.kernels.mxfp8.flydsl_quantize_2d_1x32 import (
+        mxfp8_quantize_flydsl_2d_1x32,
+    )
+
+    return mxfp8_quantize_flydsl_2d_1x32(
+        x,
+        block_size=block_size,
+        scaling_mode=scaling_mode,
+    )
+
+
+@_mxfp8_quantize_2d_1x32_flydsl_custom_op.register_fake
+def _fake_mxfp8_quantize_2d_1x32_flydsl_custom_op(
+    x: torch.Tensor,
+    block_size: int = 32,
+    scaling_mode: str = "floor",
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    assert x.ndim == 2, "input tensor must be 2D"
+    assert block_size == 32, "Only block_size=32 is supported"
+    m, k = x.shape
+    # Row-major (M, K) data + plain (M, K//32) scales.
+    q_data = torch.empty_strided(
+        (m, k),
+        (k, 1),
+        device=x.device,
+        dtype=torch.float8_e4m3fn,
+    )
+    k_blocks = k // block_size
+    scales = x.new_empty(
+        (m, k_blocks),
+        dtype=torch.float8_e8m0fnu,
+    )
+    return q_data, scales
+
+
+@torch.library.custom_op("torchao::mxfp8_quantize_2d_32x1_flydsl", mutates_args=())
+def _mxfp8_quantize_2d_32x1_flydsl_custom_op(
+    x: torch.Tensor,
+    block_size: int = 32,
+    scaling_mode: str = "floor",
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    from torchao.prototype.moe_training.kernels.mxfp8.flydsl_quantize_2d_32x1 import (
+        mxfp8_quantize_flydsl_2d_32x1,
+    )
+
+    return mxfp8_quantize_flydsl_2d_32x1(
+        x,
+        block_size=block_size,
+        scaling_mode=scaling_mode,
+    )
+
+
+@_mxfp8_quantize_2d_32x1_flydsl_custom_op.register_fake
+def _fake_mxfp8_quantize_2d_32x1_flydsl_custom_op(
+    x: torch.Tensor,
+    block_size: int = 32,
+    scaling_mode: str = "floor",
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    assert x.ndim == 2, "input tensor must be 2D"
+    assert block_size == 32, "Only block_size=32 is supported"
+    m, k = x.shape
+    # Column-major (M, K) data + plain (K, M//32) scales.
+    q_data = torch.empty_strided(
+        (m, k),
+        (1, m),
+        device=x.device,
+        dtype=torch.float8_e4m3fn,
+    )
+    m_blocks = m // block_size
+    scales = x.new_empty(
+        (k, m_blocks),
+        dtype=torch.float8_e8m0fnu,
+    )
+    return q_data, scales
+
+
+def mxfp8_quantize_3d_flydsl(
+    x: torch.Tensor,
+    block_size: int = 32,
+    scaling_mode: str = "floor",
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    """Quantize a 3D MoE tensor (E, N, K) to MXFP8 using the FlyDSL kernel.
+
+    AMD counterpart of :func:`mxfp8_quantize_3d_cutedsl`.
+
+    Args:
+        x: Input tensor of shape (E, N, K).
+        block_size: Block size for quantization (only 32 supported).
+        scaling_mode: Currently only "floor" is supported on AMD.
+
+    Returns:
+        Tuple ``(q_data, scales)`` where ``q_data`` is per-expert column-major
+        ``torch.float8_e4m3fn`` (strides ``(N*K, 1, N)``) and ``scales`` is
+        ``(E, N // 32, K)`` ``torch.float8_e8m0fnu``.
+    """
+    _raise_if_flydsl_unavailable("mxfp8_quantize_3d_flydsl")
+    return _mxfp8_quantize_3d_flydsl_custom_op(
+        x, block_size=block_size, scaling_mode=scaling_mode,
+    )
+
+
+def mxfp8_quantize_2d_1x32_flydsl(
+    x: torch.Tensor,
+    block_size: int = 32,
+    scaling_mode: str = "floor",
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    """Quantize a 2D tensor (M, K) along K (1x32 scaling) using the FlyDSL kernel.
+
+    AMD counterpart of :func:`mxfp8_quantize_2d_1x32_cutedsl`.
+
+    Args:
+        x: Input tensor of shape (M, K).
+        block_size: Block size (only 32 supported).
+        scaling_mode: Currently only "floor" is supported on AMD.
+
+    Returns:
+        Row-major ``(M, K)`` ``torch.float8_e4m3fn`` data + plain
+        ``(M, K // 32)`` E8M0 scales.
+    """
+    _raise_if_flydsl_unavailable("mxfp8_quantize_2d_1x32_flydsl")
+    return _mxfp8_quantize_2d_1x32_flydsl_custom_op(
+        x, block_size=block_size, scaling_mode=scaling_mode,
+    )
+
+
+def mxfp8_quantize_2d_32x1_flydsl(
+    x: torch.Tensor,
+    block_size: int = 32,
+    scaling_mode: str = "floor",
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    """Quantize a 2D tensor (M, K) along M (32x1 scaling) using the FlyDSL kernel.
+
+    AMD counterpart of :func:`mxfp8_quantize_2d_32x1_cutedsl`.
+
+    Args:
+        x: Input tensor of shape (M, K).
+        block_size: Block size (only 32 supported).
+        scaling_mode: Currently only "floor" is supported on AMD.
+
+    Returns:
+        Column-major ``(M, K)`` ``torch.float8_e4m3fn`` data (stride ``(1, M)``)
+        + plain ``(K, M // 32)`` E8M0 scales.
+    """
+    _raise_if_flydsl_unavailable("mxfp8_quantize_2d_32x1_flydsl")
+    return _mxfp8_quantize_2d_32x1_flydsl_custom_op(
+        x, block_size=block_size, scaling_mode=scaling_mode,
+    )
