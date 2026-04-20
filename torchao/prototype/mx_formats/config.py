@@ -31,6 +31,11 @@ class MXFP8Dim1CastKernelChoice(Enum):
     CUDA = "cuda"
     TORCH = "torch"
     CUTEDSL = "cutedsl"
+    # AMD CDNA3+ counterpart of CUTEDSL via FlyDSL. FLOOR-mode scale only;
+    # all existing MXFP8TrainingRecipe entries force RCEIL today, so callers
+    # must construct an MXFP8TrainingOpConfig with scale_calculation_mode=FLOOR
+    # explicitly to actually exercise this backend until FlyDSL gains RCEIL.
+    FLYDSL = "flydsl"
 
 
 # register as pytree constant so we can use dynamo nonstrict trace in torchao.prototype.moe_training.ep
