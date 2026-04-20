@@ -12,7 +12,7 @@ eliminating D2H synchronisation in the MoE expert forward/backward.
 ``silu_mul_fw``
     Reads ``num_tokens`` rows of ``[h1 | h3]`` from a shared saved-activations
     buffer at a GPU-determined offset, computes ``silu(h1) * h3``, and writes
-    the result (zero-padded to ``sym_mem_buffer_rows``) into a new tensor.
+    the result into a pre-allocated output tensor.
 
 ``silu_mul_bw``
     Re-reads the saved ``[h1 | h3]``, recomputes the forward, and produces
@@ -43,7 +43,7 @@ def _silu_mul_fw_kernel(
     sym_mem_buffer_rows,
     BLOCK_SIZE: tl.constexpr,
 ):
-    """Compute silu(h1) * h3 for valid rows; zero-fill padding rows."""
+    """Compute silu(h1) * h3 for valid rows; skip padding rows."""
     pid = tl.program_id(0)
     offset = tl.load(offset_ptr).to(tl.int64)
     num_tokens = tl.load(num_tokens_ptr).to(tl.int64)
@@ -52,16 +52,17 @@ def _silu_mul_fw_kernel(
     row = elem_ids // hidden_dim
     col = elem_ids % hidden_dim
 
-    out_mask = (row < sym_mem_buffer_rows) & (col < hidden_dim)
     valid_mask = row < num_tokens
+    col_mask = col < hidden_dim
 
     # Load h1 and h3 from input_buffer[offset + row, col] and [offset + row, hidden_dim + col]
     input_row = offset + row
     h1_off = input_row * input_stride_row + col
     h3_off = input_row * input_stride_row + hidden_dim + col
 
-    h1 = tl.load(input_ptr + h1_off, mask=valid_mask & out_mask, other=0.0)
-    h3 = tl.load(input_ptr + h3_off, mask=valid_mask & out_mask, other=0.0)
+    load_mask = valid_mask & col_mask
+    h1 = tl.load(input_ptr + h1_off, mask=load_mask, other=0.0)
+    h3 = tl.load(input_ptr + h3_off, mask=load_mask, other=0.0)
 
     # silu(h1) = h1 * sigmoid(h1), keep everything in float32 for precision
     h1_f32 = h1.to(tl.float32)
@@ -70,16 +71,17 @@ def _silu_mul_fw_kernel(
     result = (silu_h1_f32 * h3_f32).to(h1.dtype)
 
     out_off = row * output_stride_row + col
-    tl.store(output_ptr + out_off, result, mask=out_mask)
+    tl.store(output_ptr + out_off, result, mask=load_mask)
 
 
-@triton_op("torchao::silu_mul_fw", mutates_args={})
+@triton_op("torchao::silu_mul_fw", mutates_args={"output"})
 def silu_mul_fw(
     input_buffer: torch.Tensor,
     saved_activation_buffer_offset: torch.Tensor,
     num_tokens: torch.Tensor,
     sym_mem_buffer_rows: int,
-) -> torch.Tensor:
+    output: torch.Tensor,
+) -> None:
     """Fused SwiGLU forward: ``silu(h1) * h3`` with GPU-resident offset.
 
     Args:
@@ -88,17 +90,9 @@ def silu_mul_fw(
         saved_activation_buffer_offset: Scalar int64 GPU tensor — start row in ``input_buffer``.
         num_tokens: Scalar int64 GPU tensor — number of valid rows.
         sym_mem_buffer_rows: Total output rows (Python int).
-
-    Returns:
-        ``(sym_mem_buffer_rows, hidden_dim)`` BF16 tensor.
+        output: Pre-allocated ``(sym_mem_buffer_rows, hidden_dim)`` BF16 tensor.
     """
     hidden_dim = input_buffer.shape[1] // 2
-    output = torch.empty(
-        sym_mem_buffer_rows,
-        hidden_dim,
-        device=input_buffer.device,
-        dtype=input_buffer.dtype,
-    )
 
     total_elems = sym_mem_buffer_rows * hidden_dim
     BLOCK_SIZE = 1024
@@ -115,7 +109,6 @@ def silu_mul_fw(
         sym_mem_buffer_rows=sym_mem_buffer_rows,
         BLOCK_SIZE=BLOCK_SIZE,
     )
-    return output
 
 
 @triton.jit
@@ -140,6 +133,8 @@ def _silu_mul_fw_mxfp8_kernel(
     E8M0 scales directly. Eliminates the BF16 intermediate and separate scale
     rearrangement kernel.
 
+    Early-exits for tile blocks beyond ``num_tokens``.
+
     Grid: (cdiv(sym_mem_buffer_rows, TILE_M), cdiv(hidden_dim, TILE_K))
     """
     SCALE_BLOCKS_PER_TILE: tl.constexpr = TILE_K // SCALE_BLOCK_SIZE
@@ -155,6 +150,10 @@ def _silu_mul_fw_mxfp8_kernel(
 
     offset = tl.load(offset_ptr).to(tl.int64)
     num_tokens = tl.load(num_tokens_ptr).to(tl.int64)
+
+    # Early-exit: skip blocks entirely beyond valid tokens.
+    if pid_row * TILE_M >= num_tokens:
+        return
 
     row_offs = pid_row * TILE_M + tl.arange(0, TILE_M)
     col_offs = pid_col * TILE_K + tl.arange(0, TILE_K)
@@ -179,7 +178,7 @@ def _silu_mul_fw_mxfp8_kernel(
     silu_h1_f32 = h1_f32 * tl.sigmoid(h1_f32)
     result_bf16 = (silu_h1_f32 * h3_f32).to(tl.bfloat16)
 
-    # Zero out invalid rows
+    # Zero out invalid rows (needed for correct scale computation in boundary tiles)
     result_bf16 = tl.where(valid_mask[:, None], result_bf16, 0.0)
 
     # Quantize to MXFP8: reshape to groups of SCALE_BLOCK_SIZE (32)
@@ -198,11 +197,9 @@ def _silu_mul_fw_mxfp8_kernel(
     quantized = tl.reshape(quantized_r, (TILE_M, TILE_K))
     quantized_fp8 = quantized.to(tl.float8e4nv)
 
-    # Store FP8 data in row-major layout
+    # Store FP8 data only for valid rows
     data_offs = row_offs[:, None] * output_data_stride_row + col_offs[None, :]
-    store_mask = (row_offs[:, None] < sym_mem_buffer_rows) & (
-        col_offs[None, :] < hidden_dim
-    )
+    store_mask = valid_mask[:, None] & col_mask[None, :]
     tl.store(output_data_ptr + data_offs, quantized_fp8, mask=store_mask)
 
     # Apply blocked layout swizzle to scales and store directly
@@ -224,56 +221,40 @@ def _silu_mul_fw_mxfp8_kernel(
     tl.store(output_scales_ptr + block_offset + dest_indices_flat, scales_flat)
 
 
-@triton_op("torchao::silu_mul_fw_mxfp8", mutates_args={})
+@triton_op("torchao::silu_mul_fw_mxfp8", mutates_args={"out_data", "out_scales"})
 def silu_mul_fw_mxfp8(
     input_buffer: torch.Tensor,
     saved_activation_buffer_offset: torch.Tensor,
     num_tokens: torch.Tensor,
     sym_mem_buffer_rows: int,
-) -> tuple[torch.Tensor, torch.Tensor]:
+    out_data: torch.Tensor,
+    out_scales: torch.Tensor,
+) -> None:
     """Fused SwiGLU forward + MXFP8 quantization with blocked scale layout.
 
     Computes ``silu(h1) * h3`` and quantizes directly to MXFP8 with blocked
     E8M0 scales, eliminating the BF16 intermediate tensor and separate scale
     rearrangement kernel.
 
+    Writes into pre-allocated output buffers.  Blocks beyond ``num_tokens``
+    early-exit with ~0 cost.
+
     Args:
         input_buffer: ``(saved_activations_buffer_rows, 2*hidden_dim)`` BF16
             shared saved-activations buffer.
         saved_activation_buffer_offset: Scalar int64 GPU tensor — start row in ``input_buffer``.
         num_tokens: Scalar int64 GPU tensor — number of valid rows.
-        sym_mem_buffer_rows: Total output rows (Python int).
-
-    Returns:
-        output_e4m3: ``(sym_mem_buffer_rows, hidden_dim)`` float8_e4m3fn row-major.
-        output_scales_blocked: ``(padded_rows * padded_scale_cols,)`` float8_e8m0fnu
-            in tcgen05 blocked layout.
+        sym_mem_buffer_rows: Total output rows / grid sizing (Python int).
+        out_data: Pre-allocated ``(sym_mem_buffer_rows, hidden_dim)`` float8_e4m3fn.
+        out_scales: Pre-allocated flat uint8 blocked scale buffer.
     """
     hidden_dim = input_buffer.shape[1] // 2
     block_size = 32
 
-    # Allocate FP8 data output
-    output_data = torch.empty(
-        sym_mem_buffer_rows,
-        hidden_dim,
-        device=input_buffer.device,
-        dtype=torch.float8_e4m3fn,
-    )
-
     # Compute blocked scale layout dimensions
     scale_cols = hidden_dim // block_size
     BLOCK_ROWS, BLOCK_COLS = 128, 4
-    n_row_blocks = (sym_mem_buffer_rows + BLOCK_ROWS - 1) // BLOCK_ROWS
     n_col_blocks = (scale_cols + BLOCK_COLS - 1) // BLOCK_COLS
-    padded_rows = n_row_blocks * BLOCK_ROWS
-    padded_scale_cols = n_col_blocks * BLOCK_COLS
-
-    # Allocate blocked scale output
-    output_scales = torch.empty(
-        padded_rows * padded_scale_cols,
-        device=input_buffer.device,
-        dtype=torch.uint8,
-    )
 
     TILE_M = 128
     TILE_K = 128
@@ -285,21 +266,19 @@ def silu_mul_fw_mxfp8(
 
     wrap_triton(_silu_mul_fw_mxfp8_kernel)[grid](
         input_buffer,
-        output_data,
-        output_scales,
+        out_data,
+        out_scales,
         saved_activation_buffer_offset,
         num_tokens,
         hidden_dim=hidden_dim,
         input_stride_row=input_buffer.stride(0),
-        output_data_stride_row=output_data.stride(0),
+        output_data_stride_row=out_data.stride(0),
         sym_mem_buffer_rows=sym_mem_buffer_rows,
         n_scale_col_blocks=n_col_blocks,
         TILE_M=TILE_M,
         TILE_K=TILE_K,
         SCALE_BLOCK_SIZE=block_size,
     )
-
-    return output_data, output_scales.view(torch.float8_e8m0fnu)
 
 
 @triton.jit
@@ -318,7 +297,7 @@ def _silu_mul_bw_kernel(
     sym_mem_buffer_rows,
     BLOCK_SIZE: tl.constexpr,
 ):
-    """Recompute SwiGLU forward + compute backward for valid rows; zero-fill padding."""
+    """Recompute SwiGLU forward + compute backward for valid rows; skip padding."""
     pid = tl.program_id(0)
     offset = tl.load(offset_ptr).to(tl.int64)
     num_tokens = tl.load(num_tokens_ptr).to(tl.int64)
@@ -327,16 +306,17 @@ def _silu_mul_bw_kernel(
     row = elem_ids // hidden_dim
     col = elem_ids % hidden_dim
 
-    out_mask = (row < sym_mem_buffer_rows) & (col < hidden_dim)
     valid_mask = row < num_tokens
+    col_mask = col < hidden_dim
+    store_mask = valid_mask & col_mask
 
     # Load h1, h3 from h13_buffer[offset + row, :]
     input_row = offset + row
     h1_off = input_row * h13_stride_row + col
     h3_off = input_row * h13_stride_row + hidden_dim + col
 
-    h1 = tl.load(h13_buffer_ptr + h1_off, mask=valid_mask & out_mask, other=0.0)
-    h3 = tl.load(h13_buffer_ptr + h3_off, mask=valid_mask & out_mask, other=0.0)
+    h1 = tl.load(h13_buffer_ptr + h1_off, mask=store_mask, other=0.0)
+    h3 = tl.load(h13_buffer_ptr + h3_off, mask=store_mask, other=0.0)
 
     # Recompute forward — must match _silu_mul_fw_kernel exactly so that
     # h_out is bit-identical to the forward's h (used for grad_w2 wgrad).
@@ -349,7 +329,7 @@ def _silu_mul_bw_kernel(
 
     # Load grad_h[row, col]
     grad_h_off = row * grad_h_stride_row + col
-    grad_h_val = tl.load(grad_h_ptr + grad_h_off, mask=valid_mask & out_mask, other=0.0)
+    grad_h_val = tl.load(grad_h_ptr + grad_h_off, mask=store_mask, other=0.0)
 
     # SwiGLU backward — keep in float32 for gradient precision
     grad_h_f32 = grad_h_val.to(tl.float32)
@@ -357,62 +337,44 @@ def _silu_mul_bw_kernel(
     grad_h1 = (grad_h_f32 * h3_f32 * dsilu).to(h1.dtype)
     grad_h3 = (grad_h_f32 * silu_h1_f32).to(h1.dtype)
 
-    # Write outputs - explicitly zero-fill rows beyond num_tokens
+    # Write outputs — only for valid rows (no zero-fill for padding)
     h_out_off = row * h_out_stride_row + col
-    tl.store(h_out_ptr + h_out_off, tl.where(valid_mask, h, 0.0), mask=out_mask)
+    tl.store(h_out_ptr + h_out_off, h, mask=store_mask)
 
     grad_h1_off = row * grad_h13_stride_row + col
     grad_h3_off = row * grad_h13_stride_row + hidden_dim + col
-    tl.store(
-        grad_h13_out_ptr + grad_h1_off,
-        tl.where(valid_mask, grad_h1, 0.0),
-        mask=out_mask,
-    )
-    tl.store(
-        grad_h13_out_ptr + grad_h3_off,
-        tl.where(valid_mask, grad_h3, 0.0),
-        mask=out_mask,
-    )
+    tl.store(grad_h13_out_ptr + grad_h1_off, grad_h1, mask=store_mask)
+    tl.store(grad_h13_out_ptr + grad_h3_off, grad_h3, mask=store_mask)
 
 
-@triton_op("torchao::silu_mul_bw", mutates_args={})
+@triton_op("torchao::silu_mul_bw", mutates_args={"h_out", "grad_h13_out"})
 def silu_mul_bw(
     swiglu_input: torch.Tensor,  # h13
     grad_h: torch.Tensor,
     saved_activation_buffer_offset: torch.Tensor,
     num_tokens: torch.Tensor,
-) -> tuple[torch.Tensor, torch.Tensor]:
+    h_out: torch.Tensor,
+    grad_h13_out: torch.Tensor,
+) -> None:
     """Fused SwiGLU backward: recompute forward + compute gradients.
 
     Reads `num_tokens` rows of `[h1 | h3]` from `swiglu_input` at
     `buffer_offset`, recomputes `h = silu(h1) * h3`, and computes
     grad_h13.
 
-    Rows beyond ``num_tokens`` are zero-filled by the kernel.
+    Writes into pre-allocated output buffers.  Rows beyond ``num_tokens``
+    are skipped (no zero-fill).
 
     Args:
         swiglu_input: `(saved_activations_buffer_rows, 2*hidden_dim)` BF16.
         grad_h: `(sym_mem_buffer_rows, hidden_dim)`` BF16 — w2 dgrad output.
         saved_activation_buffer_offset: Scalar int64 GPU tensor — row offset into `h13_buffer`.
         num_tokens: Scalar int64 GPU tensor — valid row count.
-
-    Returns:
-        h: `(sym_mem_buffer_rows, hidden_dim)`  - recomputed forward 'h = silu(h1) * h3'
-        grad_h13: `(sym_mem_buffer_rows, 2*hidden_dim)`
+        h_out: Pre-allocated `(sym_mem_buffer_rows, hidden_dim)` BF16.
+        grad_h13_out: Pre-allocated `(sym_mem_buffer_rows, 2*hidden_dim)` BF16.
     """
     hidden_dim = swiglu_input.shape[1] // 2
     sym_mem_buffer_rows = grad_h.shape[0]
-
-    # preallocate outputs
-    h_out = torch.empty(
-        sym_mem_buffer_rows, hidden_dim, device=grad_h.device, dtype=torch.bfloat16
-    )
-    grad_h13_out = torch.empty(
-        sym_mem_buffer_rows,
-        2 * hidden_dim,
-        device=grad_h.device,
-        dtype=torch.bfloat16,
-    )
 
     # Only process num_tokens rows; upper-bound with sym_mem_buffer_rows
     total_elems = sym_mem_buffer_rows * hidden_dim
@@ -434,5 +396,3 @@ def silu_mul_bw(
         sym_mem_buffer_rows=sym_mem_buffer_rows,
         BLOCK_SIZE=BLOCK_SIZE,
     )
-
-    return h_out, grad_h13_out

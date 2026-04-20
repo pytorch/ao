@@ -13,6 +13,8 @@ import torch
 from tabulate import tabulate
 from tqdm import tqdm
 
+import triton
+
 from benchmarks.utils import benchmark_cuda_function_in_microseconds
 from torchao.prototype.moe_training.ep.syncless.mxfp8_kernels import (
     triton_mx_block_rearrange_input_sym_mem_buffer,
@@ -65,21 +67,28 @@ def get_configs() -> List[ExperimentConfig]:
     return configs
 
 
+def _blocked_scale_numel(rows: int, scale_cols: int) -> int:
+    BLOCK_ROWS, BLOCK_COLS = 128, 4
+    padded_rows = triton.cdiv(rows, BLOCK_ROWS) * BLOCK_ROWS
+    padded_cols = triton.cdiv(scale_cols, BLOCK_COLS) * BLOCK_COLS
+    return padded_rows * padded_cols
+
+
 def _two_step_silu_quant(
     h13_buffer,
     offset,
     num_tokens,
     sym_mem_buffer_rows,
+    fw_output,
+    ref_scales_out,
 ):
     """2-step baseline: silu_mul_fw (BF16) → triton_to_mxfp8_dim0 + scale rearrange."""
-    h = silu_mul_fw(h13_buffer, offset, num_tokens, sym_mem_buffer_rows)
+    silu_mul_fw(h13_buffer, offset, num_tokens, sym_mem_buffer_rows, fw_output)
     h_e4m3, h_scales = triton_to_mxfp8_dim0(
-        h, inner_block_size=SCALE_BLOCK_SIZE, scaling_mode="rceil"
+        fw_output, inner_block_size=SCALE_BLOCK_SIZE, scaling_mode="rceil"
     )
-    h_scales_blocked = triton_mx_block_rearrange_input_sym_mem_buffer(
-        h_scales, num_tokens
-    )
-    return h_e4m3, h_scales_blocked
+    triton_mx_block_rearrange_input_sym_mem_buffer(h_scales, num_tokens, ref_scales_out)
+    return h_e4m3
 
 
 def run_experiment(config: ExperimentConfig) -> ExperimentResult:
@@ -95,8 +104,17 @@ def run_experiment(config: ExperimentConfig) -> ExperimentResult:
     sym_mem_buffer_rows = M
 
     # ---- Fused kernel benchmark ----
+    # Pre-allocate outputs
+    fused_e4m3 = torch.empty(M, hidden_dim, dtype=torch.float8_e4m3fn, device=device)
+    fused_scales = torch.empty(
+        _blocked_scale_numel(M, hidden_dim // SCALE_BLOCK_SIZE),
+        dtype=torch.uint8,
+        device=device,
+    )
     # Warmup
-    silu_mul_fw_mxfp8(h13_buffer, offset, num_tokens, sym_mem_buffer_rows)
+    silu_mul_fw_mxfp8(
+        h13_buffer, offset, num_tokens, sym_mem_buffer_rows, fused_e4m3, fused_scales
+    )
 
     fused_us = benchmark_cuda_function_in_microseconds(
         silu_mul_fw_mxfp8,
@@ -104,11 +122,23 @@ def run_experiment(config: ExperimentConfig) -> ExperimentResult:
         offset,
         num_tokens,
         sym_mem_buffer_rows,
+        fused_e4m3,
+        fused_scales,
     )
 
     # ---- 2-step baseline benchmark ----
+    fw_output = torch.empty(M, hidden_dim, dtype=torch.bfloat16, device=device)
+    # Compute ref_scales shape from silu_mul_fw output
+    ref_scales_shape = (M, hidden_dim // SCALE_BLOCK_SIZE)
+    ref_scales_out = torch.empty(
+        _blocked_scale_numel(ref_scales_shape[0], ref_scales_shape[1]),
+        dtype=torch.uint8,
+        device=device,
+    )
     # Warmup
-    _two_step_silu_quant(h13_buffer, offset, num_tokens, sym_mem_buffer_rows)
+    _two_step_silu_quant(
+        h13_buffer, offset, num_tokens, sym_mem_buffer_rows, fw_output, ref_scales_out
+    )
 
     two_step_us = benchmark_cuda_function_in_microseconds(
         _two_step_silu_quant,
@@ -116,6 +146,8 @@ def run_experiment(config: ExperimentConfig) -> ExperimentResult:
         offset,
         num_tokens,
         sym_mem_buffer_rows,
+        fw_output,
+        ref_scales_out,
     )
 
     # ---- Memory bandwidth calculation ----

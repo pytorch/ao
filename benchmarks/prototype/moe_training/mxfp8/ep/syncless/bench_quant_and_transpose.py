@@ -12,6 +12,8 @@ import torch
 from tabulate import tabulate
 from tqdm import tqdm
 
+import triton
+
 from benchmarks.utils import benchmark_cuda_function_in_microseconds
 from torchao.prototype.moe_training.ep.syncless.mxfp8_kernels import (
     mxfp8_quant_and_transpose,
@@ -25,6 +27,13 @@ device = torch.device("cuda")
 torch._dynamo.config.cache_size_limit = 1000
 
 SCALE_BLOCK_SIZE = 32
+
+
+def _blocked_scale_numel(rows: int, scale_cols: int) -> int:
+    BLOCK_ROWS, BLOCK_COLS = 128, 4
+    padded_rows = triton.cdiv(rows, BLOCK_ROWS) * BLOCK_ROWS
+    padded_cols = triton.cdiv(scale_cols, BLOCK_COLS) * BLOCK_COLS
+    return padded_rows * padded_cols
 
 
 @dataclass(frozen=True)
@@ -63,24 +72,26 @@ def get_configs() -> List[ExperimentConfig]:
     return configs
 
 
-def _two_stage_quant_and_transpose(input_bf16, num_tokens, num_tokens_t):
+def _two_stage_quant_and_transpose(
+    input_bf16, num_tokens, num_tokens_t, ref_scales_out, ref_t_scales_out
+):
     """2-stage: quantize + rearrange for both non-transpose and transpose paths."""
     # Non-transpose: quantize (M, N) with 1x32 row-wise, then rearrange scales
     e4m3, scales = triton_to_mxfp8_dim0(
         input_bf16, inner_block_size=SCALE_BLOCK_SIZE, scaling_mode="rceil"
     )
-    scales_blocked = triton_mx_block_rearrange_input_sym_mem_buffer(scales, num_tokens)
+    triton_mx_block_rearrange_input_sym_mem_buffer(scales, num_tokens, ref_scales_out)
 
     # Transpose: quantize (N, M) with 1x32 row-wise, then rearrange scales
     input_t = input_bf16.T.contiguous()
     t_e4m3, t_scales = triton_to_mxfp8_dim0(
         input_t, inner_block_size=SCALE_BLOCK_SIZE, scaling_mode="rceil"
     )
-    t_scales_blocked = triton_mx_block_rearrange_input_sym_mem_buffer(
-        t_scales, num_tokens_t
+    triton_mx_block_rearrange_input_sym_mem_buffer(
+        t_scales, num_tokens_t, ref_t_scales_out
     )
 
-    return e4m3, scales_blocked, t_e4m3, t_scales_blocked
+    return e4m3, t_e4m3
 
 
 def run_experiment(config: ExperimentConfig) -> ExperimentResult:
@@ -91,23 +102,51 @@ def run_experiment(config: ExperimentConfig) -> ExperimentResult:
     num_tokens_t = torch.tensor(N, dtype=torch.int64, device=device)
 
     # --- Fused kernel ---
+    # Pre-allocate outputs
+    fused_e4m3 = torch.empty(M, N, dtype=torch.float8_e4m3fn, device=device)
+    fused_scales = torch.empty(
+        _blocked_scale_numel(M, N // SCALE_BLOCK_SIZE), dtype=torch.uint8, device=device
+    )
+    fused_t_e4m3 = torch.empty(N, M, dtype=torch.float8_e4m3fn, device=device)
+    fused_t_scales = torch.empty(
+        _blocked_scale_numel(N, M // SCALE_BLOCK_SIZE), dtype=torch.uint8, device=device
+    )
+
     # Warmup
-    mxfp8_quant_and_transpose(input_bf16)
+    mxfp8_quant_and_transpose(
+        input_bf16, num_tokens, fused_e4m3, fused_scales, fused_t_e4m3, fused_t_scales
+    )
 
     fused_us = benchmark_cuda_function_in_microseconds(
         mxfp8_quant_and_transpose,
         input_bf16,
+        num_tokens,
+        fused_e4m3,
+        fused_scales,
+        fused_t_e4m3,
+        fused_t_scales,
     )
 
     # --- 2-stage ---
+    # Pre-allocate scale outputs for 2-stage
+    ref_scales_out = torch.empty(
+        _blocked_scale_numel(M, N // SCALE_BLOCK_SIZE), dtype=torch.uint8, device=device
+    )
+    ref_t_scales_out = torch.empty(
+        _blocked_scale_numel(N, M // SCALE_BLOCK_SIZE), dtype=torch.uint8, device=device
+    )
     # Warmup
-    _two_stage_quant_and_transpose(input_bf16, num_tokens, num_tokens_t)
+    _two_stage_quant_and_transpose(
+        input_bf16, num_tokens, num_tokens_t, ref_scales_out, ref_t_scales_out
+    )
 
     two_stage_us = benchmark_cuda_function_in_microseconds(
         _two_stage_quant_and_transpose,
         input_bf16,
         num_tokens,
         num_tokens_t,
+        ref_scales_out,
+        ref_t_scales_out,
     )
 
     # --- Memory bandwidth ---

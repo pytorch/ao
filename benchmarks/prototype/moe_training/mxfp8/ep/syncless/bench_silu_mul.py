@@ -79,9 +79,14 @@ def run_experiment(config: ExperimentConfig) -> ExperimentResult:
     num_tokens = torch.tensor(M, dtype=torch.int64, device=device)
     sym_mem_buffer_rows = M
 
+    # Pre-allocate output buffers
+    fw_output = torch.empty(M, hidden_dim, dtype=torch.bfloat16, device=device)
+    h_out = torch.empty(M, hidden_dim, dtype=torch.bfloat16, device=device)
+    grad_h13_out = torch.empty(M, 2 * hidden_dim, dtype=torch.bfloat16, device=device)
+
     # ---- Forward benchmark ----
     # Warmup
-    silu_mul_fw(h13_buffer, offset, num_tokens, sym_mem_buffer_rows)
+    silu_mul_fw(h13_buffer, offset, num_tokens, sym_mem_buffer_rows, fw_output)
 
     fw_us = benchmark_cuda_function_in_microseconds(
         silu_mul_fw,
@@ -89,6 +94,7 @@ def run_experiment(config: ExperimentConfig) -> ExperimentResult:
         offset,
         num_tokens,
         sym_mem_buffer_rows,
+        fw_output,
     )
 
     # Forward mem bw: reads h13 (M * 2*hidden_dim * 2B), writes h (M * hidden_dim * 2B)
@@ -101,7 +107,7 @@ def run_experiment(config: ExperimentConfig) -> ExperimentResult:
     grad_h = torch.randn(M, hidden_dim, dtype=torch.bfloat16, device=device)
 
     # Warmup
-    silu_mul_bw(h13_buffer, grad_h, offset, num_tokens)
+    silu_mul_bw(h13_buffer, grad_h, offset, num_tokens, h_out, grad_h13_out)
 
     bw_us = benchmark_cuda_function_in_microseconds(
         silu_mul_bw,
@@ -109,6 +115,8 @@ def run_experiment(config: ExperimentConfig) -> ExperimentResult:
         grad_h,
         offset,
         num_tokens,
+        h_out,
+        grad_h13_out,
     )
 
     # Backward mem bw:

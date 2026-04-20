@@ -59,6 +59,9 @@ from torchao.prototype.moe_training.ep.syncless.moe import (
 from torchao.prototype.moe_training.ep.syncless.moe import (
     SynclessMXFP8MoE,
 )
+from torchao.prototype.moe_training.ep.syncless.expert_compute_buffers import (
+    ExpertComputeBuffers,
+)
 from torchao.prototype.moe_training.ep.syncless.saved_activations_buffer import (
     SavedActivationsBuffer,
 )
@@ -180,6 +183,7 @@ def _build_syncless_model(
     config: ExperimentConfig,
     ref_model: nn.Module,
     saved_activations_buffer=None,
+    expert_compute_buffers=None,
 ) -> nn.Module:
     """Build SynclessMXFP8MoE and copy weights from the ref model."""
     moe_args = SynclessMoEArgs(
@@ -195,6 +199,7 @@ def _build_syncless_model(
             config.dim,
             config.hidden_dim,
             saved_activations_buffer=saved_activations_buffer,
+            expert_compute_buffers=expert_compute_buffers,
         )
         .to(torch.bfloat16)
         .cuda()
@@ -242,7 +247,7 @@ def run_experiment(
     buffer_manager = SymmetricMemoryBufferManager()
     total_tokens = config.batch_size * config.seq_len
     top_k = 4  # must match the top_k used in _build_ref_model / _build_syncless_model
-    max_output_rows = total_tokens * top_k
+    max_output_rows = world_size * total_tokens * top_k
     buffer_manager.preallocate_buffers(
         max_output_rows_per_rank=max_output_rows,
         data_shape=(config.dim,),
@@ -262,8 +267,19 @@ def run_experiment(
         device=device,
     )
 
+    # Create pre-allocated expert compute buffers (eliminates per-iteration allocation)
+    expert_compute_buf = ExpertComputeBuffers(
+        max_output_rows=max_output_rows,
+        dim=config.dim,
+        hidden_dim=config.hidden_dim,
+        device=device,
+    )
+
     syncless_model = _build_syncless_model(
-        config, ref_model, saved_activations_buffer=saved_act_buffer
+        config,
+        ref_model,
+        saved_activations_buffer=saved_act_buffer,
+        expert_compute_buffers=expert_compute_buf,
     )
 
     parallelize_module(

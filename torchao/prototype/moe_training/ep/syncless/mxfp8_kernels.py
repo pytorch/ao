@@ -137,6 +137,8 @@ def _mxfp8_dequant_requant_col_major_kernel(
     and writes column-major FP8 output at out_offset position in the
     output buffer.
 
+    Early-exits for tile blocks beyond ``num_tokens``.
+
     Grid: (cdiv(sym_mem_buffer_rows, TILE_M), cdiv(dim, TILE_K))
     """
     BLOCKS_PER_M_TILE: tl.constexpr = TILE_M // SCALE_BLOCK_SIZE
@@ -147,6 +149,10 @@ def _mxfp8_dequant_requant_col_major_kernel(
 
     pid_row = tl.program_id(0)
     pid_col = tl.program_id(1)
+
+    # Early-exit: skip blocks entirely beyond valid tokens.
+    if pid_row * TILE_M >= num_tokens:
+        return
 
     row_offs = pid_row * TILE_M + tl.arange(0, TILE_M)
     col_offs = pid_col * TILE_K + tl.arange(0, TILE_K)
@@ -250,9 +256,9 @@ def mxfp8_dequant_requant_col_major(
         scale_block_size: Scale block size (must be 32)
     """
     assert scale_block_size == 32, "scale_block_size must be 32"
-    assert sym_mem_buffer_rows % scale_block_size == 0, (
-        f"sym_mem_buffer_rows ({sym_mem_buffer_rows}) must be divisible by {scale_block_size}"
-    )
+    assert (
+        sym_mem_buffer_rows % scale_block_size == 0
+    ), f"sym_mem_buffer_rows ({sym_mem_buffer_rows}) must be divisible by {scale_block_size}"
 
     dim = e4m3_data.shape[1]
     scale_dim = e8m0_scales.shape[1]
@@ -554,6 +560,8 @@ def _mxfp8_quant_and_transpose_kernel(
     # Output pointers (transpose)
     out_t_e4m3_ptr,
     out_t_scales_ptr,
+    # GPU-resident num_tokens
+    num_tokens_ptr,
     # Dimensions
     M,
     N,
@@ -578,15 +586,23 @@ def _mxfp8_quant_and_transpose_kernel(
     1. Non-transposed FP8 data + blocked E8M0 scales (1x32 row-wise)
     2. Transposed FP8 data + blocked E8M0 scales (1x32 on transposed = 32x1 on original)
 
+    Early-exits for tile blocks beyond ``num_tokens``.
+
     Grid: (cdiv(M, TILE_M), cdiv(N, TILE_K))
     """
     pid_row = tl.program_id(0)
     pid_col = tl.program_id(1)
 
+    num_tokens = tl.load(num_tokens_ptr).to(tl.int64)
+
+    # Early-exit: skip blocks entirely beyond valid tokens.
+    if pid_row * TILE_M >= num_tokens:
+        return
+
     row_offs = pid_row * TILE_M + tl.arange(0, TILE_M)
     col_offs = pid_col * TILE_K + tl.arange(0, TILE_K)
 
-    row_mask = row_offs < M
+    row_mask = row_offs < num_tokens
     col_mask = col_offs < N
 
     # Step 1: Load BF16 tile -> f32
@@ -602,7 +618,7 @@ def _mxfp8_quant_and_transpose_kernel(
     quant = tl.reshape(quant_r, (TILE_M, TILE_K))
     quant_fp8 = quant.to(tl.float8e4nv)
 
-    # Store non-transpose FP8 data
+    # Store non-transpose FP8 data (only valid rows)
     out_offsets = row_offs[:, None] * out_stride_row + col_offs[None, :]
     tl.store(out_e4m3_ptr + out_offsets, quant_fp8, mask=mask)
 
@@ -621,7 +637,9 @@ def _mxfp8_quant_and_transpose_kernel(
 
     # block_offset = pid_row * (512 * n_col_blocks) + pid_col * 512
     OUT_STRIDE_PER_BLOCK: tl.constexpr = BLOCK_ROWS * BLOCK_COLS
-    block_offset = pid_row * (OUT_STRIDE_PER_BLOCK * n_col_blocks) + pid_col * OUT_STRIDE_PER_BLOCK
+    block_offset = (
+        pid_row * (OUT_STRIDE_PER_BLOCK * n_col_blocks) + pid_col * OUT_STRIDE_PER_BLOCK
+    )
     tl.store(out_scales_ptr + block_offset + dest_flat, scales_flat)
 
     # Step 3: Transpose quantization (1x32 along M)
@@ -638,7 +656,7 @@ def _mxfp8_quant_and_transpose_kernel(
     t_row_offs = pid_col * TILE_K + tl.arange(0, TILE_K)
     t_col_offs = pid_row * TILE_M + tl.arange(0, TILE_M)
     t_row_mask = t_row_offs < N
-    t_col_mask = t_col_offs < M
+    t_col_mask = t_col_offs < num_tokens
     t_mask = t_row_mask[:, None] & t_col_mask[None, :]
 
     out_t_offsets = t_row_offs[:, None] * out_t_stride_row + t_col_offs[None, :]
@@ -649,14 +667,25 @@ def _mxfp8_quant_and_transpose_kernel(
     scales_t_flat = tl.reshape(scale_t_2d, (BLOCK_ROWS * BLOCK_COLS,))
 
     # block_offset_t: indices swapped for transposed output
-    block_offset_t = pid_col * (OUT_STRIDE_PER_BLOCK * n_col_blocks_t) + pid_row * OUT_STRIDE_PER_BLOCK
+    block_offset_t = (
+        pid_col * (OUT_STRIDE_PER_BLOCK * n_col_blocks_t)
+        + pid_row * OUT_STRIDE_PER_BLOCK
+    )
     tl.store(out_t_scales_ptr + block_offset_t + dest_flat, scales_t_flat)
 
 
-@triton_op("torchao::mxfp8_quant_and_transpose", mutates_args=())
+@triton_op(
+    "torchao::mxfp8_quant_and_transpose",
+    mutates_args={"out_e4m3", "out_scales", "out_t_e4m3", "out_t_scales"},
+)
 def mxfp8_quant_and_transpose(
     input: torch.Tensor,
-) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    num_tokens: torch.Tensor,
+    out_e4m3: torch.Tensor,
+    out_scales: torch.Tensor,
+    out_t_e4m3: torch.Tensor,
+    out_t_scales: torch.Tensor,
+) -> None:
     """Fused MXFP8 quantize + transpose.
 
     Reads BF16 input (M, N) once and produces:
@@ -664,15 +693,16 @@ def mxfp8_quant_and_transpose(
     2. e4m3 (N, M) transposed + blocked E8M0 scales (1x32 on transposed)
 
     Both scale outputs are in tcgen05 blocked (128, 4) swizzle format.
+    Writes into pre-allocated output buffers.  Blocks beyond ``num_tokens``
+    early-exit with ~0 cost.
 
     Args:
-        input: (M, N) BF16 tensor
-
-    Returns:
-        out_e4m3: (M, N) float8_e4m3fn row-major
-        out_scales_blocked: flat float8_e8m0fnu blocked scales for (M, N)
-        out_t_e4m3: (N, M) float8_e4m3fn row-major (transposed)
-        out_t_scales_blocked: flat float8_e8m0fnu blocked scales for (N, M)
+        input: (M, N) BF16 tensor.
+        num_tokens: Scalar int64 GPU tensor — number of valid rows.
+        out_e4m3: Pre-allocated (M, N) float8_e4m3fn.
+        out_scales: Pre-allocated flat uint8 blocked scales for (M, N).
+        out_t_e4m3: Pre-allocated (N, M) float8_e4m3fn.
+        out_t_scales: Pre-allocated flat uint8 blocked scales for (N, M).
     """
     assert input.ndim == 2
     M, N = input.shape
@@ -685,23 +715,8 @@ def mxfp8_quant_and_transpose(
 
     n_row_blocks = triton.cdiv(M, TILE_M)
     n_col_blocks = triton.cdiv(N, TILE_K)
-    padded_M = n_row_blocks * TILE_M
-    padded_N_scale_cols = n_col_blocks * BLOCK_COLS
 
-    n_row_blocks_t = triton.cdiv(N, TILE_M)
     n_col_blocks_t = triton.cdiv(M, TILE_K)
-    padded_N = n_row_blocks_t * TILE_M
-    padded_M_scale_cols = n_col_blocks_t * BLOCK_COLS
-
-    # Allocate outputs
-    out_e4m3 = torch.empty(M, N, dtype=torch.float8_e4m3fn, device=input.device)
-    out_scales = torch.empty(
-        padded_M * padded_N_scale_cols, dtype=torch.uint8, device=input.device
-    )
-    out_t_e4m3 = torch.empty(N, M, dtype=torch.float8_e4m3fn, device=input.device)
-    out_t_scales = torch.empty(
-        padded_N * padded_M_scale_cols, dtype=torch.uint8, device=input.device
-    )
 
     grid = (n_row_blocks, n_col_blocks)
     wrap_triton(_mxfp8_quant_and_transpose_kernel)[grid](
@@ -710,6 +725,7 @@ def mxfp8_quant_and_transpose(
         out_scales,
         out_t_e4m3,
         out_t_scales,
+        num_tokens,
         M=M,
         N=N,
         input_stride_row=input.stride(0),
@@ -725,43 +741,33 @@ def mxfp8_quant_and_transpose(
         BLOCK_COLS=BLOCK_COLS,
     )
 
-    return (
-        out_e4m3,
-        out_scales.view(torch.float8_e8m0fnu),
-        out_t_e4m3,
-        out_t_scales.view(torch.float8_e8m0fnu),
-    )
-
 
 @triton_op(
     "torchao::triton_mx_block_rearrange_input_sym_mem_buffer",
-    mutates_args=(),
+    mutates_args={"out"},
 )
 def triton_mx_block_rearrange_input_sym_mem_buffer(
     scale_tensor: torch.Tensor,
     num_tokens: torch.Tensor,
-) -> torch.Tensor:
+    out: torch.Tensor,
+) -> None:
     """Rearrange E8M0 scales to blocked swizzle format, bounded by num_tokens.
 
     Only processes ``num_tokens`` rows of the input scale tensor (GPU-resident,
     zero D2H sync).  Rows beyond num_tokens are zero-filled.  Output is padded
     to multiples of (128, 4) as required by the blocked layout.
 
+    Writes into a pre-allocated output buffer.
+
     Args:
         scale_tensor: (rows, scale_cols) uint8 or float8_e8m0fnu scale tensor.
             ``rows`` may be larger than ``num_tokens`` (overallocated buffer).
         num_tokens: Scalar int64 GPU tensor — number of valid rows.
-
-    Returns:
-        Flat uint8 tensor in blocked swizzle format, sized for ``num_tokens``
-        rows (padded to 128).
+        out: Pre-allocated flat uint8 buffer for blocked swizzle output.
     """
     assert scale_tensor.ndim == 2
     assert scale_tensor.element_size() == 1
 
-    # We size the output based on the static buffer rows, but only read
-    # num_tokens rows.  The grid is sized to cover rows (overallocated),
-    # and the kernel masks reads beyond num_tokens.
     rows = scale_tensor.shape[0]
     cols = scale_tensor.shape[1]
 
@@ -769,10 +775,6 @@ def triton_mx_block_rearrange_input_sym_mem_buffer(
 
     n_row_blocks = triton.cdiv(rows, BLOCK_ROWS)
     n_col_blocks = triton.cdiv(cols, BLOCK_COLS)
-    padded_rows = n_row_blocks * BLOCK_ROWS
-    padded_cols = n_col_blocks * BLOCK_COLS
-
-    out = scale_tensor.new_empty(padded_rows * padded_cols, dtype=torch.uint8)
 
     stride_per_block = BLOCK_ROWS * BLOCK_COLS
     out_stride_per_row_of_blocks = BLOCK_ROWS * BLOCK_COLS * n_col_blocks
@@ -790,8 +792,6 @@ def triton_mx_block_rearrange_input_sym_mem_buffer(
         BLOCK_ROWS=BLOCK_ROWS,
         BLOCK_COLS=BLOCK_COLS,
     )
-
-    return out.view(torch.float8_e8m0fnu)
 
 
 @triton.jit

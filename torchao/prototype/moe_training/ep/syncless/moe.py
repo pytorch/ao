@@ -62,6 +62,9 @@ class MXFP8GroupedExpertsFunc(torch.autograd.Function):
     Saves x (FP8 data + scales, dequant-requanted to 32×1 col-major) and
     h13 (BF16) to the ``SavedActivationsBuffer``.
 
+    Uses ``ExpertComputeBuffers`` for all intermediate tensors to avoid
+    per-iteration ``torch.empty()`` calls.
+
     Backward: reads saved activations, computes dgrad + wgrad
     manually, and frees the buffer allocation.
     """
@@ -75,6 +78,7 @@ class MXFP8GroupedExpertsFunc(torch.autograd.Function):
         w13,
         w2,
         saved_activations_buffer,
+        expert_compute_buffers,
     ):
         block_size = 32
         hidden_dim = w13.shape[1] // 2
@@ -87,6 +91,7 @@ class MXFP8GroupedExpertsFunc(torch.autograd.Function):
 
         # Allocate exact rows via CUDAAllocator (GPU-side, no sync).
         buf = saved_activations_buffer
+        ecb = expert_compute_buffers
         offset = buf.alloc(num_tokens)
 
         # Fused dequant-requant from 1×32 row-major → 32×1 col-major,
@@ -116,9 +121,12 @@ class MXFP8GroupedExpertsFunc(torch.autograd.Function):
         # corresponding data over the a2a dispatch.
         # blocked layout would require a bunch of slow discontiguous reads and is harder to reason about.
         scale_a = output_scales_e8m0.view(torch.float8_e8m0fnu)
-        scale_a_blocked = triton_mx_block_rearrange_input_sym_mem_buffer(
-            scale_a, num_tokens
+        triton_mx_block_rearrange_input_sym_mem_buffer(
+            scale_a,
+            num_tokens,
+            out=ecb.scale_a_blocked,
         )
+        scale_a_blocked = ecb.scale_a_blocked.view(torch.float8_e8m0fnu)
 
         # First GEMM: h13 = x @ w13.T
         # We need this special CuTe DSL gmm kernel here, rather than torch._scaled_grouped_mm,
@@ -139,11 +147,14 @@ class MXFP8GroupedExpertsFunc(torch.autograd.Function):
         # saved-activations buffer at GPU-determined offset, computes
         # silu(h1)*h3, quantizes to MXFP8 with blocked scale layout.
         # Eliminates the BF16 intermediate and separate scale rearrangement.
-        h_e4m3, h_scales_blocked = silu_mul_fw_mxfp8(
+        # Writes into pre-allocated ExpertComputeBuffers.
+        silu_mul_fw_mxfp8(
             buf.swiglu_input,
             saved_activation_buffer_offset=offset,
             num_tokens=num_tokens,
             sym_mem_buffer_rows=M,
+            out_data=ecb.h_e4m3,
+            out_scales=ecb.h_scales_blocked,
         )
 
         # Quantize w2 weights to FP8 and rearrange scales to blocked layout
@@ -153,10 +164,11 @@ class MXFP8GroupedExpertsFunc(torch.autograd.Function):
         w2_scales_blocked = triton_mx_block_rearrange_per_group_3d(w2_scales)
 
         # Second GEMM: out = h @ w2.T (direct MXFP8 GEMM with fused outputs)
+        h_scales_blocked_view = ecb.h_scales_blocked.view(torch.float8_e8m0fnu)
         out = torch._scaled_grouped_mm(
-            h_e4m3,
+            ecb.h_e4m3,
             w2_e4m3.transpose(-2, -1),
-            h_scales_blocked.view(h_e4m3.shape[0], -1),
+            h_scales_blocked_view.view(ecb.h_e4m3.shape[0], -1),
             w2_scales_blocked,
             offs=group_end_offs,
             out_dtype=torch.bfloat16,
@@ -167,6 +179,7 @@ class MXFP8GroupedExpertsFunc(torch.autograd.Function):
         ctx.M = M
         ctx.hidden_dim = hidden_dim
         ctx.saved_activations_buffer = saved_activations_buffer
+        ctx.expert_compute_buffers = expert_compute_buffers
         ctx.save_for_backward(group_end_offs, w13, w2)
 
         return out
@@ -193,15 +206,24 @@ class MXFP8GroupedExpertsFunc(torch.autograd.Function):
         offset = ctx.offset
         num_tokens = ctx.num_tokens
         buf = ctx.saved_activations_buffer
+        ecb = ctx.expert_compute_buffers
         block_size = 32
 
-        # Read grad_out once, write two quantized outputs: grad_out and grad_out_t
-        (
-            grad_out_e4m3,
-            grad_out_scales_blocked,
-            grad_out_t_e4m3,
-            grad_out_t_scales_blocked,
-        ) = mxfp8_quant_and_transpose(grad_out)
+        # Read grad_out once, write two quantized outputs into pre-allocated buffers
+        mxfp8_quant_and_transpose(
+            grad_out,
+            num_tokens=num_tokens,
+            out_e4m3=ecb.grad_out_e4m3,
+            out_scales=ecb.grad_out_scales_blocked,
+            out_t_e4m3=ecb.grad_out_t_e4m3,
+            out_t_scales=ecb.grad_out_t_scales_blocked,
+        )
+        grad_out_e4m3 = ecb.grad_out_e4m3
+        grad_out_scales_blocked = ecb.grad_out_scales_blocked.view(torch.float8_e8m0fnu)
+        grad_out_t_e4m3 = ecb.grad_out_t_e4m3
+        grad_out_t_scales_blocked = ecb.grad_out_t_scales_blocked.view(
+            torch.float8_e8m0fnu
+        )
 
         w2_e4m3, w2_scales_blocked = mxfp8_quantize_cuda_3d(w2)
 
@@ -215,13 +237,17 @@ class MXFP8GroupedExpertsFunc(torch.autograd.Function):
             out_dtype=torch.bfloat16,
         )
 
-        # recompute 'h' and calc grad_h13 in single kernel
-        h, grad_h13 = silu_mul_bw(
+        # recompute 'h' and calc grad_h13 into pre-allocated buffers
+        silu_mul_bw(
             buf.swiglu_input,
             grad_h,
             saved_activation_buffer_offset=offset,
             num_tokens=num_tokens,
+            h_out=ecb.h_out,
+            grad_h13_out=ecb.grad_h13_out,
         )
+        h = ecb.h_out
+        grad_h13 = ecb.grad_h13_out
 
         grad_h13_fp8, grad_h13_scales_blocked = mxfp8_quantize_2d_32x1_cutedsl(
             grad_h13, block_size=block_size, scaling_mode="rceil"
@@ -278,7 +304,7 @@ class MXFP8GroupedExpertsFunc(torch.autograd.Function):
         # free buffer allocation (GPU-side, no sync)
         buf.free(offset)
 
-        return grad_x, None, None, wgrad_w13, wgrad_w2, None
+        return grad_x, None, None, wgrad_w13, wgrad_w2, None, None
 
 
 class MXFP8GroupedExperts(nn.Module):
@@ -289,6 +315,7 @@ class MXFP8GroupedExperts(nn.Module):
         hidden_dim: int,
         num_experts: int,
         saved_activations_buffer,
+        expert_compute_buffers=None,
     ):
         super().__init__()
         self.num_experts = num_experts
@@ -296,6 +323,7 @@ class MXFP8GroupedExperts(nn.Module):
         self.w13 = nn.Parameter(torch.empty(num_experts, 2 * hidden_dim, dim))
         self.w2 = nn.Parameter(torch.empty(num_experts, dim, hidden_dim))
         self.saved_activations_buffer = saved_activations_buffer
+        self.expert_compute_buffers = expert_compute_buffers
 
     def forward(
         self,
@@ -318,6 +346,7 @@ class MXFP8GroupedExperts(nn.Module):
             w13,
             w2,
             self.saved_activations_buffer,
+            self.expert_compute_buffers,
         )
 
     def init_weights(self, init_std: float):
@@ -531,6 +560,7 @@ class SynclessMXFP8MoE(nn.Module):
         dim: int,
         hidden_dim: int,
         saved_activations_buffer,
+        expert_compute_buffers=None,
     ):
         super().__init__()
 
@@ -540,6 +570,7 @@ class SynclessMXFP8MoE(nn.Module):
             hidden_dim=hidden_dim,
             num_experts=num_experts,
             saved_activations_buffer=saved_activations_buffer,
+            expert_compute_buffers=expert_compute_buffers,
         )
         self.router = TokenChoiceTopKRouter(
             dim=dim,
