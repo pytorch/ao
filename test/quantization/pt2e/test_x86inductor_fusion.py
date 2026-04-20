@@ -7,6 +7,7 @@
 # Owner(s): ["oncall: quantization"]
 import contextlib
 import copy
+import dataclasses
 import functools
 import itertools
 import unittest
@@ -60,7 +61,10 @@ from torchao.quantization.quantize_.common.quantization_step import (
     QuantizationStep,
 )
 from torchao.testing.pt2e.utils import _generate_ref_quantized_model, qdq_fp8
-from torchao.utils import torch_version_at_least
+from torchao.utils import (
+    should_reduce_range,
+    torch_version_at_least,
+)
 
 # The dict value is match_nodes(computation_op+unary_op)
 unary_list = {
@@ -2778,6 +2782,17 @@ class TestPatternMatcher(TestPatternMatcherBase):
         in_feature = 32
         out_feature = 64
 
+        input_dtype = torch.bfloat16 if enable_autocast else torch.float32
+        if input_ndim == 3:
+            calibration_inputs = torch.randn(1, M, in_feature, dtype=torch.float32)
+            test_input = torch.randn(1, M, in_feature, dtype=input_dtype)
+        else:
+            calibration_inputs = torch.randn(M, in_feature, dtype=torch.float32)
+            test_input = torch.randn(M, in_feature, dtype=input_dtype)
+
+        if should_reduce_range(test_input.device):
+            base_config = dataclasses.replace(base_config, reduce_range=True)
+
         class Mod(torch.nn.Module):
             def __init__(self, has_bias: bool):
                 super().__init__()
@@ -2798,24 +2813,11 @@ class TestPatternMatcher(TestPatternMatcherBase):
 
         quantize_(mod, quant_config)
 
-        # Prepare calibration data
-        if input_ndim == 3:
-            calibration_inputs = torch.randn(1, M, in_feature, dtype=torch.float32)
-        else:
-            calibration_inputs = torch.randn(M, in_feature, dtype=torch.float32)
-
         mod(calibration_inputs)
 
         # Convert to quantized model
         quant_config.step = QuantizationStep.CONVERT
         quantize_(mod, quant_config)
-
-        # Prepare test input
-        input_dtype = torch.bfloat16 if enable_autocast else torch.float32
-        if input_ndim == 3:
-            test_input = torch.randn(1, M, in_feature, dtype=input_dtype)
-        else:
-            test_input = torch.randn(M, in_feature, dtype=input_dtype)
 
         def matcher_check_fn():
             self.assertEqual(
