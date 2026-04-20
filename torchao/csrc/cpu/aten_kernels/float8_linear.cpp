@@ -266,7 +266,8 @@ inline void store_out(
       if constexpr (wei_quant_mode == PER_ROW) {
         b_scale = scales_b[j];
       }
-      c_ptr[i * lda + j] = static_cast<out_dtype>(y_buf[i * N + j] * a_scale * b_scale);
+      float bias_val = bias ? bias[j] : 0.0f;
+      c_ptr[i * lda + j] = static_cast<out_dtype>(y_buf[i * N + j] * a_scale * b_scale + bias_val);
     }
   } // for M
 }
@@ -313,7 +314,8 @@ inline void store_out(
       if constexpr (wei_quant_mode == PER_ROW) {
         b_scale = scales_b[j];
       }
-      c_ptr[i * lda + j] = static_cast<out_dtype>(y_buf[i * N + j] * a_scale * b_scale);
+      float bias_val = bias ? bias[j] : 0.0f;
+      c_ptr[i * lda + j] = static_cast<out_dtype>(y_buf[i * N + j] * a_scale * b_scale + bias_val);
     }
   } // for M
 }

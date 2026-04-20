@@ -283,8 +283,8 @@ void _dequant_weight_zp_only(
   for (int k = 0; k < K; ++k) {
     for (int n = 0; n < N / 2; ++n) {
       int32_t b = (int32_t)B[k * ldb + n];
-      dqB[k * N + n * 2] = (b & 0xf) - qzeros[n];
-      dqB[k * N + n * 2 + 1] = (b >> 4) - qzeros[n];
+      dqB[k * N + n * 2] = (b & 0xf) - qzeros[n * 2];
+      dqB[k * N + n * 2 + 1] = ((b >> 4) & 0xf) - qzeros[n * 2 + 1];
     }
   }
 }
