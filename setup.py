@@ -545,6 +545,7 @@ int main() {
         if not X86KernelBuild.is_enabled():
             return
         flags = [
+            "-DCPU_CAPABILITY=DEFAULT",
             "-fno-tree-vectorize",
             "-fopenmp",
         ]

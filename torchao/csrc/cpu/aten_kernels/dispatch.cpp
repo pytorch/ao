@@ -5,11 +5,52 @@
 To add a new kernel:
 1. Implement the kernel in the all namespace (e.g., AVX10_2, AVX512, DEFAULT). See existing kernel files for reference.
   Note: Kernel files must be named in the format of <kernel_name>_krnl.cpp (e.g., da8w4_linear_krnl.cpp).
-2. Declare the kernel function using the corresponding macro (e.g., declare_da8w4_linear_impl) in the same namespace.
-3. Add a call macro (e.g., call_da8w4_linear_impl) in the same namespace that calls the implemented kernel function.
-4. Add a dispatch function outside ISA-related namespace, which calls the appropriate kernel based on the available hardware features.
+2. Declare the kernel function type as <kernel_name>_fn.
+3. Add an entry in the KernelDispatcher struct for the new kernel.
+4. Add a declaration of the kernel function in all namespaces.
+5. Add an entry in the get_kernel_dispatcher function.
+6. Add a wrapper that calls kernel that the dispatcher selects at runtime.
+7. Register the python op with the wrapper.
 */
 namespace torchao {
+
+/********** Lightweight ISA-based Dispatcher **********/
+// Function pointer types for each kernel
+using da8w4_linear_prepack_fn = std::tuple<at::Tensor, at::Tensor, at::Tensor, at::Tensor>(*)(
+    const at::Tensor&, const at::Tensor&, const at::Tensor&);
+
+using da8w4_linear_fn = at::Tensor(*)(
+    const at::Tensor&, const at::Tensor&, const at::Tensor&,
+    const at::Tensor&, const at::Tensor&, const at::Tensor&,
+    const at::Tensor&, const std::optional<at::Tensor>&, at::ScalarType);
+
+using float8_linear_prepack_fn = std::tuple<at::Tensor, at::Tensor>(*)(
+    const at::Tensor&, const at::Tensor&);
+
+using float8_linear_fn = at::Tensor(*)(
+    const at::Tensor&, const at::Tensor&,
+    const at::Tensor&, const at::Tensor&,
+    const std::optional<at::Tensor>&, at::ScalarType);
+
+using scaled_embedding_bag_fn = at::Tensor(*)(
+    const at::Tensor&, const at::Tensor&, const at::Tensor&,
+    const at::Tensor&, double, int64_t, bool, at::ScalarType);
+
+using qscaled_dot_product_fn = at::Tensor(*)(
+    const at::Tensor&, const at::Tensor&, const at::Tensor&,
+    std::optional<at::Tensor>, double, bool, std::optional<double>,
+    double, int64_t, double, int64_t, double, int64_t,
+    double, int64_t, double, int64_t);
+
+// Dispatcher table: holds function pointers for all kernels
+struct KernelDispatcher {
+  da8w4_linear_prepack_fn da8w4_linear_prepack;
+  da8w4_linear_fn da8w4_linear;
+  float8_linear_prepack_fn float8_linear_prepack;
+  float8_linear_fn float8_linear;
+  scaled_embedding_bag_fn scaled_embedding_bag;
+  qscaled_dot_product_fn qscaled_dot_product;
+};
 
 /********** DA8W4 Linear Kernel Declare **********/
 #define declare_da8w4_linear_prepack_impl \
@@ -31,21 +72,6 @@ namespace torchao {
     const std::optional<at::Tensor>& bias, \
     at::ScalarType output_dtype)
 
-#define call_da8w4_linear_prepack_impl() \
-  da8w4_linear_prepack_impl(weight, scales, qzeros)
-
-#define call_da8w4_linear_impl() \
-  da8w4_linear_impl( \
-    input, \
-    input_scales, \
-    input_qzeros, \
-    weight, \
-    weight_scales, \
-    weight_qzeros, \
-    compensation, \
-    bias, \
-    output_dtype)
-
 /********** FLOAT8 Linear Kernel Declare **********/
 #define declare_float8_linear_prepack_impl \
   std::tuple<at::Tensor, at::Tensor> \
@@ -62,18 +88,6 @@ namespace torchao {
     const std::optional<at::Tensor>& bias, \
     at::ScalarType output_dtype)
 
-#define call_float8_linear_prepack_impl() \
-  float8_linear_prepack_impl(weight, scales)
-
-#define call_float8_linear_impl() \
-  float8_linear_impl( \
-    input, \
-    input_scales, \
-    weight, \
-    weight_scales, \
-    bias, \
-    output_dtype)
-
 /********** Scaled Embedding Bag Kernel Declare **********/
 #define declare_scaled_embedding_bag_impl \
   at::Tensor _scaled_embedding_bag_impl( \
@@ -85,17 +99,6 @@ namespace torchao {
     const int64_t mode, \
     bool include_last_offset, \
     at::ScalarType output_dtype)
-
-#define call_scaled_embedding_bag_impl() \
-  _scaled_embedding_bag_impl( \
-    qweight, \
-    indices, \
-    offsets, \
-    w_scales, \
-    o_scale, \
-    mode, \
-    include_last_offset, \
-    output_dtype)
 
 /********** Quantized SDPA Kernel Declare **********/
 #define declare_qscaled_dot_product_impl \
@@ -118,26 +121,6 @@ namespace torchao {
     double o_scale, \
     int64_t o_zp)
 
-#define call_qscaled_dot_product_impl() \
-  _qscaled_dot_product_cpu( \
-    query, \
-    key, \
-    value, \
-    attn_mask, \
-    dropout_p, \
-    is_causal, \
-    scale, \
-    q_scale, \
-    q_zp, \
-    k_scale, \
-    k_zp, \
-    v_scale, \
-    v_zp, \
-    a_scale, \
-    a_zp, \
-    o_scale, \
-    o_zp)
-
 /********** Declare All Kernels in All Namespaces **********/
 #define declare_all_kernels(namespace_name) \
   namespace namespace_name { \
@@ -153,93 +136,75 @@ declare_all_kernels(AVX10_2)
 declare_all_kernels(AVX512)
 declare_all_kernels(DEFAULT)
 
-/********** DA8W4 Linear Kernel Dispatch **********/
-declare_da8w4_linear_prepack_impl {
-// BUILD_AVX10_2 is only defined when the compiler passed the AVX10.2 ISA probe in setup.py.
+/********** Dispatcher Selection and Dispatch Functions **********/
+// Select the appropriate dispatcher based on runtime ISA capabilities
+KernelDispatcher& get_kernel_dispatcher() {
+  static KernelDispatcher dispatcher = []() {
+    KernelDispatcher d;
+    // Select ISA level based on runtime detection (kHas*) and compile-time checks (BUILD_*)
 #if defined(BUILD_AVX10_2)
-  if (kHasAVX10_2) {
-    return AVX10_2::call_da8w4_linear_prepack_impl();
-  }
+    if (kHasAVX10_2) {
+      d = {AVX10_2::da8w4_linear_prepack_impl,
+           AVX10_2::da8w4_linear_impl,
+           AVX10_2::float8_linear_prepack_impl,
+           AVX10_2::float8_linear_impl,
+           AVX10_2::_scaled_embedding_bag_impl,
+           AVX10_2::_qscaled_dot_product_cpu};
+      return d;
+    }
 #endif
 #if defined(BUILD_AVX512)
-  if (kHasAVX512) {
-    return AVX512::call_da8w4_linear_prepack_impl();
-  }
+    if (kHasAVX512) {
+      d = {AVX512::da8w4_linear_prepack_impl,
+           AVX512::da8w4_linear_impl,
+           AVX512::float8_linear_prepack_impl,
+           AVX512::float8_linear_impl,
+           AVX512::_scaled_embedding_bag_impl,
+           AVX512::_qscaled_dot_product_cpu};
+      return d;
+    }
 #endif
-  return DEFAULT::call_da8w4_linear_prepack_impl();
+    // Fall back to DEFAULT (always available)
+    d = {DEFAULT::da8w4_linear_prepack_impl,
+         DEFAULT::da8w4_linear_impl,
+         DEFAULT::float8_linear_prepack_impl,
+         DEFAULT::float8_linear_impl,
+         DEFAULT::_scaled_embedding_bag_impl,
+         DEFAULT::_qscaled_dot_product_cpu};
+    return d;
+  }();
+  return dispatcher;
+}
+
+declare_da8w4_linear_prepack_impl {
+  return get_kernel_dispatcher().da8w4_linear_prepack(weight, scales, qzeros);
 }
 
 declare_da8w4_linear_impl {
-#if defined(BUILD_AVX10_2)
-  if (kHasAVX10_2) {
-    return AVX10_2::call_da8w4_linear_impl();
-  }
-#endif
-#if defined(BUILD_AVX512)
-  if (kHasAVX512) {
-    return AVX512::call_da8w4_linear_impl();
-  }
-#endif
-  return DEFAULT::call_da8w4_linear_impl();
+  return get_kernel_dispatcher().da8w4_linear(
+      input, input_scales, input_qzeros, weight, weight_scales, weight_qzeros,
+      compensation, bias, output_dtype);
 }
 
-/********** FLOAT8 Linear Kernel Dispatch **********/
 declare_float8_linear_prepack_impl {
-#if defined(BUILD_AVX10_2)
-  if (kHasAVX10_2) {
-    return AVX10_2::call_float8_linear_prepack_impl();
-  }
-#endif
-#if defined(BUILD_AVX512)
-  if (kHasAVX512) {
-    return AVX512::call_float8_linear_prepack_impl();
-  }
-#endif
-  return DEFAULT::call_float8_linear_prepack_impl();
+  return get_kernel_dispatcher().float8_linear_prepack(weight, scales);
 }
 
 declare_float8_linear_impl {
-#if defined(BUILD_AVX10_2)
-  if (kHasAVX10_2) {
-    return AVX10_2::call_float8_linear_impl();
-  }
-#endif
-#if defined(BUILD_AVX512)
-  if (kHasAVX512) {
-    return AVX512::call_float8_linear_impl();
-  }
-#endif
-  return DEFAULT::call_float8_linear_impl();
+  return get_kernel_dispatcher().float8_linear(
+      input, input_scales, weight, weight_scales, bias, output_dtype);
 }
 
-/********** Scaled Embedding Bag Kernel Dispatch **********/
 declare_scaled_embedding_bag_impl {
-#if defined(BUILD_AVX10_2)
-  if (kHasAVX10_2) {
-    return AVX10_2::call_scaled_embedding_bag_impl();
-  }
-#endif
-#if defined(BUILD_AVX512)
-  if (kHasAVX512) {
-    return AVX512::call_scaled_embedding_bag_impl();
-  }
-#endif
-  return DEFAULT::call_scaled_embedding_bag_impl();
+  return get_kernel_dispatcher().scaled_embedding_bag(
+      qweight, indices, offsets, w_scales, o_scale, mode, include_last_offset,
+      output_dtype);
 }
 
-/********** Quantized SDPA Kernel **********/
 declare_qscaled_dot_product_impl {
-#if defined(BUILD_AVX10_2)
-  if (kHasAVX10_2) {
-    return AVX10_2::call_qscaled_dot_product_impl();
-  }
-#endif
-#if defined(BUILD_AVX512)
-  if (kHasAVX512) {
-    return AVX512::call_qscaled_dot_product_impl();
-  }
-#endif
-  return DEFAULT::call_qscaled_dot_product_impl();
+  return get_kernel_dispatcher().qscaled_dot_product(
+      query, key, value, attn_mask, dropout_p, is_causal, scale, q_scale, q_zp,
+      k_scale, k_zp, v_scale, v_zp, a_scale, a_zp, o_scale, o_zp);
 }
 
 TORCH_LIBRARY_IMPL(torchao, CPU, m) {
