@@ -6,22 +6,29 @@
 
 """Shared utilities for FlyDSL MXFP8 quantization kernels.
 
-FlyDSL is an MLIR-based DSL for authoring GPU kernels on AMD hardware
-(CDNA / RDNA / unified architectures). These utilities mirror cute_utils.py
-(the CuteDSL counterpart) but target AMD GPUs via the ROCm/HIP stack.
+Counterpart of ``cute_utils.py``. Provides:
 
-Initial scope: FLOOR-mode E8M0 scale derivation (software, arch-agnostic).
-RCEIL mode is intentionally deferred to a follow-up — it has no direct
-hardware intrinsic on AMD equivalent to NVIDIA's ``cvt.rp.satfinite.ue8m0x2.f32``,
-so it requires a careful software round-up implementation matching the
-PTX behavior bit-for-bit.
+* Runtime detection (``_flydsl_runtime_available``) so kernel modules import
+  cleanly even on hosts without FlyDSL installed.
+* Centralized MXFP8 layout constants used by every kernel.
+* Kernel-side helpers callable from inside an ``@flyc.kernel`` body — for the
+  parts every quant kernel needs to do the same way: deriving the FLOOR-mode
+  E8M0 scale, materializing the FP8 clamp limits, and quantize+pack of one
+  4-element chunk into an i32 via two ``v_cvt_pk_fp8_f32`` instructions.
+
+Helpers must be imported at MODULE level in the kernel files (not inside the
+factory) so they look like Python globals to the AST rewriter rather than
+free-variable closure cells. ``cutedsl_quantize_2d_1x32.py`` uses the same
+pattern with ``cute_utils``.
 """
 
 import importlib.util
 
-# Runtime package detection (mirror of cute_utils._missing_cutedsl_runtime_packages).
-# The flydsl package itself is the only hard requirement; torch/cuda are checked
-# elsewhere in the dispatcher.
+
+# -----------------------------------------------------------------------------
+# Runtime detection
+# -----------------------------------------------------------------------------
+
 _FLYDSL_RUNTIME_PACKAGES = {
     "flydsl": "flydsl",
     "flydsl.compiler": "flydsl",
@@ -30,11 +37,6 @@ _FLYDSL_RUNTIME_PACKAGES = {
 
 
 def _missing_flydsl_runtime_packages() -> list[str]:
-    """Check which FlyDSL runtime packages are missing.
-
-    Returns:
-        List of missing package names (deduplicated).
-    """
     missing = []
     for module_name, package_name in _FLYDSL_RUNTIME_PACKAGES.items():
         try:
@@ -47,121 +49,128 @@ def _missing_flydsl_runtime_packages() -> list[str]:
 
 
 def _flydsl_runtime_available() -> bool:
-    """Return True if all FlyDSL runtime packages are importable."""
     return len(_missing_flydsl_runtime_packages()) == 0
 
 
-# FP8 E4M3FN constants (matches cute_utils.F8_MAX / INV_F8_MAX).
-F8_MAX = 448.0
-INV_F8_MAX = 1.0 / 448.0
+# -----------------------------------------------------------------------------
+# MXFP8 layout constants (all kernels)
+# -----------------------------------------------------------------------------
 
-# E8M0 exponent bias (per OCP MX format spec section 6.3).
+# OCP MX format spec: each block of 32 elements shares one E8M0 scale.
+BLOCK_SIZE = 32
+
+# FP8 E4M3FN max representable value; used as the clamp bound in FLOOR mode.
+F8_MAX = 448.0
+
+# E8M0 stores a biased uint8 exponent: stored = unbiased + bias.
 E8M0_EXPONENT_BIAS = 127
 
-# AMD wave size on CDNA / gfx9xx targets. Used to size half-wave reductions
-# (each MXFP8 quant block is 32 elements = half of a 64-lane wave).
+# log2(F8_MAX) ≈ 8.81 → floor = 8. The FLOOR-mode scale subtracts this from
+# the unbiased exponent of amax, putting amax/scale into [256, 512). Values in
+# (448, 512) saturate to 448 in the post-quantize clamp; that's the documented
+# FLOOR trade-off vs RCEIL.
+_FP8_MAX_LOG2_FLOOR = 8
+
+# Width of the cvt_pk_fp8_f32 packing operation (2 cvts give 4 fp8 in one i32).
+VEC = 4
+CHUNKS_PER_BLOCK = BLOCK_SIZE // VEC  # 8 chunks of 4 per quant block
+
+# AMD wave size on the gfx9xx CDNA architectures we target.
 AMD_WAVE_SIZE = 64
-HALF_WAVE = AMD_WAVE_SIZE // 2  # 32 — matches MXFP8 block size
 
 
-# The kernel-side helpers below are only valid inside an @flyc.kernel body
-# and require FlyDSL to be importable. We guard the import to keep this module
-# importable in environments without FlyDSL installed (mirroring cute_utils.py).
+# -----------------------------------------------------------------------------
+# Kernel-side helpers
+# -----------------------------------------------------------------------------
+
 if _flydsl_runtime_available():
     import flydsl.expr as fx
-    from flydsl.expr import arith, rocdl
+    from flydsl.expr import arith, rocdl, vector
+    from flydsl.expr.arith import ArithValue
     from flydsl.expr.typing import T
 
-    def half_wave_max_f32(x):
-        """Reduce f32 ``x`` to the per-half-wave maximum via ``shuffle_xor``.
+    def floor_scale_and_inv_scale(amax_f32):
+        """Derive the FLOOR-mode E8M0 byte and the matching inverse scale.
 
-        Lanes 0..31 reduce together; lanes 32..63 reduce together. Each half
-        ends up with the same broadcast value (the half's max).
+        Algorithm matches ``torchao.prototype.mx_formats.mx_tensor.to_mx`` with
+        ``ScaleCalculationMode.FLOOR`` for FP8 E4M3FN (max_pos=448):
 
-        AMD ``ds_swizzle_b32`` / ``v_permlanex16`` semantics: when ``width``
-        is smaller than the wave size, the high lane bits above ``log2(width)``
-        are preserved, so the two halves reduce independently.
-        """
-        w = x
-        for sh in (16, 8, 4, 2, 1):
-            peer = w.shuffle_xor(fx.Int32(sh), fx.Int32(HALF_WAVE))
-            w = w.maximumf(peer)
-        return w
+            bits         = bitcast(amax, i32)
+            E_amax       = ((bits >> 23) & 0xFF) - 127
+            scale_unb    = clamp(E_amax - 8, -127, 128)
+            scale_biased = scale_unb + 127                  # uint8 E8M0 byte
+            inv_scale    = 2 ^ (-scale_unb)                 # f32
 
-    def compute_scale_floor_f32(amax):
-        """FLOOR-mode E8M0 scale derivation (software, arch-agnostic).
-
-        Matches torchao.prototype.mx_formats.mx_tensor.to_mx with
-        ScaleCalculationMode.FLOOR for FP8 E4M3 (max_pos=448).
-
-        Reference:
-            torchao/csrc/cuda/mx_kernels/mxfp8_quantize.cuh L520-L538
-            torchao.prototype.moe_training.kernels.mxfp8.cute_utils.compute_scale_floor
-
-        Algorithm (for amax > 0):
-            bits        = bitcast(amax, i32)
-            exp_i       = ((bits >> 23) & 0xFF) - 127       # unbiased exponent of amax
-            scale_unb   = clamp(exp_i - 8, -127, 128)       # subtract 8 because 448 ≈ 2^8.8
-            inv_scale   = 2 ^ (-scale_unb)
-            scale_biased = scale_unb + 127                  # E8M0 uint8 value
-
-        For amax == 0, returns (scale_biased=0, inv_scale=1.0).
+        The compiler typically lowers ``scale_unb`` to ~3 ALU ops via constant
+        folding (``v_bfe_u32`` + ``v_max_u32`` + ``v_add_u16``), and lowers
+        ``inv_scale`` to a single ``v_ldexp_f32`` once it's used in a multiply.
 
         Args:
-            amax: absolute maximum value of a 32-element block, as f32 ArithValue.
+            amax_f32: per-block absolute maximum, as an f32 ArithValue.
 
         Returns:
-            (scale_biased, inv_scale): i32 ArithValue (storable as uint8) and
-            f32 ArithValue.
+            Tuple ``(scale_biased_u8, inv_scale_f32)``.
         """
-        # Default outputs for the amax==0 path.
-        scale_biased = fx.Int32(0)
-        inv_scale = fx.Float32(1.0)
+        bits = ArithValue(amax_f32).bitcast(T.i32)
+        exp_biased = (bits.shrui(fx.Int32(23))) & fx.Int32(0xFF)
+        e_amax = exp_biased - fx.Int32(E8M0_EXPONENT_BIAS)
+        scale_unb = e_amax - fx.Int32(_FP8_MAX_LOG2_FLOOR)
+        scale_unb = arith.maxsi(
+            arith.unwrap(scale_unb), arith.unwrap(fx.Int32(-E8M0_EXPONENT_BIAS))
+        )
+        scale_unb = arith.minsi(scale_unb, arith.unwrap(fx.Int32(E8M0_EXPONENT_BIAS + 1)))
 
-        if amax > fx.Float32(0.0):
-            bits = amax.bitcast(T.i32())
-            exp_i = ((bits >> fx.Int32(23)) & fx.Int32(0xFF)) - fx.Int32(127)
-            scale_unb = exp_i - fx.Int32(8)
-            # Clamp to E8M0 representable unbiased range [-127, 128].
-            if scale_unb < fx.Int32(-127):
-                scale_unb = fx.Int32(-127)
-            if scale_unb > fx.Int32(128):
-                scale_unb = fx.Int32(128)
-            # inv_scale = 2 ^ (-scale_unb). Cast int → f32 for math.exp2.
-            neg_unb_f = arith.sitofp(fx.Int32(0) - scale_unb, T.f32())
-            inv_scale = fx.math.exp2(neg_unb_f)
-            scale_biased = scale_unb + fx.Int32(E8M0_EXPONENT_BIAS)
+        scale_biased = scale_unb + fx.Int32(E8M0_EXPONENT_BIAS)
+        scale_u8 = arith.trunci(T.i8, arith.unwrap(scale_biased))
 
-        return scale_biased, inv_scale
+        neg_unb_f = arith.sitofp(T.f32, arith.unwrap(fx.Int32(0) - scale_unb))
+        inv_scale = fx.math.exp2(neg_unb_f)
+        return scale_u8, inv_scale
 
-    def pack_4_f32_to_i32_fp8(qv0, qv1, qv2, qv3):
-        """Pack 4 quantized f32 values into an i32 holding 4 packed FP8 E4M3FN bytes.
+    def make_fp8_clamp_vectors():
+        """Build ``vec<4 x f32>`` constants for ``±F8_MAX`` clamping.
 
-        Uses two ``v_cvt_pk_fp8_f32`` instructions:
-        - First call (word_sel=0): pack qv0,qv1 into low half of result i32.
-        - Second call (word_sel=1): pack qv2,qv3 into high half of the same i32.
+        Returns:
+            Tuple ``(f8_min_vec, f8_max_vec)`` of f32x4 vectors broadcasting
+            ``-F8_MAX`` and ``+F8_MAX`` respectively. Used as the lhs of
+            ``arith.maximumf`` / rhs of ``arith.minimumf`` in the post-scale
+            clamp before the FP8 conversion (FLOOR mode).
+        """
+        f32x4 = T.vec(VEC, T.f32)
+        f8_min = vector.broadcast(f32x4, arith.unwrap(fx.Float32(-F8_MAX)))
+        f8_max = vector.broadcast(f32x4, arith.unwrap(fx.Float32(F8_MAX)))
+        return f8_min, f8_max
 
-        Available on CDNA3+ (gfx940, gfx942, gfx950) and RDNA4 (gfx1200+).
+    def quantize_pack_chunk_to_i32(chunk_f32, inv_scale, f8_min_vec, f8_max_vec):
+        """Quantize 4 f32 → 4 FP8 E4M3FN packed into one i32.
+
+        Multiplies by ``inv_scale``, clamps to ``±F8_MAX`` (the FLOOR-mode
+        post-scale clamp), then issues two ``v_cvt_pk_fp8_f32`` instructions
+        to pack 4 results into a 32-bit register. The result can be written
+        with one ``buffer_store_dword`` (or fused into a wider store by the
+        scheduler).
 
         Args:
-            qv0..qv3: f32 ArithValues, already scaled and clamped to ±F8_MAX.
+            chunk_f32: vec<4 x f32> input chunk.
+            inv_scale: scalar f32 inverse scale.
+            f8_min_vec, f8_max_vec: clamp constants from
+                :func:`make_fp8_clamp_vectors`.
 
         Returns:
-            i32 ArithValue containing the 4 packed FP8 bytes [qv0|qv1|qv2|qv3].
+            i32 ArithValue with bytes ``[qv0, qv1, qv2, qv3]`` (low to high).
         """
-        out = fx.Int32(0)
+        qv = chunk_f32 * inv_scale
+        qv = arith.maximumf(qv, f8_min_vec)
+        qv = arith.minimumf(qv, f8_max_vec)
+        qv0 = vector.extract(qv, static_position=[0], dynamic_position=[])
+        qv1 = vector.extract(qv, static_position=[1], dynamic_position=[])
+        qv2 = vector.extract(qv, static_position=[2], dynamic_position=[])
+        qv3 = vector.extract(qv, static_position=[3], dynamic_position=[])
+        out = arith.unwrap(fx.Int32(0))
         out = rocdl.cvt_pk_fp8_f32(
-            res=T.i32(),
-            src_a=qv0,
-            src_b=qv1,
-            old=out,
-            word_sel=False,  # low word
+            res=T.i32, src_a=qv0, src_b=qv1, old=out, word_sel=False,
         )
         out = rocdl.cvt_pk_fp8_f32(
-            res=T.i32(),
-            src_a=qv2,
-            src_b=qv3,
-            old=out,
-            word_sel=True,  # high word
+            res=T.i32, src_a=qv2, src_b=qv3, old=out, word_sel=True,
         )
         return out
