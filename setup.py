@@ -548,6 +548,14 @@ def get_extensions():
 
         add_options_for_x86(extra_compile_args)
 
+        extra_compile_args["nvcc"].extend([
+            "-gencode=arch=compute_60,code=sm_60",  # Pascal
+            "-gencode=arch=compute_70,code=sm_70",  # Volta
+            "-gencode=arch=compute_75,code=sm_75",  # Turing
+            "-gencode=arch=compute_80,code=sm_80",  # Ampere
+            "-gencode=arch=compute_90,code=sm_90",  # Hopper
+        ])
+
         if debug_mode:
             extra_compile_args["cxx"].append("-g")
             if "nvcc" in extra_compile_args:
