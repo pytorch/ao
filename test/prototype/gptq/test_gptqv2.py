@@ -10,6 +10,13 @@ import pytest
 import torch
 import torch.nn.functional as F
 
+from torchao.utils import torch_version_at_least
+
+pytestmark = pytest.mark.skipif(
+    not torch_version_at_least("2.11.0"),
+    reason="GPTQ prototype requires PyTorch 2.11+",
+)
+
 from torchao.prototype.gptq import (
     GPTQConfig,
     gptq_quantize,
