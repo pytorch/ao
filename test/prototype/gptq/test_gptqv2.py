@@ -20,7 +20,10 @@ from torchao.prototype.mx_formats.inference_workflow import (
 )
 from torchao.quantization import Int4WeightOnlyConfig, Int8WeightOnlyConfig, quantize_
 from torchao.quantization.granularity import PerRow
-from torchao.utils import _is_mslk_available
+from torchao.utils import (
+    _is_mslk_available,
+    is_sm_at_least_100,
+)
 
 
 def _calculate_hessian(inputs, device=None):
@@ -449,6 +452,13 @@ class TestGPTQFlow:
     )
     def test_gptq_quantize_better_than_naive(self, base_config):
         """Test that GPTQ produces lower error than naive quantization."""
+
+        if (
+            isinstance(base_config, NVFP4DynamicActivationNVFP4WeightConfig)
+            and not is_sm_at_least_100()
+        ):
+            pytest.skip("CUDA capability >= 10.0 required for nvfp4")
+
         torch.manual_seed(43)
 
         # Create weight and realistic Hessian from actual activations
@@ -526,6 +536,12 @@ class TestGPTQFlow:
         ],
     )
     def test_gptq_sqnr(self, base_config):
+        if (
+            isinstance(base_config, NVFP4DynamicActivationNVFP4WeightConfig)
+            and not is_sm_at_least_100()
+        ):
+            pytest.skip("CUDA capability >= 10.0 required for nvfp4")
+
         torch.manual_seed(43)
 
         model = ToyLinearModel(m=512, n=2048, k=1024).cuda().to(torch.bfloat16)

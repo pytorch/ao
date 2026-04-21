@@ -230,8 +230,7 @@ def main():
 
     # Generate output directory name from args
     model_name = args.model_id.split("/")[-1]  # Get last part of model ID
-    # TODO(before land): make output dir configurable
-    output_dir = f"/home/dev/tmp/20260420_{model_name}_{args.quantization}"
+    output_dir = f"{model_name}_{args.quantization}"
 
     if args.quantization != "none":
         output_dir += f"_gs{args.group_size}"
@@ -359,16 +358,11 @@ def main():
         "--model_args",
         f"pretrained={output_dir}",
         "--tasks",
-        # "leaderboard_bbh",
-        # "gsm8k",
-        "wikitext",
-        # "--num_fewshot",
-        # "3",
+        "leaderboard_bbh",
+        "--num_fewshot",
+        "3",
         "--batch_size",
-        # "auto",
-        "1",
-        # "--limit",
-        # "20",
+        "auto",
     ]
 
     print(f"Running command: {' '.join(lm_eval_cmd)}")
