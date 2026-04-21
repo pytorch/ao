@@ -502,7 +502,7 @@ void _dequant_gemm_accum(
         1 /*ldsa*/);
   } else
 #endif
-  { // Fallback path with scalar implementation
+  {
     for (int64_t i = 0; i < M; ++i) {
       for (int64_t j = 0; j < N; ++j) {
         float sum = 0;
