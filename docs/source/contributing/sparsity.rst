@@ -53,7 +53,7 @@ If you can get your dense matrix into a **2:4 sparse format**, we can speed up m
 This also allows users with existing sparse weights in a dense format to take advantage of our fast sparse kernels. We anticipate many users to come up with their own custom frontend masking solution or to use another third party solution, as this is an active area of research.
 
 
-.. image:: ../static/pruning_ecosystem_diagram.png
+.. image:: ../../static/pruning_ecosystem_diagram.png
    :alt: pruning_flow
 
 
@@ -109,7 +109,7 @@ In order to avoid confusion, we generally try to use sparsity to refer to tensor
 Roughly, the flow for achieving a more performant pruned model looks like this:
 
 
-.. image:: ../static/pruning_flow.png
+.. image:: ../../static/pruning_flow.png
    :alt: flow
 
 

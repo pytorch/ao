@@ -121,34 +121,33 @@ float8_linear_prepack_impl(
 }
 
 #if defined(CPU_CAPABILITY_AVX512)
-inline __m256bh cvt_fp8e4m3_to_bf16(__m128i fp8_vec) {
-  __m512 fp32_vec;
-  at::vec::CPU_CAPABILITY::cvtfp8e4m3_fp32(fp8_vec, fp32_vec);
-  __m256i bf16_vec = at::vec::cvtfp32_bf16(fp32_vec);
-  return (__m256bh)bf16_vec;
-}
-
 static void cvt_f8e4m3_to_bf16(
-    const at::Float8_e4m3fn* __restrict__ in,
-    at::BFloat16* out,
-    int64_t rows,
-    int64_t cols,
-    int64_t stride) {
-  constexpr int64_t vec_len = 16; // 128 bit = 16 fp8 values
+  const at::Float8_e4m3fn* __restrict__ in,
+  at::BFloat16* out,
+  int64_t rows,
+  int64_t cols,
+  int64_t stride) {
+  constexpr int64_t vec_len = 32; // 256 bit = 32 fp8 values
+  __m512 fp32_vec_0, fp32_vec_1;
   for (int r = 0; r < rows; ++r) {
-    size_t i = 0;
-    size_t vec_len_aligned = cols / vec_len * vec_len;
-    for (; i < vec_len_aligned; i += vec_len) {
-      __m128i fp8_vec = _mm_loadu_si128((__m128i*)&in[r * stride + i]);
-      __m256bh bf16_vec = cvt_fp8e4m3_to_bf16(fp8_vec);
-      _mm256_storeu_si256((__m256i*)(out + r * cols + i), (__m256i)bf16_vec);
-    }
-    for (; i < cols; ++i) {
-      out[r * cols + i] = (at::BFloat16)in[r * stride + i];
-    }
+  size_t i = 0;
+  size_t vec_len_aligned = cols / vec_len * vec_len;
+  for (; i < vec_len_aligned; i += vec_len) {
+    __m256i fp8_vec = _mm256_loadu_si256((__m256i*)&in[r * stride + i]);
+    // Convert fp8 to fp32
+    at::vec::CPU_CAPABILITY::cvtfp8e4m3_fp32(_mm256_castsi256_si128(fp8_vec), fp32_vec_0);
+    at::vec::CPU_CAPABILITY::cvtfp8e4m3_fp32(_mm256_extracti128_si256(fp8_vec, 1), fp32_vec_1);
+    // Convert to bf16 and store
+    __m256i bf16_vec_0 = at::vec::cvtfp32_bf16(fp32_vec_0);
+    __m256i bf16_vec_1 = at::vec::cvtfp32_bf16(fp32_vec_1);
+    __m512i bf16_vec = _mm512_inserti32x8(_mm512_castsi256_si512(bf16_vec_0), bf16_vec_1, 1);
+    _mm512_storeu_si512((__m512i*)(out + r * cols + i), bf16_vec);
+  }
+  for (; i < cols; ++i) {
+    out[r * cols + i] = (at::BFloat16)in[r * stride + i];
+  }
   }
 }
-
 
 // accumulate and store result to buffer
 // if act/wei are per_group quantized, apply scales
@@ -267,7 +266,8 @@ inline void store_out(
       if constexpr (wei_quant_mode == PER_ROW) {
         b_scale = scales_b[j];
       }
-      c_ptr[i * lda + j] = static_cast<out_dtype>(y_buf[i * N + j] * a_scale * b_scale);
+      float bias_val = bias ? bias[j] : 0.0f;
+      c_ptr[i * lda + j] = static_cast<out_dtype>(y_buf[i * N + j] * a_scale * b_scale + bias_val);
     }
   } // for M
 }
@@ -314,7 +314,8 @@ inline void store_out(
       if constexpr (wei_quant_mode == PER_ROW) {
         b_scale = scales_b[j];
       }
-      c_ptr[i * lda + j] = static_cast<out_dtype>(y_buf[i * N + j] * a_scale * b_scale);
+      float bias_val = bias ? bias[j] : 0.0f;
+      c_ptr[i * lda + j] = static_cast<out_dtype>(y_buf[i * N + j] * a_scale * b_scale + bias_val);
     }
   } // for M
 }

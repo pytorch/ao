@@ -11,14 +11,14 @@ namespace CPU_CAPABILITY {
 #define BLOCK_N 32
 
 static std::once_flag cpublas_once;
-static bool cpublas_can_pack_global = false;
+static bool cpublas_can_pack = false;
 
 static inline bool cpublas_could_pack() {
   // the could_pack check requires AMX support implicitly
   std::call_once(cpublas_once, []() {
-    cpublas_can_pack_global = at::native::cpublas::could_pack(at::kByte);
+    cpublas_can_pack = at::native::cpublas::could_pack(at::kByte);
   });
-  return cpublas_can_pack_global;
+  return cpublas_can_pack;
 }
 
 /*
@@ -284,8 +284,8 @@ void _dequant_weight_zp_only(
   for (int k = 0; k < K; ++k) {
     for (int n = 0; n < N / 2; ++n) {
       int32_t b = (int32_t)B[k * ldb + n];
-      dqB[k * N + n * 2] = (b & 0xf) - qzeros[n];
-      dqB[k * N + n * 2 + 1] = (b >> 4) - qzeros[n];
+      dqB[k * N + n * 2] = (b & 0xf) - qzeros[n * 2];
+      dqB[k * N + n * 2 + 1] = ((b >> 4) & 0xf) - qzeros[n * 2 + 1];
     }
   }
 }
