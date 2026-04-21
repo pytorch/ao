@@ -99,6 +99,11 @@ class GPTQConfig(AOBaseConfig):
                 )
 
 
+# simple progress counter for GPTQ convert
+# TODO(future): make this cleaner, will require a refactor
+gptq_convert_layer_counter = 0
+
+
 @register_quantize_module_handler(GPTQConfig)
 def _gptq_config_transform(
     module: torch.nn.Module, config: GPTQConfig, *, parameter_name="weight"
@@ -120,7 +125,10 @@ def _gptq_config_transform(
         )
         return module
     elif config.step == "convert":
-        print("gptq convert")
+        global gptq_convert_layer_counter
+        print(f"gptq convert {gptq_convert_layer_counter}")
+        gptq_convert_layer_counter += 1
+
         # Quantization phase: tensor should be an GPTQObserverTensor
         if not isinstance(tensor, GPTQObserverTensor):
             raise ValueError(

@@ -154,8 +154,7 @@ def parse_args():
     parser.add_argument(
         "--num-calibration-samples",
         type=int,
-        # default=128,
-        default=2,
+        default=128,
         help="Number of calibration samples to use",
     )
     parser.add_argument(
@@ -265,9 +264,8 @@ def main():
     def skip_lm_head(module, fqn):
         # TODO(before land): remove o_proj from below, it's just for debugging
         return (
-            isinstance(module, torch.nn.Linear)
-            and "lm_head" not in fqn
-            and "o_proj" in fqn
+            isinstance(module, torch.nn.Linear) and "lm_head" not in fqn
+            # and "o_proj" in fqn
         )
 
     if args.quantization == "int4-rtn":
@@ -352,6 +350,13 @@ def main():
             # Run calibration
             for seq in tqdm(dataset, desc="Calibrating"):
                 model(seq.to(input_device))
+            # Print total # of GPTQ modules
+            num_gptq_weights = 0
+            for name, param in model.named_parameters():
+                # TODO(before land): better check
+                if "GPTQ" in str(type(param)):
+                    num_gptq_weights += 1
+            print(f"Total GPTQ weights to convert: {num_gptq_weights}")
             # Apply quantization
             quantize_(model, convert_config, filter_fn=skip_lm_head)
         else:  # sequential
@@ -372,22 +377,12 @@ def main():
     print(f"Saving model to {output_dir}...")
     tokenizer.save_pretrained(output_dir)
     print(model)
-    if model.config.tie_word_embeddings:
-        model.config.tie_word_embeddings = False
-        model._tied_weights_keys = {}
-        model.lm_head.weight = torch.nn.Parameter(
-            model.lm_head.weight.clone(), requires_grad=False
-        )
 
-        # monkey patch huggingface to skip weight tie checks
-        # TODO(before land): debug why i'm hitting this error here,
-        # as nvfp4 works in other hf models just fine
-        # import transformers.modeling_utils
-        # transformers.modeling_utils.remove_tied_weights_from_state_dict = lambda state_dict, model: state_dict
+    # transformers 5.0.0 have a lot of errors with nvfp4 subclasses
+    # TODO(before land): debug this further
+    import transformers
 
-        import transformers
-
-        assert transformers.__version__ == "4.57.6", "unsupported"
+    assert transformers.__version__ == "4.57.6", "unsupported"
 
     model.save_pretrained(output_dir, safe_serialization=False)
 
