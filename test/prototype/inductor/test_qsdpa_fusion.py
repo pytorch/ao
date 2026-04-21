@@ -245,7 +245,7 @@ class MHAModule(torch.nn.Module):
         return self.dense(context_layer)
 
 
-class fuse_MHAModule(torch.nn.Module):
+class fusedMHAModule(torch.nn.Module):
     def __init__(
         self,
         input_dim,
@@ -254,7 +254,7 @@ class fuse_MHAModule(torch.nn.Module):
         attention_head_size,
     ) -> None:
         super().__init__()
-        self.qkv_proj = torch.nn.Linear(input_dim * 3, input_dim * 3, bias=False)
+        self.qkv_proj = torch.nn.Linear(input_dim, input_dim * 3, bias=False)
         self.num_attention_heads = num_attention_heads
         self.attention_head_size = attention_head_size
         self.all_head_size = self.num_attention_heads * self.attention_head_size
@@ -375,7 +375,7 @@ class TestSDPAPatternRewriterTemplate(TestCase):
         ):
             seqlen, numhead, headsize = 197, 16, 64
             input_dim = headsize * numhead
-            mod = (fuse_MHAModule if fused else MHAModule)(
+            mod = (fusedMHAModule if fused else MHAModule)(
                 input_dim=input_dim,
                 has_mask=has_mask,
                 num_attention_heads=numhead,
@@ -383,7 +383,7 @@ class TestSDPAPatternRewriterTemplate(TestCase):
             ).eval()
             inputs = (
                 torch.randn(
-                    (bs, seqlen, input_dim * 3 if fused else input_dim),
+                    (bs, seqlen, input_dim),
                     device=self.device,
                     dtype=dtype,
                 ),
@@ -435,7 +435,7 @@ class TestSDPAPatternRewriterTemplate(TestCase):
         ):
             seqlen, numhead, headsize = 197, 16, 64
             input_dim = headsize * numhead
-            mod = (fuse_MHAModule if fused else MHAModule)(
+            mod = (fusedMHAModule if fused else MHAModule)(
                 input_dim=input_dim,
                 has_mask=False,
                 num_attention_heads=numhead,
@@ -443,7 +443,7 @@ class TestSDPAPatternRewriterTemplate(TestCase):
             ).eval()
             inputs = (
                 torch.randn(
-                    (bs, seqlen, input_dim * 3 if fused else input_dim),
+                    (bs, seqlen, input_dim),
                     device=self.device,
                     dtype=dtype,
                 ),
