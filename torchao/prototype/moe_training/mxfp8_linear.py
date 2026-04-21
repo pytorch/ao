@@ -18,7 +18,7 @@ from torchao.prototype.mx_formats.config import (
     MXFP8Dim1CastKernelChoice,
     ScaleCalculationMode,
 )
-from torchao.prototype.mx_formats.mx_tensor import MXTensor
+from torchao.prototype.mx_formats.mx_tensor import to_mx_tensor
 from torchao.prototype.mx_formats.utils import _to_mxfp8_dim1_kernel_wrapper
 from torchao.quantization.quantize_.common.kernel_preference import KernelPreference
 
@@ -120,7 +120,7 @@ class mx_mm(torch.autograd.Function):
         input_orig_shape = input_hp.shape
         input_hp_r = input_hp.reshape(-1, input_orig_shape[-1])
 
-        input_mx_r_dim0 = MXTensor.to_mx(
+        input_mx_r_dim0 = to_mx_tensor(
             input_hp_r,
             in_elem_dtype,
             block_size,
@@ -128,7 +128,7 @@ class mx_mm(torch.autograd.Function):
             kernel_preference,
             mxfp8_dim0_cast_kernel_choice=mxfp8_dim0_cast_kernel_choice,
         )
-        weight_mx_dim0 = MXTensor.to_mx(
+        weight_mx_dim0 = to_mx_tensor(
             weight_hp,
             w_elem_dtype,
             block_size,
@@ -167,7 +167,7 @@ class mx_mm(torch.autograd.Function):
         input_hp_r = input_hp.reshape(-1, input_hp_orig_shape[-1])
 
         # grad_output @ weight = grad_input
-        grad_output_mx_dim0 = MXTensor.to_mx(
+        grad_output_mx_dim0 = to_mx_tensor(
             grad_output_hp_r,
             grad_elem_dtype,
             block_size,
@@ -181,7 +181,7 @@ class mx_mm(torch.autograd.Function):
             or mxfp8_dim1_cast_kernel_choice == MXFP8Dim1CastKernelChoice.TORCH
         ):
             weight_hp_t_c = weight_hp.t().contiguous()
-            weight_mx_dim1 = MXTensor.to_mx(
+            weight_mx_dim1 = to_mx_tensor(
                 weight_hp_t_c,
                 w_elem_dtype,
                 block_size,
@@ -222,7 +222,7 @@ class mx_mm(torch.autograd.Function):
                     scale_calculation_mode,
                 )
             else:
-                grad_output_mx_dim1 = MXTensor.to_mx(
+                grad_output_mx_dim1 = to_mx_tensor(
                     grad_output_hp_r.t().contiguous(),
                     grad_elem_dtype,
                     block_size,
@@ -243,7 +243,7 @@ class mx_mm(torch.autograd.Function):
                 )
                 input_t_mx_dim0 = input_t_mx_dim0_tmp.t()
             else:
-                input_t_mx_dim0_tmp = MXTensor.to_mx(
+                input_t_mx_dim0_tmp = to_mx_tensor(
                     input_hp_r.t().contiguous(),
                     in_elem_dtype,
                     block_size,

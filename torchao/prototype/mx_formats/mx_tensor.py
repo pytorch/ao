@@ -225,7 +225,10 @@ def _to_mx_rceil(
     return exponent, data_lp
 
 
-def to_mx(
+_DEFAULT_MX_TENSOR_CLASS = None
+
+
+def _to_mx_impl(
     data_hp: torch.Tensor,
     elem_dtype: Union[torch.dtype, str],
     block_size: int,
@@ -409,6 +412,25 @@ def to_mx(
     return scale_e8m0_biased, data_lp
 
 
+def to_mx(
+    data_hp: torch.Tensor,
+    elem_dtype: Union[torch.dtype, str],
+    block_size: int,
+    scaling_mode: ScaleCalculationMode = ScaleCalculationMode.FLOOR,
+    is_swizzled_scales: bool = False,
+):
+    """
+    Takes a high precision tensor and converts to MX scale and raw data.
+
+    If a default MXTensor subclass has been registered, use its ``_to_mx_impl``
+    override so standalone ``to_mx`` imports follow the same quantization path
+    as ``MXTensor.to_mx``.
+    """
+    return get_default_mx_tensor_class()._to_mx_impl(
+        data_hp, elem_dtype, block_size, scaling_mode, is_swizzled_scales
+    )
+
+
 def get_fp_scale(scale_e8m0):
     scale_e8m0 = scale_e8m0.view(torch.uint8)
     s_offset = scale_e8m0.to(torch.int16) - E8M0_EXPONENT_BIAS
@@ -515,6 +537,7 @@ class MXTensor(TorchAOBaseTensor):
         "act_quant_kwargs",
         "is_swizzled_scales",
     ]
+    _to_mx_impl = staticmethod(_to_mx_impl)
 
     def __new__(
         cls,
@@ -603,9 +626,10 @@ class MXTensor(TorchAOBaseTensor):
             output_dtype,
         )
 
-    @staticmethod
+    @classmethod
     @torch._dynamo.allow_in_graph
     def from_qdata_and_scales(
+        cls,
         qdata: torch.Tensor,
         scales: torch.Tensor,
         orig_dtype: torch.dtype,
@@ -617,14 +641,12 @@ class MXTensor(TorchAOBaseTensor):
     ) -> Union["MXTensor", DTensor]:
         assert qdata.dtype != torch.uint8, (
             "from_qdata_and_scales only supports typed MX qdata; "
-            "use MXTensor(...) directly for packed uint8 payloads"
+            f"use {cls.__name__}(...) directly for packed uint8 payloads"
         )
-        elem_dtype = qdata.dtype
-
-        return MXTensor(
+        return cls(
             qdata,
             scales,
-            elem_dtype,
+            qdata.dtype,
             block_size,
             orig_dtype,
             kernel_preference,
@@ -632,9 +654,10 @@ class MXTensor(TorchAOBaseTensor):
             is_swizzled_scales,
         )
 
-    @staticmethod
+    @classmethod
     @torch._dynamo.allow_in_graph
     def to_mx(
+        cls,
         data_hp: torch.Tensor,
         elem_dtype: Union[torch.dtype, str],
         block_size: int = BLOCK_SIZE_DEFAULT,
@@ -646,45 +669,125 @@ class MXTensor(TorchAOBaseTensor):
         is_swizzled_scales: bool = False,
         mxfp8_dim0_cast_kernel_choice: MXFP8Dim0CastKernelChoice = MXFP8Dim0CastKernelChoice.TORCH,
     ):
-        assert mxfp8_dim0_cast_kernel_choice in (
-            MXFP8Dim0CastKernelChoice.TRITON,
-            MXFP8Dim0CastKernelChoice.TORCH,
-        ), (
-            f"unsupported kernel choice for mxfp8_dim0_cast_kernel_choice: {mxfp8_dim0_cast_kernel_choice}"
-        )
-
-        triton_kernel_supported = (
-            elem_dtype == torch.float8_e4m3fn and not is_swizzled_scales
-        )
-        if (
-            mxfp8_dim0_cast_kernel_choice == MXFP8Dim0CastKernelChoice.TORCH
-            or kernel_preference == KernelPreference.EMULATED
-        ):
-            scale_e8m0_biased, data_lp = to_mx(
-                data_hp, elem_dtype, block_size, scaling_mode, is_swizzled_scales
-            )
-        else:
-            assert triton_kernel_supported, (
-                f"triton kernel unsupported for {data_hp.dtype=}, {elem_dtype=}, {scaling_mode=}, {is_swizzled_scales=}"
-            )
-            data_lp, scale_e8m0_biased = triton_to_mxfp8_dim0(
-                data_hp,
-                inner_block_size=block_size,
-                scaling_mode=scaling_mode.value,
-            )
-        return MXTensor(
-            data_lp,
-            scale_e8m0_biased,
+        return to_mx_tensor(
+            data_hp,
             elem_dtype,
-            block_size,
-            data_hp.dtype,
-            kernel_preference,
-            act_quant_kwargs,
-            is_swizzled_scales,
+            block_size=block_size,
+            scaling_mode=scaling_mode,
+            kernel_preference=kernel_preference,
+            act_quant_kwargs=act_quant_kwargs,
+            is_swizzled_scales=is_swizzled_scales,
+            mxfp8_dim0_cast_kernel_choice=mxfp8_dim0_cast_kernel_choice,
+            mx_tensor_cls=cls,
         )
 
     # Do not force the MXTensor type on the returned tensor
     __torch_function__ = torch._C._disabled_torch_function_impl
+
+
+def set_default_mx_tensor_class(mx_tensor_cls: type[MXTensor]):
+    """Register the MXTensor subclass used by MX factory paths."""
+    assert issubclass(mx_tensor_cls, MXTensor), (
+        f"mx_tensor_cls must be a subclass of MXTensor, got {mx_tensor_cls}"
+    )
+    global _DEFAULT_MX_TENSOR_CLASS
+    _DEFAULT_MX_TENSOR_CLASS = mx_tensor_cls
+
+
+def get_default_mx_tensor_class() -> type[MXTensor]:
+    """Return the MXTensor subclass used by MX factory paths."""
+    return MXTensor if _DEFAULT_MX_TENSOR_CLASS is None else _DEFAULT_MX_TENSOR_CLASS
+
+
+def _resolve_mx_tensor_class(mx_tensor_cls: Optional[type[MXTensor]]):
+    # Omitting mx_tensor_cls means "use the configured default". Passing an
+    # explicit class, including MXTensor itself, constructs exactly that class.
+    if mx_tensor_cls is None:
+        mx_tensor_cls = get_default_mx_tensor_class()
+    assert issubclass(mx_tensor_cls, MXTensor), (
+        f"mx_tensor_cls must be a subclass of MXTensor, got {mx_tensor_cls}"
+    )
+    return mx_tensor_cls
+
+
+def make_mx_tensor(
+    qdata: torch.Tensor,
+    scale: torch.Tensor,
+    elem_dtype: Union[torch.dtype, str],
+    block_size: int,
+    orig_dtype: torch.dtype,
+    kernel_preference: Optional[KernelPreference],
+    act_quant_kwargs: Optional[QuantizeTensorToMXKwargs],
+    is_swizzled_scales: bool,
+    *,
+    mx_tensor_cls: Optional[type[MXTensor]] = None,
+) -> MXTensor:
+    """Wrap MX qdata/scales in the configured MXTensor class."""
+    mx_tensor_cls = _resolve_mx_tensor_class(mx_tensor_cls)
+    return mx_tensor_cls(
+        qdata,
+        scale,
+        elem_dtype,
+        block_size,
+        orig_dtype,
+        kernel_preference,
+        act_quant_kwargs,
+        is_swizzled_scales,
+    )
+
+
+def to_mx_tensor(
+    data_hp: torch.Tensor,
+    elem_dtype: Union[torch.dtype, str],
+    block_size: int = BLOCK_SIZE_DEFAULT,
+    scaling_mode: ScaleCalculationMode = ScaleCalculationMode.FLOOR,
+    kernel_preference: KernelPreference = KernelPreference.EMULATED,
+    act_quant_kwargs: Optional[QuantizeTensorToMXKwargs] = None,
+    is_swizzled_scales: bool = False,
+    mxfp8_dim0_cast_kernel_choice: MXFP8Dim0CastKernelChoice = MXFP8Dim0CastKernelChoice.TORCH,
+    *,
+    mx_tensor_cls: Optional[type[MXTensor]] = None,
+) -> MXTensor:
+    """Convert high precision data to the configured MXTensor class."""
+    mx_tensor_cls = _resolve_mx_tensor_class(mx_tensor_cls)
+    assert mxfp8_dim0_cast_kernel_choice in (
+        MXFP8Dim0CastKernelChoice.TRITON,
+        MXFP8Dim0CastKernelChoice.TORCH,
+    ), (
+        f"unsupported kernel choice for mxfp8_dim0_cast_kernel_choice: {mxfp8_dim0_cast_kernel_choice}"
+    )
+
+    triton_kernel_supported = (
+        elem_dtype == torch.float8_e4m3fn and not is_swizzled_scales
+    )
+    if (
+        mxfp8_dim0_cast_kernel_choice == MXFP8Dim0CastKernelChoice.TORCH
+        or kernel_preference == KernelPreference.EMULATED
+    ):
+        scale_e8m0_biased, data_lp = mx_tensor_cls._to_mx_impl(
+            data_hp, elem_dtype, block_size, scaling_mode, is_swizzled_scales
+        )
+    else:
+        assert triton_kernel_supported, (
+            f"triton kernel unsupported for {data_hp.dtype=}, {elem_dtype=}, {scaling_mode=}, {is_swizzled_scales=}"
+        )
+        data_lp, scale_e8m0_biased = triton_to_mxfp8_dim0(
+            data_hp,
+            inner_block_size=block_size,
+            scaling_mode=scaling_mode.value,
+        )
+
+    return make_mx_tensor(
+        data_lp,
+        scale_e8m0_biased,
+        elem_dtype,
+        block_size,
+        data_hp.dtype,
+        kernel_preference,
+        act_quant_kwargs,
+        is_swizzled_scales,
+        mx_tensor_cls=mx_tensor_cls,
+    )
 
 
 implements = MXTensor.implements
@@ -705,7 +808,8 @@ def mx_is_pinned(func, types, args, kwargs):
 @implements([aten._pin_memory.default])
 def mx_pin_memory(func, types, args, kwargs):
     tensor = args[0]
-    return MXTensor(
+    assert isinstance(tensor, MXTensor)
+    return type(tensor)(
         tensor.qdata.pin_memory(),
         tensor.scale.pin_memory(),
         tensor.elem_dtype,
@@ -767,13 +871,13 @@ def _addmm_mx_dispatch(
     if not isinstance(a, MXTensor):
         assert b.act_quant_kwargs is not None, "weight-only quant not yet supported"
         k = b.act_quant_kwargs
-        a = MXTensor.to_mx(
+        a = to_mx_tensor(
             a,
             k.elem_dtype,
             k.block_size,
-            k.scaling_mode,
-            k.kernel_preference,
-            k.is_swizzled_scales,
+            scaling_mode=k.scaling_mode,
+            kernel_preference=k.kernel_preference,
+            is_swizzled_scales=k.is_swizzled_scales,
         )
 
     gemm_choice = _get_gemm_choice(a.kernel_preference, b.kernel_preference)
@@ -886,7 +990,8 @@ def mx_linear(func, types, args, kwargs):
 def mx_t(func, types, args, kwargs):
     # For now, only transpose(input, 0, 1) is supported.
     old = args[0]
-    new = MXTensor(
+    assert isinstance(old, MXTensor)
+    new = type(old)(
         old.qdata.t(),
         old.scale.t(),
         old.elem_dtype,
@@ -921,27 +1026,30 @@ def mx_cast_up_op(func, types, args, kwargs):
 
 @implements([aten.view.default])
 def mx_view_op(func, types, args, kwargs):
-    data = args[0].qdata
+    mx_tensor = args[0]
+    assert isinstance(mx_tensor, MXTensor)
+    data = mx_tensor.qdata
     new_size = args[1]
-    if args[0].elem_dtype == torch.float4_e2m1fn_x2:
+    if mx_tensor.elem_dtype == torch.float4_e2m1fn_x2:
         # special case fp4 as we pack two elements per byte
         new_size = tensor_size_hp_to_fp4x2(new_size, data.is_contiguous())
     new_data = func(data, new_size, *args[2:], **kwargs)
-    return MXTensor(
+    return type(mx_tensor)(
         new_data,
-        args[0].scale,
-        args[0].elem_dtype,
-        args[0].block_size,
-        args[0].orig_dtype,
-        args[0].kernel_preference,
-        args[0].act_quant_kwargs,
-        args[0].is_swizzled_scales,
+        mx_tensor.scale,
+        mx_tensor.elem_dtype,
+        mx_tensor.block_size,
+        mx_tensor.orig_dtype,
+        mx_tensor.kernel_preference,
+        mx_tensor.act_quant_kwargs,
+        mx_tensor.is_swizzled_scales,
     )
 
 
 @implements([aten.slice.Tensor])
 def mx_slice(func, types, args, kwargs):
     x, dim, start, end, step = fill_defaults(args, 5, [0, None, None, 1])
+    assert isinstance(x, MXTensor)
 
     if step != 1:
         raise ValueError("Only support aten.slice with step=1")
@@ -952,7 +1060,7 @@ def mx_slice(func, types, args, kwargs):
         func,
         args,
         kwargs,
-        MXTensor(
+        type(x)(
             sliced_data,
             sliced_scale,
             x.elem_dtype,
@@ -986,7 +1094,7 @@ def mx_select(func, types, args, kwargs):
         "unsupported"
     )
     assert not old_mx_tensor.is_swizzled_scales, "unsupported"
-    new_mx_tensor = old_mx_tensor.__class__(
+    new_mx_tensor = type(old_mx_tensor)(
         old_mx_tensor.qdata[index],
         old_mx_tensor.scale[index],
         old_mx_tensor.elem_dtype,
@@ -1011,6 +1119,7 @@ def mx_all_gather(func, types, args, kwargs):
         kwargs: Additional arguments
     """
     mx_tensor = args[0]
+    assert isinstance(mx_tensor, MXTensor)
     group_tag = args[1] if len(args) > 1 else "default"
 
     # TODO: Add support for concat CC as a future optimization
@@ -1035,7 +1144,7 @@ def mx_all_gather(func, types, args, kwargs):
     gathered_scale = gathered_scale.view(torch.float8_e8m0fnu)
 
     # Return new MXTensor with gathered data
-    return MXTensor(
+    return type(mx_tensor)(
         gathered_qdata,
         gathered_scale,
         mx_tensor.elem_dtype,
@@ -1056,6 +1165,7 @@ def mx_wait_tensor(func, types, args, kwargs):
     the operation has completed before using the tensor.
     """
     mx_tensor = args[0]
+    assert isinstance(mx_tensor, MXTensor)
 
     # Wait on both components
     waited_qdata = torch.ops._c10d_functional.wait_tensor.default(
@@ -1066,7 +1176,7 @@ def mx_wait_tensor(func, types, args, kwargs):
         mx_tensor.scale, *args[1:], **kwargs
     )
 
-    return MXTensor(
+    return type(mx_tensor)(
         waited_qdata,
         waited_scale,
         mx_tensor.elem_dtype,

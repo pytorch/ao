@@ -156,7 +156,7 @@ def _to_mxfp8_dim1_kernel_wrapper(
 ):
     # avoid circular import
     # TODO(future PR): split this utils file in two
-    from torchao.prototype.mx_formats.mx_tensor import MXTensor, to_mx
+    from torchao.prototype.mx_formats.mx_tensor import make_mx_tensor, to_mx
 
     is_swizzled_scales = False
 
@@ -231,7 +231,7 @@ def _to_mxfp8_dim1_kernel_wrapper(
 
     # MXTensor wraps DTensor inner tensors directly (MXTensor(DTensor) ordering).
     # DTensor's .t() handles placement transposition automatically.
-    mx_tensor = MXTensor(
+    mx_tensor = make_mx_tensor(
         a_data.t(),
         a_scale,
         elem_dtype,

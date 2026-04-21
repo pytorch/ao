@@ -12,7 +12,7 @@ from torch.distributed.distributed_c10d import _resolve_process_group
 from torchao.prototype.moe_training.utils import conditional_nostrict_trace
 from torchao.prototype.mx_formats.config import ScaleCalculationMode
 from torchao.prototype.mx_formats.kernels import triton_to_mxfp8_dim0
-from torchao.prototype.mx_formats.mx_tensor import MXTensor
+from torchao.prototype.mx_formats.mx_tensor import MXTensor, make_mx_tensor
 
 
 class _A2ADispatchMXFP8FwdHPBwd(torch.autograd.Function):
@@ -93,8 +93,8 @@ class _A2ADispatchMXFP8FwdHPBwd(torch.autograd.Function):
         # Convert scales back to float8_e8m0fnu
         output_scales = output_scales.view(torch.float8_e8m0fnu)
 
-        # Wrap output as MXTensor
-        mx_output = MXTensor(
+        # Wrap output as MX Tensor
+        mx_output = make_mx_tensor(
             output_data,
             output_scales,
             elem_dtype=torch.float8_e4m3fn,

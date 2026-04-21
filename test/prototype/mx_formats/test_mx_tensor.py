@@ -29,6 +29,10 @@ from torchao.prototype.mx_formats.mx_tensor import (
     _to_mx_rceil,
     to_dtype,
     to_mx,
+    get_default_mx_tensor_class,
+    make_mx_tensor,
+    set_default_mx_tensor_class,
+    to_mx_tensor,
 )
 from torchao.prototype.mx_formats.utils import from_blocked, to_blocked
 from torchao.quantization.quantize_.common import KernelPreference
@@ -1005,3 +1009,69 @@ def test_mx_pin_memory(elem_dtype):
     assert torch.equal(
         x_cpu.dequantize(torch.float32), x_pinned.dequantize(torch.float32)
     )
+
+
+def test_mx_tensor_factories():
+    def fake_to_mx_impl(data_hp, elem_dtype, block_size, *_):
+        scale = data_hp.new_zeros(
+            data_hp.shape[:-1] + (data_hp.shape[-1] // block_size,),
+            dtype=torch.uint8,
+        ).view(torch.float8_e8m0fnu)
+        qdata = data_hp.new_zeros(data_hp.shape, dtype=elem_dtype)
+        return scale, qdata
+
+    class MyMXTensor(MXTensor):
+        to_mx_impl_calls = 0
+
+        @staticmethod
+        def _to_mx_impl(*args, **kwargs):
+            MyMXTensor.to_mx_impl_calls += 1
+            return fake_to_mx_impl(*args, **kwargs)
+
+    previous_default = get_default_mx_tensor_class()
+    set_default_mx_tensor_class(MyMXTensor)
+    try:
+        data_hp = torch.randn(2, 32, dtype=torch.bfloat16)
+
+        assert (
+            type(MyMXTensor.to_mx(data_hp, torch.float8_e4m3fn, 32))
+            is MyMXTensor
+        )
+        assert (
+            type(to_mx_tensor(data_hp, torch.float8_e4m3fn, 32))
+            is MyMXTensor
+        )
+
+        scale, qdata = to_mx(data_hp, torch.float8_e4m3fn, 32)
+        assert MyMXTensor.to_mx_impl_calls == 3
+
+        assert (
+            type(
+                MyMXTensor.from_qdata_and_scales(
+                    qdata,
+                    scale,
+                    orig_dtype=data_hp.dtype,
+                    block_size=32,
+                    kernel_preference=KernelPreference.EMULATED,
+                )
+            )
+            is MyMXTensor
+        )
+        assert (
+            type(
+                make_mx_tensor(
+                    qdata,
+                    scale,
+                    torch.float8_e4m3fn,
+                    32,
+                    data_hp.dtype,
+                    KernelPreference.EMULATED,
+                    None,
+                    False,
+                    mx_tensor_cls=MXTensor,
+                )
+            )
+            is MXTensor
+        )
+    finally:
+        set_default_mx_tensor_class(previous_default)

@@ -18,6 +18,7 @@ from torchao.prototype.mx_formats.config import _validate_elem_dtype
 from torchao.prototype.mx_formats.mx_tensor import (
     MXTensor,
     QuantizeTensorToMXKwargs,
+    to_mx_tensor,
     ScaleCalculationMode,
 )
 from torchao.prototype.mx_formats.nvfp4_tensor import (
@@ -144,7 +145,7 @@ def _mx_inference_linear_transform(
     )
 
     # Convert weight to MX Tensor
-    quantized_weight = MXTensor.to_mx(
+    quantized_weight = to_mx_tensor(
         weight,
         config.weight_dtype,
         block_size=config.block_size,
