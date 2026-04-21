@@ -456,11 +456,11 @@ void _dequant_gemm_accum(
 #endif
 
   int8_t dqB[K * N];
-  _dequant_weight_zp_only<N, ldb>(B, dqB, qzeros_b, K);
   using Tin = typename ActDtype<sym_quant_a>::type;
   Tin* A_ptr = (Tin*)A;
 #if defined(CPU_CAPABILITY_AVX512)
   if constexpr (cpublas_can_pack) {
+    _dequant_weight_zp_only<N, ldb>(B, dqB, qzeros_b, K);
     int32_t C_i32[M * N];
     at::native::cpublas::brgemm(
         M,
@@ -487,9 +487,16 @@ void _dequant_gemm_accum(
         N /*ldi*/,
         ldc,
         1 /*ldsa*/);
-  } else
-#endif
-  {
+  } else {
+    // cpublas_can_pack = false: weights packed as simple bitwise (high << 4) | low
+    // Use scalar unpacking that matches this format
+    for (int k = 0; k < K; ++k) {
+      for (int n = 0; n < N / 2; ++n) {
+        int32_t b = (int32_t)B[k * ldb + n];
+        dqB[k * N + n * 2] = (b & 0xf) - qzeros_b[n * 2];
+        dqB[k * N + n * 2 + 1] = ((b >> 4) & 0xf) - qzeros_b[n * 2 + 1];
+      }
+    }
     for (int64_t i = 0; i < M; ++i) {
       for (int64_t j = 0; j < N; ++j) {
         float sum = 0;
@@ -504,6 +511,25 @@ void _dequant_gemm_accum(
       }
     }
   }
+#else
+  {
+    // Fallback when CPU_CAPABILITY_AVX512 not compiled
+    _dequant_weight_zp_only<N, ldb>(B, dqB, qzeros_b, K);
+    for (int64_t i = 0; i < M; ++i) {
+      for (int64_t j = 0; j < N; ++j) {
+        float sum = 0;
+        for (int64_t k = 0; k < K; ++k) {
+          if constexpr (sym_quant_a) {
+            sum += ((int32_t)A_ptr[i * lda + k] * dqB[k * N + j]);
+          } else {
+            sum += ((int32_t)A_ptr[i * lda + k] - qzeros_a[i]) * (int32_t)dqB[k * N + j];
+          }
+        }
+        C[i * ldc + j] += sum * scales_a[i] * scales_b[j];
+      }
+    }
+  }
+#endif
 }
 
 template<int64_t N>
