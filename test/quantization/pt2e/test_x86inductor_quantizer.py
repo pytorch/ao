@@ -680,8 +680,22 @@ class X86InductorQuantTestCase(QuantizationTestCase):
         # QAT Model failed to deepcopy
         export_model = m if is_qat else copy.deepcopy(m)
         m = prepare_qat_pt2e(m, quantizer) if is_qat else prepare_pt2e(m, quantizer)
-        # Calibrate
-        m(*example_inputs)
+        # Calibration is only needed when any activation is statically quantized.
+        # For pure dynamic quantization, activations compute qparams on-the-fly
+        # and weight observers are initialized from constant tensors in convert_pt2e.
+        all_configs = (
+            list(quantizer.module_name_qconfig.values())
+            + list(quantizer.operator_type_qconfig.values())
+            + [quantizer.global_config]
+        )
+        needs_calibration = any(
+            config is not None
+            and config.input_activation is not None
+            and not config.input_activation.is_dynamic
+            for config in all_configs
+        )
+        if needs_calibration:
+            m(*example_inputs)
         prepare_model = copy.deepcopy(m)
         m = convert_pt2e(m)
         convert_model = copy.deepcopy(m)
