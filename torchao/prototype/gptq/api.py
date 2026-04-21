@@ -319,6 +319,7 @@ def gptq_quantize(H: torch.Tensor, W_t: torch.Tensor, config: GPTQConfig):
         block_size = list(block_size)
         group_size = block_size[-1]
     elif isinstance(base_config, NVFP4DynamicActivationNVFP4WeightConfig):
+        assert base_config.use_dynamic_per_tensor_scale, "unsupported"
         group_size = 16
         block_size = [1, group_size]
         # for per-tensor nvfp4, we need to calculate the global scale over the
