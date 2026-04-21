@@ -52,7 +52,7 @@ struct KernelDispatcher {
   qscaled_dot_product_fn qscaled_dot_product;
 };
 
-/********** DA8W4 Linear Kernel Declare **********/
+/********** DA8W4 Linear Kernel **********/
 #define declare_da8w4_linear_prepack_impl \
   std::tuple<at::Tensor, at::Tensor, at::Tensor, at::Tensor> \
   da8w4_linear_prepack_impl( \
@@ -72,7 +72,7 @@ struct KernelDispatcher {
     const std::optional<at::Tensor>& bias, \
     at::ScalarType output_dtype)
 
-/********** FLOAT8 Linear Kernel Declare **********/
+/********** FLOAT8 Linear Kernel **********/
 #define declare_float8_linear_prepack_impl \
   std::tuple<at::Tensor, at::Tensor> \
   float8_linear_prepack_impl( \
@@ -88,7 +88,7 @@ struct KernelDispatcher {
     const std::optional<at::Tensor>& bias, \
     at::ScalarType output_dtype)
 
-/********** Scaled Embedding Bag Kernel Declare **********/
+/********** Scaled Embedding Bag Kernel **********/
 #define declare_scaled_embedding_bag_impl \
   at::Tensor _scaled_embedding_bag_impl( \
     const at::Tensor &qweight, \
@@ -100,7 +100,7 @@ struct KernelDispatcher {
     bool include_last_offset, \
     at::ScalarType output_dtype)
 
-/********** Quantized SDPA Kernel Declare **********/
+/********** Quantized SDPA Kernel **********/
 #define declare_qscaled_dot_product_impl \
   at::Tensor _qscaled_dot_product_cpu( \
     const at::Tensor& query, \
@@ -138,44 +138,79 @@ declare_all_kernels(DEFAULT)
 
 /********** Dispatcher Selection and Dispatch Functions **********/
 // Select the appropriate dispatcher based on runtime ISA capabilities
+#define CREATE_DISPATCHER(namespace_name) \
+  { \
+    namespace_name::da8w4_linear_prepack_impl, \
+    namespace_name::da8w4_linear_impl, \
+    namespace_name::float8_linear_prepack_impl, \
+    namespace_name::float8_linear_impl, \
+    namespace_name::_scaled_embedding_bag_impl, \
+    namespace_name::_qscaled_dot_product_cpu \
+  }
+
+enum DispatchMode {
+  MODE_DEFAULT = 0,
+  MODE_AVX512 = 1,
+  MODE_AVX10_2 = 2,
+  MODE_AUTO // always the highest level + 1
+};
+
+#define PRINT_DEBUG_INFO(ISA) \
+  if (dispatch_debug) { \
+    std::cout << "\nTorchao X86 Kernel dispatch: Using " << ISA << " kernels" << std::endl; \
+  }
+
 KernelDispatcher& get_kernel_dispatcher() {
+  static const char* env_dispatch = std::getenv("TORCHAO_CPU_DISPATCH");
+  static std::string dispatch_str = env_dispatch ? std::string(env_dispatch) : "AUTO";
+  static int dispatch_mode = -1;
+  static std::once_flag dispatch_init_flag;
+  std::call_once(dispatch_init_flag, [&]() {
+    if (dispatch_mode == -1) {
+      if (dispatch_str == "AUTO") {
+        dispatch_mode = MODE_AUTO;
+      } else if (dispatch_str == "DEFAULT") {
+        dispatch_mode = MODE_DEFAULT;
+      } else if (dispatch_str == "AVX512") {
+        dispatch_mode = MODE_AVX512;
+      } else if (dispatch_str == "AVX10_2") {
+        dispatch_mode = MODE_AVX10_2;
+      } else {
+        TORCH_WARN("Torchao X86 Kernel dispatch: Unrecognized TORCHAO_CPU_DISPATCH value: ", dispatch_str, ", defaulting to AUTO");
+        dispatch_mode = MODE_AUTO;
+      }
+    }
+  });
+
+  static const char* env_dispatch_debug = std::getenv("TORCHAO_CPU_DISPATCH_DEBUG");
+  static bool dispatch_debug = env_dispatch_debug ? std::string(env_dispatch_debug) == "1" : false;
+
   static KernelDispatcher dispatcher = []() {
     KernelDispatcher d;
     // Select ISA level based on runtime detection (kHas*) and compile-time checks (BUILD_*)
 #if defined(BUILD_AVX10_2)
-    if (kHasAVX10_2) {
-      d = {AVX10_2::da8w4_linear_prepack_impl,
-           AVX10_2::da8w4_linear_impl,
-           AVX10_2::float8_linear_prepack_impl,
-           AVX10_2::float8_linear_impl,
-           AVX10_2::_scaled_embedding_bag_impl,
-           AVX10_2::_qscaled_dot_product_cpu};
+    if (kHasAVX10_2 && dispatch_mode >= MODE_AVX10_2) {
+      PRINT_DEBUG_INFO("AVX10_2");
+      d = CREATE_DISPATCHER(AVX10_2);
       return d;
     }
 #endif
 #if defined(BUILD_AVX512)
-    if (kHasAVX512) {
-      d = {AVX512::da8w4_linear_prepack_impl,
-           AVX512::da8w4_linear_impl,
-           AVX512::float8_linear_prepack_impl,
-           AVX512::float8_linear_impl,
-           AVX512::_scaled_embedding_bag_impl,
-           AVX512::_qscaled_dot_product_cpu};
+    if (kHasAVX512 && dispatch_mode >= MODE_AVX512) {
+      PRINT_DEBUG_INFO("AVX512");
+      d = CREATE_DISPATCHER(AVX512);
       return d;
     }
 #endif
     // Fall back to DEFAULT (always available)
-    d = {DEFAULT::da8w4_linear_prepack_impl,
-         DEFAULT::da8w4_linear_impl,
-         DEFAULT::float8_linear_prepack_impl,
-         DEFAULT::float8_linear_impl,
-         DEFAULT::_scaled_embedding_bag_impl,
-         DEFAULT::_qscaled_dot_product_cpu};
+    PRINT_DEBUG_INFO("DEFAULT");
+    d = CREATE_DISPATCHER(DEFAULT);
     return d;
   }();
   return dispatcher;
 }
 
+/********** Wrapper functions of kernels for op registration **********/
 declare_da8w4_linear_prepack_impl {
   return get_kernel_dispatcher().da8w4_linear_prepack(weight, scales, qzeros);
 }
