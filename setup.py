@@ -481,16 +481,6 @@ int main() {
         else:
             X86KernelBuild._isa_level = None
 
-        print("[X86 Build] compiler check")
-        print("- Found compiler:", cxx)
-        print(
-            "- AVX512 support:",
-            "Yes" if X86KernelBuild._isa_at_least("avx512") else "No",
-        )
-        print(
-            "- AVX10.2 support:",
-            "Yes" if X86KernelBuild._isa_at_least("avx10_2") else "No",
-        )
         X86KernelBuild._isa_probed = True
 
     @staticmethod
@@ -579,6 +569,18 @@ int main() {
             return
 
         cxx = X86KernelBuild._cxx
+
+        print("[X86 Build] compiler check")
+        print("- Found compiler:", cxx)
+        print(
+            "- AVX512 support:",
+            "Yes" if X86KernelBuild._isa_at_least("avx512") else "No",
+        )
+        print(
+            "- AVX10.2 support:",
+            "Yes" if X86KernelBuild._isa_at_least("avx10_2") else "No",
+        )
+
         aten_kernels_dir = os.path.join("torchao", "csrc", "cpu", "aten_kernels")
         all_kernel_sources = glob.glob(os.path.join(aten_kernels_dir, "*_krnl.cpp"))
         include_flags = X86KernelBuild.get_include_flags()
