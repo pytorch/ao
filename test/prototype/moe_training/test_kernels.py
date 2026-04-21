@@ -24,6 +24,7 @@ if not (torch.cuda.is_available() and (_is_sm_10x() or is_MI300() or is_MI350())
 from torchao.float8.config import ScalingGranularity, e4m3_dtype
 from torchao.float8.float8_utils import tensor_to_scale, to_fp8_saturated
 from torchao.prototype.moe_training.kernels import (
+    triton_fp8_colwise_3d_scale_and_cast,
     triton_fp8_rowwise_2d_scale_and_cast,
 )
 from torchao.prototype.moe_training.kernels.float8_rowwise import (
@@ -697,6 +698,45 @@ def test_triton_fp8_rowwise_2d_scale_and_cast(
 
     # Fused Triton kernel
     triton_fp8, triton_scales = triton_fp8_rowwise_2d_scale_and_cast(
+        x,
+        output_dtype=float8_dtype,
+        round_scales_to_power_of_2=round_scales_to_power_of_2,
+    )
+
+    assert ref_fp8.shape == triton_fp8.shape, "fp8 output shapes not equal"
+    assert ref_scales.shape == triton_scales.shape, "scale shapes not equal"
+    assert torch.allclose(ref_fp8, triton_fp8, rtol=0, atol=0), "fp8 data not equal"
+    assert torch.allclose(ref_scales, triton_scales, rtol=0, atol=0), "scales not equal"
+
+
+@pytest.mark.parametrize("round_scales_to_power_of_2", [True, False])
+@pytest.mark.parametrize(
+    "e,n,k",
+    [(1, 8192, 5120), (2, 5120, 8192), (8, 8192, 5120)],
+)
+def test_triton_fp8_colwise_3d_scale_and_cast(
+    e: int, n: int, k: int, round_scales_to_power_of_2: bool
+):
+    device = "cuda"
+    float8_dtype = torch.float8_e4m3fn
+
+    torch.manual_seed(0)
+    # Allocate (E, N, K) row-major then transpose to (E, K, N) column-major
+    # (matches B_t layout in _Float8GroupedMM.forward: strides (K*N, 1, K)).
+    x = torch.randn(e, n, k, dtype=torch.bfloat16, device=device).transpose(-2, -1)
+
+    # PyTorch reference: 3-kernel sequence (axiswise along K, keeping N).
+    ref_scales = tensor_to_scale(
+        x,
+        float8_dtype,
+        scaling_granularity=ScalingGranularity.AXISWISE,
+        axiswise_dim=-2,
+        round_scales_to_power_of_2=round_scales_to_power_of_2,
+    )
+    ref_fp8 = to_fp8_saturated(x.to(torch.float32) * ref_scales, float8_dtype)
+
+    # Fused Triton kernel
+    triton_fp8, triton_scales = triton_fp8_colwise_3d_scale_and_cast(
         x,
         output_dtype=float8_dtype,
         round_scales_to_power_of_2=round_scales_to_power_of_2,
