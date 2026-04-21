@@ -12,14 +12,12 @@ import time
 from typing import Any, List, Optional
 
 import torch
+import transformers
 from datasets import load_dataset
 from tqdm import tqdm
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from packaging.version import Version
-
-import transformers
-
 from torchao.prototype.gptq import GPTQConfig
 from torchao.prototype.gptq.observer import GPTQObserverTensor
 from torchao.prototype.mx_formats.inference_workflow import (
