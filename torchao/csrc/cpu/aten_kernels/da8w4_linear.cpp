@@ -9,16 +9,14 @@ namespace {
 
 #define BLOCK_N 32
 
-static bool cpublas_checked = false;
+static std::once_flag cpublas_once;
 static bool cpublas_can_pack = false;
 
-bool cpublas_could_pack() {
+static inline bool cpublas_could_pack() {
   // the could_pack check requires AMX support implicitly
-  if (cpublas_checked) {
-    return cpublas_can_pack;
-  }
-  cpublas_can_pack = at::native::cpublas::could_pack(at::kByte);
-  cpublas_checked = true;
+  std::call_once(cpublas_once, []() {
+    cpublas_can_pack = at::native::cpublas::could_pack(at::kByte);
+  });
   return cpublas_can_pack;
 }
 
@@ -134,7 +132,6 @@ template<>
 struct ActDtype<false> {
   using type = uint8_t;
 };
-
 
 #if defined(CPU_CAPABILITY_AVX512)
 inline std::array<__m256i, 2> load_zps_4vnni(const int8_t* __restrict__ zps) {
@@ -286,8 +283,8 @@ void _dequant_weight_zp_only(
   for (int k = 0; k < K; ++k) {
     for (int n = 0; n < N / 2; ++n) {
       int32_t b = (int32_t)B[k * ldb + n];
-      dqB[k * N + n * 2] = (b & 0xf) - qzeros[n];
-      dqB[k * N + n * 2 + 1] = (b >> 4) - qzeros[n];
+      dqB[k * N + n * 2] = (b & 0xf) - qzeros[n * 2];
+      dqB[k * N + n * 2 + 1] = ((b >> 4) & 0xf) - qzeros[n * 2 + 1];
     }
   }
 }
@@ -407,7 +404,6 @@ void _dequant_gemm_accum_small_M(
     _mm512_storeu_ps(C + row * ldc + col * 16, vc_float);
   };
   c10::ForcedUnroll<M * COLS>{}(store);
-
 }
 
 #define call_dequant_gemm_accum_small_M(M) \
