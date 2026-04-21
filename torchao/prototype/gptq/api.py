@@ -120,7 +120,7 @@ def _gptq_config_transform(
         )
         return module
     elif config.step == "convert":
-        print('gptq convert')
+        print("gptq convert")
         # Quantization phase: tensor should be an GPTQObserverTensor
         if not isinstance(tensor, GPTQObserverTensor):
             raise ValueError(

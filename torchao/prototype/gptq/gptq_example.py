@@ -239,6 +239,7 @@ def main():
 
     # Generate output directory name from args
     model_name = args.model_id.split("/")[-1]  # Get last part of model ID
+    output_dir = f"{model_name}_{args.quantization}"
     # TODO(before land): make output dir configurable
     output_dir = f"/home/dev/tmp/20260420_{model_name}_{args.quantization}"
 
@@ -263,8 +264,11 @@ def main():
 
     def skip_lm_head(module, fqn):
         # TODO(before land): remove o_proj from below, it's just for debugging
-        return isinstance(module, torch.nn.Linear) and "lm_head" not in fqn and "o_proj" in fqn
-
+        return (
+            isinstance(module, torch.nn.Linear)
+            and "lm_head" not in fqn
+            and "o_proj" in fqn
+        )
 
     if args.quantization == "int4-rtn":
         print("Applying Int4 RTN (Round-To-Nearest) quantization...")
@@ -382,7 +386,8 @@ def main():
         # transformers.modeling_utils.remove_tied_weights_from_state_dict = lambda state_dict, model: state_dict
 
         import transformers
-        assert transformers.__version__ == '4.57.6', "unsupported"
+
+        assert transformers.__version__ == "4.57.6", "unsupported"
 
     model.save_pretrained(output_dir, safe_serialization=False)
 
@@ -410,7 +415,6 @@ def main():
         f"pretrained={output_dir}",
         "--tasks",
         # "leaderboard_bbh",
-        # "gsm8k",
         "wikitext",
         # "--num_fewshot",
         # "3",
