@@ -2123,6 +2123,7 @@ class TestPatternMatcher(TestPatternMatcherBase):
         )
 
     @skipIfNoDynamoSupport
+    @skipIfNoONEDNNBF16
     @skipIfNoONEDNN
     @skipIfNoFloat8Support
     @parametrize("use_relu", [True, False])
