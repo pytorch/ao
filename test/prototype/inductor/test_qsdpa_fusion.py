@@ -245,7 +245,7 @@ class MHAModule(torch.nn.Module):
         return self.dense(context_layer)
 
 
-class fusedMHAModule(torch.nn.Module):
+class FusedMHAModule(torch.nn.Module):
     def __init__(
         self,
         input_dim,
@@ -375,7 +375,7 @@ class TestSDPAPatternRewriterTemplate(TestCase):
         ):
             seqlen, numhead, headsize = 197, 16, 64
             input_dim = headsize * numhead
-            mod = (fusedMHAModule if fused else MHAModule)(
+            mod = (FusedMHAModule if fused else MHAModule)(
                 input_dim=input_dim,
                 has_mask=has_mask,
                 num_attention_heads=numhead,
@@ -435,7 +435,7 @@ class TestSDPAPatternRewriterTemplate(TestCase):
         ):
             seqlen, numhead, headsize = 197, 16, 64
             input_dim = headsize * numhead
-            mod = (fusedMHAModule if fused else MHAModule)(
+            mod = (FusedMHAModule if fused else MHAModule)(
                 input_dim=input_dim,
                 has_mask=False,
                 num_attention_heads=numhead,
