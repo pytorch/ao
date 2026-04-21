@@ -14,8 +14,8 @@ new piece is an extra grid dimension (``block_idx.z``) and a constant
 ``expert * N * K`` offset added to every input/output address.
 
 Parallelization:
-  Grid:  ``(N // 32, K // 64, E)`` workgroups
-  Block: 64 lanes (1 wave); each lane owns one K-column of the tile
+  Grid:  ``(N // 32, K // (waves_per_block * 64), E)`` workgroups
+  Block: ``waves_per_block * 64`` lanes; each lane owns one K-column of the tile.
 """
 
 from __future__ import annotations
@@ -35,7 +35,18 @@ from .flydsl_utils import (
 )
 
 
+# See flydsl_quantize_2d_32x1.py for multi-wave/LDS rationale. Same per-expert.
 _K_TILE = AMD_WAVE_SIZE
+_MAX_WAVES_PER_BLOCK = 4
+
+
+@functools.cache
+def _pick_waves_per_block(K: int) -> int:
+    """Largest power-of-two ≤ _MAX_WAVES_PER_BLOCK that divides K into K-tiles."""
+    for waves in (_MAX_WAVES_PER_BLOCK, 2, 1):
+        if K % (waves * _K_TILE) == 0:
+            return waves
+    raise AssertionError(f"K ({K}) must be divisible by at least {_K_TILE}")
 
 
 if _flydsl_runtime_available():
@@ -62,12 +73,11 @@ if _flydsl_runtime_available():
         scaling_mode: str,
         N: int,
         K: int,
+        waves_per_block: int,
     ):
-        """JIT-compile for given (dtype, mode, N, K). E is launch-only."""
         if scaling_mode != "floor":
             raise NotImplementedError(
-                "FlyDSL MXFP8 3D supports scaling_mode='floor' only "
-                f"(got {scaling_mode!r}); RCEIL is a planned follow-up."
+                f"Only scaling_mode='floor' is supported (got {scaling_mode!r})"
             )
         if input_dtype_name == "torch.bfloat16":
             in_dtype = fx.BFloat16
@@ -77,63 +87,84 @@ if _flydsl_runtime_available():
             raise ValueError(f"Unsupported input dtype: {input_dtype_name}")
 
         in_elem_bytes = 2 if input_dtype_name == "torch.bfloat16" else 4
-        tile_bytes = BLOCK_SIZE * _K_TILE * in_elem_bytes
-        sym = f"flydsl_mxfp8_3d_{input_dtype_name.replace('.', '_')}_smem"
+        block_threads = AMD_WAVE_SIZE * waves_per_block
+        per_wave_tile_bytes = BLOCK_SIZE * _K_TILE * in_elem_bytes
+        sym = (
+            f"flydsl_mxfp8_3d_{input_dtype_name.replace('.', '_')}"
+            f"_w{waves_per_block}_smem"
+        )
         alloc = SmemAllocator(None, arch=str(get_rocm_arch()), global_sym_name=sym)
         lds_off = alloc._align(alloc.ptr, 16)
-        alloc.ptr = lds_off + tile_bytes
+        alloc.ptr = lds_off + per_wave_tile_bytes * waves_per_block
 
-        EXPERT_INPUT_STRIDE = N * K          # row-major (E, N, K) input
-        EXPERT_OUTPUT_BYTES = N * K          # per-expert col-major fp8 slab
+        EXPERT_INPUT_STRIDE = N * K
+        EXPERT_OUTPUT_BYTES = N * K
         SCALES_PER_EXPERT = (N // BLOCK_SIZE) * K
 
-        @flyc.kernel(known_block_size=[AMD_WAVE_SIZE, 1, 1])
+        @flyc.kernel(known_block_size=[block_threads, 1, 1])
         def quantize_3d_kernel(
             x: fx.Tensor,        # (E, N, K) bf16/f32 row-major
             q: fx.Tensor,        # 1D i32 view of (E, N, K) per-expert col-major fp8
             scales: fx.Tensor,   # (E, N // 32, K) uint8 E8M0
         ):
             n_block = fx.block_idx.x
-            k_tile = fx.block_idx.y
+            k_block = fx.block_idx.y
             expert = fx.block_idx.z
             tid = fx.thread_idx.x
+            wave_id = tid // fx.Int32(AMD_WAVE_SIZE)
+            lane_id = tid % fx.Int32(AMD_WAVE_SIZE)
 
             x_rsrc = buffer_ops.create_buffer_resource(x)
             q_rsrc = buffer_ops.create_buffer_resource(q)
             s_rsrc = buffer_ops.create_buffer_resource(scales)
 
-            lds = SmemPtr(alloc.get_base(), lds_off, in_dtype.ir_type,
-                          shape=(BLOCK_SIZE, _K_TILE))
-            lds.get()
+            # Wave i owns LDS rows [i*BLOCK_SIZE, (i+1)*BLOCK_SIZE) of one
+            # shared (BLOCK_SIZE * waves_per_block, _K_TILE) region.
+            lds_full = SmemPtr(
+                alloc.get_base(),
+                lds_off,
+                in_dtype.ir_type,
+                shape=(BLOCK_SIZE * waves_per_block, _K_TILE),
+            )
+            lds_full.get()
 
-            tid_idx = ArithValue(tid).index_cast(T.index)
+            tid_idx_lane = ArithValue(lane_id).index_cast(T.index)
             expert_in_off = expert * fx.Int32(EXPERT_INPUT_STRIDE)
             row_base = n_block * fx.Int32(BLOCK_SIZE)
-            k_global = k_tile * fx.Int32(_K_TILE) + tid
+            k_tile_global = k_block * fx.Int32(waves_per_block) + wave_id
+            k_global = k_tile_global * fx.Int32(_K_TILE) + lane_id
 
-            # PHASE 1 — cooperative LDS load (32 wave-loads, each 1 cache line).
+            # PHASE 1 — cooperative LDS load: each lane writes one bf16 to
+            # its column position in the wave's LDS row strip.
+            wave_lds_row_off = wave_id * fx.Int32(BLOCK_SIZE)
             for i in range_constexpr(0, BLOCK_SIZE):
                 g_off = (
                     expert_in_off
                     + (row_base + fx.Int32(i)) * fx.Int32(K)
                     + k_global
                 )
-                v = buffer_ops.buffer_load(x_rsrc, g_off, vec_width=1, dtype=in_dtype)
-                lds.store(v, [ArithValue(fx.Int32(i)).index_cast(T.index), tid_idx])
+                v = buffer_ops.buffer_load(
+                    x_rsrc, g_off, vec_width=1, dtype=in_dtype,
+                )
+                lds_row_idx = ArithValue(
+                    wave_lds_row_off + fx.Int32(i)
+                ).index_cast(T.index)
+                lds_full.store(v, [lds_row_idx, tid_idx_lane])
 
             gpu.barrier()
 
-            # PHASE 2 — per-lane column read + amax accumulation.
+            # PHASES 2/3/4 — read M-stride column from LDS in chunks, compute
+            # amax/scale, quantize+pack, write 32 fp8 bytes (8 consecutive i32
+            # ⇒ dwordx4 store fusion) and one uint8 scale.
             chunks = []
             local_amax = fx.Float32(0.0)
             for c in range_constexpr(0, CHUNKS_PER_BLOCK):
                 elems = []
                 for j in range_constexpr(0, VEC):
-                    row_lds = c * VEC + j
-                    elems.append(lds.load([
-                        ArithValue(fx.Int32(row_lds)).index_cast(T.index),
-                        tid_idx,
-                    ]))
+                    row_lds_idx = ArithValue(
+                        wave_lds_row_off + fx.Int32(c * VEC + j)
+                    ).index_cast(T.index)
+                    elems.append(lds_full.load([row_lds_idx, tid_idx_lane]))
                 if input_dtype_name == "torch.bfloat16":
                     vec_in = vector.from_elements(T.vec(VEC, T.bf16), elems)
                     vec_f32 = arith.extf(T.vec(VEC, T.f32), vec_in)
@@ -146,7 +177,6 @@ if _flydsl_runtime_available():
 
             scale_u8, inv_scale = floor_scale_and_inv_scale(local_amax)
 
-            # PHASE 3 — quantize, pack, write per-expert col-major.
             f8_min_v, f8_max_v = make_fp8_clamp_vectors()
             expert_out_byte_off = expert * fx.Int32(EXPERT_OUTPUT_BYTES)
             col_i32_base = (
@@ -158,7 +188,6 @@ if _flydsl_runtime_available():
                 )
                 buffer_ops.buffer_store(out, q_rsrc, col_i32_base + fx.Int32(c))
 
-            # PHASE 4 — uint8 scale at scales[expert, n_block, k_global].
             buffer_ops.buffer_store(
                 scale_u8, s_rsrc,
                 expert * fx.Int32(SCALES_PER_EXPERT)
@@ -182,7 +211,7 @@ if _flydsl_runtime_available():
                 alloc.finalize()
             quantize_3d_kernel(x, q, scales).launch(
                 grid=(grid_n, grid_k, grid_e),
-                block=(AMD_WAVE_SIZE, 1, 1),
+                block=(block_threads, 1, 1),
                 stream=stream,
             )
 
@@ -201,50 +230,41 @@ def mxfp8_quantize_flydsl_3d(
     block_size: int = 32,
     scaling_mode: str = "floor",
 ) -> Tuple[torch.Tensor, torch.Tensor]:
-    """Quantize a 3D MoE ``(E, N, K)`` tensor to MXFP8 on AMD via FlyDSL.
+    """Quantize a 3D MoE (E, N, K) tensor to MXFP8 along N using a FlyDSL kernel.
 
-    AMD counterpart of :func:`mxfp8_quantize_cutedsl_3d`. Quantizes along N;
-    output data is per-expert column-major (strides ``(N*K, 1, N)``).
-
-    Args:
-        x: Input ``(E, N, K)`` tensor, dtype bfloat16 or float32, row-major.
-        block_size: MXFP8 block size along N. Only 32 is supported.
-        scaling_mode: ``"floor"`` only in this baseline.
-
-    Returns:
-        Tuple ``(q_data, scales)`` where ``q_data`` is per-expert col-major
-        ``torch.float8_e4m3fn`` of shape ``(E, N, K)`` (strides ``(N*K, 1, N)``)
-        and ``scales`` is ``(E, N // 32, K)`` viewed as ``torch.float8_e8m0fnu``.
+    AMD counterpart of :func:`mxfp8_quantize_cutedsl_3d`. Output data is
+    per-expert column-major (strides ``(N*K, 1, N)``); scales are
+    ``(E, N // 32, K)``.
     """
     assert x.dtype in (torch.bfloat16, torch.float32), (
-        f"Input dtype must be bfloat16 or float32, got {x.dtype}"
+        "Input tensor must be float32 or bfloat16"
     )
-    assert x.is_cuda, "Input tensor must be on a CUDA/HIP device"
-    assert block_size == BLOCK_SIZE, (
-        f"Only block_size={BLOCK_SIZE} is supported (got {block_size})"
-    )
-    assert x.is_contiguous(), "Input must be contiguous (row-major)"
-    assert x.ndim == 3, f"Expected 3D input, got shape {tuple(x.shape)}"
-
+    assert x.is_cuda, "Input tensor must be CUDA"
+    assert x.is_contiguous(), "Input tensor must be contiguous (row-major)"
+    assert block_size == BLOCK_SIZE, f"Only block_size={BLOCK_SIZE} is supported"
     E, N, K = x.shape
-    assert N % BLOCK_SIZE == 0, (
-        f"N ({N}) must be divisible by block_size ({BLOCK_SIZE})"
-    )
-    assert K % _K_TILE == 0, f"K ({K}) must be divisible by {_K_TILE}"
+    assert N % BLOCK_SIZE == 0, "N must be divisible by block_size"
+    assert K % _K_TILE == 0, f"K must be divisible by {_K_TILE}"
 
-    q_i32_flat = torch.empty(E * N * K // 4, dtype=torch.int32, device=x.device)
+    waves_per_block = _pick_waves_per_block(K)
+    k_per_block = waves_per_block * _K_TILE
+
+    # Allocate flat fp8 storage; the kernel writes 32-bit packed fp8 (i32
+    # view), and the caller receives a per-expert col-major fp8 alias.
+    q_storage = torch.empty(E * N * K, dtype=torch.float8_e4m3fn, device=x.device)
     scales_u8 = torch.empty(
         (E, N // BLOCK_SIZE, K), device=x.device, dtype=torch.uint8,
     )
 
-    launch = _compile_quantize_3d(str(x.dtype), scaling_mode, int(N), int(K))
-
-    import flydsl.compiler as flyc
-    x_fly = flyc.from_dlpack(x).mark_layout_dynamic(leading_dim=2, divisibility=2)
-    launch(x_fly, q_i32_flat, scales_u8,
-           int(N // BLOCK_SIZE), int(K // _K_TILE), int(E),
+    launch = _compile_quantize_3d(
+        str(x.dtype), scaling_mode, N, K, waves_per_block,
+    )
+    # Pass `x` raw (not via from_dlpack) so FlyDSL's bare-pointer fast path
+    # avoids the per-call DLPack adapter overhead.
+    launch(x, q_storage.view(torch.int32), scales_u8,
+           N // BLOCK_SIZE, K // k_per_block, E,
            stream=torch.cuda.current_stream())
-
-    q_data = torch.empty(0, dtype=torch.float8_e4m3fn, device=x.device)
-    q_data.set_(q_i32_flat.untyped_storage(), 0, (E, N, K), (N * K, 1, N))
-    return q_data, scales_u8.view(torch.float8_e8m0fnu)
+    return (
+        q_storage.as_strided((E, N, K), (N * K, 1, N)),
+        scales_u8.view(torch.float8_e8m0fnu),
+    )

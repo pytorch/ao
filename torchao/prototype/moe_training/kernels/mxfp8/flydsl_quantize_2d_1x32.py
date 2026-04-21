@@ -153,49 +153,26 @@ def mxfp8_quantize_flydsl_2d_1x32(
     block_size: int = 32,
     scaling_mode: str = "floor",
 ) -> Tuple[torch.Tensor, torch.Tensor]:
-    """Quantize a 2D ``(M, K)`` tensor to MXFP8 (1x32) on AMD via FlyDSL.
+    """Quantize a 2D (M, K) tensor to MXFP8 along K using a FlyDSL kernel.
 
-    AMD counterpart of :func:`mxfp8_quantize_cutedsl_2d_1x32`.
-
-    Args:
-        x: Input ``(M, K)`` tensor, dtype bfloat16 or float32, row-major.
-        block_size: MXFP8 block size along K. Only 32 is supported.
-        scaling_mode: ``"floor"`` only in this baseline; RCEIL is deferred.
-
-    Returns:
-        Tuple ``(q_data, scales)`` where ``q_data`` is row-major
-        ``torch.float8_e4m3fn`` of shape ``(M, K)`` and ``scales`` is
-        ``(M, K // 32)`` viewed as ``torch.float8_e8m0fnu``.
+    AMD counterpart of :func:`mxfp8_quantize_cutedsl_2d_1x32`. Output data
+    is row-major ``(M, K)``; scales are ``(M, K // 32)``.
     """
     assert x.dtype in (torch.bfloat16, torch.float32), (
-        f"Input dtype must be bfloat16 or float32, got {x.dtype}"
+        "Input tensor must be float32 or bfloat16"
     )
-    assert x.is_cuda, "Input tensor must be on a CUDA/HIP device"
-    assert block_size == BLOCK_SIZE, (
-        f"Only block_size={BLOCK_SIZE} is supported (got {block_size})"
-    )
-    assert x.is_contiguous(), "Input must be contiguous (row-major)"
-    assert x.ndim == 2, f"Expected 2D input, got shape {tuple(x.shape)}"
-
+    assert x.is_cuda, "Input tensor must be CUDA"
+    assert x.is_contiguous(), "Input tensor must be contiguous (row-major)"
+    assert block_size == BLOCK_SIZE, f"Only block_size={BLOCK_SIZE} is supported"
     M, K = x.shape
-    assert K % BLOCK_SIZE == 0, f"K ({K}) must be divisible by {BLOCK_SIZE}"
-    assert K % _K_PER_CHUNK == 0, (
-        f"K ({K}) must be a multiple of {_K_PER_CHUNK} in this baseline kernel; "
-        "tail handling is a planned follow-up."
-    )
+    assert K % _K_PER_CHUNK == 0, f"K must be a multiple of {_K_PER_CHUNK}"
 
-    K_BLOCKS = K // BLOCK_SIZE
     q_data = torch.empty((M, K), device=x.device, dtype=torch.float8_e4m3fn)
-    scales_u8 = torch.empty((M, K_BLOCKS), device=x.device, dtype=torch.uint8)
+    scales_u8 = torch.empty((M, K // BLOCK_SIZE), device=x.device, dtype=torch.uint8)
 
-    launch = _compile_quantize_2d_1x32(str(x.dtype), scaling_mode, int(K))
-
-    import flydsl.compiler as flyc
-    # Row-major (M, K): leading-dim = K (dim 1). divisibility=8 enables
-    # 128-bit vectorized loads (8 bf16 = 16 bytes).
-    x_fly = flyc.from_dlpack(x).mark_layout_dynamic(leading_dim=1, divisibility=8)
-    # Address q as int32 so the kernel can issue 32-bit packed-fp8 stores.
-    q_i32 = q_data.view(torch.int32)
-
-    launch(x_fly, q_i32, scales_u8, int(M), stream=torch.cuda.current_stream())
+    launch = _compile_quantize_2d_1x32(str(x.dtype), scaling_mode, K)
+    # Pass `x` raw (not via from_dlpack) so FlyDSL's bare-pointer fast path
+    # avoids the per-call DLPack adapter overhead.
+    launch(x, q_data.view(torch.int32), scales_u8, M,
+           stream=torch.cuda.current_stream())
     return q_data, scales_u8.view(torch.float8_e8m0fnu)

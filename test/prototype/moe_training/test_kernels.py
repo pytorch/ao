@@ -933,11 +933,12 @@ def test_cutedsl_kernels_work_with_valid_128_multiple_groups():
 # (`to_mx` with FLOOR mode), gated on `_mxfp8_flydsl_kernels_available`.
 # =============================================================================
 
-# 1x32 (K-direction) constraints: K must be a multiple of 64*32 = 2048 in this
-# baseline (no tail handling yet). 32x1 / 3D: M (or N) % 32, K % 64.
+# 1x32 (K-direction): K % 2048 (no tail handling yet).
+# 32x1 (M-direction): M % 32, K % 256 (lane × VEC bf16 dwordx2 loads).
+# 3D (per-expert N-direction): N % 32, K % 64.
 _FLYDSL_1X32_K = (2048, 4096, 8192)
 _FLYDSL_2D_M = (1, 32, 128, 1024)
-_FLYDSL_32X1_K = (64, 128, 2048, 4096)
+_FLYDSL_32X1_K = (256, 512, 2048, 4096)
 _FLYDSL_3D_E = (1, 2, 4, 8)
 _FLYDSL_3D_N = (32, 64, 256)
 _FLYDSL_3D_K = (64, 128, 4096)
@@ -1067,7 +1068,7 @@ def test_flydsl_custom_ops_registered():
 def test_flydsl_dispatcher_rejects_unsupported_options():
     """Cutedsl-only options (rceil, blocked_scale_output, offs) must raise."""
     x2 = torch.randn(64, 2048, dtype=torch.bfloat16, device="cuda")
-    x32x1 = torch.randn(64, 128, dtype=torch.bfloat16, device="cuda")
+    x32x1 = torch.randn(64, 256, dtype=torch.bfloat16, device="cuda")
     x3 = torch.randn(2, 32, 64, dtype=torch.bfloat16, device="cuda")
     offs = torch.tensor([32, 64], dtype=torch.int32, device="cuda")
 
@@ -1102,7 +1103,7 @@ def test_flydsl_dispatcher_rejects_unsupported_options():
 def test_flydsl_input_validation():
     """Wrong dtype, block size, or shape constraints must raise AssertionError."""
     # Unsupported dtype (fp16)
-    with pytest.raises(AssertionError, match="bfloat16 or float32"):
+    with pytest.raises(AssertionError, match="float32 or bfloat16"):
         mxfp8_quantize_2d_1x32_flydsl(
             torch.randn(64, 2048, dtype=torch.float16, device="cuda")
         )
@@ -1122,17 +1123,11 @@ def test_flydsl_input_validation():
     # 32x1: M not divisible by 32
     with pytest.raises(AssertionError, match="block_size"):
         mxfp8_quantize_2d_32x1_flydsl(
-            torch.randn(16, 128, dtype=torch.bfloat16, device="cuda")
+            torch.randn(16, 256, dtype=torch.bfloat16, device="cuda")
         )
 
-    # 32x1: K not divisible by 64
-    with pytest.raises(AssertionError, match="divisible by 64"):
+    # 32x1: K not divisible by 256
+    with pytest.raises(AssertionError, match="divisible by 256"):
         mxfp8_quantize_2d_32x1_flydsl(
-            torch.randn(64, 96, dtype=torch.bfloat16, device="cuda")
-        )
-
-    # 3D: 2D input rejected
-    with pytest.raises(AssertionError, match="3D input"):
-        mxfp8_quantize_3d_flydsl(
             torch.randn(64, 128, dtype=torch.bfloat16, device="cuda")
         )
