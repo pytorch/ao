@@ -8,7 +8,7 @@
 
 This is intended as a manual torchrun test for a 2D ``(dp, tp) = (2, 2)`` mesh:
 
-    NCCL_SOCKET_IFNAME=lo torchrun --nproc_per_node=4 \
+    NCCL_SOCKET_IFNAME=lo torchrun --standalone --nproc_per_node=4 \
         test/prototype/blockwise_fp8_training/test_fsdp2_tp.py
 
 Note: for now, this does not run in CI.
@@ -17,6 +17,15 @@ Note: for now, this does not run in CI.
 import os
 
 import pytest
+
+# This file is a manual 4-GPU torchrun test. Skip module import entirely when
+# pytest collects it in regular single-process jobs.
+if os.environ.get("WORLD_SIZE") != "4":
+    pytest.skip(
+        "Manual 4-GPU torchrun test; not run in regular pytest jobs",
+        allow_module_level=True,
+    )
+
 import torch
 import torch.distributed as dist
 from torch.distributed._composable.fsdp import fully_shard
@@ -61,7 +70,7 @@ def setup_distributed() -> DeviceMesh:
     world_size = int(os.environ.get("WORLD_SIZE", -1))
     assert world_size == 4, (
         f"This test requires WORLD_SIZE=4, got {world_size}. "
-        "Run with: torchrun --nproc_per_node=4 "
+        "Run with: torchrun --standalone --nproc_per_node=4 "
         "test/prototype/blockwise_fp8_training/test_fsdp2_tp.py"
     )
 
