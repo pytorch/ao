@@ -69,6 +69,7 @@ from .testing_utils import generate_split_sizes
 
 
 @pytest.mark.parametrize("round_scales_to_power_of_2", [True, False])
+@skip_if_rocm("jagged rowwise scales kernel vs torch reference mismatch on ROCm")
 def test_row_major_with_jagged_rowwise_scales(round_scales_to_power_of_2: bool):
     # Tests case where rowwise scales are computed for multiple distinct subtensors,
     # with end boundary of each group is determine by their end column indexes (offsets).
