@@ -3,17 +3,6 @@
 #
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
-"""
-Fused MXFP8 dequant-requant kernel for wgrad GEMMs.
-
-Reads FP8 E4M3 data with 1×32 row-major scaling from a saved-activations
-buffer, dequantizes to FP32, then requantizes with 32×1 column scaling to
-produce column-major FP8 output suitable for MXFP8 wgrad GEMMs.
-
-This fused kernel avoids materializing a BF16 intermediate tensor, saving
-memory bandwidth and enabling the wgrad GEMM to run at FP8 throughput
-(~2× faster than BF16 on B200).
-"""
 
 import torch
 import triton

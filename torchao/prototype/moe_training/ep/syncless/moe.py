@@ -94,9 +94,8 @@ class MXFP8GroupedExpertsFunc(torch.autograd.Function):
         ecb = expert_compute_buffers
         offset = buf.alloc(num_tokens)
 
-        # Fused dequant-requant from 1×32 row-major → 32×1 col-major,
+        # Fused dequant from 1×32 row-major, then requant 32×1 col-major,
         # writing directly into the saved-activations buffer.
-        # buffer_offset=0 because input is contiguous dispatch output.
         # out_offset=offset writes to the correct position in the buffer.
         mxfp8_dequant_requant_col_major(
             output_e4m3,
@@ -190,14 +189,14 @@ class MXFP8GroupedExpertsFunc(torch.autograd.Function):
         forward:
             h13 = x @ w13.T
             h1, h3 = h13.chunk(2, dim=-1)
-            h = silu(h1) * h3
+            h = silu(h1) * h3                                   # fused in silu_mul_fw_mxfp8
             out = h @ w2.T
         backward:
             grad_h = grad_out @ w2
             dsilu = sigmoid(h1) * (1 + h1 * (1 - sigmoid(h1)))  # fused into silu_mul_bw, not materialized
             grad_h1 = grad_h * h3 * dsilu                       # fused into silu_mul_bw, not materialized
             grad_h3 = grad_h * silu(h1)                         # fused into silu_mul_bw, not materialized
-            grad_h13 = torch.cat([grad_h1, grad_h3], dim=-1)    # output of silu_mul_bw
+            grad_h13 = torch.cat([grad_h1, grad_h3], dim=-1)    # output of silu_mul_bw. tried fusing mxfp8, bad perf with triton.
             wgrad_w13 = grad_h13_t @ x
             wgrad_w2 = grad_out_t @ h
             grad_x = grad_h13 @ w13
