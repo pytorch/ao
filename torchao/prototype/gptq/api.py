@@ -4,13 +4,17 @@
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
 
+import os
 import types
+import warnings
 from dataclasses import dataclass
 from functools import partial
 from typing import Union
 
 import torch
 import torch.nn as nn
+
+from torchao.utils import torch_version_at_least
 
 try:
     from mslk.quantize.shuffle import int4_row_quantize_zp, pack_int4
@@ -265,6 +269,40 @@ def _nvfp4_with_precalculated_scales_q(
     return data_lp_packed
 
 
+# Set to True to torch.compile the NVFP4 quantize/dequantize functions
+# inside gptq_quantize. Gives ~3x speedup.
+_use_torch_compile = True
+
+if _use_torch_compile:
+    _nvfp4_qdq_fn = torch.compile(_nvfp4_with_precalculated_scales_qdq)
+    _nvfp4_q_fn = torch.compile(_nvfp4_with_precalculated_scales_q)
+
+    if torch_version_at_least("2.11.0"):
+        # Triton's default f32 division uses approximate reciprocal which
+        # introduces ~1 ULP error per division. In GPTQ's error propagation
+        # loop this compounds across columns. IEEE-compliant division rounding
+        # eliminates the drift.
+        import torch._inductor.config as _inductor_config
+
+        if os.environ.get("TORCHINDUCTOR_EMULATE_DIVISION_ROUNDING") == "0":
+            warnings.warn(
+                "TORCHINDUCTOR_EMULATE_DIVISION_ROUNDING=0 may cause numerical "
+                "drift in GPTQ with torch.compile. "
+                "Consider unsetting it or setting it to 1."
+            )
+        else:
+            _inductor_config.eager_numerics.division_rounding = True
+    else:
+        warnings.warn(
+            "PyTorch < 2.11.0 detected. Upgrade to PyTorch 2.11.0+ for "
+            "better GPTQ numerics with torch.compile (IEEE-compliant "
+            "division rounding)."
+        )
+else:
+    _nvfp4_qdq_fn = _nvfp4_with_precalculated_scales_qdq
+    _nvfp4_q_fn = _nvfp4_with_precalculated_scales_q
+
+
 def gptq_quantize(H: torch.Tensor, W_t: torch.Tensor, config: GPTQConfig):
     """
     This function implements the GPTQ algorithm described in this paper: https://arxiv.org/abs/2210.17323 (Algorithm 1)
@@ -472,7 +510,7 @@ def gptq_quantize(H: torch.Tensor, W_t: torch.Tensor, config: GPTQConfig):
                     )
                     dq = q.dequantize(output_dtype=torch.float)
                 elif isinstance(base_config, NVFP4DynamicActivationNVFP4WeightConfig):
-                    dq = _nvfp4_with_precalculated_scales_qdq(
+                    dq = _nvfp4_qdq_fn(
                         w_t,
                         nvfp4_global_scale,
                         scale.squeeze(-1),
@@ -519,7 +557,7 @@ def gptq_quantize(H: torch.Tensor, W_t: torch.Tensor, config: GPTQConfig):
         combined_scale = (
             torch.cat(group_qparams, dim=0).reshape(K // group_size, N).t().contiguous()
         )
-        qdata = _nvfp4_with_precalculated_scales_q(
+        qdata = _nvfp4_q_fn(
             W_t,
             nvfp4_global_scale,
             combined_scale,
