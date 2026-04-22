@@ -14,6 +14,8 @@ from typing import Union
 import torch
 import torch.nn as nn
 
+from torchao.utils import torch_version_at_least
+
 try:
     from mslk.quantize.shuffle import int4_row_quantize_zp, pack_int4
 except:
@@ -275,20 +277,27 @@ if _use_torch_compile:
     _nvfp4_qdq_fn = torch.compile(_nvfp4_with_precalculated_scales_qdq)
     _nvfp4_q_fn = torch.compile(_nvfp4_with_precalculated_scales_q)
 
-    # Triton's default f32 division uses approximate reciprocal which
-    # introduces ~1 ULP error per division. In GPTQ's error propagation
-    # loop this compounds across columns. IEEE-compliant division rounding
-    # eliminates the drift.
-    import torch._inductor.config as _inductor_config
+    if torch_version_at_least("2.11.0"):
+        # Triton's default f32 division uses approximate reciprocal which
+        # introduces ~1 ULP error per division. In GPTQ's error propagation
+        # loop this compounds across columns. IEEE-compliant division rounding
+        # eliminates the drift.
+        import torch._inductor.config as _inductor_config
 
-    if os.environ.get("TORCHINDUCTOR_EMULATE_DIVISION_ROUNDING") == "0":
-        warnings.warn(
-            "TORCHINDUCTOR_EMULATE_DIVISION_ROUNDING=0 may cause numerical "
-            "drift in GPTQ with torch.compile. "
-            "Consider unsetting it or setting it to 1."
-        )
+        if os.environ.get("TORCHINDUCTOR_EMULATE_DIVISION_ROUNDING") == "0":
+            warnings.warn(
+                "TORCHINDUCTOR_EMULATE_DIVISION_ROUNDING=0 may cause numerical "
+                "drift in GPTQ with torch.compile. "
+                "Consider unsetting it or setting it to 1."
+            )
+        else:
+            _inductor_config.eager_numerics.division_rounding = True
     else:
-        _inductor_config.eager_numerics.division_rounding = True
+        warnings.warn(
+            "PyTorch < 2.11.0 detected. Upgrade to PyTorch 2.11.0+ for "
+            "better GPTQ numerics with torch.compile (IEEE-compliant "
+            "division rounding)."
+        )
 else:
     _nvfp4_qdq_fn = _nvfp4_with_precalculated_scales_qdq
     _nvfp4_q_fn = _nvfp4_with_precalculated_scales_q
