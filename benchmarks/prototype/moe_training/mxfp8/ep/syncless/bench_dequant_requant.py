@@ -13,7 +13,7 @@ from tabulate import tabulate
 from tqdm import tqdm
 
 from benchmarks.utils import benchmark_cuda_function_in_microseconds
-from torchao.prototype.moe_training.ep.syncless.mxfp8_requant_kernel import (
+from torchao.prototype.moe_training.ep.syncless.mxfp8_kernels import (
     mxfp8_dequant_buffer,
     mxfp8_dequant_requant_col_major,
 )
