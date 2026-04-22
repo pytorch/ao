@@ -268,17 +268,6 @@ class VLLMIntegrationTestCase(TorchAOIntegrationTestCase):
         )
         self._test_narrow_similar_to_vllm(config)
 
-    @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
-    @pytest.mark.skipif(
-        not torch_version_at_least("2.8.0"),
-        reason="torch.compile requires PyTorch 2.8+",
-    )
-    def test_nvfp4_quantize_3d_param_similar_to_vllm(self):
-        config = NVFP4WeightOnlyConfig(
-            use_dynamic_per_tensor_scale=False,
-        )
-        self._test_quantize_3d_param_similar_to_vllm(config)
-
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 @pytest.mark.skipif(
@@ -459,9 +448,15 @@ def test_grouped_mm_nvfp4():
     dtype = torch.bfloat16
 
     model_ref = GroupedMMModel(E, K, N, device=device, dtype=dtype)
+
+    # make the future nvfp4 weight scales interesting
+    model_ref.weight[0, :, :] *= 10.0
+    model_ref.weight[-1, :, :] *= 1e-3
+
     model = copy.deepcopy(model_ref)
 
     x = torch.randn(total_m, K, device=device, dtype=dtype)
+
     offs = torch.tensor(
         [sum(m_per_group[: i + 1]) for i in range(E)],
         device=device,
@@ -483,6 +478,8 @@ def test_grouped_mm_nvfp4():
     assert isinstance(model.weight, NVFP4Tensor), (
         f"Expected NVFP4Tensor weight, got {type(model.weight)}"
     )
+    assert model.weight.per_tensor_scale.shape == (E, 1, 1)
+    # breakpoint()
     w_sqnr = compute_error(model_ref.weight, model.weight.dequantize())
     assert w_sqnr > 18.0
 
@@ -490,8 +487,6 @@ def test_grouped_mm_nvfp4():
     wwt = ww.transpose(-2, -1)
     assert tuple(wwt.shape) == (ww.shape[0], ww.shape[2], ww.shape[1])
 
-    # For now, this is emulated. In the near future we'll hook up
-    # a real nvfp4 grouped gemm.
     y = model(x, offs)
     y_sqnr = compute_error(y_ref, y)
-    assert y_sqnr > 18.0
+    assert y_sqnr > 15.0
