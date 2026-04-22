@@ -134,6 +134,23 @@ struct ActDtype<false> {
   using type = uint8_t;
 };
 
+template<int64_t N, int64_t ldb>
+inline void _dequant_weight_zp_only_fallback(
+    const uint8_t* __restrict__ B,
+    int8_t* dqB,
+    const int8_t* __restrict__ qzeros,
+    int64_t K) {
+  // Unpack weight from uint8 (two int4) to int8, and subtract zero point
+  // Weight is not packed as VNNI format, shape = [K, N / 2]
+  for (int k = 0; k < K; ++k) {
+    for (int n = 0; n < N / 2; ++n) {
+      int32_t b = (int32_t)B[k * ldb + n];
+      dqB[k * N + n * 2] = (b & 0xf) - qzeros[n * 2];
+      dqB[k * N + n * 2 + 1] = ((b >> 4) & 0xf) - qzeros[n * 2 + 1];
+    }
+  }
+}
+
 #if defined(CPU_CAPABILITY_AVX512)
 inline std::array<__m256i, 2> load_zps_4vnni(const int8_t* __restrict__ zps) {
   // broadcast 01234567 to
@@ -191,7 +208,7 @@ inline std::array<__m256i, 2> load_uint4_as_int8(const uint8_t* __restrict__ qB)
   return {low, high};
 }
 
-template <int64_t N, int64_t ldb>
+template <int64_t N, int64_t ldb, bool cpublas_can_pack>
 void _dequant_weight_zp_only(
     const uint8_t* __restrict__ B,
     int8_t* dqB,
@@ -199,19 +216,23 @@ void _dequant_weight_zp_only(
     int64_t K) {
   // unpack weight int8 -> two int4
   // subtract zero point
-  // B shape = [K, ldb] = [K, N / 2], actual shape = [K / 4, N / 2, 4]
-  // dqB shape = [K, N], actual shape = [K / 4, N, 4]
+  if constexpr (cpublas_can_pack) {
+    // B shape = [K, ldb] = [K, N / 2], actual shape = [K / 4, N / 2, 4]
+    // dqB shape = [K, N], actual shape = [K / 4, N, 4]
 #pragma GCC unroll 2
-  for (int n = 0; n < N; n += 16) {
-    auto [zps_low, zps_high] = load_zps_4vnni(&qzeros[n]);
-    for (int k = 0; k < K; k += 4) {
-      auto [vb_low, vb_high] = load_uint4_as_int8(B + ldb * k + n / 2 * 4);
-      vb_high = _mm256_sub_epi8(vb_high, zps_high);
-      vb_low = _mm256_sub_epi8(vb_low, zps_low);
-      // store vb to B
-      _mm256_storeu_si256(reinterpret_cast<__m256i_u*>(dqB + N * k + n * 4), vb_low);
-      _mm256_storeu_si256(reinterpret_cast<__m256i_u*>(dqB + N * k + (n + 8) * 4), vb_high);
+    for (int n = 0; n < N; n += 16) {
+      auto [zps_low, zps_high] = load_zps_4vnni(&qzeros[n]);
+      for (int k = 0; k < K; k += 4) {
+        auto [vb_low, vb_high] = load_uint4_as_int8(B + ldb * k + n / 2 * 4);
+        vb_high = _mm256_sub_epi8(vb_high, zps_high);
+        vb_low = _mm256_sub_epi8(vb_low, zps_low);
+        // store vb to B
+        _mm256_storeu_si256(reinterpret_cast<__m256i_u*>(dqB + N * k + n * 4), vb_low);
+        _mm256_storeu_si256(reinterpret_cast<__m256i_u*>(dqB + N * k + (n + 8) * 4), vb_high);
+      }
     }
+  } else { // cannot pack (no AMX support)
+    _dequant_weight_zp_only_fallback<N, ldb>(B, dqB, qzeros, K);
   }
 }
 
@@ -273,21 +294,13 @@ void _dequant_and_store(
 }
 
 #else
-template<int64_t N, int64_t ldb>
+template<int64_t N, int64_t ldb, bool cpublas_can_pack>
 void _dequant_weight_zp_only(
     const uint8_t* B,
     int8_t* dqB,
     const int8_t* qzeros,
     int64_t K) {
-  // B shape = [K, N / 2]
-  // dqB shape = [K, N]
-  for (int k = 0; k < K; ++k) {
-    for (int n = 0; n < N / 2; ++n) {
-      int32_t b = (int32_t)B[k * ldb + n];
-      dqB[k * N + n * 2] = (b & 0xf) - qzeros[n * 2];
-      dqB[k * N + n * 2 + 1] = ((b >> 4) & 0xf) - qzeros[n * 2 + 1];
-    }
-  }
+  return _dequant_weight_zp_only_fallback<N, ldb>(B, dqB, qzeros, K);
 }
 #endif
 
@@ -457,7 +470,7 @@ void _dequant_gemm_accum(
 #endif
 
   int8_t dqB[K * N];
-  _dequant_weight_zp_only<N, ldb>(B, dqB, qzeros_b, K);
+  _dequant_weight_zp_only<N, ldb, cpublas_can_pack>(B, dqB, qzeros_b, K);
   using Tin = typename ActDtype<sym_quant_a>::type;
   Tin* A_ptr = (Tin*)A;
 #if defined(CPU_CAPABILITY_AVX512)
