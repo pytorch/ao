@@ -104,6 +104,11 @@ class NVFP4Tensor(TorchAOBaseTensor):
             requires_grad=False,
         )
 
+        if per_tensor_scale is not None:
+            # 0: per-tensor scale, with shape (,)
+            # 3: per-expert scale, with shape (E, 1, 1)
+            assert len(per_tensor_scale.shape) in (0, 3), "unsupported"
+
         self.qdata = qdata
         self.scale = scale
         self.block_size = block_size
@@ -224,7 +229,7 @@ class NVFP4Tensor(TorchAOBaseTensor):
         return result
 
     def get_hp_scales(self) -> torch.Tensor:
-        """Get the scales of the NVFP4Tensor in original dtype.
+        """Get the scales of the NVFP4Tensor in float32.
 
         Returns:
             torch.Tensor: Scales of the NVFP4Tensor
@@ -243,9 +248,9 @@ class NVFP4Tensor(TorchAOBaseTensor):
             )
 
         return (
-            scale_e4m3.to(self.orig_dtype)
+            scale_e4m3.to(torch.float)
             if self.per_tensor_scale is None
-            else self.per_tensor_scale * scale_e4m3.to(self.orig_dtype)
+            else self.per_tensor_scale * scale_e4m3.to(torch.float)
         )
 
     @classmethod
@@ -281,6 +286,13 @@ class NVFP4Tensor(TorchAOBaseTensor):
 
 
 implements = NVFP4Tensor.implements
+
+
+def _assert_no_per_expert_scale(t):
+    if t.per_tensor_scale is not None:
+        assert len(t.per_tensor_scale.shape) == 0, (
+            "per-expert scale not supported in this codepath"
+        )
 
 
 # TODO(future PR): move this to AOBaseTensor (will require debugging/fixing CI)
@@ -365,6 +377,7 @@ def nvfp4_slice(func, types, args, kwargs):
     assert len(x.shape) == 2, (
         f"only rank 2 is supported for slice, got rank {len(x.shape)}"
     )
+    _assert_no_per_expert_scale(x)
 
     sliced_data, sliced_scale = _swizzle_aware_slice(x, dim, start, end, step)
 
@@ -388,6 +401,7 @@ def nvfp4_slice(func, types, args, kwargs):
 def nvfp4_t(func, types, args, kwargs):
     # For now, only transpose(input, 0, 1) is supported.
     old = args[0]
+    _assert_no_per_expert_scale(old)
     new = NVFP4Tensor(
         old.qdata.t(),
         old.scale.t(),
@@ -405,6 +419,7 @@ def nvfp4_t(func, types, args, kwargs):
 @implements([aten.transpose.int])
 def nvfp4_transpose(func, types, args, kwargs):
     old, dim0, dim1 = args
+    _assert_no_per_expert_scale(old)
     assert len(old.shape) == 3, f"unsupported rank {len(old.shape)}"
     valid_3d_dims = ((1, 2), (2, 1), (-1, -2), (-2, -1))
     assert (dim0, dim1) in valid_3d_dims, f"transpose unsupported for {dim0=} {dim1=}"
@@ -427,6 +442,7 @@ def nvfp4_transpose(func, types, args, kwargs):
 @implements([aten.view.default])
 def nvfp4_view_op(func, types, args, kwargs):
     data = args[0].qdata
+    _assert_no_per_expert_scale(args[0])
     new_size = args[1]
     new_size = tensor_size_hp_to_fp4x2(new_size, data.is_contiguous())
     new_data = func(data, new_size, *args[2:], **kwargs)
@@ -448,6 +464,7 @@ def nvfp4_select(func, types, args, kwargs):
     old, dim, index = args
     assert dim == 0, f"NVFP4Tensor aten.select.int with {dim=} is not yet supported"
     assert len(old.qdata.shape) == len(old.scale.shape), "unsupported"
+    _assert_no_per_expert_scale(old)
     new = old.__class__(
         old.qdata[index],
         old.scale[index],
@@ -476,6 +493,8 @@ def _addmm_nvfp4_dispatch(
     assert a.block_size == 16, f"NVFP4 requires block_size=16, got {a.block_size}"
     assert b.block_size == 16, f"NVFP4 requires block_size=16, got {b.block_size}"
     assert len(a.shape) == 2 and len(b.shape) == 2
+    _assert_no_per_expert_scale(a)
+    _assert_no_per_expert_scale(b)
 
     M, K = a.shape[0], a.shape[1]
     N = b.shape[1]
@@ -564,6 +583,7 @@ def nvfp4_linear(func, types, args, kwargs):
 
     if not isinstance(weight_tensor, NVFP4Tensor):
         raise NotImplementedError("NVFP4Tensor: weight must be NVFP4Tensor")
+    _assert_no_per_expert_scale(weight_tensor)
 
     if weight_tensor.act_quant_kwargs is None:
         # weight_only quant
@@ -597,6 +617,7 @@ def nvfp4_mm(func, types, args, kwargs):
 
     if not isinstance(weight_tensor, NVFP4Tensor):
         raise NotImplementedError("NVFP4Tensor: weight must be NVFP4Tensor")
+    _assert_no_per_expert_scale(weight_tensor)
 
     if weight_tensor.act_quant_kwargs is None:
         weight_dequant = weight_tensor.dequantize(weight_tensor.orig_dtype)
@@ -629,6 +650,7 @@ def nvfp4_addmm(func, types, args, kwargs):
 
     if not isinstance(weight_tensor, NVFP4Tensor):
         raise NotImplementedError("NVFP4Tensor: weight must be NVFP4Tensor")
+    _assert_no_per_expert_scale(weight_tensor)
 
     if weight_tensor.act_quant_kwargs is None:
         weight_dequant = weight_tensor.dequantize(weight_tensor.orig_dtype)
@@ -740,6 +762,13 @@ def nvfp4_quantize(
         # This will likely be calibrated but
         # we want the per_tensor_scale ~= amax of the block_scale_fp32
         block_scale_fp32 = block_scale.to(torch.float32)
+
+        # if the per_tensor_scale is multidimensional, we are in the special
+        # case that handles the 3d weight tensor with per-expert outer scales.
+        # Since the code below is 2d, we convert this scale to 2d.
+        if len(per_tensor_scale.shape) == 3:
+            per_tensor_scale = per_tensor_scale.squeeze(-1)
+
         # Quantize the blockwise scales w/ the per_tensor_scale
         scaled_block_scales = block_scale_fp32 / per_tensor_scale
         scaled_block_scales_fp8 = torch.clamp(
