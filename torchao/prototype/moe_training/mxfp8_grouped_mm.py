@@ -550,10 +550,6 @@ def _compute_fwd_sm100(
             scaling_mode=scale_calculation_mode.value.lower(),
             offs=padded_group_end_offsets,
         )
-        # TODO: cutedsl shouldn't flatten scales
-        input_act_scales_blocked = input_act_scales_blocked.view(
-            input_act_e4m3.shape[0], -1
-        )
 
     # Quantize weights along dim0 (after transposing from (E, K, N) to (E, N, K))
     weight_e4m3, weight_scales = triton_to_mxfp8_dim0(
@@ -653,10 +649,6 @@ def _compute_dgrad_sm100(
             grad_output,
             scaling_mode=scale_calculation_mode.value.lower(),
             offs=group_end_offsets,
-        )
-        # TODO: cutedsl shouldn't flatten scales
-        grad_output_scales_blocked = grad_output_scales_blocked.view(
-            grad_out_e4m3.shape[0], -1
         )
 
     # Quantize weights directly to blocked tcgen05 scales.
