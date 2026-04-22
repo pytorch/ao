@@ -2102,8 +2102,8 @@ def _register_smooth_quant_int_mm_pattern():
                             args=(x_add_128, torch.uint8),
                         )
                         x_zp = match.graph.call_function(
-                            aten.scalar_tensor.default,
-                            args=(128,),
+                            aten.full.default,
+                            args=([], 128),
                             kwargs={"dtype": torch.int32},
                         )
                     else:
