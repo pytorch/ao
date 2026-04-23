@@ -1,18 +1,16 @@
 # Benchmark configuration for microbenchmarks
+# A100-optimized config: removed FP8 quantization methods (no native FP8 support),
+# removed deprecated int8wo, removed very large DeepSeek models that cause OOM,
+# changed to reduce-overhead compile mode, and disabled memory profiler
 benchmark_mode: "inference"
 quantization_config_recipe_names: # Will run a baseline inference for model by default, without quantization for comparison
-  # - "int8wo"
   - "int8dq"
-  - "float8dq-tensor"
-  - "float8dq-row"
   - "float8wo"
 output_dir: "benchmarks/microbenchmarks/results"
 model_params:
   - name: "small_bf16_linear"
     matrix_shapes:
       - name: "llama4"
-      - name: "deepseek_v3_236b"
-      - name: "deepseek_v3_671b"
       - name: "qwen3_32b"
       - name: "gemma3_27b"
       - name: "custom"
@@ -23,7 +21,7 @@ model_params:
           [1920, 14336, 3072]
         ]
     high_precision_dtype: "torch.bfloat16"
-    torch_compile_mode: "max-autotune"
+    torch_compile_mode: "default"
     device: "cuda"
     model_type: "linear"
-    enable_memory_profiler: true
+    enable_memory_profiler: false
