@@ -1369,10 +1369,10 @@ def _(m_sizes, x, global_scale):
 if _triton_kernels_available:
     # Reuses the e8m0 RCEIL helper `_triton_calculate_scale_rceil` defined in the
     # `_triton_kernels_available` block above (`USE_PTX` selects the hardware
-    # `cvt.rp.ue8m0x2.f32` path on Blackwell / NVIDIA and the bit-math path on ROCm). Sharing
+    # `cvt.rp.ue8m0x2.f32` path on Blackwell / NVIDIA and the bit-math path on ROCm and XPU). Sharing
     # that helper keeps this kernel byte-for-byte consistent with the other mxfp8 casts, so it
-    # is gated on the same `_triton_kernels_available` (SM100+ & CUDA>=12.8, or ROCm MI350) as
-    # they are.
+    # is gated on the same `_triton_kernels_available` (SM100+ & CUDA>=12.8, ROCm MI350, or
+    # XPU) as they are.
 
     _MXFP8_32X32_DIM_KM_CONFIGS = [
         triton.Config({"BN": bn, "RB": rb}, num_warps=w)
@@ -1417,7 +1417,7 @@ if _triton_kernels_available:
         xr = tl.reshape(x, (RB, 32, CB, 32))
         partial = tl.max(tl.abs(xr), axis=1)  # (RB, CB, 32)
         rcp, b = _triton_calculate_scale_rceil(
-            partial, axis=2, USE_PTX=not IS_ROCM
+            partial, axis=2, USE_PTX=(not IS_ROCM and not IS_XPU)
         )  # both (RB, CB); b is uint8
         q = tl.reshape((xr * rcp[:, None, :, None]).to(tl.float8e4nv), (BM, BN))
         # dim-K store: qdata (M, N) as-is. No dim-M qdata store -- on Blackwell _scaled_mm takes the
