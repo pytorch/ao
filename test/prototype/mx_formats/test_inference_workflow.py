@@ -545,4 +545,3 @@ def test_bmm_nvfp4():
     y = model(x)
     y_sqnr = compute_error(y_ref, y)
     assert y_sqnr > 15.0
-    print(y_sqnr)

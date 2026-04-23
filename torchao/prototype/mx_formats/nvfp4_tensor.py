@@ -668,8 +668,6 @@ def nvfp4_bmm(func, types, args, kwargs):
     out = torch.cat(res, dim=0)
     return out
 
-    # return func(input_tensor, weight_tensor)
-
 
 @implements([aten.addmm.default])
 def nvfp4_addmm(func, types, args, kwargs):
