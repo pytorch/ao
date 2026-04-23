@@ -468,6 +468,229 @@ if torch_version_at_least("2.7.0") and has_triton():
         )
         return output_buffer, scales_buffer
 
+    # ── Fused 3D column-major axiswise scale+cast kernel ────────────────
+    #
+    # Fuses the 3-op FP8 quantization of B_t in the forward pass:
+    #   Original: tensor_to_scale(B_t, axiswise_dim=-2) + B_t * scales + to_fp8_saturated()
+    #   Fused:    single two-pass kernel (absmax reduction along K + scale-and-cast)
+    #
+    # Input:  (E, K, N) column-major (strides: K*N, 1, K) — K dim is contiguous
+    # Output: (E, K, N) column-major FP8, same layout as input
+    # Scales: (E, N) — one scale per (expert, output_dim) pair
+    #
+    # Grid: (E, cdiv(N, BLOCK_SIZE_N)). Each program handles one expert
+    # and a block of N columns, iterating over K in two passes:
+    #   Pass 1: Compute per-column absmax (reduction over contiguous K dim)
+    #   Pass 2: Apply scale, clamp, and cast to FP8 (L2 cache reuse from pass 1)
+    if torch.version.hip is not None:
+        colwise_3d_kernel_configs = [
+            triton.Config(
+                {"BLOCK_SIZE_K": bk, "BLOCK_SIZE_N": bn},
+                num_warps=warps,
+                num_stages=2,
+            )
+            for bk in [128, 256]
+            for bn in [64, 128]
+            for warps in [4, 8]
+        ]
+    else:
+        colwise_3d_kernel_configs = [
+            triton.Config(
+                {"BLOCK_SIZE_K": bk, "BLOCK_SIZE_N": bn},
+                num_warps=warps,
+                num_stages=4,
+            )
+            for bk in [128, 256]
+            for bn in [64, 128]
+            for warps in [4, 8]
+        ]
+
+    @triton.autotune(configs=colwise_3d_kernel_configs, key=["K", "N"])
+    @triton.jit
+    def _triton_fp8_colwise_3d_scale_and_cast_kernel(
+        input_ptr,
+        stride_input_e: tl.int64,
+        stride_input_k,
+        stride_input_n,
+        output_ptr,
+        stride_output_e: tl.int64,
+        stride_output_k,
+        stride_output_n,
+        scales_ptr,
+        stride_scales_e: int,
+        stride_scales_n,
+        E: int,
+        K: int,
+        N: int,
+        fp8_dtype_min: tl.constexpr,
+        fp8_dtype_max: tl.constexpr,
+        input_dtype: tl.constexpr,
+        output_dtype: tl.constexpr,
+        round_scales_to_power_of_2: tl.constexpr,
+        BLOCK_SIZE_K: tl.constexpr,
+        BLOCK_SIZE_N: tl.constexpr,
+        EPS: tl.constexpr,
+    ):
+        """
+        Fused two-pass kernel for 3D column-major axiswise FP8 scale+cast.
+
+        For input B_t of shape (E, K, N), computes per-(expert, n) absmax over
+        the K dimension, converts to scale, then applies scale and casts to FP8.
+        The K dimension has stride 1 (contiguous), enabling efficient sequential
+        access within each (expert, n) column.
+
+        Pass 1 and pass 2 read the same data; pass 2 benefits from L2 reuse.
+        """
+        expert_idx = tl.program_id(0)
+        n_block_idx = tl.program_id(1)
+
+        n_offs = n_block_idx * BLOCK_SIZE_N + tl.arange(0, BLOCK_SIZE_N)
+        n_mask = n_offs < N
+
+        # Pass 1: column-wise absmax over K
+        col_amax = tl.zeros([BLOCK_SIZE_N], dtype=tl.float32)
+
+        for k_start in range(0, K, BLOCK_SIZE_K):
+            k_offs = k_start + tl.arange(0, BLOCK_SIZE_K)
+            k_mask = k_offs < K
+
+            input_offs = (
+                expert_idx * stride_input_e
+                + k_offs[:, None] * stride_input_k
+                + n_offs[None, :] * stride_input_n
+            )
+            mask = k_mask[:, None] & n_mask[None, :]
+            vals = tl.load(input_ptr + input_offs, mask=mask, other=0.0)
+
+            block_amax = tl.max(tl.abs(vals), axis=0)
+            col_amax = tl.maximum(col_amax, block_amax)
+
+        clamped_amax = tl.clamp(col_amax, min=EPS, max=float("inf"))
+        scales = (fp8_dtype_max / clamped_amax.to(tl.float64)).to(tl.float32)
+
+        if round_scales_to_power_of_2:
+            scales = tl.exp2(tl.floor(tl.log2(scales)))
+
+        scales_offs = expert_idx * stride_scales_e + n_offs * stride_scales_n
+        tl.store(scales_ptr + scales_offs, scales, mask=n_mask)
+
+        # Pass 2: scale, clamp, and cast to FP8
+        for k_start in range(0, K, BLOCK_SIZE_K):
+            k_offs = k_start + tl.arange(0, BLOCK_SIZE_K)
+            k_mask = k_offs < K
+
+            input_offs = (
+                expert_idx * stride_input_e
+                + k_offs[:, None] * stride_input_k
+                + n_offs[None, :] * stride_input_n
+            )
+            mask = k_mask[:, None] & n_mask[None, :]
+            vals = tl.load(input_ptr + input_offs, mask=mask, other=0.0)
+
+            scaled_vals = vals.to(tl.float32) * scales[None, :]
+            clamped_vals = tl.clamp(
+                scaled_vals, min=fp8_dtype_min, max=fp8_dtype_max
+            ).to(output_dtype)
+
+            output_offs = (
+                expert_idx * stride_output_e
+                + k_offs[:, None] * stride_output_k
+                + n_offs[None, :] * stride_output_n
+            )
+            tl.store(output_ptr + output_offs, clamped_vals, mask=mask)
+
+    @torch.library.custom_op(
+        "torchao::triton_fp8_colwise_3d_scale_and_cast", mutates_args={}
+    )
+    def triton_fp8_colwise_3d_scale_and_cast(
+        hp_tensor: torch.Tensor,
+        output_dtype: torch.dtype = torch.float8_e4m3fn,
+        round_scales_to_power_of_2: bool = False,
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        """
+        Fused axiswise scale computation and FP8 cast for 3D column-major tensors.
+
+        Replaces the 3-op sequence used for B_t quantization in the forward pass:
+            1. tensor_to_scale(B_t, axiswise_dim=-2) — reduction over K per (E, N)
+            2. B_t_scaled = B_t.to(float32) * B_t_scales
+            3. B_t_fp8 = to_fp8_saturated(B_t_scaled, fp8_dtype)
+
+        With a single Triton kernel using a two-pass approach per (expert, N-block):
+            Pass 1: Iterate over K to compute column-wise absmax.
+            Pass 2: Re-read (L2-cached), multiply by scale, clamp, cast to FP8.
+
+        Args:
+            hp_tensor: Input tensor of shape (E, K, N) in column-major layout
+                (strides: K*N, 1, K). Must be float32 or bfloat16.
+            output_dtype: Target FP8 dtype. Defaults to torch.float8_e4m3fn.
+            round_scales_to_power_of_2: Whether to round scales to nearest power of 2.
+
+        Returns:
+            Tuple of (fp8_data, scales):
+                - fp8_data: shape (E, K, N) in output_dtype, column-major layout.
+                - scales: shape (E, 1, N) in float32 (forward scales: FP8_MAX / amax).
+        """
+        assert hp_tensor.ndim == 3, "input tensor must be 3D"
+
+        tl_input_dtype = FP8_DTYPE_MAP[hp_tensor.dtype]
+        tl_output_dtype = FP8_DTYPE_MAP[output_dtype]
+
+        fp8_dtype_min = torch.finfo(output_dtype).min
+        fp8_dtype_max = torch.finfo(output_dtype).max
+
+        e, k, n = hp_tensor.shape
+
+        output_buffer = torch.empty(
+            (e, k, n), dtype=output_dtype, device=hp_tensor.device
+        ).as_strided((e, k, n), (k * n, 1, k))
+
+        scales_buffer = torch.empty(
+            (e, n), dtype=torch.float32, device=hp_tensor.device
+        )
+
+        grid = lambda meta: (e, triton.cdiv(n, meta["BLOCK_SIZE_N"]))
+
+        _triton_fp8_colwise_3d_scale_and_cast_kernel[grid](
+            hp_tensor,
+            hp_tensor.stride(0),
+            hp_tensor.stride(1),
+            hp_tensor.stride(2),
+            output_buffer,
+            output_buffer.stride(0),
+            output_buffer.stride(1),
+            output_buffer.stride(2),
+            scales_buffer,
+            scales_buffer.stride(0),
+            scales_buffer.stride(1),
+            e,
+            k,
+            n,
+            fp8_dtype_min,
+            fp8_dtype_max,
+            tl_input_dtype,
+            tl_output_dtype,
+            round_scales_to_power_of_2=round_scales_to_power_of_2,
+            EPS=EPS,
+        )
+
+        return output_buffer, scales_buffer.unsqueeze(1)
+
+    @triton_fp8_colwise_3d_scale_and_cast.register_fake
+    def _fake_triton_fp8_colwise_3d_scale_and_cast(
+        hp_tensor: torch.Tensor,
+        output_dtype: torch.dtype = torch.float8_e4m3fn,
+        round_scales_to_power_of_2: bool = False,
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        assert hp_tensor.ndim == 3, "input tensor must be 3D"
+        e, k, n = hp_tensor.shape
+        output_buffer = torch.empty(
+            (e, k, n), dtype=output_dtype, device=hp_tensor.device
+        ).as_strided((e, k, n), (k * n, 1, k))
+        scales_buffer = torch.empty(
+            (e, 1, n), dtype=torch.float32, device=hp_tensor.device
+        )
+        return output_buffer, scales_buffer
+
     # ── Autotune configs for 2D fused rowwise scale+cast kernel ─────────
     #
     # This kernel fuses the 3-kernel FP8 quantization sequence used in the
@@ -704,6 +927,15 @@ else:
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         raise NotImplementedError(
             "triton_fp8_rowwise_3d_transpose_rhs_fused_reduction requires torch 2.7.0+ and triton installed"
+        )
+
+    def triton_fp8_colwise_3d_scale_and_cast(
+        hp_tensor: torch.Tensor,
+        output_dtype: torch.dtype = torch.float8_e4m3fn,
+        round_scales_to_power_of_2: bool = False,
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        raise NotImplementedError(
+            "triton_fp8_colwise_3d_scale_and_cast requires torch 2.7.0+ and triton installed"
         )
 
     def triton_fp8_rowwise_2d_scale_and_cast(

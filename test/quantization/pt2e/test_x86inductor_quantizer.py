@@ -2842,9 +2842,6 @@ class TestQuantizePT2EX86Inductor(X86InductorQuantTestCase):
                 )
 
     @skipIfNoX86
-    @unittest.skip(
-        "skip for now since we don't have the latest nightly before https://github.com/pytorch/ao/pull/1962 lands"
-    )
     def test_lowering_to_x86(self):
         with override_quantized_engine("x86"), torch.no_grad():
             m = TestHelperModules.MiniResNet().eval()

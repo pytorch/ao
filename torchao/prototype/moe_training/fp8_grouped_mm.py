@@ -8,9 +8,8 @@ from typing import Optional
 
 import torch
 
-from torchao.float8.config import ScalingGranularity
-from torchao.float8.float8_utils import tensor_to_scale, to_fp8_saturated
 from torchao.prototype.moe_training.kernels import (
+    triton_fp8_colwise_3d_scale_and_cast,
     triton_fp8_per_group_colwise_scales_dual,
     triton_fp8_rowwise_2d_scale_and_cast,
     triton_fp8_rowwise_3d_transpose_rhs,
@@ -141,18 +140,16 @@ class _Float8GroupedMM(torch.autograd.Function):
         )
 
         # Convert B to float8, column-major for right operand of grouped GEMM.
-        # B_t shape: (E, K, N)
-        # B_t scales must be computed rowwise keeping the outer/final dim, so:
+        # Fuses the 3-op B_t chain (tensor_to_scale + B_t.to(float32) * scales +
+        # to_fp8_saturated) into one Triton kernel using a two-pass approach
+        # (absmax along K, then scale + cast with L2 cache reuse).
+        # B_t shape: (E, K, N) column-major
         # B_t_scales shape: (E, 1, N)
-        B_t_scales = tensor_to_scale(
+        B_t_data_col_major, B_t_scales = triton_fp8_colwise_3d_scale_and_cast(
             B_t,
-            float8_dtype,
-            scaling_granularity=ScalingGranularity.AXISWISE,
-            axiswise_dim=-2,
+            output_dtype=float8_dtype,
             round_scales_to_power_of_2=True,
         )
-        B_t_scaled = B_t.to(torch.float32) * B_t_scales
-        B_t_data_col_major = to_fp8_saturated(B_t_scaled, float8_dtype)
 
         # Store what we need for backward.
         ctx.save_for_backward(
