@@ -607,7 +607,7 @@ int main() {
             },
         ]
 
-        def compile_kernel(src):
+        def compile_kernel(src, build_dir, config, cxx_flags):
             base = os.path.basename(src)
             stem = os.path.splitext(base)[0]
             temp_src = os.path.join(build_dir, f"{stem}.{config['isa']}.cpp")
@@ -639,7 +639,12 @@ int main() {
 
             # Compile kernels in parallel to speed up the build
             with ThreadPoolExecutor() as executor:
-                results = list(executor.map(compile_kernel, sorted(all_kernel_sources)))
+                results = list(
+                    executor.map(
+                        lambda src: compile_kernel(src, build_dir, config, cxx_flags),
+                        sorted(all_kernel_sources),
+                    )
+                )
                 main_ext.extra_objects = list(
                     getattr(main_ext, "extra_objects", [])
                 ) + [obj for obj in results if obj is not None]
