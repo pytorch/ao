@@ -9,10 +9,13 @@ import contextlib
 import copy
 import functools
 import itertools
+import os
+import tempfile
 import unittest
 from typing import NamedTuple
 
 import torch
+import torch._export.utils as eu
 from torch._dynamo import config as dynamo_config
 from torch._dynamo.testing import make_test_cls_with_patches
 from torch._dynamo.utils import counters
@@ -168,6 +171,7 @@ class TestPatternMatcherBase(TestCase):
         quantizer=None,
         compile_options={},  # noqa: B006
         is_fp8=False,
+        is_aoti=False,
         include_ops=None,
         exclude_ops=None,
         check_dynamic=None,
@@ -185,6 +189,21 @@ class TestPatternMatcherBase(TestCase):
         mod = mod.to(device=device)
         counters.clear()
         torch._dynamo.reset()
+
+        def aoti_compile(model, inputs):
+            with eu._disable_aten_to_metadata_assertions():
+                exported = torch.export.export(model, inputs)
+            with tempfile.TemporaryDirectory() as tmpdir:
+                package_path = os.path.join(tmpdir, "model.pt2")
+                with config.patch({"aot_inductor.output_path": tmpdir}):
+                    torch._inductor.aoti_compile_and_package(
+                        exported,
+                        package_path=package_path,
+                    )
+
+                compiled_mod = torch._inductor.aoti_load_package(package_path)
+                return compiled_mod
+
         if check_autocast == torch.bfloat16 and (
             torch.ops.mkldnn._is_mkldnn_bf16_supported() or device == "xpu"
         ):
@@ -239,10 +258,17 @@ class TestPatternMatcherBase(TestCase):
                     # Skip due to reduce range setting for Quantization on preCI system.
                     torch.testing.assert_close(actual, expected, atol=atol, rtol=rtol)
             elif check_quantization:
-                _ = torch.compile(mod, **compile_options)(*inputs)
+                if is_aoti:
+                    _ = aoti_compile(mod, inputs)(*inputs)
+                else:
+                    _ = torch.compile(mod, **compile_options)(*inputs)
             else:
                 expected = mod(*inputs)
-                actual = torch.compile(mod, **compile_options)(*inputs)
+                if is_aoti:
+                    compiled_mod = aoti_compile(mod, inputs)
+                    actual = compiled_mod(*inputs)
+                else:
+                    actual = torch.compile(mod, **compile_options)(*inputs)
                 torch.testing.assert_close(
                     actual.float(), expected.float(), atol=atol, rtol=rtol
                 )
@@ -1488,6 +1514,7 @@ class TestPatternMatcher(TestPatternMatcherBase):
         is_dynamic=False,
         is_qat=False,
         is_fp8=False,
+        is_aoti=False,
     ):
         class M(torch.nn.Module):
             def __init__(self, use_bias, do_permute=False):
@@ -1527,6 +1554,7 @@ class TestPatternMatcher(TestPatternMatcherBase):
             is_qat=is_qat,
             is_dynamic=is_dynamic,
             is_fp8=is_fp8,
+            is_aoti=is_aoti,
             include_ops=[] if is_fp8 else None,
             # ensure quantize_affine_float8_non_decomposed is lowered
             exclude_ops=[
@@ -1552,8 +1580,25 @@ class TestPatternMatcher(TestPatternMatcherBase):
         r"""
         This testcase will quantize a single Linear Moduel.
         """
-        for bias in [True, False]:
-            self._qlinear_test_helper((torch.randn((2, 4)),), bias=bias, is_fp8=True)
+        aoti_options = [
+            False,
+        ]
+        try:
+            import torch._inductor.constant_folding as cf
+
+            if hasattr(cf, "add_dont_constant_fold"):
+                cf.add_dont_constant_fold(
+                    torch.ops.torchao.dequantize_affine_float8_non_decomposed.default
+                )
+                aoti_options = [False, True]
+        finally:
+            pass
+
+        for is_aoti in aoti_options:
+            for bias in [True, False]:
+                self._qlinear_test_helper(
+                    (torch.randn((2, 4)),), bias=bias, is_fp8=True, is_aoti=is_aoti
+                )
 
     @skipIfNoDynamoSupport
     @skipIfNoONEDNN
@@ -3076,7 +3121,9 @@ class TestDynamicPatternMatcher(TestPatternMatcherBase):
                 annotate_matmul=annotate_matmul, is_fp8=True
             )
 
-    def _test_scaled_embedding_bag_helper(self, dtype, with_output_quant=False):
+    def _test_scaled_embedding_bag_helper(
+        self, dtype, with_output_quant=False, is_aoti=False
+    ):
         class FP8QDQEmbeddingBag(torch.nn.Module):
             def __init__(self):
                 super().__init__()
@@ -3171,6 +3218,7 @@ class TestDynamicPatternMatcher(TestPatternMatcherBase):
                     mod,
                     (weight, indices, offsets),
                     matcher_check_fn,
+                    is_aoti=is_aoti,
                 )
 
     @skipIfNoDynamoSupport
@@ -3181,7 +3229,22 @@ class TestDynamicPatternMatcher(TestPatternMatcherBase):
         reason="cpp kernels not built",
     )
     def test_fp8_scaled_embedding_bag(self):
-        self._test_scaled_embedding_bag_helper(torch.float8_e4m3fn)
+        aoti_options = [
+            False,
+        ]
+        try:
+            import torch._inductor.constant_folding as cf
+
+            if hasattr(cf, "add_dont_constant_fold"):
+                cf.add_dont_constant_fold(
+                    torch.ops.torchao.dequantize_affine_float8_non_decomposed.default
+                )
+                aoti_options = [False, True]
+        finally:
+            pass
+
+        for is_aoti in aoti_options:
+            self._test_scaled_embedding_bag_helper(torch.float8_e4m3fn, is_aoti=is_aoti)
 
     @skipIfNoDynamoSupport
     @skipIfNoONEDNN
