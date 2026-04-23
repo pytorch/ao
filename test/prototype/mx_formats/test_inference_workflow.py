@@ -441,7 +441,7 @@ class GroupedMMModel(nn.Module):
 def test_grouped_mm_nvfp4():
     """Smoke test: torch._grouped_mm forward pass with bfloat16 inputs."""
     E, K, N = 4, 128, 256
-    m_per_group = [32, 96, 16, 112]
+    m_per_group = [1, 3, 4, 16]
     total_m = sum(m_per_group)
 
     device = "cuda"
@@ -479,7 +479,6 @@ def test_grouped_mm_nvfp4():
         f"Expected NVFP4Tensor weight, got {type(model.weight)}"
     )
     assert model.weight.per_tensor_scale.shape == (E, 1, 1)
-    # breakpoint()
     w_sqnr = compute_error(model_ref.weight, model.weight.dequantize())
     assert w_sqnr > 18.0
 
