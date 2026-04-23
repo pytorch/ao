@@ -47,13 +47,13 @@ class QuantizeTensorToInt8Kwargs(QuantizeTensorKwargs):
     Args:
         granularity: the granularity for the Tensor, currently either PerRow() or PerTensor()
         mapping_type: whether to use symmetric or asymmetric quant
-        reduce_range: optional flag for reduced int8 quantization range to avoid overflow
-            on CPU without VNNI support. Users can call should_reduce_range() to help determine.
+        reduce_range: reduce int8 quantization range to avoid overflow on CPU without VNNI support.
+            Users can call should_reduce_range() to help determine.
     """
 
     granularity: Granularity
     mapping_type: MappingType = MappingType.SYMMETRIC
-    reduce_range: Optional[bool] = False
+    reduce_range: bool = False
 
 
 class Int8Tensor(TorchAOBaseTensor):
