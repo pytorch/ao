@@ -943,7 +943,7 @@ def _mxfp8_quantize_2d_1x32_cutedsl_custom_op(
         mxfp8_quantize_cutedsl_2d_1x32,
     )
 
-    return mxfp8_quantize_cutedsl_2d_1x32(
+    qdata, scales = mxfp8_quantize_cutedsl_2d_1x32(
         x,
         block_size=block_size,
         scaling_mode=scaling_mode,
@@ -951,6 +951,7 @@ def _mxfp8_quantize_2d_1x32_cutedsl_custom_op(
         blocked_scale_output=True,
         offs=offs,
     )
+    return qdata, scales
 
 
 @torch.library.custom_op("torchao::mxfp8_quantize_2d_32x1_cutedsl", mutates_args=())
@@ -997,7 +998,10 @@ def _fake_mxfp8_quantize_2d_1x32_cutedsl_custom_op(
     padded_scale_rows = ceil_div(m, 128) * 128
     padded_scale_cols = ceil_div(k_blocks, 4) * 4
     scales = x.new_empty(
-        (padded_scale_rows * padded_scale_cols,),
+        (
+            padded_scale_rows,
+            padded_scale_cols,
+        ),
         dtype=torch.float8_e8m0fnu,
     )
     return q_data, scales
@@ -1350,13 +1354,14 @@ def mxfp8_quantize_2d_1x32_cutedsl(
         raise NotImplementedError(
             "mxfp8_quantize_2d requires CUDA, SM 10.x, and CUDA 12.8+."
         )
-    return _mxfp8_quantize_2d_1x32_cutedsl_custom_op(
+    qdata, scales = _mxfp8_quantize_2d_1x32_cutedsl_custom_op(
         x,
         block_size=block_size,
         scaling_mode=scaling_mode,
         stage_count=stage_count,
         offs=offs,
     )
+    return qdata, scales
 
 
 def mxfp8_quantize_2d_32x1_cutedsl(
