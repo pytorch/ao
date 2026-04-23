@@ -27,6 +27,7 @@ from torchao.prototype.mx_formats.utils import from_blocked, to_blocked
 from torchao.quantization.quantize_.common import KernelPreference
 from torchao.quantization.utils import compute_error
 from torchao.utils import (
+    is_ROCM,
     is_sm_at_least_89,
     is_sm_at_least_90,
     torch_version_at_least,
@@ -584,9 +585,8 @@ def test_to_mx_from_mx_compile_numerics(elem_dtype, hp_dtype, all_zeros):
     Verifies that compile does not change numerics of MX casts
     """
     if elem_dtype in (torch.float8_e4m3fn, torch.float8_e5m2):
-        if not is_sm_at_least_89():
-            # separate ifs because flake8 is outsmarting me
-            pytest.skip("CUDA capability >= 8.9 required for float8 in triton")
+        if not is_sm_at_least_89() and not is_ROCM():
+            pytest.skip("CUDA capability >= 8.9 or ROCm required for float8 in triton")
 
     shape = 4, 8
     if not all_zeros:
@@ -627,8 +627,8 @@ def test_to_mx_from_mx_compile_numerics(elem_dtype, hp_dtype, all_zeros):
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 @pytest.mark.skipif(
-    not is_sm_at_least_89(),
-    reason="float8 in triton requires CUDA capability 8.9 or greater",
+    not is_sm_at_least_89() and not is_ROCM(),
+    reason="float8 in triton requires CUDA capability 8.9 or ROCm",
 )
 def test_to_mx_inductor_single_kernel():
     """
@@ -645,7 +645,10 @@ def test_to_mx_inductor_single_kernel():
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
-@pytest.mark.skipif(not is_sm_at_least_90(), reason="Need sm90+")
+@pytest.mark.skipif(
+    not is_sm_at_least_90() and not is_ROCM(),
+    reason="Need sm90+ or ROCm",
+)
 def test_index_select():
     """
     test that `x_0 = x[0]` works when `x` is a 3D `MXTensor`. This is
@@ -666,8 +669,8 @@ def test_index_select():
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 @pytest.mark.skipif(
-    not is_sm_at_least_89(),
-    reason="float8 in triton requires CUDA capability 8.9 or greater",
+    not is_sm_at_least_89() and not is_ROCM(),
+    reason="float8 in triton requires CUDA capability 8.9 or ROCm",
 )
 def test_cast_to_float8_e4m3fn_saturation_behavior():
     # TODO(#1912): make the saturated cast work in eager mode and remove this
