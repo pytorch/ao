@@ -529,12 +529,12 @@ class Int4WeightOnlyConfig(AOBaseConfig):
 
     Args:
         `group_size`: parameter for quantization, controls the granularity of quantization, smaller
-         size is more fine grained, choices are [256, 128, 64, 32]
-        `int4_packing_format`: the packing format for int4 tensor
+         size is more fine grained, choices are [256, 128, 64, 32], used in both version 1 and 2
+        `int4_packing_format`: the packing format for int4 tensor, used in version 2 only
         `int4_choose_qparams_algorithm`: variants of choose qparams algorithm to use for int4,
-         currently support TINYGEMM ("tinygemm") and HQQ ("hqq")
-        `set_inductor_config`: if True, adjusts `torchinductor` settings to recommended values.
-        `int4_tile_packed_ntile`: ntile size for TILED_PACKED_TO_4D format, default is 8 for CUDA platform, 16 for ROCm platform
+         currently support TINYGEMM ("tinygemm") and HQQ ("hqq"), used in version 2 only
+        `set_inductor_config`: if True, adjusts `torchinductor` settings to recommended values. used in both version 1 and 2
+        `version`: version of the config to use, default is 2
 
     Example:
 
@@ -548,13 +548,9 @@ class Int4WeightOnlyConfig(AOBaseConfig):
     int4_choose_qparams_algorithm: Int4ChooseQParamsAlgorithm = (
         Int4ChooseQParamsAlgorithm.TINYGEMM
     )
-    int4_tile_packed_ntile: int = 8
     version: int = 2
 
     def __post_init__(self):
-        assert self.int4_tile_packed_ntile in [8, 16], (
-            "int4_tile_packed_ntile must be either 8 or 16"
-        )
         torch._C._log_api_usage_once("torchao.quantization.Int4WeightOnlyConfig")
 
 
@@ -567,7 +563,6 @@ def _int4_weight_only_quantize_tensor(weight, config):
     group_size = config.group_size
     int4_choose_qparams_algorithm = config.int4_choose_qparams_algorithm
     int4_packing_format = config.int4_packing_format
-    int4_tile_packed_ntile = config.int4_tile_packed_ntile
 
     if weight.shape[-1] % group_size != 0:
         logger.info(
@@ -610,7 +605,6 @@ def _int4_weight_only_quantize_tensor(weight, config):
             weight,
             block_size,
             int4_choose_qparams_algorithm=int4_choose_qparams_algorithm,
-            ntile_size=int4_tile_packed_ntile,
         )
         return new_weight
     else:
