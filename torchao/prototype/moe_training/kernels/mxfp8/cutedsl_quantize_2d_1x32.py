@@ -998,7 +998,8 @@ def mxfp8_quantize_cutedsl_2d_1x32(
     assert x.is_cuda, "Input tensor must be CUDA"
     assert block_size == 32, "Only block_size=32 is supported"
     M, K = x.shape
-    assert K % block_size == 0, "K must be divisible by block_size"
+    assert K % 128 == 0, "K must be divisible by 128"
+    assert M % 128 == 0, "M must be divisible by 128"
 
     if offs is not None:
         assert offs.is_cuda, "offs tensor must be CUDA"
@@ -1029,9 +1030,9 @@ def mxfp8_quantize_cutedsl_2d_1x32(
         dtype=torch.float8_e4m3fn,
     )
     k_blocks = K // block_size
+    padded_scale_rows = ceil_div(M, 128) * 128
+    padded_scale_cols = ceil_div(k_blocks, 4) * 4
     if blocked_scale_output:
-        padded_scale_rows = ceil_div(M, 128) * 128
-        padded_scale_cols = ceil_div(k_blocks, 4) * 4
         scales_u8 = torch.empty(
             (padded_scale_rows * padded_scale_cols,),
             device=x.device,
@@ -1075,5 +1076,10 @@ def mxfp8_quantize_cutedsl_2d_1x32(
         stream,
         offs,
     )
-
-    return q_data, scales_u8.view(torch.float8_e8m0fnu)
+    scales = scales_u8.view(torch.float8_e8m0fnu)
+    scales = (
+        scales.view(padded_scale_rows, padded_scale_cols)
+        if blocked_scale_output
+        else scales_u8.view(M, k_blocks)
+    )
+    return q_data, scales

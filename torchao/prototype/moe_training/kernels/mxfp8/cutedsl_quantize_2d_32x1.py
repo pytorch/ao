@@ -1011,7 +1011,8 @@ def mxfp8_quantize_cutedsl_2d_32x1(
     assert x.is_cuda, "Input tensor must be CUDA"
     assert block_size == 32, "Only block_size=32 is supported"
     M, K = x.shape
-    assert M % block_size == 0, "M must be divisible by block_size for 32x1 scaling"
+    assert M % 128 == 0, "M must be divisible by 128"
+    assert K % 128 == 0, "K must be divisible by 128"
 
     if offs is not None:
         assert offs.is_cuda, "offs tensor must be CUDA"
@@ -1050,7 +1051,7 @@ def mxfp8_quantize_cutedsl_2d_32x1(
             ceil_div(m_blocks, 4) * 4
         )  # M//32 rounded to multiple of 4 (second dim)
         scales_u8 = (
-            torch.zeros(  # Initialize with zeros to match to_blocked() padding behavior
+            torch.empty(  # Initialize with zeros to match to_blocked() padding behavior
                 (padded_scale_rows * padded_scale_cols,),
                 device=x.device,
                 dtype=torch.uint8,

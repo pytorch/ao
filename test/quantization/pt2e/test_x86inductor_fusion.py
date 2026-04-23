@@ -8,15 +8,11 @@
 import contextlib
 import copy
 import functools
-import glob
 import itertools
-import os
-import tempfile
 import unittest
 from typing import NamedTuple
 
 import torch
-import torch._export.utils as eu
 from torch._dynamo import config as dynamo_config
 from torch._dynamo.testing import make_test_cls_with_patches
 from torch._dynamo.utils import counters
@@ -172,22 +168,11 @@ class TestPatternMatcherBase(TestCase):
         quantizer=None,
         compile_options={},  # noqa: B006
         is_fp8=False,
-        is_aoti=False,
+        include_ops=None,
+        exclude_ops=None,
+        check_dynamic=None,
+        num_include_ops=None,
     ):
-        def aoti_compile(model, inputs):
-            with eu._disable_aten_to_metadata_assertions():
-                exported = torch.export.export(model, inputs)
-            with tempfile.TemporaryDirectory() as tmpdir:
-                package_path = os.path.join(tmpdir, "model.pt2")
-                with config.patch({"aot_inductor.output_path": tmpdir}):
-                    torch._inductor.aoti_compile_and_package(
-                        exported,
-                        package_path=package_path,
-                    )
-
-                compiled_mod = torch._inductor.aoti_load_package(package_path)
-            return compiled_mod
-
         if not hasattr(self, "device"):
             has_xpu = any(
                 isinstance(input, torch.Tensor) and input.device.type == "xpu"
@@ -215,92 +200,53 @@ class TestPatternMatcherBase(TestCase):
         else:
             assert check_autocast == torch.float32
             maybe_autocast = contextlib.nullcontext()
+        include_ops = [] if include_ops is None else include_ops
+        exclude_ops = [] if exclude_ops is None else exclude_ops
+        check_code = (
+            len(include_ops) > 0
+            or len(exclude_ops) > 0
+            or check_dynamic is not None
+            or num_include_ops is not None
+        ) and not TEST_ACL
         if check_quantization:
-            convert_model = _generate_ref_quantized_model(
+            mod = _generate_ref_quantized_model(
                 mod, inputs, is_qat, is_dynamic, quantizer, is_fp8
             )
-            with torch.no_grad(), maybe_autocast:
-                if is_aoti:
-                    _ = aoti_compile(convert_model, inputs)(*inputs)
-                else:
-                    _ = torch.compile(convert_model)(*inputs)
-                matcher_check_fn()
-        else:
-            with torch.no_grad(), maybe_autocast:
-                clone_inputs = self._clone_inputs(inputs)
+
+        with torch.no_grad(), maybe_autocast:
+            if check_code:
                 expected = mod(*inputs)
-                if is_aoti:
-                    compiled_mod = aoti_compile(mod, clone_inputs)
-                    actual = compiled_mod(*clone_inputs)
-                else:
-                    actual = torch.compile(mod, **compile_options)(*clone_inputs)
+                code_compile_options = dict(compile_options)
+                if check_dynamic is not None:
+                    code_compile_options["dynamic"] = check_dynamic
+                actual, (source_code,) = run_and_get_code(
+                    torch.compile(mod, **code_compile_options),
+                    *inputs,
+                )
+                for op in include_ops:
+                    self.assertIn(op, source_code)
+                if num_include_ops is not None:
+                    assert len(include_ops) == len(num_include_ops)
+                    for i in range(len(include_ops)):
+                        self.assertEqual(
+                            source_code.count(include_ops[i]), num_include_ops[i]
+                        )
+                for op in exclude_ops:
+                    self.assertNotIn(op, source_code)
+                if check_dynamic is not None:
+                    _check_has_dynamic_shape(self, source_code)
+                if not check_quantization:
+                    # Skip due to reduce range setting for Quantization on preCI system.
+                    torch.testing.assert_close(actual, expected, atol=atol, rtol=rtol)
+            elif check_quantization:
+                _ = torch.compile(mod, **compile_options)(*inputs)
+            else:
+                expected = mod(*inputs)
+                actual = torch.compile(mod, **compile_options)(*inputs)
                 torch.testing.assert_close(
                     actual.float(), expected.float(), atol=atol, rtol=rtol
                 )
-                matcher_check_fn()
-
-    def _test_code_common(
-        self,
-        mod,
-        inputs,
-        include_ops,
-        exclude_ops,
-        atol=1e-5,
-        rtol=1.3e-6,
-        check_quantization=False,
-        check_dynamic=None,
-        num_include_ops=None,
-        quantizer=None,
-        is_fp8=False,
-        is_aoti=False,
-    ):
-        with torch.no_grad():
-            clone_inputs = self._clone_inputs(inputs)
-            if check_quantization:
-                mod = _generate_ref_quantized_model(
-                    mod, inputs, quantizer=quantizer, is_fp8=is_fp8
-                )
-            expected = mod(*inputs)
-            if is_aoti:
-                with eu._disable_aten_to_metadata_assertions():
-                    exported = torch.export.export(mod, clone_inputs)
-                with tempfile.TemporaryDirectory() as tmpdir:
-                    package_path = os.path.join(tmpdir, "model.pt2")
-                    with config.patch({"aot_inductor.output_path": tmpdir}):
-                        torch._inductor.aoti_compile_and_package(
-                            exported,
-                            package_path=package_path,
-                        )
-
-                    cpp_paths = glob.glob(
-                        os.path.join(tmpdir, "**/*.wrapper.cpp"), recursive=True
-                    )
-                    assert cpp_paths, "Failed to find generated .wrapper.cpp"
-                    with open(cpp_paths[0], "r") as f:
-                        source_code = f.read()
-
-                    compiled_mod = torch._inductor.aoti_load_package(package_path)
-                    actual = compiled_mod(*clone_inputs)
-            else:
-                actual, (source_code,) = run_and_get_code(
-                    torch.compile(mod, fullgraph=True, dynamic=check_dynamic),
-                    *clone_inputs,
-                )
-            for op in include_ops:
-                self.assertIn(op, source_code)
-            if num_include_ops is not None:
-                assert len(include_ops) == len(num_include_ops)
-                for i in range(len(include_ops)):
-                    self.assertEqual(
-                        source_code.count(include_ops[i]), num_include_ops[i]
-                    )
-            for op in exclude_ops:
-                self.assertNotIn(op, source_code)
-            if check_dynamic is not None:
-                _check_has_dynamic_shape(self, source_code)
-            if not check_quantization:
-                # Skip due to reduce range setting for Quantization on preCI system.
-                torch.testing.assert_close(actual, expected, atol=atol, rtol=rtol)
+            matcher_check_fn()
 
 
 @unittest.skipIf(not torch_version_at_least("2.8.0"), "Requires torch 2.8+")
@@ -1542,7 +1488,6 @@ class TestPatternMatcher(TestPatternMatcherBase):
         is_dynamic=False,
         is_qat=False,
         is_fp8=False,
-        is_aoti=False,
     ):
         class M(torch.nn.Module):
             def __init__(self, use_bias, do_permute=False):
@@ -1582,21 +1527,14 @@ class TestPatternMatcher(TestPatternMatcherBase):
             is_qat=is_qat,
             is_dynamic=is_dynamic,
             is_fp8=is_fp8,
-            is_aoti=is_aoti,
-        )
-        if is_fp8:
+            include_ops=[] if is_fp8 else None,
             # ensure quantize_affine_float8_non_decomposed is lowered
-            self._test_code_common(
-                mod,
-                inputs,
-                include_ops=[],
-                exclude_ops=[
-                    "torch.ops.torchao.quantize_affine_float8_non_decomposed.default"
-                ],
-                check_quantization=True,
-                is_fp8=is_fp8,
-                is_aoti=is_aoti,
-            )
+            exclude_ops=[
+                "torch.ops.torchao.quantize_affine_float8_non_decomposed.default"
+            ]
+            if is_fp8
+            else None,
+        )
 
     @skipIfNoDynamoSupport
     @skipIfNoONEDNN
@@ -1614,25 +1552,8 @@ class TestPatternMatcher(TestPatternMatcherBase):
         r"""
         This testcase will quantize a single Linear Moduel.
         """
-        aoti_options = [
-            False,
-        ]
-        try:
-            import torch._inductor.constant_folding as cf
-
-            if hasattr(cf, "add_dont_constant_fold"):
-                cf.add_dont_constant_fold(
-                    torch.ops.torchao.dequantize_affine_float8_non_decomposed.default
-                )
-                aoti_options = [False, True]
-        finally:
-            pass
-
-        for is_aoti in aoti_options:
-            for bias in [True, False]:
-                self._qlinear_test_helper(
-                    (torch.randn((2, 4)),), bias=bias, is_fp8=True, is_aoti=is_aoti
-                )
+        for bias in [True, False]:
+            self._qlinear_test_helper((torch.randn((2, 4)),), bias=bias, is_fp8=True)
 
     @skipIfNoDynamoSupport
     @skipIfNoONEDNN
@@ -2148,6 +2069,21 @@ class TestPatternMatcher(TestPatternMatcherBase):
                     0 if TEST_ACL else 2,
                 )
 
+            include_ops = None
+            num_include_ops = None
+            if not TEST_ACL:
+                if torch._inductor.config.cpp_wrapper:
+                    include_ops = [
+                        "aoti_torch_cpu__qlinear_pointwise_tensor",
+                        "aoti_torch_cpu__qlinear_pointwise_binary_tensor",
+                    ]
+                else:
+                    include_ops = [
+                        "torch.ops.onednn.qlinear_pointwise.tensor",
+                        "torch.ops.onednn.qlinear_pointwise.binary",
+                    ]
+                num_include_ops = [2, 2]
+
             self._test_common(
                 mod,
                 (v,),
@@ -2157,39 +2093,10 @@ class TestPatternMatcher(TestPatternMatcherBase):
                 is_qat=is_qat,
                 is_dynamic=is_dynamic,
                 is_fp8=is_fp8,
+                include_ops=include_ops,
+                exclude_ops=[],
+                num_include_ops=num_include_ops,
             )
-
-            if TEST_ACL:
-                continue
-
-            if torch._inductor.config.cpp_wrapper:
-                # For CPP wrapper
-                self._test_code_common(
-                    mod,
-                    (v,),
-                    [
-                        "aoti_torch_cpu__qlinear_pointwise_tensor",
-                        "aoti_torch_cpu__qlinear_pointwise_binary_tensor",
-                    ],
-                    [],
-                    check_quantization=True,
-                    num_include_ops=[2, 2],
-                    is_fp8=is_fp8,
-                )
-            else:
-                # For python wrapper
-                self._test_code_common(
-                    mod,
-                    (v,),
-                    [
-                        "torch.ops.onednn.qlinear_pointwise.tensor",
-                        "torch.ops.onednn.qlinear_pointwise.binary",
-                    ],
-                    [],
-                    check_quantization=True,
-                    num_include_ops=[2, 2],
-                    is_fp8=is_fp8,
-                )
 
     @skipIfNoDynamoSupport
     @skipIfNoONEDNN
@@ -2208,10 +2115,6 @@ class TestPatternMatcher(TestPatternMatcherBase):
     @parametrize("is_qat", [True, False])
     @parametrize("is_dynamic", [True, False])
     def test_qlinear_add_int8_mixed_bf16(self, use_relu, is_qat, is_dynamic):
-        if is_dynamic:
-            # skip due to an issue in torch nightly (https://github.com/pytorch/pytorch/commit/996dedb42f2ed0facbdb73e36bc877a02bb40209)
-            # TODO(Weiwen): after fixing torch nightly, re-enable this
-            return
         self._qlinear_add_test_helper(
             mixed_bf16=True,
             use_relu=use_relu,
@@ -2220,11 +2123,11 @@ class TestPatternMatcher(TestPatternMatcherBase):
         )
 
     @skipIfNoDynamoSupport
+    @skipIfNoONEDNNBF16
     @skipIfNoONEDNN
     @skipIfNoFloat8Support
     @parametrize("use_relu", [True, False])
     @parametrize("mixed_bf16", [True, False])
-    @unittest.skip("Skipping as failing with upgrade to python3.10 and torch2.10.dev")
     def test_fp8_qlinear_add_cpu(self, use_relu, mixed_bf16):
         self._qlinear_add_test_helper(
             use_relu=use_relu,
@@ -2757,19 +2660,15 @@ class TestPatternMatcher(TestPatternMatcherBase):
                 matcher_check_fn=matcher_check_fn,
                 check_quantization=True,
                 quantizer=quantizer,
-            )
-            linear_op_str = (
-                "torch.ops.onednn.linear_relu_dynamic_fp16.default"
-                if use_relu
-                else "torch.ops.onednn.linear_dynamic_fp16.default"
-            )
-            self._test_code_common(
-                mod,
-                (x,),
-                [linear_op_str],
-                ["torch.ops.aten.addmm.default", "torch.ops.aten.mm.default"],
-                check_quantization=True,
-                quantizer=quantizer,
+                include_ops=[
+                    "torch.ops.onednn.linear_relu_dynamic_fp16.default"
+                    if use_relu
+                    else "torch.ops.onednn.linear_dynamic_fp16.default"
+                ],
+                exclude_ops=[
+                    "torch.ops.aten.addmm.default",
+                    "torch.ops.aten.mm.default",
+                ],
             )
 
     @skipIfNoDynamoSupport
@@ -3024,11 +2923,12 @@ class TestDynamicPatternMatcher(TestPatternMatcherBase):
                 "torch.ops.onednn.qlinear_pointwise",
             ]
         exclude_ops = []
-        self._test_code_common(
+        self._test_common(
             mod,
             (v,),
-            include_ops,
-            exclude_ops,
+            matcher_check_fn=lambda: None,
+            include_ops=include_ops,
+            exclude_ops=exclude_ops,
             check_quantization=True,
             check_dynamic=True,
         )
@@ -3176,9 +3076,7 @@ class TestDynamicPatternMatcher(TestPatternMatcherBase):
                 annotate_matmul=annotate_matmul, is_fp8=True
             )
 
-    def _test_scaled_embedding_bag_helper(
-        self, dtype, with_output_quant=False, is_aoti=False
-    ):
+    def _test_scaled_embedding_bag_helper(self, dtype, with_output_quant=False):
         class FP8QDQEmbeddingBag(torch.nn.Module):
             def __init__(self):
                 super().__init__()
@@ -3273,7 +3171,6 @@ class TestDynamicPatternMatcher(TestPatternMatcherBase):
                     mod,
                     (weight, indices, offsets),
                     matcher_check_fn,
-                    is_aoti=is_aoti,
                 )
 
     @skipIfNoDynamoSupport
@@ -3284,22 +3181,7 @@ class TestDynamicPatternMatcher(TestPatternMatcherBase):
         reason="cpp kernels not built",
     )
     def test_fp8_scaled_embedding_bag(self):
-        aoti_options = [
-            False,
-        ]
-        try:
-            import torch._inductor.constant_folding as cf
-
-            if hasattr(cf, "add_dont_constant_fold"):
-                cf.add_dont_constant_fold(
-                    torch.ops.torchao.dequantize_affine_float8_non_decomposed.default
-                )
-                aoti_options = [False, True]
-        finally:
-            pass
-
-        for is_aoti in aoti_options:
-            self._test_scaled_embedding_bag_helper(torch.float8_e4m3fn, is_aoti=is_aoti)
+        self._test_scaled_embedding_bag_helper(torch.float8_e4m3fn)
 
     @skipIfNoDynamoSupport
     @skipIfNoONEDNN
@@ -3398,9 +3280,10 @@ class TestLowering(TestPatternMatcherBase):
         mod = M().eval()
         x = torch.randn((4, 4))
 
-        self._test_code_common(
+        self._test_common(
             mod,
             (x,),
+            matcher_check_fn=lambda: None,
             include_ops=[],
             # these ops should be lowered away
             exclude_ops=[
