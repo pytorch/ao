@@ -656,6 +656,17 @@ def nvfp4_addmm(func, types, args, kwargs):
         return _addmm_nvfp4_dispatch(input_tensor, weight_tensor, func, bias=bias)
 
 
+@implements([aten._grouped_mm.default])
+def nvfp4_grouped_mm(func, types, args, kwargs):
+    mat_a, mat_b = args[0], args[1]
+    # temporary: dequantize nvfp4 tensor to call original grouped_mm
+    # TODO(future PR): enable nvfp4 with per-expert outer scale (current code
+    # has a single outer scale across all experts).
+    # TODO(future PR): hook up real nvfp4 grouped_mm
+    mat_b_dq = mat_b.dequantize()
+    return func(mat_a, mat_b_dq, *args[2:], **kwargs)
+
+
 def per_tensor_amax_to_scale(amax: torch.Tensor) -> torch.Tensor:
     """Convert per-tensor amax to per-tensor scale for NVFP4 quantization.
 
