@@ -7,17 +7,16 @@
 import pytest
 import torch
 
-from packaging import version
-
 triton = pytest.importorskip("triton", reason="Triton required to run this test")
 
+from torchao.float8.config import e4m3_dtype
 from torchao.kernel.blockwise_quantization import (
     blockwise_fp8_gemm,
     fp8_blockwise_act_quant,
     fp8_blockwise_weight_dequant,
     fp8_blockwise_weight_quant,
 )
-from torchao.utils import is_sm_at_least_90
+from torchao.utils import is_MI300, is_MI350, is_sm_at_least_90
 
 BLOCKWISE_SIZE_MNK = [
     (2, 512, 128),
@@ -30,27 +29,27 @@ BLOCKWISE_SIZE_MNK = [
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
-@pytest.mark.skipif(not is_sm_at_least_90(), reason="Requires CUDA capability >= 9.0")
+@pytest.mark.skipif(
+    not (is_sm_at_least_90() or is_MI300() or is_MI350()),
+    reason="Requires FP8-capable GPU (CUDA SM90+, MI300, or MI350)",
+)
 @pytest.mark.parametrize("_, N, K", BLOCKWISE_SIZE_MNK)
-@pytest.mark.parametrize("dtype", [torch.float8_e4m3fn, torch.float8_e5m2])
+@pytest.mark.parametrize("dtype", [e4m3_dtype])
 def test_blockwise_quant_dequant(_, N, K, dtype):
     x = torch.randn(N, K).cuda()
     qx, s = fp8_blockwise_weight_quant(x, dtype=dtype)
     x_reconstructed = fp8_blockwise_weight_dequant(qx, s)
     error = torch.linalg.vector_norm(x - x_reconstructed) / torch.linalg.vector_norm(x)
-    print(f"Relative Error: {error.item():.6f}")
-
-    assert error < 0.1, "Quant-Dequant error is too high"
+    assert error < 0.1, f"Quant-Dequant error too high: {error.item():.6f}"
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 @pytest.mark.skipif(
-    version.parse(triton.__version__) < version.parse("3.3.0"),
-    reason="Triton version < 3.3.0, test skipped",
+    not (is_sm_at_least_90() or is_MI300() or is_MI350()),
+    reason="Requires FP8-capable GPU (CUDA SM90+, MI300, or MI350)",
 )
-@pytest.mark.skipif(not is_sm_at_least_90(), reason="Requires CUDA capability >= 9.0")
 @pytest.mark.parametrize("M, N, K", BLOCKWISE_SIZE_MNK)
-@pytest.mark.parametrize("dtype", [torch.float8_e4m3fn, torch.float8_e5m2])
+@pytest.mark.parametrize("dtype", [e4m3_dtype])
 def test_blockwise_fp8_gemm(M, N, K, dtype):
     A = torch.randn(M, K).cuda()
     B = torch.randn(N, K).cuda()
@@ -60,6 +59,4 @@ def test_blockwise_fp8_gemm(M, N, K, dtype):
     C_q = blockwise_fp8_gemm(A_q, A_s, B_q, B_s)
     assert C_q.dtype == torch.bfloat16, "unsupported"
     error = torch.linalg.vector_norm(C - C_q) / torch.linalg.vector_norm(C)
-    print(f"Relative Error: {error.item():.6f}")
-
-    assert error < 0.1, "Quantize gemm error is too high"
+    assert error < 0.1, f"Quantize gemm error too high: {error.item():.6f}"
