@@ -16,6 +16,7 @@ import unittest
 from typing import NamedTuple
 
 import torch
+import torch._export.utils as eu
 from torch._dynamo import config as dynamo_config
 from torch._dynamo.testing import make_test_cls_with_patches
 from torch._dynamo.utils import counters
@@ -174,7 +175,8 @@ class TestPatternMatcherBase(TestCase):
         is_aoti=False,
     ):
         def aoti_compile(model, inputs):
-            exported = torch.export.export(model, inputs)
+            with eu._disable_aten_to_metadata_assertions():
+                exported = torch.export.export(model, inputs)
             with tempfile.TemporaryDirectory() as tmpdir:
                 package_path = os.path.join(tmpdir, "model.pt2")
                 with config.patch({"aot_inductor.output_path": tmpdir}):
@@ -260,7 +262,8 @@ class TestPatternMatcherBase(TestCase):
                 )
             expected = mod(*inputs)
             if is_aoti:
-                exported = torch.export.export(mod, clone_inputs)
+                with eu._disable_aten_to_metadata_assertions():
+                    exported = torch.export.export(mod, clone_inputs)
                 with tempfile.TemporaryDirectory() as tmpdir:
                     package_path = os.path.join(tmpdir, "model.pt2")
                     with config.patch({"aot_inductor.output_path": tmpdir}):
