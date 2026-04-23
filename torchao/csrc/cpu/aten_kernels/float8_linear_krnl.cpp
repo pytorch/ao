@@ -22,12 +22,14 @@ namespace CPU_CAPABILITY {
 static std::once_flag cpublas_flag;
 static bool cpublas_can_pack = false;
 
+#define USING_FP8_BRGEMM (defined(CPUBLAS_BRGEMM_F8F8F32) && defined(CPU_CAPABILITY_AVX10_2))
+
 static inline bool cpublas_could_pack() {
   std::call_once(cpublas_flag, []() {
-#ifdef CPUBLAS_BRGEMM_F8F8F32
-    cpublas_can_pack = at::native::cpublas::could_pack(at::kFloat8_e4m3fn) && kHasAVX10_2;
+#if USING_FP8_BRGEMM
+    cpublas_can_pack = brgemm_enabled() && at::native::cpublas::could_pack(at::kFloat8_e4m3fn) && kHasAVX10_2;
 #else
-    cpublas_can_pack = at::native::cpublas::could_pack(at::kBFloat16);
+    cpublas_can_pack = brgemm_enabled() && at::native::cpublas::could_pack(at::kBFloat16);
 #endif
   });
   return cpublas_can_pack;
@@ -79,7 +81,7 @@ float8_linear_prepack_impl(
 
 #if defined(CPU_CAPABILITY_AVX512)
   if (cpublas_could_pack()) {
-#ifdef CPUBLAS_BRGEMM_F8F8F32
+#if USING_FP8_BRGEMM
     constexpr int vnni_size = get_vnni_size<at::Float8_e4m3fn>(); // for fp8
 #else
     constexpr int vnni_size = get_vnni_size<at::BFloat16>(); // for bfloat16
@@ -343,7 +345,7 @@ void _micro_gemm(
   // Finally accumulate and store results
 #if defined(CPU_CAPABILITY_AVX512)
   if constexpr (cpublas_can_pack) {
-#ifdef CPUBLAS_BRGEMM_F8F8F32
+#if USING_FP8_BRGEMM
     at::native::cpublas::brgemm(
         M,
         N,
@@ -459,7 +461,7 @@ void _float8_linear_impl(
 #if defined(CPU_CAPABILITY_AVX512)
   // buffer for brgemm output in float32
   int64_t buffer_size = block_size * 2; // float32 = bfloat16 * 2
-#ifndef CPUBLAS_BRGEMM_F8F8F32
+#if !USING_FP8_BRGEMM
   // buffers for dqA & dqB in bf16
   buffer_size += (block_k * block_n + block_m * block_k);
 #endif
@@ -475,7 +477,7 @@ void _float8_linear_impl(
 #if defined(CPU_CAPABILITY_AVX512)
     at::BFloat16* micro_gemm_buf = micro_gemm_buffer.data_ptr<at::BFloat16>() + tid * buffer_size;
     ukernel_buf = reinterpret_cast<float*>(micro_gemm_buf);
-#ifndef CPUBLAS_BRGEMM_F8F8F32
+#if !USING_FP8_BRGEMM
     dqA_buffer = micro_gemm_buf;
     dqB_buffer = micro_gemm_buf + block_m * block_k;
     ukernel_buf = reinterpret_cast<float*>(micro_gemm_buf + block_m * block_k + block_k * block_n);

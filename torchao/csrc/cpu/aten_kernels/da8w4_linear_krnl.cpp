@@ -16,7 +16,7 @@ static bool cpublas_can_pack = false;
 static inline bool cpublas_could_pack() {
   // the could_pack check requires AMX support implicitly
   std::call_once(cpublas_once, []() {
-    cpublas_can_pack = at::native::cpublas::could_pack(at::kByte);
+    cpublas_can_pack = brgemm_enabled() && at::native::cpublas::could_pack(at::kByte);
   });
   return cpublas_can_pack;
 }

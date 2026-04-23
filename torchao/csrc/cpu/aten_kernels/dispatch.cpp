@@ -148,33 +148,23 @@ declare_all_kernels(DEFAULT)
     namespace_name::_qscaled_dot_product_cpu \
   }
 
-enum DispatchMode {
-  MODE_DEFAULT = 0,
-  MODE_AVX512 = 1,
-  MODE_AVX10_2 = 2,
-  MODE_AUTO // always the highest level + 1
+static std::unordered_map<std::string, DispatchMode> dispatch_mode_map = {
+  {"DEFAULT", MODE_DEFAULT},
+  {"AVX512", MODE_AVX512}, // Build with AVX512. Brgemm disabled manually.
+  {"AMX", MODE_AMX}, // Build with AVX512. Brgemm enabled manually.
+  {"AVX10_2", MODE_AVX10_2},
+  {"AUTO", MODE_AUTO}
 };
 
-#define PRINT_DEBUG_INFO(ISA) \
-  if (dispatch_debug) { \
-    std::cout << "\nTorchao X86 Kernel dispatch: Using " << ISA << " kernels" << std::endl; \
-  }
-
 KernelDispatcher& get_kernel_dispatcher() {
-  static const char* env_dispatch = std::getenv("TORCHAO_CPU_DISPATCH");
+  // Setting dispatch_mode is useful for validation of different ISA on one machine.
+  static const char* env_dispatch = std::getenv(TORCHAO_CPU_DISPATCH_ENV);
   static std::string dispatch_str = env_dispatch ? std::string(env_dispatch) : "AUTO";
-  static int dispatch_mode = -1;
   static std::once_flag dispatch_init_flag;
   std::call_once(dispatch_init_flag, [&]() {
     if (dispatch_mode == -1) {
-      if (dispatch_str == "AUTO") {
-        dispatch_mode = MODE_AUTO;
-      } else if (dispatch_str == "DEFAULT") {
-        dispatch_mode = MODE_DEFAULT;
-      } else if (dispatch_str == "AVX512") {
-        dispatch_mode = MODE_AVX512;
-      } else if (dispatch_str == "AVX10_2") {
-        dispatch_mode = MODE_AVX10_2;
+      if (dispatch_mode_map.contains(dispatch_str)) {
+        dispatch_mode = dispatch_mode_map[dispatch_str];
       } else {
         TORCH_WARN("Torchao X86 Kernel dispatch: Unrecognized TORCHAO_CPU_DISPATCH value: ", dispatch_str, ", defaulting to AUTO");
         dispatch_mode = MODE_AUTO;
@@ -182,7 +172,7 @@ KernelDispatcher& get_kernel_dispatcher() {
     }
   });
 
-  static const char* env_dispatch_debug = std::getenv("TORCHAO_CPU_DISPATCH_DEBUG");
+  static const char* env_dispatch_debug = std::getenv(TORCHAO_CPU_DISPATCH_DEBUG_ENV);
   static bool dispatch_debug = env_dispatch_debug ? std::string(env_dispatch_debug) == "1" : false;
 
   static KernelDispatcher dispatcher = []() {
@@ -197,7 +187,8 @@ KernelDispatcher& get_kernel_dispatcher() {
 #endif
 #if defined(BUILD_AVX512)
     if (kHasAVX512 && dispatch_mode >= MODE_AVX512) {
-      PRINT_DEBUG_INFO("AVX512");
+      auto isa = (dispatch_mode == MODE_AVX512) ? "AVX512" : "AMX";
+      PRINT_DEBUG_INFO(isa);
       d = CREATE_DISPATCHER(AVX512);
       return d;
     }

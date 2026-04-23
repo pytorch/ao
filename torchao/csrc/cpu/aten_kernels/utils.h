@@ -101,3 +101,24 @@ template <typename T> constexpr int get_vnni_size() { return vnni_traits<T>::siz
             )                                                                           \
         )                                                                               \
     )
+
+enum DispatchMode {
+  MODE_DEFAULT = 0,
+  MODE_AVX512 = 1, // Build with AVX512. Brgemm disabled manually.
+  MODE_AMX = 2, // Build with AVX512. Brgemm enabled manually.
+  MODE_AVX10_2 = 3,
+  MODE_AUTO // always the highest level + 1
+};
+
+inline int dispatch_mode = -1;
+
+static inline bool brgemm_enabled() {
+  return dispatch_mode >= MODE_AMX;
+}
+
+#define TORCHAO_CPU_DISPATCH_ENV "TORCHAO_CPU_DISPATCH"
+#define TORCHAO_CPU_DISPATCH_DEBUG_ENV "TORCHAO_CPU_DISPATCH_DEBUG"
+#define PRINT_DEBUG_INFO(ISA) \
+  if (dispatch_debug) { \
+    std::cout << "\nTorchao X86 Kernel dispatch: Using " << ISA << " kernels" << std::endl; \
+  }
