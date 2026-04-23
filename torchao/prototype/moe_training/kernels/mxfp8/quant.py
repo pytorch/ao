@@ -181,6 +181,99 @@ def torch_to_blocked_2d_K_groups(
     return blocked_scales, start_cols_after_padding
 
 
+def torch_to_blocked_2d_32x1_K_groups(
+    x_scales: Tensor, group_offs: Tensor, block_size: int = 32
+) -> Tuple[Tensor, Tensor]:
+    """
+    Convert 32x1 scales to blocked format on a per-group basis,
+    where groups partition the K dimension (columns of the input tensor).
+
+    For 32x1 scaling, the scale tensor has shape (K, M//32). Groups partition K
+    (the first dimension / rows of the scale tensor). Each group's scales are
+    independently converted to blocked format and written contiguously.
+
+    Within each group, the blocked layout uses (128, 4) tiles:
+    - 128 rows along K (padded to multiple of 128)
+    - 4 cols along M//32 (padded to multiple of 4)
+
+    Args:
+        x_scales: Tensor of shape (K, M//32) with per-column scales.
+        group_offs: Tensor of shape (num_groups,) with group end indices along K.
+        block_size: Block size (only 32 supported).
+
+    Returns:
+        blocked_scales: Flat tensor with per-group blocked scales.
+        start_row_after_padding: Tensor of shape (num_groups+1,) with group start
+            row offsets after padding.
+    """
+    assert x_scales.ndim == 2, "x_scales must be 2D"
+    assert block_size == 32, "Only block_size=32 is supported for now"
+    K, m_blocks = x_scales.shape
+
+    padded_m_blocks = ceil_div(m_blocks, 4) * 4
+
+    BLOCK_ROWS, BLOCK_COLS = 128, 4
+    output_stride_per_block = BLOCK_ROWS * BLOCK_COLS  # 512
+
+    # No padding needed: group sizes are multiples of 128 and M is divisible
+    # by 128, so m_blocks is divisible by 4.
+    blocked_scales = x_scales.new_zeros(padded_m_blocks * K)
+
+    start_row_after_padding_list = [0]
+    group_start_idx = 0
+    for i, group_end_idx in enumerate(group_offs.tolist()):
+        group_size = group_end_idx - group_start_idx
+        prev_start_row_after_padding = start_row_after_padding_list[i]
+        if group_size == 0:
+            start_row_after_padding_list.append(prev_start_row_after_padding)
+            group_start_idx = group_end_idx
+            continue
+
+        # Convert group scales to blocked format
+        group_scales = x_scales[group_start_idx:group_end_idx, :]
+        group_scales_blocked = to_blocked(group_scales)
+
+        num_row_blocks = ceil_div(group_size, 128)
+        num_col_blocks = padded_m_blocks // 4
+
+        # Reshape blocked scales from flattened format
+        group_scales_reshaped = group_scales_blocked.view(
+            num_row_blocks, num_col_blocks, -1
+        )
+        out_group_base_offset = prev_start_row_after_padding * padded_m_blocks
+
+        # For each SF tile, write to the output tensor
+        for row_block in range(num_row_blocks):
+            for col_block in range(num_col_blocks):
+                block_data = group_scales_reshaped[row_block, col_block]
+
+                stride_per_row_of_blocks_in_group = (
+                    num_col_blocks * output_stride_per_block
+                )
+                offset_in_group = (
+                    row_block * stride_per_row_of_blocks_in_group
+                    + col_block * output_stride_per_block
+                )
+                final_offset = out_group_base_offset + offset_in_group
+
+                block_flat = block_data.reshape(-1)
+                blocked_scales[
+                    final_offset : final_offset + output_stride_per_block
+                ] = block_flat
+
+        # Calculate the start row after padding (no padding needed, group_size is exact)
+        new_start_row = prev_start_row_after_padding + group_size
+        start_row_after_padding_list.append(new_start_row)
+
+        # Update next group start index
+        group_start_idx = group_end_idx
+
+    start_row_after_padding = torch.tensor(
+        start_row_after_padding_list, device=x_scales.device, dtype=torch.int64
+    )
+    return blocked_scales, start_row_after_padding
+
+
 def torch_to_blocked_per_group_3d(weight_scales: Tensor) -> Tensor:
     """
     Convert scales to blocked format for each group for a 3D tensor (expert weights)
@@ -258,6 +351,35 @@ def compute_blocked_scale_offsets_for_K_groups(
     # Must start with 0
     starting_col_after_padding = torch.cat([zero, starting_col_after_padding])
     return group_sizes, starting_col_after_padding
+
+
+def compute_blocked_scale_offsets_for_32x1_K_groups(
+    offsets: torch.Tensor,
+):
+    """
+    Compute the starting row offset of the scales for each group in the per-group
+    blocked layout for 32x1 scaling, where groups partition the K dimension.
+
+    Each group's K size is rounded up to the nearest multiple of 128 (the tile row size).
+
+    Args:
+        offsets: A 1D PyTorch tensor of integers representing group end indices along K.
+
+    Returns:
+        group_sizes: A 1D tensor of group K sizes.
+        starting_row_after_padding: 1D tensor of starting row offsets after padding.
+    """
+    zero = torch.zeros(1, dtype=offsets.dtype, device=offsets.device)
+    group_sizes = torch.diff(offsets, prepend=zero)
+
+    # Each group's K is padded to nearest multiple of 128
+    rounded_group_sizes = ceil_div(group_sizes, 128) * 128
+
+    starting_row_after_padding = torch.cumsum(rounded_group_sizes, dim=0)
+
+    # Must start with 0
+    starting_row_after_padding = torch.cat([zero, starting_row_after_padding])
+    return group_sizes, starting_row_after_padding
 
 
 def torch_pad_token_groups(
@@ -1030,12 +1152,29 @@ def _fake_mxfp8_quantize_2d_32x1_cutedsl_custom_op(
 
     # Only scales tensor needs padding for 4x128 scale factor tiles
     m_blocks = m // block_size
-    padded_scale_rows = ceil_div(m_blocks, 4) * 4
-    padded_scale_cols = ceil_div(k, 128) * 128
-    scales = x.new_empty(
-        (padded_scale_cols * padded_scale_rows,),
-        dtype=torch.float8_e8m0fnu,
-    )
+    per_group_blocked = offs is not None and blocked_scale_output
+
+    if per_group_blocked:
+        # Per-group blocked: no padding needed since group sizes are multiples
+        # of 128 and M is divisible by 128.
+        scales = x.new_empty(
+            (m_blocks * k,),
+            dtype=torch.float8_e8m0fnu,
+        )
+    elif blocked_scale_output:
+        padded_scale_rows = ceil_div(m_blocks, 4) * 4
+        padded_scale_cols = ceil_div(k, 128) * 128
+        scales = x.new_empty(
+            (padded_scale_cols * padded_scale_rows,),
+            dtype=torch.float8_e8m0fnu,
+        )
+    else:
+        padded_scale_rows = ceil_div(m_blocks, 4) * 4
+        padded_scale_cols = ceil_div(k, 128) * 128
+        scales = x.new_empty(
+            (padded_scale_cols * padded_scale_rows,),
+            dtype=torch.float8_e8m0fnu,
+        )
     return q_data, scales
 
 

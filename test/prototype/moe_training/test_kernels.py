@@ -43,6 +43,7 @@ from torchao.prototype.moe_training.kernels.mxfp8 import (
     mxfp8_quantize_2d_32x1_cutedsl,
     mxfp8_quantize_cuda_3d,
     torch_pad_token_groups,
+    torch_to_blocked_2d_32x1_K_groups,
     torch_to_blocked_2d_K_groups,
     torch_to_blocked_2d_M_groups,
     torch_to_blocked_per_group_3d,
@@ -555,9 +556,10 @@ def test_cuda_mx_dim1_2d_numerics_32x1(
     )
 
     # Verify output dimensions - data should not be padded, same as input
-    assert y_d1.shape == (M, K), (
-        f"Quantized data shape mismatch: expected ({M}, {K}), got {y_d1.shape}"
-    )
+    assert y_d1.shape == (
+        M,
+        K,
+    ), f"Quantized data shape mismatch: expected ({M}, {K}), got {y_d1.shape}"
     # Check scales - compare unblocked formats
     torch.testing.assert_close(s_d1, s_d1_ref, rtol=0, atol=0)
 
@@ -855,3 +857,107 @@ def test_cutedsl_kernels_work_with_valid_128_multiple_groups():
     # Basic output validation
     assert y_1x32.shape == (M, K)
     assert y_32x1.shape == (M, K)
+
+
+@pytest.mark.skipif(
+    not _is_sm_10x(),
+    reason="MXFP8 requires CUDA SM 10.x",
+)
+@pytest.mark.skipif(
+    not _mxfp8_cutedsl_kernels_available,
+    reason="MXFP8 cutedsl kernels not available",
+)
+@skip_if_rocm("ROCm enablement in progress")
+@pytest.mark.parametrize("M", (128, 1024))
+@pytest.mark.parametrize("K", (256, 1024, 1536))
+@pytest.mark.parametrize("n_groups", (1, 2, 4))
+@pytest.mark.parametrize(
+    "scaling_mode", (ScaleCalculationMode.FLOOR, ScaleCalculationMode.RCEIL)
+)
+def test_cutedsl_32x1_per_group_blocked_scales(
+    M: int, K: int, n_groups: int, scaling_mode: ScaleCalculationMode
+):
+    """Test that 32x1 CuTeDSL kernel produces correct per-group blocked scale layout
+    when offs is provided with blocked_scale_output=True.
+
+    The test:
+    1. Quantizes with CuTeDSL kernel to get per-group blocked scales
+    2. Also quantizes without offs to get reference quantized data (should match)
+    3. Generates reference per-group blocked scales using torch reference impl
+    4. Compares kernel output against torch reference
+    """
+    device = "cuda"
+    block_size = 32
+    scaling_mode_str = scaling_mode.value.lower()
+
+    # Ensure K is divisible by 128 * n_groups so each group has a multiple-of-128 K
+    assert K % (128 * n_groups) == 0 or K >= 128 * n_groups, (
+        "K must be large enough for n_groups with 128-multiple group sizes"
+    )
+
+    # Generate group offsets along K, each group size is a multiple of 128
+    group_k_size = (K // n_groups // 128) * 128
+    if group_k_size == 0:
+        pytest.skip(f"K={K} too small for n_groups={n_groups} with 128-aligned groups")
+    # Distribute evenly, put remainder in last group
+    group_sizes = [group_k_size] * n_groups
+    remainder = K - group_k_size * n_groups
+    group_sizes[-1] += remainder
+    # Verify all sizes are multiples of 128
+    for gs in group_sizes:
+        assert gs % 128 == 0, f"group size {gs} is not a multiple of 128"
+    offs = torch.cumsum(
+        torch.tensor(group_sizes, dtype=torch.int32, device=device), dim=0
+    )
+    assert offs[-1].item() == K
+
+    # Use distinct values for easier debugging
+    x = (
+        torch.arange(0, M * K, dtype=torch.bfloat16, device=device)
+        .reshape(M, K)
+        .contiguous()
+    )
+
+    # 1. Run CuTeDSL 32x1 kernel WITH per-group blocked output
+    y_kernel, s_kernel = mxfp8_quantize_2d_32x1_cutedsl(
+        x,
+        block_size=block_size,
+        scaling_mode=scaling_mode_str,
+        blocked_scale_output=True,
+        offs=offs,
+    )
+
+    # 2. Run CuTeDSL 32x1 kernel WITHOUT offs to get reference q_data
+    y_ref, _ = mxfp8_quantize_2d_32x1_cutedsl(
+        x,
+        block_size=block_size,
+        scaling_mode=scaling_mode_str,
+        blocked_scale_output=False,
+    )
+
+    # Quantized data should match regardless of scale layout
+    torch.testing.assert_close(y_kernel, y_ref, rtol=0, atol=0)
+
+    # 3. Get reference scales via to_mx (transpose input so to_mx scales along M)
+    x_t = x.transpose(-2, -1).contiguous()  # (K, M)
+    s_ref_raw, _ = to_mx(
+        x_t,
+        elem_dtype=torch.float8_e4m3fn,
+        block_size=block_size,
+        scaling_mode=scaling_mode,
+    )
+    # s_ref_raw has shape (K, M//32) — raw unblocked scales
+
+    # 4. Apply per-group blocked layout using torch reference
+    s_ref_blocked, _ = torch_to_blocked_2d_32x1_K_groups(
+        s_ref_raw, offs, block_size=block_size
+    )
+
+    # 5. Compare: kernel output (flat) vs torch reference (flat)
+    # Both should have the same values in the per-group blocked layout
+    # The kernel output may be larger due to upper-bound allocation, so compare
+    # up to the reference size
+    ref_size = s_ref_blocked.shape[0]
+    kernel_flat = s_kernel.view(torch.uint8)[:ref_size]
+    ref_flat = s_ref_blocked.view(torch.uint8)[:ref_size]
+    torch.testing.assert_close(kernel_flat, ref_flat, rtol=0, atol=0)

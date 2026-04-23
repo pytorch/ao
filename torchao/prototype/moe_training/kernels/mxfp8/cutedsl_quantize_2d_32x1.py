@@ -87,7 +87,8 @@ def _compile_mxfp8_quantize_2d_32x1_cutedsl(
     m_tiles_per_cta: int,
     is_full_m_tiles: bool,
     blocked_scale_output: bool,
-    offs: Optional[torch.Tensor] = None,
+    has_offs: bool = False,
+    num_groups: Optional[int] = None,
 ):
     """Compile the 2D MXFP8 quantization kernel using CuTeDSL for 32x1 scaling.
 
@@ -147,6 +148,11 @@ def _compile_mxfp8_quantize_2d_32x1_cutedsl(
     assert requested_stage_count <= 2
     assert M_TILES_PER_CTA >= 1
     STAGE_COUNT_VALUE = min(requested_stage_count, M_TILES_PER_CTA)
+
+    # Per-group blocked scale output: when offs is provided and blocked_scale_output
+    # is True, write each group's scales in blocked layout contiguously.
+    PER_GROUP_BLOCKED_VALUE = has_offs and blocked_scale_output
+    NUM_GROUPS_VALUE = num_groups if num_groups is not None else 1
 
     input_elem_bytes = 4 if input_dtype_name == "torch.float32" else 2
     TILE_COPY_BYTES = TILE_M * TILE_K * input_elem_bytes
@@ -226,6 +232,100 @@ def _compile_mxfp8_quantize_2d_32x1_cutedsl(
                 else:
                     vals_block[i] = cutlass.Float32(0.0)
             return vals_block
+
+        @cute.jit
+        def _store_scales_per_group_blocked_gmem(
+            self,
+            scales_out_u8: cute.Tensor,
+            k: cutlass.Int64,
+            m_block_base: cutlass.Int64,
+            scale_buffer: cute.Tensor,
+            num_scales: cutlass.Int32,
+            offs: cute.Tensor,
+            m_blocks: cutlass.Int64,
+            NUM_GROUPS: cutlass.Constexpr[int],
+        ):
+            """Store scales to global memory using per-group blocked layout.
+
+            Each group's scales are written contiguously in blocked format.
+            The offset math mirrors triton_scale_swizzle_2d_K_groups.
+
+            The scale tensor has shape (K, m_blocks) where m_blocks = M // 32.
+            Groups partition K (rows). Within each group, scales are arranged
+            in (128, 4) tiles: 128 rows along K, 4 cols along m_blocks.
+
+            Args:
+                scales_out_u8: Flat output buffer for all groups' blocked scales
+                k: Global K coordinate (row of scale tensor)
+                m_block_base: Starting m_block index (column of scale tensor)
+                scale_buffer: Buffer of scales in register memory (uint8)
+                num_scales: Number of scales to store
+                offs: Group end offsets along K (int32)
+                m_blocks: Total number of M//32 scale columns
+                NUM_GROUPS: Number of groups (constexpr)
+            """
+            # Number of 4-wide tile columns along the m_blocks dimension
+            num_m_tile_cols = m_blocks // cutlass.Int64(4)
+            stride_per_k_row_of_tiles = num_m_tile_cols * cutlass.Int64(512)
+
+            # Find group containing k and compute group base offset
+            # (prefix sum of group K sizes * m_blocks)
+            # No padding needed: group sizes are multiples of 128, and
+            # M is divisible by 128 so m_blocks (M//32) is divisible by 4.
+            group_start_k = cutlass.Int64(0)
+            group_base_offset = cutlass.Int64(0)
+            found = cutlass.Int32(0)
+            for g in cutlass.range_constexpr(NUM_GROUPS_VALUE):
+                group_end_k = cutlass.Int64(offs[g])
+                if found == 0:
+                    if k < group_end_k:
+                        found = cutlass.Int32(1)
+                    else:
+                        group_k_size = group_end_k - group_start_k
+                        group_base_offset = group_base_offset + group_k_size * m_blocks
+                        group_start_k = group_end_k
+
+            # Compute position within group
+            k_in_group = k - group_start_k
+            k_tile_row = k_in_group // cutlass.Int64(128)
+            k_local = k_in_group % cutlass.Int64(128)
+            k_div_32 = k_local // cutlass.Int64(32)
+            k_mod_32 = k_local % cutlass.Int64(32)
+
+            if num_scales == 4:
+                # Vectorized uint32 write: 4 consecutive m_blocks are contiguous
+                # in the blocked tile (m_local 0,1,2,3 have stride 1)
+                m_tile_col = m_block_base // cutlass.Int64(4)
+                base_tile_offset = k_mod_32 * cutlass.Int64(
+                    16
+                ) + k_div_32 * cutlass.Int64(4)
+                flat_offset = (
+                    group_base_offset
+                    + k_tile_row * stride_per_k_row_of_tiles
+                    + m_tile_col * cutlass.Int64(512)
+                    + base_tile_offset
+                )
+                scales_out_u32 = cute.recast_tensor(scales_out_u8, cutlass.Uint32)
+                scale_buffer_u32 = cute.recast_tensor(scale_buffer, cutlass.Uint32)
+                scales_out_u32[flat_offset // cutlass.Int64(4)] = scale_buffer_u32[0]
+            else:
+                # Scalar stores for tail cases
+                for i in range(num_scales):
+                    m_block = m_block_base + cutlass.Int64(i)
+                    m_tile_col = m_block // cutlass.Int64(4)
+                    m_local = m_block % cutlass.Int64(4)
+                    tile_offset = (
+                        k_mod_32 * cutlass.Int64(16)
+                        + k_div_32 * cutlass.Int64(4)
+                        + m_local
+                    )
+                    flat_offset = (
+                        group_base_offset
+                        + k_tile_row * stride_per_k_row_of_tiles
+                        + m_tile_col * cutlass.Int64(512)
+                        + tile_offset
+                    )
+                    scales_out_u8[flat_offset] = scale_buffer[i]
 
         @cute.jit
         def _store_scales_reg_to_gmem_vec(
@@ -531,6 +631,8 @@ def _compile_mxfp8_quantize_2d_32x1_cutedsl(
             USE_RCEIL: cutlass.Constexpr[bool],
             IS_FULL_M_TILES: cutlass.Constexpr[bool],
             STAGE_COUNT: cutlass.Constexpr[int],
+            PER_GROUP_BLOCKED: cutlass.Constexpr[bool],
+            NUM_GROUPS: cutlass.Constexpr[int],
         ):
             """Main MXFP8 quantization kernel with warp specialization and TMA pipeline for 32x1 scaling.
 
@@ -629,7 +731,10 @@ def _compile_mxfp8_quantize_2d_32x1_cutedsl(
             m_tile_group_idx = cutlass.Int64(bidx)
             k_tile = cutlass.Int64(bidy)
             k0 = k_tile * TILE_K
-            if cutlass.const_expr(BLOCKED_SCALE_OUTPUT_VALUE):
+            if cutlass.const_expr(PER_GROUP_BLOCKED):
+                # Per-group blocked: use raw flat buffer, offsets computed dynamically
+                scales_tensor = scales_out_u8
+            elif cutlass.const_expr(BLOCKED_SCALE_OUTPUT_VALUE):
                 scales_tensor = cute.make_tensor(
                     scales_out_u8.iterator,
                     blocked_scale_layout,
@@ -733,14 +838,26 @@ def _compile_mxfp8_quantize_2d_32x1_cutedsl(
 
                                 # Vectorized scale store
                                 m_block_base = m_tile_eff * M_BLOCKS_PER_TILE
-                                self._store_scales_reg_to_gmem_vec(
-                                    scales_tensor,
-                                    k,
-                                    m_block_base,
-                                    scale_buffer,
-                                    cutlass.Int32(M_BLOCKS_PER_TILE),
-                                    BLOCKED_SCALE_OUTPUT_VALUE,
-                                )
+                                if cutlass.const_expr(PER_GROUP_BLOCKED):
+                                    self._store_scales_per_group_blocked_gmem(
+                                        scales_tensor,
+                                        k,
+                                        m_block_base,
+                                        scale_buffer,
+                                        cutlass.Int32(M_BLOCKS_PER_TILE),
+                                        offs,
+                                        m_blocks,
+                                        NUM_GROUPS,
+                                    )
+                                else:
+                                    self._store_scales_reg_to_gmem_vec(
+                                        scales_tensor,
+                                        k,
+                                        m_block_base,
+                                        scale_buffer,
+                                        cutlass.Int32(M_BLOCKS_PER_TILE),
+                                        BLOCKED_SCALE_OUTPUT_VALUE,
+                                    )
                         else:
                             k_in_bounds = k < K
                             if k_rel < TILE_K and k_in_bounds:
@@ -786,14 +903,26 @@ def _compile_mxfp8_quantize_2d_32x1_cutedsl(
                                 # Vectorized scale store
                                 if num_valid_scales > 0:
                                     m_block_base = m_tile_eff * M_BLOCKS_PER_TILE
-                                    self._store_scales_reg_to_gmem_vec(
-                                        scales_tensor,
-                                        k,
-                                        m_block_base,
-                                        scale_buffer,
-                                        num_valid_scales,
-                                        BLOCKED_SCALE_OUTPUT_VALUE,
-                                    )
+                                    if cutlass.const_expr(PER_GROUP_BLOCKED):
+                                        self._store_scales_per_group_blocked_gmem(
+                                            scales_tensor,
+                                            k,
+                                            m_block_base,
+                                            scale_buffer,
+                                            num_valid_scales,
+                                            offs,
+                                            m_blocks,
+                                            NUM_GROUPS,
+                                        )
+                                    else:
+                                        self._store_scales_reg_to_gmem_vec(
+                                            scales_tensor,
+                                            k,
+                                            m_block_base,
+                                            scale_buffer,
+                                            num_valid_scales,
+                                            BLOCKED_SCALE_OUTPUT_VALUE,
+                                        )
 
                 gOUT_tile = cute.local_tile(
                     tma_tensor_out, (TILE_M, TILE_K), (m_tile_eff, k_tile)
@@ -904,6 +1033,8 @@ def _compile_mxfp8_quantize_2d_32x1_cutedsl(
                 USE_RCEIL=(scaling_mode == "rceil"),
                 IS_FULL_M_TILES=IS_FULL_M_TILES_VALUE,
                 STAGE_COUNT=STAGE_COUNT_VALUE,
+                PER_GROUP_BLOCKED=PER_GROUP_BLOCKED_VALUE,
+                NUM_GROUPS=NUM_GROUPS_VALUE,
             ).launch(
                 grid=(m_cta_tiles, k_cta_tiles, 1),
                 block=(THREADS_PER_BLOCK, 1, 1),
@@ -947,7 +1078,7 @@ def _compile_mxfp8_quantize_2d_32x1_cutedsl(
         )
     fake_stream = make_fake_stream()
 
-    if offs is not None:
+    if has_offs:
         offs_stride = cute.sym_int()
         fake_offs = make_fake_tensor(
             cutlass.Int32,
@@ -1042,7 +1173,19 @@ def mxfp8_quantize_cutedsl_2d_32x1(
         dtype=torch.float8_e4m3fn,
     )
     m_blocks = M // block_size
-    if blocked_scale_output:
+    has_offs = offs is not None
+    num_groups = offs.shape[0] if has_offs else None
+    per_group_blocked = has_offs and blocked_scale_output
+
+    if per_group_blocked:
+        # Per-group blocked: no padding needed since group sizes are multiples
+        # of 128 and M is divisible by 128, so m_blocks is divisible by 4.
+        scales_u8 = torch.zeros(
+            (m_blocks * K,),
+            device=x.device,
+            dtype=torch.uint8,
+        )
+    elif blocked_scale_output:
         # Use same blocked layout as regular 2D kernel for (K, M//32) tensor
         padded_scale_rows = (
             ceil_div(K, 128) * 128
@@ -1074,7 +1217,8 @@ def mxfp8_quantize_cutedsl_2d_32x1(
         m_tiles_per_cta,
         is_full_m_tiles,
         blocked_scale_output,
-        offs,
+        has_offs=has_offs,
+        num_groups=num_groups,
     )
 
     import cuda.bindings.driver as cuda
