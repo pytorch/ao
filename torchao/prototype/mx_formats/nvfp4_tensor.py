@@ -466,13 +466,16 @@ def nvfp4_select(func, types, args, kwargs):
     old, dim, index = args
     assert dim == 0, f"NVFP4Tensor aten.select.int with {dim=} is not yet supported"
     assert len(old.qdata.shape) == len(old.scale.shape), "unsupported"
-    _assert_no_per_expert_scale(old)
+    if old.per_tensor_scale is not None and len(old.per_tensor_scale.shape) == 3:
+        new_per_tensor_scale = old.per_tensor_scale[index].squeeze()
+    else:
+        new_per_tensor_scale = old.per_tensor_scale
     new = old.__class__(
         old.qdata[index],
         old.scale[index],
         old.block_size,
         old.orig_dtype,
-        old.per_tensor_scale,
+        new_per_tensor_scale,
         old.act_per_tensor_scale,
         old.is_swizzled_scales,
         old.use_triton_kernel,
@@ -644,6 +647,28 @@ def nvfp4_mm(func, types, args, kwargs):
                 use_triton_kernel=k.use_triton_kernel,
             )
         return _addmm_nvfp4_dispatch(input_tensor, weight_tensor, func)
+
+
+@implements([aten.bmm.default])
+def nvfp4_bmm(func, types, args, kwargs):
+    input_tensor, weight_tensor = args[0], args[1]
+    # For now, implement nvfp4 bmm with a for loop over 2d gemms. Correct
+    # numerics, bad performance.
+    # TODO(future): hook up a kernel once we have one.
+    res = []
+    for e_idx in range(input_tensor.shape[0]):
+        # Note: `i_e` will be quantized to nvfp4 in the
+        # override of `torch.mm`
+        i_e = input_tensor[e_idx]
+        w_e = weight_tensor[e_idx]
+        # Note: unsqueeze is for the `cat` op to write directly
+        # to the correct output shape
+        o_e = torch.mm(i_e, w_e).unsqueeze(0)
+        res.append(o_e)
+    out = torch.cat(res, dim=0)
+    return out
+
+    # return func(input_tensor, weight_tensor)
 
 
 @implements([aten.addmm.default])

@@ -489,3 +489,60 @@ def test_grouped_mm_nvfp4():
     y = model(x, offs)
     y_sqnr = compute_error(y_ref, y)
     assert y_sqnr > 15.0
+
+
+class BatchedMMModel(nn.Module):
+    """A toy model whose only op in forward is torch.bmm."""
+
+    def __init__(self, E, K, N, device="cuda", dtype=torch.bfloat16):
+        super().__init__()
+        self.weight = nn.Parameter(torch.randn(E, N, K, device=device, dtype=dtype))
+
+    def forward(self, x):
+        return torch.bmm(x, self.weight.transpose(-2, -1))
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+@pytest.mark.skipif(
+    not torch_version_at_least("2.8.0"), reason="torch >= 2.8.0 required"
+)
+@pytest.mark.skipif(
+    not is_sm_at_least_100(), reason="CUDA capability >= 10.0 required for NVFP4"
+)
+@torch.no_grad()
+@skip_if_rocm("ROCm float4 gemm require gfx950")
+def test_bmm_nvfp4():
+    """Smoke test: torch.bmm forward pass with NVFP4 quantized weights."""
+    E, K, N = 4, 128, 256
+    M = 16
+
+    device = "cuda"
+    dtype = torch.bfloat16
+
+    model_ref = BatchedMMModel(E, K, N, device=device, dtype=dtype)
+
+    model_ref.weight[0, :, :] *= 10.0
+    model_ref.weight[-1, :, :] *= 1e-3
+
+    model = copy.deepcopy(model_ref)
+
+    x = torch.randn(E, M, K, device=device, dtype=dtype)
+
+    y_ref = model_ref(x)
+
+    quantize_(
+        model,
+        NVFP4DynamicActivationNVFP4WeightConfig(
+            use_triton_kernel=False,
+        ),
+        filter_fn=lambda mod, *args: isinstance(mod, BatchedMMModel)
+        and hasattr(mod, "weight"),
+    )
+    assert isinstance(model.weight, NVFP4Tensor), (
+        f"Expected NVFP4Tensor weight, got {type(model.weight)}"
+    )
+
+    y = model(x)
+    y_sqnr = compute_error(y_ref, y)
+    assert y_sqnr > 15.0
+    print(y_sqnr)
