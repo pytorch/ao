@@ -44,7 +44,6 @@ from torchao.float8.float8_utils import (
 from torchao.testing.training.test_utils import get_test_float8_linear_config
 from torchao.testing.utils import skip_if_rocm
 from torchao.utils import (
-    get_available_devices,
     is_MI300,
     is_ROCM,
     is_sm_at_least_89,
@@ -54,11 +53,11 @@ from torchao.utils import (
 random.seed(0)
 torch.manual_seed(0)
 
-_DEVICES = get_available_devices()[1:]  # Exclude CPU since this test is for GPU kernels
-if not _DEVICES:
-    _DEVICES = [
-        pytest.param("no_gpu", marks=pytest.mark.skip(reason="GPU not available"))
-    ]
+_GPU_DEVICE = (
+    str(torch.accelerator.current_accelerator())
+    if torch.accelerator.is_available()
+    else "no_gpu"
+)
 
 
 def bitwise_identical(a: Float8TrainingTensor, b: Float8TrainingTensor) -> bool:
@@ -243,10 +242,9 @@ class TestFloat8TrainingTensor:
         torch.cuda.is_available() and not is_sm_at_least_90(),
         "Requires CUDA capability >= 9.0",
     )
-    @pytest.mark.parametrize("device", _DEVICES)
-    def test_axiswise_gemm(self, a_shape, a_granularity, b_granularity, device):
-        a = torch.randn(*a_shape, dtype=torch.bfloat16, device=device)
-        b = torch.randn(64, 32, dtype=torch.bfloat16, device=device)
+    def test_axiswise_gemm(self, a_shape, a_granularity, b_granularity):
+        a = torch.randn(*a_shape, dtype=torch.bfloat16, device=_GPU_DEVICE)
+        b = torch.randn(64, 32, dtype=torch.bfloat16, device=_GPU_DEVICE)
 
         linear_mm_config = LinearMMConfig()
 
@@ -339,7 +337,6 @@ class TestFloat8Linear:
     @pytest.mark.parametrize("linear_bias", [False, True])
     @pytest.mark.parametrize("use_ac", [False, True])
     @unittest.skipIf(not torch.accelerator.is_available(), "GPU not available")
-    @pytest.mark.parametrize("device", _DEVICES)
     def test_linear_from_config_params(
         self,
         x_shape,
@@ -350,12 +347,13 @@ class TestFloat8Linear:
         linear_dtype: torch.dtype,
         linear_bias: bool,
         use_ac: bool,
-        device: torch.device,
     ):
-        if not emulate and device == "cuda" and not is_sm_at_least_89():
+        if not emulate and _GPU_DEVICE == "cuda" and not is_sm_at_least_89():
             self.skipTest("CUDA capability >= 8.9 required for native float8 support")
-        x = torch.randn(*x_shape, device=device, dtype=linear_dtype)
-        m_ref = nn.Linear(16, 32, bias=linear_bias, device=device, dtype=linear_dtype)
+        x = torch.randn(*x_shape, device=_GPU_DEVICE, dtype=linear_dtype)
+        m_ref = nn.Linear(
+            16, 32, bias=linear_bias, device=_GPU_DEVICE, dtype=linear_dtype
+        )
         config = get_test_float8_linear_config(
             scaling_type_input,
             scaling_type_weight,
@@ -392,17 +390,17 @@ class TestFloat8Linear:
         torch.cuda.is_available() and not is_sm_at_least_90(),
         "Requires CUDA capability >= 9.0",
     )
-    @pytest.mark.parametrize("device", _DEVICES)
     def test_linear_from_recipe(
         self,
         recipe_name,
         x_shape,
         linear_dtype: torch.dtype,
         linear_bias: bool,
-        device,
     ):
-        x = torch.randn(*x_shape, device=device, dtype=linear_dtype)
-        m_ref = nn.Linear(16, 32, bias=linear_bias, device=device, dtype=linear_dtype)
+        x = torch.randn(*x_shape, device=_GPU_DEVICE, dtype=linear_dtype)
+        m_ref = nn.Linear(
+            16, 32, bias=linear_bias, device=_GPU_DEVICE, dtype=linear_dtype
+        )
         config = Float8LinearConfig.from_recipe_name(recipe_name)
         self._test_linear_impl(
             x,
@@ -423,19 +421,17 @@ class TestFloat8Linear:
         ],
     )
     @unittest.skipIf(not torch.accelerator.is_available(), "GPU not available")
-    @pytest.mark.parametrize("device", _DEVICES)
     def test_autocast_outputs(
         self,
         emulate: bool,
         linear_dtype: torch.dtype,
         recipe_name: Float8LinearRecipeName,
-        device,
     ):
-        if not emulate and device == "cuda" and not is_sm_at_least_89():
+        if not emulate and _GPU_DEVICE == "cuda" and not is_sm_at_least_89():
             self.skipTest("CUDA capability >= 8.9 required for native float8 support")
         m_ref = nn.Sequential(
-            nn.Linear(32, 32, device=device, dtype=linear_dtype),
-            nn.Linear(32, 32, device=device, dtype=linear_dtype),
+            nn.Linear(32, 32, device=_GPU_DEVICE, dtype=linear_dtype),
+            nn.Linear(32, 32, device=_GPU_DEVICE, dtype=linear_dtype),
         )
         config = Float8LinearConfig.from_recipe_name(recipe_name)
         # work around config being frozen
@@ -444,16 +440,16 @@ class TestFloat8Linear:
         m = convert_to_float8_training(copy.deepcopy(m_ref), config=config)
 
         # autocast off
-        x = torch.randn(16, 32, device=device, dtype=linear_dtype)
+        x = torch.randn(16, 32, device=_GPU_DEVICE, dtype=linear_dtype)
         y = m(x)
         assert y.dtype == linear_dtype, f"y.dtype is {y.dtype}, expected {linear_dtype}"
 
         # autocast on
-        with torch.autocast(device):
+        with torch.autocast(_GPU_DEVICE):
             y = m(x)
         assert y.dtype == torch.half, f"y.dtype is {y.dtype}, expected {torch.half}"
 
-        with torch.autocast(device, dtype=torch.bfloat16):
+        with torch.autocast(_GPU_DEVICE, dtype=torch.bfloat16):
             y = m(x)
         assert y.dtype == torch.bfloat16, (
             f"y.dtype is {y.dtype}, expected {torch.bfloat16}"
@@ -476,10 +472,9 @@ class TestFloat8Linear:
         torch.cuda.is_available() and not is_sm_at_least_89(),
         "CUDA with float8 support not available",
     )
-    @pytest.mark.parametrize("device", _DEVICES)
-    def test_inference_mode(self, device):
-        x = torch.randn(32, 32, device=device)
-        m = nn.Sequential(nn.Linear(32, 32)).to(device)
+    def test_inference_mode(self):
+        x = torch.randn(32, 32, device=_GPU_DEVICE)
+        m = nn.Sequential(nn.Linear(32, 32)).to(_GPU_DEVICE)
         m = convert_to_float8_training(m)
         with torch.inference_mode(mode=True):
             m(x)
@@ -489,10 +484,9 @@ class TestFloat8Linear:
         torch.cuda.is_available() and not is_sm_at_least_89(),
         "CUDA with float8 support not available",
     )
-    @pytest.mark.parametrize("device", _DEVICES)
-    def test_quantize(self, device):
-        x = torch.randn(32, 32, device=device)
-        m = nn.Sequential(nn.Linear(32, 32)).to(device)
+    def test_quantize(self):
+        x = torch.randn(32, 32, device=_GPU_DEVICE)
+        m = nn.Sequential(nn.Linear(32, 32)).to(_GPU_DEVICE)
         m = convert_to_float8_training(m)
         assert isinstance(m[0], Float8Linear), "Module is not a Float8Linear"
         from torchao.quantization import Float8WeightOnlyConfig, quantize_
@@ -515,15 +509,14 @@ class TestScaledMM:
         torch.cuda.is_available() and not is_sm_at_least_89(),
         "CUDA with float8 support not available",
     )
-    @pytest.mark.parametrize("device", _DEVICES)
-    def test_scaled_mm_vs_emulated(self, base_dtype, use_fast_accum, device):
+    def test_scaled_mm_vs_emulated(self, base_dtype, use_fast_accum):
         torch.manual_seed(42)
         input_dtype = e4m3_dtype
         output_dtype = base_dtype
         compare_type = torch.float32
 
-        a = torch.randn(16, 16, device=device, dtype=base_dtype)
-        b = torch.randn(32, 16, device=device, dtype=base_dtype).t()
+        a = torch.randn(16, 16, device=_GPU_DEVICE, dtype=base_dtype)
+        b = torch.randn(32, 16, device=_GPU_DEVICE, dtype=base_dtype).t()
 
         a_scale = tensor_to_scale(a, input_dtype).float()
         b_scale = tensor_to_scale(b, input_dtype).float()
@@ -559,10 +552,9 @@ class TestScaledMM:
         torch.cuda.is_available() and not is_sm_at_least_89(),
         "CUDA with float8 support not available",
     )
-    @pytest.mark.parametrize("device", _DEVICES)
-    def test_different_configs_error(self, device):
-        x_fp32 = torch.randn(16, 16, device=device)
-        x_scale = torch.tensor(1.0, device=device)
+    def test_different_configs_error(self):
+        x_fp32 = torch.randn(16, 16, device=_GPU_DEVICE)
+        x_scale = torch.tensor(1.0, device=_GPU_DEVICE)
         fp8_dtype = e4m3_dtype
         linear_config_a = LinearMMConfig(
             ScaledMMConfig(False, True, False, False),
@@ -603,14 +595,13 @@ class TestScaledMM:
         torch.cuda.is_available() and not is_sm_at_least_89(),
         "CUDA with float8 support not available",
     )
-    @pytest.mark.parametrize("device", _DEVICES)
-    def test_pad_inner_dim(self, base_dtype, use_fast_accum, device):
+    def test_pad_inner_dim(self, base_dtype, use_fast_accum):
         torch.manual_seed(42)
         input_dtype = e4m3_dtype
         compare_type = torch.float32
 
-        a = torch.randn(16, 41, device=device, dtype=base_dtype)
-        b = torch.randn(41, 128, device=device, dtype=base_dtype)
+        a = torch.randn(16, 41, device=_GPU_DEVICE, dtype=base_dtype)
+        b = torch.randn(41, 128, device=_GPU_DEVICE, dtype=base_dtype)
 
         a_scale = tensor_to_scale(a, input_dtype).float()
         b_scale = tensor_to_scale(b, input_dtype).float()
@@ -689,8 +680,7 @@ class TestNumerics:
         ],
     )
     @unittest.skipIf(not torch.accelerator.is_available(), "GPU not available")
-    @pytest.mark.parametrize("device", _DEVICES)
-    def test_small_amax_float16(self, float8_dtype, device):
+    def test_small_amax_float16(self, float8_dtype):
         # If we calculate scale naively with FP8_MAX_POS / amax,
         # the result may not be representable in fp16. Verify that
         # the way we calculate scales actually works for tensors with
@@ -708,7 +698,7 @@ class TestNumerics:
         FP16_MAX_POS = torch.finfo(torch.float16).max
 
         target_amax = float8_max_pos / (FP16_MAX_POS + 1e-12)
-        x = torch.tensor([target_amax], dtype=torch.float16, device=device)
+        x = torch.tensor([target_amax], dtype=torch.float16, device=_GPU_DEVICE)
         scale = tensor_to_scale(x, float8_dtype)
         assert not torch.any(torch.isinf(scale))
 
