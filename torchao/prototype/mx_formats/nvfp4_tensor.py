@@ -56,8 +56,8 @@ class NVFP4Tensor(TorchAOBaseTensor):
     Attributes:
         qdata: Packed FP4 data (2 values per byte)
         scale: Blockwise scales in float8_e4m3fn format (may be swizzled)
-        per_tensor_scale: Optional global per-tensor scale in float32 format
-        act_per_tensor_scale: Optional global per-tensor scale in float32 format, for activation
+        per_tensor_scale: Optional global per-tensor or per-expert scale in float32 format
+        act_per_tensor_scale: Optional global per-tensor or per-token-group scale in float32 format, for activation
         block_size (int): Block size for quantization (fixed at 16)
         orig_dtype (torch.dtype): Original tensor dtype before quantization
         is_swizzled_scales (bool): Whether scales are stored in swizzled (blocked) format
