@@ -21,7 +21,7 @@ from torchao.prototype.blockwise_fp8_training.kernels import (
 from torchao.quantization.transform_module import (
     register_quantize_module_handler,
 )
-from torchao.utils import is_sm_at_least_90
+from torchao.utils import is_ROCM, is_sm_at_least_90
 
 
 def _pad_blockwise_128x128_scale_k_major(scale: torch.Tensor) -> torch.Tensor:
@@ -234,7 +234,7 @@ class Float8BlockwiseLinear(nn.Linear):
         assert dtype in self.supported_dtypes, (
             f"Unsupported dtype: {dtype}. Supported dtypes: {self.supported_dtypes}"
         )
-        assert is_sm_at_least_90(), "Only support SM90"
+        assert is_sm_at_least_90() or is_ROCM(), "Requires CUDA SM >= 9.0 or ROCm"
         self.block_size = block_size
         self.dtype = dtype
         self.use_triton = use_triton
