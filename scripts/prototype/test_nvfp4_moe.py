@@ -7,6 +7,12 @@ import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from transformers.models.olmoe.modeling_olmoe import OlmoeExperts
 
+from torchao.prototype.mx_formats.inference_workflow import (
+    NVFP4DynamicActivationNVFP4WeightConfig,
+)
+from torchao.prototype.mx_formats.nvfp4_tensor import NVFP4Tensor
+from torchao.quantization import FqnToConfig, quantize_
+
 
 def main(recipe: str = "bf16"):
     print(f"{recipe=}")
@@ -22,20 +28,17 @@ def main(recipe: str = "bf16"):
     print(model)
 
     if recipe == "nvfp4":
-        from torchao.prototype.mx_formats.inference_workflow import (
-            NVFP4DynamicActivationNVFP4WeightConfig,
-            _nvfp4_inference_linear_transform,
-        )
-        from torchao.prototype.mx_formats.nvfp4_tensor import NVFP4Tensor
-
-        # Quantize expert weights (gate_up_proj and down_proj) to NVFP4
-        # TODO(future PR): make quantize_ work instead of having to work around
-        # such as below, need to allow parameter name other than `weight`
         config = NVFP4DynamicActivationNVFP4WeightConfig(use_triton_kernel=False)
-        for name, mod in model.named_modules():
-            if isinstance(mod, OlmoeExperts):
-                for pname in ("gate_up_proj", "down_proj"):
-                    _nvfp4_inference_linear_transform(mod, config, parameter_name=pname)
+        quantize_(
+            model,
+            FqnToConfig(
+                {
+                    r"re:.*\.experts\.gate_up_proj": config,
+                    r"re:.*\.experts\.down_proj": config,
+                }
+            ),
+            filter_fn=None,
+        )
 
         # Verify quantization worked
         for name, mod in model.named_modules():
@@ -45,7 +48,6 @@ def main(recipe: str = "bf16"):
                     assert isinstance(param, NVFP4Tensor), (
                         f"{name}.{pname} is {type(param).__name__}, expected NVFP4Tensor"
                     )
-                print(f"{name}: gate_up_proj and down_proj are NVFP4Tensor")
 
         # generate() switches to batched_mm for decoding, which doesn't support
         # NVFP4Tensor (needs aten.index.Tensor). Override to keep grouped_mm.
