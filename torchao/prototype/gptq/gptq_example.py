@@ -12,12 +12,11 @@ import time
 from typing import Any, List, Optional
 
 import torch
-import transformers
 from datasets import load_dataset
 from tqdm import tqdm
-from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformers import AutoModelForCausalLM, AutoTokenizer, TorchAoConfig
+from transformers.quantizers.quantizer_torchao import TorchAoHfQuantizer
 
-from packaging.version import Version
 from torchao.prototype.gptq import GPTQConfig
 from torchao.prototype.gptq.observer import GPTQObserverTensor
 from torchao.prototype.mx_formats.inference_workflow import (
@@ -447,11 +446,24 @@ def main():
     tokenizer.save_pretrained(output_dir)
     print(model)
 
-    # transformers 5.0.0 have a lot of errors with nvfp4 subclasses
-    # TODO(before land): debug this further
-    assert Version(transformers.__version__) < Version("5.0.0"), (
-        f"transformers {transformers.__version__} is not supported, need < 5.0.0"
-    )
+    if "nvfp4" in args.quantization:
+        import inspect
+
+        source = inspect.getsource(TorchAoHfQuantizer.get_weight_conversions)
+        if "_weight_per_tensor_scale" not in source:
+            raise RuntimeError(
+                "Your version of `transformers` does not support NVFP4 serialization. "
+                "Please install a version that includes "
+                "https://github.com/huggingface/transformers/pull/45573"
+            )
+
+    if args.quantization != "none":
+        # Attach hf_quantizer so save_pretrained uses the flatten path for tensor
+        # subclasses (e.g. NVFP4Tensor) that don't have a valid storage pointer.
+        ao_config = base_config if "gptq" in args.quantization else config
+        torchao_config = TorchAoConfig(quant_type=ao_config)
+        model.config.quantization_config = torchao_config
+        model.hf_quantizer = TorchAoHfQuantizer(torchao_config)
 
     model.save_pretrained(output_dir, safe_serialization=False)
 
