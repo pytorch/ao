@@ -529,6 +529,7 @@ if torch_version_at_least("2.7.0") and has_triton():
         M,
         N,
         seed_ptr,
+        offset_ptr,
         USE_TENSOR_SCALE: tl.constexpr,
         MASK_SCALES: tl.constexpr,
         ROUNDING_MODE: tl.constexpr,  # 0=RN, 1=RS
@@ -616,6 +617,9 @@ if torch_version_at_least("2.7.0") and has_triton():
         else:
             # Stochastic rounding (RS) via hardware cvt.rs.satfinite.e2m1x4.f32
             seed = tl.load(seed_ptr)
+            offset_base = tl.load(offset_ptr)
+            # Place local index in upper 32 bits and offset_base in lower 32 bits
+            offset = (tl.cast(out_offs, tl.int64) << 32) | offset_base
             rbits = tl.randint(seed, out_offs)
             x_fp4x2 = convert_fp32_to_fp4_packed_rs(x_pairs, rbits)
         if MASK_SCALES:
@@ -629,7 +633,8 @@ if torch_version_at_least("2.7.0") and has_triton():
         x: torch.Tensor,
         per_tensor_scale: Optional[torch.Tensor] = None,
         rounding_mode: int = 0,
-        seed: Optional[torch.Tensor] = None,
+        seed: torch.Tensor | None = None,
+        offset: torch.Tensor | None = None,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         """Quantize a tensor to NVFP4 format.
 
@@ -638,8 +643,12 @@ if torch_version_at_least("2.7.0") and has_triton():
             per_tensor_scale (Optional[torch.Tensor]): Per-tensor scale for two-level quantization.
                 If None, uses single-level block-wise quantization only.
             rounding_mode (int): 0 for round-to-nearest, 1 for stochastic rounding.
-            seed (Optional[torch.Tensor]): Seed tensor for stochastic rounding RNG.
-                Should be a single-element int32 tensor on the same device as x.
+            seed (torch.Tensor | None): Seed tensor for stochastic rounding RNG.
+                Should be a single-element int64 tensor on the same device as x.
+                When None, stochastic rounding uses a dummy seed (caller should
+                only pass None when rounding_mode=0).
+            offset (torch.Tensor | None): Seed tensor for stochastic rounding RNG.
+                Should be a single-element int64 tensor on the same device as x.
                 When None, stochastic rounding uses a dummy seed (caller should
                 only pass None when rounding_mode=0).
 
@@ -689,6 +698,7 @@ if torch_version_at_least("2.7.0") and has_triton():
         # For seed_ptr: if seed is None (RN mode), reuse x as dummy pointer
         # (kernel won't read it when ROUNDING_MODE=0)
         seed_ptr = seed if seed is not None else x
+        offset_ptr = offset if offset is not None else x
 
         quantize_nvfp4_triton_kernel[grid](
             x,
@@ -700,6 +710,7 @@ if torch_version_at_least("2.7.0") and has_triton():
             M,
             N,
             seed_ptr,
+            offset_ptr,
             USE_TENSOR_SCALE=use_tensor_scale,
             MASK_SCALES=MASK_SCALES,
             ROUNDING_MODE=rounding_mode,
@@ -712,7 +723,7 @@ if torch_version_at_least("2.7.0") and has_triton():
         return scales, xq.view(torch.uint8)
 
     @triton_quantize_nvfp4.register_fake
-    def _(x, per_tensor_scale=None, rounding_mode=RoundingMode.RN, seed=None):
+    def _(x, per_tensor_scale=None, rounding_mode=RoundingMode.RN, seed=None, offset=None):
         M, N = x.shape
         num_scales = N // 16
         n_row_blocks = triton.cdiv(M, 128)
