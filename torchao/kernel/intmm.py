@@ -10,7 +10,11 @@ import torch
 from torch._dynamo import is_compiling as dynamo_is_compiling
 from torch._higher_order_ops.out_dtype import out_dtype
 
-from torchao.utils import _is_device, torch_version_at_least
+from torchao.utils import (
+    _cpu_is_amx_tile_supported,
+    _is_device,
+    torch_version_at_least,
+)
 
 logger = logging.getLogger(__name__)
 logger.addHandler(logging.NullHandler())
@@ -103,19 +107,6 @@ def int_matmul(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
     if intmm_triton is not None and AUTOTUNER_ENABLE:
         return torch.ops.torchao.int_matmul(a, b)
     return safe_int_mm(a, b)
-
-
-def _cpu_is_amx_tile_supported() -> bool:
-    """
-    Safely query AMX tile support, guarding against private API absence.
-    torch.cpu._is_amx_tile_supported / torch._C._cpu._is_amx_tile_supported are
-    private and may be missing in certain PyTorch builds or versions.
-    """
-    if hasattr(torch._C._cpu, "_is_amx_tile_supported"):
-        return torch._C._cpu._is_amx_tile_supported()
-    elif hasattr(torch.cpu, "_is_amx_tile_supported"):
-        return torch.cpu._is_amx_tile_supported()
-    return False
 
 
 def _cpu_is_vnni_supported() -> bool:
