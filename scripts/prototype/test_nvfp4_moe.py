@@ -12,6 +12,7 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 from transformers.models.olmoe.modeling_olmoe import OlmoeExperts
 from transformers.quantizers.quantizer_torchao import TorchAoHfQuantizer
 
+from torchao.prototype.gptq.gptq_example import prepare_dataset
 from torchao.prototype.mx_formats.inference_workflow import (
     NVFP4DynamicActivationNVFP4WeightConfig,
 )
@@ -19,7 +20,60 @@ from torchao.prototype.mx_formats.nvfp4_tensor import NVFP4Tensor
 from torchao.quantization import FqnToConfig, quantize_
 
 
-def main(recipe: str = "bf16", run_lm_eval: bool = False):
+def install_expert_counters(model):
+    """Install forward pre-hooks on OlmoeExperts to count per-expert token routing.
+
+    Returns a dict mapping module FQN to a (num_experts,) int64 tensor of counts,
+    and a list of hook handles for removal.
+    """
+    expert_counts = {}
+    handles = []
+
+    for name, mod in model.named_modules():
+        if not isinstance(mod, OlmoeExperts):
+            continue
+        counts = torch.zeros(mod.num_experts, dtype=torch.int64)
+        expert_counts[name] = counts
+
+        def make_hook(c, n):
+            def hook(module, args, kwargs):
+                top_k_index = args[1]
+                c.add_(top_k_index.flatten().bincount(minlength=n).cpu())
+
+            return hook
+
+        handles.append(
+            mod.register_forward_pre_hook(
+                make_hook(counts, mod.num_experts), with_kwargs=True
+            )
+        )
+
+    return expert_counts, handles
+
+
+def print_expert_counts(expert_counts):
+    print("\n=== Per-expert token counts ===")
+    for name, counts in expert_counts.items():
+        total = counts.sum().item()
+        print(f"{name}: total={total}, per_expert={counts.tolist()}")
+
+    print("\n=== Global expert utilization summary ===")
+    all_counts = torch.cat([c for c in expert_counts.values()])
+    n = len(all_counts)
+    for threshold in range(129):
+        if threshold % 10 != 0:
+            continue
+        num = int((all_counts <= threshold).sum().item())
+        print(f"experts with <= {threshold} tokens: {num}/{n} ({num / n * 100:.1f}%)")
+
+
+def main(
+    recipe: str = "bf16",
+    run_lm_eval: bool = False,
+    calibrate_on_c4: bool = False,
+    num_calibration_samples: int = 128,
+    max_sequence_length: int = 2048,
+):
     print(f"{recipe=}")
     model_id = "allenai/OLMoE-1B-7B-0924"
 
@@ -54,14 +108,39 @@ def main(recipe: str = "bf16", run_lm_eval: bool = False):
                         f"{name}.{pname} is {type(param).__name__}, expected NVFP4Tensor"
                     )
 
-        # generate() switches to batched_mm for decoding, which doesn't support
-        # NVFP4Tensor (needs aten.index.Tensor). Override to keep grouped_mm.
-        # TODO(future PR): implement bmm for nvfp4 and remove this workaround
-        model._optimize_model_for_decode = nullcontext
     elif recipe == "bf16":
         pass
     else:
         raise ValueError(f"Unknown recipe: {recipe}")
+
+    # generate() switches to batched_mm for decoding, which doesn't support
+    # NVFP4Tensor (needs aten.index.Tensor). Override to keep grouped_mm.
+    # TODO(future PR): implement bmm for nvfp4 and remove this workaround
+    model._optimize_model_for_decode = nullcontext
+
+    if calibrate_on_c4:
+        assert recipe == "bf16", (
+            "calibrate_on_c4 is only supported with recipe=bf16 for now"
+        )
+
+        expert_counts, hooks = install_expert_counters(model)
+
+        dataset = prepare_dataset(
+            tokenizer,
+            max_sequence_length,
+            num_calibration_samples=num_calibration_samples,
+            dataset_id="c4",
+            dataset_split="train",
+        )
+        print(f"Running calibration on {len(dataset)} C4 samples...")
+        with torch.no_grad():
+            for seq in dataset:
+                model(seq.to("cuda"))
+        print("Calibration complete.")
+
+        print_expert_counts(expert_counts)
+        for h in hooks:
+            h.remove()
 
     prompt = "The capital of France is"
     inputs = tokenizer(prompt, return_tensors="pt").to("cuda")
