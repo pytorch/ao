@@ -450,7 +450,7 @@ def main():
         import inspect
 
         source = inspect.getsource(TorchAoHfQuantizer.get_weight_conversions)
-        if "_weight_per_tensor_scale" not in source:
+        if "per_tensor_scale" not in source:
             raise RuntimeError(
                 "Your version of `transformers` does not support NVFP4 serialization. "
                 "Please install a version that includes "

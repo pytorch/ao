@@ -141,10 +141,10 @@ def _gptq_config_transform(
             )
 
         # Validate that observations were recorded
-        if tensor.hessian is None:
+        if tensor.total_batches == 0:
             raise ValueError(
                 f"No observations recorded for {parameter_name}. "
-                f"Hessian is None. Did you run forward passes during the observe step?"
+                f"total_batches is 0. Did you run forward passes during the observe step?"
             )
 
         # Use pre-computed Hessian directly
