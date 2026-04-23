@@ -3116,37 +3116,46 @@ def _register_quantization_embeddingbag_pass():
             )
 
 
-def _is_valid_concat_dq_q_pattern():
+def _is_valid_concat_dq_q_pattern(is_fp8=False):
     def _inner(match):
-        q_pattern_node = match.output_node()
-        dq_pattern_node = q_pattern_node.args[0]
-        assert q_pattern_node.target is quantized_decomposed.quantize_per_tensor.default
-        assert (
-            dq_pattern_node.target is quantized_decomposed.dequantize_per_tensor.default
-        )
-        # dq/q pattern_node args: (node, scale, zp, min, max, dtype)
-        for i in range(2, len(q_pattern_node.args)):
-            if not q_pattern_node.args[i] == dq_pattern_node.args[i]:
+        q_node = match.output_node()
+        dq_node = q_node.args[0]
+        if is_fp8:
+            assert (
+                q_node.target
+                is torch.ops.torchao.quantize_affine_float8_non_decomposed.default
+            )
+            assert (
+                dq_node.target
+                is torch.ops.torchao.dequantize_affine_float8_non_decomposed.default
+            )
+            dq_scale = _extract_const_float_from_node(dq_node.args[1])
+            q_scale = _extract_const_float_from_node(q_node.args[1])
+            if dq_scale is None or q_scale is None:
                 return False
-
-        q_scale = q_pattern_node.args[1]
-        dq_scale = dq_pattern_node.args[1]
+        else:
+            assert q_node.target is quantized_decomposed.quantize_per_tensor.default
+            assert dq_node.target is quantized_decomposed.dequantize_per_tensor.default
+            # dq/q pattern_node args: (node, scale, zp, min, max, dtype)
+            for i in range(2, len(q_node.args)):
+                if q_node.args[i] != dq_node.args[i]:
+                    return False
+            dq_scale = dq_node.args[1]
+            q_scale = q_node.args[1]
         if not math.isclose(q_scale, dq_scale, rel_tol=1e-5, abs_tol=1e-5):
             return False
-
-        cat_node = dq_pattern_node.args[0]
-        if not cat_node.target is torch.ops.aten.cat.default:
-            return False
-
-        return True
+        return dq_node.args[0].target is torch.ops.aten.cat.default
 
     return _inner
 
 
-def _register_concat_dequant_quant_pass(pattern, pass_number=3):
+def _register_concat_dequant_quant_pass(pattern, pass_number=3, extra_check=None):
+    if extra_check is None:
+        extra_check = _is_valid_concat_dq_q_pattern()
+
     @register_freezing_graph_pattern(
         pattern,
-        extra_check=_is_valid_concat_dq_q_pattern(),
+        extra_check=extra_check,
         pass_number=pass_number,
     )
     def concat_dq_q_fusion(match: Match, *args, **kwargs):
@@ -3210,6 +3219,25 @@ def _register_concat_dq_q_pattern():
         KeywordArg("o_dtype"),
     )
     _register_concat_dequant_quant_pass(quantized_op_output_pattern_pt2e)
+
+    # FP8 version: cat(fp8) -> dequant_fp8 -> quant_fp8 -> users
+    # Eliminates the redundant dq/q when both use the same scale tensor node.
+    dequantize_fp8_activation_pattern = CallFunction(
+        torch.ops.torchao.dequantize_affine_float8_non_decomposed.default,
+        Arg(),
+        KeywordArg("fp8_dq_scale"),
+        output_dtype=Arg(),
+    )
+    quantize_fp8_output_pattern = CallFunction(
+        torch.ops.torchao.quantize_affine_float8_non_decomposed.default,
+        dequantize_fp8_activation_pattern,
+        KeywordArg("fp8_q_scale"),
+        float8_dtype=KeywordArg("fp8_q_dtype"),
+    )
+    _register_concat_dequant_quant_pass(
+        quantize_fp8_output_pattern,
+        extra_check=_is_valid_concat_dq_q_pattern(is_fp8=True),
+    )
 
 
 @functools.lru_cache(None)

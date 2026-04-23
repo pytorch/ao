@@ -3133,13 +3133,13 @@ class TestDynamicPatternMatcher(TestPatternMatcherBase):
             def _dequantize(self, weight):
                 if dtype == torch.float8_e4m3fn:
                     res = torch.ops.torchao.dequantize_affine_float8_non_decomposed.default(
-                        tensor=weight.data,
+                        tensor=weight,
                         scale=torch.tensor([self.weight_scale]),
                         output_dtype=torch.float,
                     )
                 else:
                     res = torch.ops.quantized_decomposed.dequantize_per_tensor.default(
-                        weight.data,
+                        weight,
                         self.weight_scale,
                         0,
                         -128,
@@ -3323,6 +3323,65 @@ class TestDynamicPatternMatcher(TestPatternMatcherBase):
                 (int8_inputs,),
                 matcher_check_fn,
             )
+
+    @skipIfNoDynamoSupport
+    @skipIfNoONEDNN
+    @skipIfNoFloat8Support
+    @unittest.skipIf(
+        "CPU" not in torch._C._dispatch_dump("torchao::_scaled_embedding_bag"),
+        reason="cpp kernels not built",
+    )
+    def test_fp8_concat_dequant_quant(self):
+        class Mod(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.scale = 0.5
+
+            def forward(self, fp8_inputs):
+                res = torch.cat(fp8_inputs, dim=1)
+                res = torch.ops.torchao.dequantize_affine_float8_non_decomposed.default(
+                    tensor=res,
+                    scale=torch.tensor([self.scale]),
+                    output_dtype=torch.float32,
+                )
+                res = torch.ops.torchao.quantize_affine_float8_non_decomposed.default(
+                    tensor=res,
+                    scale=torch.tensor([self.scale]),
+                    float8_dtype=torch.float8_e4m3fn,
+                )
+                return res
+
+        def quant_input(x):
+            scale = x.abs().max() / 448.0
+            return (x / scale).to(torch.float8_e4m3fn)
+
+        def matcher_check_fn():
+            self.assertEqual(counters["inductor"]["concat_dq_q_matcher_count"], 1)
+
+        aoti_options = [False]
+        try:
+            import torch._inductor.constant_folding as cf
+
+            if hasattr(cf, "add_dont_constant_fold"):
+                cf.add_dont_constant_fold(
+                    torch.ops.torchao.dequantize_affine_float8_non_decomposed.default
+                )
+                aoti_options = [False, True]
+        finally:
+            pass
+
+        shape = (128, 3)
+        mod = Mod()
+        for is_aoti in aoti_options:
+            for length in [2, 3]:
+                inputs = [torch.randn(shape) for _ in range(length)]
+                fp8_inputs = [quant_input(x) for x in inputs]
+                self._test_common(
+                    mod,
+                    (fp8_inputs,),
+                    matcher_check_fn,
+                    is_aoti=is_aoti,
+                )
 
 
 @unittest.skipIf(not torch_version_at_least("2.8.0"), "Requires torch 2.8+")
