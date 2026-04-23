@@ -15,7 +15,9 @@ from torchao.prototype.mx_formats.constants import F4_E2M1_MAX, F8E4M3_MAX
 from torchao.prototype.mx_formats.kernels import (
     f4_unpacked_to_f32,
     f32_to_f4_unpacked,
+    mslk_calculate_group_max,
     mslk_quantize_nvfp4,
+    mslk_quantize_nvfp4_stacked,
     pack_uint4,
     unpack_uint4,
 )
@@ -246,6 +248,7 @@ class NVFP4Tensor(TorchAOBaseTensor):
             scale_e4m3 = from_blocked(
                 scale_e4m3, math.prod(leading_dims) * M, K // self.block_size
             )
+            scale_e4m3 = scale_e4m3.view(*leading_dims, M, K // self.block_size)
 
         return (
             scale_e4m3.to(torch.float)
@@ -419,7 +422,6 @@ def nvfp4_t(func, types, args, kwargs):
 @implements([aten.transpose.int])
 def nvfp4_transpose(func, types, args, kwargs):
     old, dim0, dim1 = args
-    _assert_no_per_expert_scale(old)
     assert len(old.shape) == 3, f"unsupported rank {len(old.shape)}"
     valid_3d_dims = ((1, 2), (2, 1), (-1, -2), (-2, -1))
     assert (dim0, dim1) in valid_3d_dims, f"transpose unsupported for {dim0=} {dim1=}"
@@ -680,13 +682,49 @@ def nvfp4_addmm(func, types, args, kwargs):
 
 @implements([aten._grouped_mm.default])
 def nvfp4_grouped_mm(func, types, args, kwargs):
+    from torch.nn.functional import ScalingType, SwizzleType, scaled_grouped_mm
+
     mat_a, mat_b = args[0], args[1]
-    # temporary: dequantize nvfp4 tensor to call original grouped_mm
-    # TODO(future PR): enable nvfp4 with per-expert outer scale (current code
-    # has a single outer scale across all experts).
-    # TODO(future PR): hook up real nvfp4 grouped_mm
-    mat_b_dq = mat_b.dequantize()
-    return func(mat_a, mat_b_dq, *args[2:], **kwargs)
+    offs = args[2] if len(args) > 2 else kwargs.get("offs", None)
+    assert offs is not None, "offs is required for nvfp4 grouped_mm"
+
+    # mat_b is a transposed NVFP4Tensor: the model stores weight as (E, N, K)
+    # and calls weight.transpose(-2, -1). Undo the transpose to get the
+    # original NVFP4Tensor so we can extract qdata/scale in the right layout.
+    assert isinstance(mat_b, NVFP4Tensor)
+    is_transposed = mat_b.qdata.stride(-2) < mat_b.qdata.stride(-1)
+    assert is_transposed, "unsupported"
+
+    E = offs.shape[0]
+    m_sizes = torch.diff(offs, prepend=offs.new_zeros(1)).to(torch.int64)
+
+    # mslk_calculate_group_max returns encoding scale (448 * FP4_MAX / amax)
+    # mslk_quantize_nvfp4_stacked needs encoding scale, scaled_grouped_mm
+    # needs decoding scale (1 / encoding_scale)
+    a_global_scale_enc = mslk_calculate_group_max(mat_a, m_sizes)
+    mat_a_qdata, mat_a_scale = mslk_quantize_nvfp4_stacked(
+        m_sizes, mat_a, a_global_scale_enc
+    )
+    a_global_scale_dec = 1.0 / a_global_scale_enc
+
+    # Flatten 3D scale (E, padded_N, padded_K//16) -> 2D (E, padded_N * padded_K//16)
+    # as required by _scaled_grouped_mm for 2D-3D grouped GEMM
+    mat_b_t_scale = mat_b.scale.transpose(-2, -1).flatten(1)
+    # [E, 1, 1] -> E
+    b_global_scale = mat_b.per_tensor_scale.view(E)
+
+    return scaled_grouped_mm(
+        mat_a_qdata,
+        mat_b.qdata.view(torch.float4_e2m1fn_x2),
+        scale_a=[mat_a_scale, a_global_scale_dec],
+        scale_recipe_a=[ScalingType.BlockWise1x16, ScalingType.TensorWise],
+        scale_b=[mat_b_t_scale, b_global_scale],
+        scale_recipe_b=[ScalingType.BlockWise1x16, ScalingType.TensorWise],
+        swizzle_a=SwizzleType.SWIZZLE_32_4_4,
+        swizzle_b=SwizzleType.SWIZZLE_32_4_4,
+        offs=offs,
+        output_dtype=mat_a.dtype,
+    )
 
 
 def per_tensor_amax_to_scale(amax: torch.Tensor) -> torch.Tensor:

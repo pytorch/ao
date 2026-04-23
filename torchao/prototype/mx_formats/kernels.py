@@ -1249,3 +1249,87 @@ def _(x, global_scale=None):
     scales = scales.view(*orig_leading_dims, -1, padded_cols)
     xq = xq.view(*orig_leading_dims, -1, N // 2)
     return scales, xq
+
+
+def mslk_calculate_group_max(x: torch.Tensor, m_sizes: torch.Tensor) -> torch.Tensor:
+    """Compute per-expert activation global scale (encoding convention).
+
+    Args:
+        x: [M, K] concatenated activation tensor (bf16/fp16).
+        m_sizes: [E] int64 tensor of rows per expert.
+
+    Returns:
+        Per-expert global scale in encoding convention (448 * FP4_MAX / amax),
+        shape [E], dtype float32.
+    """
+    return _mslk_calculate_group_max_custom_op(x, m_sizes)
+
+
+@torch.library.custom_op("ao::mslk_calculate_group_max", mutates_args=())
+def _mslk_calculate_group_max_custom_op(
+    x: torch.Tensor, m_sizes: torch.Tensor
+) -> torch.Tensor:
+    assert _mslk_available, (
+        "mslk is required for calculate_group_max. "
+        "Install from https://github.com/meta-pytorch/MSLK"
+    )
+    from mslk.quantize.triton.fp4_quantize import calculate_group_max
+
+    global_scale, _ = calculate_group_max(x, m_sizes)
+    return global_scale
+
+
+@_mslk_calculate_group_max_custom_op.register_fake
+def _(x, m_sizes):
+    E = m_sizes.shape[0]
+    return x.new_empty(E, dtype=torch.float32)
+
+
+def mslk_quantize_nvfp4_stacked(
+    m_sizes: torch.Tensor,
+    x: torch.Tensor,
+    global_scale: torch.Tensor,
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    """Quantize concatenated MoE activations to NVFP4 with per-expert global scales.
+
+    Args:
+        m_sizes: [E] int64 tensor of rows per expert.
+        x: [M, K] concatenated activation tensor (bf16/fp16).
+        global_scale: [E] fp32 per-expert global scales in encoding convention.
+
+    Returns:
+        Tuple of (xq, scale):
+            xq: [M, K//2] float4_e2m1fn_x2 packed FP4 data.
+            scale: Padded+swizzled float8_e4m3fn block scales.
+    """
+    return _mslk_quantize_nvfp4_stacked_custom_op(m_sizes, x, global_scale)
+
+
+@torch.library.custom_op("ao::mslk_quantize_nvfp4_stacked", mutates_args=())
+def _mslk_quantize_nvfp4_stacked_custom_op(
+    m_sizes: torch.Tensor,
+    x: torch.Tensor,
+    global_scale: torch.Tensor,
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    assert _mslk_available, (
+        "mslk is required for nvfp4_quantize_stacked. "
+        "Install from https://github.com/meta-pytorch/MSLK"
+    )
+    from mslk.quantize.triton.fp4_quantize import nvfp4_quantize_stacked
+
+    xq, scale = nvfp4_quantize_stacked(m_sizes, x, global_scale)
+    return xq, scale
+
+
+@_mslk_quantize_nvfp4_stacked_custom_op.register_fake
+def _(m_sizes, x, global_scale):
+    M, K = x.shape[0], x.shape[1]
+    num_segments = m_sizes.shape[0]
+    # Upper-bound on padded total rows (each segment can add at most 127 padding rows)
+    padded_total_M_ub = M + num_segments * 127
+    num_scales_per_row = K // 16
+    n_col_blocks = triton.cdiv(num_scales_per_row, 4)
+    padded_cols = n_col_blocks * 4
+    xq = x.new_empty(M, K // 2, dtype=torch.float4_e2m1fn_x2)
+    scale = x.new_empty(padded_total_M_ub, padded_cols, dtype=torch.float8_e4m3fn)
+    return xq, scale
