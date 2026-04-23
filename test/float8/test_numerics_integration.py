@@ -26,18 +26,17 @@ from torchao.float8.float8_linear_utils import (
 from torchao.float8.float8_utils import IS_ROCM, compute_error
 from torchao.testing.training.test_utils import get_test_float8_linear_config
 from torchao.utils import (
-    get_available_devices,
     is_sm_at_least_89,
     is_sm_at_least_90,
 )
 
 torch.manual_seed(0)
 
-_DEVICES = get_available_devices()[1:]  # Exclude CPU since this test is for GPU kernels
-if not _DEVICES:
-    _DEVICES = [
-        pytest.param("no_gpu", marks=pytest.mark.skip(reason="GPU not available"))
-    ]
+_GPU_DEVICE = (
+    str(torch.accelerator.current_accelerator())
+    if torch.accelerator.is_available()
+    else "no_gpu"
+)
 
 
 # copied from https://github.com/pytorch/torchtitan/blob/main/torchtitan/models/llama/model.py
@@ -166,14 +165,12 @@ class TestFloat8NumericsIntegrationTest:
         torch.cuda.is_available() and not is_sm_at_least_89(),
         "requires SM89 compatible machine",
     )
-    @pytest.mark.parametrize("device", _DEVICES)
     @pytest.mark.skipif(IS_ROCM, reason="test doesn't currently work on the ROCm stack")
     def test_encoder_fw_bw_from_config_params(
         self,
         scaling_type_input: ScalingType,
         scaling_type_weight: ScalingType,
         scaling_type_grad_output: ScalingType,
-        device,
     ):
         config = get_test_float8_linear_config(
             scaling_type_input,
@@ -181,7 +178,7 @@ class TestFloat8NumericsIntegrationTest:
             scaling_type_grad_output,
             emulate=False,
         )
-        self._test_impl(config, device)
+        self._test_impl(config, _GPU_DEVICE)
 
     @pytest.mark.parametrize(
         "recipe_name",
@@ -195,15 +192,13 @@ class TestFloat8NumericsIntegrationTest:
         torch.cuda.is_available() and not is_sm_at_least_90(),
         "requires SM90 compatible machine",
     )
-    @pytest.mark.parametrize("device", _DEVICES)
     @pytest.mark.skipif(IS_ROCM, reason="test doesn't currently work on the ROCm stack")
     def test_encoder_fw_bw_from_recipe(
         self,
         recipe_name: str,
-        device,
     ):
         config = Float8LinearConfig.from_recipe_name(recipe_name)
-        self._test_impl(config, device)
+        self._test_impl(config, _GPU_DEVICE)
 
 
 if __name__ == "__main__":
