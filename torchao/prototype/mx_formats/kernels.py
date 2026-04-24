@@ -512,12 +512,9 @@ if _triton_kernels_available:
         max_abs = tl.max(x, axis=axis)
 
         # Check for NaN presence: if ANY element in each row is NaN,
-        # set that row's max_abs to NaN (per-axis NaN detection)
+        # flag that row for post-chain correction (see below).
         nan_mask = x != x
         has_nan_per_axis = tl.max(nan_mask, axis=axis)
-
-        # If any element in a row was NaN, set that row's max_abs to NaN
-        max_abs = tl.where(has_nan_per_axis > 0, float("nan"), max_abs)
 
         F8E4M3_MAX_RCP: tl.constexpr = 1.0 / 448.0
 
@@ -544,6 +541,17 @@ if _triton_kernels_available:
             scale_e8m0_biased = (scale_e8m0_unbiased + 127).to(tl.uint8)
 
         descale_fp = _calculate_reciprocal_scale(scale_e8m0_biased)
+
+        # Overwrite scale and descale for NaN rows. This is done after the
+        # chain rather than by injecting NaN into max_abs, because tl.clamp
+        # and .to(uint8) silently destroy NaN on SPIR-V backends (XPU):
+        # - tl.clamp uses NaN-ignoring fmin/fmax, so tl.clamp(NaN) → -127.0
+        #   (intel/intel-xpu-backend-for-triton#5003)
+        # - fptoui(NaN) is undefined behavior per LLVM spec, returning 0 on
+        #   XPU instead of the expected 255
+        # 255 is the E8M0 NaN encoding; NaN descale ensures NaN propagation.
+        scale_e8m0_biased = tl.where(has_nan_per_axis > 0, 255, scale_e8m0_biased)
+        descale_fp = tl.where(has_nan_per_axis > 0, float("nan"), descale_fp)
 
         return descale_fp, scale_e8m0_biased
 
