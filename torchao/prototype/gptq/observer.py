@@ -29,6 +29,17 @@ class GPTQObserverTensor(TorchAOBaseTensor):
         self.hessian = hessian
         self.total_batches = total_batches
 
+        # initialize hessian
+        assert self.hp_data.is_contiguous()
+        if self.hessian is None:
+            feature_dim = self.hp_data.shape[-1]
+            self.hessian = torch.zeros(
+                feature_dim,
+                feature_dim,
+                dtype=torch.float32,
+                device=self.hp_data.device,
+            )
+
     def update(self, input: torch.Tensor):
         """Incrementally update Hessian matrix from input activations."""
         # Move input to same device as hp_data and convert to float
@@ -38,16 +49,6 @@ class GPTQObserverTensor(TorchAOBaseTensor):
         # Calculate batch size
         n = 1 if len(shape) == 2 else shape[0]
         x = x.reshape(-1, shape[-1])
-
-        # Lazily initialize Hessian on first call
-        if self.hessian is None:
-            feature_dim = x.shape[-1]
-            self.hessian = torch.zeros(
-                feature_dim,
-                feature_dim,
-                dtype=torch.float32,
-                device=self.hp_data.device,
-            )
 
         # Apply running average formula
         if self.total_batches > 0:
