@@ -219,11 +219,7 @@ class TestPatternMatcherBase(TestCase):
         counters.clear()
         torch._dynamo.reset()
 
-        def aoti_compile(model, inputs, compile_options=None, get_source_code=False):
-            # compile_options (e.g. dynamic=True) are torch.compile() kwargs and do not
-            # directly apply to the AOTI path — they are ignored for now.
-            # Support can be added in the future if needed (e.g. via dynamic_shapes in
-            # torch.export.export for the dynamic case).
+        def aoti_compile(model, inputs, get_source_code=False):
             with eu._disable_aten_to_metadata_assertions():
                 exported = torch.export.export(model, inputs)
             with tempfile.TemporaryDirectory() as tmpdir:
@@ -285,8 +281,12 @@ class TestPatternMatcherBase(TestCase):
         with torch.no_grad(), maybe_autocast:
             if check_code:
                 if use_aoti:
+                    # compile_options (e.g. dynamic=True) are torch.compile() kwargs and do not
+                    # directly apply to the AOTI path — they are ignored for now.
+                    # Support can be added in the future if needed (e.g. via dynamic_shapes in
+                    # torch.export.export for the dynamic case).
                     compiled_mod, source_code = aoti_compile(
-                        mod, inputs, compile_options, get_source_code=True
+                        mod, inputs, get_source_code=True
                     )
                     actual = compiled_mod(*inputs)
                 else:
@@ -315,13 +315,13 @@ class TestPatternMatcherBase(TestCase):
                     torch.testing.assert_close(actual, expected, atol=atol, rtol=rtol)
             elif check_quantization:
                 if use_aoti:
-                    _ = aoti_compile(mod, inputs, compile_options)(*inputs)
+                    _ = aoti_compile(mod, inputs)(*inputs)
                 else:
                     _ = torch.compile(mod, **compile_options)(*inputs)
             else:
                 expected = mod(*inputs)
                 if use_aoti:
-                    compiled_mod = aoti_compile(mod, inputs, compile_options)
+                    compiled_mod = aoti_compile(mod, inputs)
                     actual = compiled_mod(*inputs)
                 else:
                     actual = torch.compile(mod, **compile_options)(*inputs)
@@ -1636,11 +1636,10 @@ class TestPatternMatcher(TestPatternMatcherBase):
         r"""
         This testcase will quantize a single Linear Moduel.
         """
-        for use_aoti in _get_fp8_aoti_options():
-            for bias in [True, False]:
-                self._qlinear_test_helper(
-                    (torch.randn((2, 4)),), bias=bias, is_fp8=True, use_aoti=use_aoti
-                )
+        for use_aoti, bias in itertools.product(_get_fp8_aoti_options(), [True, False]):
+            self._qlinear_test_helper(
+                (torch.randn((2, 4)),), bias=bias, is_fp8=True, use_aoti=use_aoti
+            )
 
     @skipIfNoDynamoSupport
     @skipIfNoONEDNN
@@ -3175,7 +3174,6 @@ class TestDynamicPatternMatcher(TestPatternMatcherBase):
             def _dequantize(self, weight):
                 if dtype == torch.float8_e4m3fn:
                     res = torch.ops.torchao.dequantize_affine_float8_non_decomposed.default(
-                        # use weight instead of weight.data for tracing/export compatibility
                         tensor=weight,
                         scale=torch.tensor([self.weight_scale]),
                         output_dtype=torch.float,
@@ -3391,16 +3389,15 @@ class TestDynamicPatternMatcher(TestPatternMatcherBase):
 
         shape = (128, 3)
         mod = Mod()
-        for use_aoti in _get_fp8_aoti_options():
-            for length in [2, 3]:
-                inputs = [torch.randn(shape) for _ in range(length)]
-                fp8_inputs = [quant_input(x) for x in inputs]
-                self._test_common(
-                    mod,
-                    (fp8_inputs,),
-                    matcher_check_fn,
-                    use_aoti=use_aoti,
-                )
+        for use_aoti, length in itertools.product(_get_fp8_aoti_options(), [2, 3]):
+            inputs = [torch.randn(shape) for _ in range(length)]
+            fp8_inputs = [quant_input(x) for x in inputs]
+            self._test_common(
+                mod,
+                (fp8_inputs,),
+                matcher_check_fn,
+                use_aoti=use_aoti,
+            )
 
 
 @unittest.skipIf(not torch_version_at_least("2.8.0"), "Requires torch 2.8+")
