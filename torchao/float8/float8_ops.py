@@ -174,9 +174,9 @@ def float8_transpose(aten_op, args, kwargs=None):
     new_axiswise_dim = old_axiswise_dim
     if old_axiswise_dim is not None:
         if old_axiswise_dim == 0:
-            new_axiswise_dim == -1
+            new_axiswise_dim = -1
         else:
-            new_axiswise_dim == 0
+            new_axiswise_dim = 0
 
     return Float8TrainingTensor(
         new_data,
@@ -480,7 +480,8 @@ def allgather_fp8(aten_op, args, kwargs=None):
     )
 
     fp8_data = fp8_input._data
-    fp8_data = fp8_data.contiguous()
+    if not fp8_data.is_contiguous():
+        fp8_data = fp8_data.contiguous()
     fp8_out = aten_op(fp8_data, *args[1:], **kwargs)
     return Float8TrainingTensor(
         fp8_out,
@@ -539,7 +540,7 @@ def index_put_fp8(aten_op, args, kwargs=None):
     fp8_values = args[2]
     assert isinstance(fp8_self, Float8TrainingTensor)
     assert isinstance(fp8_values, Float8TrainingTensor)
-    _assert_tensorwise_scale(fp8_self, args[0]._scale)
+    _assert_tensorwise_scale(aten_op, args[0]._scale)
     assert fp8_self._scale == fp8_values._scale
     assert fp8_self.dtype == fp8_values.dtype
     assert fp8_self._orig_dtype == fp8_values._orig_dtype

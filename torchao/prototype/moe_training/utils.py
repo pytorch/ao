@@ -391,6 +391,18 @@ def _quantize_then_scaled_grouped_mm(
 
     # Dispatch based on derived dtype
     if isinstance(config, Float8TrainingOpConfig):
+        if config.scaling_granularity == ScalingGranularity.TENSORWISE:
+            from torchao.prototype.moe_training import (
+                _to_fp8_tensorwise_then_scaled_grouped_mm,
+            )
+
+            return _to_fp8_tensorwise_then_scaled_grouped_mm(
+                A,
+                B_t,
+                offs,
+                config.out_dtype,
+                config.float8_dtype,
+            )
         return _to_fp8_rowwise_then_scaled_grouped_mm(
             A,
             B_t,
