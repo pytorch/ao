@@ -1774,16 +1774,11 @@ class CppInt8SdpaTemplate(CppFlexAttentionTemplate):
         )
 
     def codegen_qkv_ptr(self, kernel):
-        if len(kernel.args.input_buffers)==1:
-            buf_name = next(iter(kernel.args.input_buffers.values()))
-            return f"""
-  const scalar_t* q_data = {buf_name} + {self.input_nodes[0].layout.offset};
-  const scalar_t* k_data = {buf_name} + {self.input_nodes[1].layout.offset};
-  const scalar_t* v_data = {buf_name} + {self.input_nodes[2].layout.offset};
-"""
-        else:
-            return f"""
-  const scalar_t* q_data = query;
-  const scalar_t* k_data = key;
-  const scalar_t* v_data = value;
+        q_name = kernel.args.input(self.input_nodes[0].get_name())
+        k_name = kernel.args.input(self.input_nodes[1].get_name())
+        v_name = kernel.args.input(self.input_nodes[2].get_name())
+        return f"""
+  const scalar_t* q_data = {q_name} + {self.input_nodes[0].layout.offset};
+  const scalar_t* k_data = {k_name} + {self.input_nodes[1].layout.offset};
+  const scalar_t* v_data = {v_name} + {self.input_nodes[2].layout.offset};
 """
