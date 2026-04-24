@@ -24,6 +24,8 @@ pattern with ``cute_utils``.
 
 import importlib.util
 
+import torch
+
 
 # -----------------------------------------------------------------------------
 # Runtime detection
@@ -88,6 +90,20 @@ if _flydsl_runtime_available():
     from flydsl.expr import arith, rocdl, vector
     from flydsl.expr.arith import ArithValue
     from flydsl.expr.typing import T
+
+    def current_stream_fast(device: torch.device) -> "fx.Stream":
+        """Build an ``fx.Stream`` for the current PyTorch CUDA stream cheaply.
+
+        ``torch.cuda.current_stream()`` takes ~2.6 µs per call because it
+        constructs a Python ``Stream`` wrapper and a ``device`` object. The
+        underlying private API ``torch._C._cuda_getCurrentStream(device_idx)``
+        returns a ``(stream_ptr, device_idx, device_type)`` tuple in ~0.08 µs,
+        and ``fx.Stream`` accepts the raw ``int`` pointer directly. Combined
+        wrapper-side cost drops to ~0.2 µs — saves ~2.4 µs per launch, which
+        is meaningful at small shapes where the kernel itself is <10 µs.
+        """
+        idx = device.index if device.index is not None else 0
+        return fx.Stream(torch._C._cuda_getCurrentStream(idx)[0])
 
     def floor_scale_and_inv_scale(amax_f32):
         """Derive the FLOOR-mode E8M0 byte and the matching inverse scale.
