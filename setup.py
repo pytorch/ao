@@ -419,8 +419,8 @@ class X86KernelBuild:
         return X86KernelBuild._cxx
 
     @staticmethod
-    def _try_compile(cxx: str, march: str, snippet: str) -> bool:
-        """Return True if *cxx* can compile *snippet* with the given *march* flag."""
+    def _try_compile(cxx: str, isa_flags: list, snippet: str) -> bool:
+        """Return True if *cxx* can compile *snippet* with the given ISA flags."""
         import tempfile
 
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -430,7 +430,7 @@ class X86KernelBuild:
                 f.write(snippet)
             try:
                 subprocess.check_call(
-                    [cxx, "-std=c++20", march, "-c", src, "-o", obj],
+                    [cxx, "-std=c++20", *isa_flags, "-c", src, "-o", obj],
                     stdout=subprocess.DEVNULL,
                     stderr=subprocess.DEVNULL,
                     timeout=30,
@@ -445,6 +445,15 @@ class X86KernelBuild:
         if X86KernelBuild._isa_probed:
             return
 
+        avx512_isa_flags = [
+            "-mavx512f",
+            "-mavx512bw",
+            "-mavx512vl",
+            "-mavx512dq",
+            "-mavx512vnni",
+        ]
+        avx10_2_isa_flags = avx512_isa_flags + ["-mavx10.2"]
+
         # Snippet that exercises AVX512 + VNNI (the minimum for our kernels).
         # _mm512_dpbusd_epi32 requires avx512f + avx512vnni.
         _AVX512_SNIPPET = """\
@@ -458,7 +467,7 @@ int main() {
 }
 """
         # Snippet that exercises AVX10.2 fp8 hardware conversions.
-        # _mm256_cvthf8_ph requires -march=diamondrapids and GCC >= 15.
+        # _mm256_cvthf8_ph requires compiler support for -mavx10.2 (GCC >= 15).
         _AVX10_2_SNIPPET = """\
 #include <immintrin.h>
 int main() {
@@ -474,9 +483,9 @@ int main() {
             X86KernelBuild._isa_probed = True
             return
 
-        if X86KernelBuild._try_compile(cxx, "-march=diamondrapids", _AVX10_2_SNIPPET):
+        if X86KernelBuild._try_compile(cxx, avx10_2_isa_flags, _AVX10_2_SNIPPET):
             X86KernelBuild._isa_level = "avx10_2"
-        elif X86KernelBuild._try_compile(cxx, "-march=sapphirerapids", _AVX512_SNIPPET):
+        elif X86KernelBuild._try_compile(cxx, avx512_isa_flags, _AVX512_SNIPPET):
             X86KernelBuild._isa_level = "avx512"
         else:
             X86KernelBuild._isa_level = None
@@ -591,19 +600,27 @@ int main() {
             + ["-I", aten_kernels_dir]
         )
         avx512_defines = ["-DCPU_CAPABILITY_AVX512", "-DCPU_CAPABILITY_AVX512_VNNI"]
+        avx512_isa_flags = [
+            "-mavx512f",
+            "-mavx512bw",
+            "-mavx512vl",
+            "-mavx512dq",
+            "-mavx512vnni",
+        ]
         avx10_2_defines = avx512_defines + ["-DCPU_CAPABILITY_AVX10_2"]
+        avx10_2_isa_flags = avx512_isa_flags + ["-mavx10.2"]
         build_configs = [
             {
                 "isa": "AVX512",
                 "isa_level": "avx512",
                 "defines": avx512_defines + ["-DCPU_CAPABILITY=AVX512"],
-                "flags": ["-march=sapphirerapids"],
+                "flags": avx512_isa_flags,
             },
             {
                 "isa": "AVX10_2",
                 "isa_level": "avx10_2",
                 "defines": avx10_2_defines + ["-DCPU_CAPABILITY=AVX10_2"],
-                "flags": ["-march=diamondrapids"],
+                "flags": avx10_2_isa_flags,
             },
         ]
 

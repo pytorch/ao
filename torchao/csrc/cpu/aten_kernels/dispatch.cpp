@@ -187,7 +187,7 @@ KernelDispatcher& get_kernel_dispatcher() {
 #endif
 #if defined(BUILD_AVX512)
     if (kHasAVX512 && dispatch_mode >= MODE_AVX512) {
-      auto isa = (dispatch_mode == MODE_AVX512) ? "AVX512" : "AMX";
+      auto isa = (dispatch_mode == MODE_AMX && kHasAMX) ? "AMX" : "AVX512";
       PRINT_DEBUG_INFO(isa);
       d = CREATE_DISPATCHER(AVX512);
       return d;
