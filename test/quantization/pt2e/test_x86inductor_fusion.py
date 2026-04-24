@@ -281,10 +281,6 @@ class TestPatternMatcherBase(TestCase):
         with torch.no_grad(), maybe_autocast:
             if check_code:
                 if use_aoti:
-                    # compile_options (e.g. dynamic=True) are torch.compile() kwargs and do not
-                    # directly apply to the AOTI path — they are ignored for now.
-                    # Support can be added in the future if needed (e.g. via dynamic_shapes in
-                    # torch.export.export for the dynamic case).
                     compiled_mod, source_code = aoti_compile(
                         mod, inputs, get_source_code=True
                     )
