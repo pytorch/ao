@@ -306,9 +306,10 @@ def _nvfp4_inference_linear_transform(
 
     elif step is None:
         # Dynamic quantization
-        assert is_sm_at_least_100(), (
-            "NVFP4 DYNAMIC mode is only supported on sm100+ machines"
-        )
+        if weight.device.type == "cuda":
+            assert is_sm_at_least_100(), (
+                "NVFP4 DYNAMIC mode is only supported on sm100+ machines"
+            )
 
         weight = getattr(module, parameter_name)
 
