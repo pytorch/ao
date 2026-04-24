@@ -296,9 +296,13 @@ def main():
     args = parse_args()
 
     is_olmoe = args.model_id == OLMOE_MODEL_ID
-    if is_olmoe and args.quantization not in ("nvfp4-rtn", "nvfp4-gptq-nonsequential"):
+    if is_olmoe and args.quantization not in (
+        "none",
+        "nvfp4-rtn",
+        "nvfp4-gptq-nonsequential",
+    ):
         raise ValueError(
-            f"model {args.model_id} only supports 'nvfp4-rtn' or "
+            f"model {args.model_id} only supports 'none', 'nvfp4-rtn', or "
             f"'nvfp4-gptq-nonsequential', got '{args.quantization}'"
         )
 
@@ -403,6 +407,7 @@ def main():
             _verify_olmoe_experts_quantized(model)
         else:
             quantize_(model, config, filter_fn=filter_fn_to_use)
+        print(model)
 
     elif args.quantization in [
         "int4-gptq-sequential",
@@ -449,6 +454,7 @@ def main():
             )
         else:
             quantize_(model, observe_config, filter_fn=filter_fn_to_use)
+        print(model)
 
         # Prepare calibration dataset
         print(

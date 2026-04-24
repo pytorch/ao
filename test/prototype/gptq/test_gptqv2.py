@@ -20,6 +20,7 @@ pytestmark = pytest.mark.skipif(
 from torchao.prototype.gptq import (
     GPTQConfig,
     gptq_quantize,
+    gptq_quantize_3d,
 )
 from torchao.prototype.gptq.observer import GPTQObserverTensor
 from torchao.prototype.mx_formats.inference_workflow import (
@@ -594,6 +595,66 @@ class TestGPTQFlow:
         # (Note: with random data, this might not always hold, but with real Hessian it should)
         assert gptq_loss is not None
         assert naive_loss is not None
+
+    @pytest.mark.skipif(not torch.cuda.is_available(), reason="Need CUDA available")
+    @pytest.mark.skipif(
+        not is_sm_at_least_100(), reason="CUDA capability >= 10.0 required for nvfp4"
+    )
+    def test_gptq_quantize_2d_matches_3d(self):
+        """Verify per-expert gptq_quantize and gptq_quantize_3d produce bitwise-identical outputs."""
+        torch.manual_seed(43)
+
+        E = 4
+        out_features = 64
+        in_features = 128
+        num_samples = 10
+
+        base_config = NVFP4DynamicActivationNVFP4WeightConfig(
+            use_dynamic_per_tensor_scale=True,
+            use_triton_kernel=True,
+        )
+        config = GPTQConfig(step="convert", base_config=base_config)
+
+        # Per-expert weights (E, N, K) and per-expert Hessians (E, K, K)
+        weight_3d = torch.randn(
+            E, out_features, in_features, dtype=torch.bfloat16, device="cuda"
+        )
+        hessians = []
+        for _ in range(E):
+            activations = [
+                torch.randn(4, in_features, dtype=torch.float32, device="cuda")
+                for _ in range(num_samples)
+            ]
+            hessians.append(_calculate_hessian(activations, device="cuda"))
+        hessian_3d = torch.stack(hessians, dim=0)
+
+        # gptq_quantize mutates its weight/Hessian arguments in place, so clone
+        # per-experiment to keep the two paths independent.
+        weight_a = weight_3d.clone()
+        weight_b = weight_3d.clone()
+        hessian_a = hessian_3d.clone()
+        hessian_b = hessian_3d.clone()
+
+        # Experiment A: E separate 2D gptq_quantize calls
+        per_expert_2d = [
+            gptq_quantize(hessian_a[e], weight_a[e], config) for e in range(E)
+        ]
+
+        # Experiment B: single 3D gptq_quantize_3d call
+        stacked_3d = gptq_quantize_3d(hessian_b, weight_b, config)
+
+        # Bitwise match per expert
+        for e in range(E):
+            assert torch.equal(per_expert_2d[e].qdata, stacked_3d.qdata[e]), (
+                f"Expert {e}: qdata mismatch"
+            )
+            assert torch.equal(per_expert_2d[e].scale, stacked_3d.scale[e]), (
+                f"Expert {e}: scale mismatch"
+            )
+            assert torch.equal(
+                per_expert_2d[e].per_tensor_scale.view(1, 1),
+                stacked_3d.per_tensor_scale[e],
+            ), f"Expert {e}: per_tensor_scale mismatch"
 
     @pytest.mark.skipif(not torch.cuda.is_available(), reason="Need CUDA available")
     @pytest.mark.parametrize(
