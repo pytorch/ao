@@ -31,12 +31,21 @@ fp8_gemm_configs_max_autotune = [
 
 EPS = 1e-12
 
+# PyTorch exposes ScalingType in different places across versions. When the
+# enum is unavailable, fall back to the integer recipe IDs expected by
+# aten._scaled_mm_v2.
+_BLOCKWISE_1X128_SCALING_TYPE_ID = 4
+_BLOCKWISE_128X128_SCALING_TYPE_ID = 5
 _SCALING_TYPE = getattr(F, "ScalingType", getattr(torch._C, "_ScalingType", None))
 BLOCKWISE_1X128_SCALING_TYPE = (
-    _SCALING_TYPE.BlockWise1x128 if _SCALING_TYPE is not None else 4
+    _SCALING_TYPE.BlockWise1x128
+    if _SCALING_TYPE is not None
+    else _BLOCKWISE_1X128_SCALING_TYPE_ID
 )
 BLOCKWISE_128X128_SCALING_TYPE = (
-    _SCALING_TYPE.BlockWise128x128 if _SCALING_TYPE is not None else 5
+    _SCALING_TYPE.BlockWise128x128
+    if _SCALING_TYPE is not None
+    else _BLOCKWISE_128X128_SCALING_TYPE_ID
 )
 
 
@@ -45,7 +54,11 @@ def _scaling_type_value(scale_recipe) -> int:
 
 
 def _pad_blockwise_128x128_scale_k_major(scale: torch.Tensor) -> torch.Tensor:
-    # cuBLASLt requires BLK128x128 scales to be K-major with the K stride padded to a multiple of 4.
+    # cuBLASLt's BLK128x128 FP8 scale layout is K-major with
+    # L = ceil(K / 128) rounded up to a multiple of 4. For fp32 scales, this
+    # makes the stride between scale columns a 16-byte multiple, satisfying the
+    # backend layout/alignment requirement.
+    # https://docs.nvidia.com/cuda/cublas/index.html#scaling-factors-layouts
     padded_k_blocks = (scale.shape[0] + 3) // 4 * 4
     if padded_k_blocks == scale.shape[0]:
         return scale
@@ -129,10 +142,14 @@ def blockwise_scaled_mm(
     scale_recipe_b: int,
     out_dtype: torch.dtype,
 ) -> torch.Tensor:
-    if not _is_row_major(a):
-        a = a.contiguous()
-    if not _is_column_major(b):
-        b = b.t().contiguous().t()
+    assert _is_row_major(a), (
+        "blockwise_scaled_mm expected a to be row-major; prepare the input with "
+        "contiguous K dimension before calling"
+    )
+    assert _is_column_major(b), (
+        "blockwise_scaled_mm expected b to be column-major; prepare the input with "
+        "contiguous K dimension before calling"
+    )
     b_s = _prepare_blockwise_scaled_mm_rhs_scale(b_s, scale_recipe_b)
 
     return torch.ops.aten._scaled_mm_v2.default(

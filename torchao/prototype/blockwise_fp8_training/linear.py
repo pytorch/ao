@@ -198,6 +198,10 @@ class fp8_blockwise_mm(torch.autograd.Function):
             scale_recipe_a=BLOCKWISE_1X128_SCALING_TYPE,
             scale_b=x_scale.transpose(-1, -2),
             scale_recipe_b=BLOCKWISE_1X128_SCALING_TYPE,
+            # In the grad_weight path, Triton 1x128_128x1 expects RHS scales
+            # in row-major layout, while scaled_mm expects the transposed scale
+            # layout. Pass a separate Triton scale tensor so each backend gets
+            # its required layout.
             triton_scale_b=x_scale,
             out_dtype=out_dtype,
         )
