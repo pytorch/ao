@@ -33,6 +33,9 @@ from .flydsl_utils import (
     _missing_flydsl_runtime_packages,
 )
 
+if _flydsl_runtime_available():
+    from .flydsl_utils import current_stream_fast
+
 
 # Each chunk-iteration of the K-loop processes one quant block per lane:
 # AMD_WAVE_SIZE lanes × BLOCK_SIZE elements/block.
@@ -174,5 +177,5 @@ def mxfp8_quantize_flydsl_2d_1x32(
     # Pass `x` raw (not via from_dlpack) so FlyDSL's bare-pointer fast path
     # avoids the per-call DLPack adapter overhead.
     launch(x, q_data.view(torch.int32), scales_u8, M,
-           stream=torch.cuda.current_stream())
+           stream=current_stream_fast(x.device))
     return q_data, scales_u8.view(torch.float8_e8m0fnu)

@@ -34,6 +34,9 @@ from .flydsl_utils import (
     _missing_flydsl_runtime_packages,
 )
 
+if _flydsl_runtime_available():
+    from .flydsl_utils import current_stream_fast
+
 
 # See flydsl_quantize_2d_32x1.py for multi-wave/LDS rationale. Same per-expert.
 _K_TILE = AMD_WAVE_SIZE
@@ -263,7 +266,7 @@ def mxfp8_quantize_flydsl_3d(
     # avoids the per-call DLPack adapter overhead.
     launch(x, q_storage.view(torch.int32), scales_u8,
            N // BLOCK_SIZE, K // k_per_block, E,
-           stream=torch.cuda.current_stream())
+           stream=current_stream_fast(x.device))
     return (
         q_storage.as_strided((E, N, K), (N * K, 1, N)),
         scales_u8.view(torch.float8_e8m0fnu),
