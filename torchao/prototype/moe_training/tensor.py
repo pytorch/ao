@@ -313,6 +313,7 @@ class MXFP8TrainingWeightWrapperTensor(TrainingWeightWrapperBaseTensor):
                 kernel_preference=config.kernel_preference,
                 scale_calculation_mode=config.scale_calculation_mode,
                 wgrad_with_hp=config.wgrad_with_hp,
+                mxfp8_dim1_cast_kernel_choice=config.mxfp8_dim1_cast_kernel_choice,
             )
 
         else:

@@ -31,7 +31,7 @@ from torch.utils._python_dispatch import (
 )
 from torch.utils._pytree import tree_map
 
-from torchao.utils import is_sm_at_least_100, torch_version_at_least
+from torchao.utils import is_ROCM, is_sm_at_least_100, torch_version_at_least
 
 if torch_version_at_least("2.12.0.dev0"):
     from torch._higher_order_ops.inline_asm_elementwise import inline_asm_elementwise
@@ -784,6 +784,32 @@ def _addmm_mx_dispatch(
         assert b.qdata.t().is_contiguous()
         assert a.block_size == 32, f"Invalid block size {a.block_size}"
         assert b.block_size == 32, f"Invalid block size {b.block_size}"
+
+        # ROCm: dispatch to native F.scaled_mm with BlockWise1x32 scale recipe.
+        if (
+            is_ROCM()
+            and not a.is_swizzled_scales
+            and not b.is_swizzled_scales
+            and a.elem_dtype == torch.float8_e4m3fn
+            and b.elem_dtype == torch.float8_e4m3fn
+            and K % 128 == 0
+        ):
+            a_qdata = a.qdata                                        # (M, K)
+            b_qdata = b.qdata                                        # (K, N)
+            a_scale_2d = a.scale.reshape(M, K // a.block_size).contiguous()
+            b_scale_2d = b.scale.t().reshape(N, K // b.block_size).contiguous()
+            res = F.scaled_mm(
+                a_qdata,
+                b_qdata,
+                scale_a=a_scale_2d,
+                scale_recipe_a=ScalingType.BlockWise1x32,
+                scale_b=b_scale_2d,
+                scale_recipe_b=ScalingType.BlockWise1x32,
+                output_dtype=torch.bfloat16,
+            )
+            if bias is not None:
+                res = res + bias
+            return res
 
         if a.is_swizzled_scales:
             a_scale_block = a.scale

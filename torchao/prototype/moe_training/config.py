@@ -12,7 +12,10 @@ import torch
 from torch import nn
 
 from torchao.core.config import AOBaseConfig
-from torchao.prototype.mx_formats.config import ScaleCalculationMode
+from torchao.prototype.mx_formats.config import (
+    MXFP8Dim1CastKernelChoice,
+    ScaleCalculationMode,
+)
 from torchao.quantization.quantize_.common import KernelPreference
 from torchao.quantization.transform_module import register_quantize_module_handler
 from torchao.utils import is_MI300, register_as_pytree_constant
@@ -131,6 +134,13 @@ class MXFP8TrainingOpConfig(TrainingOpBaseConfig):
     # Whether to pad the token group sizes to multiples of 32 (MXFP8 scaling block size).
     pad_token_groups_for_grouped_mm: bool = False
 
+    # Kernel used for the MXFP8 dim1 cast in backward (wgrad path). Default is
+    # CUDA (best on CUDA SM100+). On backends without the CUDA kernel (e.g.
+    # ROCm), set to MXFP8Dim1CastKernelChoice.TRITON.
+    mxfp8_dim1_cast_kernel_choice: MXFP8Dim1CastKernelChoice = (
+        MXFP8Dim1CastKernelChoice.CUDA
+    )
+
     @classmethod
     def from_recipe(
         cls,
@@ -173,6 +183,8 @@ class MXFP8TrainingOpConfig(TrainingOpBaseConfig):
                 and self.scale_calculation_mode == other.scale_calculation_mode
                 and self.pad_token_groups_for_grouped_mm
                 == other.pad_token_groups_for_grouped_mm
+                and self.mxfp8_dim1_cast_kernel_choice
+                == other.mxfp8_dim1_cast_kernel_choice
             )
         return NotImplemented
 
@@ -184,6 +196,7 @@ class MXFP8TrainingOpConfig(TrainingOpBaseConfig):
                 self.wgrad_with_hp,
                 self.scale_calculation_mode,
                 self.pad_token_groups_for_grouped_mm,
+                self.mxfp8_dim1_cast_kernel_choice,
             )
         )
 

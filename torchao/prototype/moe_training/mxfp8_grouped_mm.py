@@ -39,6 +39,7 @@ from torchao.prototype.mx_formats.kernels import (
 from torchao.prototype.mx_formats.mx_tensor import MXTensor, to_mx
 from torchao.prototype.mx_formats.utils import _to_mxfp8_dim1_kernel_wrapper
 from torchao.quantization.quantize_.common import KernelPreference
+from torchao.utils import is_ROCM
 
 logger: logging.Logger = logging.getLogger(__name__)
 
@@ -49,6 +50,9 @@ _SM100_KERNELS_AVAILABLE = (
     and _mxfp8_cuda_kernels_available_mx
     and _triton_kernels_available
 )
+
+# ROCm path: gfx950 (MI355X) and later support MXFP8 via Triton kernels
+_ROCM_MXFP8_KERNELS_AVAILABLE = is_ROCM() and _triton_kernels_available
 
 
 def _validate_grouped_mm_input_act(
@@ -172,11 +176,12 @@ class _MXFP8GroupedMM(torch.autograd.Function):
             KernelPreference.EMULATED,
         ), "kernel_preference must be AUTO or EMULATED"
 
-        # Validate SM100 kernels are available if not using emulated mode
+        # Validate hardware kernels are available if not using emulated mode
         if kernel_preference != KernelPreference.EMULATED:
-            assert _SM100_KERNELS_AVAILABLE, (
-                "SM100 kernels not available. Please use torchao CUDA 12.8+ build on SM100/100a device(s). "
-                "Otherwise, set kernel_preference=KernelPreference.EMULATED (emulated mode implements basic functionality without efficient kernels)."
+            assert _SM100_KERNELS_AVAILABLE or _ROCM_MXFP8_KERNELS_AVAILABLE, (
+                "MXFP8 kernels not available. On CUDA, use torchao CUDA 12.8+ on SM100/100a. "
+                "On ROCm, gfx950 (MI355X) or later is required. "
+                "Otherwise, set kernel_preference=KernelPreference.EMULATED."
             )
 
         # Input validation
@@ -379,6 +384,15 @@ def _compute_fwd(
             out_dtype,
             scale_calculation_mode,
         )
+    elif _ROCM_MXFP8_KERNELS_AVAILABLE:
+        return _compute_fwd_rocm(
+            padded_input_act,
+            weight_t,
+            padded_group_end_offsets,
+            block_size,
+            out_dtype,
+            scale_calculation_mode,
+        )
     else:
         return _compute_fwd_sm100(
             padded_input_act,
@@ -416,6 +430,15 @@ def _compute_dgrad(
     """
     if kernel_preference == KernelPreference.EMULATED:
         return _compute_dgrad_emulated(
+            grad_output,
+            weight_t,
+            group_end_offsets,
+            block_size,
+            out_dtype,
+            scale_calculation_mode,
+        )
+    elif _ROCM_MXFP8_KERNELS_AVAILABLE:
+        return _compute_dgrad_rocm(
             grad_output,
             weight_t,
             group_end_offsets,
@@ -462,6 +485,16 @@ def _compute_wgrad(
     """
     if kernel_preference == KernelPreference.EMULATED:
         return _compute_wgrad_emulated(
+            grad_output,
+            input_act,
+            group_end_offsets,
+            block_size,
+            out_dtype,
+            scale_calculation_mode,
+            wgrad_with_hp,
+        )
+    elif _ROCM_MXFP8_KERNELS_AVAILABLE:
+        return _compute_wgrad_rocm(
             grad_output,
             input_act,
             group_end_offsets,
@@ -1072,3 +1105,125 @@ def _emulated_mxfp8_scaled_grouped_mm_2d_2d(
 
 def round_up(x, y):
     return ((x + y - 1) // y) * y
+
+
+# ==================== ROCm implementations ====================
+
+
+def _rocm_grouped_mm_cfg(E: int, N: int) -> dict:
+    """Tile + ctas_per_cu pick for the ROCm grouped-MM kernel."""
+    if N >= 4096:
+        cpc = 1 if E >= 2 else 2
+        return dict(BLOCK_M=256, BLOCK_N=256, BLOCK_K=128,
+                    num_warps=8, num_stages=2, ctas_per_cu=cpc)
+    return dict(BLOCK_M=128, BLOCK_N=128, BLOCK_K=128,
+                num_warps=8, num_stages=2, ctas_per_cu=2)
+
+
+def _compute_fwd_rocm(
+    padded_input_act: torch.Tensor,
+    weight_t: torch.Tensor,
+    padded_group_end_offsets: torch.Tensor,
+    block_size: int,
+    out_dtype: torch.dtype,
+    scale_calculation_mode: ScaleCalculationMode,
+) -> torch.Tensor:
+    from torchao.prototype.moe_training.kernels.mxfp8.rocm_mxfp8_mm import (
+        triton_mxfp8_grouped_mm,
+    )
+
+    input_act_e4m3, input_act_scales = _extract_or_quantize_dim0_auto(
+        padded_input_act, block_size, scale_calculation_mode
+    )
+    weight_e4m3, weight_scales = _extract_or_quantize_dim0_auto(
+        weight_t.transpose(-2, -1).contiguous(), block_size, scale_calculation_mode
+    )
+    E, N, _ = weight_e4m3.shape
+    cfg = _rocm_grouped_mm_cfg(E, N)
+
+    return triton_mxfp8_grouped_mm(
+        input_act_e4m3, weight_e4m3, input_act_scales, weight_scales,
+        padded_group_end_offsets, out_dtype=out_dtype, **cfg,
+    )
+
+
+def _compute_dgrad_rocm(
+    grad_output: torch.Tensor,
+    weight_t: torch.Tensor,
+    group_end_offsets: torch.Tensor,
+    block_size: int,
+    out_dtype: torch.dtype,
+    scale_calculation_mode: ScaleCalculationMode,
+) -> torch.Tensor:
+    from torchao.prototype.moe_training.kernels.mxfp8.rocm_mxfp8_mm import (
+        triton_mxfp8_grouped_mm,
+    )
+
+    grad_output_data, grad_output_scales = _extract_or_quantize_dim0_auto(
+        grad_output.contiguous(), block_size, scale_calculation_mode
+    )
+    weight_e4m3, weight_scales = _extract_or_quantize_dim0_auto(
+        weight_t.contiguous(), block_size, scale_calculation_mode
+    )
+    E, N, _ = weight_e4m3.shape
+    cfg = _rocm_grouped_mm_cfg(E, N)
+
+    return triton_mxfp8_grouped_mm(
+        grad_output_data, weight_e4m3, grad_output_scales, weight_scales,
+        group_end_offsets, out_dtype=out_dtype, **cfg,
+    )
+
+
+def _compute_wgrad_rocm(
+    grad_output: torch.Tensor,
+    input_act: torch.Tensor,
+    group_end_offsets: torch.Tensor,
+    block_size: int,
+    out_dtype: torch.dtype,
+    scale_calculation_mode: ScaleCalculationMode,
+    wgrad_with_hp: bool = False,
+) -> torch.Tensor:
+    from torchao.prototype.moe_training.kernels.mxfp8.rocm_mxfp8_mm import (
+        triton_mxfp8_wgrad,
+    )
+    from torchao.prototype.mx_formats.kernels import triton_to_mxfp8_dim1
+
+    grad_output = _dequantize_if_mxtensor(grad_output, block_size)
+    input_act = _dequantize_if_mxtensor(input_act, block_size)
+
+    if wgrad_with_hp:
+        grad_weight = torch._grouped_mm(
+            grad_output.transpose(-2, -1),
+            input_act,
+            offs=group_end_offsets,
+            out_dtype=out_dtype,
+        )
+        return grad_weight.transpose(-2, -1)
+
+    # MXFP8 wgrad: dim1-quantize both inputs, then use wgrad kernel.
+    # triton_to_mxfp8_dim1 requires n_rows % 128 == 0; pad the M dim when
+    # needed (padded rows don't belong to any group so the kernel ignores
+    # them via group_end_offsets).
+    MX_ROW_ALIGN = 128
+    M_orig = grad_output.shape[0]
+    pad_rows = (-M_orig) % MX_ROW_ALIGN
+    if pad_rows > 0:
+        grad_output = torch.nn.functional.pad(
+            grad_output.contiguous(), (0, 0, 0, pad_rows)
+        )
+        input_act = torch.nn.functional.pad(
+            input_act.contiguous(), (0, 0, 0, pad_rows)
+        )
+
+    go_data, go_scale = triton_to_mxfp8_dim1(
+        grad_output.contiguous(), block_size, scale_calculation_mode.value
+    )
+    ia_data, ia_scale = triton_to_mxfp8_dim1(
+        input_act.contiguous(), block_size, scale_calculation_mode.value
+    )
+
+    grad_weight = triton_mxfp8_wgrad(
+        go_data.t(), go_scale, ia_data.t(), ia_scale, group_end_offsets,
+        out_dtype=out_dtype,
+    )
+    return grad_weight.transpose(-2, -1)
