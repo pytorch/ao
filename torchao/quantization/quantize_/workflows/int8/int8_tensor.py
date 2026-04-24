@@ -43,10 +43,13 @@ class QuantizeTensorToInt8Kwargs(QuantizeTensorKwargs):
     Args:
         granularity: the granularity for the Tensor, currently either PerRow() or PerTensor()
         mapping_type: whether to use symmetric or asymmetric quant
+        scale_dtype: dtype for quantization scale computation. Defaults to torch.float32.
+            Using a lower-precision dtype (e.g. bfloat16) may reduce accuracy.
     """
 
     granularity: Granularity
     mapping_type: MappingType = MappingType.SYMMETRIC
+    scale_dtype: Optional[torch.dtype] = torch.float32
 
 
 class Int8Tensor(TorchAOBaseTensor):
@@ -170,6 +173,7 @@ class Int8Tensor(TorchAOBaseTensor):
         scale: Optional[torch.Tensor] = None,
         zero_point: Optional[torch.Tensor] = None,
         act_quant_kwargs: Optional[QuantizeTensorToInt8Kwargs] = None,
+        scale_dtype: Optional[torch.dtype] = torch.float32,
         act_quant_scale: Optional[torch.Tensor] = None,
         act_quant_zero_point: Optional[torch.Tensor] = None,
         act_pre_scale: Optional[torch.Tensor] = None,
@@ -186,7 +190,7 @@ class Int8Tensor(TorchAOBaseTensor):
                 target_dtype=torch.int8,
                 quant_min=-128,
                 quant_max=127,
-                scale_dtype=hp_tensor.dtype,
+                scale_dtype=scale_dtype if scale_dtype is not None else torch.float32,
                 zero_point_dtype=torch.int8,
                 keepdim=True,
                 # Use float32 eps for all dtypes to avoid accuracy loss with bfloat16 (bfloat16 eps is ~65x larger).
