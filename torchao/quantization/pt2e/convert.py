@@ -49,7 +49,6 @@ from torch.ao.quantization.fx.qconfig_mapping_utils import (
 )
 from torch.ao.quantization.fx.utils import (
     _get_module,
-    collect_producer_nodes,
     graph_module_from_producer_nodes,
     node_arg_is_weight,
 )
@@ -71,6 +70,7 @@ from torch.fx.traceback import NodeSource, NodeSourceAction
 from torch.nn.utils.parametrize import type_before_parametrizations
 
 from torchao.quantization.pt2e import FROM_NODE_KEY
+from torchao.quantization.pt2e.graph_utils import collect_producer_nodes
 from torchao.quantization.pt2e.observer import _is_activation_post_process
 from torchao.quantization.pt2e.utils import create_getattr_from_value
 from torchao.utils import _assert_and_get_unique_device
