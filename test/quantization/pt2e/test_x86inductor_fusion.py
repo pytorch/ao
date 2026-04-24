@@ -219,29 +219,31 @@ class TestPatternMatcherBase(TestCase):
         counters.clear()
         torch._dynamo.reset()
 
-        def aoti_compile(model, inputs, get_source_code=False):
-            with eu._disable_aten_to_metadata_assertions():
-                exported = torch.export.export(model, inputs)
-            with tempfile.TemporaryDirectory() as tmpdir:
-                package_path = os.path.join(tmpdir, "model.pt2")
-                with config.patch({"aot_inductor.output_path": tmpdir}):
-                    torch._inductor.aoti_compile_and_package(
-                        exported,
-                        package_path=package_path,
-                    )
+        if use_aoti:
 
-                if get_source_code:
-                    cpp_paths = glob.glob(
-                        os.path.join(tmpdir, "**/*.wrapper.cpp"), recursive=True
-                    )
-                    assert cpp_paths, "Failed to find generated .wrapper.cpp"
-                    with open(cpp_paths[0]) as f:
-                        source_code = f.read()
+            def aoti_compile(model, inputs, get_source_code=False):
+                with eu._disable_aten_to_metadata_assertions():
+                    exported = torch.export.export(model, inputs)
+                with tempfile.TemporaryDirectory() as tmpdir:
+                    package_path = os.path.join(tmpdir, "model.pt2")
+                    with config.patch({"aot_inductor.output_path": tmpdir}):
+                        torch._inductor.aoti_compile_and_package(
+                            exported,
+                            package_path=package_path,
+                        )
 
-                compiled_mod = torch._inductor.aoti_load_package(package_path)
-                if get_source_code:
-                    return compiled_mod, source_code
-                return compiled_mod
+                    if get_source_code:
+                        cpp_paths = glob.glob(
+                            os.path.join(tmpdir, "**/*.wrapper.cpp"), recursive=True
+                        )
+                        assert cpp_paths, "Failed to find generated .wrapper.cpp"
+                        with open(cpp_paths[0]) as f:
+                            source_code = f.read()
+
+                    compiled_mod = torch._inductor.aoti_load_package(package_path)
+                    if get_source_code:
+                        return compiled_mod, source_code
+                    return compiled_mod
 
         if check_autocast == torch.bfloat16 and (
             torch.ops.mkldnn._is_mkldnn_bf16_supported() or device == "xpu"
@@ -280,13 +282,13 @@ class TestPatternMatcherBase(TestCase):
 
         with torch.no_grad(), maybe_autocast:
             if check_code:
+                expected = mod(*inputs)
                 if use_aoti:
                     compiled_mod, source_code = aoti_compile(
                         mod, inputs, get_source_code=True
                     )
                     actual = compiled_mod(*inputs)
                 else:
-                    expected = mod(*inputs)
                     code_compile_options = dict(compile_options)
                     if check_dynamic is not None:
                         code_compile_options["dynamic"] = check_dynamic

@@ -3131,21 +3131,25 @@ def _is_valid_concat_dq_q_pattern(is_fp8=False):
         q_node = match.output_node()
         dq_node = q_node.args[0]
         if is_fp8:
-            assert (
+            if (
                 q_node.target
-                is torch.ops.torchao.quantize_affine_float8_non_decomposed.default
-            )
-            assert (
+                is not torch.ops.torchao.quantize_affine_float8_non_decomposed.default
+            ):
+                return False
+            if (
                 dq_node.target
-                is torch.ops.torchao.dequantize_affine_float8_non_decomposed.default
-            )
+                is not torch.ops.torchao.dequantize_affine_float8_non_decomposed.default
+            ):
+                return False
             dq_scale = _extract_const_float_from_node(dq_node.args[1])
             q_scale = _extract_const_float_from_node(q_node.args[1])
             if dq_scale is None or q_scale is None:
                 return False
         else:
-            assert q_node.target is quantized_decomposed.quantize_per_tensor.default
-            assert dq_node.target is quantized_decomposed.dequantize_per_tensor.default
+            if q_node.target is not quantized_decomposed.quantize_per_tensor.default:
+                return False
+            if dq_node.target is not quantized_decomposed.dequantize_per_tensor.default:
+                return False
             # dq/q pattern_node args: (node, scale, zp, min, max, dtype)
             for i in range(2, len(q_node.args)):
                 if q_node.args[i] != dq_node.args[i]:
