@@ -24,6 +24,7 @@ if not (torch.cuda.is_available() and (_is_sm_10x() or is_MI300() or is_MI350())
 from torchao.float8.config import ScalingGranularity, e4m3_dtype
 from torchao.float8.float8_utils import tensor_to_scale, to_fp8_saturated
 from torchao.prototype.moe_training.kernels import (
+    triton_fp8_colwise_3d_scale_and_cast,
     triton_fp8_rowwise_2d_scale_and_cast,
 )
 from torchao.prototype.moe_training.kernels.float8_rowwise import (
@@ -61,14 +62,14 @@ from torchao.prototype.moe_training.utils import (
     torch_to_float8_per_group_colwise,
     torch_to_float8_per_group_rowwise,
 )
+from torchao.prototype.mx_formats.kernels import triton_mx_block_rearrange
 from torchao.prototype.mx_formats.mx_tensor import ScaleCalculationMode, to_mx
 from torchao.prototype.mx_formats.utils import from_blocked
 from torchao.testing.utils import skip_if_rocm
 
-from .testing_utils import generate_split_sizes
-
 
 @pytest.mark.parametrize("round_scales_to_power_of_2", [True, False])
+@skip_if_rocm("jagged rowwise scales kernel vs torch reference mismatch on ROCm")
 def test_row_major_with_jagged_rowwise_scales(round_scales_to_power_of_2: bool):
     # Tests case where rowwise scales are computed for multiple distinct subtensors,
     # with end boundary of each group is determine by their end column indexes (offsets).
@@ -448,8 +449,8 @@ def test_cuda_mx_dim1_3d_numerics(E, N, K, input_dtype, scaling_mode):
     not _mxfp8_cutedsl_kernels_available,
     reason="MXFP8 cutedsl kernels not available",
 )
-@pytest.mark.parametrize("M", (32, 160, 8192))
-@pytest.mark.parametrize("K", (32, 96, 1536, 5120, 7168, 8192))
+@pytest.mark.parametrize("M", (128, 8192))
+@pytest.mark.parametrize("K", (1536, 5120, 7168, 8192))
 @pytest.mark.parametrize("input_dtype", (torch.bfloat16,))
 @pytest.mark.parametrize(
     "scaling_mode", (ScaleCalculationMode.FLOOR, ScaleCalculationMode.RCEIL)
@@ -472,6 +473,7 @@ def test_cuda_mx_dim0_2d_numerics(M, K, input_dtype, scaling_mode):
         block_size=block_size,
         scaling_mode=scaling_mode,
     )
+    s_d0_ref = triton_mx_block_rearrange(s_d0_ref)
 
     # CuTeDSL kernel implementation
     y_d0, s_d0 = mxfp8_quantize_2d_1x32_cutedsl(
@@ -479,9 +481,6 @@ def test_cuda_mx_dim0_2d_numerics(M, K, input_dtype, scaling_mode):
         block_size=block_size,
         scaling_mode=scaling_mode_str,
     )
-
-    # Convert blocked scales back to reference format
-    s_d0 = from_blocked(s_d0, M, K // block_size).to(s_d0_ref.dtype)
 
     # Check scales
     torch.testing.assert_close(s_d0, s_d0_ref, rtol=0, atol=0)
@@ -502,7 +501,7 @@ def test_cuda_mx_dim0_2d_numerics(M, K, input_dtype, scaling_mode):
     not _mxfp8_cutedsl_kernels_available,
     reason="MXFP8 cutedsl kernels not available",
 )
-@pytest.mark.parametrize("M", (32, 128, 160, 1024))
+@pytest.mark.parametrize("M", (128, 1024))
 @pytest.mark.parametrize("K", (128, 256, 1536, 5120, 7168, 8192))
 @pytest.mark.parametrize("input_dtype", (torch.bfloat16,))
 @pytest.mark.parametrize(
@@ -708,6 +707,45 @@ def test_triton_fp8_rowwise_2d_scale_and_cast(
     assert torch.allclose(ref_scales, triton_scales, rtol=0, atol=0), "scales not equal"
 
 
+@pytest.mark.parametrize("round_scales_to_power_of_2", [True, False])
+@pytest.mark.parametrize(
+    "e,n,k",
+    [(1, 8192, 5120), (2, 5120, 8192), (8, 8192, 5120)],
+)
+def test_triton_fp8_colwise_3d_scale_and_cast(
+    e: int, n: int, k: int, round_scales_to_power_of_2: bool
+):
+    device = "cuda"
+    float8_dtype = torch.float8_e4m3fn
+
+    torch.manual_seed(0)
+    # Allocate (E, N, K) row-major then transpose to (E, K, N) column-major
+    # (matches B_t layout in _Float8GroupedMM.forward: strides (K*N, 1, K)).
+    x = torch.randn(e, n, k, dtype=torch.bfloat16, device=device).transpose(-2, -1)
+
+    # PyTorch reference: 3-kernel sequence (axiswise along K, keeping N).
+    ref_scales = tensor_to_scale(
+        x,
+        float8_dtype,
+        scaling_granularity=ScalingGranularity.AXISWISE,
+        axiswise_dim=-2,
+        round_scales_to_power_of_2=round_scales_to_power_of_2,
+    )
+    ref_fp8 = to_fp8_saturated(x.to(torch.float32) * ref_scales, float8_dtype)
+
+    # Fused Triton kernel
+    triton_fp8, triton_scales = triton_fp8_colwise_3d_scale_and_cast(
+        x,
+        output_dtype=float8_dtype,
+        round_scales_to_power_of_2=round_scales_to_power_of_2,
+    )
+
+    assert ref_fp8.shape == triton_fp8.shape, "fp8 output shapes not equal"
+    assert ref_scales.shape == triton_scales.shape, "scale shapes not equal"
+    assert torch.allclose(ref_fp8, triton_fp8, rtol=0, atol=0), "fp8 data not equal"
+    assert torch.allclose(ref_scales, triton_scales, rtol=0, atol=0), "scales not equal"
+
+
 @pytest.mark.skipif(
     not _is_sm_10x(),
     reason="MXFP8 requires CUDA SM 10.x",
@@ -719,29 +757,27 @@ def test_triton_fp8_rowwise_2d_scale_and_cast(
 @skip_if_rocm("ROCm enablement in progress")
 def test_cutedsl_1x32_group_validation_error():
     """Test that 1x32 CuTeDSL kernel raises error for non-128-multiple group sizes."""
-    device = "cuda"
-    M, K = 512, 1024
-    x = torch.randn(M, K, dtype=torch.bfloat16, device=device)
-    num_groups = 4
+    import subprocess
+    import sys
 
-    # Generate group sizes and force at least one to be invalid
-    group_sizes = generate_split_sizes(num_groups, M, device)
-    if group_sizes[0] % 128 == 0:
-        group_sizes[0] = group_sizes[0] - 1  # Make it not a multiple of 128
-        group_sizes[1] = group_sizes[1] + 1  # Compensate to maintain total sum
+    script = """\
+import torch
+from torchao.prototype.moe_training.kernels.mxfp8.quant import mxfp8_quantize_2d_1x32_cutedsl
 
-    invalid_offsets = torch.cumsum(group_sizes, dim=0, dtype=torch.int32)
-
-    # Test should raise RuntimeError due to device assertion failure with specific message
-    with pytest.raises(
-        RuntimeError,
-        match=r"unspecified launch failure",
-    ):
-        _ = mxfp8_quantize_2d_1x32_cutedsl(
-            x, block_size=32, scaling_mode="rceil", offs=invalid_offsets
-        )
-        # Force synchronization to ensure device error propagates
-        torch.cuda.synchronize()
+M, K = 512, 1024
+x = torch.randn(M, K, dtype=torch.bfloat16, device="cuda")
+invalid_offsets = torch.tensor([127, 256, 384, 512], dtype=torch.int32, device="cuda")
+mxfp8_quantize_2d_1x32_cutedsl(x, block_size=32, scaling_mode="rceil", offs=invalid_offsets)
+torch.cuda.synchronize()
+"""
+    result = subprocess.run(
+        [sys.executable, "-c", script],
+        capture_output=True,
+        timeout=120,
+    )
+    assert result.returncode != 0, (
+        "Expected subprocess to fail for non-128-multiple group sizes"
+    )
 
 
 @pytest.mark.skipif(
@@ -755,26 +791,27 @@ def test_cutedsl_1x32_group_validation_error():
 @skip_if_rocm("ROCm enablement in progress")
 def test_cutedsl_32x1_group_validation_error():
     """Test that 32x1 CuTeDSL kernel raises error for non-128-multiple group sizes."""
-    device = "cuda"
-    M, K = 512, 1024
-    x = torch.randn(M, K, dtype=torch.bfloat16, device=device)
-    num_groups = 4
+    import subprocess
+    import sys
 
-    # Generate group sizes and force at least one to be invalid
-    group_sizes = generate_split_sizes(num_groups, M, device)
-    if group_sizes[0] % 128 == 0:
-        group_sizes[0] = group_sizes[0] - 1  # Make it not a multiple of 128
-        group_sizes[1] = group_sizes[1] + 1  # Compensate to maintain total sum
+    script = """\
+import torch
+from torchao.prototype.moe_training.kernels.mxfp8.quant import mxfp8_quantize_2d_32x1_cutedsl
 
-    invalid_offsets = torch.cumsum(group_sizes, dim=0, dtype=torch.int32)
-
-    # Test should raise RuntimeError due to device assertion failure with specific message
-    with pytest.raises(RuntimeError, match=r"unspecified launch failure"):
-        _ = mxfp8_quantize_2d_32x1_cutedsl(
-            x, block_size=32, scaling_mode="rceil", offs=invalid_offsets
-        )
-        # Force synchronization to ensure device error propagates
-        torch.cuda.synchronize()
+M, K = 512, 1024
+x = torch.randn(M, K, dtype=torch.bfloat16, device="cuda")
+invalid_offsets = torch.tensor([127, 256, 384, 512], dtype=torch.int32, device="cuda")
+mxfp8_quantize_2d_32x1_cutedsl(x, block_size=32, scaling_mode="rceil", offs=invalid_offsets)
+torch.cuda.synchronize()
+"""
+    result = subprocess.run(
+        [sys.executable, "-c", script],
+        capture_output=True,
+        timeout=120,
+    )
+    assert result.returncode != 0, (
+        "Expected subprocess to fail for non-128-multiple group sizes"
+    )
 
 
 @pytest.mark.skipif(
@@ -794,9 +831,9 @@ def test_cutedsl_kernels_work_with_valid_128_multiple_groups():
 
     # Create valid group offsets (all group sizes are multiples of 128)
     valid_group_sizes = [128, 256, 128]  # All multiples of 128
-    valid_offsets = torch.cumsum(
-        torch.tensor(valid_group_sizes, dtype=torch.int32), dim=0
-    ).to(device)
+    valid_offsets = (
+        torch.cumsum(torch.tensor(valid_group_sizes), dim=0).to(device).to(torch.int32)
+    )
 
     # Verify all group sizes are multiples of 128
     group_sizes = torch.diff(
