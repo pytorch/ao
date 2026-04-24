@@ -739,14 +739,14 @@ def test_nvfp4_per_expert_scale():
 def test_nvfp4_mm_triton_cuda_graph_compile():
     """nvfp4_linear TRITON path works under reduce-overhead CUDA graphs."""
     from torchao.prototype.mx_formats.hadamard_utils import prepare_for_cuda_graph
-    from torchao.prototype.mx_formats.nvfp4_training import NVFP4TrainingLinear
+    from torchao.prototype.mx_formats.nvfp4_training import NVFP4Linear
     from torchao.quantization.quantize_.common.kernel_preference import KernelPreference
 
     M, K, N = 128, 256, 128
     prepare_for_cuda_graph(torch.device("cuda"))
 
     layer = (
-        NVFP4TrainingLinear(K, N, bias=False, kernel_preference=KernelPreference.TRITON)
+        NVFP4Linear(K, N, bias=False, kernel_preference=KernelPreference.TRITON)
         .cuda()
         .to(torch.bfloat16)
     )

@@ -27,7 +27,21 @@ def _device_key(device) -> str:
     return str(d)
 
 
-def prepare_for_cuda_graph(device, nbytes: int = 131072) -> torch.Tensor:
+def _prewarm_rht_matrix(
+    sign_vector: tuple[int, ...] | None,
+    device: torch.device,
+) -> None:
+    # lru_cache keys distinguish positional/defaulted and keyword/defaulted calls.
+    get_rht_matrix(sign_vector, device, torch.bfloat16, 16)
+    get_rht_matrix(sign_vector=sign_vector, device=device, hadamard_dimension=16)
+
+
+def prepare_for_cuda_graph(
+    device,
+    nbytes: int = 131072,
+    *,
+    sign_vectors: tuple[tuple[int, ...], ...] | None = None,
+) -> torch.Tensor:
     """Pre-allocate per-device persistent state required for torch.compile CUDA graphs.
 
     Must be called once per device before torch.compile to ensure allocations
@@ -36,18 +50,20 @@ def prepare_for_cuda_graph(device, nbytes: int = 131072) -> torch.Tensor:
     and safely alias the TMA buffer.
 
     Also pre-warms get_rht_matrix (lru_cache) to prevent pool-allocation errors
-    during graph capture.
+    during graph capture. Pass any explicit RHT sign vectors used by the graph
+    through sign_vectors so those cache entries are allocated before capture.
     """
     key = _device_key(device)
     if key not in _TMA_WORKSPACES:
         _TMA_WORKSPACES[key] = torch.empty(nbytes, dtype=torch.uint8, device=device)
-    # Pre-warm both lru_cache call signatures used at runtime so CUDA graph
-    # capture hits the cache instead of allocating inside the pool. Do this
-    # every call because tests and callers may clear get_rht_matrix's cache
-    # after the workspace has already been initialized.
+    # Pre-warm every call because tests and callers may clear get_rht_matrix's
+    # cache after the workspace has already been initialized. Use
+    # torch.device(key) ("cuda:N") because A.device always produces a fully
+    # indexed device and lru_cache keys are compared by value.
     _dev = torch.device(key)
-    get_rht_matrix(None, _dev, torch.bfloat16, 16)
-    get_rht_matrix(sign_vector=None, device=_dev, hadamard_dimension=16)
+    _prewarm_rht_matrix(None, _dev)
+    for sign_vector in sign_vectors or ():
+        _prewarm_rht_matrix(tuple(sign_vector), _dev)
     return _TMA_WORKSPACES[key]
 
 
