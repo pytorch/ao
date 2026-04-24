@@ -30,6 +30,9 @@ class GPTQObserverTensor(TorchAOBaseTensor):
         if isinstance(total_batches, torch.Tensor):
             self.total_batches = total_batches
         elif len(self.hp_data.shape) == 3:
+            # TODO(future PR): audit whether we need to change this
+            # from `total_batches` (current) to something like `total_tokens`,
+            # to ensure that each token is weighted equally in the 3d case.
             self.total_batches = torch.zeros(
                 self.hp_data.shape[0], dtype=torch.int64, device=self.hp_data.device
             )
@@ -98,6 +101,23 @@ class GPTQObserverTensor(TorchAOBaseTensor):
             total_batches = self.total_batches[e_idx : e_idx + 1]
             self._update_single_hessian(x_cur, h_cur, total_batches)
 
+    def update_3d_with_offs(self, input: torch.Tensor, offs: torch.Tensor):
+        x = input.float().to(self.hp_data.device)
+        # offs is cumulative end indices; expert e gets rows [prev_end : offs[e]]
+        # Pull offs to CPU once to avoid a GPU->CPU sync per expert.
+        # TODO(future PR): optimize if this is too slow
+        offs_cpu = offs.tolist()
+        prev_end = 0
+        for e_idx in range(self.hessian.shape[0]):
+            end = offs_cpu[e_idx]
+            if end == prev_end:
+                continue
+            x_cur = x[prev_end:end]
+            h_cur = self.hessian[e_idx]
+            total_batches = self.total_batches[e_idx : e_idx + 1]
+            self._update_single_hessian(x_cur, h_cur, total_batches)
+            prev_end = end
+
     @classmethod
     def from_hp(cls, hp_tensor):
         return GPTQObserverTensor(hp_tensor, 0, None)
@@ -145,3 +165,13 @@ def _(func, types, args, kwargs):
     )
     weight_tensor.update_3d(input_tensor.detach())
     return func(input_tensor, weight_tensor.hp_data)
+
+
+@implements([aten._grouped_mm.default])
+def _(func, types, args, kwargs):
+    mat_a, mat_b = args[0], args[1]
+    offs = args[2] if len(args) > 2 else kwargs.get("offs", None)
+    assert offs is not None, "offs is required for grouped_mm"
+    assert isinstance(mat_b, GPTQObserverTensor)
+    mat_b.update_3d_with_offs(mat_a.detach(), offs)
+    return func(mat_a, mat_b.hp_data, offs)
