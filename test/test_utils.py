@@ -574,5 +574,37 @@ class TestTorchAOBaseTensor(unittest.TestCase):
         self.assertEqual(counters["C"], 1)
 
 
+class TestParseRocmDeviceCapability(unittest.TestCase):
+    """Unit tests for ROCm GCN arch string parsing (no GPU required)."""
+
+    def test_parse_gfx_strings(self):
+        from torchao.utils import _parse_rocm_device_capability
+
+        cases = [
+            ("gfx90a", (9, 0)),
+            ("gfx942", (9, 4)),
+            ("gfx950", (9, 5)),
+            ("gfx1100", (11, 0)),
+            ("gfx1200", (12, 0)),
+            ("not_gfx", None),
+            ("gfx", None),
+        ]
+        for gcn, expected in cases:
+            with self.subTest(gcn=gcn):
+                self.assertEqual(_parse_rocm_device_capability(gcn), expected)
+
+    @patch("torchao.utils.rocm_device_capability")
+    def test_is_rocm_gpu_at_least_uses_capability(self, mock_cap):
+        from torchao.utils import is_rocm_gpu_at_least
+
+        mock_cap.return_value = (9, 4)
+        self.assertTrue(is_rocm_gpu_at_least(9, 0))
+        self.assertTrue(is_rocm_gpu_at_least(9, 4))
+        self.assertFalse(is_rocm_gpu_at_least(9, 5))
+
+        mock_cap.return_value = None
+        self.assertFalse(is_rocm_gpu_at_least(9, 0))
+
+
 if __name__ == "__main__":
     unittest.main()
