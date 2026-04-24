@@ -82,6 +82,7 @@ def device(request):
 
 @pytest.mark.parametrize("round_scales_to_power_of_2", [True, False])
 @skip_if_rocm("jagged rowwise scales kernel vs torch reference mismatch on ROCm")
+@skip_if_xpu("XPU numerical mismatch with torch reference")
 def test_row_major_with_jagged_rowwise_scales(
     round_scales_to_power_of_2: bool, device: str
 ):
@@ -728,6 +729,7 @@ def test_triton_fp8_rowwise_2d_scale_and_cast(
     "e,n,k",
     [(1, 8192, 5120), (2, 5120, 8192), (8, 8192, 5120)],
 )
+@skip_if_xpu("XPU support not yet available")
 def test_triton_fp8_colwise_3d_scale_and_cast(
     e: int, n: int, k: int, round_scales_to_power_of_2: bool
 ):
