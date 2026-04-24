@@ -87,6 +87,20 @@ gpu_name_to_specs = {
         # TODO(future): run measurement on hardware
         "pct_achievable_mem_bw": 0.92,
     },
+    "AMD Instinct MI350X": {
+        # https://www.amd.com/en/products/accelerators/instinct/mi350/mi350x.html
+        "bf16_peak_tops": 2300e12,
+        "fp8_peak_tops": 4600e12,
+        "fp4_peak_tops": 9200e12,
+        # 8.0 TB per second
+        "peak_mem_bw_bytes_sec": 8.0e12,
+        # for now, copy over from H100
+        # TODO(future): run measurement on hardware
+        "pct_achievable_gemm_tops": 0.78,
+        # for now, copy over from H100
+        # TODO(future): run measurement on hardware
+        "pct_achievable_mem_bw": 0.92,
+    },
     "NVIDIA GeForce RTX 5090": {
         # https://images.nvidia.com/aem-dam/Solutions/geforce/blackwell/nvidia-rtx-blackwell-gpu-architecture.pdf
         "bf16_peak_tops": 209.5e12,
