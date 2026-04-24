@@ -8,6 +8,7 @@
 import contextlib
 import copy
 import functools
+import glob
 import itertools
 import os
 import tempfile
@@ -104,6 +105,34 @@ skipIfNoQConvFp8Support = unittest.skipIf(
 )
 
 
+def _get_fp8_aoti_options():
+    """
+    Detect whether AOTI can exercise the FP8 fusion path.
+
+    AOTI constant-folds lifted tensors by default, which folds away the
+    dequant scale and breaks pattern matching.  We need to call
+    ``add_dont_constant_fold`` on the FP8 dequant op so that the scale
+    survives into the inductor graph and the fusion pattern can still be
+    matched.  If the API is not yet available we fall back to compile-only
+    testing.
+
+    Returns ``[False]`` when AOTI is not exercisable, ``[False, True]``
+    when it is.
+    """
+    aoti_options = [False]
+    try:
+        import torch._inductor.constant_folding as cf
+
+        if hasattr(cf, "add_dont_constant_fold"):
+            cf.add_dont_constant_fold(
+                torch.ops.torchao.dequantize_affine_float8_non_decomposed.default
+            )
+            aoti_options = [False, True]
+    except ImportError:
+        pass
+    return aoti_options
+
+
 def cal_conv_generated_kernel_number(mod, input, dtype, dim=4, device="cpu"):
     # this function is to decide how many kernels are generated
     # while testing conv2d/3d/deconv2d
@@ -171,7 +200,7 @@ class TestPatternMatcherBase(TestCase):
         quantizer=None,
         compile_options={},  # noqa: B006
         is_fp8=False,
-        is_aoti=False,
+        use_aoti=False,
         include_ops=None,
         exclude_ops=None,
         check_dynamic=None,
@@ -190,7 +219,11 @@ class TestPatternMatcherBase(TestCase):
         counters.clear()
         torch._dynamo.reset()
 
-        def aoti_compile(model, inputs):
+        def aoti_compile(model, inputs, compile_options=None, get_source_code=False):
+            # compile_options (e.g. dynamic=True) are torch.compile() kwargs and do not
+            # directly apply to the AOTI path — they are ignored for now.
+            # Support can be added in the future if needed (e.g. via dynamic_shapes in
+            # torch.export.export for the dynamic case).
             with eu._disable_aten_to_metadata_assertions():
                 exported = torch.export.export(model, inputs)
             with tempfile.TemporaryDirectory() as tmpdir:
@@ -201,7 +234,17 @@ class TestPatternMatcherBase(TestCase):
                         package_path=package_path,
                     )
 
+                if get_source_code:
+                    cpp_paths = glob.glob(
+                        os.path.join(tmpdir, "**/*.wrapper.cpp"), recursive=True
+                    )
+                    assert cpp_paths, "Failed to find generated .wrapper.cpp"
+                    with open(cpp_paths[0]) as f:
+                        source_code = f.read()
+
                 compiled_mod = torch._inductor.aoti_load_package(package_path)
+                if get_source_code:
+                    return compiled_mod, source_code
                 return compiled_mod
 
         if check_autocast == torch.bfloat16 and (
@@ -232,16 +275,29 @@ class TestPatternMatcherBase(TestCase):
                 mod, inputs, is_qat, is_dynamic, quantizer, is_fp8
             )
 
+        # Dynamic aoti check is not supported for now.
+        # Support can be added in the future if needed (e.g. via dynamic_shapes in
+        # torch.export.export for the dynamic case).
+        assert not (
+            use_aoti and (check_dynamic is not None or compile_options.get("dynamic"))
+        ), "Dynamic AOTI check is not supported for now"
+
         with torch.no_grad(), maybe_autocast:
             if check_code:
-                expected = mod(*inputs)
-                code_compile_options = dict(compile_options)
-                if check_dynamic is not None:
-                    code_compile_options["dynamic"] = check_dynamic
-                actual, (source_code,) = run_and_get_code(
-                    torch.compile(mod, **code_compile_options),
-                    *inputs,
-                )
+                if use_aoti:
+                    compiled_mod, source_code = aoti_compile(
+                        mod, inputs, compile_options, get_source_code=True
+                    )
+                    actual = compiled_mod(*inputs)
+                else:
+                    expected = mod(*inputs)
+                    code_compile_options = dict(compile_options)
+                    if check_dynamic is not None:
+                        code_compile_options["dynamic"] = check_dynamic
+                    actual, (source_code,) = run_and_get_code(
+                        torch.compile(mod, **code_compile_options),
+                        *inputs,
+                    )
                 for op in include_ops:
                     self.assertIn(op, source_code)
                 if num_include_ops is not None:
@@ -258,14 +314,14 @@ class TestPatternMatcherBase(TestCase):
                     # Skip due to reduce range setting for Quantization on preCI system.
                     torch.testing.assert_close(actual, expected, atol=atol, rtol=rtol)
             elif check_quantization:
-                if is_aoti:
-                    _ = aoti_compile(mod, inputs)(*inputs)
+                if use_aoti:
+                    _ = aoti_compile(mod, inputs, compile_options)(*inputs)
                 else:
                     _ = torch.compile(mod, **compile_options)(*inputs)
             else:
                 expected = mod(*inputs)
-                if is_aoti:
-                    compiled_mod = aoti_compile(mod, inputs)
+                if use_aoti:
+                    compiled_mod = aoti_compile(mod, inputs, compile_options)
                     actual = compiled_mod(*inputs)
                 else:
                     actual = torch.compile(mod, **compile_options)(*inputs)
@@ -1514,7 +1570,7 @@ class TestPatternMatcher(TestPatternMatcherBase):
         is_dynamic=False,
         is_qat=False,
         is_fp8=False,
-        is_aoti=False,
+        use_aoti=False,
     ):
         class M(torch.nn.Module):
             def __init__(self, use_bias, do_permute=False):
@@ -1554,7 +1610,7 @@ class TestPatternMatcher(TestPatternMatcherBase):
             is_qat=is_qat,
             is_dynamic=is_dynamic,
             is_fp8=is_fp8,
-            is_aoti=is_aoti,
+            use_aoti=use_aoti,
             include_ops=[] if is_fp8 else None,
             # ensure quantize_affine_float8_non_decomposed is lowered
             exclude_ops=[
@@ -1580,24 +1636,10 @@ class TestPatternMatcher(TestPatternMatcherBase):
         r"""
         This testcase will quantize a single Linear Moduel.
         """
-        aoti_options = [
-            False,
-        ]
-        try:
-            import torch._inductor.constant_folding as cf
-
-            if hasattr(cf, "add_dont_constant_fold"):
-                cf.add_dont_constant_fold(
-                    torch.ops.torchao.dequantize_affine_float8_non_decomposed.default
-                )
-                aoti_options = [False, True]
-        finally:
-            pass
-
-        for is_aoti in aoti_options:
+        for use_aoti in _get_fp8_aoti_options():
             for bias in [True, False]:
                 self._qlinear_test_helper(
-                    (torch.randn((2, 4)),), bias=bias, is_fp8=True, is_aoti=is_aoti
+                    (torch.randn((2, 4)),), bias=bias, is_fp8=True, use_aoti=use_aoti
                 )
 
     @skipIfNoDynamoSupport
@@ -3122,7 +3164,7 @@ class TestDynamicPatternMatcher(TestPatternMatcherBase):
             )
 
     def _test_scaled_embedding_bag_helper(
-        self, dtype, with_output_quant=False, is_aoti=False
+        self, dtype, with_output_quant=False, use_aoti=False
     ):
         class FP8QDQEmbeddingBag(torch.nn.Module):
             def __init__(self):
@@ -3133,6 +3175,7 @@ class TestDynamicPatternMatcher(TestPatternMatcherBase):
             def _dequantize(self, weight):
                 if dtype == torch.float8_e4m3fn:
                     res = torch.ops.torchao.dequantize_affine_float8_non_decomposed.default(
+                        # use weight instead of weight.data for tracing/export compatibility
                         tensor=weight,
                         scale=torch.tensor([self.weight_scale]),
                         output_dtype=torch.float,
@@ -3218,7 +3261,7 @@ class TestDynamicPatternMatcher(TestPatternMatcherBase):
                     mod,
                     (weight, indices, offsets),
                     matcher_check_fn,
-                    is_aoti=is_aoti,
+                    use_aoti=use_aoti,
                 )
 
     @skipIfNoDynamoSupport
@@ -3229,22 +3272,10 @@ class TestDynamicPatternMatcher(TestPatternMatcherBase):
         reason="cpp kernels not built",
     )
     def test_fp8_scaled_embedding_bag(self):
-        aoti_options = [
-            False,
-        ]
-        try:
-            import torch._inductor.constant_folding as cf
-
-            if hasattr(cf, "add_dont_constant_fold"):
-                cf.add_dont_constant_fold(
-                    torch.ops.torchao.dequantize_affine_float8_non_decomposed.default
-                )
-                aoti_options = [False, True]
-        finally:
-            pass
-
-        for is_aoti in aoti_options:
-            self._test_scaled_embedding_bag_helper(torch.float8_e4m3fn, is_aoti=is_aoti)
+        for use_aoti in _get_fp8_aoti_options():
+            self._test_scaled_embedding_bag_helper(
+                torch.float8_e4m3fn, use_aoti=use_aoti
+            )
 
     @skipIfNoDynamoSupport
     @skipIfNoONEDNN
@@ -3315,8 +3346,8 @@ class TestDynamicPatternMatcher(TestPatternMatcherBase):
         shape = (128, 3)
 
         mod = Mod()
-        for len in input_len_list:
-            inputs = [torch.randn(shape) for _ in range(len)]
+        for length in input_len_list:
+            inputs = [torch.randn(shape) for _ in range(length)]
             int8_inputs = [quant_input(x) for x in inputs]
             self._test_common(
                 mod,
@@ -3358,21 +3389,9 @@ class TestDynamicPatternMatcher(TestPatternMatcherBase):
         def matcher_check_fn():
             self.assertEqual(counters["inductor"]["concat_dq_q_matcher_count"], 1)
 
-        aoti_options = [False]
-        try:
-            import torch._inductor.constant_folding as cf
-
-            if hasattr(cf, "add_dont_constant_fold"):
-                cf.add_dont_constant_fold(
-                    torch.ops.torchao.dequantize_affine_float8_non_decomposed.default
-                )
-                aoti_options = [False, True]
-        finally:
-            pass
-
         shape = (128, 3)
         mod = Mod()
-        for is_aoti in aoti_options:
+        for use_aoti in _get_fp8_aoti_options():
             for length in [2, 3]:
                 inputs = [torch.randn(shape) for _ in range(length)]
                 fp8_inputs = [quant_input(x) for x in inputs]
@@ -3380,7 +3399,7 @@ class TestDynamicPatternMatcher(TestPatternMatcherBase):
                     mod,
                     (fp8_inputs,),
                     matcher_check_fn,
-                    is_aoti=is_aoti,
+                    use_aoti=use_aoti,
                 )
 
 

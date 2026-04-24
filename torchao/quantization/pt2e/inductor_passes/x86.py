@@ -2464,11 +2464,21 @@ def _extract_const_float_from_node(v: Any) -> float | None:
 
     if isinstance(v, torch.fx.Node):
         # case 1: aten.full([1], c)
-        if v.op == "call_function" and v.target is torch.ops.aten.full.default:
+        if v.target is torch.ops.aten.full.default:
             if len(v.args) >= 2 and isinstance(v.args[1], (int, float)):
                 return float(v.args[1])
 
-        # case 2: get_attr(lifted_tensor)
+        # case 2: aten.tensor
+        if v.target is torch.tensor and len(v.args) >= 1:
+            data = v.args[0]
+            if (
+                isinstance(data, (list, tuple))
+                and len(data) == 1
+                and isinstance(data[0], (int, float))
+            ):
+                return float(data[0])
+
+        # case 3: get_attr(lifted_tensor)
         if v.op == "get_attr":
             obj = v.graph.owning_module
             for atom in str(v.target).split("."):
@@ -2482,7 +2492,7 @@ def _extract_const_float_from_node(v: Any) -> float | None:
             if isinstance(obj, torch.Tensor) and obj.numel() == 1:
                 return float(obj.item())
 
-        # case 3: meta val fallback
+        # case 4: meta val fallback
         mv = v.meta.get("val", None)
         if isinstance(mv, (int, float)):
             return float(mv)
