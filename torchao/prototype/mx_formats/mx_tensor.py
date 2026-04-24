@@ -204,7 +204,16 @@ def _to_mx_rceil(
     data_lp = data_hp * rcp_fp32
 
     # Note: clamp preserves NaN values
-    data_lp = torch.clamp(data_lp, min=-max_pos, max=max_pos)
+    if not (torch.compiler.is_compiling() or is_fake(descale)):
+        # As of 20250317, the Pytorch eager mode cast to `torch.float8_e4m3fn`
+        # is unsaturated. This cast is saturated in triton. If we are compute bound,
+        # we see a speedup if we remove this redundant clamp if we are compiling
+        # to triton.
+        # TODO(#1912): make the saturated cast work in eager mode and remove this
+        # workaround.
+        # TODO(future PR): unify this code between the FLOOR and RCEIL scaling
+        # methods
+        data_lp = torch.clamp(data_lp, min=-max_pos, max=max_pos)
 
     return exponent, data_lp
 
