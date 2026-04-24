@@ -785,13 +785,15 @@ def _addmm_mx_dispatch(
         assert a.block_size == 32, f"Invalid block size {a.block_size}"
         assert b.block_size == 32, f"Invalid block size {b.block_size}"
 
-        if a.is_swizzled_scales:
+        data_is_cuda = a.qdata.is_cuda
+
+        if a.is_swizzled_scales or not data_is_cuda:
             a_scale_block = a.scale
         else:
             a_scale = a.scale.view(M, K // a.block_size)
             a_scale_block = maybe_dtensor_to_blocked(a_scale)
 
-        if b.is_swizzled_scales:
+        if b.is_swizzled_scales or not data_is_cuda:
             b_scale_block = b.scale.t()
         else:
             b_scale = b.scale.t().view(N, K // b.block_size)
@@ -799,14 +801,32 @@ def _addmm_mx_dispatch(
 
         if a.elem_dtype == torch.float8_e4m3fn:
             assert b.elem_dtype == torch.float8_e4m3fn
-            res = torch._scaled_mm(
-                a.qdata,
-                b.qdata,
-                a_scale_block.view(torch.float8_e8m0fnu),
-                b_scale_block.view(torch.float8_e8m0fnu),
-                bias=bias,
-                out_dtype=torch.bfloat16,
-            )
+            if torch_version_at_least("2.10.0"):
+                res = F.scaled_mm(
+                    a.qdata,
+                    b.qdata,
+                    scale_a=a_scale_block.view(torch.float8_e8m0fnu),
+                    scale_recipe_a=ScalingType.BlockWise1x32,
+                    scale_b=b_scale_block.view(torch.float8_e8m0fnu),
+                    scale_recipe_b=ScalingType.BlockWise1x32,
+                    swizzle_a=SwizzleType.SWIZZLE_32_4_4
+                    if data_is_cuda
+                    else SwizzleType.NO_SWIZZLE,
+                    swizzle_b=SwizzleType.SWIZZLE_32_4_4
+                    if data_is_cuda
+                    else SwizzleType.NO_SWIZZLE,
+                    bias=bias,
+                    output_dtype=torch.bfloat16,
+                )
+            else:
+                res = torch._scaled_mm(
+                    a.qdata,
+                    b.qdata,
+                    a_scale_block.view(torch.float8_e8m0fnu),
+                    b_scale_block.view(torch.float8_e8m0fnu),
+                    bias=bias,
+                    out_dtype=torch.bfloat16,
+                )
         else:
             assert a.elem_dtype == torch.float4_e2m1fn_x2
             assert b.elem_dtype == torch.float4_e2m1fn_x2
@@ -822,8 +842,12 @@ def _addmm_mx_dispatch(
                 scale_recipe_a=ScalingType.BlockWise1x32,
                 scale_b=b_scale_block,
                 scale_recipe_b=ScalingType.BlockWise1x32,
-                swizzle_a=SwizzleType.SWIZZLE_32_4_4,
-                swizzle_b=SwizzleType.SWIZZLE_32_4_4,
+                swizzle_a=SwizzleType.SWIZZLE_32_4_4
+                if data_is_cuda
+                else SwizzleType.NO_SWIZZLE,
+                swizzle_b=SwizzleType.SWIZZLE_32_4_4
+                if data_is_cuda
+                else SwizzleType.NO_SWIZZLE,
                 bias=bias,
                 output_dtype=torch.bfloat16,
             )
