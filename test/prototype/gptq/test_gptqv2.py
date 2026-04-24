@@ -10,14 +10,27 @@ import pytest
 import torch
 import torch.nn.functional as F
 
+from torchao.utils import torch_version_at_least
+
+pytestmark = pytest.mark.skipif(
+    not torch_version_at_least("2.11.0"),
+    reason="GPTQ prototype requires PyTorch 2.11+",
+)
+
 from torchao.prototype.gptq import (
     GPTQConfig,
     gptq_quantize,
 )
 from torchao.prototype.gptq.observer import GPTQObserverTensor
+from torchao.prototype.mx_formats.inference_workflow import (
+    NVFP4DynamicActivationNVFP4WeightConfig,
+)
 from torchao.quantization import Int4WeightOnlyConfig, Int8WeightOnlyConfig, quantize_
 from torchao.quantization.granularity import PerRow
-from torchao.utils import _is_mslk_available
+from torchao.utils import (
+    _is_mslk_available,
+    is_sm_at_least_100,
+)
 
 
 def _calculate_hessian(inputs, device=None):
@@ -220,7 +233,6 @@ class TestGPTQObserverTensor:
                     reason="fbgemm_gpu not available",
                 ),
             ),
-            pytest.param(Int8WeightOnlyConfig(group_size=128), id="int8"),
         ],
     )
     def test_observer_config_transform(self, base_config):
@@ -301,10 +313,6 @@ class TestGPTQFlow:
                     reason="fbgemm_gpu not available",
                 ),
             ),
-            pytest.param(
-                Int8WeightOnlyConfig(group_size=128),
-                id="int8",
-            ),
         ],
     )
     def test_unified_config_two_phase(self, base_config):
@@ -363,10 +371,6 @@ class TestGPTQFlow:
                     not _is_mslk_available(),
                     reason="fbgemm_gpu not available",
                 ),
-            ),
-            pytest.param(
-                Int8WeightOnlyConfig(group_size=128),
-                id="int8",
             ),
         ],
     )
@@ -438,16 +442,30 @@ class TestGPTQFlow:
                 id="int4",
                 marks=pytest.mark.skipif(
                     not _is_mslk_available(),
-                    reason="fbgemm_gpu not available",
+                    reason="mslk not available",
                 ),
             ),
             pytest.param(
                 Int8WeightOnlyConfig(granularity=PerRow(), version=2), id="int8"
             ),
+            pytest.param(
+                NVFP4DynamicActivationNVFP4WeightConfig(
+                    use_dynamic_per_tensor_scale=True,
+                    use_triton_kernel=True,
+                ),
+                id="nvfp4",
+            ),
         ],
     )
     def test_gptq_quantize_better_than_naive(self, base_config):
         """Test that GPTQ produces lower error than naive quantization."""
+
+        if (
+            isinstance(base_config, NVFP4DynamicActivationNVFP4WeightConfig)
+            and not is_sm_at_least_100()
+        ):
+            pytest.skip("CUDA capability >= 10.0 required for nvfp4")
+
         torch.manual_seed(43)
 
         # Create weight and realistic Hessian from actual activations
@@ -515,9 +533,22 @@ class TestGPTQFlow:
             pytest.param(
                 Int8WeightOnlyConfig(granularity=PerRow(), version=2), id="int8"
             ),
+            pytest.param(
+                NVFP4DynamicActivationNVFP4WeightConfig(
+                    use_dynamic_per_tensor_scale=True,
+                    use_triton_kernel=True,
+                ),
+                id="nvfp4",
+            ),
         ],
     )
     def test_gptq_sqnr(self, base_config):
+        if (
+            isinstance(base_config, NVFP4DynamicActivationNVFP4WeightConfig)
+            and not is_sm_at_least_100()
+        ):
+            pytest.skip("CUDA capability >= 10.0 required for nvfp4")
+
         torch.manual_seed(43)
 
         model = ToyLinearModel(m=512, n=2048, k=1024).cuda().to(torch.bfloat16)
@@ -565,6 +596,10 @@ class TestGPTQFlow:
             assert sqnr_gptq > 25, f"GPTQ SQNR: {sqnr_gptq} is too low"
         elif isinstance(base_config, Int8WeightOnlyConfig):
             assert sqnr_gptq > 30, f"GPTQ SQNR: {sqnr_gptq} is too low"
+        elif isinstance(base_config, NVFP4DynamicActivationNVFP4WeightConfig):
+            assert sqnr_gptq > 15, f"GPTQ SQNR: {sqnr_gptq} is too low"
+        else:
+            raise AssertionError("unsupported")
         assert sqnr_gptq > sqnr_rtn, (
             f"GPTQ SQNR: {sqnr_gptq} is not better than RTN SQNR: {sqnr_rtn}"
         )

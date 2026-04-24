@@ -3,6 +3,9 @@
 #
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
+
+# TODO: migrate off AffineQuantizedTensor, see https://github.com/pytorch/ao/pull/4245
+
 from dataclasses import dataclass
 
 import torch
@@ -45,6 +48,11 @@ def _intN_weight_only_transform(
     module: torch.nn.Module,
     config: IntNWeightOnlyConfig,
 ) -> torch.nn.Module:
+    raise AssertionError(
+        "This feature is currently broken, see https://github.com/pytorch/ao/pull/4151"
+        " and https://github.com/pytorch/ao/pull/4245 for more details"
+    )
+
     group_size = config.group_size
     n = config.n
     symmetric = config.symmetric
@@ -73,6 +81,7 @@ def _intN_weight_only_transform(
             quant_max,
             eps,
             zero_point_dtype=zero_point_dtype,
+            _layout=Layout(),  # noqa: F821
         )  # , preserve_zero=preserve_zero,zero_point_domain=zero_point_domain)
 
     # for symmetric quantization
@@ -96,6 +105,7 @@ def _intN_weight_only_transform(
             quant_max,
             eps=eps,
             zero_point_dtype=zero_point_dtype,
+            _layout=Layout(),  # noqa: F821
         )
 
     assert n in [8, 6, 5, 4, 3, 2], "n must be one of [8, 6, 5, 4, 3, 2]"

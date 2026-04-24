@@ -225,3 +225,26 @@ if _cutedsl_runtime_available():
             else:
                 vals_chunk[j] = cutlass.Float32(0.0)
         return vals_chunk
+
+    @cute.jit
+    def validate_group_sizes(offs: cute.Tensor):
+        # Only first thread validates to avoid redundant work
+        num_groups = offs.shape[0]
+
+        # Validate first group (from 0 to offs[0])
+        if num_groups > 0:
+            first_group_size = offs[0]
+            cute.testing.assert_(
+                first_group_size % 128 == 0,
+                "Group sizes must be multiples of 128",
+            )
+
+        # Validate subsequent groups
+        for i in range(1, num_groups):
+            prev_end = offs[i - 1]
+            curr_end = offs[i]
+            group_size = curr_end - prev_end
+            cute.testing.assert_(
+                group_size % 128 == 0,
+                "Group sizes must be multiples of 128",
+            )

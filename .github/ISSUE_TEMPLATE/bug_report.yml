@@ -1,0 +1,40 @@
+name: Bug Report
+description: Report a bug in torchao
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a bug! Please fill in the details below.
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: What happened? What did you expect to happen?
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: Minimal code example that reproduces the issue.
+      render: python
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: |
+        Please provide:
+        - torch version (`python -c "import torch; print(torch.__version__)"`)
+        - torchao version (`python -c "import torchao; print(torchao.__version__)"`)
+        - Hardware (e.g., H100, A100, MI300x, XPU, CPU, Apple Silicon)
+        - Relevant library versions (e.g., CUDA, ROCm, MSLK)
+        - OS
+      render: text
+    validations:
+      required: true

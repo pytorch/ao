@@ -14,9 +14,14 @@ from typing import Any, List, Optional
 import torch
 from datasets import load_dataset
 from tqdm import tqdm
-from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformers import AutoModelForCausalLM, AutoTokenizer, TorchAoConfig
+from transformers.quantizers.quantizer_torchao import TorchAoHfQuantizer
 
 from torchao.prototype.gptq import GPTQConfig
+from torchao.prototype.gptq.observer import GPTQObserverTensor
+from torchao.prototype.mx_formats.inference_workflow import (
+    NVFP4DynamicActivationNVFP4WeightConfig,
+)
 from torchao.quantization import Int4WeightOnlyConfig, Int8WeightOnlyConfig, quantize_
 from torchao.quantization.granularity import PerRow
 
@@ -93,12 +98,19 @@ def prepare_dataset(
     dataset_map = {
         "hellaswag": "Rowan/hellaswag",
         "ultrachat200k": "HuggingFaceH4/ultrachat_200k",
+        "c4": ("allenai/c4", "en"),
     }
 
-    hf_dataset_id = dataset_map.get(dataset_id, dataset_id)
+    dataset_entry = dataset_map.get(dataset_id, dataset_id)
+    if isinstance(dataset_entry, tuple):
+        hf_dataset_id, hf_config_name = dataset_entry
+    else:
+        hf_dataset_id, hf_config_name = dataset_entry, None
 
     # Load dataset and preprocess
-    train_dataset_raw = load_dataset(hf_dataset_id, split=dataset_split, streaming=True)
+    train_dataset_raw = load_dataset(
+        hf_dataset_id, hf_config_name, split=dataset_split, streaming=True
+    )
     train_dataset_raw = train_dataset_raw.shuffle(seed=seed, buffer_size=1_000)
 
     def preprocess_hellaswag(example):
@@ -162,8 +174,14 @@ def parse_args():
         "--dataset-id",
         type=str,
         default="ultrachat200k",
-        choices=["hellaswag", "ultrachat200k"],
+        choices=["hellaswag", "ultrachat200k", "c4"],
         help="Dataset for calibration (hellaswag or ultrachat200k)",
+    )
+    parser.add_argument(
+        "--dataset-split",
+        type=str,
+        default="train_sft",
+        help="Dataset split to use for calibration",
     )
     parser.add_argument(
         "--quantization",
@@ -177,6 +195,9 @@ def parse_args():
             "int8-rtn",
             "int8-gptq-sequential",
             "int8-gptq-nonsequential",
+            "nvfp4-rtn",
+            "nvfp4-gptq-sequential",
+            "nvfp4-gptq-nonsequential",
         ],
         help="Quantization method to use",
     )
@@ -198,11 +219,61 @@ def parse_args():
         default=1024,
         help="Block size for GPTQ quantization",
     )
+    parser.add_argument(
+        "--lm-eval-tasks",
+        type=str,
+        default="leaderboard_bbh",
+        help="Comma-separated tasks for lm_eval",
+    )
+    parser.add_argument(
+        "--num-fewshot",
+        type=int,
+        default=3,
+        help="Number of few-shot examples for lm_eval (0 to disable)",
+    )
+    parser.add_argument(
+        "--lm-eval-batch-size",
+        type=str,
+        default="auto",
+        help="Batch size for lm_eval (default: auto)",
+    )
+    parser.add_argument(
+        "--lm-eval-limit",
+        type=int,
+        default=None,
+        help="Limit number of examples per task for lm_eval (default: no limit)",
+    )
+    parser.add_argument(
+        "--output-dir-prefix",
+        type=str,
+        required=True,
+        help="Prefix for the output directory (e.g. /home/user/tmp/20260420)",
+    )
+    parser.add_argument(
+        "--skip-lm-eval",
+        action="store_true",
+        default=False,
+        help="Skip running lm_eval after quantization, useful for quickly iterating on lm_eval arguments",
+    )
+    parser.add_argument(
+        "--o-proj-only",
+        action="store_true",
+        default=False,
+        help="Only quantize `o_proj` layers, useful for faster GPTQ runs for debugging",
+    )
     return parser.parse_args()
 
 
 def main():
     args = parse_args()
+
+    # lm_eval batch_size="auto" with nvfp4 gptq causes the error in
+    # MSLK nvfp4 triton kernel, likely an unsupported shape:
+    # https://gist.github.com/vkuzo/b71ca46365dee017d1602e9638d91603
+    # TODO(future): debug and fix this. For now, the workaround is
+    # for the user to manually specify lm_eval batch_size.
+    if "nvfp4" in args.quantization:
+        assert args.lm_eval_batch_size != "auto", "unsupported"
 
     # Map dtype string to torch dtype
     dtype_map = {
@@ -230,7 +301,7 @@ def main():
 
     # Generate output directory name from args
     model_name = args.model_id.split("/")[-1]  # Get last part of model ID
-    output_dir = f"{model_name}_{args.quantization}"
+    output_dir = f"{args.output_dir_prefix}_{model_name}_{args.quantization}"
 
     if args.quantization != "none":
         output_dir += f"_gs{args.group_size}"
@@ -240,6 +311,8 @@ def main():
         "int4-gptq-nonsequential",
         "int8-gptq-sequential",
         "int8-gptq-nonsequential",
+        "nvfp4-gptq-sequential",
+        "nvfp4-gptq-nonsequential",
     ]:
         output_dir += f"_{args.dataset_id}_n{args.num_calibration_samples}"
         output_dir += f"_damp{args.percdamp}_bs{args.gptq_block_size}"
@@ -249,29 +322,60 @@ def main():
     # Handle different quantization methods
     quantization_start_time = time.time()
 
+    def skip_lm_head(module, fqn):
+        return isinstance(module, torch.nn.Linear) and "lm_head" not in fqn
+
+    def skip_lm_head_o_proj(module, fqn):
+        return (
+            isinstance(module, torch.nn.Linear)
+            and "lm_head" not in fqn
+            and "o_proj" in fqn
+        )
+
+    filter_fn_to_use = skip_lm_head
+    if args.o_proj_only:
+        filter_fn_to_use = skip_lm_head_o_proj
+
     if args.quantization == "int4-rtn":
         print("Applying Int4 RTN (Round-To-Nearest) quantization...")
         config = Int4WeightOnlyConfig(group_size=args.group_size)
-        quantize_(model, config, filter_fn=None)
+        quantize_(model, config, filter_fn=filter_fn_to_use)
 
     elif args.quantization == "int8-rtn":
         print("Applying Int8 RTN (Round-To-Nearest) quantization...")
         config = Int8WeightOnlyConfig(version=2, granularity=PerRow())
-        quantize_(model, config, filter_fn=None)
+        quantize_(model, config, filter_fn=filter_fn_to_use)
+
+    elif args.quantization == "nvfp4-rtn":
+        print("Applying NVFP4 RTN (Round-To-Nearest) quantization...")
+
+        config = NVFP4DynamicActivationNVFP4WeightConfig(
+            use_dynamic_per_tensor_scale=True,
+            use_triton_kernel=True,
+        )
+        quantize_(model, config, filter_fn=filter_fn_to_use)
 
     elif args.quantization in [
         "int4-gptq-sequential",
         "int4-gptq-nonsequential",
         "int8-gptq-sequential",
         "int8-gptq-nonsequential",
+        "nvfp4-gptq-sequential",
+        "nvfp4-gptq-nonsequential",
     ]:
         # Determine base config based on quantization type
         if "int4" in args.quantization:
             base_config = Int4WeightOnlyConfig(group_size=args.group_size)
             quant_type = "Int4"
-        else:  # int8
+        elif "int8" in args.quantization:
             base_config = Int8WeightOnlyConfig(granularity=PerRow(), version=2)
             quant_type = "Int8"
+        else:  # nvfp4
+            base_config = NVFP4DynamicActivationNVFP4WeightConfig(
+                use_dynamic_per_tensor_scale=True,
+                use_triton_kernel=True,
+            )
+            quant_type = "NVFP4"
 
         # First application: wrap weights with GPTQObserverTensor (observe step)
         print(
@@ -283,7 +387,7 @@ def main():
             percdamp=args.percdamp,
             gptq_quantize_block_size=args.gptq_block_size,
         )
-        quantize_(model, observe_config, filter_fn=None)
+        quantize_(model, observe_config, filter_fn=filter_fn_to_use)
 
         # Prepare calibration dataset
         print(
@@ -294,7 +398,7 @@ def main():
             max_seq_length,
             args.num_calibration_samples,
             dataset_id=args.dataset_id,
-            dataset_split="train_sft",
+            dataset_split=args.dataset_split,
             seed=42,
         )
 
@@ -314,10 +418,17 @@ def main():
             # Run calibration
             for seq in tqdm(dataset, desc="Calibrating"):
                 model(seq.to(input_device))
+            # Print total # of GPTQ modules
+            num_gptq_weights = 0
+            for name, param in model.named_parameters():
+                if isinstance(param, GPTQObserverTensor):
+                    num_gptq_weights += 1
+            print(f"Total GPTQ weights to convert: {num_gptq_weights}")
             # Apply quantization
-            quantize_(model, convert_config, filter_fn=None)
+            quantize_(model, convert_config, filter_fn=filter_fn_to_use)
         else:  # sequential
             print(f"Applying {quant_type} GPTQ quantization (sequential)...")
+            assert filter_fn_to_use == skip_lm_head, "unsupported"
             sequential_quantize(model, dataset, convert_config)
 
     quantization_end_time = time.time()
@@ -333,6 +444,27 @@ def main():
     # Save model to generated output directory
     print(f"Saving model to {output_dir}...")
     tokenizer.save_pretrained(output_dir)
+    print(model)
+
+    if "nvfp4" in args.quantization:
+        import inspect
+
+        source = inspect.getsource(TorchAoHfQuantizer.get_weight_conversions)
+        if "_weight_per_tensor_scale" not in source:
+            raise RuntimeError(
+                "Your version of `transformers` does not support NVFP4 serialization. "
+                "Please install a version that includes "
+                "https://github.com/huggingface/transformers/pull/45573"
+            )
+
+    if args.quantization != "none":
+        # Attach hf_quantizer so save_pretrained uses the flatten path for tensor
+        # subclasses (e.g. NVFP4Tensor) that don't have a valid storage pointer.
+        ao_config = base_config if "gptq" in args.quantization else config
+        torchao_config = TorchAoConfig(quant_type=ao_config)
+        model.config.quantization_config = torchao_config
+        model.hf_quantizer = TorchAoHfQuantizer(torchao_config)
+
     model.save_pretrained(output_dir, safe_serialization=False)
 
     print("DONE!")
@@ -358,14 +490,20 @@ def main():
         "--model_args",
         f"pretrained={output_dir}",
         "--tasks",
-        "leaderboard_bbh",
-        "--num_fewshot",
-        "3",
+        args.lm_eval_tasks,
         "--batch_size",
-        "auto",
+        args.lm_eval_batch_size,
     ]
 
+    if args.num_fewshot > 0:
+        lm_eval_cmd += ["--num_fewshot", str(args.num_fewshot)]
+    if args.lm_eval_limit is not None:
+        lm_eval_cmd += ["--limit", str(args.lm_eval_limit)]
+
     print(f"Running command: {' '.join(lm_eval_cmd)}")
+    if args.skip_lm_eval:
+        print("Terminating early due to skip_lm_eval=True")
+        return
     try:
         subprocess.run(lm_eval_cmd, check=True)
     except subprocess.CalledProcessError as e:

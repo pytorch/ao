@@ -14,7 +14,6 @@ from torchao.prototype.mx_formats.config import (
     ScaleCalculationMode,
 )
 from torchao.prototype.mx_formats.kernels import (
-    mxfp8_quantize_cuda,
     triton_mx_block_rearrange,
     triton_to_mxfp8_dim1,
 )
@@ -159,6 +158,8 @@ def _to_mxfp8_dim1_kernel_wrapper(
     # TODO(future PR): split this utils file in two
     from torchao.prototype.mx_formats.mx_tensor import MXTensor, to_mx
 
+    is_swizzled_scales = False
+
     if kernel_preference == KernelPreference.EMULATED:
         a_scale, a_data = to_mx(
             a.t().contiguous(),
@@ -181,16 +182,35 @@ def _to_mxfp8_dim1_kernel_wrapper(
             ScaleCalculationMode.FLOOR,
             ScaleCalculationMode.RCEIL,
         )
+        from torchao.prototype.mx_formats.kernels import (
+            mxfp8_quantize_cuda,
+        )
+
         _, a_data, _, a_scale = mxfp8_quantize_cuda(
             a,
             rowwise=False,
             colwise=True,
             scaling_mode=scale_calculation_mode.value,
         )
+    elif cast_kernel_choice == MXFP8Dim1CastKernelChoice.CUTEDSL:
+        assert scale_calculation_mode in (
+            ScaleCalculationMode.FLOOR,
+            ScaleCalculationMode.RCEIL,
+        )
+        from torchao.prototype.moe_training.kernels.mxfp8.quant import (
+            mxfp8_quantize_2d_32x1_cutedsl,
+        )
+
+        a_data, a_scale = mxfp8_quantize_2d_32x1_cutedsl(
+            a,
+            block_size=block_size,
+            scaling_mode=scale_calculation_mode.value,
+            blocked_scale_output=True,
+        )
+        is_swizzled_scales = True
     else:
         raise ValueError(f"must be one of [CUDA, TRITON], got {cast_kernel_choice}")
 
-    is_swizzled_scales = False
     # MXTensor wraps DTensor inner tensors directly (MXTensor(DTensor) ordering).
     # DTensor's .t() handles placement transposition automatically.
     mx_tensor = MXTensor(

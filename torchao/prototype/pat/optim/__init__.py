@@ -8,7 +8,7 @@ import sys
 
 from torch.optim import Optimizer
 
-from .group_lasso import ProxGroupLasso, ProxGroupLassoReduce  # noqa: F401
+from .group_lasso import ProxGroupLasso, ProxGroupLassoVectorized  # noqa: F401
 from .lasso import ProxLasso  # noqa: F401
 from .nuclear_norm import ProxNuclearNorm  # noqa: F401
 from .proxmap import ProxMap  # noqa: F401
@@ -20,7 +20,9 @@ def build_prune_optimizer(
     prune_reg_lambda: float,
     prune_warmup_steps: int = 0,
     prune_healing_start_step: int = sys.maxsize,
-    nm_gamma: float = 0.0,
+    reweight_tau_freq: int = 0,
+    reweight_tau_end_step: int = sys.maxsize,
+    reweight_eps: float = 1e-3,
 ) -> PruneOptimizer:
     prune_opt_cls = PruneOptimizer  # TODO: support other prune optimizers
     return prune_opt_cls(
@@ -28,4 +30,7 @@ def build_prune_optimizer(
         warmup_steps=prune_warmup_steps,
         healing_start_step=prune_healing_start_step,
         reg_lambda=prune_reg_lambda,
+        reweight_tau_freq=reweight_tau_freq,
+        reweight_tau_end_step=reweight_tau_end_step,
+        reweight_eps=reweight_eps,
     )

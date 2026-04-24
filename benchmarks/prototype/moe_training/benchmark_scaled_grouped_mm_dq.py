@@ -78,7 +78,6 @@ def get_configs() -> List[ExperimentConfig]:
     ]
     recipes = [
         MXFP8TrainingRecipe.MXFP8_RCEIL,
-        MXFP8TrainingRecipe.MXFP8_RCEIL_WGRAD_WITH_HP,
     ]
     high_precision_dtypes = [torch.bfloat16]
     configs = []
@@ -119,14 +118,15 @@ def run_experiment(
     # Create config object from recipe
     if isinstance(config.recipe, Float8TrainingRecipe):
         quant_config = Float8TrainingOpConfig.from_recipe(config.recipe)
-        alignment_size = 16 if args.aligned else 1
+        alignment_size = args.alignment_size
         # TODO: support pad_token_groups_for_grouped_mm option in Float8TrainingOpConfig
     else:
         quant_config = MXFP8TrainingOpConfig.from_recipe(config.recipe)
-        quant_config.pad_token_groups_for_grouped_mm = not args.aligned
-        alignment_size = 32 if args.aligned else 1
+        quant_config.pad_token_groups_for_grouped_mm = args.alignment_size == 1
+        alignment_size = args.alignment_size
 
-    offs = generate_jagged_offs(G, total_M, multiple_of=alignment_size)
+    offs = generate_jagged_offs(G, total_M, multiple_of=1)
+    padded_offs = (offs + alignment_size - 1) // alignment_size * alignment_size
 
     # fwd_bwd bf16 benchmark + profiling
     bf16_fwd_bwd_us = bench_fwd_bwd_microseconds(
@@ -154,7 +154,7 @@ def run_experiment(
         A,
         B_t,
         quant_config,
-        offs,
+        padded_offs,
         use_compile=args.compile,
         fullgraph=False,
     )
@@ -164,7 +164,7 @@ def run_experiment(
             A,
             B_t,
             quant_config,
-            offs,
+            padded_offs,
             use_compile=args.compile,
             profile_name="scaled_profile",
             fullgraph=False,
@@ -184,7 +184,7 @@ def run_experiment(
         A,
         B_t,
         quant_config,
-        offs,
+        padded_offs,
         use_compile=args.compile,
         fullgraph=True,
     )
@@ -267,9 +267,10 @@ if __name__ == "__main__":
     arg_parser.add_argument("--compile", action="store_true")
     arg_parser.add_argument("--profile", action="store_true")
     arg_parser.add_argument(
-        "--aligned",
-        action="store_true",
-        help="If true, token group sizes are pre-aligned, to simulate flow with HybridEP or similar",
+        "--alignment-size",
+        type=int,
+        default=1,
+        help="Alignment size for token group sizes. Use 1 for no alignment, 16 for Float8 alignment, 32 for MXFP8 alignment, or any custom value",
     )
 
     args = arg_parser.parse_args()

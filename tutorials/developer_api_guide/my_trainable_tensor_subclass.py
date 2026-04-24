@@ -3,6 +3,9 @@
 #
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
+
+# TODO: migrate off Layout, see https://github.com/pytorch/ao/pull/4245
+
 """
 This is an example for a tensor subclass representing a simple dtype
 that can be used in training.
@@ -16,10 +19,10 @@ needed to ensure proper gradient updates during training:
 """
 
 import torch
-from my_dtype_tensor_subclass import MyDTypeTensor, MyDTypeTensorImpl
+from my_dtype_tensor_subclass import MyDTypeTensor, MyDTypeTensorImpl, PlainLayout
 from torch.utils._python_dispatch import return_and_correct_aliasing
 
-from torchao.dtypes.utils import Layout, PlainLayout
+from torchao.dtypes.utils import Layout
 from torchao.quantization import (
     MappingType,
     choose_qparams_affine,
