@@ -203,32 +203,6 @@ def _replace_observer_with_quantize_dequantize_node_decomposed(
         # 1. extract information for inserting q/dq node from activation_post_process
         node_type = "call_function"
         quantize_op: Optional[Callable] = None
-
-        # In the dynamic quantization case, weight's is_dynamic flag is false, but calibration
-        # is skipped so weight observers may never have been run. Detect this by checking
-        # if the observer is uninitialized (empty min_val) and its input is a constant
-        # weight tensor, and run the observer eagerly in that case.
-        if (
-            hasattr(activation_post_process, "min_val")
-            and isinstance(activation_post_process.min_val, torch.Tensor)
-            and activation_post_process.min_val.numel() == 0  # type: ignore[attr-defined]
-            and len(node.args) > 0
-            and isinstance(node.args[0], Node)
-            and node.args[0].op == "get_attr"
-        ):
-            weight_node = node.args[0]
-            # traverse the module attribute to get the weight tensor, and run the observer on the weight tensor
-            target_atoms = weight_node.target.split(".")
-            attr_itr: Any = model
-            for atom in target_atoms:
-                if hasattr(attr_itr, atom):
-                    attr_itr = getattr(attr_itr, atom)
-                else:
-                    attr_itr = None
-                    break
-            if isinstance(attr_itr, torch.Tensor):
-                activation_post_process(attr_itr)
-
         scale, zero_point = activation_post_process.calculate_qparams()  # type: ignore[attr-defined, operator]
         if is_per_channel(activation_post_process.qscheme):  # type: ignore[attr-defined]
             ch_axis = int(activation_post_process.ch_axis)  # type: ignore[attr-defined, arg-type]
