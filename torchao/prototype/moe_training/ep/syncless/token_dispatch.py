@@ -4,7 +4,7 @@ import triton
 import triton.language as tl
 from torch.library import triton_op, wrap_triton
 
-from torchao.prototype.moe_training.ep.syncless.buffer_manager import (
+from torchao.prototype.moe_training.ep.syncless.sym_mem_buffer_manager import (
     SymmetricMemoryBufferManager,
     get_buffer_manager,
 )

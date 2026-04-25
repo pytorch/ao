@@ -94,7 +94,7 @@ class SynclessTokenCombineTest(MultiProcessTestCase):
                 total_global_tokens + 128 * experts_per_rank * self.world_size
             )
 
-            from torchao.prototype.moe_training.ep.syncless.buffer_manager import (
+            from torchao.prototype.moe_training.ep.syncless.sym_mem_buffer_manager import (
                 get_buffer_manager,
             )
 

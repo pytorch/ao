@@ -28,7 +28,7 @@ from tqdm import tqdm
 
 from benchmarks.utils import profile_fn
 from torchao.prototype.moe_training.ep.permute import permute_and_pad
-from torchao.prototype.moe_training.ep.syncless.buffer_manager import (
+from torchao.prototype.moe_training.ep.syncless.sym_mem_buffer_manager import (
     SymmetricMemoryBufferManager,
 )
 from torchao.prototype.moe_training.ep.syncless.token_combine import token_combine

@@ -105,7 +105,7 @@ class MXFP8SynclessAllToAllExpertMajorTest(MultiProcessTestCase):
             )
 
             # Preallocate symmetric memory buffers
-            from torchao.prototype.moe_training.ep.syncless.buffer_manager import (
+            from torchao.prototype.moe_training.ep.syncless.sym_mem_buffer_manager import (
                 get_buffer_manager,
             )
 

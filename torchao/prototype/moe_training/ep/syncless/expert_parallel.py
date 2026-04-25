@@ -32,7 +32,7 @@ from torch.distributed.device_mesh import DeviceMesh
 from torch.distributed.tensor import Shard
 from torch.distributed.tensor.parallel import ParallelStyle
 
-from torchao.prototype.moe_training.ep.syncless.buffer_manager import (
+from torchao.prototype.moe_training.ep.syncless.sym_mem_buffer_manager import (
     SymmetricMemoryBufferManager,
     get_buffer_manager,
 )

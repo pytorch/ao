@@ -23,7 +23,7 @@ from torch._C._distributed_c10d import (
 )
 from torch.library import triton_op, wrap_triton
 
-from torchao.prototype.moe_training.ep.syncless.buffer_manager import (
+from torchao.prototype.moe_training.ep.syncless.sym_mem_buffer_manager import (
     SymmetricMemoryBufferManager,
 )
 
@@ -65,7 +65,7 @@ class SynclessTokenCombine(torch.autograd.Function):
             buffer_manager: optional buffer manager for reusing buffers.
             token_alignment: expert token group alignment (default 128).
         """
-        from torchao.prototype.moe_training.ep.syncless.buffer_manager import (
+        from torchao.prototype.moe_training.ep.syncless.sym_mem_buffer_manager import (
             get_buffer_manager,
         )
 

@@ -47,7 +47,7 @@ from torchao.prototype.moe_training.config import (
     MXFP8TrainingOpConfig,
     MXFP8TrainingRecipe,
 )
-from torchao.prototype.moe_training.ep.syncless.buffer_manager import (
+from torchao.prototype.moe_training.ep.syncless.sym_mem_buffer_manager import (
     SymmetricMemoryBufferManager,
 )
 from torchao.prototype.moe_training.ep.syncless.expert_parallel import (
