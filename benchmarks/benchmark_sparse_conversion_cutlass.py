@@ -10,11 +10,14 @@ from triton.testing import do_bench
 from torchao.ops import (
     to_sparse_semi_structured_cutlass_sm9x_f8,
 )
-from torchao.quantization.quant_api import (
-    _float8_cutlass_quant,
-    _float8_cutlass_quant_sparse,
-)
 from torchao.sparsity.utils import create_semi_structured_tensor
+
+raise ImportError(
+    "This benchmark is broken: _float8_cutlass_quant and _float8_cutlass_quant_sparse "
+    "were removed when AffineQuantizedTensor (AQT) was deleted. "
+    "See torchao/quantization/quantize_/workflows/float8/sparse_2x4_cutlass_float8_tensor.py "
+    "for the current API."
+)
 
 dtype = torch.bfloat16
 dtypeq_X = torch.float8_e4m3fn
@@ -117,7 +120,7 @@ if __name__ == "__main__":
         results.append(benchmark(m, 8192))
 
     df = pd.DataFrame(results)
-    df.to_csv("rowwise_scaled_linear_sparse_cutlass_time_results.csv", index=False)
+    df.to_csv("sparse_conversion_cutlass_time_results.csv", index=False)
     print(df.to_markdown(index=False))
 
     # print("PROFILING")
