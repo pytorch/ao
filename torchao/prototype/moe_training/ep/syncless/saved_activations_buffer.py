@@ -24,14 +24,14 @@ Two allocation modes:
    ``group_end_offs[-1]``).  Zero D2H sync.
 
 GPU memory is used first; overflow spills to CPU-pinned memory
-transparently (same virtual address space via ``DeferredUnifiedBuffer``).
+transparently (same virtual address space via ``UVMBuffer``).
 """
 
 import torch
 
 from torchao.prototype.moe_training.ep.syncless.cuda_allocator import CUDAAllocator
 from torchao.prototype.moe_training.ep.syncless.unified_buffer_allocator import (
-    DeferredUnifiedBuffer,
+    UVMBuffer,
 )
 
 # VMM allocation granularity — 2 MiB is the recommended granularity on
@@ -94,7 +94,7 @@ class SavedActivationsBuffer:
         # the fused dequant-requant kernel in the forward pass.
         gpu_data_bytes = _align(gpu_tokens * dim)
         cpu_data_bytes = _align(cpu_tokens * dim) if cpu_tokens > 0 else 0
-        self._raw_data = DeferredUnifiedBuffer(gpu_data_bytes, cpu_data_bytes)
+        self._raw_data = UVMBuffer(gpu_data_bytes, cpu_data_bytes)
         self.e4m3_data = (
             self._raw_data.tensor[: dim * max_tokens]
             .view(torch.float8_e4m3fn)
@@ -108,7 +108,7 @@ class SavedActivationsBuffer:
         scale_cols = max_tokens // block_size
         gpu_scale_bytes = _align(gpu_tokens * self._scale_dim)
         cpu_scale_bytes = _align(cpu_tokens * self._scale_dim) if cpu_tokens > 0 else 0
-        self._raw_scales = DeferredUnifiedBuffer(gpu_scale_bytes, cpu_scale_bytes)
+        self._raw_scales = UVMBuffer(gpu_scale_bytes, cpu_scale_bytes)
         self.e8m0_scales = self._raw_scales.tensor[: dim * scale_cols].view(
             dim, scale_cols
         )
@@ -121,7 +121,7 @@ class SavedActivationsBuffer:
         # -- swiglu_input: BF16, 2 bytes per element ------------------
         gpu_h13_bytes = _align(gpu_tokens * self._h13_cols * 2)
         cpu_h13_bytes = _align(cpu_tokens * self._h13_cols * 2) if cpu_tokens > 0 else 0
-        self._raw_h13 = DeferredUnifiedBuffer(gpu_h13_bytes, cpu_h13_bytes)
+        self._raw_h13 = UVMBuffer(gpu_h13_bytes, cpu_h13_bytes)
         self.swiglu_input = (
             self._raw_h13.tensor[: max_tokens * self._h13_cols * 2]
             .view(torch.bfloat16)

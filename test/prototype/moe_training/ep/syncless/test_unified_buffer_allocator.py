@@ -16,7 +16,7 @@ except ImportError:
     pytest.skip("Test requires cuda.bindings (cuda-python)", allow_module_level=True)
 
 from torchao.prototype.moe_training.ep.syncless.unified_buffer_allocator import (
-    DeferredUnifiedBuffer,
+    UVMBuffer,
     _check,
     _g_allocated_cudacpu_buffers,
     create_unified_buffer,
@@ -274,13 +274,13 @@ class TestCreateUnifiedBuffer:
         free_unified_buffer(tensor.data_ptr())
 
 
-class TestDeferredUnifiedBuffer:
-    """Tests for DeferredUnifiedBuffer (deferred physical allocation)."""
+class TestUVMBuffer:
+    """Tests for UVMBuffer (deferred physical allocation)."""
 
     def test_deferred_gpu_only(self):
         """Reserve GPU+CPU VA, trigger GPU page mapping, verify R/W."""
         g = _get_granularity()
-        buf = DeferredUnifiedBuffer(gpu_capacity=2 * g, cpu_capacity=2 * g)
+        buf = UVMBuffer(gpu_capacity=2 * g, cpu_capacity=2 * g)
 
         assert buf.gpu_mapped == 0
         assert buf.cpu_mapped == 0
@@ -301,7 +301,7 @@ class TestDeferredUnifiedBuffer:
     def test_deferred_incremental_mapping(self):
         """Map pages incrementally, verify each region is usable."""
         g = _get_granularity()
-        buf = DeferredUnifiedBuffer(gpu_capacity=4 * g, cpu_capacity=0)
+        buf = UVMBuffer(gpu_capacity=4 * g, cpu_capacity=0)
 
         buf.ensure_mapped(g)
         assert buf.gpu_mapped == g
@@ -328,7 +328,7 @@ class TestDeferredUnifiedBuffer:
         g = _get_granularity()
         gpu_cap = 2 * g
         cpu_cap = 2 * g
-        buf = DeferredUnifiedBuffer(gpu_capacity=gpu_cap, cpu_capacity=cpu_cap)
+        buf = UVMBuffer(gpu_capacity=gpu_cap, cpu_capacity=cpu_cap)
 
         buf.ensure_mapped(3 * g)
         assert buf.gpu_mapped == gpu_cap
@@ -347,7 +347,7 @@ class TestDeferredUnifiedBuffer:
     def test_deferred_release_physical(self):
         """Map pages, release them, verify re-mapping works."""
         g = _get_granularity()
-        buf = DeferredUnifiedBuffer(gpu_capacity=2 * g, cpu_capacity=2 * g)
+        buf = UVMBuffer(gpu_capacity=2 * g, cpu_capacity=2 * g)
 
         buf.ensure_mapped(2 * g)
         assert buf.gpu_mapped == 2 * g
@@ -370,7 +370,7 @@ class TestDeferredUnifiedBuffer:
     def test_deferred_no_cpu_until_needed(self):
         """Verify zero CPU physical memory when all tokens fit in GPU."""
         g = _get_granularity()
-        buf = DeferredUnifiedBuffer(gpu_capacity=4 * g, cpu_capacity=4 * g)
+        buf = UVMBuffer(gpu_capacity=4 * g, cpu_capacity=4 * g)
 
         buf.ensure_mapped(g)
         assert buf.gpu_mapped == g

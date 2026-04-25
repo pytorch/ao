@@ -327,17 +327,13 @@ def create_unified_buffer(cpu_bytes: int, gpu_bytes: int) -> torch.Tensor:
     return tensor
 
 
-class DeferredUnifiedBuffer:
-    """Unified GPU+CPU buffer with deferred physical memory allocation.
+class UVMBuffer:
+    """
+    Unified GPU+CPU buffer with deferred physical memory allocation.
 
-    Separates virtual address reservation (cheap, no physical RAM) from
-    physical memory allocation (expensive, real GPU HBM or CPU-pinned RAM).
     The full VA range is reserved at construction time, but physical pages
     are only allocated via ``cuMemCreate`` + ``cuMemMap`` when
     :meth:`ensure_mapped` is called.
-
-    This avoids pinning tens of GB of host RAM at construction when the
-    CPU overflow pool may never be needed (e.g. balanced routing).
 
     Args:
         gpu_capacity: Maximum bytes of GPU device memory.
