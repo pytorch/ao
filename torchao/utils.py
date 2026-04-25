@@ -592,15 +592,19 @@ def _implements_common_tensor_ops(cls):
         ):
             kwargs = self._get_to_kwargs(*args[1:], **kwargs)
             device = kwargs.pop("device")
+            non_blocking = kwargs.pop("non_blocking", False)
             tensors = [
-                getattr(self, name).to(device) for name in self.tensor_data_names
+                getattr(self, name).to(device, non_blocking=non_blocking)
+                for name in self.tensor_data_names
             ]
             optional_tensors = []
             if hasattr(self, "optional_tensor_data_names"):
                 for tensor_data_name in self.optional_tensor_data_names:
                     maybe_tensor = getattr(self, tensor_data_name)
                     if maybe_tensor is not None:
-                        optional_tensors.append(maybe_tensor.to(device))
+                        optional_tensors.append(
+                            maybe_tensor.to(device, non_blocking=non_blocking)
+                        )
                     else:
                         optional_tensors.append(None)
 
@@ -691,25 +695,21 @@ def _dispatch__torch_dispatch__(cls, func, types, args, kwargs):
 
 
 def _get_to_kwargs(self, *args, **kwargs):
-    """Helper function to get the device and dtype keyword args for `aten._to_copy.default` op
-    only device and dtype are kept
+    """Helper function to get the device, dtype and non_blocking keyword args for `aten._to_copy.default` op
 
-    Returns: {"device": device, "dtype": dtype}
+    Returns: {"device": device, "dtype": dtype, "non_blocking": non_blocking}
     """
     # `torch._C._nn._parse_to` can't handle `layout` argument
     args = tuple(arg for arg in args if not isinstance(arg, torch.layout))
     if "layout" in kwargs:
         kwargs.pop("layout")
-    # ignoring `non_blocking` and `memory_format` args since these are not
-    # very useful for most of the tensor subclasses
-    # if in the future there are use cases that need these, we'd recommend
-    # to override `_get_to_kwargs` and return these args
-    device, dtype, _, _ = torch._C._nn._parse_to(*args, **kwargs)
+    device, dtype, non_blocking, _ = torch._C._nn._parse_to(*args, **kwargs)
     device = self.device if device is None else device
     dtype = self.dtype if dtype is None else dtype
     kwargs = {
         "device": device,
         "dtype": dtype,
+        "non_blocking": non_blocking,
     }
     return kwargs
 
