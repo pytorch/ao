@@ -391,15 +391,15 @@ def test_mxfp8_dequant_requant_col_major(
     # Verify zero-padding beyond num_tokens
     if num_tokens < sym_mem_buffer_rows:
         fused_data_f32 = fused_data.to(torch.float32)
-        assert torch.all(
-            fused_data_f32[num_tokens:, :] == 0
-        ), "Rows beyond num_tokens should be zero"
+        assert torch.all(fused_data_f32[num_tokens:, :] == 0), (
+            "Rows beyond num_tokens should be zero"
+        )
 
     # Verify output buffer is untouched outside the written region
     before_region = out_data[:, :out_offset_val]
-    assert torch.all(
-        before_region.to(torch.float32) == 0
-    ), "Output buffer before out_offset should be untouched"
+    assert torch.all(before_region.to(torch.float32) == 0), (
+        "Output buffer before out_offset should be untouched"
+    )
 
 
 # for test reference

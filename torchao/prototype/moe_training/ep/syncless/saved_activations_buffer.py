@@ -143,7 +143,7 @@ class SavedActivationsBuffer:
         self._raw_data.ensure_mapped(max_tokens * dim)
         self._raw_scales.ensure_mapped(max_tokens * self._scale_dim)
         self._raw_h13.ensure_mapped(max_tokens * self._h13_cols * 2)
-        
+
     def alloc(self, num_tokens: "torch.Tensor | int") -> torch.Tensor:
         """Allocate *num_tokens* rows and return a scalar int64 GPU tensor offset.
 

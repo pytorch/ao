@@ -34,7 +34,7 @@ from torch.distributed.tensor.parallel import ParallelStyle
 
 from torchao.prototype.moe_training.ep.syncless.sym_mem_buffer_manager import (
     SymmetricMemoryBufferManager,
-    get_buffer_manager,
+    get_sym_mem_buffer_manager,
 )
 from torchao.prototype.moe_training.ep.syncless.token_combine import token_combine
 from torchao.prototype.moe_training.ep.syncless.token_dispatch import (
@@ -57,8 +57,8 @@ class SynclessExpertParallel(ParallelStyle):
     ``token_combine`` then routes that tensor back to source ranks.
 
     Args:
-        buffer_manager: optional pre-allocated ``SymmetricMemoryBufferManager``.
-            If *None*, the module-level singleton from ``get_buffer_manager()``
+        sym_mem_buffer_manager: optional pre-allocated ``SymmetricMemoryBufferManager``.
+            If *None*, the module-level singleton from ``get_sym_mem_buffer_manager()``
             is used.
         token_alignment: pad each expert's token group to a multiple of this
             value (default 128, required by MXFP8 grouped GEMM).
@@ -66,11 +66,11 @@ class SynclessExpertParallel(ParallelStyle):
 
     def __init__(
         self,
-        buffer_manager: SymmetricMemoryBufferManager | None = None,
+        sym_mem_buffer_manager: SymmetricMemoryBufferManager | None = None,
         token_alignment: int = 128,
     ):
         super().__init__()
-        self.buffer_manager = buffer_manager
+        self.sym_mem_buffer_manager = sym_mem_buffer_manager
         self.token_alignment = token_alignment
 
         # Metadata saved during dispatch for use in combine.
@@ -117,7 +117,7 @@ class SynclessExpertParallel(ParallelStyle):
         ).to(torch.int64)
         input_rank_splits = input_expert_splits.sum(dim=1)
 
-        buffers = self.buffer_manager or get_buffer_manager()
+        sym_mem_buffers = self.sym_mem_buffer_manager or get_sym_mem_buffer_manager()
 
         (
             output_e4m3,
@@ -132,7 +132,7 @@ class SynclessExpertParallel(ParallelStyle):
             input_rank_splits,
             input_expert_splits,
             group,
-            buffers,
+            sym_mem_buffers,
             self.token_alignment,
         )
 
@@ -161,7 +161,7 @@ class SynclessExpertParallel(ParallelStyle):
             rank-major order.
         """
         group = device_mesh.get_group()
-        buffers = self.buffer_manager or get_buffer_manager()
+        sym_mem_buffers = self.sym_mem_buffer_manager or get_sym_mem_buffer_manager()
 
         return token_combine(
             routed_output,
@@ -169,7 +169,7 @@ class SynclessExpertParallel(ParallelStyle):
             self._expert_padded_offsets,
             self._num_input_tokens,
             group,
-            buffers,
+            sym_mem_buffers,
             self.token_alignment,
         )
 

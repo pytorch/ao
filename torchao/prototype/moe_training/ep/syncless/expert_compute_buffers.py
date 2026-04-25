@@ -53,9 +53,9 @@ class ExpertComputeBuffers:
         hidden_dim: int,
         device: torch.device,
     ):
-        assert (
-            max_output_rows % 128 == 0
-        ), f"max_output_rows ({max_output_rows}) must be divisible by 128"
+        assert max_output_rows % 128 == 0, (
+            f"max_output_rows ({max_output_rows}) must be divisible by 128"
+        )
         self.max_output_rows = max_output_rows
         self.dim = dim
         self.hidden_dim = hidden_dim

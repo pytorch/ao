@@ -1,6 +1,6 @@
 from torchao.prototype.moe_training.ep.syncless.sym_mem_buffer_manager import (
     SymmetricMemoryBufferManager,  # noqa: F401
-    get_buffer_manager,  # noqa: F401
+    get_sym_mem_buffer_manager,  # noqa: F401
 )
 from torchao.prototype.moe_training.ep.syncless.expert_parallel import (
     SynclessExpertParallel,  # noqa: F401
@@ -12,6 +12,6 @@ from torchao.prototype.moe_training.ep.syncless.token_dispatch import (
 ___all__ = [
     "SymmetricMemoryBufferManager",
     "SynclessExpertParallel",
-    "get_buffer_manager",
+    "get_sym_mem_buffer_manager",
     "mxfp8_token_dispatch",
 ]

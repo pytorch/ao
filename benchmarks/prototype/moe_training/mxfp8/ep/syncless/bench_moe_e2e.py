@@ -89,6 +89,7 @@ class ExperimentConfig:
     num_experts: int
     top_k: int
 
+
 @dataclass(frozen=True)
 class ExperimentResult:
     ref_fwd_bwd_ms: float
@@ -160,7 +161,12 @@ def _compute_mfu(
 def get_configs() -> List[ExperimentConfig]:
     return [
         ExperimentConfig(
-            batch_size=1, seq_len=4096, dim=7168, hidden_dim=2048, num_experts=16, top_k=8
+            batch_size=1,
+            seq_len=4096,
+            dim=7168,
+            hidden_dim=2048,
+            num_experts=16,
+            top_k=8,
         ),
     ]
 
@@ -244,11 +250,11 @@ def run_experiment(
 
     group = ep_mesh.get_group()
 
-    buffer_manager = SymmetricMemoryBufferManager()
+    sym_mem_buffer_manager = SymmetricMemoryBufferManager()
     total_tokens = config.batch_size * config.seq_len
     top_k = config.top_k
     max_output_rows = world_size * total_tokens * top_k
-    buffer_manager.preallocate_buffers(
+    sym_mem_buffer_manager.preallocate_sym_mem_buffers(
         max_output_rows_per_rank=max_output_rows,
         data_shape=(config.dim,),
         scales_shape=(config.dim // 32,),
@@ -290,7 +296,9 @@ def run_experiment(
     parallelize_module(
         module=syncless_model.experts,
         device_mesh=ep_mesh,
-        parallelize_plan=SynclessExpertParallel(buffer_manager=buffer_manager),
+        parallelize_plan=SynclessExpertParallel(
+            sym_mem_buffer_manager=sym_mem_buffer_manager
+        ),
     )
 
     if args.compile:

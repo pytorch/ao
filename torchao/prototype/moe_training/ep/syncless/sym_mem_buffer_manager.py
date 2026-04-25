@@ -1,20 +1,20 @@
 import torch
 import torch.distributed._symmetric_memory as symm_mem
 
-# Module-level singleton for buffer management
-_default_buffer_manager = None
+# Module-level singleton for symmetric memory buffer management
+_default_sym_mem_buffer_manager = None
 
 
-def get_buffer_manager():
-    """Get the default buffer manager, creating it if necessary."""
-    global _default_buffer_manager
-    if _default_buffer_manager is None:
-        _default_buffer_manager = SymmetricMemoryBufferManager()
-    return _default_buffer_manager
+def get_sym_mem_buffer_manager():
+    """Get the default symmetric memory buffer manager, creating it if necessary."""
+    global _default_sym_mem_buffer_manager
+    if _default_sym_mem_buffer_manager is None:
+        _default_sym_mem_buffer_manager = SymmetricMemoryBufferManager()
+    return _default_sym_mem_buffer_manager
 
 
 class SymmetricMemoryBufferManager:
-    """Manages reusable buffers for MXFP8 all-to-all operations across MoE layers."""
+    """Manages reusable symmetric memory buffers for MXFP8 all-to-all operations across MoE layers."""
 
     def __init__(self):
         self.output = None
@@ -25,13 +25,13 @@ class SymmetricMemoryBufferManager:
         # Shared bf16 symmetric memory buffer, used for both:
         #  - combine forward  (expert-major -> rank-major)
         #  - combine backward (rank-major -> expert-major)
-        self.bf16_buffer = None
-        self._bf16_buffer_hdl = None
+        self.sym_mem_bf16_buffer = None
+        self._sym_mem_bf16_buffer_hdl = None
         self.output_expert_splits = None
         self.expert_padded_offsets = None
         self.real_data_size = None
 
-    def preallocate_buffers(
+    def preallocate_sym_mem_buffers(
         self,
         max_output_rows_per_rank: int,
         data_shape: tuple,
@@ -72,11 +72,11 @@ class SymmetricMemoryBufferManager:
             device=device,
         )
 
-        # Rendezvous once and cache handles (same pattern as _bf16_buffer_hdl)
+        # Rendezvous once and cache handles (same pattern as _sym_mem_bf16_buffer_hdl)
         self._output_hdl = symm_mem.rendezvous(self.output, group=group)
         self._output_scales_hdl = symm_mem.rendezvous(self.output_scales, group=group)
 
-    def ensure_bf16_buffer(
+    def ensure_sym_mem_bf16_buffer(
         self,
         dim: int,
         device: torch.device,
@@ -94,14 +94,16 @@ class SymmetricMemoryBufferManager:
             device: CUDA device
             group: process group for symmetric memory rendezvous
         """
-        if self.bf16_buffer is None:
-            self.bf16_buffer = symm_mem.empty(
+        if self.sym_mem_bf16_buffer is None:
+            self.sym_mem_bf16_buffer = symm_mem.empty(
                 self.max_output_rows_per_rank,
                 dim,
                 dtype=torch.bfloat16,
                 device=device,
             )
-            self._bf16_buffer_hdl = symm_mem.rendezvous(self.bf16_buffer, group=group)
+            self._sym_mem_bf16_buffer_hdl = symm_mem.rendezvous(
+                self.sym_mem_bf16_buffer, group=group
+            )
 
     def set_real_data_metadata(
         self,

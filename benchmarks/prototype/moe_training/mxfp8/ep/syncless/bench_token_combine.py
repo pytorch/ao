@@ -114,7 +114,7 @@ def syncless_a2a_combine(
     expert_padded_offsets: torch.Tensor,
     total_local_tokens: int,
     group: dist.ProcessGroup,
-    buffer_manager=None,
+    sym_mem_buffer_manager=None,
 ):
     """Syncless combine via symmetric memory push writes (zero D2H syncs)."""
     return token_combine(
@@ -123,7 +123,7 @@ def syncless_a2a_combine(
         expert_padded_offsets,
         total_local_tokens,
         group,
-        buffer_manager,
+        sym_mem_buffer_manager,
     )
 
 
@@ -206,15 +206,15 @@ def run_experiment(
     # ================================================================
     # Setup for SYNCLESS combine: run syncless dispatch pipeline
     # ================================================================
-    # Create a fresh buffer manager per experiment so that grad_input
-    # is allocated with the correct size (the singleton from
-    # get_buffer_manager() would keep the stale buffer from a prior
+    # Create a fresh symmetric memory buffer manager per experiment so that
+    # grad_input is allocated with the correct size (the singleton from
+    # get_sym_mem_buffer_manager() would keep the stale buffer from a prior
     # experiment with a smaller token count).
-    buffer_manager = SymmetricMemoryBufferManager()
+    sym_mem_buffer_manager = SymmetricMemoryBufferManager()
     total_tokens_across_all_ranks = x.shape[0] * world_size
     max_output_rows_per_rank = total_tokens_across_all_ranks
 
-    buffer_manager.preallocate_buffers(
+    sym_mem_buffer_manager.preallocate_sym_mem_buffers(
         max_output_rows_per_rank=max_output_rows_per_rank,
         data_shape=x.shape[1:],
         scales_shape=(x.shape[1] // 32,),
@@ -236,7 +236,7 @@ def run_experiment(
         input_rank_splits,
         input_expert_splits,
         mesh.get_group(),
-        buffer_manager,
+        sym_mem_buffer_manager,
     )
 
     syncless_combine_input = output_e4m3.to(torch.bfloat16)
@@ -302,7 +302,7 @@ def run_experiment(
             expert_padded_offsets,
             total_local_tokens,
             mesh.get_group(),
-            buffer_manager,
+            sym_mem_buffer_manager,
         )
     )
 
@@ -315,7 +315,7 @@ def run_experiment(
             expert_padded_offsets,
             total_local_tokens,
             mesh.get_group(),
-            buffer_manager,
+            sym_mem_buffer_manager,
         )
     torch.cuda.synchronize()
     end_sec = time.perf_counter()
@@ -331,7 +331,7 @@ def run_experiment(
                     expert_padded_offsets,
                     total_local_tokens,
                     mesh.get_group(),
-                    buffer_manager,
+                    sym_mem_buffer_manager,
                 )
 
         profile_fn(

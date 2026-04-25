@@ -57,9 +57,7 @@ def get_configs() -> List[ExperimentConfig]:
     configs = []
     for shape in input_shapes:
         for out_dtype in [torch.bfloat16]:
-            configs.append(
-                ExperimentConfig(input_shape=shape, out_dtype=out_dtype)
-            )
+            configs.append(ExperimentConfig(input_shape=shape, out_dtype=out_dtype))
     return configs
 
 

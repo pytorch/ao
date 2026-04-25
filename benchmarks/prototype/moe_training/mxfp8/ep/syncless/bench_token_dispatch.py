@@ -29,7 +29,7 @@ from tqdm import tqdm
 from benchmarks.utils import profile_fn
 from torchao.prototype.moe_training.ep.permute import permute_and_pad
 from torchao.prototype.moe_training.ep.syncless import (
-    get_buffer_manager,
+    get_sym_mem_buffer_manager,
 )
 from torchao.prototype.moe_training.ep.syncless.token_dispatch import (
     mxfp8_token_dispatch,
@@ -130,7 +130,7 @@ def mxfp8_a2a_fwd(
     input_rank_splits: torch.Tensor,
     input_expert_splits: torch.Tensor,
     device_mesh: DeviceMesh,
-    buffer_manager=None,
+    sym_mem_buffer_manager=None,
 ):
     (
         output_e4m3,
@@ -145,7 +145,7 @@ def mxfp8_a2a_fwd(
         input_rank_splits,
         input_expert_splits,
         device_mesh.get_group(),
-        buffer_manager,
+        sym_mem_buffer_manager,
     )
 
     return output_e4m3, output_scales_e8m0, output_expert_splits
@@ -230,8 +230,8 @@ def run_experiment(
             active_steps=1,
         )
 
-    # Preallocate buffer manager (not timed - reused across model)
-    buffer_manager = get_buffer_manager()
+    # Preallocate symmetric memory buffer manager (not timed - reused across model)
+    sym_mem_buffer_manager = get_sym_mem_buffer_manager()
 
     # Calculate worst-case buffer size and preallocate buffers
     world_size = dist.get_world_size()
@@ -239,7 +239,7 @@ def run_experiment(
     max_output_rows_per_rank = total_tokens_across_all_ranks
 
     # Preallocate symmetric memory buffers (simulates what happens during model init)
-    buffer_manager.preallocate_buffers(
+    sym_mem_buffer_manager.preallocate_sym_mem_buffers(
         max_output_rows_per_rank=max_output_rows_per_rank,
         data_shape=x.shape[1:],  # (dim,)
         scales_shape=(x.shape[1] // 32,),  # Assuming 32-element blocks for MXFP8 scales
@@ -251,7 +251,7 @@ def run_experiment(
     # Bench mxfp8 sync a2a fwd (zero device-to-host syncs!)
     warmup(
         lambda: mxfp8_a2a_fwd(
-            x, input_rank_splits, input_expert_splits, mesh, buffer_manager
+            x, input_rank_splits, input_expert_splits, mesh, sym_mem_buffer_manager
         )[0]  # Only use the output_e4m3 for warmup
     )
 
@@ -261,7 +261,7 @@ def run_experiment(
     for _ in range(NUM_BENCH_ITERS):
         mxfp8_routed_input_e4m3, mxfp8_routed_input_scales, output_expert_splits = (
             mxfp8_a2a_fwd(
-                x, input_rank_splits, input_expert_splits, mesh, buffer_manager
+                x, input_rank_splits, input_expert_splits, mesh, sym_mem_buffer_manager
             )
         )
     torch.cuda.synchronize()
@@ -273,7 +273,11 @@ def run_experiment(
         def mxfp8_a2a_batch():
             for _ in range(10):
                 mxfp8_a2a_fwd(
-                    x, input_rank_splits, input_expert_splits, mesh, buffer_manager
+                    x,
+                    input_rank_splits,
+                    input_expert_splits,
+                    mesh,
+                    sym_mem_buffer_manager,
                 )
 
         profile_fn(

@@ -47,7 +47,7 @@ class SynclessTokenCombine(torch.autograd.Function):
         expert_padded_offsets: torch.Tensor,
         num_output_tokens: int,
         group: dist.ProcessGroup = dist.group.WORLD,
-        buffer_manager: SymmetricMemoryBufferManager = None,
+        sym_mem_buffer_manager: SymmetricMemoryBufferManager = None,
         token_alignment: int = 128,
     ):
         """
@@ -62,21 +62,21 @@ class SynclessTokenCombine(torch.autograd.Function):
                 (num_experts_per_rank,).
             num_output_tokens: number of tokens in the output for this rank.
             group: process group to scope the collective.
-            buffer_manager: optional buffer manager for reusing buffers.
+            sym_mem_buffer_manager: optional symmetric memory buffer manager for reusing buffers.
             token_alignment: expert token group alignment (default 128).
         """
         from torchao.prototype.moe_training.ep.syncless.sym_mem_buffer_manager import (
-            get_buffer_manager,
+            get_sym_mem_buffer_manager,
         )
 
-        buffers = buffer_manager or get_buffer_manager()
+        sym_mem_buffers = sym_mem_buffer_manager or get_sym_mem_buffer_manager()
         dim = input.shape[1]
 
         # Ensure buffer is allocated before passing individual attributes
-        buffers.ensure_bf16_buffer(dim, input.device, group)
+        sym_mem_buffers.ensure_sym_mem_bf16_buffer(dim, input.device, group)
 
         # Use pre-allocated output buffer and device pointers
-        output = buffers.bf16_buffer[:num_output_tokens]
+        output = sym_mem_buffers.sym_mem_bf16_buffer[:num_output_tokens]
 
         _token_combine_launcher(
             input=input,
@@ -85,7 +85,7 @@ class SynclessTokenCombine(torch.autograd.Function):
             num_output_tokens=num_output_tokens,
             dim=dim,
             output=output,
-            output_dev_ptrs=buffers._bf16_buffer_hdl.buffer_ptrs_dev,
+            output_dev_ptrs=sym_mem_buffers._sym_mem_bf16_buffer_hdl.buffer_ptrs_dev,
             group_name=group.group_name,
         )
 
@@ -94,7 +94,7 @@ class SynclessTokenCombine(torch.autograd.Function):
         ctx.num_input_tokens = input.shape[0]
         ctx.dim = dim
         ctx.group = group
-        ctx.buffer_manager = buffers
+        ctx.sym_mem_buffer_manager = sym_mem_buffers
         ctx.token_alignment = token_alignment
 
         return output
@@ -110,9 +110,13 @@ class SynclessTokenCombine(torch.autograd.Function):
         """
         # Ensure buffer is allocated before passing individual attributes
         group = _resolve_process_group(ctx.group.group_name)
-        ctx.buffer_manager.ensure_bf16_buffer(ctx.dim, grad_output.device, group)
+        ctx.sym_mem_buffer_manager.ensure_sym_mem_bf16_buffer(
+            ctx.dim, grad_output.device, group
+        )
 
-        grad_input = ctx.buffer_manager.bf16_buffer[: ctx.num_input_tokens]
+        grad_input = ctx.sym_mem_buffer_manager.sym_mem_bf16_buffer[
+            : ctx.num_input_tokens
+        ]
 
         _token_combine_bwd_launcher(
             input=grad_output,
@@ -121,7 +125,7 @@ class SynclessTokenCombine(torch.autograd.Function):
             num_output_tokens=ctx.num_input_tokens,
             dim=ctx.dim,
             output=grad_input,
-            output_dev_ptrs=ctx.buffer_manager._bf16_buffer_hdl.buffer_ptrs_dev,
+            output_dev_ptrs=ctx.sym_mem_buffer_manager._sym_mem_bf16_buffer_hdl.buffer_ptrs_dev,
             group_name=ctx.group.group_name,
             token_alignment=ctx.token_alignment,
         )

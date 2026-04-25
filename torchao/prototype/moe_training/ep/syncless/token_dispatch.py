@@ -6,7 +6,7 @@ from torch.library import triton_op, wrap_triton
 
 from torchao.prototype.moe_training.ep.syncless.sym_mem_buffer_manager import (
     SymmetricMemoryBufferManager,
-    get_buffer_manager,
+    get_sym_mem_buffer_manager,
 )
 from torchao.prototype.moe_training.ep.syncless.token_combine import (
     _token_combine_launcher,
@@ -22,7 +22,7 @@ class MXFP8SynclessAllToAllExpertMajor(torch.autograd.Function):
         input_rank_splits: torch.Tensor,
         input_expert_splits: torch.Tensor,
         group: dist.ProcessGroup = dist.group.WORLD,
-        buffer_manager: SymmetricMemoryBufferManager = None,
+        sym_mem_buffer_manager: SymmetricMemoryBufferManager = None,
         token_alignment: int = 128,
     ):
         """
@@ -33,7 +33,7 @@ class MXFP8SynclessAllToAllExpertMajor(torch.autograd.Function):
         Implementation is syncless (i.e., no device to host syncs).
 
         The symmetric memory output buffers must be pre-allocated via
-        ``buffer_manager.preallocate_buffers(...)`` before calling this function.
+        ``sym_mem_buffer_manager.preallocate_sym_mem_buffers(...)`` before calling this function.
 
         Args:
             input: input float8_e4m3fn tensor with data for all ranks concatenated.
@@ -42,17 +42,20 @@ class MXFP8SynclessAllToAllExpertMajor(torch.autograd.Function):
                 input_expert_splits[i, j] = number of tokens this rank is sending to expert j on rank i.
                 Will be exchanged during all-to-all to provide per-expert metadata at destination.
             group: process group to scope the collective.
-            buffer_manager: optional buffer manager for reusing buffers across layers.
-                Must have output buffers pre-allocated via ``preallocate_buffers``.
+            sym_mem_buffer_manager: optional symmetric memory buffer manager for reusing buffers across layers.
+                Must have output buffers pre-allocated via ``preallocate_sym_mem_buffers``.
             token_alignment: pad each expert's token group to a multiple of this value (default 128).
         """
         assert input.dtype in (torch.float32, torch.bfloat16)
 
-        # Get or create buffer manager
-        buffers = buffer_manager or get_buffer_manager()
-        assert buffers.output is not None and buffers.output_scales is not None, (
+        # Get or create symmetric memory buffer manager
+        sym_mem_buffers = sym_mem_buffer_manager or get_sym_mem_buffer_manager()
+        assert (
+            sym_mem_buffers.output is not None
+            and sym_mem_buffers.output_scales is not None
+        ), (
             "Symmetric memory buffers must be pre-allocated via "
-            "buffer_manager.preallocate_buffers() before calling mxfp8_token_dispatch."
+            "sym_mem_buffer_manager.preallocate_sym_mem_buffers() before calling mxfp8_token_dispatch."
         )
 
         # This quantization kernel writes scales to row major layout, appropriate for all2all,
@@ -119,12 +122,12 @@ class MXFP8SynclessAllToAllExpertMajor(torch.autograd.Function):
             input_expert_splits,
             all_expert_splits,
             write_offsets,
-            buffers.output,
-            buffers.output_scales,
-            buffers._output_hdl.buffer_ptrs_dev,
-            buffers._output_scales_hdl.buffer_ptrs_dev,
-            buffers._output_hdl.rank,
-            buffers._output_hdl.world_size,
+            sym_mem_buffers.output,
+            sym_mem_buffers.output_scales,
+            sym_mem_buffers._output_hdl.buffer_ptrs_dev,
+            sym_mem_buffers._output_scales_hdl.buffer_ptrs_dev,
+            sym_mem_buffers._output_hdl.rank,
+            sym_mem_buffers._output_hdl.world_size,
             output_rank_splits,
             output_expert_splits,
             expert_padded_offsets,
@@ -134,7 +137,9 @@ class MXFP8SynclessAllToAllExpertMajor(torch.autograd.Function):
         )
 
         # Store metadata for real data views in buffer manager
-        buffers.set_real_data_metadata(output_expert_splits, expert_padded_offsets)
+        sym_mem_buffers.set_real_data_metadata(
+            output_expert_splits, expert_padded_offsets
+        )
 
         # Save what we need for backward
         ctx.input_rank_splits = input_rank_splits
@@ -147,11 +152,11 @@ class MXFP8SynclessAllToAllExpertMajor(torch.autograd.Function):
         ctx.token_alignment = token_alignment
         ctx.num_input_tokens = input.shape[0]
         ctx.dim = input_data.shape[1]
-        ctx.buffer_manager = buffers
+        ctx.sym_mem_buffer_manager = sym_mem_buffers
 
         return (
-            buffers.output,
-            buffers.output_scales,
+            sym_mem_buffers.output,
+            sym_mem_buffers.output_scales,
             output_rank_splits,
             output_expert_splits,
             expert_padded_offsets,
@@ -181,8 +186,12 @@ class MXFP8SynclessAllToAllExpertMajor(torch.autograd.Function):
         Only grad_output is non-None (the other forward outputs are integer tensors).
         """
         # Ensure buffer is allocated before passing individual attributes
-        ctx.buffer_manager.ensure_bf16_buffer(ctx.dim, grad_output.device, ctx.group)
-        grad_input = ctx.buffer_manager.bf16_buffer[: ctx.num_input_tokens]
+        ctx.sym_mem_buffer_manager.ensure_sym_mem_bf16_buffer(
+            ctx.dim, grad_output.device, ctx.group
+        )
+        grad_input = ctx.sym_mem_buffer_manager.sym_mem_bf16_buffer[
+            : ctx.num_input_tokens
+        ]
 
         _token_combine_launcher(
             input=grad_output,
@@ -191,7 +200,7 @@ class MXFP8SynclessAllToAllExpertMajor(torch.autograd.Function):
             num_output_tokens=ctx.num_input_tokens,
             dim=ctx.dim,
             output=grad_input,
-            output_dev_ptrs=ctx.buffer_manager._bf16_buffer_hdl.buffer_ptrs_dev,
+            output_dev_ptrs=ctx.sym_mem_buffer_manager._sym_mem_bf16_buffer_hdl.buffer_ptrs_dev,
             group_name=ctx.group.group_name,
         )
         return grad_input, None, None, None, None, None

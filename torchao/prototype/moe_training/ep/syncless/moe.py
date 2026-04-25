@@ -307,7 +307,6 @@ class MXFP8GroupedExpertsFunc(torch.autograd.Function):
 
 
 class MXFP8GroupedExperts(nn.Module):
-
     def __init__(
         self,
         dim: int,
