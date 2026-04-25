@@ -56,6 +56,7 @@ from torchao.quantization.qat.fake_quantize_config import (
 )
 from torchao.quantization.qat.fake_quantizer import (
     Float8FakeQuantizer,
+    Int4WeightFakeQuantizer,
     IntxFakeQuantizer,
 )
 from torchao.quantization.qat.linear import (
@@ -1782,6 +1783,41 @@ class TestQAT(TestCase):
         out_expected = Float8Tensor.from_hp(x, dtype, granularity).dequantize()
         sqnr = compute_error(out, out_expected)
         self.assertGreater(sqnr, 16)
+
+    def test_fake_quantizer_enabled_attribute(self):
+        """
+        Test that `Int4WeightFakeQuantizer` and `Float8FakeQuantizer` initialize
+        `enabled = True` and gate fake quantization in forward, matching the
+        behavior of `IntxFakeQuantizer`.
+        """
+        # Int4WeightFakeQuantizer: enabled gate exercised on CPU via the
+        # bf16 activation path, which only uses ATen ops.
+        int4_config = Int4WeightFakeQuantizeConfig(
+            group_size=32,
+            activation_dtype=torch.bfloat16,
+        )
+        int4_fake_quantizer = Int4WeightFakeQuantizer(int4_config)
+        self.assertTrue(int4_fake_quantizer.enabled)
+
+        torch.manual_seed(self.SEED)
+        w = torch.randn(64, 64, dtype=torch.bfloat16)
+
+        int4_fake_quantizer.enabled = False
+        torch.testing.assert_close(int4_fake_quantizer(w), w, atol=0, rtol=0)
+
+        int4_fake_quantizer.enabled = True
+        self.assertFalse(torch.equal(int4_fake_quantizer(w), w))
+
+        # Float8FakeQuantizer: only the disabled path is exercised here,
+        # since the enabled path requires fp8-capable hardware (covered by
+        # `test_float8_fake_quantize`).
+        float8_config = Float8FakeQuantizeConfig(torch.float8_e4m3fn, PerRow())
+        float8_fake_quantizer = Float8FakeQuantizer(float8_config)
+        self.assertTrue(float8_fake_quantizer.enabled)
+
+        x = torch.randn(32, 64)
+        float8_fake_quantizer.enabled = False
+        torch.testing.assert_close(float8_fake_quantizer(x), x, atol=0, rtol=0)
 
     def _test_quantize_api_against_ptq(
         self,
