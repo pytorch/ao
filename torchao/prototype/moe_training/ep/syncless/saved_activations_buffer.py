@@ -136,13 +136,14 @@ class SavedActivationsBuffer:
         # The device_tensor arg is only used to infer the CUDA device.
         self.allocator = CUDAAllocator(self._raw_data.tensor, [gpu_tokens, cpu_tokens])
 
-        # Eagerly map all GPU pages so CUDAAllocator's best-fit
+        # Eagerly map all pages so CUDAAllocator's best-fit
         # (non-sequential) allocation always hits mapped memory.
-        # CPU pages remain deferred.
-        self._raw_data.ensure_mapped(gpu_tokens * dim)
-        self._raw_scales.ensure_mapped(gpu_tokens * self._scale_dim)
-        self._raw_h13.ensure_mapped(gpu_tokens * self._h13_cols * 2)
-
+        # Both GPU and CPU pages are mapped upfront — if cpu_tokens > 0,
+        # the caller expects CPU overflow to be usable immediately.
+        self._raw_data.ensure_mapped(max_tokens * dim)
+        self._raw_scales.ensure_mapped(max_tokens * self._scale_dim)
+        self._raw_h13.ensure_mapped(max_tokens * self._h13_cols * 2)
+        
     def alloc(self, num_tokens: "torch.Tensor | int") -> torch.Tensor:
         """Allocate *num_tokens* rows and return a scalar int64 GPU tensor offset.
 

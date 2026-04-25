@@ -87,7 +87,7 @@ class ExperimentConfig:
     dim: int
     hidden_dim: int
     num_experts: int
-
+    top_k: int
 
 @dataclass(frozen=True)
 class ExperimentResult:
@@ -160,7 +160,7 @@ def _compute_mfu(
 def get_configs() -> List[ExperimentConfig]:
     return [
         ExperimentConfig(
-            batch_size=4, seq_len=4096, dim=7168, hidden_dim=2048, num_experts=4
+            batch_size=1, seq_len=4096, dim=7168, hidden_dim=2048, num_experts=16, top_k=8
         ),
     ]
 
@@ -169,7 +169,7 @@ def _build_ref_model(config: ExperimentConfig) -> nn.Module:
     """Build standard MoE (bf16), unparallelized."""
     moe_args = MoEArgs(
         num_experts=config.num_experts,
-        top_k=4,
+        top_k=config.top_k,
         num_shared_experts=0,
         use_grouped_mm=True,
         _debug_force_load_balance=True,
@@ -188,7 +188,7 @@ def _build_syncless_model(
     """Build SynclessMXFP8MoE and copy weights from the ref model."""
     moe_args = SynclessMoEArgs(
         num_experts=config.num_experts,
-        top_k=4,
+        top_k=config.top_k,
         num_shared_experts=0,
         use_grouped_mm=True,
         _debug_force_load_balance=True,
@@ -246,7 +246,7 @@ def run_experiment(
 
     buffer_manager = SymmetricMemoryBufferManager()
     total_tokens = config.batch_size * config.seq_len
-    top_k = 4  # must match the top_k used in _build_ref_model / _build_syncless_model
+    top_k = config.top_k
     max_output_rows = world_size * total_tokens * top_k
     buffer_manager.preallocate_buffers(
         max_output_rows_per_rank=max_output_rows,
@@ -261,7 +261,7 @@ def run_experiment(
     # Create saved activations buffer for backward pass
     saved_act_buffer = SavedActivationsBuffer(
         gpu_tokens=max_output_rows,
-        cpu_tokens=0,
+        cpu_tokens=128,
         dim=config.dim,
         hidden_dim=config.hidden_dim,
         device=device,
