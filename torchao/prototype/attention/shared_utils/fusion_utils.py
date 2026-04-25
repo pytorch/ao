@@ -964,7 +964,7 @@ def rope_sdpa_fusion_pass(
     fp8_sdpa_nodes = [n for n in graph.nodes if _is_fp8_sdpa_node(n, fp8_sdpa_op)]
 
     if not fp8_sdpa_nodes:
-        print(
+        logger.info(
             f"[low_precision_attention] RoPE fusion pass ({backend_name}): "
             f"found 0 FP8 SDPA nodes in graph"
         )
@@ -1102,7 +1102,7 @@ def rope_sdpa_fusion_pass(
                 fused_count += 1
                 continue
 
-    print(
+    logger.info(
         f"[low_precision_attention] RoPE fusion pass ({backend_name}): "
         f"found {len(fp8_sdpa_nodes)} FP8 SDPA node(s), "
         f"{fused_count} fused with RoPE"
