@@ -639,7 +639,7 @@ class TestSaveLoadMeta(unittest.TestCase):
         test = model_qc(x).detach()
 
         assert SQNR(ref_f, test) > min_sqnr, (
-            f"got sqnr: {SQNR(ref_f, ref_q)}, expected: {min_sqnr}"
+            f"got sqnr: {SQNR(ref_f, test)}, expected: {min_sqnr}"
         )
         self.assertTrue(torch.equal(ref_q, test))
 
