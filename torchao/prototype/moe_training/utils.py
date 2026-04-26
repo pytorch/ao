@@ -512,3 +512,12 @@ class _UnwrapWeight(torch.autograd.Function):
 
 def unwrap_weight(wrapper_tensor):
     return _UnwrapWeight.apply(wrapper_tensor)
+
+
+def _to_fp8_then_scaled_mm(input, weight, config):
+    """Helper to perform FP8 linear via matmul_with_hp_or_float8_args."""
+    from torchao.float8.float8_linear import matmul_with_hp_or_float8_args
+
+    return matmul_with_hp_or_float8_args.apply(
+        input, weight.t(), config._linear_mm_config, config._float8_linear_config
+    )
