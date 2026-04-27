@@ -234,6 +234,7 @@ class TestGPTQObserverTensor:
             [0, 3, 4, 13],  # expert 0 sees 0 tokens
             [5, 5, 0, 5],  # expert 2 sees 0 tokens
             [2, 0, 6, 4],  # expert 1 sees 0 tokens
+            [2, 3, 5, 0],  # expert 3 sees 0 tokens
         ]
 
         offs_list = [
