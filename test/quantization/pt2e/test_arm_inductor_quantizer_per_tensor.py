@@ -27,7 +27,7 @@ from torchao.quantization.pt2e.quantize_pt2e import convert_pt2e, prepare_pt2e
 from torchao.quantization.pt2e.quantizer.arm_inductor_quantizer import (
     ArmInductorQuantizer,
 )
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_5, TORCH_VERSION_AT_LEAST_2_7
+from torchao.utils import torch_version_at_least
 
 
 # ----------------------------------------------------------------------------- #
@@ -71,8 +71,6 @@ class _SingleLinear(nn.Module):
         return self.linear(x)
 
 
-if TORCH_VERSION_AT_LEAST_2_5:
-    from torch.export import export_for_training
 
 
 # ----------------------------------------------------------------------------- #
@@ -90,7 +88,7 @@ class _ArmInductorPerTensorTestCase(QuantizationTestCase):
         is_qat: bool = False,
         lower: bool = False,
     ):
-        gm = export_for_training(model.eval(), example_inputs).module()
+        gm = torch.export.export(model.eval(), example_inputs, strict=True).module()
 
         gm = prepare_pt2e(gm, quantizer)
         gm(*example_inputs)
@@ -122,7 +120,7 @@ class _ArmInductorPerTensorTestCase(QuantizationTestCase):
 # Test-suite                                                                    #
 # ----------------------------------------------------------------------------- #
 @skipIfNoInductorSupport
-@unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_7, "Requires torch 2.7+")
+@unittest.skipIf(not torch_version_at_least("2.8.0"), "Requires torch 2.8+")
 class TestQuantizePT2EArmInductorPerTensor(_ArmInductorPerTensorTestCase):
     # ------------------------------------------------------------------ #
     # 1. Conv2d - per-tensor static PTQ                                  #

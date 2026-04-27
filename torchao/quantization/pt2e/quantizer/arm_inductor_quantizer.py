@@ -45,13 +45,13 @@ from torchao.quantization.pt2e.quantizer.quantizer import (
     QuantizationAnnotation,
     QuantizationSpec,
 )
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_7
+from torchao.utils import torch_version_at_least
 
 from .x86_inductor_quantizer import (
     X86InductorQuantizer,
 )
 
-if TORCH_VERSION_AT_LEAST_2_7:
+if torch_version_at_least("2.8.0"):
     torch._inductor.config.pre_grad_custom_pass = quant_lift_up
     _register_quantization_weight_pack_pass()
 
