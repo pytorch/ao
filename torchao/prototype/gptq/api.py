@@ -274,12 +274,27 @@ def _nvfp4_with_precalculated_scales_q(
     return data_lp_packed
 
 
+def _nvfp4_gptq_inner_loop(
+    w_t,
+    nvfp4_global_scale,
+    scale,
+    Hinv_cur_k_k,
+):
+    dq = _nvfp4_with_precalculated_scales_qdq(
+        w_t,
+        nvfp4_global_scale,
+        scale.squeeze(-1),
+    )
+    err1 = (w_t - dq) / Hinv_cur_k_k
+    return err1
+
+
 # Set to True to torch.compile the NVFP4 quantize/dequantize functions
 # inside gptq_quantize. Gives ~3x speedup.
 _use_torch_compile = True
 
 if _use_torch_compile:
-    _nvfp4_qdq_fn = torch.compile(_nvfp4_with_precalculated_scales_qdq)
+    _nvfp4_gptq_inner_loop_fn = torch.compile(_nvfp4_gptq_inner_loop)
     _nvfp4_q_fn = torch.compile(_nvfp4_with_precalculated_scales_q)
 
     if torch_version_at_least("2.11.0"):
@@ -304,7 +319,7 @@ if _use_torch_compile:
             "division rounding)."
         )
 else:
-    _nvfp4_qdq_fn = _nvfp4_with_precalculated_scales_qdq
+    _nvfp4_gptq_inner_loop_fn = _nvfp4_gptq_inner_loop
     _nvfp4_q_fn = _nvfp4_with_precalculated_scales_q
 
 
@@ -507,6 +522,8 @@ def gptq_quantize(H: torch.Tensor, W_t: torch.Tensor, config: GPTQConfig):
                         w_t, scale, zero_point, group_size
                     )
                     dq = _int4_row_dequantize_zp(q, scale, zero_point, group_size)
+                    err1 = (w_t - dq) / Hinv_cur[k, k]
+
                 elif isinstance(base_config, Int8WeightOnlyConfig):
                     q = Int8Tensor.from_hp(
                         w_t,
@@ -514,14 +531,13 @@ def gptq_quantize(H: torch.Tensor, W_t: torch.Tensor, config: GPTQConfig):
                         scale=quantized_tensor.scale,
                     )
                     dq = q.dequantize(output_dtype=torch.float)
-                elif isinstance(base_config, NVFP4DynamicActivationNVFP4WeightConfig):
-                    dq = _nvfp4_qdq_fn(
-                        w_t,
-                        nvfp4_global_scale,
-                        scale.squeeze(-1),
-                    )
+                    err1 = (w_t - dq) / Hinv_cur[k, k]
 
-                err1 = (w_t - dq) / Hinv_cur[k, k]
+                elif isinstance(base_config, NVFP4DynamicActivationNVFP4WeightConfig):
+                    Hinv_cur_k_k = Hinv_cur[k, k]
+                    err1 = _nvfp4_gptq_inner_loop_fn(
+                        w_t, nvfp4_global_scale, scale, Hinv_cur_k_k
+                    )
                 B_cur[:, k:] -= err1.matmul(Hinv_cur[k, k:].unsqueeze(0))
                 B_cur_Err1[:, k] = err1.flatten()
 
