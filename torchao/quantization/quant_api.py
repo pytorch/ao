@@ -885,11 +885,6 @@ class Int8DynamicActivationInt8WeightConfig(AOBaseConfig):
             "Please set it to MappingType.SYMMETRIC or "
             "MappingType.ASYMMETRIC."
         )
-        if self.reduce_range is None:
-            self.reduce_range = False
-        assert self.reduce_range in (True, False), (
-            "`reduce_range` must be True or False. None is defaulted to False."
-        )
 
 
 def _int8_dynamic_activation_int8_weight_quantize_tensor(weight, config):
@@ -991,11 +986,6 @@ class Int8StaticActivationInt8WeightConfig(AOBaseConfig):
             "MappingType.ASYMMETRIC). "
             "Please set it to MappingType.SYMMETRIC or "
             "MappingType.ASYMMETRIC."
-        )
-        if self.reduce_range is None:
-            self.reduce_range = False
-        assert self.reduce_range in (True, False), (
-            "`reduce_range` must be True or False, None is defaulted to False."
         )
 
     def get_act_quant_kwargs(self) -> QuantizeTensorToInt8Kwargs:

@@ -67,6 +67,9 @@ class TestInt8TensorCPU(TorchAOIntegrationTestCase):
                 reduce_range=reduce_range,
             )
         else:
+            assert config_mode == "static", (
+                f"Expected config_mode to be 'static', got {config_mode}"
+            )
             act_granularity, _ = Int8Tensor._normalize_granularity(granularity)
             quant_min, quant_max = _DTYPE_TO_QVALUE_BOUNDS[torch.int8]
             if reduce_range:
