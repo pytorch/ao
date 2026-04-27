@@ -2,15 +2,7 @@
 #include "utils.h"
 
 /*
-To add a new kernel:
-1. Implement the kernel in the all namespace (e.g., AVX10_2, AVX512, DEFAULT). See existing kernel files for reference.
-  Note: Kernel files must be named in the format of <kernel_name>_krnl.cpp (e.g., da8w4_linear_krnl.cpp).
-2. Declare the kernel function type as <kernel_name>_fn.
-3. Add an entry in the KernelDispatcher struct for the new kernel.
-4. Add a declaration of the kernel function in all namespaces.
-5. Add an entry in the get_kernel_dispatcher function.
-6. Add a wrapper that calls kernel that the dispatcher selects at runtime.
-7. Register the python op with the wrapper.
+See dynamic_dispatch.md for details on the design of this dispatcher and how to add a new kernel.
 */
 namespace torchao {
 
