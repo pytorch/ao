@@ -117,9 +117,12 @@ def _get_fp8_aoti_options():
     testing.
 
     Returns ``[False]`` when AOTI is not exercisable, ``[False, True]``
-    when it is.
+    when it is. Float8 AOTI execution is additionally gated on torch >= 2.13.
     """
     aoti_options = [False]
+    if not torch_version_at_least("2.13.0"):
+        return aoti_options
+
     try:
         import torch._inductor.constant_folding as cf
 
