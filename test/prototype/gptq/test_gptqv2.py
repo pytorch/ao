@@ -214,6 +214,86 @@ class TestGPTQObserverTensor:
             ), f"Expert {e} total_batches mismatch"
 
     @pytest.mark.skipif(not torch.cuda.is_available(), reason="Need CUDA available")
+    @pytest.mark.skipif(
+        not is_sm_at_least_100(),
+        reason="CUDA capability >= 10.0 required for _grouped_mm",
+    )
+    def test_grouped_mm_operation_with_observer(self):
+        """Test torch._grouped_mm with GPTQObserverTensor updates per-expert Hessians correctly."""
+        num_experts = 4
+        n = 16
+        k = 12
+
+        weight = torch.randn(num_experts, n, k, dtype=torch.float32, device="cuda")
+
+        # 4 different per-expert token distributions. Several of these have
+        # experts that see 0 tokens, which exercises the empty-slice skip path.
+        m_per_group_list = [
+            [1, 3, 4, 16],  # all experts active
+            [0, 3, 4, 13],  # expert 0 sees 0 tokens
+            [5, 5, 0, 5],  # expert 2 sees 0 tokens
+            [2, 0, 6, 4],  # expert 1 sees 0 tokens
+            [2, 3, 5, 0],  # expert 3 sees 0 tokens
+        ]
+
+        offs_list = [
+            torch.tensor(
+                [sum(m_per_group[: i + 1]) for i in range(num_experts)],
+                device="cuda",
+                dtype=torch.int32,
+            )
+            for m_per_group in m_per_group_list
+        ]
+
+        inputs = [
+            torch.randn(sum(m_per_group), k, dtype=torch.float32, device="cuda")
+            for m_per_group in m_per_group_list
+        ]
+
+        # 3D path: single observer with _grouped_mm
+        observer_3d = GPTQObserverTensor.from_hp(weight)
+        for x, offs in zip(inputs, offs_list):
+            torch._grouped_mm(x, observer_3d.transpose(-2, -1), offs=offs)
+
+        # 2D path: per-expert observers with F.linear
+        observers_2d = [
+            GPTQObserverTensor.from_hp(weight[e]) for e in range(num_experts)
+        ]
+        for x, offs in zip(inputs, offs_list):
+            prev_end = 0
+            for e in range(num_experts):
+                end = offs[e].item()
+                if end > prev_end:
+                    F.linear(x[prev_end:end], observers_2d[e])
+                prev_end = end
+
+        # Verify per-expert hessians match bitwise to calculating each expert's
+        # hessian individually
+        for e in range(num_experts):
+            assert torch.equal(observer_3d.hessian[e], observers_2d[e].hessian), (
+                f"Expert {e} hessian mismatch"
+            )
+            assert torch.equal(
+                observer_3d.total_batches[e : e + 1], observers_2d[e].total_batches
+            ), f"Expert {e} total_batches mismatch"
+
+        # Verify total_batches matches an independent count derived directly
+        # from the offsets: each non-empty forward pass contributes 1 per
+        # active expert (each expert's 2D slice has len(shape) == 2, so n=1).
+        expected_total_batches = torch.tensor(
+            [
+                sum(1 for m_per_group in m_per_group_list if m_per_group[e] > 0)
+                for e in range(num_experts)
+            ],
+            dtype=torch.int64,
+            device="cuda",
+        )
+        assert torch.equal(observer_3d.total_batches, expected_total_batches), (
+            f"total_batches {observer_3d.total_batches.tolist()} "
+            f"does not match expected {expected_total_batches.tolist()}"
+        )
+
+    @pytest.mark.skipif(not torch.cuda.is_available(), reason="Need CUDA available")
     @pytest.mark.parametrize(
         "base_config",
         [
