@@ -8,11 +8,12 @@ import pytest
 import torch
 import torch.nn.functional as F
 
-from torchao.utils import torch_version_at_least
+from torchao.utils import is_XPU, torch_version_at_least
 
 # Skip module if basic requirements aren't met
-if not (torch_version_at_least("2.7.0") and torch.cuda.is_available()):
-    pytest.skip("CUDA and PyTorch 2.7.0+ required", allow_module_level=True)
+
+if not ((is_XPU() or torch.cuda.is_available()) and torch_version_at_least("2.7.0")):
+    pytest.skip("CUDA or XPU with PyTorch 2.7.0+ required", allow_module_level=True)
 
 from torchao.prototype.moe_training.config import (
     Float8TrainingOpConfig,
@@ -34,9 +35,18 @@ from torchao.prototype.mx_formats.kernels import (
     _triton_kernels_available,
 )
 from torchao.quantization.utils import compute_error
-from torchao.utils import is_sm_at_least_100
+from torchao.testing.utils import skip_if_xpu
+from torchao.utils import get_available_devices, is_sm_at_least_100
+
+_DEVICES = get_available_devices()[1:]
 
 
+@pytest.fixture(scope="module", params=_DEVICES)
+def device(request):
+    return request.param
+
+
+@skip_if_xpu("XPU support not yet available")
 @pytest.mark.parametrize("op_name", ["mm", "matmul", "linear"])
 @pytest.mark.parametrize("batch_size", [None, 2, 4])
 @pytest.mark.parametrize(
@@ -48,9 +58,9 @@ from torchao.utils import is_sm_at_least_100
     [MXFP8Dim1CastKernelChoice.CUDA, MXFP8Dim1CastKernelChoice.CUTEDSL],
 )
 def test_mxfp8_training_tensor_ops_fwd_bwd(
-    op_name, batch_size, recipe, cast_kernel_choice
+    op_name, batch_size, recipe, cast_kernel_choice, device
 ):
-    if recipe != MXFP8TrainingRecipe.MXFP8_EMULATED_RCEIL:
+    if device == "cuda" and recipe != MXFP8TrainingRecipe.MXFP8_EMULATED_RCEIL:
         if not is_sm_at_least_100() or not _triton_kernels_available:
             pytest.skip("SM 100+ required for real MXFP8 support")
         if (
@@ -79,10 +89,10 @@ def test_mxfp8_training_tensor_ops_fwd_bwd(
     else:
         A_shape = (batch_size, M, K)
 
-    A = torch.randn(*A_shape, dtype=torch.bfloat16, device="cuda", requires_grad=True)
-    B = torch.randn(N, K, dtype=torch.bfloat16, device="cuda", requires_grad=True)
+    A = torch.randn(*A_shape, dtype=torch.bfloat16, device=device, requires_grad=True)
+    B = torch.randn(N, K, dtype=torch.bfloat16, device=device, requires_grad=True)
     bias = (
-        torch.randn(N, dtype=torch.bfloat16, device="cuda")
+        torch.randn(N, dtype=torch.bfloat16, device=device)
         if op_name == "linear"
         else None
     )
@@ -152,10 +162,10 @@ def test_mxfp8_training_tensor_ops_fwd_bwd(
     )
 
 
-def test_mxfp8_training_tensor_ops_preserve_subclass():
+def test_mxfp8_training_tensor_ops_preserve_subclass(device):
     config = MXFP8TrainingOpConfig.from_recipe(MXFP8TrainingRecipe.MXFP8_EMULATED_RCEIL)
 
-    B = torch.randn(64, 32, dtype=torch.bfloat16, device="cuda")
+    B = torch.randn(64, 32, dtype=torch.bfloat16, device=device)
     B_mxfp8 = MXFP8TrainingWeightWrapperTensor(B, config)
 
     # view
@@ -194,21 +204,24 @@ def test_mxfp8_training_tensor_ops_preserve_subclass():
 @pytest.mark.parametrize(
     "float8_linear_recipe", ["tensorwise", "rowwise", "rowwise_with_gw_hp"]
 )
-def test_float8_training_tensor_ops_fwd_bwd(op_name, batch_size, float8_linear_recipe):
+def test_float8_training_tensor_ops_fwd_bwd(
+    op_name, batch_size, float8_linear_recipe, device
+):
     # mm doesn't support batching
     if op_name == "mm" and batch_size is not None:
         pytest.skip("mm doesn't support batching")
 
-    # All FP8 linear recipes require SM89+ (torch._scaled_mm)
-    if torch.cuda.get_device_capability() < (8, 9):
-        pytest.skip("FP8 linear requires SM89+")
+    if device == "cuda":
+        # All FP8 linear recipes require SM89+ (torch._scaled_mm)
+        if torch.cuda.get_device_capability() < (8, 9):
+            pytest.skip("FP8 linear requires SM89+")
 
-    # rowwise and rowwise_with_gw_hp require SM90+ (CUTLASS axiswise kernels)
-    if float8_linear_recipe in (
-        "rowwise",
-        "rowwise_with_gw_hp",
-    ) and torch.cuda.get_device_capability() < (9, 0):
-        pytest.skip("Rowwise FP8 requires SM90+")
+        # rowwise and rowwise_with_gw_hp require SM90+ (CUTLASS axiswise kernels)
+        if float8_linear_recipe in (
+            "rowwise",
+            "rowwise_with_gw_hp",
+        ) and torch.cuda.get_device_capability() < (9, 0):
+            pytest.skip("Rowwise FP8 requires SM90+")
 
     config = Float8TrainingOpConfig(float8_linear_recipe=float8_linear_recipe)
 
@@ -218,10 +231,10 @@ def test_float8_training_tensor_ops_fwd_bwd(op_name, batch_size, float8_linear_r
     else:
         A_shape = (batch_size, M, K)
 
-    A = torch.randn(*A_shape, dtype=torch.bfloat16, device="cuda", requires_grad=True)
-    B = torch.randn(N, K, dtype=torch.bfloat16, device="cuda", requires_grad=True)
+    A = torch.randn(*A_shape, dtype=torch.bfloat16, device=device, requires_grad=True)
+    B = torch.randn(N, K, dtype=torch.bfloat16, device=device, requires_grad=True)
     bias = (
-        torch.randn(N, dtype=torch.bfloat16, device="cuda")
+        torch.randn(N, dtype=torch.bfloat16, device=device)
         if op_name == "linear"
         else None
     )

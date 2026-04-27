@@ -8,16 +8,21 @@ import pytest
 import torch
 
 # FP8 MoE kernels require FP8-capable hardware (SM 10.x on CUDA, MI300+ on ROCm)
-from torchao.utils import is_MI300, is_MI350
+from torchao.utils import is_MI300, is_MI350, is_XPU
 
 
 def _is_sm_10x() -> bool:
     return torch.cuda.is_available() and torch.cuda.get_device_capability()[0] == 10
 
 
-if not (torch.cuda.is_available() and (_is_sm_10x() or is_MI300() or is_MI350())):
+_is_xpu = is_XPU()
+_is_cuda_compatible = torch.cuda.is_available() and (
+    _is_sm_10x() or is_MI300() or is_MI350()
+)
+
+if not (_is_xpu or _is_cuda_compatible):
     pytest.skip(
-        "Requires FP8-capable GPU (CUDA SM 10.x, MI300, or MI350)",
+        "Requires FP8-capable GPU (CUDA SM 10.x, MI300, MI350, or XPU)",
         allow_module_level=True,
     )
 
@@ -65,15 +70,24 @@ from torchao.prototype.moe_training.utils import (
 from torchao.prototype.mx_formats.kernels import triton_mx_block_rearrange
 from torchao.prototype.mx_formats.mx_tensor import ScaleCalculationMode, to_mx
 from torchao.prototype.mx_formats.utils import from_blocked
-from torchao.testing.utils import skip_if_rocm
+from torchao.testing.utils import skip_if_rocm, skip_if_xpu
+from torchao.utils import get_available_devices
+
+_DEVICES = get_available_devices()[1:]
+
+
+@pytest.fixture(scope="module", params=_DEVICES)
+def device(request):
+    return request.param
 
 
 @pytest.mark.parametrize("round_scales_to_power_of_2", [True, False])
 @skip_if_rocm("jagged rowwise scales kernel vs torch reference mismatch on ROCm")
-def test_row_major_with_jagged_rowwise_scales(round_scales_to_power_of_2: bool):
+def test_row_major_with_jagged_rowwise_scales(
+    round_scales_to_power_of_2: bool, device: str
+):
     # Tests case where rowwise scales are computed for multiple distinct subtensors,
     # with end boundary of each group is determine by their end column indexes (offsets).
-    device = "cuda"
     m, k, n_groups = 256, 256, 4
     x = torch.randn(k, m * n_groups, device=device)
     colwise_offs = torch.arange(m, m * n_groups + 1, m, device=device)
@@ -102,10 +116,10 @@ def test_row_major_with_jagged_rowwise_scales(round_scales_to_power_of_2: bool):
 @pytest.mark.parametrize("round_scales_to_power_of_2", [True, False])
 def test_row_major_with_jagged_rowwise_scales_transpose_method(
     round_scales_to_power_of_2: bool,
+    device: str,
 ):
     # tests case where rowwise scales are computed for multiple distinct subtensors,
     # with end boundary of each group is determine by their end column indexes (offsets).
-    device = "cuda"
     m, k, n_groups = 256, 256, 4
     grad_out = torch.randn(m * n_groups, k, device=device)
     colwise_offs = torch.arange(m, m * n_groups + 1, m, device=device)
@@ -137,10 +151,11 @@ def test_row_major_with_jagged_rowwise_scales_transpose_method(
 
 
 @pytest.mark.parametrize("round_scales_to_power_of_2", [True, False])
-def test_column_major_with_jagged_colwise_scales(round_scales_to_power_of_2: bool):
+def test_column_major_with_jagged_colwise_scales(
+    round_scales_to_power_of_2: bool, device: str
+):
     # tests case where colwise scales are computed for multiple distinct subtensors,
     # with end boundary of each group is determine by their end row indexes (offsets).
-    device = "cuda"
     m, k, n_groups = 256, 256, 4
     x = torch.randn(m * n_groups, k, device=device).t().contiguous().t()
     rowwise_offs = torch.arange(m, m * n_groups + 1, m, device=device)
@@ -164,8 +179,9 @@ def test_column_major_with_jagged_colwise_scales(round_scales_to_power_of_2: boo
 
 
 @pytest.mark.parametrize("round_scales_to_power_of_2", [True, False])
-def test_fp8_rowwise_3d_transpose_rhs_atomic(round_scales_to_power_of_2: bool):
-    device = "cuda"
+def test_fp8_rowwise_3d_transpose_rhs_atomic(
+    round_scales_to_power_of_2: bool, device: str
+):
     experts, n, k = 8, 4 * 5120, 5120
 
     # Example expert weights as it comes into forward transposed
@@ -198,8 +214,9 @@ def test_fp8_rowwise_3d_transpose_rhs_atomic(round_scales_to_power_of_2: bool):
 
 
 @pytest.mark.parametrize("round_scales_to_power_of_2", [True, False])
-def test_fp8_rowwise_3d_transpose_rhs_reduction(round_scales_to_power_of_2: bool):
-    device = "cuda"
+def test_fp8_rowwise_3d_transpose_rhs_reduction(
+    round_scales_to_power_of_2: bool, device: str
+):
     experts, n, k = 8, 4 * 5120, 5120
 
     # Example expert weights as it comes into forward transposed
@@ -236,11 +253,8 @@ def test_fp8_rowwise_3d_transpose_rhs_reduction(round_scales_to_power_of_2: bool
     "m,k,n_groups", [(256, 256, 4), (16640, 5120, 16), (16640, 8192, 16)]
 )
 def test_triton_mx_block_rearrange_2d_M_groups(
-    m: int,
-    k: int,
-    n_groups: int,
+    m: int, k: int, n_groups: int, device: str
 ):
-    device = "cuda"
     block_size = 32
     input_data = torch.randn(m, k, device=device)
     e8m0_scales, _ = to_mx(
@@ -266,10 +280,11 @@ def test_triton_mx_block_rearrange_2d_M_groups(
 
 
 @pytest.mark.skipif(
-    not _is_sm_10x(),
+    torch.cuda.is_available() and not _is_sm_10x(),
     reason="MXFP8 requires CUDA SM 10.x",
 )
 @skip_if_rocm("ROCm enablement in progress")
+@skip_if_xpu("XPU support not yet available")
 @pytest.mark.parametrize(
     "m,k,n_groups,chunks_per_tb",
     [
@@ -291,8 +306,8 @@ def test_cuda_mx_block_rearrange_2d_M_groups(
     k: int,
     n_groups: int,
     chunks_per_tb: int,
+    device: str,
 ):
-    device = "cuda"
     block_size = 32
     input_data = torch.randn(m, k, device=device)
     e8m0_scales, _ = to_mx(
@@ -326,8 +341,8 @@ def test_mxfp8_per_group_blocked_scales_3d(
     e: int,
     n: int,
     k: int,
+    device: str,
 ):
-    device = "cuda"
     block_size = 32
     weights = torch.randn(e, n, k // block_size, device=device)
     weight_scales, _ = to_mx(
@@ -352,8 +367,8 @@ def test_triton_mx_block_rearrange_2d_K_groups(
     m: int,
     total_k: int,
     n_groups: int,
+    device: str,
 ):
-    device = "cuda"
     block_size = 32
     input_data = torch.randn(m, total_k, device=device)
 
@@ -382,9 +397,10 @@ def test_triton_mx_block_rearrange_2d_K_groups(
 
 
 @pytest.mark.skipif(
-    not _is_sm_10x(),
+    torch.cuda.is_available() and not _is_sm_10x(),
     reason="MXFP8 requires CUDA SM 10.x",
 )
+@skip_if_xpu("XPU support not yet available")
 @pytest.mark.parametrize("E", (1, 2, 4, 8))
 @pytest.mark.parametrize("N", (32, 1536, 5120, 7168, 8192))
 @pytest.mark.parametrize("K", (32, 1536, 5120, 7168, 8192))
@@ -397,8 +413,10 @@ def test_triton_mx_block_rearrange_2d_K_groups(
     (1, 32),
     ids=("32x1", "32x32"),
 )
-def test_cuda_mx_3d_cutedsl_numerics(E, N, K, input_dtype, scaling_mode, scale_block_k):
-    if not _mxfp8_cutedsl_kernels_available:
+def test_cuda_mx_3d_cutedsl_numerics(
+    E, N, K, input_dtype, scaling_mode, scale_block_k, device
+):
+    if not (_is_xpu or _mxfp8_cutedsl_kernels_available):
         pytest.skip("mxfp8_quantize_3d is unavailable")
 
     scaling_mode_str = (
@@ -408,7 +426,7 @@ def test_cuda_mx_3d_cutedsl_numerics(E, N, K, input_dtype, scaling_mode, scale_b
 
     # Use disinct incrementing values from 0 to E*M*K-1 to make debugging easier.
     x = (
-        torch.arange(0, E * N * K, dtype=input_dtype, device="cuda")
+        torch.arange(0, E * N * K, dtype=input_dtype, device=device)
         .reshape(E, N, K)
         .contiguous()
     )
@@ -423,10 +441,8 @@ def test_cuda_mx_3d_cutedsl_numerics(E, N, K, input_dtype, scaling_mode, scale_b
         y_ref = y_ref.transpose(-2, -1)
         s_ref = s_ref.transpose(-2, -1)
         s_rows, s_cols = K, N // block_size
-        undo_scale = (
-            lambda scale: from_blocked(scale, s_rows, s_cols)
-            .transpose(-2, -1)
-            .contiguous()
+        undo_scale = lambda scale: (
+            from_blocked(scale, s_rows, s_cols).transpose(-2, -1).contiguous()
         )
     else:
         x_tiles = (
@@ -507,26 +523,27 @@ def test_cuda_mx_3d_cutedsl_numerics(E, N, K, input_dtype, scaling_mode, scale_b
 
 
 @pytest.mark.skipif(
-    not _is_sm_10x(),
+    torch.cuda.is_available() and not _is_sm_10x(),
     reason="MXFP8 requires CUDA SM 10.x",
 )
 @pytest.mark.skipif(
-    not _mxfp8_cutedsl_kernels_available,
+    torch.cuda.is_available() and not _mxfp8_cutedsl_kernels_available,
     reason="MXFP8 cutedsl kernels not available",
 )
+@skip_if_xpu("XPU support not yet available")
 @pytest.mark.parametrize("M", (128, 8192))
 @pytest.mark.parametrize("K", (1536, 5120, 7168, 8192))
 @pytest.mark.parametrize("input_dtype", (torch.bfloat16,))
 @pytest.mark.parametrize(
     "scaling_mode", (ScaleCalculationMode.FLOOR, ScaleCalculationMode.RCEIL)
 )
-def test_cuda_mx_dim0_2d_numerics(M, K, input_dtype, scaling_mode):
+def test_cuda_mx_dim0_2d_numerics(M, K, input_dtype, scaling_mode, device):
     scaling_mode_str = scaling_mode.value.lower()
     block_size = 32
 
     # Use distinct incrementing values from 0 to M*K-1 to make debugging easier.
     x = (
-        torch.arange(0, M * K, dtype=input_dtype, device="cuda")
+        torch.arange(0, M * K, dtype=input_dtype, device=device)
         .reshape(M, K)
         .contiguous()
     )
@@ -559,13 +576,14 @@ def test_cuda_mx_dim0_2d_numerics(M, K, input_dtype, scaling_mode):
 
 
 @pytest.mark.skipif(
-    not _is_sm_10x(),
+    torch.cuda.is_available() and not _is_sm_10x(),
     reason="MXFP8 requires CUDA SM 10.x",
 )
 @pytest.mark.skipif(
-    not _mxfp8_cutedsl_kernels_available,
+    torch.cuda.is_available() and not _mxfp8_cutedsl_kernels_available,
     reason="MXFP8 cutedsl kernels not available",
 )
+@skip_if_xpu("XPU support not yet available")
 @pytest.mark.parametrize("M", (128, 1024))
 @pytest.mark.parametrize("K", (128, 256, 1536, 5120, 7168, 8192))
 @pytest.mark.parametrize("input_dtype", (torch.bfloat16,))
@@ -574,7 +592,7 @@ def test_cuda_mx_dim0_2d_numerics(M, K, input_dtype, scaling_mode):
 )
 @pytest.mark.parametrize("blocked_scale_output", [False, True])
 def test_cuda_mx_dim1_2d_numerics_32x1(
-    M, K, input_dtype, scaling_mode, blocked_scale_output
+    M, K, input_dtype, scaling_mode, blocked_scale_output, device
 ):
     """Test 32x1 scaling kernel that quantizes along M dimension."""
     scaling_mode_str = scaling_mode.value.lower()
@@ -588,7 +606,7 @@ def test_cuda_mx_dim1_2d_numerics_32x1(
 
     # Use distinct incrementing values from 0 to M*K-1 to make debugging easier.
     x = (
-        torch.arange(0, M * K, dtype=input_dtype, device="cuda")
+        torch.arange(0, M * K, dtype=input_dtype, device=device)
         .reshape(M, K)
         .contiguous()
     )
@@ -631,20 +649,25 @@ def test_cuda_mx_dim1_2d_numerics_32x1(
 
 
 @pytest.mark.skipif(
-    not _mxfp8_cuda_kernels_available,
+    torch.cuda.is_available() and not _mxfp8_cuda_kernels_available,
     reason="CUDA kernel requires sm_100 and CUDA 12.8+",
 )
 @skip_if_rocm("ROCm enablement in progress")
+@skip_if_xpu("XPU support not yet available")
 @pytest.mark.parametrize("num_tokens", [128, 157, 4096, 16392])
 @pytest.mark.parametrize("dim", [7168])
 @pytest.mark.parametrize("num_groups", [1, 2, 4, 8])
 @pytest.mark.parametrize("alignment_size", [32])
 @pytest.mark.parametrize("dtype", [torch.bfloat16])
 def test_cuda_fused_pad_token_groups(
-    num_tokens: int, dim: int, num_groups: int, alignment_size: int, dtype: torch.dtype
+    num_tokens: int,
+    dim: int,
+    num_groups: int,
+    alignment_size: int,
+    dtype: torch.dtype,
+    device: str,
 ):
     """Test fused_pad_token_groups_cuda kernel for padding token groups to alignment."""
-    device = "cuda"
 
     # Create input activations
     inputs = torch.randn(num_tokens, dim, dtype=dtype, device=device)
@@ -678,20 +701,25 @@ def test_cuda_fused_pad_token_groups(
 
 
 @pytest.mark.skipif(
-    not _mxfp8_cuda_kernels_available,
+    torch.cuda.is_available() and not _mxfp8_cuda_kernels_available,
     reason="CUDA kernel requires sm_100 and CUDA 12.8+",
 )
 @skip_if_rocm("ROCm enablement in progress")
+@skip_if_xpu("XPU support not yet available")
 @pytest.mark.parametrize("num_tokens", [128, 157, 4096])
 @pytest.mark.parametrize("dim", [7168])
 @pytest.mark.parametrize("num_groups", [1, 2, 4, 8])
 @pytest.mark.parametrize("alignment_size", [32])
 @pytest.mark.parametrize("dtype", [torch.bfloat16])
 def test_cuda_fused_unpad_token_groups(
-    num_tokens: int, dim: int, num_groups: int, alignment_size: int, dtype: torch.dtype
+    num_tokens: int,
+    dim: int,
+    num_groups: int,
+    alignment_size: int,
+    dtype: torch.dtype,
+    device: str,
 ):
     """Test fused_unpad_token_groups_cuda kernel for removing padding from token groups."""
-    device = "cuda"
 
     # Create input activations
     inputs = torch.randn(num_tokens, dim, dtype=dtype, device=device)
@@ -741,9 +769,8 @@ def test_cuda_fused_unpad_token_groups(
     [(128, 5120), (1024, 8192), (4096, 5120)],
 )
 def test_triton_fp8_rowwise_2d_scale_and_cast(
-    m: int, k: int, round_scales_to_power_of_2: bool
+    m: int, k: int, round_scales_to_power_of_2: bool, device: str
 ):
-    device = "cuda"
     float8_dtype = torch.float8_e4m3fn
 
     torch.manual_seed(0)
@@ -778,9 +805,8 @@ def test_triton_fp8_rowwise_2d_scale_and_cast(
     [(1, 8192, 5120), (2, 5120, 8192), (8, 8192, 5120)],
 )
 def test_triton_fp8_colwise_3d_scale_and_cast(
-    e: int, n: int, k: int, round_scales_to_power_of_2: bool
+    e: int, n: int, k: int, round_scales_to_power_of_2: bool, device: str
 ):
-    device = "cuda"
     float8_dtype = torch.float8_e4m3fn
 
     torch.manual_seed(0)
@@ -812,14 +838,15 @@ def test_triton_fp8_colwise_3d_scale_and_cast(
 
 
 @pytest.mark.skipif(
-    not _is_sm_10x(),
+    torch.cuda.is_available() and not _is_sm_10x(),
     reason="MXFP8 requires CUDA SM 10.x",
 )
 @pytest.mark.skipif(
-    not _mxfp8_cutedsl_kernels_available,
+    torch.cuda.is_available() and not _mxfp8_cutedsl_kernels_available,
     reason="MXFP8 cutedsl kernels not available",
 )
 @skip_if_rocm("ROCm enablement in progress")
+@skip_if_xpu("XPU support not yet available")
 def test_cutedsl_1x32_group_validation_error():
     """Test that 1x32 CuTeDSL kernel raises error for non-128-multiple group sizes."""
     import subprocess
@@ -846,14 +873,15 @@ torch.cuda.synchronize()
 
 
 @pytest.mark.skipif(
-    not _is_sm_10x(),
+    torch.cuda.is_available() and not _is_sm_10x(),
     reason="MXFP8 requires CUDA SM 10.x",
 )
 @pytest.mark.skipif(
-    not _mxfp8_cutedsl_kernels_available,
+    torch.cuda.is_available() and not _mxfp8_cutedsl_kernels_available,
     reason="MXFP8 cutedsl kernels not available",
 )
 @skip_if_rocm("ROCm enablement in progress")
+@skip_if_xpu("XPU support not yet available")
 def test_cutedsl_32x1_group_validation_error():
     """Test that 32x1 CuTeDSL kernel raises error for non-128-multiple group sizes."""
     import subprocess
@@ -880,17 +908,17 @@ torch.cuda.synchronize()
 
 
 @pytest.mark.skipif(
-    not _is_sm_10x(),
+    torch.cuda.is_available() and not _is_sm_10x(),
     reason="MXFP8 requires CUDA SM 10.x",
 )
 @pytest.mark.skipif(
-    not _mxfp8_cutedsl_kernels_available,
+    torch.cuda.is_available() and not _mxfp8_cutedsl_kernels_available,
     reason="MXFP8 cutedsl kernels not available",
 )
 @skip_if_rocm("ROCm enablement in progress")
-def test_cutedsl_kernels_work_with_valid_128_multiple_groups():
+@skip_if_xpu("XPU support not yet available")
+def test_cutedsl_kernels_work_with_valid_128_multiple_groups(device: str):
     """Test that both CuTeDSL kernels work correctly with valid 128-multiple group sizes."""
-    device = "cuda"
     M, K = 512, 1024
     x = torch.randn(M, K, dtype=torch.bfloat16, device=device)
 
