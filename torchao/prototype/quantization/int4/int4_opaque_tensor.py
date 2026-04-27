@@ -235,7 +235,7 @@ class Int4OpaqueTensor(TorchAOBaseTensor):
         """
         assert "CPU" in torch._C._dispatch_dump("torchao::da8w4_linear_prepack_cpu"), (
             "DA8W4 on CPU requires the da8w4_linear_cpu kernel to be built and available. "
-            "Please build torchao with C++ extensions enabled (USE_CPP=1)."
+            "Please build torchao with C++ extensions enabled (USE_CPU_KERNELS=1)."
         )
         assert w.ndim == 2 and w.device.type == "cpu", (
             f"Expecting 2D tensor on CPU, but got: {w.shape} on {w.device.type}"
