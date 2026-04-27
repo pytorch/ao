@@ -9,6 +9,7 @@ import argparse
 import gc
 import subprocess
 import time
+from contextlib import nullcontext
 from typing import Any, List, Optional
 
 import torch
@@ -22,7 +23,13 @@ from torchao.prototype.gptq.observer import GPTQObserverTensor
 from torchao.prototype.mx_formats.inference_workflow import (
     NVFP4DynamicActivationNVFP4WeightConfig,
 )
-from torchao.quantization import Int4WeightOnlyConfig, Int8WeightOnlyConfig, quantize_
+from torchao.prototype.mx_formats.nvfp4_tensor import NVFP4Tensor
+from torchao.quantization import (
+    FqnToConfig,
+    Int4WeightOnlyConfig,
+    Int8WeightOnlyConfig,
+    quantize_,
+)
 from torchao.quantization.granularity import PerRow
 
 """
@@ -264,8 +271,36 @@ def parse_args():
     return parser.parse_args()
 
 
+OLMOE_MODEL_ID = "allenai/OLMoE-1B-7B-0924"
+
+
+def _verify_olmoe_experts_quantized(model):
+    """Assert every OlmoeExperts module has NVFP4Tensor for both expert weights."""
+    from transformers.models.olmoe.modeling_olmoe import OlmoeExperts
+
+    found = 0
+    for name, mod in model.named_modules():
+        if not isinstance(mod, OlmoeExperts):
+            continue
+        for pname in ("gate_up_proj", "down_proj"):
+            param = getattr(mod, pname)
+            assert isinstance(param, NVFP4Tensor), (
+                f"{name}.{pname} is {type(param).__name__}, expected NVFP4Tensor"
+            )
+        found += 1
+    assert found > 0, "no OlmoeExperts modules found to verify"
+    print(f"Verified NVFP4 quantization on {found} OlmoeExperts modules")
+
+
 def main():
     args = parse_args()
+
+    is_olmoe = args.model_id == OLMOE_MODEL_ID
+    if is_olmoe and args.quantization not in ("nvfp4-rtn", "nvfp4-gptq-nonsequential"):
+        raise ValueError(
+            f"model {args.model_id} only supports 'nvfp4-rtn' or "
+            f"'nvfp4-gptq-nonsequential', got '{args.quantization}'"
+        )
 
     # lm_eval batch_size="auto" with nvfp4 gptq causes the error in
     # MSLK nvfp4 triton kernel, likely an unsupported shape:
@@ -284,10 +319,11 @@ def main():
     dtype = dtype_map.get("bfloat16", torch.bfloat16)
 
     print(f"Loading model {args.model_id}...")
+    from_pretrained_kwargs = dict(device_map="cuda:0", dtype=dtype)
+    if is_olmoe:
+        from_pretrained_kwargs["experts_implementation"] = "grouped_mm"
     model = AutoModelForCausalLM.from_pretrained(
-        args.model_id,
-        device_map="cuda:0",
-        dtype=dtype,
+        args.model_id, **from_pretrained_kwargs
     )
     tokenizer = AutoTokenizer.from_pretrained(args.model_id)
 
@@ -353,7 +389,20 @@ def main():
             use_dynamic_per_tensor_scale=True,
             use_triton_kernel=True,
         )
-        quantize_(model, config, filter_fn=filter_fn_to_use)
+        if is_olmoe:
+            quantize_(
+                model,
+                FqnToConfig(
+                    {
+                        r"re:.*\.experts\.gate_up_proj": config,
+                        r"re:.*\.experts\.down_proj": config,
+                    }
+                ),
+                filter_fn=None,
+            )
+            _verify_olmoe_experts_quantized(model)
+        else:
+            quantize_(model, config, filter_fn=filter_fn_to_use)
 
     elif args.quantization in [
         "int4-gptq-sequential",
@@ -387,7 +436,19 @@ def main():
             percdamp=args.percdamp,
             gptq_quantize_block_size=args.gptq_block_size,
         )
-        quantize_(model, observe_config, filter_fn=filter_fn_to_use)
+        if is_olmoe:
+            quantize_(
+                model,
+                FqnToConfig(
+                    {
+                        r"re:.*\.experts\.gate_up_proj": observe_config,
+                        r"re:.*\.experts\.down_proj": observe_config,
+                    }
+                ),
+                filter_fn=None,
+            )
+        else:
+            quantize_(model, observe_config, filter_fn=filter_fn_to_use)
 
         # Prepare calibration dataset
         print(
@@ -425,11 +486,30 @@ def main():
                     num_gptq_weights += 1
             print(f"Total GPTQ weights to convert: {num_gptq_weights}")
             # Apply quantization
-            quantize_(model, convert_config, filter_fn=filter_fn_to_use)
+            if is_olmoe:
+                quantize_(
+                    model,
+                    FqnToConfig(
+                        {
+                            r"re:.*\.experts\.gate_up_proj": convert_config,
+                            r"re:.*\.experts\.down_proj": convert_config,
+                        }
+                    ),
+                    filter_fn=None,
+                )
+                _verify_olmoe_experts_quantized(model)
+            else:
+                quantize_(model, convert_config, filter_fn=filter_fn_to_use)
         else:  # sequential
             print(f"Applying {quant_type} GPTQ quantization (sequential)...")
             assert filter_fn_to_use == skip_lm_head, "unsupported"
             sequential_quantize(model, dataset, convert_config)
+
+    if is_olmoe:
+        # generate() switches to batched_mm for decoding, which doesn't support
+        # NVFP4Tensor (needs aten.index.Tensor). Override to keep grouped_mm.
+        # TODO(future): remove when NVFP4 MoE supports bmm-style decode
+        model._optimize_model_for_decode = nullcontext
 
     quantization_end_time = time.time()
     quantization_time = quantization_end_time - quantization_start_time
@@ -455,6 +535,12 @@ def main():
                 "Your version of `transformers` does not support NVFP4 serialization. "
                 "Please install a version that includes "
                 "https://github.com/huggingface/transformers/pull/45573"
+            )
+        if is_olmoe and "gate_up_proj" not in source:
+            raise RuntimeError(
+                "Your version of `transformers` does not support NVFP4 MoE serialization. "
+                "Please install a version that includes "
+                "https://github.com/huggingface/transformers/pull/45609"
             )
 
     if args.quantization != "none":
