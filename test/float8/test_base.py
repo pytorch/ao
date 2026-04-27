@@ -355,7 +355,7 @@ class TestFloat8Linear:
         use_ac: bool,
     ):
         if not emulate and _GPU_DEVICE == "cuda" and not is_sm_at_least_89():
-            self.skipTest("CUDA capability >= 8.9 required for native float8 support")
+            pytest.skip("CUDA capability >= 8.9 required for native float8 support")
         x = torch.randn(*x_shape, device=_GPU_DEVICE, dtype=linear_dtype)
         m_ref = nn.Linear(
             16, 32, bias=linear_bias, device=_GPU_DEVICE, dtype=linear_dtype
@@ -434,7 +434,7 @@ class TestFloat8Linear:
         recipe_name: Float8LinearRecipeName,
     ):
         if not emulate and _GPU_DEVICE == "cuda" and not is_sm_at_least_89():
-            self.skipTest("CUDA capability >= 8.9 required for native float8 support")
+            pytest.skip("CUDA capability >= 8.9 required for native float8 support")
         m_ref = nn.Sequential(
             nn.Linear(32, 32, device=_GPU_DEVICE, dtype=linear_dtype),
             nn.Linear(32, 32, device=_GPU_DEVICE, dtype=linear_dtype),
