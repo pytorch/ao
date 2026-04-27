@@ -843,6 +843,9 @@ class Int8DynamicActivationInt8WeightConfig(AOBaseConfig):
             SYMMETRIC and ASYMMETRIC are supported.
         set_inductor_config: bool = True - If True, adjusts `torchinductor` settings to recommended values
             for better performance with this quantization scheme.
+        version (int): the version of the config, version 1 is using AffineQuantizedTensor that we plan to deprecate/split, version 2 is using Int8Tensor
+        kernel_preference (KernelPreference): Kernel preference for matmul operations. Defalut (AUTO) chose for user's information,
+            TRITON uses torch.ops.torchao.scaled_int8_mm, TORCH uses int_scaled_matmul
 
     Example:
 
@@ -857,6 +860,7 @@ class Int8DynamicActivationInt8WeightConfig(AOBaseConfig):
     ] = PerRow()
     set_inductor_config: bool = True
     version: int = 2
+    kernel_preference: KernelPreference = KernelPreference.AUTO
 
     def __post_init__(self):
         torch._C._log_api_usage_once(
@@ -896,6 +900,7 @@ def _int8_dynamic_activation_int8_weight_quantize_tensor(weight, config):
             granularity=act_granularity,
             mapping_type=config.act_mapping_type,
         ),
+        kernel_preference=config.kernel_preference,
     )
 
     return quantized_weight
