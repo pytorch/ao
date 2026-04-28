@@ -1916,7 +1916,6 @@ fp8_sdpa_fused_kernel_impl(
 
   // Reorder K, V
   at::parallel_for(0, batchSize * num_head * kvSlice, 1, [&](int64_t begin, int64_t end) {
-      int ompIdx = at::get_thread_num();
       int64_t i = 0, j = 0, l = 0, n = 0;
       at::native::data_index_init(begin, i, batchSize, j, num_head, l, kvSlice);
       for ([[maybe_unused]] auto z : c10::irange(begin, end)) {
