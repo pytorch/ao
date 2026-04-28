@@ -11,10 +11,18 @@ import torch
 from torch import nn
 from torch.nn import functional as F
 
-# this feature requires CUDA and SM89+
-if not torch.cuda.is_available() or torch.cuda.get_device_capability() < (8, 9):
+from torchao.utils import is_XPU
+
+_is_xpu = is_XPU()
+_is_compatible_cuda = (
+    torch.cuda.is_available() and torch.cuda.get_device_capability() >= (8, 9)
+)
+
+# this feature requires XPU or CUDA with SM89+
+if not (_is_xpu or _is_compatible_cuda):
     pytest.skip(
-        "CUDA not available or compute capability < 8.9", allow_module_level=True
+        "Requires XPU or CUDA with compute capability >= 8.9",
+        allow_module_level=True,
     )
 
 from torchao.utils import is_ROCM
@@ -31,13 +39,21 @@ from torchao.prototype.moe_training.config import (
 )
 from torchao.quantization.quant_api import quantize_
 from torchao.quantization.quantize_.common import KernelPreference
+from torchao.utils import get_available_devices
 
 # Reference MoE implementation (copied from torchtitan to avoid external dependency)
 from .reference_moe import MoE, MoEArgs, set_token_group_alignment_size_m
 from .testing_utils import _validate_model_conversion
 
+_DEVICES = get_available_devices()[1:]
+
 # Needed since changing args to function causes recompiles
 torch._dynamo.config.cache_size_limit = 1000
+
+
+@pytest.fixture(scope="module", params=_DEVICES)
+def device(request):
+    return request.param
 
 
 @pytest.mark.parametrize(
@@ -87,6 +103,7 @@ def test_moe_training(
     kernel_preference: KernelPreference,
     token_groups_aligned: bool,
     recipe_config: dict,
+    device: str,
 ):
     (
         recipe,
@@ -99,7 +116,6 @@ def test_moe_training(
         recipe_config["min_input_grad_sqnr"],
         recipe_config["min_param_grad_sqnr"],
     )
-    assert torch.cuda.is_available()
 
     # Emulated mode with compile is not supported
     if recipe == MXFP8TrainingRecipe.MXFP8_EMULATED_RCEIL and compile:
@@ -114,10 +130,11 @@ def test_moe_training(
                 "https://github.com/pytorch/ao/issues/4048: 'FakeTensor' object has no attribute '__tensor_flatten__'"
             )
 
-        if torch.cuda.get_device_capability() != (9, 0):
+        if device == "cuda" and torch.cuda.get_device_capability() != (9, 0):
             pytest.skip(
                 f"Skipping FP8 rowwise tests, only supported on compute capability 9.0 and found {torch.cuda.get_device_capability()}"
             )
+
         if not token_groups_aligned:
             pytest.skip("FP8 rowwise doesn't support per group token padding yet")
 
@@ -125,13 +142,13 @@ def test_moe_training(
     if recipe in (
         MXFP8TrainingRecipe.MXFP8_RCEIL,
         MXFP8TrainingRecipe.MXFP8_RCEIL_WGRAD_WITH_HP,
-    ) and torch.cuda.get_device_capability() != (
-        10,
-        0,
     ):
-        pytest.skip(
-            f"Skipping MXFP8 hardware mode tests, only supported on compute capability 10.0 and found {torch.cuda.get_device_capability()}"
-        )
+        if device == "xpu":
+            pytest.skip("MXFP8 hardware mode is not yet supported on XPU")
+        if device == "cuda" and torch.cuda.get_device_capability() != (10, 0):
+            pytest.skip(
+                f"Skipping MXFP8 hardware mode tests, only supported on compute capability 10.0 and found {torch.cuda.get_device_capability()}"
+            )
 
     alignment_size = 128 if isinstance(recipe, MXFP8TrainingRecipe) else 16
     set_token_group_alignment_size_m(alignment_size)
@@ -142,11 +159,11 @@ def test_moe_training(
         use_grouped_mm=True,
     )
     init_std = 0.02
-    device = torch.device("cuda")
+    device = torch.device(device)
 
     # reference bf16 MoE
     dim, hidden_dim = 5120, 8192
-    ref_model = MoE(model_args, dim, hidden_dim).to(torch.bfloat16).cuda()
+    ref_model = MoE(model_args, dim, hidden_dim).to(torch.bfloat16).to(device)
     torch.manual_seed(42)
     ref_model.init_weights(init_std, device)
 
