@@ -87,9 +87,6 @@ class Int4PlainInt32Tensor(TestCase):
     @parametrize("dtype", [torch.float16, torch.bfloat16])
     @parametrize("thresholds", [{"xpu": 20, "npu": 10}])
     def test_activation_prescaling(self, device, dtype, thresholds):
-        if "xpu" in device and dtype == torch.float16:
-            pytest.skip(f"{device} test_activation_prescaling don't test {dtype}")
-
         threshold = thresholds.get(device.split(":")[0])
         K, N, group_size = 128, 256, 128
         if "npu" in device:
