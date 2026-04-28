@@ -835,9 +835,9 @@ class Int8DynamicActivationInt8WeightConfig(AOBaseConfig):
     quantization to linear layers.
 
     Args:
-        granularity: Optional[Union[Granularity, Tuple[Granularity, Granularity], List[Granularity]]] = PerRow()
+        granularity: Optional[Union[Granularity, List[Granularity]]] = PerRow()
             The granularity for quantization. Can be either a single granularity (applied to both
-            activations and weights) or a tuple / list of two granularities (first for activations, second for weights).
+            activations and weights) or a list of two granularities (first for activations, second for weights).
             If None, defaults to PerRow for both. Only PerTensor and PerRow are supported.
         act_mapping_type: Optional[MappingType] = MappingType.SYMMETRIC - Mapping type for activation quantization.
             SYMMETRIC and ASYMMETRIC are supported.
@@ -852,9 +852,7 @@ class Int8DynamicActivationInt8WeightConfig(AOBaseConfig):
 
     act_mapping_type: Optional[MappingType] = MappingType.SYMMETRIC
     weight_only_decode: bool = False
-    granularity: Optional[
-        Union[Granularity, Tuple[Granularity, Granularity], list[Granularity]]
-    ] = PerRow()
+    granularity: Optional[Union[Granularity, list[Granularity]]] = PerRow()
     set_inductor_config: bool = True
     version: int = 2
 
@@ -942,9 +940,9 @@ class Int8StaticActivationInt8WeightConfig(AOBaseConfig):
     Args:
         act_quant_scale (torch.Tensor): The scale tensor for activation quantization.
         act_quant_zero_point (torch.Tensor): The zero_point tensor for activation quantization (asymmetric only).
-        granularity (Optional[Union[Granularity, Tuple[Granularity, Granularity], List[Granularity]]] = PerRow()):
+        granularity (Optional[Union[Granularity, List[Granularity]]] = PerRow()):
             The granularity for quantization. Can be either a single granularity (applied to both
-            activations and weights) or a tuple / list of two granularities (first for activations, second for weights).
+            activations and weights) or a list of two granularities (first for activations, second for weights).
             If None, defaults to PerRow for both. Only PerTensor and PerRow are supported.
         act_mapping_type (MappingType): The mapping type for activation quantization. SYMMETRIC and ASYMMETRIC are supported.
         set_inductor_config (bool): if True, adjusts `torchinductor` settings to recommended values.
@@ -953,9 +951,7 @@ class Int8StaticActivationInt8WeightConfig(AOBaseConfig):
 
     act_quant_scale: Optional[torch.Tensor] = None
     act_quant_zero_point: Optional[torch.Tensor] = None
-    granularity: Optional[
-        Union[Granularity, Tuple[Granularity, Granularity], list[Granularity]]
-    ] = PerRow()
+    granularity: Optional[Union[Granularity, list[Granularity]]] = PerRow()
     act_mapping_type: Optional[MappingType] = MappingType.SYMMETRIC
     set_inductor_config: bool = True
     version: int = 1
