@@ -304,6 +304,7 @@ class TestPatternMatcherBase(TestCase):
 
         with torch.no_grad(), maybe_autocast:
             if check_code:
+                clone_inputs = self._clone_inputs(inputs)
                 expected = mod(*inputs)
                 actual = torch.compile(mod, **compile_options)(*clone_inputs)
                 if check_output_dtype:
