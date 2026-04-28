@@ -141,15 +141,20 @@ def _gptq_config_transform(
             )
 
         # Validate that observations were recorded
-        if tensor.hessian is None:
+        if (tensor.total_batches == 0).any():
             raise ValueError(
                 f"No observations recorded for {parameter_name}. "
-                f"Hessian is None. Did you run forward passes during the observe step?"
+                f"total_batches is 0. Did you run forward passes during the observe step?"
             )
 
         # Use pre-computed Hessian directly
         hessian = tensor.hessian
-        new_tensor = gptq_quantize(hessian, tensor.hp_data, config)
+        if len(tensor.shape) == 2:
+            new_tensor = gptq_quantize(hessian, tensor.hp_data, config)
+        else:
+            assert len(tensor.shape) == 3, "unsupported"
+            new_tensor = gptq_quantize_3d(hessian, tensor.hp_data, config)
+
         new_quantized_tensor = nn.Parameter(new_tensor, requires_grad=False)
         setattr(module, parameter_name, new_quantized_tensor)
         return module
@@ -592,7 +597,51 @@ def gptq_quantize(H: torch.Tensor, W_t: torch.Tensor, config: GPTQConfig):
     return result
 
 
+def gptq_quantize_3d(H: torch.Tensor, W_t: torch.Tensor, config: GPTQConfig):
+    """3D variant of gptq_quantize for MoE expert weights.
+
+    Args:
+        H: per-expert Hessian of shape (E, K, K)
+        W_t: stacked expert weights of shape (E, N, K)
+        config: GPTQ configuration (NVFP4 only)
+
+    Returns:
+        NVFP4Tensor of shape (E, N, K) assembled from per-expert 2D results.
+    """
+    assert H.dim() == 3 and W_t.dim() == 3
+    assert H.shape[0] == W_t.shape[0]
+    base_config = config.base_config
+    assert isinstance(base_config, NVFP4DynamicActivationNVFP4WeightConfig), (
+        "gptq_quantize_3d only supports NVFP4"
+    )
+
+    E = W_t.shape[0]
+    pieces = [gptq_quantize(H[e], W_t[e], config) for e in range(E)]
+
+    # Stack inner NVFP4Tensor fields along a new expert dim 0. These are plain
+    # tensors (uint8 / float8_e4m3fn / float32), so torch.stack goes through
+    # normal aten dispatch, not NVFP4Tensor.
+    qdata_3d = torch.stack([p.qdata for p in pieces], dim=0)
+    scale_3d = torch.stack([p.scale for p in pieces], dim=0)
+    per_tensor_scale_3d = torch.stack(
+        [p.per_tensor_scale.view(1, 1) for p in pieces], dim=0
+    )
+
+    return NVFP4Tensor(
+        qdata_3d,
+        scale_3d,
+        block_size=pieces[0].block_size,
+        orig_dtype=pieces[0].orig_dtype,
+        per_tensor_scale=per_tensor_scale_3d,
+        act_per_tensor_scale=None,
+        is_swizzled_scales=True,
+        use_triton_kernel=pieces[0].use_triton_kernel,
+        act_quant_kwargs=pieces[0].act_quant_kwargs,
+    )
+
+
 __all__ = [
     "GPTQConfig",
     "gptq_quantize",
+    "gptq_quantize_3d",
 ]

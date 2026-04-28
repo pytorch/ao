@@ -36,6 +36,8 @@ __all__ = [
     "is_package_at_least",
     "DummyModule",
     "register_as_pytree_constant",
+    "_cpu_is_vnni_supported",
+    "should_reduce_range",
 ]
 
 
@@ -1167,6 +1169,27 @@ def is_cuda_version_at_least(major: int, minor: int) -> bool:
         return False
     cuda_major, cuda_minor = map(int, cuda_version.split(".")[:2])
     return (cuda_major, cuda_minor) >= (major, minor)
+
+
+def _cpu_is_vnni_supported() -> bool:
+    """
+    Safely query AVX512_VNNI support, guarding against private API absence.
+    torch.cpu._is_vnni_supported / torch._C._cpu._is_vnni_supported are
+    private and may be missing in certain PyTorch builds or versions.
+    """
+    if hasattr(torch._C._cpu, "_is_vnni_supported"):
+        return torch._C._cpu._is_vnni_supported()
+    elif hasattr(torch.cpu, "_is_vnni_supported"):
+        return torch.cpu._is_vnni_supported()
+    return False
+
+
+def should_reduce_range(device: torch.device) -> bool:
+    """
+    Helper to determine if int8 tensor quantization range should be reduced
+    to avoid overflow on CPUs without VNNI support.
+    """
+    return device.type == "cpu" and not _cpu_is_vnni_supported()
 
 
 def ceil_div(a, b):
