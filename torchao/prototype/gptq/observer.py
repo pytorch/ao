@@ -11,11 +11,11 @@ from torchao.utils import TorchAOBaseTensor
 
 
 class GPTQObserverTensor(TorchAOBaseTensor):
-    tensor_data_names = ["hp_data", "total_batches"]
+    tensor_data_names = ["hp_data", "total_tokens"]
     optional_tensor_data_names = ["hessian"]
     tensor_attribute_names = []
 
-    def __new__(cls, hp_data: torch.Tensor, total_batches, hessian=None):
+    def __new__(cls, hp_data: torch.Tensor, total_tokens, hessian=None):
         shape = hp_data.shape
         kwargs = {}
         kwargs["device"] = hp_data.device
@@ -23,21 +23,18 @@ class GPTQObserverTensor(TorchAOBaseTensor):
         kwargs["requires_grad"] = False
         return torch.Tensor._make_wrapper_subclass(cls, shape, **kwargs)  # type: ignore[attr-defined]
 
-    def __init__(self, hp_data: torch.Tensor, total_batches, hessian=None):
+    def __init__(self, hp_data: torch.Tensor, total_tokens, hessian=None):
         super().__init__()
         self.hp_data = hp_data
         self.hessian = hessian
-        if isinstance(total_batches, torch.Tensor):
-            self.total_batches = total_batches
+        if isinstance(total_tokens, torch.Tensor):
+            self.total_tokens = total_tokens
         elif len(self.hp_data.shape) == 3:
-            # TODO(future PR): audit whether we need to change this
-            # from `total_batches` (current) to something like `total_tokens`,
-            # to ensure that each token is weighted equally in the 3d case.
-            self.total_batches = torch.zeros(
+            self.total_tokens = torch.zeros(
                 self.hp_data.shape[0], dtype=torch.int64, device=self.hp_data.device
             )
         else:
-            self.total_batches = torch.zeros(
+            self.total_tokens = torch.zeros(
                 1, dtype=torch.int64, device=self.hp_data.device
             )
 
@@ -65,32 +62,43 @@ class GPTQObserverTensor(TorchAOBaseTensor):
 
     @staticmethod
     def _update_single_hessian(
-        x: torch.Tensor, hessian: torch.Tensor, total_batches: torch.Tensor
+        x: torch.Tensor,
+        hessian: torch.Tensor,
+        total_tokens: torch.Tensor,
+        n: int,
     ):
-        """Update a single 2D Hessian and total_batches in-place."""
-        shape = x.shape
-        n = 1 if len(shape) == 2 else shape[0]
-        x = x.reshape(-1, shape[-1])
+        """Update a single 2D Hessian and total_tokens in-place.
+
+        `n` is the number of tokens this update contributes to the running
+        mean (e.g. `num_tokens` for a 2D call, or the per-expert slice size
+        for grouped_mm).
+        """
+        if n == 0:
+            return
+        x = x.reshape(-1, x.shape[-1])
 
         # cast to Python int64 for optimal type promotion semantics
         # Note: there is definitely a better way to get ^, saving for
         # a follow-up PR. For now, this preserves numerics.
-        tb = total_batches.item()
-        if tb > 0:
-            hessian *= tb / (tb + n)
+        tt = total_tokens.item()
+        if tt > 0:
+            hessian *= tt / (tt + n)
 
-        total_batches += n
+        total_tokens += n
         # cast to Python int64 for optimal type promotion semantics
         # Note: there is definitely a better way to get ^, saving for
         # a follow-up PR. For now, this preserves numerics.
-        tb = total_batches.item()
+        tt = total_tokens.item()
 
-        x = ((2 / tb) ** (1 / 2)) * x.t()
+        x = ((2 / tt) ** (1 / 2)) * x.t()
         hessian += x.matmul(x.t())
 
     def update_2d(self, input: torch.Tensor):
         x = input.float().to(self.hp_data.device)
-        self._update_single_hessian(x, self.hessian, self.total_batches[0:1])
+        x = x.reshape(-1, x.shape[-1])
+        self._update_single_hessian(
+            x, self.hessian, self.total_tokens[0:1], n=x.shape[0]
+        )
 
     def update_3d(self, input: torch.Tensor):
         x = input.float().to(self.hp_data.device)
@@ -98,8 +106,8 @@ class GPTQObserverTensor(TorchAOBaseTensor):
         for e_idx in range(self.hessian.shape[0]):
             x_cur = x[e_idx]
             h_cur = self.hessian[e_idx]
-            total_batches = self.total_batches[e_idx : e_idx + 1]
-            self._update_single_hessian(x_cur, h_cur, total_batches)
+            total_tokens = self.total_tokens[e_idx : e_idx + 1]
+            self._update_single_hessian(x_cur, h_cur, total_tokens, n=x_cur.shape[0])
 
     def update_3d_with_offs(self, input: torch.Tensor, offs: torch.Tensor):
         x = input.float().to(self.hp_data.device)
@@ -114,8 +122,11 @@ class GPTQObserverTensor(TorchAOBaseTensor):
                 continue
             x_cur = x[prev_end:end]
             h_cur = self.hessian[e_idx]
-            total_batches = self.total_batches[e_idx : e_idx + 1]
-            self._update_single_hessian(x_cur, h_cur, total_batches)
+            total_tokens = self.total_tokens[e_idx : e_idx + 1]
+            # Token-weighted: each of the `end - prev_end` rows contributes
+            # equally to the running-mean Hessian, regardless of how this
+            # slice's row count compares to other calls.
+            self._update_single_hessian(x_cur, h_cur, total_tokens, n=end - prev_end)
             prev_end = end
 
     @classmethod
@@ -154,7 +165,7 @@ def _(func, types, args, kwargs):
     }, f"only transpose of last two dims is supported, got dims {dim0}, {dim1}"
     new_data = func(self.hp_data, dim0, dim1)
     new_hessian = func(self.hessian, dim0, dim1)
-    return GPTQObserverTensor(new_data, self.total_batches, new_hessian)
+    return GPTQObserverTensor(new_data, self.total_tokens, new_hessian)
 
 
 @implements(aten.bmm.default)
