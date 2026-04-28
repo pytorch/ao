@@ -1,5 +1,5 @@
-from .cpp_int8_sdpa_template import CppInt8SdpaTemplate
+from .cpp_qsdpa_template import CppQsdpaTemplate
 
 __all__ = [
-    "CppInt8SdpaTemplate",
+    "CppQsdpaTemplate",
 ]
