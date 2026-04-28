@@ -843,6 +843,9 @@ class Int8DynamicActivationInt8WeightConfig(AOBaseConfig):
             SYMMETRIC and ASYMMETRIC are supported.
         set_inductor_config: bool = True - If True, adjusts `torchinductor` settings to recommended values
             for better performance with this quantization scheme.
+        version (int): the version of the config
+        reduce_range (Optional[bool] = False): If True, use reduced activation and weight quantization ranges
+            to avoid overflow on CPU without VNNI. Users can call should_reduce_range() to help determine.
 
     Example:
 
@@ -857,6 +860,7 @@ class Int8DynamicActivationInt8WeightConfig(AOBaseConfig):
     ] = PerRow()
     set_inductor_config: bool = True
     version: int = 2
+    reduce_range: Optional[bool] = False
 
     def __post_init__(self):
         torch._C._log_api_usage_once(
@@ -895,7 +899,9 @@ def _int8_dynamic_activation_int8_weight_quantize_tensor(weight, config):
         act_quant_kwargs=QuantizeTensorToInt8Kwargs(
             granularity=act_granularity,
             mapping_type=config.act_mapping_type,
+            reduce_range=config.reduce_range,
         ),
+        reduce_range=config.reduce_range,
     )
 
     return quantized_weight
@@ -949,6 +955,8 @@ class Int8StaticActivationInt8WeightConfig(AOBaseConfig):
         act_mapping_type (MappingType): The mapping type for activation quantization. SYMMETRIC and ASYMMETRIC are supported.
         set_inductor_config (bool): if True, adjusts `torchinductor` settings to recommended values.
         version (int): the version of the config
+        reduce_range (Optional[bool] = False): If True, use reduced activation and weight quantization ranges
+            to avoid overflow on CPU without VNNI. Users can call should_reduce_range() to help determine.
     """
 
     act_quant_scale: Optional[torch.Tensor] = None
@@ -959,6 +967,7 @@ class Int8StaticActivationInt8WeightConfig(AOBaseConfig):
     act_mapping_type: Optional[MappingType] = MappingType.SYMMETRIC
     set_inductor_config: bool = True
     version: int = 1
+    reduce_range: Optional[bool] = False
 
     def __post_init__(self):
         torch._C._log_api_usage_once(
@@ -992,6 +1001,7 @@ class Int8StaticActivationInt8WeightConfig(AOBaseConfig):
         return QuantizeTensorToInt8Kwargs(
             granularity=act_granularity,
             mapping_type=self.act_mapping_type,
+            reduce_range=self.reduce_range,
         )
 
 
@@ -1022,9 +1032,11 @@ def _int8_static_activation_int8_weight_transform(
         act_quant_kwargs=QuantizeTensorToInt8Kwargs(
             granularity=activation_granularity,
             mapping_type=config.act_mapping_type,
+            reduce_range=config.reduce_range,
         ),
         act_quant_scale=config.act_quant_scale.detach(),
         act_quant_zero_point=act_quant_zero_point,
+        reduce_range=config.reduce_range,
     )
 
     setattr(

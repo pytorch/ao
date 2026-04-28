@@ -152,7 +152,7 @@ def _(
     o_scale: float = 1.0,
     o_zp: int = 0,
 ) -> Tensor:
-    return query
+    return query.transpose(1, 2).contiguous().transpose(1, 2)
 
 
 def rowwise_scaled_linear_sparse_cutlass_f8f8(

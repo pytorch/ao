@@ -4,13 +4,17 @@
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
 
+import os
 import types
+import warnings
 from dataclasses import dataclass
 from functools import partial
 from typing import Union
 
 import torch
 import torch.nn as nn
+
+from torchao.utils import torch_version_at_least
 
 try:
     from mslk.quantize.shuffle import int4_row_quantize_zp, pack_int4
@@ -19,6 +23,25 @@ except:
     pack_int4 = None
 
 from torchao.core.config import AOBaseConfig
+from torchao.prototype.mx_formats.constants import F4_E2M1_MAX
+from torchao.prototype.mx_formats.inference_workflow import (
+    NVFP4DynamicActivationNVFP4WeightConfig,
+)
+from torchao.prototype.mx_formats.kernels import (
+    f4_unpacked_to_f32,
+    f32_to_f4_unpacked,
+    pack_uint4,
+)
+from torchao.prototype.mx_formats.nvfp4_tensor import (
+    NVFP4Tensor,
+    QuantizeTensorToNVFP4Kwargs,
+    nvfp4_quantize,
+    per_tensor_amax_to_scale,
+)
+from torchao.prototype.mx_formats.utils import (
+    hp_data_dims_to_swizzled_scale_dims_nvfp4,
+    to_blocked,
+)
 from torchao.quantization import Int4Tensor, Int8Tensor
 from torchao.quantization.granularity import PerRow
 from torchao.quantization.quant_api import (
@@ -33,6 +56,7 @@ from .observer import GPTQObserverTensor
 CONFIG_TO_TORCHAO_BASE_TENSOR = {
     Int4WeightOnlyConfig: Int4Tensor,
     Int8WeightOnlyConfig: Int8Tensor,
+    NVFP4DynamicActivationNVFP4WeightConfig: NVFP4Tensor,
 }
 
 
@@ -61,7 +85,11 @@ class GPTQConfig(AOBaseConfig):
     """
 
     step: str = "observe"  # "observe" or "convert"
-    base_config: Union[Int4WeightOnlyConfig, Int8WeightOnlyConfig] = None
+    base_config: Union[
+        Int4WeightOnlyConfig,
+        Int8WeightOnlyConfig,
+        NVFP4DynamicActivationNVFP4WeightConfig,
+    ] = None
     percdamp: float = 0.01
     gptq_quantize_block_size: int = 256
 
@@ -73,6 +101,11 @@ class GPTQConfig(AOBaseConfig):
                 raise ValueError(
                     "mslk is not installed. Please install mslk to use int4 quantization."
                 )
+
+
+# simple progress counter for GPTQ convert
+# TODO(future): make this cleaner, will require a refactor
+gptq_convert_layer_counter = 0
 
 
 @register_quantize_module_handler(GPTQConfig)
@@ -96,6 +129,10 @@ def _gptq_config_transform(
         )
         return module
     elif config.step == "convert":
+        global gptq_convert_layer_counter
+        print(f"gptq convert {gptq_convert_layer_counter}")
+        gptq_convert_layer_counter += 1
+
         # Quantization phase: tensor should be an GPTQObserverTensor
         if not isinstance(tensor, GPTQObserverTensor):
             raise ValueError(
@@ -104,15 +141,20 @@ def _gptq_config_transform(
             )
 
         # Validate that observations were recorded
-        if tensor.hessian is None:
+        if (tensor.total_batches == 0).any():
             raise ValueError(
                 f"No observations recorded for {parameter_name}. "
-                f"Hessian is None. Did you run forward passes during the observe step?"
+                f"total_batches is 0. Did you run forward passes during the observe step?"
             )
 
         # Use pre-computed Hessian directly
         hessian = tensor.hessian
-        new_tensor = gptq_quantize(hessian, tensor.hp_data, config)
+        if len(tensor.shape) == 2:
+            new_tensor = gptq_quantize(hessian, tensor.hp_data, config)
+        else:
+            assert len(tensor.shape) == 3, "unsupported"
+            new_tensor = gptq_quantize_3d(hessian, tensor.hp_data, config)
+
         new_quantized_tensor = nn.Parameter(new_tensor, requires_grad=False)
         setattr(module, parameter_name, new_quantized_tensor)
         return module
@@ -179,6 +221,93 @@ def _int4_row_dequantize_zp(
     return torch.cat(dequant_chunks, dim=-1)
 
 
+def _nvfp4_with_precalculated_scales_qdq(
+    data_hp: torch.Tensor,
+    per_tensor_scale: torch.Tensor,
+    block_scale: torch.Tensor,
+) -> torch.Tensor:
+    """
+    Same as torchao.prototype.mx_formats.nvfp4_tensor.nvfp4_quantize, but with
+    per_tensor_scale and block_scale precalculated and the end result dequantized.
+    """
+    assert per_tensor_scale.dtype is torch.float32
+    assert block_scale.dtype is torch.float8_e4m3fn
+    # this function only works for data_hp.shape == (N, k_slice)
+    # and block_scale.shape == (N,)
+    assert len(block_scale.shape) == 1
+
+    scaled_block_scales_fp32 = block_scale.to(torch.float32)
+    reciprocal_scale = (1.0 / per_tensor_scale) / scaled_block_scales_fp32
+    data_scaled = data_hp * reciprocal_scale.unsqueeze(-1)
+    data_scaled = torch.clamp(data_scaled, -F4_E2M1_MAX, F4_E2M1_MAX)
+    data_lp = f32_to_f4_unpacked(data_scaled)
+    data_lp_hp = f4_unpacked_to_f32(data_lp)
+    data_lp_hp_unscaled = data_lp_hp / reciprocal_scale.unsqueeze(-1)
+    return data_lp_hp_unscaled
+
+
+def _nvfp4_with_precalculated_scales_q(
+    data_hp: torch.Tensor,
+    per_tensor_scale: torch.Tensor,
+    block_scale: torch.Tensor,
+) -> torch.Tensor:
+    """
+    Same as torchao.prototype.mx_formats.nvfp4_tensor.nvfp4_quantize, but with
+    per_tensor_scale and block_scale precalculated.
+    """
+    assert per_tensor_scale.dtype is torch.float32
+    assert block_scale.dtype is torch.float8_e4m3fn
+
+    # TODO(future): figure out what to reuse vs leave copy-pasted vs
+    # nvfp4_tensor.py
+    scaled_block_scales_fp32 = block_scale.to(torch.float32)
+    reciprocal_scale = (1.0 / per_tensor_scale) / scaled_block_scales_fp32
+    N, K = data_hp.shape
+    # reshape to 3d to properly broadcast for scaling
+    data_hp = data_hp.view(N, K // 16, 16)
+    data_scaled = data_hp * reciprocal_scale.unsqueeze(-1)
+    data_scaled = torch.clamp(data_scaled, -F4_E2M1_MAX, F4_E2M1_MAX)
+    data_lp = f32_to_f4_unpacked(data_scaled)
+    data_lp_packed = pack_uint4(data_lp)
+    # reshape back to 2d
+    data_lp_packed = data_lp_packed.view(N, K // 2)
+    return data_lp_packed
+
+
+# Set to True to torch.compile the NVFP4 quantize/dequantize functions
+# inside gptq_quantize. Gives ~3x speedup.
+_use_torch_compile = True
+
+if _use_torch_compile:
+    _nvfp4_qdq_fn = torch.compile(_nvfp4_with_precalculated_scales_qdq)
+    _nvfp4_q_fn = torch.compile(_nvfp4_with_precalculated_scales_q)
+
+    if torch_version_at_least("2.11.0"):
+        # Triton's default f32 division uses approximate reciprocal which
+        # introduces ~1 ULP error per division. In GPTQ's error propagation
+        # loop this compounds across columns. IEEE-compliant division rounding
+        # eliminates the drift.
+        import torch._inductor.config as _inductor_config
+
+        if os.environ.get("TORCHINDUCTOR_EMULATE_DIVISION_ROUNDING") == "0":
+            warnings.warn(
+                "TORCHINDUCTOR_EMULATE_DIVISION_ROUNDING=0 may cause numerical "
+                "drift in GPTQ with torch.compile. "
+                "Consider unsetting it or setting it to 1."
+            )
+        else:
+            _inductor_config.eager_numerics.division_rounding = True
+    else:
+        warnings.warn(
+            "PyTorch < 2.11.0 detected. Upgrade to PyTorch 2.11.0+ for "
+            "better GPTQ numerics with torch.compile (IEEE-compliant "
+            "division rounding)."
+        )
+else:
+    _nvfp4_qdq_fn = _nvfp4_with_precalculated_scales_qdq
+    _nvfp4_q_fn = _nvfp4_with_precalculated_scales_q
+
+
 def gptq_quantize(H: torch.Tensor, W_t: torch.Tensor, config: GPTQConfig):
     """
     This function implements the GPTQ algorithm described in this paper: https://arxiv.org/abs/2210.17323 (Algorithm 1)
@@ -241,6 +370,16 @@ def gptq_quantize(H: torch.Tensor, W_t: torch.Tensor, config: GPTQConfig):
         block_size = get_block_size(W_t.shape, base_config.granularity)
         block_size = list(block_size)
         group_size = block_size[-1]
+    elif isinstance(base_config, NVFP4DynamicActivationNVFP4WeightConfig):
+        assert base_config.use_dynamic_per_tensor_scale, "unsupported"
+        group_size = 16
+        block_size = [1, group_size]
+        # for per-tensor nvfp4, we need to calculate the global scale over the
+        # entire tensor before we enter the GPTQ loop
+        tensor_amax = torch.max(torch.abs(W_t))
+        nvfp4_global_scale = per_tensor_amax_to_scale(tensor_amax)
+    else:
+        raise AssertionError("unsupported")
 
     assert group_size > 0
 
@@ -337,6 +476,27 @@ def gptq_quantize(H: torch.Tensor, W_t: torch.Tensor, config: GPTQConfig):
                         ],
                         base_config.granularity,
                     )
+                elif isinstance(base_config, NVFP4DynamicActivationNVFP4WeightConfig):
+                    tensor_slice = B_cur[
+                        :,
+                        G_k_start - B_cur_k_start : G_k_end - B_cur_k_start,
+                    ].contiguous()
+                    # quantize this slice using pre-calculated global scale, to
+                    # get the blockwise dynamic scales, they will be frozen
+                    # after this point
+                    scale, _data_lp = nvfp4_quantize(
+                        tensor_slice,
+                        per_tensor_scale=nvfp4_global_scale,
+                    )
+                    group_qparams.append(scale)
+                    # TODO(future PR): simpler version of `nvfp4_quantize` which
+                    # just calculates the scale, since we are throwing away the
+                    # quantized packed data here. For now, just call the full
+                    # one.
+                    del _data_lp
+
+                else:
+                    raise AssertionError("unsupported")
 
             # Quantize each column and propagate errors to subsequent columns
             for k in range(G_k_start - B_cur_k_start, G_k_end - B_cur_k_start):
@@ -354,6 +514,12 @@ def gptq_quantize(H: torch.Tensor, W_t: torch.Tensor, config: GPTQConfig):
                         scale=quantized_tensor.scale,
                     )
                     dq = q.dequantize(output_dtype=torch.float)
+                elif isinstance(base_config, NVFP4DynamicActivationNVFP4WeightConfig):
+                    dq = _nvfp4_qdq_fn(
+                        w_t,
+                        nvfp4_global_scale,
+                        scale.squeeze(-1),
+                    )
 
                 err1 = (w_t - dq) / Hinv_cur[k, k]
                 B_cur[:, k:] -= err1.matmul(Hinv_cur[k, k:].unsqueeze(0))
@@ -385,11 +551,97 @@ def gptq_quantize(H: torch.Tensor, W_t: torch.Tensor, config: GPTQConfig):
         result = Int8Tensor.from_hp(
             W_t, granularity=base_config.granularity, scale=quantized_tensor.scale
         )
+    else:
+        N, K = W_t.shape
+        # TODO(future PR): clean up the line below. Context: the current nvfp4
+        # code follows the int4 code - we save the blockwise scales to an array
+        # and concat it. This leads to the necessity of t().contiguous().t() to
+        # get the scales back into the right layout for W_t. This is not
+        # intuitive, likely better to initialize the scales holder ahead of time
+        # and write the scales directly to their final place.
+        combined_scale = (
+            torch.cat(group_qparams, dim=0).reshape(K // group_size, N).t().contiguous()
+        )
+        qdata = _nvfp4_q_fn(
+            W_t,
+            nvfp4_global_scale,
+            combined_scale,
+        )
+
+        act_quant_kwargs = QuantizeTensorToNVFP4Kwargs(
+            use_dynamic_per_tensor_scale=base_config.use_dynamic_per_tensor_scale,
+            use_triton_kernel=base_config.use_triton_kernel,
+            is_swizzled_scales=True,
+        )
+
+        # swizzle the block scales
+        combined_scale_swizzled = to_blocked(combined_scale).flatten()
+        scale_N, scale_K = hp_data_dims_to_swizzled_scale_dims_nvfp4(N, K)
+        combined_scale_swizzled = combined_scale_swizzled.view(scale_N, scale_K)
+
+        result = NVFP4Tensor(
+            qdata,
+            combined_scale_swizzled,
+            block_size=group_size,
+            orig_dtype=W_t.dtype,
+            per_tensor_scale=nvfp4_global_scale,
+            # TODO(future): get act_per_tensor_scale from calibration data?
+            # for now, set it to None here to calculate it dynamically at
+            # runtime
+            act_per_tensor_scale=None,
+            is_swizzled_scales=True,
+            use_triton_kernel=base_config.use_triton_kernel,
+            act_quant_kwargs=act_quant_kwargs,
+        )
 
     return result
+
+
+def gptq_quantize_3d(H: torch.Tensor, W_t: torch.Tensor, config: GPTQConfig):
+    """3D variant of gptq_quantize for MoE expert weights.
+
+    Args:
+        H: per-expert Hessian of shape (E, K, K)
+        W_t: stacked expert weights of shape (E, N, K)
+        config: GPTQ configuration (NVFP4 only)
+
+    Returns:
+        NVFP4Tensor of shape (E, N, K) assembled from per-expert 2D results.
+    """
+    assert H.dim() == 3 and W_t.dim() == 3
+    assert H.shape[0] == W_t.shape[0]
+    base_config = config.base_config
+    assert isinstance(base_config, NVFP4DynamicActivationNVFP4WeightConfig), (
+        "gptq_quantize_3d only supports NVFP4"
+    )
+
+    E = W_t.shape[0]
+    pieces = [gptq_quantize(H[e], W_t[e], config) for e in range(E)]
+
+    # Stack inner NVFP4Tensor fields along a new expert dim 0. These are plain
+    # tensors (uint8 / float8_e4m3fn / float32), so torch.stack goes through
+    # normal aten dispatch, not NVFP4Tensor.
+    qdata_3d = torch.stack([p.qdata for p in pieces], dim=0)
+    scale_3d = torch.stack([p.scale for p in pieces], dim=0)
+    per_tensor_scale_3d = torch.stack(
+        [p.per_tensor_scale.view(1, 1) for p in pieces], dim=0
+    )
+
+    return NVFP4Tensor(
+        qdata_3d,
+        scale_3d,
+        block_size=pieces[0].block_size,
+        orig_dtype=pieces[0].orig_dtype,
+        per_tensor_scale=per_tensor_scale_3d,
+        act_per_tensor_scale=None,
+        is_swizzled_scales=True,
+        use_triton_kernel=pieces[0].use_triton_kernel,
+        act_quant_kwargs=pieces[0].act_quant_kwargs,
+    )
 
 
 __all__ = [
     "GPTQConfig",
     "gptq_quantize",
+    "gptq_quantize_3d",
 ]

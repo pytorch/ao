@@ -10,14 +10,28 @@ import pytest
 import torch
 import torch.nn.functional as F
 
+from torchao.utils import torch_version_at_least
+
+pytestmark = pytest.mark.skipif(
+    not torch_version_at_least("2.11.0"),
+    reason="GPTQ prototype requires PyTorch 2.11+",
+)
+
 from torchao.prototype.gptq import (
     GPTQConfig,
     gptq_quantize,
+    gptq_quantize_3d,
 )
 from torchao.prototype.gptq.observer import GPTQObserverTensor
+from torchao.prototype.mx_formats.inference_workflow import (
+    NVFP4DynamicActivationNVFP4WeightConfig,
+)
 from torchao.quantization import Int4WeightOnlyConfig, Int8WeightOnlyConfig, quantize_
 from torchao.quantization.granularity import PerRow
-from torchao.utils import _is_mslk_available
+from torchao.utils import (
+    _is_mslk_available,
+    is_sm_at_least_100,
+)
 
 
 def _calculate_hessian(inputs, device=None):
@@ -89,33 +103,13 @@ class TestGPTQObserverTensor:
         # Check hp_data is stored correctly
         torch.testing.assert_close(observer.hp_data, weight)
 
-        # Check hessian is initialized as None
-        assert observer.hessian is None
+        # Check hessian is initialized as zeros
+        assert torch.equal(
+            observer.hessian, torch.zeros(64, 64, dtype=torch.float32, device="cuda")
+        )
 
         # Check total_batches is initialized as 0
-        assert observer.total_batches == 0
-
-    @pytest.mark.skipif(not torch.cuda.is_available(), reason="Need CUDA available")
-    def test_observer_tensor_attributes(self):
-        """Test GPTQObserverTensor attributes are correctly set."""
-        weight = torch.randn(16, 32, dtype=torch.bfloat16, device="cuda")
-        observer = GPTQObserverTensor.from_hp(weight)
-
-        # Test hp_data attribute
-        assert hasattr(observer, "hp_data")
-        assert isinstance(observer.hp_data, torch.Tensor)
-
-        # Test hessian attribute
-        assert hasattr(observer, "hessian")
-        assert observer.hessian is None
-
-        # Test total_batches attribute
-        assert hasattr(observer, "total_batches")
-        assert observer.total_batches == 0
-
-        # Test update method exists
-        assert hasattr(observer, "update")
-        assert callable(observer.update)
+        assert (observer.total_batches == 0).all()
 
     @pytest.mark.skipif(not torch.cuda.is_available(), reason="Need CUDA available")
     def test_linear_operation_with_observer(self):
@@ -144,7 +138,7 @@ class TestGPTQObserverTensor:
         # Check that Hessian was initialized and updated
         assert observer_weight.hessian is not None
         assert observer_weight.hessian.shape == (in_features, in_features)
-        assert observer_weight.total_batches == 1
+        assert (observer_weight.total_batches == 1).all()
 
         # Verify output is correct
         expected_output = F.linear(input_tensor, weight)
@@ -178,35 +172,127 @@ class TestGPTQObserverTensor:
         assert observer_weight.hessian.shape == (in_features, in_features)
 
         # Check total_batches matches total samples
-        assert observer_weight.total_batches == total_samples
+        assert (observer_weight.total_batches == total_samples).all()
 
     @pytest.mark.skipif(not torch.cuda.is_available(), reason="Need CUDA available")
     def test_bmm_operation_with_observer(self):
         """Test torch.bmm with GPTQObserverTensor updates Hessian correctly."""
-        batch = 4
+        num_experts = 4
         m = 8
         n = 16
         k = 12
+        num_passes = 4
 
         # Create input and weight tensors
-        input_tensor = torch.randn(batch, m, k, dtype=torch.float32, device="cuda")
-        weight = torch.randn(batch, k, n, dtype=torch.float32, device="cuda")
-        observer_weight = GPTQObserverTensor.from_hp(weight)
+        weight = torch.randn(num_experts, n, k, dtype=torch.float32, device="cuda")
 
-        # Perform bmm operation
-        output = torch.bmm(input_tensor, observer_weight)
+        inputs = [
+            torch.randn(num_experts, m, k, dtype=torch.float32, device="cuda")
+            for _ in range(num_passes)
+        ]
 
-        # Check output shape
-        assert output.shape == (batch, m, n)
+        # 3D path: single observer with bmm
+        observer_3d = GPTQObserverTensor.from_hp(weight)
+        for x in inputs:
+            torch.bmm(x, observer_3d.transpose(-2, -1))
 
-        # Check Hessian was initialized and updated
-        assert observer_weight.hessian is not None
-        # For bmm with batch dimension, the Hessian is computed on the last dimension
-        assert observer_weight.total_batches == batch
+        # 2D path: per-expert observers with F.linear
+        observers_2d = [
+            GPTQObserverTensor.from_hp(weight[e]) for e in range(num_experts)
+        ]
+        for x in inputs:
+            for e in range(num_experts):
+                F.linear(x[e], observers_2d[e])
 
-        # Verify output is correct
-        expected_output = torch.bmm(input_tensor, weight)
-        torch.testing.assert_close(output, expected_output)
+        # Verify per-expert hessians match bitwise to calculating each expert's
+        # hessian individually
+        for e in range(num_experts):
+            assert torch.equal(observer_3d.hessian[e], observers_2d[e].hessian), (
+                f"Expert {e} hessian mismatch"
+            )
+            assert torch.equal(
+                observer_3d.total_batches[e : e + 1], observers_2d[e].total_batches
+            ), f"Expert {e} total_batches mismatch"
+
+    @pytest.mark.skipif(not torch.cuda.is_available(), reason="Need CUDA available")
+    @pytest.mark.skipif(
+        not is_sm_at_least_100(),
+        reason="CUDA capability >= 10.0 required for _grouped_mm",
+    )
+    def test_grouped_mm_operation_with_observer(self):
+        """Test torch._grouped_mm with GPTQObserverTensor updates per-expert Hessians correctly."""
+        num_experts = 4
+        n = 16
+        k = 12
+
+        weight = torch.randn(num_experts, n, k, dtype=torch.float32, device="cuda")
+
+        # 4 different per-expert token distributions. Several of these have
+        # experts that see 0 tokens, which exercises the empty-slice skip path.
+        m_per_group_list = [
+            [1, 3, 4, 16],  # all experts active
+            [0, 3, 4, 13],  # expert 0 sees 0 tokens
+            [5, 5, 0, 5],  # expert 2 sees 0 tokens
+            [2, 0, 6, 4],  # expert 1 sees 0 tokens
+            [2, 3, 5, 0],  # expert 3 sees 0 tokens
+        ]
+
+        offs_list = [
+            torch.tensor(
+                [sum(m_per_group[: i + 1]) for i in range(num_experts)],
+                device="cuda",
+                dtype=torch.int32,
+            )
+            for m_per_group in m_per_group_list
+        ]
+
+        inputs = [
+            torch.randn(sum(m_per_group), k, dtype=torch.float32, device="cuda")
+            for m_per_group in m_per_group_list
+        ]
+
+        # 3D path: single observer with _grouped_mm
+        observer_3d = GPTQObserverTensor.from_hp(weight)
+        for x, offs in zip(inputs, offs_list):
+            torch._grouped_mm(x, observer_3d.transpose(-2, -1), offs=offs)
+
+        # 2D path: per-expert observers with F.linear
+        observers_2d = [
+            GPTQObserverTensor.from_hp(weight[e]) for e in range(num_experts)
+        ]
+        for x, offs in zip(inputs, offs_list):
+            prev_end = 0
+            for e in range(num_experts):
+                end = offs[e].item()
+                if end > prev_end:
+                    F.linear(x[prev_end:end], observers_2d[e])
+                prev_end = end
+
+        # Verify per-expert hessians match bitwise to calculating each expert's
+        # hessian individually
+        for e in range(num_experts):
+            assert torch.equal(observer_3d.hessian[e], observers_2d[e].hessian), (
+                f"Expert {e} hessian mismatch"
+            )
+            assert torch.equal(
+                observer_3d.total_batches[e : e + 1], observers_2d[e].total_batches
+            ), f"Expert {e} total_batches mismatch"
+
+        # Verify total_batches matches an independent count derived directly
+        # from the offsets: each non-empty forward pass contributes 1 per
+        # active expert (each expert's 2D slice has len(shape) == 2, so n=1).
+        expected_total_batches = torch.tensor(
+            [
+                sum(1 for m_per_group in m_per_group_list if m_per_group[e] > 0)
+                for e in range(num_experts)
+            ],
+            dtype=torch.int64,
+            device="cuda",
+        )
+        assert torch.equal(observer_3d.total_batches, expected_total_batches), (
+            f"total_batches {observer_3d.total_batches.tolist()} "
+            f"does not match expected {expected_total_batches.tolist()}"
+        )
 
     @pytest.mark.skipif(not torch.cuda.is_available(), reason="Need CUDA available")
     @pytest.mark.parametrize(
@@ -237,9 +323,12 @@ class TestGPTQObserverTensor:
         # Check hp_data matches original weight
         torch.testing.assert_close(linear.weight.hp_data, original_weight)
 
-        # Check hessian is None initially
-        assert linear.weight.hessian is None
-        assert linear.weight.total_batches == 0
+        # Check hessian is initialized as zeros
+        assert torch.equal(
+            linear.weight.hessian,
+            torch.zeros(64, 64, dtype=torch.float32, device="cuda"),
+        )
+        assert (linear.weight.total_batches == 0).all()
 
         # Perform a forward pass
         input_tensor = torch.randn(4, 64, dtype=torch.float32, device="cuda")
@@ -247,7 +336,7 @@ class TestGPTQObserverTensor:
 
         # Check Hessian was initialized after forward pass
         assert linear.weight.hessian is not None
-        assert linear.weight.total_batches == 1
+        assert (linear.weight.total_batches == 1).all()
 
         # Check output shape
         assert output.shape == (4, 32)
@@ -363,6 +452,9 @@ class TestGPTQFlow:
     )
     def test_gptq_quantize_function(self, base_config):
         """Test gptq_quantize function with synthetic Hessian and weights."""
+        if isinstance(base_config, Int4WeightOnlyConfig) and is_sm_at_least_100():
+            pytest.skip("int4 kernels do not work on sm100")
+
         torch.manual_seed(42)
 
         # Create synthetic weight matrix
@@ -435,10 +527,24 @@ class TestGPTQFlow:
             pytest.param(
                 Int8WeightOnlyConfig(granularity=PerRow(), version=2), id="int8"
             ),
+            pytest.param(
+                NVFP4DynamicActivationNVFP4WeightConfig(
+                    use_dynamic_per_tensor_scale=True,
+                    use_triton_kernel=True,
+                ),
+                id="nvfp4",
+            ),
         ],
     )
     def test_gptq_quantize_better_than_naive(self, base_config):
         """Test that GPTQ produces lower error than naive quantization."""
+
+        if (
+            isinstance(base_config, NVFP4DynamicActivationNVFP4WeightConfig)
+            and not is_sm_at_least_100()
+        ):
+            pytest.skip("CUDA capability >= 10.0 required for nvfp4")
+
         torch.manual_seed(43)
 
         # Create weight and realistic Hessian from actual activations
@@ -492,6 +598,66 @@ class TestGPTQFlow:
         assert naive_loss is not None
 
     @pytest.mark.skipif(not torch.cuda.is_available(), reason="Need CUDA available")
+    @pytest.mark.skipif(
+        not is_sm_at_least_100(), reason="CUDA capability >= 10.0 required for nvfp4"
+    )
+    def test_gptq_quantize_2d_matches_3d(self):
+        """Verify per-expert gptq_quantize and gptq_quantize_3d produce bitwise-identical outputs."""
+        torch.manual_seed(43)
+
+        E = 4
+        out_features = 64
+        in_features = 128
+        num_samples = 10
+
+        base_config = NVFP4DynamicActivationNVFP4WeightConfig(
+            use_dynamic_per_tensor_scale=True,
+            use_triton_kernel=True,
+        )
+        config = GPTQConfig(step="convert", base_config=base_config)
+
+        # Per-expert weights (E, N, K) and per-expert Hessians (E, K, K)
+        weight_3d = torch.randn(
+            E, out_features, in_features, dtype=torch.bfloat16, device="cuda"
+        )
+        hessians = []
+        for _ in range(E):
+            activations = [
+                torch.randn(4, in_features, dtype=torch.float32, device="cuda")
+                for _ in range(num_samples)
+            ]
+            hessians.append(_calculate_hessian(activations, device="cuda"))
+        hessian_3d = torch.stack(hessians, dim=0)
+
+        # gptq_quantize mutates its weight/Hessian arguments in place, so clone
+        # per-experiment to keep the two paths independent.
+        weight_a = weight_3d.clone()
+        weight_b = weight_3d.clone()
+        hessian_a = hessian_3d.clone()
+        hessian_b = hessian_3d.clone()
+
+        # Experiment A: E separate 2D gptq_quantize calls
+        per_expert_2d = [
+            gptq_quantize(hessian_a[e], weight_a[e], config) for e in range(E)
+        ]
+
+        # Experiment B: single 3D gptq_quantize_3d call
+        stacked_3d = gptq_quantize_3d(hessian_b, weight_b, config)
+
+        # Bitwise match per expert
+        for e in range(E):
+            assert torch.equal(per_expert_2d[e].qdata, stacked_3d.qdata[e]), (
+                f"Expert {e}: qdata mismatch"
+            )
+            assert torch.equal(per_expert_2d[e].scale, stacked_3d.scale[e]), (
+                f"Expert {e}: scale mismatch"
+            )
+            assert torch.equal(
+                per_expert_2d[e].per_tensor_scale.view(1, 1),
+                stacked_3d.per_tensor_scale[e],
+            ), f"Expert {e}: per_tensor_scale mismatch"
+
+    @pytest.mark.skipif(not torch.cuda.is_available(), reason="Need CUDA available")
     @pytest.mark.parametrize(
         "base_config",
         [
@@ -506,9 +672,24 @@ class TestGPTQFlow:
             pytest.param(
                 Int8WeightOnlyConfig(granularity=PerRow(), version=2), id="int8"
             ),
+            pytest.param(
+                NVFP4DynamicActivationNVFP4WeightConfig(
+                    use_dynamic_per_tensor_scale=True,
+                    use_triton_kernel=True,
+                ),
+                id="nvfp4",
+            ),
         ],
     )
     def test_gptq_sqnr(self, base_config):
+        if (
+            isinstance(base_config, NVFP4DynamicActivationNVFP4WeightConfig)
+            and not is_sm_at_least_100()
+        ):
+            pytest.skip("CUDA capability >= 10.0 required for nvfp4")
+        if isinstance(base_config, Int4WeightOnlyConfig) and is_sm_at_least_100():
+            pytest.skip("int4 kernels do not work on sm100")
+
         torch.manual_seed(43)
 
         model = ToyLinearModel(m=512, n=2048, k=1024).cuda().to(torch.bfloat16)
@@ -556,6 +737,10 @@ class TestGPTQFlow:
             assert sqnr_gptq > 25, f"GPTQ SQNR: {sqnr_gptq} is too low"
         elif isinstance(base_config, Int8WeightOnlyConfig):
             assert sqnr_gptq > 30, f"GPTQ SQNR: {sqnr_gptq} is too low"
+        elif isinstance(base_config, NVFP4DynamicActivationNVFP4WeightConfig):
+            assert sqnr_gptq > 15, f"GPTQ SQNR: {sqnr_gptq} is too low"
+        else:
+            raise AssertionError("unsupported")
         assert sqnr_gptq > sqnr_rtn, (
             f"GPTQ SQNR: {sqnr_gptq} is not better than RTN SQNR: {sqnr_rtn}"
         )
