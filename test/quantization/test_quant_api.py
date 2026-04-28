@@ -23,6 +23,7 @@ from torchao.prototype.mx_formats.inference_workflow import (
 )
 from torchao.quantization import (
     Float8Tensor,
+    Int4PlainInt32Tensor,
     Int4TilePackedTo4dTensor,
     Int8Tensor,
     IntxUnpackedToInt8Tensor,
@@ -57,6 +58,7 @@ from torchao.testing.pt2e._xnnpack_quantizer import (
 )
 from torchao.testing.utils import skip_if_rocm, skip_if_xpu
 from torchao.utils import (
+    get_available_devices,
     get_current_accelerator_device,
     is_ROCM,
     is_sm_at_least_89,
@@ -64,7 +66,6 @@ from torchao.utils import (
     is_sm_at_least_100,
     unwrap_tensor_subclass,
 )
-
 
 def dynamic_quant(model, example_inputs):
     m = torch.export.export(model, example_inputs, strict=True).module()
@@ -374,7 +375,6 @@ class TestQuantFlow(TestCase):
             Int8WeightOnlyConfig(),
         ],
     )
-    @skip_if_xpu("XPU enablement in progress")
     @skip_if_rocm("ROCm enablement in progress")
     def test_workflow_e2e_numerics(self, config):
         """
@@ -411,12 +411,14 @@ class TestQuantFlow(TestCase):
         assert sqnr >= 16.5, f"SQNR {sqnr} is too low"
 
     @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
-    @unittest.skipIf(not is_sm_at_least_89(), "Need SM 8.9+")
-    def test_module_fqn_to_config_default(self):
+    @unittest.skipIf(torch.cuda.is_available() and not is_sm_at_least_89(), "Need SM 8.9+")
+    @common_utils.parametrize("device", get_available_devices())
+    def test_module_fqn_to_config_default(self, device):
+        if device == "cpu":
+            self.skipTest("Need GPU available")
         config1 = Float8DynamicActivationFloat8WeightConfig()
         config2 = Int8WeightOnlyConfig()
         config = ModuleFqnToConfig({"_default": config1, "linear2": config2})
-        device = get_current_accelerator_device()
         model = ToyLinearModel().to(device).to(dtype=torch.bfloat16)
         example_inputs = model.example_inputs(device=device, dtype=torch.bfloat16)
         quantize_(model, config, filter_fn=None)
@@ -425,12 +427,14 @@ class TestQuantFlow(TestCase):
         assert isinstance(model.linear2.weight, IntxUnpackedToInt8Tensor)
 
     @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
-    @unittest.skipIf(not is_sm_at_least_89(), "Need SM 8.9+")
-    def test_module_fqn_to_config_module_name(self):
+    @unittest.skipIf(torch.cuda.is_available() and not is_sm_at_least_89(), "Need SM 8.9+")
+    @common_utils.parametrize("device", get_available_devices())
+    def test_module_fqn_to_config_module_name(self, device):
+        if device == "cpu":
+            self.skipTest("Need GPU available")
         config1 = Float8DynamicActivationFloat8WeightConfig()
         config2 = Int8WeightOnlyConfig()
         config = ModuleFqnToConfig({"linear1": config1, "linear2": config2})
-        device = get_current_accelerator_device()
         model = ToyLinearModel().to(device).to(dtype=torch.bfloat16)
         example_inputs = model.example_inputs(device=device, dtype=torch.bfloat16)
         quantize_(model, config, filter_fn=None)
@@ -438,60 +442,84 @@ class TestQuantFlow(TestCase):
         assert isinstance(model.linear1.weight, Float8Tensor)
         assert isinstance(model.linear2.weight, IntxUnpackedToInt8Tensor)
 
-    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
-    def test_module_fqn_to_config_regex_basic(self):
+    @unittest.skipIf(not torch.accelerator.is_available(), "Need accelerator available")
+    @common_utils.parametrize("device", get_available_devices())
+    def test_module_fqn_to_config_regex_basic(self, device):
+        if device == "cpu":
+            self.skipTest("Need accelerator available")
+        packing_format = "plain_int32" if device == "xpu" else "tile_packed_to_4d"
+        int4_tensor_type = (
+            Int4PlainInt32Tensor if device == "xpu" else Int4TilePackedTo4dTensor
+        )
         config1 = Int4WeightOnlyConfig(
-            group_size=32, int4_packing_format="tile_packed_to_4d"
+            group_size=32, int4_packing_format=packing_format
         )
         config = ModuleFqnToConfig({"re:linear.": config1})
-        model = ToyLinearModel().cuda().to(dtype=torch.bfloat16)
-        example_inputs = model.example_inputs(device="cuda", dtype=torch.bfloat16)
+        model = ToyLinearModel().to(device).to(dtype=torch.bfloat16)
+        example_inputs = model.example_inputs(device=device, dtype=torch.bfloat16)
         quantize_(model, config, filter_fn=None)
         model(*example_inputs)
-        assert isinstance(model.linear1.weight, Int4TilePackedTo4dTensor)
-        assert isinstance(model.linear2.weight, Int4TilePackedTo4dTensor)
+        assert isinstance(model.linear1.weight, int4_tensor_type)
+        assert isinstance(model.linear2.weight, int4_tensor_type)
 
-    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
-    def test_module_fqn_to_config_regex_precedence(self):
+    @unittest.skipIf(not torch.accelerator.is_available(), "Need accelerator available")
+    @common_utils.parametrize("device", get_available_devices())
+    def test_module_fqn_to_config_regex_precedence(self, device):
         """Testing that full path config takes precedence over
         regex config in ModuleFqnToConfig
         """
+        if device == "cpu":
+            self.skipTest("Need accelerator available")
+        packing_format = "plain_int32" if device == "xpu" else "tile_packed_to_4d"
+        int4_tensor_type = (
+            Int4PlainInt32Tensor if device == "xpu" else Int4TilePackedTo4dTensor
+        )
         config1 = Int4WeightOnlyConfig(
-            group_size=32, int4_packing_format="tile_packed_to_4d"
+            group_size=32, int4_packing_format=packing_format
         )
         config2 = IntxWeightOnlyConfig()
         config = ModuleFqnToConfig({"linear1": config1, "re:linear.": config2})
-        model = ToyLinearModel().cuda().to(dtype=torch.bfloat16)
-        example_inputs = model.example_inputs(device="cuda", dtype=torch.bfloat16)
+        model = ToyLinearModel().to(device).to(dtype=torch.bfloat16)
+        example_inputs = model.example_inputs(device=device, dtype=torch.bfloat16)
         quantize_(model, config, filter_fn=None)
         model(*example_inputs)
-        assert isinstance(model.linear1.weight, Int4TilePackedTo4dTensor)
+        assert isinstance(model.linear1.weight, int4_tensor_type)
         assert isinstance(model.linear2.weight, IntxUnpackedToInt8Tensor)
 
-    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
-    def test_module_fqn_to_config_regex_precedence2(self):
+    @unittest.skipIf(not torch.accelerator.is_available(), "Need accelerator available")
+    @common_utils.parametrize("device", get_available_devices())
+    def test_module_fqn_to_config_regex_precedence2(self, device):
         """Testing that full path config takes precedence over
         regex config in ModuleFqnToConfig, swapping
         the order of `re:linear.*` and `linear1` to make sure that
         `linear1` config has precedence even it comes after `linear*`
         """
+        if device == "cpu":
+            self.skipTest("Need accelerator available")
+        packing_format = "plain_int32" if device == "xpu" else "tile_packed_to_4d"
+        int4_tensor_type = (
+            Int4PlainInt32Tensor if device == "xpu" else Int4TilePackedTo4dTensor
+        )
         config1 = Int4WeightOnlyConfig(
-            group_size=32, int4_packing_format="tile_packed_to_4d"
+            group_size=32, int4_packing_format=packing_format
         )
         config2 = IntxWeightOnlyConfig()
         config = ModuleFqnToConfig({"re:linear.": config2, "linear1": config1})
-        model = ToyLinearModel().cuda().to(dtype=torch.bfloat16)
-        example_inputs = model.example_inputs(device="cuda", dtype=torch.bfloat16)
+        model = ToyLinearModel().to(device).to(dtype=torch.bfloat16)
+        example_inputs = model.example_inputs(device=device, dtype=torch.bfloat16)
         quantize_(model, config, filter_fn=None)
         model(*example_inputs)
-        assert isinstance(model.linear1.weight, Int4TilePackedTo4dTensor)
+        assert isinstance(model.linear1.weight, int4_tensor_type)
         assert isinstance(model.linear2.weight, IntxUnpackedToInt8Tensor)
 
-    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
-    def test_module_fqn_to_config_regex_fullmatch(self):
+    @unittest.skipIf(not torch.accelerator.is_available(), "Need accelerator available")
+    @common_utils.parametrize("device", get_available_devices())
+    def test_module_fqn_to_config_regex_fullmatch(self, device):
         """Testing that we will only match the fqns that fully
         matches the regex
         """
+        if device == "cpu":
+            self.skipTest("Need accelerator available")
 
         class M(torch.nn.Module):
             def __init__(self, dtype, device):
@@ -515,8 +543,12 @@ class TestQuantFlow(TestCase):
             def example_inputs(self):
                 return (torch.randn(1, 32, dtype=self.dtype, device=self.device),)
 
+        packing_format = "plain_int32" if device == "xpu" else "tile_packed_to_4d"
+        int4_tensor_type = (
+            Int4PlainInt32Tensor if device == "xpu" else Int4TilePackedTo4dTensor
+        )
         config1 = Int4WeightOnlyConfig(
-            group_size=32, int4_packing_format="tile_packed_to_4d"
+            group_size=32, int4_packing_format=packing_format
         )
         config2 = Float8WeightOnlyConfig()
         config = ModuleFqnToConfig(
@@ -526,11 +558,11 @@ class TestQuantFlow(TestCase):
                 "linear3_full_match.bias": None,
             }
         )
-        model = M(dtype=torch.bfloat16, device="cuda")
+        model = M(dtype=torch.bfloat16, device=device)
         example_inputs = model.example_inputs()
         quantize_(model, config, filter_fn=None)
         model(*example_inputs)
-        assert isinstance(model.linear1.weight, Int4TilePackedTo4dTensor)
+        assert isinstance(model.linear1.weight, int4_tensor_type)
         # since fqn does not fully match `linear*`, it should not be quantized
         assert not isinstance(model.not_full_match_linear2.weight, Float8Tensor)
         # linear3_full_match matches `linear*`, so should be quantized
@@ -564,11 +596,13 @@ class TestQuantFlow(TestCase):
         assert isinstance(model.linear.weight, IntxUnpackedToInt8Tensor)
 
     @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
-    @unittest.skipIf(not is_sm_at_least_89(), "Need SM 8.9+")
-    def test_module_fqn_to_config_skip(self):
+    @unittest.skipIf(torch.cuda.is_available() and not is_sm_at_least_89(), "Need SM 8.9+")
+    @common_utils.parametrize("device", get_available_devices())
+    def test_module_fqn_to_config_skip(self, device):
+        if device == "cpu":
+            self.skipTest("Need GPU available")
         config1 = Float8DynamicActivationFloat8WeightConfig()
         config = ModuleFqnToConfig({"_default": config1, "linear2": None})
-        device = get_current_accelerator_device()
         model = ToyLinearModel().to(device).to(dtype=torch.bfloat16)
         example_inputs = model.example_inputs(device=device, dtype=torch.bfloat16)
         quantize_(model, config, filter_fn=None)
@@ -580,10 +614,14 @@ class TestQuantFlow(TestCase):
 common_utils.instantiate_parametrized_tests(TestQuantFlow)
 
 
-@unittest.skipIf(not torch.accelerator.is_available(), "Need CUDA available")
-@unittest.skipIf(not is_sm_at_least_90(), "Checkpoints are produced in SM90+")
+@unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
+@unittest.skipIf(torch.cuda.is_available() and not is_sm_at_least_89(), "Need SM 8.9+")
+@common_utils.instantiate_parametrized_tests
 class TestFqnToConfig(TestCase):
-    def test_fqn_to_config_repr_custom(self):
+    @common_utils.parametrize("device", get_available_devices())
+    def test_fqn_to_config_repr_custom(self, device):
+        if device == "cpu":
+            self.skipTest("Need GPU available")
         class TestModule(torch.nn.Module):
             def __init__(self):
                 super().__init__()
@@ -594,7 +632,7 @@ class TestFqnToConfig(TestCase):
                     "y", torch.nn.Parameter(torch.randn(128, 128, dtype=torch.bfloat16))
                 )
 
-        custom_module = TestModule().cuda().eval()
+        custom_module = TestModule().to(device).eval()
         custom_module_config = FqnToConfig(
             {
                 "x": Float8DynamicActivationFloat8WeightConfig(
@@ -612,8 +650,11 @@ class TestFqnToConfig(TestCase):
         assert "Float8Tensor(" in str(custom_module)
         assert "PerTensor()" in str(custom_module)
 
-    def test_fqn_to_config_repr_linear(self):
-        linear_model = ToyLinearModel().to(torch.bfloat16).cuda().eval()
+    @common_utils.parametrize("device", get_available_devices())
+    def test_fqn_to_config_repr_linear(self, device):
+        if device == "cpu":
+            self.skipTest("Need GPU available")
+        linear_model = ToyLinearModel().to(device).to(torch.bfloat16).eval()
         linear_quant_config = FqnToConfig(
             {
                 "linear1.weight": Float8DynamicActivationFloat8WeightConfig(
@@ -705,7 +746,8 @@ class TestFqnToConfig(TestCase):
         config = AutoConfig.from_pretrained(
             "unsloth/Llama-4-Scout-17B-16E-Instruct"
         ).text_config
-        model = Llama4TextMoe(config).to(torch.bfloat16).cuda()
+        device = get_current_accelerator_device()
+        model = Llama4TextMoe(config).to(torch.bfloat16).to(device)
 
         quant_config = FqnToConfig(
             {
@@ -723,8 +765,11 @@ class TestFqnToConfig(TestCase):
 
         assert isinstance(model.experts.gate_up_proj, Float8Tensor)
 
-    def test_quantize_fqn_precedence_param_over_module(self):
-        model = ToyLinearModel().to(torch.bfloat16).cuda().eval()
+    @common_utils.parametrize("device", get_available_devices())
+    def test_quantize_fqn_precedence_param_over_module(self, device):
+        if device == "cpu":
+            self.skipTest("Need GPU available")
+        model = ToyLinearModel().to(device).to(torch.bfloat16).eval()
 
         quant_config = FqnToConfig(
             {
@@ -738,8 +783,11 @@ class TestFqnToConfig(TestCase):
         assert isinstance(model.linear1.weight, Float8Tensor)
         assert model.linear1.weight.scale.numel() == 1
 
-    def test_quantize_fqn_precedence_param_over_module_regex(self):
-        model = ToyLinearModel().to(torch.bfloat16).cuda().eval()
+    @common_utils.parametrize("device", get_available_devices())
+    def test_quantize_fqn_precedence_param_over_module_regex(self, device):
+        if device == "cpu":
+            self.skipTest("Need GPU available")
+        model = ToyLinearModel().to(device).to(torch.bfloat16).eval()
 
         quant_config = FqnToConfig(
             {
@@ -753,8 +801,11 @@ class TestFqnToConfig(TestCase):
         assert isinstance(model.linear1.weight, Float8Tensor)
         assert model.linear1.weight.scale.numel() == 1
 
-    def test_quantize_fqn_precedence_param_regex_over_module_regex(self):
-        model = ToyLinearModel().to(torch.bfloat16).cuda().eval()
+    @common_utils.parametrize("device", get_available_devices())
+    def test_quantize_fqn_precedence_param_regex_over_module_regex(self, device):
+        if device == "cpu":
+            self.skipTest("Need GPU available")
+        model = ToyLinearModel().to(device).to(torch.bfloat16).eval()
 
         quant_config = FqnToConfig(
             {
@@ -768,8 +819,11 @@ class TestFqnToConfig(TestCase):
         assert isinstance(model.linear1.weight, Float8Tensor)
         assert model.linear1.weight.scale.numel() == 1
 
-    def test_quantize_fqn_precedence_module_over_param_regex(self):
-        model = ToyLinearModel().to(torch.bfloat16).cuda().eval()
+    @common_utils.parametrize("device", get_available_devices())
+    def test_quantize_fqn_precedence_module_over_param_regex(self, device):
+        if device == "cpu":
+            self.skipTest("Need GPU available")
+        model = ToyLinearModel().to(device).to(torch.bfloat16).eval()
 
         quant_config = FqnToConfig(
             {
@@ -784,8 +838,11 @@ class TestFqnToConfig(TestCase):
         assert model.linear1.weight.scale.numel() == 1
         assert not isinstance(model.linear2.weight, Float8Tensor)
 
-    def test_quantize_fqn_precedence_param_over_default(self):
-        model = ToyLinearModel().to(torch.bfloat16).cuda().eval()
+    @common_utils.parametrize("device", get_available_devices())
+    def test_quantize_fqn_precedence_param_over_default(self, device):
+        if device == "cpu":
+            self.skipTest("Need GPU available")
+        model = ToyLinearModel().to(device).to(torch.bfloat16).eval()
 
         quant_config = FqnToConfig(
             {
@@ -800,8 +857,11 @@ class TestFqnToConfig(TestCase):
         assert model.linear1.weight.scale.numel() == 1
         assert not isinstance(model.linear2.weight, Float8Tensor)
 
-    def test_quantize_fqn_precedence_param_regex_over_default(self):
-        model = ToyLinearModel().to(torch.bfloat16).cuda().eval()
+    @common_utils.parametrize("device", get_available_devices())
+    def test_quantize_fqn_precedence_param_regex_over_default(self, device):
+        if device == "cpu":
+            self.skipTest("Need GPU available")
+        model = ToyLinearModel().to(device).to(torch.bfloat16).eval()
 
         quant_config = FqnToConfig(
             {
@@ -815,8 +875,11 @@ class TestFqnToConfig(TestCase):
         assert not isinstance(model.linear2.weight, Float8Tensor)
         assert not isinstance(model.linear1.weight, Float8Tensor)
 
-    def test_quantize_model_same_module_different_param(self):
-        model = ToyLinearModel().to(torch.bfloat16).cuda().eval()
+    @common_utils.parametrize("device", get_available_devices())
+    def test_quantize_model_same_module_different_param(self, device):
+        if device == "cpu":
+            self.skipTest("Need GPU available")
+        model = ToyLinearModel().to(device).to(torch.bfloat16).eval()
         model.linear1.register_parameter(
             "weight2", torch.nn.Parameter(model.linear1.weight.clone())
         )
@@ -841,8 +904,11 @@ class TestFqnToConfig(TestCase):
         assert isinstance(model.linear1.weight2, Float8Tensor)
         assert model.linear1.weight2.scale.numel() == 32
 
-    def test_quantize_model_same_module_different_param_regex(self):
-        model = ToyLinearModel().to(torch.bfloat16).cuda().eval()
+    @common_utils.parametrize("device", get_available_devices())
+    def test_quantize_model_same_module_different_param_regex(self, device):
+        if device == "cpu":
+            self.skipTest("Need GPU available")
+        model = ToyLinearModel().to(device).to(torch.bfloat16).eval()
         quant_config = FqnToConfig(
             {
                 "re:.*weight": Float8DynamicActivationFloat8WeightConfig(
@@ -864,13 +930,16 @@ class TestFqnToConfig(TestCase):
         assert model.linear2.weight.scale.numel() == 1
         assert not isinstance(model.linear2.bias, Float8Tensor)
 
-    def test_unsupported_param_config_raises_not_implemented_error(self):
+    @common_utils.parametrize("device", get_available_devices())
+    def test_unsupported_param_config_raises_not_implemented_error(self, device):
         """Test that using an unsupported parameter config raises NotImplementedError.
 
         This test creates a custom config whose handler does not have a 'parameter_name'
         kwarg in its signature. This verifies that _handler_supports_fqn_quantization()
         correctly identifies handlers that don't support parameter-level quantization.
         """
+        if device == "cpu":
+            self.skipTest("Need GPU available")
         from dataclasses import dataclass
 
         from torchao.core.config import AOBaseConfig
@@ -893,7 +962,7 @@ class TestFqnToConfig(TestCase):
             return module
 
         # Create a simple model
-        model = torch.nn.Sequential(torch.nn.Linear(10, 5).cuda().bfloat16())
+        model = torch.nn.Sequential(torch.nn.Linear(10, 5)).to(device).bfloat16()
 
         # Create config targeting a parameter (not a module)
         quant_config = FqnToConfig(
@@ -909,11 +978,14 @@ class TestFqnToConfig(TestCase):
 
         self.assertIn("does not yet support parameter quantization", str(cm.exception))
 
-    def test_filter_fn_and_fqn_to_config_error(self):
+    @common_utils.parametrize("device", get_available_devices())
+    def test_filter_fn_and_fqn_to_config_error(self, device):
         """Test that specifying non-default filter_fn and FqnToConfig raises ValueError."""
+        if device == "cpu":
+            self.skipTest("Need GPU available")
 
         # Create a simple model
-        model = torch.nn.Sequential(torch.nn.Linear(10, 5).cuda().bfloat16())
+        model = torch.nn.Sequential(torch.nn.Linear(10, 5)).to(device).bfloat16()
 
         # Create config with unsupported parameter handler
         quant_config = FqnToConfig(
@@ -928,8 +1000,11 @@ class TestFqnToConfig(TestCase):
         with self.assertRaises(ValueError):
             quantize_(model, quant_config, filter_fn=lambda mod, fqn: True)
 
-    def test_top_level_param(self):
-        model = torch.nn.Linear(16, 16).cuda().bfloat16()
+    @common_utils.parametrize("device", get_available_devices())
+    def test_top_level_param(self, device):
+        if device == "cpu":
+            self.skipTest("Need GPU available")
+        model = torch.nn.Linear(16, 16).to(device).bfloat16()
 
         quant_config = FqnToConfig(
             {
@@ -944,8 +1019,11 @@ class TestFqnToConfig(TestCase):
         assert isinstance(model.weight, Float8Tensor)
         assert model.weight.scale.numel() == 1
 
-    def test_non_fqn_config_filter_fn_none(self):
-        model = torch.nn.Linear(16, 16).cuda().bfloat16()
+    @common_utils.parametrize("device", get_available_devices())
+    def test_non_fqn_config_filter_fn_none(self, device):
+        if device == "cpu":
+            self.skipTest("Need GPU available")
+        model = torch.nn.Linear(16, 16).to(device).bfloat16()
         quant_config = Float8DynamicActivationFloat8WeightConfig(
             granularity=PerTensor()
         )
@@ -955,8 +1033,10 @@ class TestFqnToConfig(TestCase):
         assert model.weight.scale.numel() == 1
 
     @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
-    def test_quantized_model_streaming_fqn_config(self):
-        device = get_current_accelerator_device()
+    @common_utils.parametrize("device", get_available_devices())
+    def test_quantized_model_streaming_fqn_config(self, device):
+        if device == "cpu":
+            self.skipTest("Need GPU available")
         device_module = torch.get_device_module(device)
 
         def reset_memory():
@@ -977,7 +1057,7 @@ class TestFqnToConfig(TestCase):
         memory_streaming = device_module.max_memory_allocated()
 
         for param in m.parameters():
-            assert param.device.type == device.type
+            assert param.device.type == device
         self.assertLess(memory_streaming, memory_baseline)
 
     @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
@@ -1056,10 +1136,17 @@ class TestFqnToConfig(TestCase):
         assert isinstance(m.nested.linear.weight, Int8Tensor)
         assert isinstance(m.linear1.weight, Int8Tensor)
 
-    def test_fqn_to_config_non_weight_param(self):
+    @common_utils.parametrize("device", get_available_devices())
+    def test_fqn_to_config_non_weight_param(self, device):
+        if device == "cpu":
+            self.skipTest("Need GPU available")
         configs = [
-            Int4WeightOnlyConfig(group_size=128),
-            Float8DynamicActivationInt4WeightConfig(),
+            Int4WeightOnlyConfig(
+                group_size=128,
+                int4_packing_format="plain_int32"
+                if device == "xpu"
+                else "tile_packed_to_4d",
+            ),
             Int8WeightOnlyConfig(),
             Int8DynamicActivationInt8WeightConfig(),
             Int8DynamicActivationIntxWeightConfig(),
@@ -1068,6 +1155,9 @@ class TestFqnToConfig(TestCase):
             Float8WeightOnlyConfig(),
             Float8DynamicActivationFloat8WeightConfig(granularity=PerTensor()),
         ]
+        if device != "xpu":
+            # Float8DynamicActivationInt4WeightConfig requires mslk (CUDA-only library)
+            configs.append(Float8DynamicActivationInt4WeightConfig())
         if is_sm_at_least_100():
             configs.append(MXDynamicActivationMXWeightConfig())
         if is_sm_at_least_100():
@@ -1075,12 +1165,12 @@ class TestFqnToConfig(TestCase):
         for config in configs:
             with self.subTest(config=type(config).__name__):
                 model = torch.nn.Sequential(
-                    torch.nn.Linear(128, 128).to(torch.bfloat16).cuda()
+                    torch.nn.Linear(128, 128).to(device).to(torch.bfloat16)
                 )
                 model[0].register_parameter(
                     "custom_param",
                     torch.nn.Parameter(
-                        torch.randn(128, 128, dtype=torch.bfloat16, device="cuda")
+                        torch.randn(128, 128, dtype=torch.bfloat16, device=device)
                     ),
                 )
                 original_custom_param = model[0].custom_param
