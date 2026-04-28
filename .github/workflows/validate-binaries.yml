@@ -1,6 +1,10 @@
 name: Validate binaries
 
 on:
+  pull_request:
+    paths:
+      - .github/workflows/validate-binaries.yml
+
   workflow_call:
     inputs:
       channel:
@@ -40,7 +44,6 @@ jobs:
     with:
       package_type: "wheel"
       version: ${{ inputs.version }}
-      os: "linux"
       channel: ${{ inputs.channel }}
       repository: "pytorch/ao"
       with_cuda: "enable"
