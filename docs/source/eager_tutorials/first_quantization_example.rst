@@ -1,7 +1,7 @@
 First Quantization Example
 ==========================
 
-The main entry point for quantization in torchao is the `quantize_ <https://pytorch.org/ao/stable/generated/torchao.quantization.quantize_.html#torchao.quantization.quantize_>`__ API.
+The main entry point for quantization in torchao is the `quantize_ <../api_reference/generated/torchao.quantization.quantize_.html#torchao.quantization.quantize_>`__ API.
 This function mutates your model inplace based on the quantization config you provide.
 All code in this guide can be found in this `example script <https://github.com/pytorch/ao/blob/main/scripts/quick_start.py>`__.
 
