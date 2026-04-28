@@ -4,6 +4,7 @@
 # This source code is licensed under the license found in the
 # LICENSE file in the root directory of this source tree.
 
+from .fisher_pruner import FisherPruner  # noqa: F403
 from .sparse_api import (
     apply_fake_sparsity,
     block_sparse_weight,
@@ -15,6 +16,7 @@ from .utils import PerChannelNormObserver  # noqa: F403
 from .wanda import WandaSparsifier  # noqa: F403
 
 __all__ = [
+    "FisherPruner",
     "WandaSparsifier",
     "SupermaskLinear",
     "PerChannelNormObserver",
