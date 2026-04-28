@@ -39,6 +39,7 @@ from torchao.prototype.mx_formats.kernels import (
 from torchao.prototype.mx_formats.mx_tensor import MXTensor, to_mx
 from torchao.prototype.mx_formats.utils import _to_mxfp8_dim1_kernel_wrapper
 from torchao.quantization.quantize_.common import KernelPreference
+from torchao.utils import is_XPU
 
 logger: logging.Logger = logging.getLogger(__name__)
 
@@ -49,6 +50,8 @@ _SM100_KERNELS_AVAILABLE = (
     and _mxfp8_cuda_kernels_available_mx
     and _triton_kernels_available
 )
+
+_XPU_AVAILABLE = is_XPU()
 
 
 def _validate_grouped_mm_input_act(
@@ -173,11 +176,11 @@ class _MXFP8GroupedMM(torch.autograd.Function):
         ), "kernel_preference must be AUTO or EMULATED"
 
         # Validate SM100 kernels are available if not using emulated mode
-        if kernel_preference != KernelPreference.EMULATED:
-            assert _SM100_KERNELS_AVAILABLE, (
-                "SM100 kernels not available. Please use torchao CUDA 12.8+ build on SM100/100a device(s). "
-                "Otherwise, set kernel_preference=KernelPreference.EMULATED (emulated mode implements basic functionality without efficient kernels)."
-            )
+        emulated = kernel_preference == KernelPreference.EMULATED
+        assert emulated or _SM100_KERNELS_AVAILABLE or _XPU_AVAILABLE, (
+            "XPU or SM100 kernels not available. Please use use torchao XPU or CUDA 12.8+ build on SM100/100a device(s). "
+            "Otherwise, set kernel_preference=KernelPreference.EMULATED (emulated mode implements basic functionality without efficient kernels)."
+        )
 
         # Input validation
         assert input_act.ndim == 2, "input_act must be 2D"
