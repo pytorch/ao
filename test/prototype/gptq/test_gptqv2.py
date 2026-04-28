@@ -37,22 +37,22 @@ from torchao.utils import (
 def _calculate_hessian(inputs, device=None):
     """Calculate Hessian matrix from input activations for GPTQ."""
     H = 0
-    total_batches = 0
+    total_tokens = 0
 
     for inp in inputs:
         # Setup x (activation tensor)
         x = inp.float()
         if device:
             x = x.to(device)
-        shape = x.shape
-        n = 1 if len(shape) == 2 else shape[0]
-        x = x.reshape(-1, shape[-1])
+        x = x.reshape(-1, x.shape[-1])
+        # Token-weighted running mean: each row contributes equally.
+        n = x.shape[0]
 
         # Update Hessian with running average
-        H *= total_batches / (total_batches + n)
-        total_batches += n
+        H *= total_tokens / (total_tokens + n)
+        total_tokens += n
 
-        x = ((2 / total_batches) ** (1 / 2)) * x.t()
+        x = ((2 / total_tokens) ** (1 / 2)) * x.t()
         H += x.matmul(x.t())
 
     return H
@@ -108,8 +108,8 @@ class TestGPTQObserverTensor:
             observer.hessian, torch.zeros(64, 64, dtype=torch.float32, device="cuda")
         )
 
-        # Check total_batches is initialized as 0
-        assert (observer.total_batches == 0).all()
+        # Check total_tokens is initialized as 0
+        assert (observer.total_tokens == 0).all()
 
     @pytest.mark.skipif(not torch.cuda.is_available(), reason="Need CUDA available")
     def test_linear_operation_with_observer(self):
@@ -138,7 +138,7 @@ class TestGPTQObserverTensor:
         # Check that Hessian was initialized and updated
         assert observer_weight.hessian is not None
         assert observer_weight.hessian.shape == (in_features, in_features)
-        assert (observer_weight.total_batches == 1).all()
+        assert (observer_weight.total_tokens == batch_size).all()
 
         # Verify output is correct
         expected_output = F.linear(input_tensor, weight)
@@ -164,15 +164,15 @@ class TestGPTQObserverTensor:
             input_tensor = torch.randn(
                 batch_size, in_features, dtype=torch.float32, device="cuda"
             )
-            total_samples += 1
+            total_samples += batch_size
             _ = F.linear(input_tensor, observer_weight)
 
         # Check that Hessian was created and updated
         assert observer_weight.hessian is not None
         assert observer_weight.hessian.shape == (in_features, in_features)
 
-        # Check total_batches matches total samples
-        assert (observer_weight.total_batches == total_samples).all()
+        # Check total_tokens matches total tokens observed
+        assert (observer_weight.total_tokens == total_samples).all()
 
     @pytest.mark.skipif(not torch.cuda.is_available(), reason="Need CUDA available")
     def test_bmm_operation_with_observer(self):
@@ -211,8 +211,8 @@ class TestGPTQObserverTensor:
                 f"Expert {e} hessian mismatch"
             )
             assert torch.equal(
-                observer_3d.total_batches[e : e + 1], observers_2d[e].total_batches
-            ), f"Expert {e} total_batches mismatch"
+                observer_3d.total_tokens[e : e + 1], observers_2d[e].total_tokens
+            ), f"Expert {e} total_tokens mismatch"
 
     @pytest.mark.skipif(not torch.cuda.is_available(), reason="Need CUDA available")
     @pytest.mark.skipif(
@@ -269,29 +269,31 @@ class TestGPTQObserverTensor:
                 prev_end = end
 
         # Verify per-expert hessians match bitwise to calculating each expert's
-        # hessian individually
+        # hessian individually. All three update paths are token-weighted, so
+        # the multi-row grouped_mm slice and the multi-row F.linear call use
+        # the same `n=slice_rows` and the running-mean math is byte-identical.
         for e in range(num_experts):
             assert torch.equal(observer_3d.hessian[e], observers_2d[e].hessian), (
                 f"Expert {e} hessian mismatch"
             )
             assert torch.equal(
-                observer_3d.total_batches[e : e + 1], observers_2d[e].total_batches
-            ), f"Expert {e} total_batches mismatch"
+                observer_3d.total_tokens[e : e + 1], observers_2d[e].total_tokens
+            ), f"Expert {e} total_tokens mismatch"
 
-        # Verify total_batches matches an independent count derived directly
-        # from the offsets: each non-empty forward pass contributes 1 per
-        # active expert (each expert's 2D slice has len(shape) == 2, so n=1).
-        expected_total_batches = torch.tensor(
+        # Verify total_tokens matches an independent count derived directly
+        # from the token distribution: each token contributes n=1 to its
+        # assigned expert's running-mean weight.
+        expected_total_tokens = torch.tensor(
             [
-                sum(1 for m_per_group in m_per_group_list if m_per_group[e] > 0)
+                sum(m_per_group[e] for m_per_group in m_per_group_list)
                 for e in range(num_experts)
             ],
             dtype=torch.int64,
             device="cuda",
         )
-        assert torch.equal(observer_3d.total_batches, expected_total_batches), (
-            f"total_batches {observer_3d.total_batches.tolist()} "
-            f"does not match expected {expected_total_batches.tolist()}"
+        assert torch.equal(observer_3d.total_tokens, expected_total_tokens), (
+            f"total_tokens {observer_3d.total_tokens.tolist()} "
+            f"does not match expected {expected_total_tokens.tolist()}"
         )
 
     @pytest.mark.skipif(not torch.cuda.is_available(), reason="Need CUDA available")
@@ -328,18 +330,19 @@ class TestGPTQObserverTensor:
             linear.weight.hessian,
             torch.zeros(64, 64, dtype=torch.float32, device="cuda"),
         )
-        assert (linear.weight.total_batches == 0).all()
+        assert (linear.weight.total_tokens == 0).all()
 
         # Perform a forward pass
-        input_tensor = torch.randn(4, 64, dtype=torch.float32, device="cuda")
+        batch_size = 4
+        input_tensor = torch.randn(batch_size, 64, dtype=torch.float32, device="cuda")
         output = linear(input_tensor)
 
-        # Check Hessian was initialized after forward pass
+        # Check Hessian was initialized after forward pass.
         assert linear.weight.hessian is not None
-        assert (linear.weight.total_batches == 1).all()
+        assert (linear.weight.total_tokens == batch_size).all()
 
         # Check output shape
-        assert output.shape == (4, 32)
+        assert output.shape == (batch_size, 32)
 
     @pytest.mark.skipif(not torch.cuda.is_available(), reason="Need CUDA available")
     def test_hessian_incremental_update(self):
@@ -415,7 +418,7 @@ class TestGPTQFlow:
 
         # Verify Hessian was computed
         assert linear.weight.hessian is not None
-        assert linear.weight.total_batches > 0
+        assert linear.weight.total_tokens > 0
 
         # Phase 2: Convert step - apply GPTQ quantization
         convert_config = GPTQConfig(
