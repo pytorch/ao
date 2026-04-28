@@ -13,6 +13,42 @@ from torchao.testing.utils import skip_if_no_cuda
 from torchao.utils import TorchAOBaseTensor, torch_version_at_least
 
 
+class TestParseVersion(unittest.TestCase):
+    def test_parse_version_standard(self):
+        """Test parsing of standard release versions"""
+        from torchao import _parse_version
+        
+        # Standard release versions
+        self.assertEqual(_parse_version("2.5.0"), [2, 5, 0])
+        self.assertEqual(_parse_version("2.10.1"), [2, 10, 1])
+        self.assertEqual(_parse_version("3.0.0"), [3, 0, 0])
+    
+    def test_parse_version_prerelease(self):
+        """Test parsing of pre-release versions (dev, git)"""
+        from torchao import _parse_version
+        
+        # Dev versions should have patch = -1
+        self.assertEqual(_parse_version("2.5.0.dev20240708+cu121"), [2, 5, -1])
+        self.assertEqual(_parse_version("2.10.0.dev"), [2, 10, -1])
+        
+        # Git versions should have patch = -1
+        self.assertEqual(_parse_version("2.5.0a0+git9f17037"), [2, 5, -1])
+    
+    def test_parse_version_rocm_git_hash(self):
+        """Test that ROCm versions with git hashes are NOT treated as pre-release"""
+        from torchao import _parse_version
+        
+        # ROCm versions with git hashes should be treated as stable releases
+        # These should NOT have patch = -1
+        self.assertEqual(_parse_version("2.5.0+rocm5.7.git12345abc"), [2, 5, 0])
+        self.assertEqual(_parse_version("2.8.0+rocm6.0.git9876def"), [2, 8, 0])
+        self.assertEqual(_parse_version("2.10.1+rocm6.2.gitabcdef12"), [2, 10, 1])
+        
+        # But regular git versions should still be pre-release
+        self.assertEqual(_parse_version("2.5.0+git12345abc"), [2, 5, -1])
+        self.assertEqual(_parse_version("2.5.0a0+git9f17037"), [2, 5, -1])
+
+
 class TestTorchVersion(unittest.TestCase):
     def test_torch_version_at_least(self):
         test_cases = [
