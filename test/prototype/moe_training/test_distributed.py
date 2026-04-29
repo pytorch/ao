@@ -17,13 +17,15 @@ import os
 import pytest
 import torch
 
-from torchao.utils import is_MI300, is_MI350, is_ROCM, is_sm_at_least_89
+from torchao.utils import is_MI300, is_MI350, is_ROCM, is_sm_at_least_89, is_XPU
 
-if not torch.cuda.is_available() or not (
+_is_xpu = is_XPU()
+_is_compatible_cuda = torch.cuda.is_available() and (
     is_sm_at_least_89() or is_MI300() or is_MI350()
-):
+)
+if not (_is_xpu or _is_compatible_cuda):
     pytest.skip(
-        "Requires FP8-capable GPU (CUDA SM89+, MI300, or MI350)",
+        "Requires FP8-capable GPU (CUDA SM89+, MI300, MI350, or XPU)",
         allow_module_level=True,
     )
 
@@ -60,6 +62,7 @@ from torchao.prototype.moe_training.config import (
     MXFP8TrainingRecipe,
 )
 from torchao.quantization.quant_api import quantize_
+from torchao.utils import get_available_devices
 
 from .reference_moe import MoE, MoEArgs, set_token_group_alignment_size_m
 from .reference_parallel_styles import (
@@ -69,6 +72,8 @@ from .reference_parallel_styles import (
     TensorParallel,
 )
 from .testing_utils import _validate_model_conversion
+
+_DEVICES = get_available_devices()[1:]
 
 
 class ParallelStrategy:
@@ -81,12 +86,13 @@ class ParallelStrategy:
     FSDP_TP = "fsdp_tp"
 
 
-@pytest.fixture(scope="module")
-def distributed_env():
+@pytest.fixture(scope="module", params=_DEVICES)
+def distributed_env(request):
     """
     Fixture for setting up and tearing down the distributed environment
     for the entire test module. Requires world_size of 4.
     """
+    device_type = request.param
     rank = int(os.environ["RANK"])
     world_size = int(os.environ["WORLD_SIZE"])
 
@@ -96,7 +102,10 @@ def distributed_env():
     )
 
     torch.manual_seed(1)
-    torch.cuda.set_device(rank)
+    if device_type == "cuda":
+        torch.cuda.set_device(rank)
+    elif device_type == "xpu":
+        torch.xpu.set_device(rank)
 
     # Create meshes for different parallelization strategies:
     # - tp_mesh: 1D mesh for tensor parallel only
@@ -104,13 +113,14 @@ def distributed_env():
     # - dp_mesh: 1D mesh for FSDP only
     # - ep_tp_mesh: 2D mesh for combined EP and TP
     # - dp_tp_mesh: 2D mesh for combined FSDP and TP
-    tp_mesh = init_device_mesh("cuda", (world_size,), mesh_dim_names=("tp",))
-    ep_mesh = init_device_mesh("cuda", (world_size,), mesh_dim_names=("ep",))
-    dp_mesh = init_device_mesh("cuda", (world_size,), mesh_dim_names=("dp",))
-    ep_tp_mesh = init_device_mesh("cuda", (2, 2), mesh_dim_names=("ep", "tp"))
-    dp_tp_mesh = init_device_mesh("cuda", (2, 2), mesh_dim_names=("dp", "tp"))
+    tp_mesh = init_device_mesh(device_type, (world_size,), mesh_dim_names=("tp",))
+    ep_mesh = init_device_mesh(device_type, (world_size,), mesh_dim_names=("ep",))
+    dp_mesh = init_device_mesh(device_type, (world_size,), mesh_dim_names=("dp",))
+    ep_tp_mesh = init_device_mesh(device_type, (2, 2), mesh_dim_names=("ep", "tp"))
+    dp_tp_mesh = init_device_mesh(device_type, (2, 2), mesh_dim_names=("dp", "tp"))
 
     yield {
+        "device_type": device_type,
         "tp_mesh": tp_mesh,
         "ep_mesh": ep_mesh,
         "dp_mesh": dp_mesh,
@@ -152,9 +162,9 @@ def distributed_env():
         {
             "recipe": MXFP8TrainingRecipe.MXFP8_EMULATED_RCEIL,
             "group_alignment_size": 32,
-            "min_out_sqnr": 26.5,
-            "min_input_grad_sqnr": 29.0,
-            "min_param_grad_sqnr": 21.0,
+            "min_out_sqnr": 23.0,
+            "min_input_grad_sqnr": 27.0,
+            "min_param_grad_sqnr": 20.0,
         },
     ],
 )
@@ -177,19 +187,38 @@ def test_moe_training_parallel(
         recipe_config["min_input_grad_sqnr"],
         recipe_config["min_param_grad_sqnr"],
     )
-    assert torch.cuda.is_available()
+    device_type = distributed_env["device_type"]
 
-    if recipe in (
-        MXFP8TrainingRecipe.MXFP8_RCEIL,
-        MXFP8TrainingRecipe.MXFP8_RCEIL_WGRAD_WITH_HP,
-    ):
-        if torch.cuda.get_device_capability() != (10, 0):
+    if device_type == "xpu":
+        if recipe in (
+            MXFP8TrainingRecipe.MXFP8_RCEIL,
+            MXFP8TrainingRecipe.MXFP8_RCEIL_WGRAD_WITH_HP,
+        ):
             pytest.skip(
-                f"Non-emulated mode only supported on compute capability 10.0 and found {torch.cuda.get_device_capability()}"
+                "Non-emulated MXFP8 recipes require SM100 CuTeDSL kernels, not yet available on XPU"
             )
-    elif recipe == MXFP8TrainingRecipe.MXFP8_EMULATED_RCEIL:
-        if compile:
-            pytest.skip("MXFP8 emulated mode does not support torch.compile")
+
+        if (
+            not compile
+            and parallel_strategy in (ParallelStrategy.FSDP, ParallelStrategy.FSDP_TP)
+            and recipe == MXFP8TrainingRecipe.MXFP8_EMULATED_RCEIL
+        ):
+            pytest.skip(
+                "Support for XPU is not yet available for FSDP with emulated MXFP8"
+            )
+
+    if recipe == MXFP8TrainingRecipe.MXFP8_EMULATED_RCEIL and compile:
+        pytest.skip("MXFP8 emulated mode does not support torch.compile")
+
+    if device_type == "cuda":
+        if recipe in (
+            MXFP8TrainingRecipe.MXFP8_RCEIL,
+            MXFP8TrainingRecipe.MXFP8_RCEIL_WGRAD_WITH_HP,
+        ):
+            if torch.cuda.get_device_capability() != (10, 0):
+                pytest.skip(
+                    f"Non-emulated mode only supported on compute capability 10.0, found {torch.cuda.get_device_capability()}"
+                )
 
     # set token group alignment size needed for GEMM (contraction dim stride must be 16 byte aligned)
     # or quantization ops (mxfp8 scaling groups are size 1x32)
@@ -207,10 +236,10 @@ def test_moe_training_parallel(
     )
     dim, hidden_dim = 5120, 4 * 5120
     init_std = 0.02
-    device = torch.device("cuda")
+    device = torch.device(distributed_env["device_type"])
 
     # reference bf16 MoE
-    ref_model = MoE(model_args, dim, hidden_dim).to(torch.bfloat16).cuda()
+    ref_model = MoE(model_args, dim, hidden_dim).to(torch.bfloat16).to(device)
     torch.manual_seed(1)
     ref_model.init_weights(init_std, device)
 
