@@ -295,15 +295,17 @@ class MXFP8TrainingWeightWrapperTensor(TrainingWeightWrapperBaseTensor):
 
             assert isinstance(B, cls), f"B should be a {cls.__name__}"
 
-            config = B.config
+            config: TrainingOpBaseConfig = B.config
             A_is_2d = A.ndim == 2
-            B_is_2d_or_3d = B.ndim == 2 or B.ndim == 3
-            offs = kwargs.get("offs", None)
+            B_is_2d_or_3d: bool = B.ndim == 2 or B.ndim == 3
+            offs: torch.Tensor | None = kwargs.get("offs", None)
+            bias: torch.Tensor | None = kwargs.get("bias", None)
 
             if A_is_2d and B_is_2d_or_3d and offs is not None:
                 return _quantize_then_scaled_grouped_mm(
                     A,
                     unwrap_weight(B),
+                    bias=bias,
                     offs=offs,
                     config=config,
                 )

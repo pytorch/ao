@@ -493,3 +493,144 @@ def test_mxfp8_grouped_gemm_mxtensor_requires_wgrad_with_hp():
             wgrad_with_hp=False,
             scale_calculation_mode=ScaleCalculationMode.RCEIL,
         )
+
+
+@skip_if_rocm("ROCm not supported")
+@pytest.mark.parametrize(
+    "kernel_preference", (KernelPreference.AUTO, KernelPreference.EMULATED)
+)
+@pytest.mark.parametrize("M,K,N", [(4096, 1024, 2048)])
+@pytest.mark.parametrize("num_experts", (1, 8))
+def test_mxfp8_grouped_gemm_bias_forward(kernel_preference, M, K, N, num_experts):
+    """Test that bias is correctly added to the forward output."""
+    if kernel_preference != KernelPreference.EMULATED and not is_sm_version(10, 0):
+        pytest.skip("MXFP8 hardware mode tests require SM100")
+
+    x = torch.randn(M, K, dtype=torch.bfloat16, device="cuda")
+    w = torch.randn(num_experts, N, K, dtype=torch.bfloat16, device="cuda")
+    w_t = w.transpose(-2, -1)
+    bias = torch.randn(N, dtype=torch.bfloat16, device="cuda")
+    offs = generate_jagged_offs(num_experts, M, multiple_of=128)
+
+    # Output without bias
+    out_no_bias = _to_mxfp8_then_scaled_grouped_mm(
+        x,
+        w_t,
+        offs=offs,
+        bias=None,
+        out_dtype=torch.bfloat16,
+        kernel_preference=kernel_preference,
+        wgrad_with_hp=True,
+        scale_calculation_mode=ScaleCalculationMode.RCEIL,
+        pad_token_groups_for_grouped_mm=False,
+    )
+
+    # Output with bias
+    out_with_bias = _to_mxfp8_then_scaled_grouped_mm(
+        x,
+        w_t,
+        offs=offs,
+        bias=bias,
+        out_dtype=torch.bfloat16,
+        kernel_preference=kernel_preference,
+        wgrad_with_hp=True,
+        scale_calculation_mode=ScaleCalculationMode.RCEIL,
+        pad_token_groups_for_grouped_mm=False,
+    )
+
+    # The difference should be exactly the bias (broadcast along dim0)
+    diff = out_with_bias - out_no_bias
+    expected_bias = bias.unsqueeze(0).expand_as(diff)
+    torch.testing.assert_close(diff, expected_bias, rtol=0, atol=0)
+
+
+@skip_if_rocm("ROCm not supported")
+@pytest.mark.parametrize(
+    "kernel_preference", (KernelPreference.AUTO, KernelPreference.EMULATED)
+)
+@pytest.mark.parametrize("M,K,N", [(4096, 1024, 2048)])
+@pytest.mark.parametrize("num_experts", (1, 8))
+def test_mxfp8_grouped_gemm_bias_backward(kernel_preference, M, K, N, num_experts):
+    """Test that bias gradient is correctly computed via autograd."""
+    if kernel_preference != KernelPreference.EMULATED and not is_sm_version(10, 0):
+        pytest.skip("MXFP8 hardware mode tests require SM100")
+
+    x = torch.randn(M, K, dtype=torch.bfloat16, device="cuda", requires_grad=True)
+    w = torch.randn(num_experts, N, K, dtype=torch.bfloat16, device="cuda")
+    w_t = w.transpose(-2, -1).requires_grad_(True)
+    bias = torch.randn(N, dtype=torch.bfloat16, device="cuda", requires_grad=True)
+    offs = generate_jagged_offs(num_experts, M, multiple_of=128)
+
+    # Reference: bf16 grouped mm + bias
+    x_ref = x.clone().detach().requires_grad_(True)
+    w_t_ref = w_t.clone().detach().requires_grad_(True)
+    bias_ref = bias.clone().detach().requires_grad_(True)
+    ref_out = torch._grouped_mm(x_ref, w_t_ref, offs=offs, out_dtype=torch.bfloat16)
+    ref_out = ref_out + bias_ref
+
+    # MXFP8 with bias
+    out = _to_mxfp8_then_scaled_grouped_mm(
+        x,
+        w_t,
+        offs=offs,
+        bias=bias,
+        out_dtype=torch.bfloat16,
+        kernel_preference=kernel_preference,
+        wgrad_with_hp=True,
+        scale_calculation_mode=ScaleCalculationMode.RCEIL,
+        pad_token_groups_for_grouped_mm=False,
+    )
+
+    # Backward
+    labels = torch.ones_like(ref_out)
+    F.mse_loss(ref_out, labels).backward()
+    F.mse_loss(out, labels).backward()
+
+    # Bias gradient should exist and be close to reference
+    assert bias.grad is not None, "bias.grad should be computed"
+    assert bias_ref.grad is not None, "bias_ref.grad should be computed"
+    sqnr = compute_error(bias_ref.grad, bias.grad)
+    min_sqnr = 25.0
+    assert sqnr >= min_sqnr, f"Bias grad sqnr {sqnr} is too low, must be >= {min_sqnr}"
+
+    # Input and weight grads should still be correct
+    assert x.grad is not None, "x.grad should be computed"
+    sqnr_input = compute_error(x_ref.grad, x.grad)
+    assert sqnr_input >= 25.0, f"Input grad sqnr {sqnr_input} is too low"
+
+    assert w_t.grad is not None, "w_t.grad should be computed"
+    sqnr_weight = compute_error(w_t_ref.grad, w_t.grad)
+    assert sqnr_weight >= 24.0, f"Weight grad sqnr {sqnr_weight} is too low"
+
+
+@skip_if_rocm("ROCm not supported")
+def test_mxfp8_grouped_gemm_bias_none_unchanged():
+    """Test that passing bias=None produces the same result as not passing bias."""
+    M, K, N, num_experts = 4096, 1024, 2048, 8
+    x = torch.randn(M, K, dtype=torch.bfloat16, device="cuda")
+    w = torch.randn(num_experts, N, K, dtype=torch.bfloat16, device="cuda")
+    w_t = w.transpose(-2, -1)
+    offs = generate_jagged_offs(num_experts, M, multiple_of=128)
+
+    out_default = _to_mxfp8_then_scaled_grouped_mm(
+        x,
+        w_t,
+        offs=offs,
+        out_dtype=torch.bfloat16,
+        kernel_preference=KernelPreference.EMULATED,
+        wgrad_with_hp=True,
+        scale_calculation_mode=ScaleCalculationMode.RCEIL,
+    )
+
+    out_none = _to_mxfp8_then_scaled_grouped_mm(
+        x,
+        w_t,
+        offs=offs,
+        bias=None,
+        out_dtype=torch.bfloat16,
+        kernel_preference=KernelPreference.EMULATED,
+        wgrad_with_hp=True,
+        scale_calculation_mode=ScaleCalculationMode.RCEIL,
+    )
+
+    torch.testing.assert_close(out_default, out_none, rtol=0, atol=0)

@@ -371,6 +371,7 @@ def _quantize_then_scaled_grouped_mm(
     B_t: torch.Tensor,
     config: TrainingOpBaseConfig,
     offs: Optional[torch.Tensor] = None,
+    bias: Optional[torch.Tensor] = None,
 ) -> torch.Tensor:
     """
     This function performs dynamic quantization with the given config
@@ -404,6 +405,7 @@ def _quantize_then_scaled_grouped_mm(
             A,
             B_t,
             offs,
+            bias=bias,
             out_dtype=config.out_dtype,
             kernel_preference=config.kernel_preference,
             wgrad_with_hp=config.wgrad_with_hp,
