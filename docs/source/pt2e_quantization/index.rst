@@ -52,7 +52,7 @@ API Example::
   m = prepare_pt2e(m, quantizer)
 
   # run calibration
-  # calibration is a must for both static and dynamic quantization
+  # must run calibration for both static and dynamic quantization
   # calibrate(m, sample_inference_data)
 
   m = convert_pt2e(m)
