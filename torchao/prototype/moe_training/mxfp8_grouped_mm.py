@@ -8,6 +8,7 @@ import logging
 from typing import Optional
 
 import torch
+from torch.nn.functional import ScalingType, SwizzleType, scaled_grouped_mm
 
 from torchao.prototype.moe_training.kernels.mxfp8 import (
     _mxfp8_cuda_kernels_available as _mxfp8_cuda_kernels_available_quant,
@@ -538,13 +539,17 @@ def _compute_fwd_sm100(
     weight_scales_blocked = triton_mx_block_rearrange_per_group_3d(weight_scales)
 
     # Compute output using SM100 kernel
-    output = torch._scaled_grouped_mm(
+    output = scaled_grouped_mm(
         input_act_e4m3,
         weight_e4m3.transpose(-2, -1),  # Transpose back to (E, K, N)
         input_act_scales_blocked,
+        ScalingType.BlockWise1x32,
         weight_scales_blocked,
+        ScalingType.BlockWise1x32,
+        swizzle_a=SwizzleType.SWIZZLE_32_4_4,
+        swizzle_b=SwizzleType.SWIZZLE_32_4_4,
         offs=padded_group_end_offsets,
-        out_dtype=out_dtype,
+        output_dtype=out_dtype,
     )
     return output
 
