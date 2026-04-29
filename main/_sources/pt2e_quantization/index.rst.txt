@@ -52,7 +52,9 @@ API Example::
   m = prepare_pt2e(m, quantizer)
 
   # run calibration
+  # must run calibration for both static and dynamic quantization
   # calibrate(m, sample_inference_data)
+
   m = convert_pt2e(m)
 
   # Step 3. lowering
