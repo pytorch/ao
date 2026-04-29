@@ -45,14 +45,20 @@ from torchao.utils import torch_version_at_least
 
 torch.set_float32_matmul_precision("high")
 
+_GPU_DEVICE = (
+    str(torch.accelerator.current_accelerator())
+    if torch.accelerator.is_available()
+    else "no_gpu"
+)
+
 
 def setup_distributed():
     world_size = int(os.environ.get("WORLD_SIZE", -1))
-    device_mesh = init_device_mesh("cuda", (world_size,))
+    device_mesh = init_device_mesh(_GPU_DEVICE, (world_size,))
     # seed must be the same in all processes
     torch.manual_seed(1)
     local_rank = torch.distributed.get_rank()
-    torch.cuda.set_device(local_rank)
+    torch.get_device_module(_GPU_DEVICE).set_device(local_rank)
     return device_mesh
 
 
@@ -213,7 +219,7 @@ def _test_fp8_mlp_tensor_parallelism_compile(mesh: DeviceMesh, size=32):
 
 def _test_distribute_fsdp_tensor_subclass(tp_mesh: DeviceMesh):
     torch.manual_seed(42)
-    model = Transformer(ModelArgs(dropout_p=0.0, weight_tying=False)).cuda()
+    model = Transformer(ModelArgs(dropout_p=0.0, weight_tying=False)).to(_GPU_DEVICE)
     convert_to_float8_training(
         model,
         config=Float8LinearConfig(
