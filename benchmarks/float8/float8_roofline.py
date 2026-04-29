@@ -585,8 +585,6 @@ def run(
         "b_fp8_e2e_spdp",
         # measured speedup as a percentage of roofline speedup
         "b_fp8_e2e_spdp_pct_of_r",
-        # roofline FP8 gemm + overhead time as a percentage of measured FP8 time
-        "b_fp8_e2e_time_eff_pct_of_r",
         # how well benchmarked gemms match roofline predicted gemms
         "rb_bf16_gemm_ratio",
         "rb_fp8_gemm_ratio",
@@ -758,13 +756,9 @@ def run(
             b_fp8_e2e_speedup_pct_of_r = (
                 b_fp8_e2e_speedup / r_fp8_gemm_and_ovhd_speedup * 100
             )
-            b_fp8_e2e_time_eff_pct_of_r = (
-                r_fp8_gemm_and_ovhd_time_s / b_fp8_e2e_time_s * 100
-            )
         else:
             b_fp8_e2e_speedup = -1
             b_fp8_e2e_speedup_pct_of_r = -1
-            b_fp8_e2e_time_eff_pct_of_r = -1
 
         results.append(
             [
@@ -790,7 +784,6 @@ def run(
                 b_fp8_e2e_time_s,
                 b_fp8_e2e_speedup,
                 b_fp8_e2e_speedup_pct_of_r,
-                b_fp8_e2e_time_eff_pct_of_r,
                 # gemm ratios
                 rb_bf16_gemm_ratio,
                 rb_fp8_gemm_ratio,
