@@ -935,13 +935,16 @@ def test_cutedsl_kernels_work_with_valid_128_multiple_groups():
 
 # 1x32 (K-direction): K % 2048 (no tail handling yet).
 # 32x1 (M-direction): M % 32, K % 256 (lane × VEC bf16 dwordx2 loads).
-# 3D (per-expert N-direction): N % 32, K % 64.
+# 3D (per-expert N-direction): N % 32, K % 256 (lane × VEC bf16 dwordx2 loads).
+# Shape grids mirror cutedsl test coverage (`(128, 8192)` × cutedsl K set
+# for 1x32; `(128, 1024)` × cutedsl K set for 32x1) wherever the FlyDSL
+# divisibility constraints above allow.
 _FLYDSL_1X32_K = (2048, 4096, 8192)
-_FLYDSL_2D_M = (1, 32, 128, 1024)
-_FLYDSL_32X1_K = (256, 512, 2048, 4096)
+_FLYDSL_2D_M = (1, 32, 128, 1024, 8192)
+_FLYDSL_32X1_K = (256, 512, 1536, 2048, 4096, 5120, 7168, 8192)
 _FLYDSL_3D_E = (1, 2, 4, 8)
 _FLYDSL_3D_N = (32, 64, 256)
-_FLYDSL_3D_K = (64, 128, 4096)
+_FLYDSL_3D_K = (256, 1024, 4096)
 
 
 @pytest.mark.skipif(
@@ -1054,6 +1057,98 @@ def test_flydsl_mx_dim1_3d_numerics(E, N, K, input_dtype):
     not _mxfp8_flydsl_kernels_available,
     reason="MXFP8 FlyDSL kernels not available",
 )
+@pytest.mark.parametrize("E", _FLYDSL_3D_E)
+@pytest.mark.parametrize("N", _FLYDSL_3D_N)
+@pytest.mark.parametrize("K", _FLYDSL_3D_K)
+@pytest.mark.parametrize("input_dtype", (torch.bfloat16, torch.float32))
+@pytest.mark.parametrize(
+    "scale_block_k",
+    (1, 32),
+    ids=("32x1", "32x32"),
+)
+@pytest.mark.parametrize("blocked_scale_output", (False, True))
+def test_amd_mx_3d_flydsl_numerics(
+    E, N, K, input_dtype, scale_block_k, blocked_scale_output
+):
+    """3D MoE FLOOR quantize across (scale_block_k, blocked_scale_output)
+    modes matches the to_mx reference bit-exactly (FlyDSL backend).
+
+    Mirrors test_cuda_mx_3d_cutedsl_numerics but is FLOOR-only — RCEIL is
+    not yet implemented in the FlyDSL baseline.
+    """
+    block_size = 32
+
+    torch.manual_seed(0)
+    x = (torch.randn(E, N, K, dtype=input_dtype, device="cuda") * 0.5).contiguous()
+
+    if scale_block_k == 1:
+        s_ref_t, y_ref_t = to_mx(
+            x.transpose(-2, -1).contiguous(),
+            elem_dtype=torch.float8_e4m3fn,
+            block_size=block_size,
+            scaling_mode=ScaleCalculationMode.FLOOR,
+        )
+        y_ref = y_ref_t.transpose(-2, -1)
+        s_ref = s_ref_t.transpose(-2, -1).contiguous()  # (E, N//32, K)
+    else:
+        x_tiles = (
+            x.view(E, N // block_size, block_size, K // block_size, block_size)
+            .permute(0, 1, 3, 2, 4)
+            .contiguous()
+            .view(E, N // block_size, K // block_size, block_size * block_size)
+        )
+        s_ref, y_tiles_ref = to_mx(
+            x_tiles,
+            elem_dtype=torch.float8_e4m3fn,
+            block_size=block_size * block_size,
+            scaling_mode=ScaleCalculationMode.FLOOR,
+        )
+        s_ref = s_ref.squeeze(-1)  # (E, N//32, K//32)
+        y_ref = (
+            y_tiles_ref.view(
+                E, N // block_size, K // block_size, block_size, block_size
+            )
+            .permute(0, 1, 3, 2, 4)
+            .contiguous()
+            .view(E, N, K)
+        )
+        y_ref = y_ref.transpose(-2, -1).contiguous().transpose(-2, -1)
+
+    if blocked_scale_output:
+        if scale_block_k == 1:
+            s_ref_logical = s_ref.transpose(-2, -1).contiguous()
+        else:
+            s_ref_logical = s_ref.transpose(-2, -1).repeat_interleave(
+                block_size, dim=1
+            )
+        s_expected = torch_to_blocked_per_group_3d(s_ref_logical)
+    else:
+        s_expected = s_ref
+
+    y, s = mxfp8_quantize_3d_flydsl(
+        x,
+        block_size=block_size,
+        scale_block_n=block_size,
+        scale_block_k=scale_block_k,
+        scaling_mode="floor",
+        blocked_scale_output=blocked_scale_output,
+    )
+
+    torch.testing.assert_close(
+        s.view(torch.uint8), s_expected.view(torch.uint8), rtol=0, atol=0
+    )
+    torch.testing.assert_close(
+        y.view(torch.uint8), y_ref.view(torch.uint8), rtol=0, atol=0
+    )
+    assert y.stride() == y_ref.stride(), "quantized tensor strides do not match"
+    assert y.dtype == torch.float8_e4m3fn
+    assert s.dtype == torch.float8_e8m0fnu
+
+
+@pytest.mark.skipif(
+    not _mxfp8_flydsl_kernels_available,
+    reason="MXFP8 FlyDSL kernels not available",
+)
 def test_flydsl_custom_ops_registered():
     """The torchao::mxfp8_quantize_*_flydsl custom ops exist."""
     assert hasattr(torch.ops.torchao, "mxfp8_quantize_2d_1x32_flydsl")
@@ -1069,7 +1164,7 @@ def test_flydsl_dispatcher_rejects_unsupported_options():
     """Cutedsl-only options (rceil, blocked_scale_output, offs) must raise."""
     x2 = torch.randn(64, 2048, dtype=torch.bfloat16, device="cuda")
     x32x1 = torch.randn(64, 256, dtype=torch.bfloat16, device="cuda")
-    x3 = torch.randn(2, 32, 64, dtype=torch.bfloat16, device="cuda")
+    x3 = torch.randn(2, 32, 256, dtype=torch.bfloat16, device="cuda")
     offs = torch.tensor([32, 64], dtype=torch.int32, device="cuda")
 
     # rceil rejected on all three
@@ -1094,6 +1189,59 @@ def test_flydsl_dispatcher_rejects_unsupported_options():
     mxfp8_quantize_2d_1x32_flydsl(x2, stage_count=2)
     mxfp8_quantize_2d_32x1_flydsl(x32x1, stage_count=2)
     mxfp8_quantize_3d_flydsl(x3, stage_count=2)
+
+
+@pytest.mark.skipif(
+    not _mxfp8_flydsl_kernels_available,
+    reason="MXFP8 FlyDSL kernels not available",
+)
+def test_flydsl_kernel_module_rejects_unsupported_options():
+    """Same contract as the dispatcher test, but enforced at the kernel-module
+    boundary so direct imports of ``flydsl_quantize_*`` raise too.
+    """
+    from torchao.prototype.moe_training.kernels.mxfp8.flydsl_quantize_2d_1x32 import (
+        mxfp8_quantize_flydsl_2d_1x32,
+    )
+    from torchao.prototype.moe_training.kernels.mxfp8.flydsl_quantize_2d_32x1 import (
+        mxfp8_quantize_flydsl_2d_32x1,
+    )
+    from torchao.prototype.moe_training.kernels.mxfp8.flydsl_quantize_3d import (
+        mxfp8_quantize_flydsl_3d,
+    )
+
+    x2 = torch.randn(64, 2048, dtype=torch.bfloat16, device="cuda")
+    x32x1 = torch.randn(64, 256, dtype=torch.bfloat16, device="cuda")
+    x3 = torch.randn(2, 32, 256, dtype=torch.bfloat16, device="cuda")
+    offs = torch.tensor([32, 64], dtype=torch.int32, device="cuda")
+
+    # rceil rejected on all three
+    with pytest.raises(NotImplementedError, match="scaling_mode"):
+        mxfp8_quantize_flydsl_2d_1x32(x2, scaling_mode="rceil")
+    with pytest.raises(NotImplementedError, match="scaling_mode"):
+        mxfp8_quantize_flydsl_2d_32x1(x32x1, scaling_mode="rceil")
+    with pytest.raises(NotImplementedError, match="scaling_mode"):
+        mxfp8_quantize_flydsl_3d(x3, scaling_mode="rceil")
+
+    # blocked_scale_output=True rejected on the 2D kernels
+    with pytest.raises(NotImplementedError, match="blocked_scale_output"):
+        mxfp8_quantize_flydsl_2d_1x32(x2, blocked_scale_output=True)
+    with pytest.raises(NotImplementedError, match="blocked_scale_output"):
+        mxfp8_quantize_flydsl_2d_32x1(x32x1, blocked_scale_output=True)
+
+    # offs rejected on the 2D kernels
+    with pytest.raises(NotImplementedError, match="offs"):
+        mxfp8_quantize_flydsl_2d_1x32(x2, offs=offs)
+    with pytest.raises(NotImplementedError, match="offs"):
+        mxfp8_quantize_flydsl_2d_32x1(x32x1, offs=offs)
+
+    # 3D: scale_block_n must be 32
+    with pytest.raises(NotImplementedError, match="scale_block_n"):
+        mxfp8_quantize_flydsl_3d(x3, scale_block_n=16)
+
+    # stage_count is API-parity-only; default value works silently
+    mxfp8_quantize_flydsl_2d_1x32(x2, stage_count=2)
+    mxfp8_quantize_flydsl_2d_32x1(x32x1, stage_count=2)
+    mxfp8_quantize_flydsl_3d(x3, stage_count=2)
 
 
 @pytest.mark.skipif(
