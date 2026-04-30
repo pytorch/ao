@@ -41,8 +41,6 @@ from torchao.float8.fsdp_utils import WeightWithDynamicFloat8CastTensor
 from torchao.testing.training.dtensor_utils import (
     _test_lowp_mlp_tensor_parallelism_base,
 )
-from torchao.utils import torch_version_at_least
-
 torch.set_float32_matmul_precision("high")
 
 
@@ -141,10 +139,6 @@ def _test_dtensor_cast_to_fp8(mesh: DeviceMesh, size=16):
 
 
 def _test_dtensor_fp8_autograd(mesh: DeviceMesh, size=16):
-    # TODO: re-enable after fixing https://github.com/pytorch/ao/issues/4106
-    if torch_version_at_least("2.11.0.dev"):
-        print("skipping _test_dtensor_fp8_autograd for torch >= 2.11.0.dev")
-        return
     device = mesh.device_type
     fp8_dtype = e4m3_dtype
 
