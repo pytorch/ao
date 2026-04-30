@@ -188,6 +188,7 @@ class ToyLoRAModel(torch.nn.Module):
 @unittest.skipIf(torch.cuda.is_available() and not is_sm_at_least_89(), "Need sm89+")
 class TestFloat8Tensor(TorchAOIntegrationTestCase):
     def setUp(self):
+        super().setUp()
         _DEVICE = get_current_accelerator_device()
         self.GPU_DEVICES = [_DEVICE] if torch.accelerator.is_available() else []
         torch.set_grad_enabled(False)
