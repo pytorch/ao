@@ -594,9 +594,10 @@ def _implements_common_tensor_ops(cls):
         ):
             kwargs = self._get_to_kwargs(*args[1:], **kwargs)
             device = kwargs.pop("device")
+            dtype = kwargs.pop("dtype")
             non_blocking = kwargs.pop("non_blocking", False)
             tensors = [
-                getattr(self, name).to(device, non_blocking=non_blocking)
+                getattr(self, name).to(device=device, dtype=dtype, non_blocking=non_blocking)
                 for name in self.tensor_data_names
             ]
             optional_tensors = []
@@ -605,7 +606,7 @@ def _implements_common_tensor_ops(cls):
                     maybe_tensor = getattr(self, tensor_data_name)
                     if maybe_tensor is not None:
                         optional_tensors.append(
-                            maybe_tensor.to(device, non_blocking=non_blocking)
+                            maybe_tensor.to(device=device, dtype=dtype, non_blocking=non_blocking)
                         )
                     else:
                         optional_tensors.append(None)

@@ -89,6 +89,40 @@ class TestTorchAOBaseTensor(unittest.TestCase):
         kwargs = t._get_to_kwargs(device="cpu")
         self.assertFalse(kwargs["non_blocking"])
 
+    def test_to_copy_propagates_dtype_and_non_blocking(self):
+        """Verify that .to() propagates device, dtype, and non_blocking to inner tensors."""
+
+        class MyTensor(TorchAOBaseTensor):
+            tensor_data_names = ["qdata", "scale"]
+            tensor_attribute_names = ["device"]
+
+            def __new__(cls, qdata, scale, device=None):
+                if device is None:
+                    device = qdata.device
+                kwargs = {"device": device, "dtype": qdata.dtype}
+                r = torch.Tensor._make_wrapper_subclass(cls, qdata.shape, **kwargs)
+                r.qdata = qdata
+                r.scale = scale
+                return r
+
+            def __init__(self, qdata, scale, device=None):
+                pass
+
+        # Test dtype change propagates to inner tensors
+        t = MyTensor(torch.randn(4, 4, dtype=torch.float32), torch.tensor(1.0, dtype=torch.float32))
+        result = t.to(dtype=torch.float16)
+        self.assertEqual(result.dtype, torch.float16)
+        self.assertEqual(result.qdata.dtype, torch.float16)
+        self.assertEqual(result.scale.dtype, torch.float16)
+
+        # Test combined device and dtype change with non_blocking
+        t = MyTensor(torch.randn(4, 4, dtype=torch.float32), torch.tensor(1.0, dtype=torch.float32))
+        result = t.to(device="cpu", dtype=torch.bfloat16, non_blocking=True)
+        self.assertEqual(result.dtype, torch.bfloat16)
+        self.assertEqual(result.qdata.dtype, torch.bfloat16)
+        self.assertEqual(result.scale.dtype, torch.bfloat16)
+        self.assertEqual(result.device.type, "cpu")
+
     def _test_default_impls_helper(self, lp_tensor, lp_tensor_for_copy):
         # get `all_tensor_data_names` and `all_tensor_attribute_names`
         all_tensor_data_names = lp_tensor.tensor_data_names.copy()
