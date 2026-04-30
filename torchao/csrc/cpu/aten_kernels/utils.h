@@ -31,10 +31,14 @@ get_m_blocking(int64_t M) {
   return std::make_tuple(parallel_on_M, block_m, Mc, Mc_parallel);
 }
 
-#if defined(CPU_CAPABILITY_AVX512)
-// Cached check for AVX-512F support in this process, for use by CPU kernels
-// that include this header and are compiled with CPU_CAPABILITY_AVX512.
+// Runtime AVX-512F check for use by CPU kernels; available regardless of compile flags.
 inline const bool kHasAVX512 = __builtin_cpu_supports("avx512f");
+inline const bool kHasAVX512VNNI = __builtin_cpu_supports("avx512vnni");
+inline const bool kHasAMX = __builtin_cpu_supports("amx-tile");
+#if __GNUC__ >= 15
+inline const bool kHasAVX10_2 = __builtin_cpu_supports("avx10.2");
+#else
+inline const bool kHasAVX10_2 = false;
 #endif
 
 template <typename T> struct vnni_traits;
@@ -98,3 +102,24 @@ template <typename T> constexpr int get_vnni_size() { return vnni_traits<T>::siz
             )                                                                           \
         )                                                                               \
     )
+
+enum DispatchMode {
+  MODE_DEFAULT = 0,
+  MODE_AVX512 = 1, // Build with AVX512. Brgemm disabled manually.
+  MODE_AMX = 2, // Build with AVX512. Brgemm enabled manually.
+  MODE_AVX10_2 = 3,
+  MODE_AUTO // always the highest level + 1
+};
+
+inline int dispatch_mode = -1;
+
+static inline bool brgemm_enabled() {
+  return dispatch_mode >= MODE_AMX;
+}
+
+#define TORCHAO_CPU_DISPATCH_ENV "TORCHAO_CPU_DISPATCH"
+#define TORCHAO_CPU_DISPATCH_DEBUG_ENV "TORCHAO_CPU_DISPATCH_DEBUG"
+#define PRINT_DEBUG_INFO(ISA) \
+  if (dispatch_debug) { \
+    std::cout << "\nTorchao X86 Kernel dispatch: Using " << ISA << " kernels" << std::endl; \
+  }

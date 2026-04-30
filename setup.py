@@ -9,6 +9,7 @@ import json
 import os
 import pickle
 import re
+import shutil
 import subprocess
 import sys
 import time
@@ -97,6 +98,7 @@ use_cpu_kernels = os.getenv("USE_CPU_KERNELS", "0") == "1"
 
 # Platform detection
 is_arm64 = platform.machine().startswith("arm64") or platform.machine() == "aarch64"
+is_x86_64 = platform.machine() == "x86_64"
 is_macos = platform.system() == "Darwin"
 is_linux = platform.system() == "Linux"
 
@@ -382,7 +384,289 @@ def bool_to_on_off(value):
     return "ON" if value else "OFF"
 
 
-# BuildExtension is a subclass of from setuptools.command.build_ext.build_ext
+class X86KernelBuild:
+    """Class for all x86-kernel-specific build logic"""
+
+    # ISA capability levels, in increasing order of capability.
+    #   None      – The default level
+    #   "avx512"  – AVX-512F/BW/VL/DQ/VNNI, etc.
+    #   "avx10_2" – avx512 + AVX10.2
+    _ISA_LEVELS = [None, "avx512", "avx10_2"]
+
+    _cxx = None  # resolved compiler path
+    _cxx_checked = False  # True once find_cxx_compiler() has run
+    _isa_level = None  # set by _probe_isa(); one of _ISA_LEVELS
+    _isa_probed = False  # True once _probe_isa() has run
+
+    @staticmethod
+    def find_cxx_compiler() -> "str | None":
+        """Find a C++ compiler.
+
+        Checks $CXX first, then ``g++`` on $PATH.
+        Returns the resolved compiler path, or None if not found.
+        """
+        if X86KernelBuild._cxx_checked:
+            return X86KernelBuild._cxx
+
+        def _resolve(exe: str) -> "str | None":
+            if not exe:
+                return None
+            resolved = shutil.which(exe) if os.sep not in exe else exe
+            return resolved if resolved and os.path.isfile(resolved) else None
+
+        X86KernelBuild._cxx = _resolve(os.environ.get("CXX", "")) or _resolve("g++")
+        X86KernelBuild._cxx_checked = True
+        return X86KernelBuild._cxx
+
+    @staticmethod
+    def _try_compile(cxx: str, isa_flags: list, snippet: str) -> bool:
+        """Return True if *cxx* can compile *snippet* with the given ISA flags."""
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            src = os.path.join(tmpdir, "probe.cpp")
+            obj = os.path.join(tmpdir, "probe.o")
+            with open(src, "w") as f:
+                f.write(snippet)
+            try:
+                subprocess.check_call(
+                    [cxx, "-std=c++20", *isa_flags, "-c", src, "-o", obj],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    timeout=30,
+                )
+                return True
+            except Exception:
+                return False
+
+    @staticmethod
+    def _probe_isa() -> None:
+        """Probe which ISA level the compiler supports by compiling test snippets."""
+        if X86KernelBuild._isa_probed:
+            return
+
+        avx512_isa_flags = [
+            "-mavx512f",
+            "-mavx512bw",
+            "-mavx512vl",
+            "-mavx512dq",
+            "-mavx512vnni",
+        ]
+        avx10_2_isa_flags = avx512_isa_flags + ["-mavx10.2"]
+
+        # Snippet that exercises AVX512 + VNNI (the minimum for our kernels).
+        # _mm512_dpbusd_epi32 requires avx512f + avx512vnni.
+        _AVX512_SNIPPET = """\
+#include <immintrin.h>
+int main() {
+    __m512i a = _mm512_setzero_epi32();
+    // avx512-vnni
+    __m512i c = _mm512_dpbusd_epi32(a, a, a);
+    (void)c;
+    return 0;
+}
+"""
+        # Snippet that exercises AVX10.2 fp8 hardware conversions.
+        # _mm256_cvthf8_ph requires compiler support for -mavx10.2 (GCC >= 15).
+        _AVX10_2_SNIPPET = """\
+#include <immintrin.h>
+int main() {
+    __m128i a = _mm_setzero_si128();
+    // avx10.2 fp8 -> fp16 hardware convert
+    __m256h b = _mm256_cvthf8_ph(a);
+    (void)b;
+    return 0;
+}
+"""
+        cxx = X86KernelBuild._cxx
+        if cxx is None:
+            X86KernelBuild._isa_probed = True
+            return
+
+        if X86KernelBuild._try_compile(cxx, avx10_2_isa_flags, _AVX10_2_SNIPPET):
+            X86KernelBuild._isa_level = "avx10_2"
+        elif X86KernelBuild._try_compile(cxx, avx512_isa_flags, _AVX512_SNIPPET):
+            X86KernelBuild._isa_level = "avx512"
+        else:
+            X86KernelBuild._isa_level = None
+
+        X86KernelBuild._isa_probed = True
+
+    @staticmethod
+    def _isa_at_least(level: str) -> bool:
+        """Return True if the probed ISA level is >= *level*."""
+        levels = X86KernelBuild._ISA_LEVELS
+        return levels.index(X86KernelBuild._isa_level) >= levels.index(level)
+
+    @staticmethod
+    def is_enabled() -> bool:
+        """Return True when CPU aten_kernels should be included in the build."""
+        enabled = bool(use_cpu_kernels and is_linux and is_x86_64)
+        if enabled and not X86KernelBuild._isa_probed:
+            X86KernelBuild.find_cxx_compiler()
+            if not X86KernelBuild._cxx:
+                raise RuntimeError(
+                    "[X86 Build] You are building X86 kernels but no C++ compiler was found. "
+                    "Please set the CXX environment variable to point to g++."
+                )
+            X86KernelBuild._probe_isa()
+            if not X86KernelBuild._isa_at_least("avx512"):
+                raise RuntimeError(
+                    "[X86 Build] You are building X86 kernels but the compiler "
+                    f"({X86KernelBuild._cxx}) does not support the required ISA "
+                    "features (AVX512F + AVX512-VNNI). Please install a compatible "
+                    "compiler (GCC >= 11.2, GCC 15 for full features)."
+                )
+        return enabled
+
+    @staticmethod
+    def get_include_flags() -> list:
+        """Return -I flags needed to compile CPU kernel objects."""
+        import sysconfig
+
+        from torch.utils.cpp_extension import include_paths
+
+        flags = []
+        for p in include_paths():
+            flags.extend(["-I", p])
+        python_include = sysconfig.get_path("include")
+        if python_include:
+            flags.extend(["-I", python_include])
+        return flags
+
+    @staticmethod
+    def add_compile_flags(extra_compile_args: dict) -> None:
+        """Extend *extra_compile_args* with CPU-kernel compile options.
+
+        These flags are for non-AVX512/AVX10.2 builds only.
+        The AVX512/AVX10.2-specific flags are added in precompile_isa_objects.
+        """
+        if not X86KernelBuild.is_enabled():
+            return
+        flags = [
+            "-DCPU_CAPABILITY=DEFAULT",
+            "-fno-tree-vectorize",
+            "-fopenmp",
+        ]
+        # Gate defines on probed ISA capability, not compiler version.
+        if X86KernelBuild._isa_at_least("avx512"):
+            flags.append("-DBUILD_AVX512")
+        if X86KernelBuild._isa_at_least("avx10_2"):
+            flags.append("-DBUILD_AVX10_2")
+        extra_compile_args["cxx"].extend(flags)
+
+    @staticmethod
+    def filter_sources(sources: list, extensions_dir: str) -> list:
+        """Remove CPU aten_kernels sources from *sources* when not building for CPU."""
+        aten_kernels_dir = os.path.join(extensions_dir, "cpu", "aten_kernels")
+        if not X86KernelBuild.is_enabled():
+            excluded = set(glob.glob(os.path.join(aten_kernels_dir, "*.cpp")))
+            return [s for s in sources if s not in excluded]
+        return sources
+
+    @staticmethod
+    def precompile_isa_objects(build_temp: str, extensions: list) -> None:
+        """Compile copies of kernel files for different ISA.
+
+        Each .cpp is copied to a temp dir and compiled for AVX512 and AVX10.2
+        The resulting .o is attached as an extra_object on the main torchao._C extension.
+        """
+        from concurrent.futures import ThreadPoolExecutor
+
+        main_ext = next((e for e in extensions if e.name == "torchao._C"), None)
+        if main_ext is None:
+            return
+
+        cxx = X86KernelBuild._cxx
+
+        print("[X86 Build] compiler check")
+        print("- Found compiler:", cxx)
+        print(
+            "- AVX512 support:",
+            "Yes" if X86KernelBuild._isa_at_least("avx512") else "No",
+        )
+        print(
+            "- AVX10.2 support:",
+            "Yes" if X86KernelBuild._isa_at_least("avx10_2") else "No",
+        )
+
+        aten_kernels_dir = os.path.join("torchao", "csrc", "cpu", "aten_kernels")
+        all_kernel_sources = glob.glob(os.path.join(aten_kernels_dir, "*_krnl.cpp"))
+        include_flags = X86KernelBuild.get_include_flags()
+
+        common_build_flags = (
+            ["-O3", "-std=c++20", "-fPIC", "-fopenmp"]
+            + include_flags
+            + ["-I", aten_kernels_dir]
+        )
+        avx512_defines = ["-DCPU_CAPABILITY_AVX512", "-DCPU_CAPABILITY_AVX512_VNNI"]
+        avx512_isa_flags = [
+            "-mavx512f",
+            "-mavx512bw",
+            "-mavx512vl",
+            "-mavx512dq",
+            "-mavx512vnni",
+        ]
+        avx10_2_defines = avx512_defines + ["-DCPU_CAPABILITY_AVX10_2"]
+        avx10_2_isa_flags = avx512_isa_flags + ["-mavx10.2"]
+        build_configs = [
+            {
+                "isa": "AVX512",
+                "isa_level": "avx512",
+                "defines": avx512_defines + ["-DCPU_CAPABILITY=AVX512"],
+                "flags": avx512_isa_flags,
+            },
+            {
+                "isa": "AVX10_2",
+                "isa_level": "avx10_2",
+                "defines": avx10_2_defines + ["-DCPU_CAPABILITY=AVX10_2"],
+                "flags": avx10_2_isa_flags,
+            },
+        ]
+
+        def compile_kernel(src, build_dir, config, cxx_flags):
+            base = os.path.basename(src)
+            stem = os.path.splitext(base)[0]
+            temp_src = os.path.join(build_dir, f"{stem}.{config['isa']}.cpp")
+            shutil.copy2(src, temp_src)
+            obj = os.path.join(build_dir, f"{stem}.{config['isa']}.o")
+            cmd = [cxx] + cxx_flags + ["-c", temp_src, "-o", obj]
+            print(
+                f"[X86 Build] {config['isa']}: Compiling {src} -> {os.path.basename(obj)}"
+            )
+            try:
+                subprocess.check_call(cmd)
+                return obj
+            except subprocess.CalledProcessError as e:
+                print(
+                    f"[X86 Build] [ERROR] Unable to compile {config['isa']} variant of {src}:\n{e}\n"
+                )
+                raise e
+
+        for config in build_configs:
+            if not X86KernelBuild._isa_at_least(config["isa_level"]):
+                print(
+                    f"[X86 Build] [WARNING] Compiler does not support {config['isa']} ISA. "
+                    f"{config['isa']} kernels will not be built."
+                )
+                continue
+            cxx_flags = common_build_flags + config["defines"] + config["flags"]
+            build_dir = os.path.join(build_temp, f"cpu_isa_{config['isa']}")
+            os.makedirs(build_dir, exist_ok=True)
+
+            # Compile kernels in parallel to speed up the build
+            with ThreadPoolExecutor() as executor:
+                results = list(
+                    executor.map(
+                        lambda src: compile_kernel(src, build_dir, config, cxx_flags),
+                        sorted(all_kernel_sources),
+                    )
+                )
+                main_ext.extra_objects = list(
+                    getattr(main_ext, "extra_objects", [])
+                ) + [obj for obj in results if obj is not None]
+
+
 class TorchAOBuildExt(BuildExtension):
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
@@ -396,6 +680,11 @@ class TorchAOBuildExt(BuildExtension):
         ]
         for ext in cmake_extensions:
             self.build_cmake(ext)
+
+        # Pre-compile X86 ISA-specific objects (AVX10.2, etc.) before the
+        # main build so they can be linked in as extra_objects.
+        if X86KernelBuild.is_enabled():
+            X86KernelBuild.precompile_isa_objects(self.build_temp, other_extensions)
 
         # Use BuildExtension to build other extensions
         self.extensions = other_extensions
@@ -456,46 +745,6 @@ class CMakeExtension(Extension):
         self.cmake_args = cmake_args
 
 
-def add_options_for_x86(extra_compile_args):
-    if use_cpu_kernels and is_linux:
-        if hasattr(torch._C._cpu, "_is_avx512_supported"):
-            is_avx512_supported = torch._C._cpu._is_avx512_supported()
-        elif hasattr(torch.cpu, "_is_avx512_supported"):
-            is_avx512_supported = torch.cpu._is_avx512_supported()
-        else:
-            is_avx512_supported = False
-        if is_avx512_supported:
-            extra_compile_args["cxx"].extend(
-                [
-                    "-DCPU_CAPABILITY_AVX512",
-                    "-march=native",
-                    "-mfma",
-                    "-fopenmp",
-                ]
-            )
-        else:
-            print(
-                "[WARNING] AVX512 not supported, CPU kernels will be built without AVX512 optimizations"
-            )
-        # note the different API name for vnni (vnni vs avx512_vnni)
-        if hasattr(torch._C._cpu, "_is_avx512_vnni_supported"):
-            is_avx512_vnni_supported = torch._C._cpu._is_avx512_vnni_supported()
-        elif hasattr(torch.cpu, "_is_vnni_supported"):
-            is_avx512_vnni_supported = torch.cpu._is_vnni_supported()
-        else:
-            is_avx512_vnni_supported = False
-        if is_avx512_vnni_supported:
-            extra_compile_args["cxx"].extend(
-                [
-                    "-DCPU_CAPABILITY_AVX512_VNNI",
-                ]
-            )
-        else:
-            print(
-                "[WARNING] AVX512 VNNI not supported, CPU kernels will be built without AVX512 VNNI optimizations"
-            )
-
-
 def get_extensions():
     # Skip building C++ extensions if USE_CPP is set to "0"
     if use_cpp == "0":
@@ -546,7 +795,8 @@ def get_extensions():
             ["-O3" if not debug_mode else "-O0", "-fdiagnostics-color=always"]
         )
 
-        add_options_for_x86(extra_compile_args)
+        # X86-specific compile flags
+        X86KernelBuild.add_compile_flags(extra_compile_args)
 
         if debug_mode:
             extra_compile_args["cxx"].append("-g")
@@ -614,15 +864,7 @@ def get_extensions():
     )
     sources = [s for s in sources if s not in cpu_cmake_sources]
 
-    if not use_cpu_kernels or not is_linux:
-        # Remove csrc/cpu/*.cpp
-        excluded_sources = list(
-            glob.glob(
-                os.path.join(extensions_dir, "cpu", "aten_kernels", "*.cpp"),
-                recursive=False,
-            )
-        )
-        sources = [s for s in sources if s not in excluded_sources]
+    sources = X86KernelBuild.filter_sources(sources, extensions_dir)
 
     # Collect CUDA source files
     extensions_cuda_dir = os.path.join(extensions_dir, "cuda")
