@@ -25,8 +25,11 @@ from torchao.utils import (
     is_mslk_version_at_least,
     is_ROCM,
     is_sm_at_least_100,
+    is_XPU,
     torch_version_at_least,
 )
+
+_is_xpu = is_XPU()
 
 logger = logging.getLogger(__name__)
 
@@ -169,6 +172,9 @@ if torch_version_at_least("2.7.0") and has_triton():
     import triton
     import triton.language as tl
     from torch.library import triton_op, wrap_triton
+    from triton.language.extra import libdevice
+
+    IS_XPU = tl.constexpr(_is_xpu)
 
     def triton_to_mxfp8_dim1_reference(
         x_hp: torch.Tensor,
@@ -314,7 +320,10 @@ if torch_version_at_least("2.7.0") and has_triton():
         e8m0_nan_val = 255
         e8m0_exponent_bias = 127
         s_offset = scale_e8m0.to(tl.int16) - e8m0_exponent_bias
-        s_fp = tl.exp2(s_offset.to(tl.float32))
+        if IS_XPU:
+            s_fp = libdevice.exp2(s_offset.to(tl.float32))
+        else:
+            s_fp = tl.exp2(s_offset.to(tl.float32))
         s_fp = tl.where(scale_e8m0 != e8m0_nan_val, s_fp, float("nan"))
         return s_fp.to(tl.float32)
 
@@ -456,19 +465,20 @@ else:
         raise AssertionError("needs torch version 2.8+ and triton")
 
 
+_is_nvidia_sm100 = (
+    torch.cuda.is_available()
+    and is_sm_at_least_100()
+    and is_cuda_version_at_least(12, 8)
+)
+_is_rocm_mi350 = is_ROCM() and is_MI350()
+
 _triton_kernels_available = (
     torch_version_at_least("2.7.0")
     and has_triton()
-    and torch.cuda.is_available()
-    and (is_sm_at_least_100() and is_cuda_version_at_least(12, 8))
-    or (is_ROCM() and is_MI350())
+    and (_is_nvidia_sm100 or _is_rocm_mi350 or _is_xpu)
 )
 
 if _triton_kernels_available:
-    import triton
-    import triton.language as tl
-    from torch.library import triton_op, wrap_triton
-
     IS_ROCM = tl.constexpr(is_ROCM())
 
     @triton.jit
@@ -691,7 +701,7 @@ if _triton_kernels_available:
             col_rcp_scale_fp32, col_scale_e8m0_r = _triton_calculate_scale_rceil(
                 x_block_abs_t_r,
                 axis=1,
-                USE_PTX=not IS_ROCM,
+                USE_PTX=not (IS_ROCM or IS_XPU),
             )
         else:
             tl.static_assert(SCALING_MODE == "floor")
@@ -802,7 +812,7 @@ if _triton_kernels_available:
             descale_fp32_r, scale_e8m0_r = _triton_calculate_scale_rceil(
                 x_block_abs_r,
                 axis=1,
-                USE_PTX=not IS_ROCM,
+                USE_PTX=not (IS_ROCM or IS_XPU),
             )
         else:
             tl.static_assert(SCALING_MODE == "floor")
@@ -1017,7 +1027,7 @@ _mxfp8_cuda_kernels_available = (
     and is_cuda_version_at_least(12, 8)
 )
 
-if _mxfp8_cuda_kernels_available:
+if _mxfp8_cuda_kernels_available or _is_xpu:
     lib = torch.library.Library("torchao", "FRAGMENT")
     lib.define(
         "mxfp8_quantize(Tensor input, bool rowwise, bool colwise, int scale_dim_x, int scale_dim_y, str fp8_format, str scaling_mode) -> (Tensor, Tensor, Tensor, Tensor)",

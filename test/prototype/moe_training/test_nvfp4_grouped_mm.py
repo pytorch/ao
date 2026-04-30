@@ -7,15 +7,22 @@
 import pytest
 import torch
 
-from torchao.utils import is_MI300, is_MI350, is_sm_at_least_90, torch_version_at_least
+from torchao.utils import (
+    is_MI300,
+    is_MI350,
+    is_sm_at_least_90,
+    is_XPU,
+    torch_version_at_least,
+)
 
-if not (
-    torch_version_at_least("2.7.0")
-    and torch.cuda.is_available()
-    and (is_sm_at_least_90() or is_MI300() or is_MI350())
-):
+_is_xpu = is_XPU()
+_is_cuda_compatible = torch.cuda.is_available() and (
+    is_sm_at_least_90() or is_MI300() or is_MI350()
+)
+
+if not ((_is_xpu or _is_cuda_compatible) and torch_version_at_least("2.7.0")):
     pytest.skip(
-        "Requires SM90+ GPU (torch._grouped_mm), MI300, or MI350",
+        "Requires XPU or SM90+ GPU (torch._grouped_mm), MI300, or MI350",
         allow_module_level=True,
     )
 
@@ -27,8 +34,16 @@ from torchao.prototype.moe_training.nvfp4_grouped_mm import (
 from torchao.prototype.moe_training.utils import generate_jagged_offs
 from torchao.prototype.mx_formats.nvfp4_tensor import nvfp4_quantize
 from torchao.testing.utils import skip_if_rocm
+from torchao.utils import get_available_devices
+
+_DEVICES = get_available_devices()[1:]
 
 BLOCK_SIZE = 16
+
+
+@pytest.fixture(scope="module", params=_DEVICES)
+def device(request):
+    return request.param
 
 
 def _quantize_for_test(x: torch.Tensor):
@@ -55,10 +70,10 @@ def _quantize_3d_for_test(w: torch.Tensor):
 @skip_if_rocm("ROCm not supported")
 @pytest.mark.parametrize("M,K,N", [(1024, 1024, 1024), (1024, 2048, 4096)])
 @pytest.mark.parametrize("num_experts", (1, 8, 16))
-def test_emulated_nvfp4_grouped_gemm_2d_3d(M, K, N, num_experts):
-    x = torch.randn(M, K, dtype=torch.bfloat16, device="cuda")
-    w_t = torch.randn(num_experts, K, N, dtype=torch.bfloat16, device="cuda")
-    offs = generate_jagged_offs(num_experts, M)
+def test_emulated_nvfp4_grouped_gemm_2d_3d(M, K, N, num_experts, device):
+    x = torch.randn(M, K, dtype=torch.bfloat16, device=device)
+    w_t = torch.randn(num_experts, K, N, dtype=torch.bfloat16, device=device)
+    offs = generate_jagged_offs(num_experts, M, device=device)
     x_ref, w_t_ref, offs_ref = x.clone(), w_t.clone(), offs.clone()
 
     # Quantize activations (M, K) -> packed (M, K//2), scales (M, K//16)
@@ -87,12 +102,12 @@ def test_emulated_nvfp4_grouped_gemm_2d_3d(M, K, N, num_experts):
 @skip_if_rocm("ROCm not supported")
 @pytest.mark.parametrize("M,K,N", [(1024, 1024, 2048), (1024, 2048, 4096)])
 @pytest.mark.parametrize("num_experts", (1, 8, 16))
-def test_emulated_nvfp4_grouped_gemm_2d_2d(M, K, N, num_experts):
+def test_emulated_nvfp4_grouped_gemm_2d_2d(M, K, N, num_experts, device):
     # Simulate 2d-2d grouped gemm: grad_weight = grad_output_t @ input
     # grad_output_t: (N, M), input: (M, K) -> result: (E, N, K)
-    grad_out_t = torch.randn(N, M, dtype=torch.bfloat16, device="cuda")
-    x = torch.randn(M, K, dtype=torch.bfloat16, device="cuda")
-    offs = generate_jagged_offs(num_experts, M, multiple_of=BLOCK_SIZE)
+    grad_out_t = torch.randn(N, M, dtype=torch.bfloat16, device=device)
+    x = torch.randn(M, K, dtype=torch.bfloat16, device=device)
+    offs = generate_jagged_offs(num_experts, M, multiple_of=BLOCK_SIZE, device=device)
     grad_out_t_ref, x_ref, offs_ref = (
         grad_out_t.clone(),
         x.clone(),
@@ -126,14 +141,14 @@ def test_emulated_nvfp4_grouped_gemm_2d_2d(M, K, N, num_experts):
     assert sqnr >= min_sqnr, f"sqnr {sqnr} is too low, must be >= {min_sqnr}"
 
 
-def test_nvfp4_dequant_roundtrip():
+def test_nvfp4_dequant_roundtrip(device):
     """Test that quantize -> dequantize preserves values approximately."""
     from torchao.prototype.moe_training.nvfp4_grouped_mm import (
         _nvfp4_dequantize,
     )
 
     torch.manual_seed(42)
-    x = torch.randn(32, 64, device="cuda", dtype=torch.bfloat16)
+    x = torch.randn(32, 64, device=device, dtype=torch.bfloat16)
     scales, packed = nvfp4_quantize(x, block_size=BLOCK_SIZE)
     x_recon = _nvfp4_dequantize(packed, scales, output_dtype=torch.bfloat16)
 
@@ -145,7 +160,7 @@ def test_nvfp4_dequant_roundtrip():
     assert sqnr >= min_sqnr, f"Roundtrip sqnr {sqnr} is too low, must be >= {min_sqnr}"
 
 
-def test_nvfp4_dequant_roundtrip_with_per_tensor_scale():
+def test_nvfp4_dequant_roundtrip_with_per_tensor_scale(device):
     """Test that two-level scaling (block + per-tensor) dequantizes correctly."""
     from torchao.prototype.moe_training.nvfp4_grouped_mm import (
         _nvfp4_dequantize,
@@ -153,7 +168,7 @@ def test_nvfp4_dequant_roundtrip_with_per_tensor_scale():
     from torchao.prototype.mx_formats.nvfp4_tensor import per_tensor_amax_to_scale
 
     torch.manual_seed(42)
-    x = torch.randn(32, 64, device="cuda", dtype=torch.bfloat16)
+    x = torch.randn(32, 64, device=device, dtype=torch.bfloat16)
     amax = x.abs().max()
     per_tensor_scale = per_tensor_amax_to_scale(amax)
     scales, packed = nvfp4_quantize(

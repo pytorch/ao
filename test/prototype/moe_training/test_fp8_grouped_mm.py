@@ -12,16 +12,18 @@ from torchao.utils import (
     is_MI350,
     is_sm_at_least_90,
     is_sm_version,
+    is_XPU,
     torch_version_at_least,
 )
 
-if not (
-    torch_version_at_least("2.7.0")
-    and torch.cuda.is_available()
-    and (is_sm_at_least_90() or is_MI300() or is_MI350())
-):
+_is_xpu_available = is_XPU()
+_is_compatible_cuda = torch.cuda.is_available() and (
+    is_sm_at_least_90() or is_MI300() or is_MI350()
+)
+
+if not ((_is_xpu_available or _is_compatible_cuda) and torch_version_at_least("2.7.0")):
     pytest.skip(
-        "Requires FP8-capable GPU (CUDA SM90+, MI300, or MI350)",
+        "Requires FP8-capable GPU (CUDA SM90+, MI300, MI350 or XPU)",
         allow_module_level=True,
     )
 
@@ -41,10 +43,17 @@ from torchao.prototype.moe_training.config import (
 from torchao.prototype.moe_training.fp8_grouped_mm import (
     _to_fp8_rowwise_then_scaled_grouped_mm,
 )
-from torchao.utils import is_MI300, is_MI350, is_ROCM
+from torchao.utils import get_available_devices, is_MI300, is_MI350, is_ROCM
 
 # Needed since changing args to function causes recompiles
 torch._dynamo.config.cache_size_limit = 1000
+
+_DEVICES = get_available_devices()[1:]
+
+
+@pytest.fixture(scope="module", params=_DEVICES)
+def device(request):
+    return request.param
 
 
 @pytest.mark.skipif(
@@ -55,7 +64,7 @@ torch._dynamo.config.cache_size_limit = 1000
 @pytest.mark.parametrize("n", [8192])
 @pytest.mark.parametrize("k", [5120])
 @pytest.mark.parametrize("n_groups", [1, 2, 4, 8])
-def test_fp8_rowwise_scaled_grouped_mm(m, n, k, n_groups):
+def test_fp8_rowwise_scaled_grouped_mm(m, n, k, n_groups, device):
     if is_ROCM():
         if not (is_MI300() or is_MI350()):
             pytest.skip("FP8 rowwise test requires MI300 or MI350 on ROCm")
@@ -64,7 +73,6 @@ def test_fp8_rowwise_scaled_grouped_mm(m, n, k, n_groups):
             pytest.skip("FP8 rowwise test requires SM 9.0 on CUDA")
 
     out_dtype = torch.bfloat16
-    device = "cuda"
     a = torch.randn(
         m * n_groups,
         k,
@@ -79,7 +87,7 @@ def test_fp8_rowwise_scaled_grouped_mm(m, n, k, n_groups):
         device=device,
         dtype=torch.bfloat16,
     )
-    offs = torch.arange(m, n_groups * m + 1, m, device="cuda", dtype=torch.int32)
+    offs = torch.arange(m, n_groups * m + 1, m, device=device, dtype=torch.int32)
 
     # b must be transposed and in column major format.
     b_t = b.contiguous().transpose(-2, -1).requires_grad_(True)
@@ -91,7 +99,7 @@ def test_fp8_rowwise_scaled_grouped_mm(m, n, k, n_groups):
         b_t,
         offs=offs,
         out_dtype=config.out_dtype,
-        float8_dtyep=config.float8_dtype,
+        float8_dtype=config.float8_dtype,
     )
 
     # Validate result.
@@ -111,7 +119,7 @@ def test_fp8_rowwise_scaled_grouped_mm(m, n, k, n_groups):
     ref_out.sum().backward()
 
     # Validate gradients.
-    if is_ROCM():
+    if is_ROCM() or _is_xpu_available:
         # ROCm: reference vs tested path use different backends:
         # - `torch._scaled_mm` uses hipBLASLt
         # - `_to_fp8_rowwise_then_scaled_grouped_mm` uses CK
@@ -130,7 +138,7 @@ def test_fp8_rowwise_scaled_grouped_mm(m, n, k, n_groups):
 @pytest.mark.parametrize("m", [16, 17])
 @pytest.mark.parametrize("k", [16, 18])
 @pytest.mark.parametrize("n", [32, 33])
-def test_K_or_N_dim_not_multiple_of_16(m, n, k):
+def test_K_or_N_dim_not_multiple_of_16(m, n, k, device):
     # - Leading dim of A doesn't have to be divisible by 16, since it will be
     # divided up into groups based on offset anyway.
     # - Trailing dim of A must be divisible by 16.
@@ -138,7 +146,6 @@ def test_K_or_N_dim_not_multiple_of_16(m, n, k):
     # - Last 2 dims of B must be divisible by 16.
     if n % 16 == 0 and k % 16 == 0:
         return
-    device = "cuda"
     n_groups = 4
     a = torch.randn(
         m * n_groups,
@@ -161,7 +168,7 @@ def test_K_or_N_dim_not_multiple_of_16(m, n, k):
     b_t = b_t.transpose(-2, -1).contiguous().transpose(-2, -1)
 
     config = Float8TrainingOpConfig.from_recipe(Float8TrainingRecipe.FP8_ROWWISE)
-    offs = torch.arange(m, n_groups * m + 1, m, device="cuda", dtype=torch.int32)
+    offs = torch.arange(m, n_groups * m + 1, m, device=device, dtype=torch.int32)
 
     # Compute output.
     with pytest.raises(AssertionError):
