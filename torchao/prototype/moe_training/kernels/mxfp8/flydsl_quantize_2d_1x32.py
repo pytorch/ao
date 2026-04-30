@@ -19,7 +19,7 @@ No cross-lane reduction needed because each block fits in one lane's registers.
 from __future__ import annotations
 
 import functools
-from typing import Tuple
+from typing import Optional, Tuple
 
 import torch
 
@@ -155,12 +155,38 @@ def mxfp8_quantize_flydsl_2d_1x32(
     x: torch.Tensor,
     block_size: int = 32,
     scaling_mode: str = "floor",
+    stage_count: int = 2,
+    blocked_scale_output: bool = False,
+    offs: Optional[torch.Tensor] = None,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     """Quantize a 2D (M, K) tensor to MXFP8 along K using a FlyDSL kernel.
 
     AMD counterpart of :func:`mxfp8_quantize_cutedsl_2d_1x32`. Output data
     is row-major ``(M, K)``; scales are ``(M, K // 32)``.
+
+    ``stage_count`` is accepted for API parity with the cutedsl wrapper
+    (TMA pipeline depth) and ignored on AMD. ``blocked_scale_output`` and
+    ``offs`` are not yet implemented and raise :class:`NotImplementedError`
+    when set; the matching dispatcher in ``quant.py`` enforces the same
+    contract one level up.
     """
+    if scaling_mode != "floor":
+        raise NotImplementedError(
+            "mxfp8_quantize_flydsl_2d_1x32: "
+            f"scaling_mode={scaling_mode!r} is not supported by the FlyDSL "
+            "baseline; only 'floor' is implemented (RCEIL is a planned follow-up)."
+        )
+    if blocked_scale_output:
+        raise NotImplementedError(
+            "mxfp8_quantize_flydsl_2d_1x32: blocked_scale_output=True is "
+            "tcgen05-specific to SM 10.x and not supported by the FlyDSL baseline."
+        )
+    if offs is not None:
+        raise NotImplementedError(
+            "mxfp8_quantize_flydsl_2d_1x32: token-group offs are not yet "
+            "supported by the FlyDSL baseline."
+        )
+    del stage_count  # AMD has no TMA pipeline; accepted for API parity.
     assert x.dtype in (torch.bfloat16, torch.float32), (
         "Input tensor must be float32 or bfloat16"
     )
