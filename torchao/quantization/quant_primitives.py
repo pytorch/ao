@@ -1539,6 +1539,16 @@ def _choose_qparams_affine(
     min_val = torch.amin(input, dim=reduction_dims, keepdim=keepdim)
     max_val = torch.amax(input, dim=reduction_dims, keepdim=keepdim)
 
+    # Promote min_val/max_val to float64 for intermediate computation to match
+    # C++ ChooseQuantizationParams in
+    # caffe2/aten/src/ATen/native/quantized/cpu/QuantUtils.h, which uses
+    # double for scale arithmetic then casts to float at the end. The trailing
+    # `.to(dtype=scale_dtype, ...)` / `.to(dtype=zero_point_dtype)` casts at
+    # function return handle bringing scale/zero_point back to the
+    # caller-expected dtypes (defaulting to input.dtype / int32 respectively).
+    min_val = min_val.to(torch.float64)
+    max_val = max_val.to(torch.float64)
+
     min_val_neg = torch.min(min_val, torch.zeros_like(min_val))
     max_val_pos = torch.max(max_val, torch.zeros_like(max_val))
 
@@ -1548,8 +1558,21 @@ def _choose_qparams_affine(
     ):
         # scales
         if mapping_type == MappingType.SYMMETRIC.name:
-            max_val_pos = torch.max(-min_val_neg, max_val_pos)
-            scale = max_val_pos / (float(quant_max - quant_min) / 2)
+            # Match C++ ChooseQuantizationParams symmetric scale formula:
+            #   scale = max(|min| / -symmetric_qmin, max / symmetric_qmax)
+            # which correctly accounts for two's-complement asymmetry
+            # (e.g., qint8: symmetric_qmin=-128, symmetric_qmax=127) instead
+            # of treating the quantization range as perfectly symmetric. When
+            # (quant_max - quant_min) is even (e.g., [-127, 127]), the range
+            # is perfectly symmetric and no +1 offset is needed; when it's
+            # odd (e.g., [-128, 127]), the +1 offset is required.
+            asymm_offset = (quant_max - quant_min) % 2
+            symmetric_qmin = -((quant_max - quant_min) // 2 + asymm_offset)
+            symmetric_qmax = (quant_max - quant_min) // 2
+            smin = torch.abs(min_val_neg) / (-symmetric_qmin)
+            smax = max_val_pos / symmetric_qmax
+            mask = smin > smax
+            scale = torch.where(mask, smin, smax)
         else:
             assert mapping_type == MappingType.SYMMETRIC_NO_CLIPPING_ERR.name
             # calculate smin and smax individually and choose the larger one. For example, if quant_min = -8 and
@@ -1571,8 +1594,9 @@ def _choose_qparams_affine(
         scale = torch.clamp(scale, min=eps)
         zero_point = quant_min - _Round.apply(min_val_neg / scale)
         zero_point = torch.clamp(zero_point, quant_min, quant_max)
-        if zero_point_dtype is None:
-            zero_point_dtype = torch.int32
+
+    if zero_point_dtype is None:
+        zero_point_dtype = torch.int32
 
     # Reshape scale and zero_point to match expected output shape
     # This aligns with _choose_scale_float8 behavior
@@ -1583,6 +1607,9 @@ def _choose_qparams_affine(
         scale = scale.reshape(output_shape)
         zero_point = zero_point.reshape(output_shape)
 
+    # The trailing `.to(dtype=scale_dtype, ...)` casts scale from the fp64
+    # intermediate dtype back to scale_dtype (which defaults to input.dtype).
+    # zero_point is similarly cast to zero_point_dtype.
     return scale.to(dtype=scale_dtype, device=input.device), zero_point.to(
         dtype=zero_point_dtype
     )
