@@ -16,12 +16,18 @@ from torchao.prototype.moe_training.kernels.mxfp8.cute_utils import (
     _cutedsl_runtime_available,
     _missing_cutedsl_runtime_packages,
 )
+from torchao.prototype.moe_training.kernels.mxfp8.flydsl_utils import (
+    _flydsl_runtime_available,
+    _missing_flydsl_runtime_packages,
+)
 from torchao.prototype.mx_formats.config import ScaleCalculationMode
 from torchao.prototype.mx_formats.mx_tensor import to_mx
 from torchao.prototype.mx_formats.utils import to_blocked
 from torchao.utils import (
     ceil_div,
     is_cuda_version_at_least,
+    is_MI300,
+    is_MI350,
     torch_version_at_least,
 )
 
@@ -1552,3 +1558,318 @@ def mxfp8_quantize_2d_32x1_cutedsl(
         offs=offs,
     )
     return qdata, scales
+
+
+# =============================================================================
+# FlyDSL MXFP8 quantize kernels (AMD CDNA3+ via the FlyDSL stack).
+#
+# AMD counterparts to the CuteDSL ops above. Public signatures match the
+# cutedsl ones for drop-in substitution; the AMD baseline doesn't yet
+# support the same options, so non-default values for unsupported params
+# raise NotImplementedError rather than silently being ignored.
+#
+# Current FlyDSL baseline limitations (each will be tracked as follow-up):
+#   * scaling_mode: "floor" only ("rceil" needs a software implementation
+#     of NVIDIA's ``cvt.rp.satfinite.ue8m0x2.f32`` round-up semantics).
+#   * blocked_scale_output: supported for the 3D path; not yet for the 2D
+#     paths (the blocked layout itself is tcgen05-specific to SM 10.x).
+#   * offs: not yet supported (per-token-group validation/quantization).
+#   * stage_count: accepted but ignored — AMD CDNA3 has no TMA pipeline.
+# =============================================================================
+_mxfp8_flydsl_kernels_available = (
+    torch.cuda.is_available()
+    and (is_MI300() or is_MI350())
+    and _flydsl_runtime_available()
+)
+
+
+def _raise_if_flydsl_unavailable(opname: str) -> None:
+    if _mxfp8_flydsl_kernels_available:
+        return
+    missing = _missing_flydsl_runtime_packages()
+    if missing:
+        raise NotImplementedError(
+            f"{opname} requires FlyDSL — missing package(s): {', '.join(missing)}. "
+            "Build FlyDSL and add its python_packages dir to PYTHONPATH."
+        )
+    raise NotImplementedError(
+        f"{opname} requires an AMD GPU (MI300 or MI350) with the FlyDSL runtime."
+    )
+
+
+def _check_flydsl_unsupported_params(
+    opname: str,
+    *,
+    scaling_mode: str = "floor",
+    blocked_scale_output: bool = False,
+    offs=None,
+) -> None:
+    """Reject param values the FlyDSL baseline does not yet implement.
+
+    ``stage_count`` is intentionally not checked: it has no meaning on AMD
+    (no TMA pipeline) and is accepted purely for API parity with the
+    cutedsl wrappers.
+    """
+    if scaling_mode != "floor":
+        raise NotImplementedError(
+            f"{opname}: scaling_mode={scaling_mode!r} is not supported by the "
+            "FlyDSL baseline; only 'floor' is implemented (RCEIL is a planned "
+            "follow-up)."
+        )
+    if blocked_scale_output:
+        raise NotImplementedError(
+            f"{opname}: blocked_scale_output=True is tcgen05-specific to SM 10.x "
+            "and not supported by the FlyDSL baseline."
+        )
+    if offs is not None:
+        raise NotImplementedError(
+            f"{opname}: token-group offs are not yet supported by the FlyDSL baseline."
+        )
+
+
+def _check_flydsl_3d_unsupported_params(
+    opname: str,
+    *,
+    scaling_mode: str = "floor",
+    scale_block_n: int = 32,
+    scale_block_k: int = 1,
+) -> None:
+    """3D-specific validator. The 3D kernel implements both 32x1 and 32x32
+    scale tiling and the tcgen05 blocked scale output, so it diverges from
+    the 2D ``_check_flydsl_unsupported_params``.
+    """
+    if scaling_mode != "floor":
+        raise NotImplementedError(
+            f"{opname}: scaling_mode={scaling_mode!r} is not supported by the "
+            "FlyDSL baseline; only 'floor' is implemented."
+        )
+    if scale_block_n != 32:
+        raise NotImplementedError(
+            f"{opname}: scale_block_n must be 32 (got {scale_block_n})."
+        )
+    if scale_block_k not in (1, 32):
+        raise NotImplementedError(
+            f"{opname}: scale_block_k must be 1 or 32 (got {scale_block_k})."
+        )
+
+
+# -----------------------------------------------------------------------------
+# Custom ops (torch.library) — the actual implementations the dispatcher binds.
+# Signatures mirror the cutedsl variants so callers can swap backends without
+# changing call sites.
+# -----------------------------------------------------------------------------
+@torch.library.custom_op("torchao::mxfp8_quantize_3d_flydsl", mutates_args=())
+def _mxfp8_quantize_3d_flydsl_custom_op(
+    x: torch.Tensor,
+    block_size: int = 32,
+    scale_block_n: int = 32,
+    scale_block_k: int = 1,
+    scaling_mode: str = "floor",
+    stage_count: int = 2,
+    blocked_scale_output: bool = False,
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    from torchao.prototype.moe_training.kernels.mxfp8.flydsl_quantize_3d import (
+        mxfp8_quantize_flydsl_3d,
+    )
+    _check_flydsl_3d_unsupported_params(
+        "mxfp8_quantize_3d_flydsl",
+        scaling_mode=scaling_mode,
+        scale_block_n=scale_block_n,
+        scale_block_k=scale_block_k,
+    )
+    del stage_count  # AMD has no TMA pipeline; ignored for API parity.
+    return mxfp8_quantize_flydsl_3d(
+        x,
+        block_size=block_size,
+        scale_block_k=scale_block_k,
+        scaling_mode=scaling_mode,
+        blocked_scale_output=blocked_scale_output,
+    )
+
+
+@_mxfp8_quantize_3d_flydsl_custom_op.register_fake
+def _fake_mxfp8_quantize_3d_flydsl_custom_op(
+    x: torch.Tensor,
+    block_size: int = 32,
+    scale_block_n: int = 32,
+    scale_block_k: int = 1,
+    scaling_mode: str = "floor",
+    stage_count: int = 2,
+    blocked_scale_output: bool = False,
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    assert x.ndim == 3, "input tensor must be 3D"
+    assert block_size == 32, "Only block_size=32 is supported"
+    assert scale_block_n == 32, "scale_block_n must be 32"
+    assert scale_block_k in (1, 32), "scale_block_k must be 1 or 32"
+    e, n, k = x.shape
+    q_data = torch.empty_strided(
+        (e, n, k), (n * k, 1, n),
+        device=x.device, dtype=torch.float8_e4m3fn,
+    )
+    n_blocks = n // scale_block_n
+    if blocked_scale_output:
+        padded_scale_rows = ceil_div(k, 128) * 128
+        padded_scale_cols = ceil_div(n_blocks, 4) * 4
+        scales = x.new_empty(
+            (e, padded_scale_rows * padded_scale_cols),
+            dtype=torch.float8_e8m0fnu,
+        )
+    else:
+        scales = x.new_empty(
+            (e, n_blocks, k if scale_block_k == 1 else k // block_size),
+            dtype=torch.float8_e8m0fnu,
+        )
+    return q_data, scales
+
+
+@torch.library.custom_op("torchao::mxfp8_quantize_2d_1x32_flydsl", mutates_args=())
+def _mxfp8_quantize_2d_1x32_flydsl_custom_op(
+    x: torch.Tensor,
+    block_size: int = 32,
+    scaling_mode: str = "floor",
+    stage_count: int = 2,
+    offs: torch.Tensor = None,
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    from torchao.prototype.moe_training.kernels.mxfp8.flydsl_quantize_2d_1x32 import (
+        mxfp8_quantize_flydsl_2d_1x32,
+    )
+    _check_flydsl_unsupported_params(
+        "mxfp8_quantize_2d_1x32_flydsl", scaling_mode=scaling_mode, offs=offs,
+    )
+    del stage_count
+    return mxfp8_quantize_flydsl_2d_1x32(
+        x, block_size=block_size, scaling_mode=scaling_mode,
+    )
+
+
+@_mxfp8_quantize_2d_1x32_flydsl_custom_op.register_fake
+def _fake_mxfp8_quantize_2d_1x32_flydsl_custom_op(
+    x: torch.Tensor,
+    block_size: int = 32,
+    scaling_mode: str = "floor",
+    stage_count: int = 2,
+    offs: torch.Tensor = None,
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    assert x.ndim == 2, "input tensor must be 2D"
+    assert block_size == 32, "Only block_size=32 is supported"
+    m, k = x.shape
+    q_data = torch.empty_strided(
+        (m, k), (k, 1),
+        device=x.device, dtype=torch.float8_e4m3fn,
+    )
+    scales = x.new_empty((m, k // block_size), dtype=torch.float8_e8m0fnu)
+    return q_data, scales
+
+
+@torch.library.custom_op("torchao::mxfp8_quantize_2d_32x1_flydsl", mutates_args=())
+def _mxfp8_quantize_2d_32x1_flydsl_custom_op(
+    x: torch.Tensor,
+    block_size: int = 32,
+    scaling_mode: str = "floor",
+    stage_count: int = 2,
+    blocked_scale_output: bool = False,
+    offs: torch.Tensor = None,
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    from torchao.prototype.moe_training.kernels.mxfp8.flydsl_quantize_2d_32x1 import (
+        mxfp8_quantize_flydsl_2d_32x1,
+    )
+    _check_flydsl_unsupported_params(
+        "mxfp8_quantize_2d_32x1_flydsl",
+        scaling_mode=scaling_mode,
+        blocked_scale_output=blocked_scale_output,
+        offs=offs,
+    )
+    del stage_count
+    return mxfp8_quantize_flydsl_2d_32x1(
+        x, block_size=block_size, scaling_mode=scaling_mode,
+    )
+
+
+@_mxfp8_quantize_2d_32x1_flydsl_custom_op.register_fake
+def _fake_mxfp8_quantize_2d_32x1_flydsl_custom_op(
+    x: torch.Tensor,
+    block_size: int = 32,
+    scaling_mode: str = "floor",
+    stage_count: int = 2,
+    blocked_scale_output: bool = False,
+    offs: torch.Tensor = None,
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    assert x.ndim == 2, "input tensor must be 2D"
+    assert block_size == 32, "Only block_size=32 is supported"
+    m, k = x.shape
+    q_data = torch.empty_strided(
+        (m, k), (1, m),
+        device=x.device, dtype=torch.float8_e4m3fn,
+    )
+    scales = x.new_empty((k, m // block_size), dtype=torch.float8_e8m0fnu)
+    return q_data, scales
+
+
+# -----------------------------------------------------------------------------
+# Public wrappers — gate on backend availability, then delegate to custom ops.
+# -----------------------------------------------------------------------------
+def mxfp8_quantize_3d_flydsl(
+    x: torch.Tensor,
+    block_size: int = 32,
+    scale_block_n: Literal[32] = 32,
+    scale_block_k: Literal[1, 32] = 1,
+    scaling_mode: str = "floor",
+    stage_count: int = 2,
+    blocked_scale_output: bool = False,
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    """3D MoE MXFP8 quantize (AMD via FlyDSL).
+
+    AMD counterpart of :func:`mxfp8_quantize_cuda_3d`. See that function's
+    docstring for argument semantics; this wrapper only differs in the
+    backend and the unsupported-options noted at the top of this section.
+    """
+    _raise_if_flydsl_unavailable("mxfp8_quantize_3d_flydsl")
+    return _mxfp8_quantize_3d_flydsl_custom_op(
+        x,
+        block_size=block_size,
+        scale_block_n=scale_block_n,
+        scale_block_k=scale_block_k,
+        scaling_mode=scaling_mode,
+        stage_count=stage_count,
+        blocked_scale_output=blocked_scale_output,
+    )
+
+
+def mxfp8_quantize_2d_1x32_flydsl(
+    x: torch.Tensor,
+    block_size: int = 32,
+    scaling_mode: str = "floor",
+    stage_count: int = 2,
+    offs: torch.Tensor = None,
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    """2D 1x32 (K-direction) MXFP8 quantize (AMD via FlyDSL).
+
+    AMD counterpart of :func:`mxfp8_quantize_2d_1x32_cutedsl`.
+    """
+    _raise_if_flydsl_unavailable("mxfp8_quantize_2d_1x32_flydsl")
+    return _mxfp8_quantize_2d_1x32_flydsl_custom_op(
+        x, block_size=block_size, scaling_mode=scaling_mode,
+        stage_count=stage_count, offs=offs,
+    )
+
+
+def mxfp8_quantize_2d_32x1_flydsl(
+    x: torch.Tensor,
+    block_size: int = 32,
+    scaling_mode: str = "floor",
+    stage_count: int = 2,
+    blocked_scale_output: bool = False,
+    offs: torch.Tensor = None,
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    """2D 32x1 (M-direction) MXFP8 quantize (AMD via FlyDSL).
+
+    AMD counterpart of :func:`mxfp8_quantize_2d_32x1_cutedsl`. Note that the
+    cutedsl wrapper defaults ``blocked_scale_output=True``; the FlyDSL
+    baseline does not implement the blocked layout, so the default here is
+    ``False`` and ``True`` raises NotImplementedError.
+    """
+    _raise_if_flydsl_unavailable("mxfp8_quantize_2d_32x1_flydsl")
+    return _mxfp8_quantize_2d_32x1_flydsl_custom_op(
+        x, block_size=block_size, scaling_mode=scaling_mode,
+        stage_count=stage_count, blocked_scale_output=blocked_scale_output, offs=offs,
+    )
