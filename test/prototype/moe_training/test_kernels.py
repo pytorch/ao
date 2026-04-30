@@ -620,9 +620,10 @@ def test_cuda_mx_dim1_2d_numerics_32x1(
     )
 
     # Verify output dimensions - data should not be padded, same as input
-    assert y_d1.shape == (M, K), (
-        f"Quantized data shape mismatch: expected ({M}, {K}), got {y_d1.shape}"
-    )
+    assert y_d1.shape == (
+        M,
+        K,
+    ), f"Quantized data shape mismatch: expected ({M}, {K}), got {y_d1.shape}"
     # Check scales - compare unblocked formats
     torch.testing.assert_close(s_d1, s_d1_ref, rtol=0, atol=0)
 
