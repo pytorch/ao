@@ -304,11 +304,7 @@ class TestPatternMatcherBase(TestCase):
 
         with torch.no_grad(), maybe_autocast:
             if check_code:
-                clone_inputs = self._clone_inputs(inputs)
                 expected = mod(*inputs)
-                actual = torch.compile(mod, **compile_options)(*clone_inputs)
-                if check_output_dtype:
-                    self.assertEqual(actual.dtype, expected.dtype)
                 if use_aoti:
                     compiled_mod, source_code = aoti_compile(
                         mod, inputs, get_source_code=True
@@ -322,6 +318,8 @@ class TestPatternMatcherBase(TestCase):
                         torch.compile(mod, **code_compile_options),
                         *inputs,
                     )
+                if check_output_dtype:
+                    self.assertEqual(actual.dtype, expected.dtype)
                 for op in include_ops:
                     self.assertIn(op, source_code)
                 if num_include_ops is not None:
@@ -2844,6 +2842,7 @@ class TestPatternMatcher(TestPatternMatcherBase):
                 reshape -> int_mm -> convert -> mul -> convert -> mul -> reshape -> convert
             - pattern_with_reshape_with_bias_with_output_convert (9 nodes):
                 reshape -> int_mm -> convert -> mul -> convert -> mul -> reshape -> add -> convert
+        Note: U8S8 patterns add 4 extra nodes for input shift and compensation.
         """
         if enable_autocast and not torch.ops.mkldnn._is_mkldnn_bf16_supported():
             self.skipTest("bf16 not supported")

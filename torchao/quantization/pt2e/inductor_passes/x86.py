@@ -1982,9 +1982,24 @@ def _register_smooth_quant_int_mm_pattern():
         # 7: pattern_no_reshape_with_bias_with_output_convert
         #    (pattern_no_reshape_no_bias_with_output_convert + add)
         #    pattern_with_reshape_with_bias (pattern_with_reshape_no_bias + add)
-        # 8: pattern_with_reshape_no_bias_with_output_convert (pattern_with_reshape_no_bias with scaled matmul + output convert)
-        # 9: pattern_with_reshape_with_bias_with_output_convert (pattern_with_reshape_with_bias with scaled matmul + output convert)
-        # 8-13: u8s8 decomposed equivalents with input shift and compensation subtraction.
+        # 8: pattern_with_reshape_no_bias_with_output_convert
+        #    (reshape + int_mm + convert + mul + scaled-matmul convert + mul + reshape + output convert)
+        #    pattern_u8s8_no_reshape_no_bias
+        #    (convert_i32 + add_128 + convert_u8 + int_mm + sub_comp + convert + mul + mul)
+        # 9: pattern_with_reshape_with_bias_with_output_convert
+        #    (reshape + int_mm + convert + mul + scaled-matmul convert + mul + reshape + add + output convert)
+        #    pattern_u8s8_no_reshape_with_bias (pattern_u8s8_no_reshape_no_bias + add)
+        # 10: pattern_u8s8_no_reshape_no_bias_with_output_convert
+        #     (convert_i32 + add_128 + convert_u8 + int_mm + sub_comp + convert + mul + scaled-matmul convert + mul + output convert)
+        #     pattern_u8s8_with_reshape_no_bias
+        #     (reshape + convert_i32 + add_128 + convert_u8 + int_mm + sub_comp + convert + mul + mul + reshape)
+        # 11: pattern_u8s8_no_reshape_with_bias_with_output_convert
+        #     (pattern_u8s8_no_reshape_no_bias_with_output_convert + add)
+        #     pattern_u8s8_with_reshape_with_bias (pattern_u8s8_with_reshape_no_bias + add)
+        # 12: pattern_u8s8_with_reshape_no_bias_with_output_convert
+        #     (reshape + convert_i32 + add_128 + convert_u8 + int_mm + sub_comp + convert + mul + scaled-matmul convert + mul + reshape + output convert)
+        # 13: pattern_u8s8_with_reshape_with_bias_with_output_convert
+        #     (pattern_u8s8_with_reshape_no_bias_with_output_convert + add)
         if len(match.nodes) not in [4, 5, 6, 7, 8, 9, 10, 11, 12, 13]:
             return False
         # Make sure weight is a constant
@@ -1993,6 +2008,15 @@ def _register_smooth_quant_int_mm_pattern():
             return False
         if aten_int_mm_node.args[1].op != "get_attr":
             return False
+
+        # Check bias shape
+        if "bias" in match.kwargs:
+            bias_node = match.kwargs["bias"]
+            if not isinstance(bias_node, torch.fx.node.Node):
+                return False
+            if len(bias_node.meta.get("tensor_meta").shape) != 1:
+                return False
+
         return True
 
     pattern_to_pass_number = {
