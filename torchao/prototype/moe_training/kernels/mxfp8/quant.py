@@ -1404,16 +1404,22 @@ def mxfp8_quantize_cuda_3d(
     blocked_scale_output: bool = True,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     """
-    Quantize a 3D tensor of shape (E, N, K) with MXFP8 scaling.
+    Quantize a 3D tensor with MXFP8 scaling.
 
-    `scale_block_n` and `scale_block_k` define the logical MXFP8 scale tile over
-    the per-expert `(N, K)` matrix. Currently supported modes are:
-    - `(32, 1)`: scales are shared across 32 rows in `N`
-    - `(32, 32)`: scales are shared across 32 rows in `N` and 32 columns in `K`
+    Supported contracts:
+    - standard expert layout: `(E, N, K)` with `K`-major input
+    - transposed expert view: `(E, K, N)` for the `32x1_t` path
 
-    Returns quantized data in column-major-per-expert layout. Scales are returned
-    either in logical row-major form or in blocked tcgen05 layout depending on
-    `blocked_scale_output`.
+    `scale_block_n` applies to the tensor's middle dimension and
+    `scale_block_k` applies to the trailing dimension of the chosen contract.
+    Currently supported modes are:
+    - `(32, 1)`: scales are shared across 32 values of the middle dimension
+    - `(32, 32)`: standard-layout path where scales are shared across 32 values
+      of the middle dimension and 32 values of the trailing dimension
+
+    Returns quantized data in column-major-per-expert layout for the input's
+    trailing two dimensions. Scales are returned either in logical form or in
+    blocked tcgen05 layout depending on `blocked_scale_output`.
     """
     assert block_size == 32, "Only block_size=32 is supported"
     assert x.ndim == 3, "x must be 3D"
