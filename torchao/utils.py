@@ -36,6 +36,7 @@ __all__ = [
     "is_package_at_least",
     "DummyModule",
     "register_as_pytree_constant",
+    "_cpu_is_amx_tile_supported",
     "_cpu_is_vnni_supported",
     "should_reduce_range",
 ]
@@ -1169,6 +1170,19 @@ def is_cuda_version_at_least(major: int, minor: int) -> bool:
         return False
     cuda_major, cuda_minor = map(int, cuda_version.split(".")[:2])
     return (cuda_major, cuda_minor) >= (major, minor)
+
+
+def _cpu_is_amx_tile_supported() -> bool:
+    """
+    Safely query AMX tile support, guarding against private API absence.
+    torch.cpu._is_amx_tile_supported / torch._C._cpu._is_amx_tile_supported are
+    private and may be missing in certain PyTorch builds or versions.
+    """
+    if hasattr(torch._C._cpu, "_is_amx_tile_supported"):
+        return torch._C._cpu._is_amx_tile_supported()
+    elif hasattr(torch.cpu, "_is_amx_tile_supported"):
+        return torch.cpu._is_amx_tile_supported()
+    return False
 
 
 def _cpu_is_vnni_supported() -> bool:

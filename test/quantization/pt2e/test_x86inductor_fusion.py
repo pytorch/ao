@@ -7,6 +7,7 @@
 # Owner(s): ["oncall: quantization"]
 import contextlib
 import copy
+import dataclasses
 import functools
 import glob
 import itertools
@@ -48,11 +49,28 @@ from torch.testing._internal.inductor_utils import (
 )
 
 import torchao.quantization.pt2e.quantizer.x86_inductor_quantizer as xiq
+from torchao.prototype.smoothquant import (
+    SmoothQuantConfig,
+)
+from torchao.quantization import (
+    Int8DynamicActivationInt8WeightConfig,
+    Int8StaticActivationInt8WeightConfig,
+    quantize_,
+)
+from torchao.quantization.granularity import PerRow, PerTensor
 from torchao.quantization.pt2e.quantizer.x86_inductor_quantizer import (
     X86InductorQuantizer,
 )
+from torchao.quantization.quantize_.common.quantization_step import (
+    QuantizationStep,
+)
 from torchao.testing.pt2e.utils import _generate_ref_quantized_model, qdq_fp8
-from torchao.utils import torch_version_at_least
+from torchao.utils import (
+    _cpu_is_amx_tile_supported,
+    _cpu_is_vnni_supported,
+    should_reduce_range,
+    torch_version_at_least,
+)
 
 # The dict value is match_nodes(computation_op+unary_op)
 unary_list = {
@@ -203,6 +221,7 @@ class TestPatternMatcherBase(TestCase):
         quantizer=None,
         compile_options={},  # noqa: B006
         is_fp8=False,
+        check_output_dtype=False,
         use_aoti=False,
         include_ops=None,
         exclude_ops=None,
@@ -299,6 +318,8 @@ class TestPatternMatcherBase(TestCase):
                         torch.compile(mod, **code_compile_options),
                         *inputs,
                     )
+                if check_output_dtype:
+                    self.assertEqual(actual.dtype, expected.dtype)
                 for op in include_ops:
                     self.assertIn(op, source_code)
                 if num_include_ops is not None:
@@ -330,6 +351,18 @@ class TestPatternMatcherBase(TestCase):
                     actual.float(), expected.float(), atol=atol, rtol=rtol
                 )
             matcher_check_fn()
+
+
+def _should_use_u8s8() -> bool:
+    """
+    Determine if the u8s8 decomposition path should be used.
+    This matches the logic in torchao/kernel/intmm.py::_int_scaled_matmul_cpu
+    """
+    return (
+        not _cpu_is_amx_tile_supported()
+        and _cpu_is_vnni_supported()
+        and torch_version_at_least("2.12.0.dev")
+    )
 
 
 @unittest.skipIf(not torch_version_at_least("2.8.0"), "Requires torch 2.8+")
@@ -2772,90 +2805,122 @@ class TestPatternMatcher(TestPatternMatcherBase):
     @skipIfNoONEDNN
     # TODO: investigate options of torch.compile in fbcode
     @unittest.skipIf(IS_FBCODE, "Failing in fbcode")
+    @parametrize(
+        "base_config",
+        [
+            Int8StaticActivationInt8WeightConfig(granularity=(PerTensor(), PerRow())),
+            Int8StaticActivationInt8WeightConfig(),
+            Int8DynamicActivationInt8WeightConfig(
+                version=2, granularity=(PerTensor(), PerRow())
+            ),
+            Int8DynamicActivationInt8WeightConfig(version=2),
+        ],
+    )
     @parametrize("has_bias", [True, False])
-    @parametrize("dtype", [torch.float32, torch.bfloat16])
-    @parametrize("per_channel_quant", [True, False])
+    @parametrize("enable_autocast", [True, False])
+    @parametrize("input_ndim", [2, 3])
     @parametrize("dynamic", [True, False])
-    def test_smooth_quant_with_int_mm(
-        self, has_bias, dtype, per_channel_quant, dynamic
+    def test_smooth_quant_pattern(
+        self, base_config, has_bias, enable_autocast, input_ndim, dynamic
     ):
         r"""
-        This testcase check if we can match the SmoothQuant int8 linear pattern from Torchao.
-        The pattern is:
-            (no bias) reshape -> _int_mm -> convert_element_type -> (expand -> mul) -> mul -> reshape
-        or
-            (with bias) pattern_no_bias -> add -> reshape -> reshape
+        This testcase checks if we can match the SmoothQuant int8 linear pattern from Torchao.
+        The patterns are:
+            - pattern_no_reshape_no_bias (4 nodes):
+                int_mm -> convert -> mul -> mul
+            - pattern_no_reshape_with_bias (5 nodes):
+                int_mm -> convert -> mul -> mul -> add
+            - pattern_no_reshape_no_bias_with_output_convert (6 nodes):
+                int_mm -> convert -> mul -> convert -> mul -> convert
+            - pattern_with_reshape_no_bias (6 nodes):
+                reshape -> int_mm -> convert -> mul -> mul -> reshape
+            - pattern_no_reshape_with_bias_with_output_convert (7 nodes):
+                int_mm -> convert -> mul -> convert -> mul -> add -> convert
+            - pattern_with_reshape_with_bias (7 nodes):
+                reshape -> int_mm -> convert -> mul -> mul -> reshape -> add
+            - pattern_with_reshape_no_bias_with_output_convert (8 nodes):
+                reshape -> int_mm -> convert -> mul -> convert -> mul -> reshape -> convert
+            - pattern_with_reshape_with_bias_with_output_convert (9 nodes):
+                reshape -> int_mm -> convert -> mul -> convert -> mul -> reshape -> add -> convert
+        Note: U8S8 patterns add 4 extra nodes for input shift and compensation.
         """
-        if dtype == torch.bfloat16 and not torch.ops.mkldnn._is_mkldnn_bf16_supported():
-            return
+        if enable_autocast and not torch.ops.mkldnn._is_mkldnn_bf16_supported():
+            self.skipTest("bf16 not supported")
+
         M = 16
         in_feature = 32
         out_feature = 64
-        q_min, q_max = -32, 31
+
+        input_dtype = torch.bfloat16 if enable_autocast else torch.float32
+        if input_ndim == 3:
+            calibration_inputs = torch.randn(1, M, in_feature, dtype=torch.float32)
+            test_input = torch.randn(1, M, in_feature, dtype=input_dtype)
+        else:
+            calibration_inputs = torch.randn(M, in_feature, dtype=torch.float32)
+            test_input = torch.randn(M, in_feature, dtype=input_dtype)
+
+        if should_reduce_range(test_input.device):
+            base_config = dataclasses.replace(base_config, reduce_range=True)
 
         class Mod(torch.nn.Module):
-            def __init__(
-                self, dtype: torch.dtype, has_bias: bool, per_channel_quant: bool
-            ):
+            def __init__(self, has_bias: bool):
                 super().__init__()
-                self.dtype = dtype
-                self.has_bias = has_bias
-                self.b = torch.randint(
-                    q_min, q_max, [in_feature, out_feature], dtype=torch.int8
+                self.linear = torch.nn.Linear(
+                    in_feature, out_feature, bias=has_bias, dtype=torch.float32
                 )
-                self.per_channel_quant = per_channel_quant
-                a_scale_per_tensor = torch.rand([1], dtype=dtype) * 0.01 + 0.01
-                a_scale_per_channel = torch.rand([M, 1], dtype=dtype) * 0.01 + 0.01
-                self.a_scale = (
-                    a_scale_per_channel
-                    if self.per_channel_quant
-                    else a_scale_per_tensor
-                )
-                self.b_scale = torch.rand([out_feature]) * 0.01 + 0.01
-                self.b_scale = self.b_scale.to(dtype)
-                self.bias = torch.rand([out_feature], dtype=dtype) if has_bias else None
 
-            def forward(self, a):
-                out_shape = a.shape[:-1] + (self.b.size(-1),)
-                a_reshaped = a.reshape(-1, a.size(-1))
-                c = torch._int_mm(a_reshaped, self.b)
-                c = c.to(self.dtype)
-                c_shape = c.shape
-                a_scale = self.a_scale.expand(c.shape)
-                c = c * a_scale
-                c = c * self.b_scale
-                if self.has_bias:
-                    c = c.reshape([1, *list(c_shape)])
-                    c = c + self.bias
-                    c = c.reshape(c_shape)
-                c = c.reshape(out_shape)
-                return c
+            def forward(self, x):
+                return self.linear(x)
 
-        mod = Mod(dtype, has_bias, per_channel_quant).eval()
-        a = torch.randint(q_min, q_max, [1, M, in_feature], dtype=torch.int8)
+        mod = Mod(has_bias=has_bias).eval()
+
+        quant_config = SmoothQuantConfig(
+            base_config=base_config,
+            step=QuantizationStep.PREPARE,
+            alpha=0.5,
+        )
+
+        quantize_(mod, quant_config)
+
+        mod(calibration_inputs)
+
+        # Convert to quantized model
+        quant_config.step = QuantizationStep.CONVERT
+        quantize_(mod, quant_config)
 
         def matcher_check_fn():
             self.assertEqual(
                 counters["inductor"]["qlinear_weight_prepack_matcher_count"], 1
             )
-            if dynamic:
-                nodes_count = 10 if has_bias else 7
+
+            if input_ndim == 2:
+                # 2D input: no outer reshape
+                expected_nodes = 6 if enable_autocast else 4
+                if has_bias:
+                    expected_nodes += 1  # add bias operation
             else:
-                nodes_count = 7 if has_bias else 6
+                # 3D input: with outer reshape
+                expected_nodes = 8 if enable_autocast else 6
+                if has_bias:
+                    expected_nodes += 1  # add bias operation
+            if _should_use_u8s8():
+                expected_nodes += 4
+
             if counters["inductor"]["removed_pointless_view_pair"] == 0:
                 # Removing pointless view pairs affect how the pattern
                 # for this test is matched.
                 self.assertEqual(
                     counters["inductor"]["qlinear_weight_prepack_matcher_nodes"],
-                    nodes_count,
+                    expected_nodes,
                 )
 
         self._test_common(
             mod,
-            (a,),
+            (test_input,),
             matcher_check_fn=matcher_check_fn,
-            check_autocast=dtype,
+            check_autocast=torch.bfloat16 if enable_autocast else torch.float32,
             compile_options={"dynamic": dynamic},
+            check_output_dtype=True,
         )
 
     @skipIfNoDynamoSupport
@@ -2874,20 +2939,16 @@ class TestPatternMatcher(TestPatternMatcherBase):
         ],
     )
     @parametrize("inplace_add", [True, False])
-    @parametrize("expand_a_scale", [True, False])
     def test_da8w8_sym_act_sym_wgt_with_int_mm(
-        self, has_bias, dtype, dynamic, reshape_a, M, inplace_add, expand_a_scale
+        self, has_bias, dtype, dynamic, reshape_a, M, inplace_add
     ):
         r"""
         This testcase check if we can match the Int8DynamicActivationInt8WeightConfig int8 linear pattern from torchao,
         when activation is symmetrically quantized dynamically & weights are symmetrically quantized (statically)
         The pattern is:
-            (no bias) _int_mm -> convert_element_type -> ([expand_a] -> mul) -> mul
+            (no bias) _int_mm -> convert_element_type -> mul -> mul
         or
             (with bias) pattern_no_bias -> add
-        Expansion of the scale of activation is optional.
-        The pattern depiction doesn't mean that convert_element_type output is fed into expand_a as input,
-        but simply that activation scale may be applied after an expand operation on it.
         """
         if dtype == torch.bfloat16 and not torch.ops.mkldnn._is_mkldnn_bf16_supported():
             return
@@ -2896,13 +2957,7 @@ class TestPatternMatcher(TestPatternMatcherBase):
         q_min, q_max = -32, 31
         # we only test for qlinear_binary in this case
         test_for_pointwise_binary = (
-            True
-            if M == 1
-            and inplace_add
-            and not expand_a_scale
-            and not dynamic
-            and not has_bias
-            else False
+            True if M == 1 and inplace_add and not dynamic and not has_bias else False
         )
         if test_for_pointwise_binary and not IS_X86:
             self.skipTest("Some UTs are only supported on x86_64 CPUs")
@@ -2928,18 +2983,14 @@ class TestPatternMatcher(TestPatternMatcherBase):
                     a_reshaped = a
                 c = torch._int_mm(a_reshaped, self.b)
                 c = c.to(self.dtype)
-                if expand_a_scale:
-                    a_scale = self.a_scale.expand(c.shape)
-                else:
-                    a_scale = self.a_scale
-                c = c * a_scale
+                c = c * self.a_scale
                 c = c * self.b_scale
                 if self.has_bias:
                     c = c + self.bias
                 elif inplace_add and test_for_pointwise_binary:
                     # When M is 1, dynamic shapes are enabled with torch.compile, has_bias is False,
-                    # expand_a_scale is False and inplace_add is true,
-                    # the output's outermost dim's stride can't be determined due to some Inductor bug.
+                    # and inplace_add is true, the output's outermost dim's stride
+                    # can't be determined due to some Inductor bug.
                     c.add_(self.additive)
                 return c
 
