@@ -109,14 +109,20 @@ class TestTorchAOBaseTensor(unittest.TestCase):
                 pass
 
         # Test dtype change propagates to inner tensors
-        t = MyTensor(torch.randn(4, 4, dtype=torch.float32), torch.tensor(1.0, dtype=torch.float32))
+        t = MyTensor(
+            torch.randn(4, 4, dtype=torch.float32),
+            torch.tensor(1.0, dtype=torch.float32),
+        )
         result = t.to(dtype=torch.float16)
         self.assertEqual(result.dtype, torch.float16)
         self.assertEqual(result.qdata.dtype, torch.float16)
         self.assertEqual(result.scale.dtype, torch.float16)
 
         # Test combined device and dtype change with non_blocking
-        t = MyTensor(torch.randn(4, 4, dtype=torch.float32), torch.tensor(1.0, dtype=torch.float32))
+        t = MyTensor(
+            torch.randn(4, 4, dtype=torch.float32),
+            torch.tensor(1.0, dtype=torch.float32),
+        )
         result = t.to(device="cpu", dtype=torch.bfloat16, non_blocking=True)
         self.assertEqual(result.dtype, torch.bfloat16)
         self.assertEqual(result.qdata.dtype, torch.bfloat16)
