@@ -92,7 +92,7 @@ def register_qsdpa():
         if attn_mask is not None:
             input_nodes.append(attn_mask)
 
-        # use template if machine has amx, only support uint8 for now
+        # use template if machine has amx
         if hasattr(torch._C._cpu, "_is_amx_tile_supported"):
             is_amx_tile_supported = torch._C._cpu._is_amx_tile_supported()
         elif hasattr(torch.cpu, "_is_amx_tile_supported"):
