@@ -5,6 +5,7 @@
 # LICENSE file in the root directory of this source tree.
 
 import types
+import warnings
 from dataclasses import dataclass
 from functools import partial
 from typing import Optional
@@ -32,6 +33,7 @@ from torchao.quantization.transform_module import (
 )
 from torchao.quantization.utils import _module_extra_repr, _quantization_type
 from torchao.utils import (
+    is_MI350,
     is_sm_at_least_100,
     torch_version_at_least,
 )
@@ -114,12 +116,20 @@ class MXDynamicActivationMXWeightConfig(AOBaseConfig):
     # How to calculate the block scales
     scaling_mode: ScaleCalculationMode = ScaleCalculationMode.RCEIL
 
+    # whether to swizzle the scales (should be True on CUDA and False on ROCm)
+    swizzle_scales: bool = True
+
     def __post_init__(self):
         assert self.activation_dtype == self.weight_dtype, (
             "For now - we only support matching input/weight dtypes."
         )
         _validate_elem_dtype(self.activation_dtype)
         _validate_elem_dtype(self.weight_dtype)
+        if is_MI350() and self.swizzle_scales:
+            warnings.warn(
+                "swizzle_scales=True is not supported on AMD MI350x. "
+                "Pass swizzle_scales=False to fix this."
+            )
 
 
 def _linear_extra_repr(self):
@@ -142,7 +152,7 @@ def _mx_inference_linear_transform(
         elem_dtype=config.activation_dtype,
         block_size=config.block_size,
         kernel_preference=config.kernel_preference,
-        is_swizzled_scales=True,
+        is_swizzled_scales=config.swizzle_scales,
         scaling_mode=config.scaling_mode,
     )
 
@@ -153,7 +163,7 @@ def _mx_inference_linear_transform(
         block_size=config.block_size,
         kernel_preference=config.kernel_preference,
         act_quant_kwargs=act_quant_kwargs,
-        is_swizzled_scales=True,
+        is_swizzled_scales=config.swizzle_scales,
         scaling_mode=config.scaling_mode,
     )
 
