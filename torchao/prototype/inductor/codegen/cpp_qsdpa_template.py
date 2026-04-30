@@ -144,6 +144,64 @@ inline void dequant_mask_max_fusion_kernel(
 
 /*
 1. dequant
+2. add mask
+3. max reduce for softmax
+*/
+template <typename mask_t>
+inline void fp8_dequant_mask_max_fusion_kernel(
+    const float* in,
+    const mask_t* mask_ptr,
+    const float* sum_a_ptr,
+    const float* sum_b_ptr,
+    const int& M,
+    const int& N,
+    const int& ldi,
+    const int& ldm, // leading dimension mask
+    const int& ldo,
+    const float& alpha, // scale_a*scale_b*scale_sdpa
+    float* out,
+    float* sfm_max_ptr) {
+  const int32_t vec_size = at::vec::Vectorized<float>::size();
+  auto vec_alpha = at::vec::Vectorized<float>(alpha);
+  for (long row = 0; row < M; row += 1) {
+    auto sum_a = sum_a_ptr[row];
+    auto vec_sum_a = at::vec::Vectorized<float>(sum_a);
+    const float* tmp_in = in + row * ldi;
+    float* tmp_out = out + row * ldo;
+    const mask_t* mask_data_ptr = mask_ptr + row * ldm;
+    float tmp_max = -std::numeric_limits<float>::infinity();
+    auto vec_tmp_max = at::vec::Vectorized<float>(tmp_max);
+    long col = 0;
+    for (; col < vec_size * (N / vec_size); col += vec_size) {
+      auto vec_sum_b = at::vec::Vectorized<float>::loadu(sum_b_ptr + col);
+      auto tmp0 = at::vec::Vectorized<float>::loadu(tmp_in + col);
+      auto tmp1 = tmp0 - vec_sum_b;
+      auto tmp2 = tmp1 - vec_sum_a;
+      auto tmp3 = tmp2 * vec_alpha;
+      auto tmp4 = at::vec::Vectorized<mask_t>::loadu(mask_data_ptr + col);
+      auto tmp5 = at::vec::convert<float>(tmp4);
+      auto tmp6 = tmp3 + tmp5;
+      vec_tmp_max = at::vec::clamp_min(vec_tmp_max, tmp6);
+      store(tmp_out + col, tmp6);
+    }
+    if (col < N) {
+      auto vec_sum_b = at::vec::Vectorized<float>::loadu(sum_b_ptr + col, N - col);
+      auto tmp0 = at::vec::Vectorized<float>::loadu(tmp_in + col, N - col);
+      auto tmp1 = tmp0 - vec_sum_b;
+      auto tmp2 = tmp1 - vec_sum_a;
+      auto tmp3 = tmp2 * vec_alpha;
+      auto tmp4 = at::vec::Vectorized<mask_t>::loadu(mask_data_ptr + col, N - col);
+      auto tmp5 = at::vec::convert<float>(tmp4);
+      auto tmp6 = tmp3 + tmp5;
+      store(tmp_out + col, tmp6, N - col);
+      vec_tmp_max = at::vec::Vectorized<float>::set(vec_tmp_max, at::vec::clamp_min(vec_tmp_max, tmp6), N - col);
+    }
+    sfm_max_ptr[row] = std::max(sfm_max_ptr[row], vec_tmp_max.reduce_max());
+  }
+}
+
+/*
+1. dequant
 2. max reduce for softmax
 */
 inline void dequant_max_fusion_kernel(
@@ -225,20 +283,18 @@ inline void fp8_dequant_max_fusion_kernel(
       auto tmp0 = at::vec::Vectorized<float>::loadu(tmp_in + col);
       auto tmp1 = tmp0 - vec_sum_b;
       auto tmp2 = tmp1 - vec_sum_a;
-      auto tmp3 = at::vec::convert<float>(tmp2);
-      auto tmp4 = tmp3 * vec_alpha;
-      vec_tmp_max = at::vec::clamp_min(vec_tmp_max, tmp4);
-      store(tmp_out + col, tmp4);
+      auto tmp3 = tmp2 * vec_alpha;
+      vec_tmp_max = at::vec::clamp_min(vec_tmp_max, tmp3);
+      store(tmp_out + col, tmp3);
     }
     if (col < N) {
       auto vec_sum_b = at::vec::Vectorized<float>::loadu(sum_b_ptr + col, N - col);
       auto tmp0 = at::vec::Vectorized<float>::loadu(tmp_in + col, N - col);
       auto tmp1 = tmp0 - vec_sum_b;
       auto tmp2 = tmp1 - vec_sum_a;
-      auto tmp3 = at::vec::convert<float>(tmp2);
-      auto tmp4 = tmp3 * vec_alpha;
-      store(tmp_out + col, tmp4, N - col);
-      vec_tmp_max = at::vec::Vectorized<float>::set(vec_tmp_max, at::vec::clamp_min(vec_tmp_max, tmp4), N - col);
+      auto tmp3 = tmp2 * vec_alpha;
+      store(tmp_out + col, tmp3, N - col);
+      vec_tmp_max = at::vec::Vectorized<float>::set(vec_tmp_max, at::vec::clamp_min(vec_tmp_max, tmp3), N - col);
     }
     sfm_max_ptr[row] = std::max(sfm_max_ptr[row], vec_tmp_max.reduce_max());
   }
@@ -623,7 +679,7 @@ inline void dequant_quant_fusion_kernel(
 template <typename scalar_t>
 inline void fp8_dequant_quant_fusion_kernel(
     const float* in,
-  const float* sum_a_ptr,
+    const float* sum_a_ptr,
     const int& M,
     const int& N,
     const int& ldi,
@@ -1740,10 +1796,7 @@ FP8_SDPA_SEVERAL_LOOPS_TEMPLATE = r"""
 #endif
 
 #include <ATen/Tensor.h>
-#include <cstdlib>
-#include <fstream>
 #include <limits>
-#include <string>
 #include <torch/all.h>
 #include <torch/csrc/autograd/function.h>
 
@@ -1836,8 +1889,8 @@ extern "C"
     /* qk */ kvSlice * qSplitSize * rndkvSplitSize * 4 +
     /* qk_local  */ kvSlice * rndkvSplitSize * 4 +
     /* qk_reduce  */ kvSlice * qk_reduce_strideL +
-    /* qk_s32   */ qSplitSize * rndkvSplitSize * 4 +
-    /* dst_s32  */ qSplitSize * rndHeadSize * 4 +
+    /* qk_fp32   */ qSplitSize * rndkvSplitSize * 4 +
+    /* dst_fp32  */ qSplitSize * rndHeadSize * 4 +
     /* softmax_sum   */ qSplitSize * 4 +
     /* query_sum     */ qSplitSize * 4 +
     /* attention_sum */ qSplitSize * 4 +
@@ -1925,9 +1978,9 @@ extern "C"
         offset += kvSlice * rndkvSplitSize * 4;
         scalar_t* qk_reduced_data = reinterpret_cast<scalar_t*>(total_buf_ptr + offset);
         offset += kvSlice * qk_reduce_strideL;
-        float* qk_s32_data = reinterpret_cast<float*>(total_buf_ptr + offset);
+        float* qk_fp32_data = reinterpret_cast<float*>(total_buf_ptr + offset);
         offset += qSplitSize * rndkvSplitSize * 4;
-        float* dst_s32_data = reinterpret_cast<float*>(total_buf_ptr + offset);
+        float* dst_fp32_data = reinterpret_cast<float*>(total_buf_ptr + offset);
         offset += qSplitSize * rndHeadSize * 4;
         accum_t* sfm_sum_ptr = reinterpret_cast<accum_t*>(total_buf_ptr + offset);
         offset += qSplitSize * 4;
@@ -1977,12 +2030,29 @@ extern "C"
                     false,
                     q_tmp,
                     k_reorder,
-                    qk_s32_data);
+                    qk_fp32_data);
 
-            // do dequant compensation, add mask, max reduce for softmax, and convert qk from s32 to fp32
+            // do dequant compensation, add mask, max reduce for softmax
             accum_t* qk_block_data = qk_data + l * qSplitSize * rndkvSplitSize;
+{%- if has_attention_mask %}
+            const mask_t* mask_data_offset = mask_data + i * mStrideB + j * mStrideH + m * mStrideM + (mStrideN == 0 ? 0 : n);
+            fp8_dequant_mask_max_fusion_kernel(
+              qk_fp32_data, //in
+              mask_data_offset, //mask_ptr
+              q_sum_ptr, //sum_a_ptr
+              k_sum_ptr + n, //sum_b_ptr
+              qBlockSize, //M
+              kvBlockSize, //N
+              rndkvSplitSize, //ldi
+              mStrideM, //ldm
+              rndkvSplitSize, //ldo
+              {{q_scale}} * {{k_scale}} * scaling_factor, //scale_a*scale_b*scale_sdpa=alpha
+              qk_block_data, //out
+              sfm_max_ptr //sfm_max_ptr
+            );
+{%- else %}
             fp8_dequant_max_fusion_kernel(
-              qk_s32_data, //in
+              qk_fp32_data, //in
               q_sum_ptr, //sum_a_ptr
               k_sum_ptr + n, //sum_b_ptr
               qBlockSize, //M
@@ -1993,6 +2063,7 @@ extern "C"
               qk_block_data, //out
               sfm_max_ptr //sfm_max_ptr
             );
+{%- endif %}
           }
           // sub max, exp, sum reduce, div sum for softmax
           // and quant
@@ -2026,12 +2097,12 @@ extern "C"
                 s != 0,
                 qk_reduced_data + s * qk_reduce_strideL,
                 v_reorder + s * v_reorder_strideL,
-                dst_s32_data);
+                dst_fp32_data);
           }
           // After the last gemm,
-          // do dequant compensation, quant and convert from s32 to int8
+          // do dequant compensation, quant and convert from fp32 to fp8
           fp8_dequant_quant_fusion_kernel(
-            dst_s32_data, //in
+            dst_fp32_data, //in
             a_sum_ptr, //sum_a_ptr
             qBlockSize, //M
             headSize, //N
@@ -2068,9 +2139,7 @@ class CppQsdpaTemplate(CppFlexAttentionTemplate):
         o_zp,
     ) -> None:
         assert layout.dtype in [torch.uint8, torch.float8_e4m3fn]
-        CppTemplate.__init__(
-            self, "int8_sdpa", input_nodes, layout, parallel_num_threads()
-        )
+        CppTemplate.__init__(self, "qsdpa", input_nodes, layout, parallel_num_threads())
         self.scale = scale
         self.q_scale = q_scale
         self.q_zp = q_zp
