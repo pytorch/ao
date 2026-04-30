@@ -17,6 +17,7 @@ from torchao.prototype.moe_training.kernels.mxfp8 import (
     mxfp8_quantize_2d_1x32_cutedsl,
     mxfp8_quantize_cuda_3d,
     triton_mx_block_rearrange_2d_K_groups,
+    triton_mx_block_rearrange_per_group_3d,
 )
 from torchao.prototype.moe_training.utils import (
     conditional_nostrict_trace,

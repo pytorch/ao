@@ -449,7 +449,10 @@ def test_cuda_mx_3d_cutedsl_numerics(E, N, K, input_dtype, scaling_mode, variant
         s_rows, s_cols = x_t.shape[-1], x_t.shape[-2] // block_size
         s_logical = (
             torch.stack(
-                [from_blocked(s[e], s_rows, s_cols).view(torch.uint8) for e in range(E)],
+                [
+                    from_blocked(s[e], s_rows, s_cols).view(torch.uint8)
+                    for e in range(E)
+                ],
                 dim=0,
             )
             .view(torch.float8_e8m0fnu)
