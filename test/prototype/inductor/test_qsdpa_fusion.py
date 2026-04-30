@@ -394,6 +394,74 @@ class TestSDPAPatternRewriterTemplate(TestCase):
         "CPU" not in torch._C._dispatch_dump("torchao::qscaled_dot_product"),
         reason="cpp kernels not built",
     )
+    @config.patch({"freezing": True, "cpp.enable_concat_linear": True})
+    def _test_int8_fusedmha_rewriter(self):
+        import torchao.quantization.pt2e.quantizer.x86_inductor_quantizer as xiq
+        from torchao.prototype.inductor.fx_passes.int8_concat_linear_fusion_cpu import (
+            register_int8_concat_linear_cpu_pass,
+        )
+        from torchao.quantization.pt2e.quantize_pt2e import convert_pt2e, prepare_pt2e
+        from torchao.quantization.pt2e.quantizer.x86_inductor_quantizer import (
+            X86InductorQuantizer,
+        )
+
+        # pattern is different for bs=1
+        torch.manual_seed(1234)
+        for dtype, has_mask, bs in itertools.product(
+            [torch.float32, torch.bfloat16], [True, False], [56, 1]
+        ):
+            seqlen, numhead, headsize = 197, 16, 64
+            mod = MHAModule(
+                input_dim=headsize * numhead,
+                has_mask=has_mask,
+                num_attention_heads=numhead,
+                attention_head_size=headsize,
+            ).eval()
+            inputs = (
+                torch.randn(
+                    (bs, seqlen, headsize * numhead), device=self.device, dtype=dtype
+                ),
+                torch.randn((bs, 1, 1, seqlen), device=self.device)
+                if has_mask
+                else None,
+            )
+            enable_autocast = dtype == torch.bfloat16
+            with (
+                torch.no_grad(),
+                torch.amp.autocast(
+                    self.device, enabled=enable_autocast, dtype=torch.bfloat16
+                ),
+                config.patch(
+                    post_grad_custom_pre_pass=custom_pass,
+                    post_grad_custom_post_pass=None,
+                ),
+            ):
+                _qsdpa_init()
+                register_int8_concat_linear_cpu_pass()
+                quantizer = X86InductorQuantizer()
+                quantizer.set_global(xiq.get_default_x86_inductor_quantization_config())
+                quantizer.set_function_type_qconfig(
+                    torch.matmul, quantizer.get_global_quantization_config()
+                )
+                export_model = torch.export.export(mod, inputs, strict=True).module()
+                prepare_model = prepare_pt2e(export_model, quantizer)
+                prepare_model(*inputs)
+                convert_model = convert_pt2e(prepare_model)
+                torchao.quantization.pt2e.move_exported_model_to_eval(convert_model)
+
+                self._check_common(
+                    convert_model, args1=inputs, check_train=False, atol=1.0
+                )
+
+    @skipIfRocm
+    @unittest.skipIf(
+        not torch_version_at_least("2.7.0"),
+        reason="qsdpa requires torch 2.7 or later",
+    )
+    @unittest.skipIf(
+        "CPU" not in torch._C._dispatch_dump("torchao::qscaled_dot_product"),
+        reason="cpp kernels not built",
+    )
     @config.patch({"freezing": True})
     def _test_fp8_sdpa_rewriter(self):
         import torchao.quantization.pt2e.quantizer.x86_inductor_quantizer as xiq  # noqa: F401
@@ -436,6 +504,9 @@ if HAS_CPU:
         device = "cpu"
         test_int8_sdpa_rewriter_cpu = (
             TestSDPAPatternRewriterTemplate._test_int8_sdpa_rewriter
+        )
+        test_int8_fusedmha_rewriter_cpu = (
+            TestSDPAPatternRewriterTemplate._test_int8_fusedmha_rewriter
         )
         test_fp8_sdpa_rewriter_cpu = (
             TestSDPAPatternRewriterTemplate._test_fp8_sdpa_rewriter
