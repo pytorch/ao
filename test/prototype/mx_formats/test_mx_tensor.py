@@ -670,8 +670,9 @@ def test_index_select():
     reason="float8 in triton requires CUDA capability 8.9 or greater",
 )
 def test_cast_to_float8_e4m3fn_saturation_behavior():
-    # TODO(#1912): make the saturated cast work in eager mode and remove this
-    # test
+    # PyTorch now implements saturated casting to float8_e4m3fn in both eager
+    # and compiled modes. This test verifies the saturation behavior.
+    # Relates to issue #1912.
     max_val = torch.finfo(torch.float8_e4m3fn).max
 
     # create example data inside the representable range
@@ -694,13 +695,20 @@ def test_cast_to_float8_e4m3fn_saturation_behavior():
         device="cuda",
     )
 
-    # verify that in eager mode PyTorch casting to float8 is unsaturated
+    # verify that in eager mode PyTorch casting to float8 is saturated (no NaN)
     data_in_range_f8 = data_in_range_bf16.to(torch.float8_e4m3fn)
     data_out_of_range_f8 = data_out_of_range_bf16.to(torch.float8_e4m3fn)
     assert not torch.any(torch.isnan(data_in_range_f8))
-    assert torch.all(torch.isnan(data_out_of_range_f8))
+    assert not torch.any(torch.isnan(data_out_of_range_f8))
+    # Out-of-range values should be clamped to max_val
+    torch.testing.assert_close(
+        data_out_of_range_f8.to(torch.bfloat16),
+        torch.tensor([max_val, -1 * max_val], dtype=torch.bfloat16, device="cuda"),
+        atol=0,
+        rtol=0,
+    )
 
-    # verify that in triton, casting to float8 is saturated
+    # verify that in triton/compiled mode, casting to float8 is also saturated
     # for simplicity, use torch.compile to generate triton code
     def to_f8(x):
         x = x.to(torch.float8_e4m3fn)
@@ -711,8 +719,10 @@ def test_cast_to_float8_e4m3fn_saturation_behavior():
     data_out_of_range_f8_c = to_f8_c(data_out_of_range_bf16)
     assert not torch.any(torch.isnan(data_in_range_f8_c))
     assert not torch.any(torch.isnan(data_out_of_range_f8_c))
+    # Eager and compiled should produce the same saturated results
+    torch.testing.assert_close(data_in_range_f8, data_in_range_f8_c, atol=0, rtol=0)
     torch.testing.assert_close(
-        data_in_range_f8_c, data_out_of_range_f8_c, atol=0, rtol=0
+        data_out_of_range_f8, data_out_of_range_f8_c, atol=0, rtol=0
     )
 
 
