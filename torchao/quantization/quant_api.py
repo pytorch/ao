@@ -1512,9 +1512,9 @@ class FqnToConfig(AOBaseConfig):
          Config key ordered by precedence:
            * fully qualified parameter name, e.g. `language.layers.0.q_proj.weight`
            * fully qualified module name, e.g. `language.layers.0.q_proj`
-           * regex for parameter names, must start with `re:`, e.g. `re:language\.layers\..+\.q_proj.weight`.
+           * regex for parameter names, must start with `re:`, e.g. `re:language\\.layers\\..+\\.q_proj.weight`.
              The first regex that matches will be applied.
-           * regex for module names, must start with `re:`, e.g. `re:language\.layers\..+\.q_proj`,
+           * regex for module names, must start with `re:`, e.g. `re:language\\.layers\\..+\\.q_proj`,
              whichever regex fully matches the module fqn first will be applied
              (order of keys for dictionary are kept consistent since we are using OrderedDict)
            * "_default", fallback if no match for all previous keys
