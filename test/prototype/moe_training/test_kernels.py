@@ -50,6 +50,9 @@ from torchao.prototype.moe_training.kernels.mxfp8 import (
     triton_mx_block_rearrange_2d_K_groups,
     triton_mx_block_rearrange_2d_M_groups,
     triton_mx_block_rearrange_per_group_3d,
+    triton_mxfp8_dispatch_and_quantize,
+    triton_mxfp8_pad_and_quantize,
+    triton_mxfp8_quantize_dim0_dim1,
 )
 from torchao.prototype.moe_training.kernels.mxfp8.quant import (
     _mxfp8_cuda_kernels_available,
@@ -733,6 +736,307 @@ def test_cuda_fused_unpad_token_groups(
     assert torch.allclose(inputs, kernel_unpadded_tokens, rtol=0, atol=1e-5), (
         "Unpadded tokens should match original inputs"
     )
+
+
+# --------------------------------------------------------------------------- #
+# Fused MoE dispatch + MXFP8 quantize + blocked-scale rearrange (ao#4184).
+# --------------------------------------------------------------------------- #
+
+
+def _reference_pad_quantize_rearrange(
+    x: torch.Tensor,
+    group_offsets: torch.Tensor,
+    scaling_mode_str: str,
+    alignment: int,
+):
+    """Reference 3-stage pipeline the fused kernel replaces. Uses upper-bound
+    sizing (same allocation strategy as ``fused_pad_token_groups_cuda``) to
+    match the fused kernel output shape."""
+    from torchao.prototype.mx_formats.kernels import triton_to_mxfp8_dim0
+
+    padded, padded_start, padded_end = torch_pad_token_groups(
+        x, group_offsets, alignment_size=alignment
+    )
+    qdata_ref, scales_ref = triton_to_mxfp8_dim0(
+        padded, inner_block_size=32, scaling_mode=scaling_mode_str
+    )
+    blocked_ref = triton_mx_block_rearrange_2d_M_groups(
+        scales_ref, padded_end.to(torch.int32)
+    )
+    return qdata_ref, blocked_ref, padded_start, padded_end
+
+
+def _assert_blocked_scales_equal(
+    fused_blocked_flat: torch.Tensor,
+    ref_blocked_2d: torch.Tensor,
+    padded_M: int,
+    k_blocks: int,
+) -> None:
+    """Blocked scale tensors contain per-group "gap" bytes that our single-pass
+    kernel legitimately leaves uninitialized, so compare in the canonical
+    unblocked view via from_blocked, which only looks at the non-gap cells."""
+    padded_cols = ref_blocked_2d.shape[1]
+    # The fused kernel allocates exactly (padded_M * padded_scale_cols,) with
+    # no inter-group gaps, while the reference allocates (padded_M +
+    # num_groups*128, padded_cols). Since alignment=128 and groups are
+    # multiples of 128, the first padded_M rows of ref contain all non-gap
+    # bytes. Reshape fused-flat to (padded_M, padded_cols) for comparison.
+    fused_view = fused_blocked_flat.view(padded_M, padded_cols)
+    ref_view = ref_blocked_2d[:padded_M]
+    fused_canonical = from_blocked(
+        fused_view.reshape(-1).view(torch.uint8), padded_M, k_blocks
+    )
+    ref_canonical = from_blocked(
+        ref_view.reshape(-1).view(torch.uint8), padded_M, k_blocks
+    )
+    assert torch.equal(fused_canonical, ref_canonical), (
+        "fused blocked scales differ from reference (non-gap cells)"
+    )
+
+
+@pytest.mark.skipif(
+    not _is_sm_10x(),
+    reason="requires CUDA SM 10.x (blocked scale GEMM hw)",
+)
+@skip_if_rocm("ROCm enablement in progress")
+@pytest.mark.parametrize(
+    "num_tokens,k",
+    [
+        (256, 128),
+        (512, 256),
+        (1024, 2048),
+        (4096, 2048),
+        (4096, 5120),
+        (8192, 5120),
+        (8192, 7168),
+    ],
+)
+@pytest.mark.parametrize("num_groups", [1, 2, 4, 8])
+@pytest.mark.parametrize("scaling_mode_str", ["rceil", "floor"])
+def test_triton_mxfp8_pad_and_quantize_numerics(
+    num_tokens: int,
+    k: int,
+    num_groups: int,
+    scaling_mode_str: str,
+):
+    """Fused pad+quantize+blocked-scales == pad_token_groups + triton_to_mxfp8_dim0
+    + triton_mx_block_rearrange_2d_M_groups, bit-exactly on non-gap cells."""
+    device = "cuda"
+    alignment = 128
+    torch.manual_seed(42)
+
+    x = torch.randn(num_tokens, k, dtype=torch.bfloat16, device=device)
+    group_offsets = generate_jagged_offs(
+        num_groups, num_tokens, multiple_of=1, device=device
+    ).to(torch.int32)
+
+    qdata_ref, blocked_ref, padded_start_ref, padded_end_ref = (
+        _reference_pad_quantize_rearrange(x, group_offsets, scaling_mode_str, alignment)
+    )
+
+    qdata_fused, blocked_fused, padded_start_fused, padded_end_fused = (
+        triton_mxfp8_pad_and_quantize(x, group_offsets, scaling_mode=scaling_mode_str)
+    )
+
+    assert torch.equal(padded_start_ref, padded_start_fused), (
+        "padded group start offsets differ"
+    )
+    assert torch.equal(padded_end_ref, padded_end_fused), (
+        "padded group end offsets differ"
+    )
+
+    # Both the fused kernel and the reference use upper-bound sizing
+    # (``num_tokens + num_groups * alignment`` rounded up to alignment), so the
+    # full qdata tensors should match bit-exactly, including the trailing
+    # zero-padding rows beyond the actual padded end.
+    padded_M_ub = qdata_ref.shape[0]
+    assert qdata_fused.shape[0] >= padded_M_ub, (
+        f"fused qdata rows {qdata_fused.shape[0]} < reference rows {padded_M_ub}"
+    )
+    assert qdata_fused.shape[1] == k
+    # Compare the first padded_M_ub rows of the fused output against the full
+    # reference (handles the case where the fused kernel aligns the output up
+    # to BLOCK_ROWS beyond the strict upper bound).
+    assert torch.equal(
+        qdata_fused[:padded_M_ub].view(torch.uint8), qdata_ref.view(torch.uint8)
+    ), "fused fp8 data differs from reference"
+
+    _assert_blocked_scales_equal(
+        blocked_fused, blocked_ref, padded_M_ub, k // 32
+    )
+
+
+@pytest.mark.skipif(
+    not _is_sm_10x(),
+    reason="requires CUDA SM 10.x (blocked scale GEMM hw)",
+)
+@skip_if_rocm("ROCm enablement in progress")
+@pytest.mark.parametrize(
+    "unpermuted_M,padded_M,k",
+    [
+        (512, 768, 128),
+        (1024, 1280, 2048),
+        (4096, 4352, 2048),
+        (4096, 4608, 5120),
+        (8192, 8576, 5120),
+        (16384, 16896, 7168),
+    ],
+)
+@pytest.mark.parametrize("scaling_mode_str", ["rceil", "floor"])
+def test_triton_mxfp8_dispatch_and_quantize_numerics(
+    unpermuted_M: int,
+    padded_M: int,
+    k: int,
+    scaling_mode_str: str,
+):
+    """EP-style arbitrary permutation: build a random src_indices with -1
+    sentinels, and check bit-exact match to the explicit reference pipeline
+    (vstack zero row -> index -> quantize -> rearrange)."""
+    from torchao.prototype.mx_formats.kernels import triton_to_mxfp8_dim0
+
+    device = "cuda"
+    alignment = 128
+    assert padded_M % alignment == 0
+    assert padded_M > unpermuted_M
+    torch.manual_seed(123)
+
+    x = torch.randn(unpermuted_M, k, dtype=torch.bfloat16, device=device)
+
+    # Build src_indices with -1 sentinels mixed in. Layout groups into ~4
+    # sub-blocks of padded_M / 4 rows each; within each sub-block, place
+    # a variable number of valid rows followed by padding. This mirrors the
+    # shape of `permuted_indices` produced by generate_permute_indices.
+    src = torch.full((padded_M,), -1, dtype=torch.int32, device=device)
+    num_sub = 4
+    sub_rows = padded_M // num_sub
+    # Sub-block valid counts must sum to <= unpermuted_M.
+    valid_counts = [unpermuted_M // num_sub] * num_sub
+    valid_counts[-1] = unpermuted_M - sum(valid_counts[:-1])
+    perm = torch.randperm(unpermuted_M, device=device).to(torch.int32)
+    cur_src = 0
+    for g in range(num_sub):
+        start = g * sub_rows
+        cnt = valid_counts[g]
+        src[start : start + cnt] = perm[cur_src : cur_src + cnt]
+        cur_src += cnt
+
+    qdata_fused, blocked_fused = triton_mxfp8_dispatch_and_quantize(
+        x, src, scaling_mode=scaling_mode_str
+    )
+
+    # Reference: gather with -1 sentinel -> quantize -> rearrange.
+    x_plus_zero = torch.vstack((x, x.new_zeros((1, k))))
+    safe_src = torch.where(
+        src >= 0, src.to(torch.int64), torch.tensor(unpermuted_M, device=device)
+    )
+    gathered = x_plus_zero[safe_src]
+    qdata_ref, scales_ref = triton_to_mxfp8_dim0(
+        gathered, inner_block_size=32, scaling_mode=scaling_mode_str
+    )
+
+    # For the blocked rearrange reference we need group offsets; since we
+    # want to compare the full padded_M we treat it as one big "group" of
+    # padded_M rows (alignment=128, so padded_M itself is a valid group end).
+    one_group_offsets = torch.tensor([padded_M], dtype=torch.int32, device=device)
+    blocked_ref = triton_mx_block_rearrange_2d_M_groups(
+        scales_ref, one_group_offsets
+    )
+
+    assert torch.equal(
+        qdata_fused.view(torch.uint8), qdata_ref.view(torch.uint8)
+    ), "fused fp8 data differs from gather+quantize reference"
+    _assert_blocked_scales_equal(
+        blocked_fused, blocked_ref, padded_M, k // 32
+    )
+
+
+@pytest.mark.skipif(
+    not _is_sm_10x(),
+    reason="requires CUDA SM 10.x (blocked scale GEMM hw)",
+)
+@skip_if_rocm("ROCm enablement in progress")
+@pytest.mark.parametrize(
+    "M,N",
+    [
+        (128, 128),
+        (256, 512),
+        (1024, 2048),
+        (4096, 2048),
+        (8192, 2048),
+        (16384, 2048),
+        (2048, 5120),
+    ],
+)
+@pytest.mark.parametrize("scaling_mode_str", ["rceil", "floor"])
+def test_triton_mxfp8_quantize_dim0_dim1_numerics(
+    M: int, N: int, scaling_mode_str: str
+):
+    """Fused dim0+dim1 MXFP8 quantization with blocked scales should be
+    bit-exactly equivalent to the decoupled 4-kernel reference pipeline:
+
+        qdata0, scales0_rm = triton_to_mxfp8_dim0(x, 32, mode)
+        qdata1_t, scales1_rm = triton_to_mxfp8_dim1(x, 32, mode)
+        scales0_blocked = triton_mx_block_rearrange_2d_M_groups(scales0_rm, [M])
+        scales1_blocked = triton_mx_block_rearrange_2d_M_groups(scales1_rm, [N])
+    """
+    from torchao.prototype.mx_formats.kernels import (
+        triton_to_mxfp8_dim0,
+        triton_to_mxfp8_dim1,
+    )
+
+    device = "cuda"
+    torch.manual_seed(2024)
+    x = torch.randn(M, N, dtype=torch.bfloat16, device=device)
+
+    # Fused kernel under test.
+    qdata0_fused, qdata1_t_fused, scales0_fused, scales1_fused = (
+        triton_mxfp8_quantize_dim0_dim1(x, scaling_mode=scaling_mode_str)
+    )
+
+    # Reference dim0 pipeline: quantize along N, then blocked-rearrange.
+    qdata0_ref, scales0_ref_rm = triton_to_mxfp8_dim0(
+        x, inner_block_size=32, scaling_mode=scaling_mode_str
+    )
+    one_group_offsets_m = torch.tensor([M], dtype=torch.int32, device=device)
+    scales0_blocked_ref = triton_mx_block_rearrange_2d_M_groups(
+        scales0_ref_rm, one_group_offsets_m
+    )
+
+    # Reference dim1 pipeline: quantize along M (returns transposed data),
+    # then blocked-rearrange.
+    qdata1_t_ref, scales1_ref_rm = triton_to_mxfp8_dim1(
+        x, inner_block_size=32, scaling_mode=scaling_mode_str
+    )
+    one_group_offsets_n = torch.tensor([N], dtype=torch.int32, device=device)
+    scales1_blocked_ref = triton_mx_block_rearrange_2d_M_groups(
+        scales1_ref_rm, one_group_offsets_n
+    )
+
+    # qdata_dim0: (M, N) row-major e4m3 - bit-exact parity.
+    assert qdata0_fused.shape == (M, N)
+    assert qdata0_fused.dtype == torch.float8_e4m3fn
+    assert torch.equal(
+        qdata0_fused.view(torch.uint8), qdata0_ref.view(torch.uint8)
+    ), "fused dim0 fp8 data differs from triton_to_mxfp8_dim0 reference"
+
+    # qdata_dim1_t: (N, M) row-major e4m3 - bit-exact parity vs.
+    # transposed dim1 reference. ``triton_to_mxfp8_dim1`` returns its data
+    # as a ``.t()`` view of an (N, M) row-major column-major-of-x tensor,
+    # so calling ``.t()`` on the reference peels the view back to the raw
+    # (N, M) row-major storage we produce.
+    assert qdata1_t_fused.shape == (N, M)
+    assert qdata1_t_fused.dtype == torch.float8_e4m3fn
+    qdata1_t_ref_rowmajor = qdata1_t_ref.t().contiguous()
+    assert torch.equal(
+        qdata1_t_fused.view(torch.uint8),
+        qdata1_t_ref_rowmajor.view(torch.uint8),
+    ), "fused dim1-transpose fp8 data differs from triton_to_mxfp8_dim1 reference"
+
+    # Blocked scales for dim0: compare via from_blocked canonical view
+    # (128x4 blocks may have gap cells that are legitimately uninitialized).
+    _assert_blocked_scales_equal(scales0_fused, scales0_blocked_ref, M, N // 32)
+    # Blocked scales for dim1 live in an (N, M/32) logical tensor.
+    _assert_blocked_scales_equal(scales1_fused, scales1_blocked_ref, N, M // 32)
 
 
 @pytest.mark.parametrize("round_scales_to_power_of_2", [True, False])
