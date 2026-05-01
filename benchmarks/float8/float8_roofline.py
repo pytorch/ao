@@ -51,6 +51,10 @@ import torch.nn as nn
 import tqdm
 from torch.profiler import ProfilerActivity, profile
 from utils import (
+    DSV3_16B_671B_DIM,
+    DSV3_16B_671B_INTER_DIM,
+    DSV3_16B_671B_SEQ_LEN,
+    DSV3_16B_671B_SHAPE_GEN_NAME,
     get_gpu_kernel_gemm_time_s,
     get_name_to_shapes_iter,
     profiler_output_to_filtered_time_by_kernel_name,
@@ -67,10 +71,15 @@ from torchao.prototype.moe_training.config import (
 )
 from torchao.quantization import quantize_
 from torchao.testing.training.roofline_utils import (
+    get_blockwise_float8_mem_sympy,
+    get_blockwise_gemm_time_sympy,
     get_float8_mem_sympy,
     get_gemm_time_sympy,
+    get_roofline_gpu_name,
 )
 from torchao.utils import is_MI300, round_up
+
+BLOCKWISE_FP8_TRAINING_RECIPE_NAME = "blockwise_fp8_training"
 
 
 class LNLinearSigmoid(torch.nn.Module):
@@ -229,15 +238,24 @@ def run(
     float8_recipe_name: Optional[str] = None,
     mx_recipe_name: Optional[str] = None,
     enable_fusion_modeling: bool = False,
+    dsv3_seq_len: int = DSV3_16B_671B_SEQ_LEN,
+    dsv3_dim: int = DSV3_16B_671B_DIM,
+    dsv3_inter_dim: int = DSV3_16B_671B_INTER_DIM,
 ):
     """
     Args:
     * `do_benchmarks`: if True, gemm and e2e fwd+bwd of LNLinearSigmoid are benchmarked
-    * `shape_gen_name`: `llama`, `pow2`, `pow2_extended`, or `sweep`
+    * `shape_gen_name`: `llama`, `pow2`, `pow2_extended`, `sweep`, or
+      `dsv3-16b-671b`
     * `gemm_cache_filename (optional)`: file to cache gemm benchmark results
     * `n_limit (optional)`: if specified, only runs `n_limit` iterations
     * `mx_recipe_name (optional)`: MX format recipe
     * `enable_fusion_modeling`: if False uses Linear, if True uses LNLinearSigmoid and models the fusion of float8 overhead
+    * `mx_recipe_name=blockwise_fp8_training`: use prototype
+      Float8BlockwiseLinear roofline estimates. Benchmarks are not supported
+      for this recipe in this shared script.
+    * `shape_gen_name=dsv3-16b-671b`: use DSV3 FFN shapes with M fixed to
+      `dsv3_seq_len`
     """
 
     assert not ((float8_recipe_name is not None) and (mx_recipe_name is not None)), (
@@ -254,6 +272,11 @@ def run(
     print(f"float8_recipe_name: {float8_recipe_name}")
     print(f"mx_recipe_name: {mx_recipe_name}")
     print(f"enable_fusion_modeling: {enable_fusion_modeling}")
+    print(f"dsv3_seq_len: {dsv3_seq_len}")
+    print(f"dsv3_dim: {dsv3_dim}")
+    print(f"dsv3_inter_dim: {dsv3_inter_dim}")
+    roofline_gpu_name = get_roofline_gpu_name()
+    print(f"roofline_gpu_name: {roofline_gpu_name}")
 
     assert mx_recipe_name in (
         None,
@@ -264,34 +287,66 @@ def run(
         "mxfp8_32x32_weight",
         # real mxfp4_cutlass recipe
         "mxfp4_cutlass",
+        # prototype DeepSeek-style blockwise FP8 training linear
+        BLOCKWISE_FP8_TRAINING_RECIPE_NAME,
     ), f"unsupported {mx_recipe_name=}"
+    is_blockwise_fp8_training = mx_recipe_name == BLOCKWISE_FP8_TRAINING_RECIPE_NAME
+    if do_benchmarks:
+        assert not is_blockwise_fp8_training, (
+            "do_benchmarks unsupported with "
+            f"mx_recipe_name={BLOCKWISE_FP8_TRAINING_RECIPE_NAME}; run roofline "
+            "estimates with do_benchmarks=False"
+        )
 
     M, K, N = sympy.symbols("M K N")
 
-    fp8_ovhd_time_sympy = get_float8_mem_sympy(
-        M,
-        K,
-        N,
-        float8_recipe_name,
-        mx_recipe_name,
-        enable_fusion_modeling,
-    )
     bf16_gemm_time_sympy = get_gemm_time_sympy(
-        M, K, N, torch.bfloat16, None, None, None
+        M, K, N, torch.bfloat16, None, None, roofline_gpu_name
     )
-    lowp_input_dtype = torch.float8_e4m3fn
-    if mx_recipe_name == "mxfp4_cutlass":
-        lowp_input_dtype = torch.float4_e2m1fn_x2
+    if is_blockwise_fp8_training:
+        fp8_ovhd_time_sympy = get_blockwise_float8_mem_sympy(
+            M,
+            K,
+            N,
+            enable_fusion_modeling,
+            roofline_gpu_name,
+        )
+        fp8_gemm_time_sympy = get_blockwise_gemm_time_sympy(
+            M,
+            K,
+            N,
+            roofline_gpu_name,
+        )
+    else:
+        fp8_ovhd_time_sympy = get_float8_mem_sympy(
+            M,
+            K,
+            N,
+            float8_recipe_name,
+            mx_recipe_name,
+            enable_fusion_modeling,
+            roofline_gpu_name,
+        )
+        lowp_input_dtype = torch.float8_e4m3fn
+        if mx_recipe_name == "mxfp4_cutlass":
+            lowp_input_dtype = torch.float4_e2m1fn_x2
 
-    fp8_gemm_time_sympy = get_gemm_time_sympy(
-        M, K, N, lowp_input_dtype, float8_recipe_name, mx_recipe_name, None
-    )
+        fp8_gemm_time_sympy = get_gemm_time_sympy(
+            M,
+            K,
+            N,
+            lowp_input_dtype,
+            float8_recipe_name,
+            mx_recipe_name,
+            roofline_gpu_name,
+        )
     print("bf16_gemm_time_sympy", bf16_gemm_time_sympy)
     print("fp8_gemm_time_sympy", fp8_gemm_time_sympy)
     print("fp8_ovhd_time_sympy", fp8_ovhd_time_sympy)
     print()
 
     headers = [
+        "name",
         "fwd_M",
         "fwd_K",
         "fwd_N",
@@ -315,13 +370,23 @@ def run(
         # the difference is the fwd+bwd ln and sigmoid terms, for now to keep things simple
         # we don't break them out and don't have a roofline for them.
         "b_fp8_e2e_spdp",
+        # measured speedup as a percentage of roofline speedup
+        "b_fp8_e2e_spdp_pct_of_r",
         # how well benchmarked gemms match roofline predicted gemms
         "rb_bf16_gemm_ratio",
         "rb_fp8_gemm_ratio",
     ]
     results = []
 
-    name_to_shapes = get_name_to_shapes_iter(shape_gen_name, None, None, None)
+    if shape_gen_name == DSV3_16B_671B_SHAPE_GEN_NAME:
+        name_to_shapes = get_name_to_shapes_iter(
+            shape_gen_name,
+            dsv3_seq_len,
+            dsv3_dim,
+            dsv3_inter_dim,
+        )
+    else:
+        name_to_shapes = get_name_to_shapes_iter(shape_gen_name, None, None, None)
 
     for idx, (name, (M_val, K_val, N_val)) in enumerate(tqdm.tqdm(name_to_shapes)):
         if n_limit is not None and idx >= n_limit:
@@ -397,6 +462,8 @@ def run(
         r_fp8_ovhd_time_s = float(
             fp8_ovhd_time_sympy.subs(M, M_val).subs(K, K_val).subs(N, N_val)
         )
+        r_fp8_gemm_and_ovhd_time_s = r_fp8_gemm_time_s + r_fp8_ovhd_time_s
+        r_fp8_gemm_and_ovhd_speedup = r_bf16_gemm_time_s / r_fp8_gemm_and_ovhd_time_s
 
         b_bf16_e2e_time_s, b_fp8_e2e_time_s = 0, 0
         if do_benchmarks:
@@ -446,11 +513,16 @@ def run(
         # Calculate e2e speedup if benchmarks were run, otherwise -1
         if b_bf16_e2e_time_s > 0 and b_fp8_e2e_time_s > 0:
             b_fp8_e2e_speedup = b_bf16_e2e_time_s / b_fp8_e2e_time_s
+            b_fp8_e2e_speedup_pct_of_r = (
+                b_fp8_e2e_speedup / r_fp8_gemm_and_ovhd_speedup * 100
+            )
         else:
             b_fp8_e2e_speedup = -1
+            b_fp8_e2e_speedup_pct_of_r = -1
 
         results.append(
             [
+                name,
                 M_val,
                 K_val,
                 N_val,
@@ -460,8 +532,8 @@ def run(
                 # roofline - fp8 overhead
                 r_fp8_ovhd_time_s,
                 # roofline - gemm + overhead, and speedup
-                r_fp8_gemm_time_s + r_fp8_ovhd_time_s,
-                r_bf16_gemm_time_s / (r_fp8_gemm_time_s + r_fp8_ovhd_time_s),
+                r_fp8_gemm_and_ovhd_time_s,
+                r_fp8_gemm_and_ovhd_speedup,
                 # benchmarks - gemm
                 b_bf16_gemm_time_s,
                 b_fp8_gemm_time_s,
@@ -469,6 +541,7 @@ def run(
                 b_bf16_e2e_time_s,
                 b_fp8_e2e_time_s,
                 b_fp8_e2e_speedup,
+                b_fp8_e2e_speedup_pct_of_r,
                 # gemm ratios
                 rb_bf16_gemm_ratio,
                 rb_fp8_gemm_ratio,

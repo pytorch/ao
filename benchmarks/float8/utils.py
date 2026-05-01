@@ -12,6 +12,11 @@ from typing import Optional
 import torch.utils.benchmark as benchmark
 from torch.profiler import ProfilerActivity, profile
 
+DSV3_16B_671B_SHAPE_GEN_NAME = "dsv3-16b-671b"
+DSV3_16B_671B_SEQ_LEN = 4096
+DSV3_16B_671B_DIM = 7168
+DSV3_16B_671B_INTER_DIM = 18432
+
 
 def profiler_output_to_filtered_time_by_kernel_name(
     prof,
@@ -231,6 +236,18 @@ def get_name_to_shapes_iter(
             "moe.shared_experts.w1": (M, 7168, 2048),
             "moe.shared_experts.w2": (M, 2048, 7168),
             "moe.shared_experts.w3": (M, 7168, 2048),
+        }
+        return name_to_shapes.items()
+
+    elif shape_gen_name == DSV3_16B_671B_SHAPE_GEN_NAME:
+        seq_len = M if M is not None else DSV3_16B_671B_SEQ_LEN
+        dim = K if K is not None else DSV3_16B_671B_DIM
+        inter_dim = N if N is not None else DSV3_16B_671B_INTER_DIM
+
+        name_to_shapes = {
+            "dsv3.ffn.w1": (seq_len, dim, inter_dim),
+            "dsv3.ffn.w2": (seq_len, inter_dim, dim),
+            "dsv3.ffn.w3": (seq_len, dim, inter_dim),
         }
         return name_to_shapes.items()
 
