@@ -1161,6 +1161,10 @@ def is_sm_at_least_100():
     )
 
 
+def is_XPU():
+    return torch.xpu.is_available() if hasattr(torch, "xpu") else False
+
+
 def is_cuda_version_at_least(major: int, minor: int) -> bool:
     if not torch.cuda.is_available():
         return False

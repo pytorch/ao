@@ -11,15 +11,18 @@ sys.path.insert(0, str(repo_root))
 
 import torch
 
-from torchao.utils import is_cuda_version_at_least, is_sm_at_least_100
+from torchao.utils import is_cuda_version_at_least, is_sm_at_least_100, is_XPU
 
-if not (
+_is_xpu = is_XPU()
+_is_compatible_cuda = (
     torch.cuda.is_available()
     and is_sm_at_least_100()
     and is_cuda_version_at_least(12, 8)
-):
-    pytest.skip("Test requires CUDA 12.8+ with SM >= 100", allow_module_level=True)
-
+)
+if not (_is_xpu or _is_compatible_cuda):
+    pytest.skip(
+        "Test requires XPU or CUDA 12.8+ with SM >= 100", allow_module_level=True
+    )
 
 import torch.distributed as dist
 import torch.nn.functional as F
@@ -27,7 +30,11 @@ from torch.distributed._functional_collectives import (
     all_to_all_single,
 )
 from torch.testing._internal.common_distributed import MultiProcessTestCase
-from torch.testing._internal.common_utils import run_tests
+from torch.testing._internal.common_utils import (
+    instantiate_parametrized_tests,
+    parametrize,
+    run_tests,
+)
 
 from test.prototype.moe_training.testing_utils import generate_split_sizes
 from torchao.float8.float8_utils import compute_error
@@ -42,6 +49,9 @@ from torchao.prototype.moe_training.ep.unpermute import _unpermute_bf16
 from torchao.prototype.moe_training.mxfp8_grouped_mm import (
     _to_mxfp8_then_scaled_grouped_mm,
 )
+from torchao.utils import get_available_devices
+
+_DEVICES = get_available_devices()[1:]
 
 
 def standard_pipeline(
@@ -176,7 +186,12 @@ def mxfp8_pipeline(
     return final_output
 
 
+@instantiate_parametrized_tests
 class TestIntegrationCompiled(MultiProcessTestCase):
+    def __init__(self, methodName="runTest", device_type="cuda"):
+        super().__init__(methodName)
+        self._device_type = device_type
+
     def setUp(self):
         super().setUp()
         self._spawn_processes()
@@ -187,20 +202,47 @@ class TestIntegrationCompiled(MultiProcessTestCase):
 
     @property
     def device(self):
-        return torch.device(f"cuda:{self.rank}")
+        return torch.device(self._device_type, self.rank)
+
+    @device.setter
+    def device(self, device_type):
+        self._device_type = device_type
+
+    def set_device(self):
+        if self._device_type == "cuda":
+            torch.cuda.set_device(self.device)
+        elif self._device_type == "xpu":
+            torch.xpu.set_device(self.device)
+        else:
+            raise ValueError(f"Unsupported device type: {self._device_type}")
+
+    @property
+    def backend(self):
+        if self._device_type == "cuda":
+            return "nccl"
+        elif self._device_type == "xpu":
+            return "xccl"
+        else:
+            raise ValueError(f"Unsupported device type: {self._device_type}")
 
     def _init_process(self):
-        torch.cuda.set_device(self.device)
+        self.set_device()
         store = dist.FileStore(self.file_name, self.world_size)
         dist.init_process_group(
-            backend="nccl",
+            backend=self.backend,
             world_size=self.world_size,
             rank=self.rank,
             store=store,
         )
         torch.manual_seed(42 + self.rank)
 
-    def test_full_pipeline_compiled(self):
+    @parametrize("device_type", _DEVICES)
+    def test_full_pipeline_compiled(self, device_type: str):
+        if device_type == "xpu":
+            self.skipTest(
+                "Non-emulated MXFP8 compile test requires SM100 CuTeDSL kernels, not yet available on XPU"
+            )
+        self.device = device_type
         self._init_process()
         try:
             tokens = 64
