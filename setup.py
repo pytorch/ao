@@ -888,7 +888,7 @@ if use_cpp != "0":
 setup(
     name="torchao",
     version=version + version_suffix,
-    packages=find_packages(exclude=["benchmarks", "benchmarks.*"]),
+    packages=find_packages(exclude=["benchmarks", "benchmarks.*", "test", "test.*"]),
     include_package_data=True,
     package_data={
         "torchao.kernel.configs": ["*.pkl"],
