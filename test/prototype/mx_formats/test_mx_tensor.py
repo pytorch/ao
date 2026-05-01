@@ -694,11 +694,18 @@ def test_cast_to_float8_e4m3fn_saturation_behavior():
         device="cuda",
     )
 
-    # verify that in eager mode PyTorch casting to float8 is unsaturated
+    # Eager mode used to produce NaNs for out-of-range e4m3fn casts, but newer
+    # PyTorch versions saturate to the finite max like the compiled path.
     data_in_range_f8 = data_in_range_bf16.to(torch.float8_e4m3fn)
     data_out_of_range_f8 = data_out_of_range_bf16.to(torch.float8_e4m3fn)
     assert not torch.any(torch.isnan(data_in_range_f8))
-    assert torch.all(torch.isnan(data_out_of_range_f8))
+    eager_cast_saturates = not torch.any(torch.isnan(data_out_of_range_f8))
+    if eager_cast_saturates:
+        torch.testing.assert_close(
+            data_in_range_f8, data_out_of_range_f8, atol=0, rtol=0
+        )
+    else:
+        assert torch.all(torch.isnan(data_out_of_range_f8))
 
     # verify that in triton, casting to float8 is saturated
     # for simplicity, use torch.compile to generate triton code
