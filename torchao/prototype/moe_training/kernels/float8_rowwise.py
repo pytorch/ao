@@ -530,6 +530,7 @@ if torch_version_at_least("2.7.0") and has_triton():
         BLOCK_SIZE_K: tl.constexpr,
         BLOCK_SIZE_N: tl.constexpr,
         EPS: tl.constexpr,
+        is_xpu: tl.constexpr,
     ):
         """
         Fused two-pass kernel for 3D column-major axiswise FP8 scale+cast.
@@ -566,7 +567,10 @@ if torch_version_at_least("2.7.0") and has_triton():
             col_amax = tl.maximum(col_amax, block_amax)
 
         clamped_amax = tl.clamp(col_amax, min=EPS, max=float("inf"))
-        scales = (fp8_dtype_max / clamped_amax.to(tl.float64)).to(tl.float32)
+        if is_xpu:
+            scales = tl.math.div_rn(fp8_dtype_max, clamped_amax)
+        else:
+            scales = (fp8_dtype_max / clamped_amax.to(tl.float64)).to(tl.float32)
 
         if round_scales_to_power_of_2:
             scales = tl.exp2(tl.floor(tl.log2(scales)))
@@ -671,6 +675,7 @@ if torch_version_at_least("2.7.0") and has_triton():
             tl_output_dtype,
             round_scales_to_power_of_2=round_scales_to_power_of_2,
             EPS=EPS,
+            is_xpu=hp_tensor.device.type == "xpu",
         )
 
         return output_buffer, scales_buffer.unsqueeze(1)
@@ -748,6 +753,7 @@ if torch_version_at_least("2.7.0") and has_triton():
         round_scales_to_power_of_2: tl.constexpr,
         BLOCK_SIZE_K: tl.constexpr,
         EPS: tl.constexpr,
+        is_xpu: tl.constexpr,
     ):
         """
         Fused kernel that computes per-row absmax scale and casts a 2D tensor
@@ -802,8 +808,10 @@ if torch_version_at_least("2.7.0") and has_triton():
         # This maps the row's dynamic range into the FP8 representable range.
         # Use float64 for the division to maintain precision, then convert back.
         row_amax = tl.maximum(row_amax, EPS)
-        scale = fp8_dtype_max / row_amax.to(tl.float64)
-        scale = scale.to(tl.float32)
+        if is_xpu:
+            scale = tl.math.div_rn(fp8_dtype_max, row_amax)
+        else:
+            scale = (fp8_dtype_max / row_amax.to(tl.float64)).to(tl.float32)
 
         # Optionally round to power of 2 for hardware-friendly scaling.
         # Power-of-2 scales can be applied as exponent additions rather than
@@ -891,6 +899,7 @@ if torch_version_at_least("2.7.0") and has_triton():
             tl_output_dtype,
             round_scales_to_power_of_2=round_scales_to_power_of_2,
             EPS=EPS,
+            is_xpu=hp_tensor.device.type == "xpu",
         )
 
         return output_buffer, scales_buffer.unsqueeze(-1)

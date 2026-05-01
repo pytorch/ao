@@ -129,7 +129,7 @@ if torch_version_at_least("2.7.0") and has_triton():
             tl_output_dtype,
             round_scales_to_power_of_2,
             EPS=EPS,
-            STRIDE_OUTPUT_ROW=1,
+            STRIDE_OUTPUT_ROW=output_buffer.stride(0),
             STRIDE_INPUT_COL=hp_tensor.stride(1),
         )
         return output_buffer, scales_buffer
