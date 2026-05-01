@@ -51,6 +51,10 @@ import torch.nn as nn
 import tqdm
 from torch.profiler import ProfilerActivity, profile
 from utils import (
+    DSV3_16B_671B_DIM,
+    DSV3_16B_671B_INTER_DIM,
+    DSV3_16B_671B_SEQ_LEN,
+    DSV3_16B_671B_SHAPE_GEN_NAME,
     get_gpu_kernel_gemm_time_s,
     get_name_to_shapes_iter,
     profiler_output_to_filtered_time_by_kernel_name,
@@ -67,33 +71,15 @@ from torchao.prototype.moe_training.config import (
 )
 from torchao.quantization import quantize_
 from torchao.testing.training.roofline_utils import (
-    BYTES_PER_EL_BF16,
-    BYTES_PER_EL_FLOAT8,
-    BYTES_PER_EL_FLOAT32,
-    KERNEL_LAUNCH_OVERHEAD_SEC,
+    get_blockwise_float8_mem_sympy,
+    get_blockwise_gemm_time_sympy,
     get_float8_mem_sympy,
     get_gemm_time_sympy,
-    get_specs,
-    gpu_name_to_specs,
+    get_roofline_gpu_name,
 )
-from torchao.utils import is_MI300, is_sm_at_least_90, round_up
+from torchao.utils import is_MI300, round_up
 
 BLOCKWISE_FP8_TRAINING_RECIPE_NAME = "blockwise_fp8_training"
-BLOCKWISE_FP8_BLOCK_SIZE = 128
-DSV3_SEQ_LEN = 4096
-DSV3_DIM = 7168
-DSV3_INTER_DIM = 18432
-
-
-def get_roofline_gpu_name(gpu_name: Optional[str] = None):
-    if gpu_name is None:
-        gpu_name = torch.cuda.get_device_name(0)
-    if gpu_name in gpu_name_to_specs:
-        return gpu_name
-    for known_gpu_name in gpu_name_to_specs:
-        if gpu_name.startswith(known_gpu_name):
-            return known_gpu_name
-    return gpu_name
 
 
 class LNLinearSigmoid(torch.nn.Module):
@@ -243,194 +229,6 @@ def get_gemm_times(
     return bf16_time_s, f8_time_s
 
 
-def get_dsv3_16b_671b_shapes_iter(
-    seq_len: int = DSV3_SEQ_LEN,
-    dim: int = DSV3_DIM,
-    inter_dim: int = DSV3_INTER_DIM,
-):
-    """
-    DeepSeek-V3 dense FFN linear shapes for one microbatch with sequence length
-    `seq_len`, so the GEMM M dimension is `seq_len`.
-    """
-    name_to_shapes = {
-        "dsv3.ffn.w1": (seq_len, dim, inter_dim),
-        "dsv3.ffn.w2": (seq_len, inter_dim, dim),
-        "dsv3.ffn.w3": (seq_len, dim, inter_dim),
-    }
-    return name_to_shapes.items()
-
-
-def get_roofline_name_to_shapes_iter(
-    shape_gen_name: str,
-    dsv3_seq_len: int,
-    dsv3_dim: int,
-    dsv3_inter_dim: int,
-):
-    if shape_gen_name in ("dsv3-16b-671b", "dsv3-16b/671b", "dsv3_16b_671b"):
-        return get_dsv3_16b_671b_shapes_iter(
-            seq_len=dsv3_seq_len,
-            dim=dsv3_dim,
-            inter_dim=dsv3_inter_dim,
-        )
-    return get_name_to_shapes_iter(shape_gen_name, None, None, None)
-
-
-def get_blockwise_mem_time_sympy(bytes_rw, gpu_name: Optional[str] = None):
-    """
-    Estimate memory-bound runtime using roofline_utils GPU specs.
-
-    The memory model is:
-        bytes read/written / peak memory bandwidth / achievable bandwidth pct
-
-    Each modeled kernel is also lower-bounded by KERNEL_LAUNCH_OVERHEAD_SEC.
-    """
-    specs = get_specs(gpu_name)
-    mem_time_s = (
-        bytes_rw / specs["peak_mem_bw_bytes_sec"] / specs["pct_achievable_mem_bw"]
-    )
-    return sympy.Max(mem_time_s, KERNEL_LAUNCH_OVERHEAD_SEC)
-
-
-def get_blockwise_individual_gemm_time_sympy(
-    M,
-    K,
-    N,
-    scale_a_numel,
-    scale_b_numel,
-    gpu_name: Optional[str] = None,
-):
-    """
-    Estimate one blockwise FP8 GEMM runtime using roofline_utils GPU specs.
-
-    The compute model is:
-        2 * M * K * N / fp8_peak_tops / achievable_gemm_tops_pct
-
-    The memory model counts FP8 matrix reads, BF16 output writes, and FP32
-    scale reads. The GEMM estimate is max(compute time, memory time).
-    """
-    specs = get_specs(gpu_name)
-    gemm_ops = 2 * M * K * N
-    compute_gemm_time_s = (
-        gemm_ops / specs["fp8_peak_tops"] / specs["pct_achievable_gemm_tops"]
-    )
-    bytes_rw = (
-        (M * K + K * N) * BYTES_PER_EL_FLOAT8
-        + (M * N) * BYTES_PER_EL_BF16
-        + (scale_a_numel + scale_b_numel) * BYTES_PER_EL_FLOAT32
-    )
-    mem_gemm_time_s = get_blockwise_mem_time_sympy(bytes_rw, gpu_name)
-    return sympy.Max(compute_gemm_time_s, mem_gemm_time_s)
-
-
-def get_blockwise_gemm_time_sympy(
-    M,
-    K,
-    N,
-    gpu_name: Optional[str] = None,
-    block_size: int = BLOCKWISE_FP8_BLOCK_SIZE,
-):
-    block_size = sympy.Integer(block_size)
-
-    # input @ weight.T = output, with 1x128 activation and 128x128 weight scales
-    gemm_output_time_s = get_blockwise_individual_gemm_time_sympy(
-        M,
-        K,
-        N,
-        M * K / block_size,
-        K * N / (block_size * block_size),
-        gpu_name,
-    )
-    # grad_output @ weight = grad_input
-    gemm_grad_input_time_s = get_blockwise_individual_gemm_time_sympy(
-        M,
-        N,
-        K,
-        M * N / block_size,
-        N * K / (block_size * block_size),
-        gpu_name,
-    )
-    # grad_output.T @ input = grad_weight, with 1x128 and 128x1 scales
-    gemm_grad_weight_time_s = get_blockwise_individual_gemm_time_sympy(
-        N,
-        M,
-        K,
-        N * M / block_size,
-        M * K / block_size,
-        gpu_name,
-    )
-    return gemm_output_time_s + gemm_grad_input_time_s + gemm_grad_weight_time_s
-
-
-def get_blockwise_quant_ovhd_s(
-    numel,
-    scale_numel,
-    gpu_name: Optional[str] = None,
-    fuse_read: bool = False,
-):
-    read_bytes = 0 if fuse_read else BYTES_PER_EL_BF16 * numel
-    bytes_rw = (
-        read_bytes + BYTES_PER_EL_FLOAT8 * numel + BYTES_PER_EL_FLOAT32 * scale_numel
-    )
-    return get_blockwise_mem_time_sympy(bytes_rw, gpu_name)
-
-
-def get_blockwise_float8_mem_sympy(
-    M,
-    K,
-    N,
-    enable_fusion_modeling: bool,
-    gpu_name: Optional[str] = None,
-    block_size: int = BLOCKWISE_FP8_BLOCK_SIZE,
-):
-    block_size = sympy.Integer(block_size)
-
-    quant_input_lhs = get_blockwise_quant_ovhd_s(
-        M * K,
-        M * K / block_size,
-        gpu_name,
-        fuse_read=enable_fusion_modeling,
-    )
-    # Current Float8BlockwiseLinear quantizes the weight in two separate
-    # layouts: transposed RHS for forward and regular RHS for grad_input.
-    quant_weight_transposed_rhs = get_blockwise_quant_ovhd_s(
-        N * K,
-        N * K / (block_size * block_size),
-        gpu_name,
-    )
-    quant_weight_rhs = get_blockwise_quant_ovhd_s(
-        N * K,
-        N * K / (block_size * block_size),
-        gpu_name,
-    )
-    quant_grad_output_lhs = get_blockwise_quant_ovhd_s(
-        M * N,
-        M * N / block_size,
-        gpu_name,
-        fuse_read=enable_fusion_modeling,
-    )
-    quant_grad_output_transposed_lhs = get_blockwise_quant_ovhd_s(
-        M * N,
-        M * N / block_size,
-        gpu_name,
-    )
-    quant_input_rhs = get_blockwise_quant_ovhd_s(
-        M * K,
-        M * K / block_size,
-        gpu_name,
-    )
-
-    return sum(
-        [
-            quant_input_lhs,
-            quant_weight_transposed_rhs,
-            quant_weight_rhs,
-            quant_grad_output_lhs,
-            quant_grad_output_transposed_lhs,
-            quant_input_rhs,
-        ]
-    )
-
-
 def run(
     outfile: str,
     do_benchmarks: bool = True,
@@ -440,25 +238,22 @@ def run(
     float8_recipe_name: Optional[str] = None,
     mx_recipe_name: Optional[str] = None,
     enable_fusion_modeling: bool = False,
-    blockwise_use_triton: bool = False,
-    blockwise_compile_benchmarks: bool = False,
-    dsv3_seq_len: int = DSV3_SEQ_LEN,
-    dsv3_dim: int = DSV3_DIM,
-    dsv3_inter_dim: int = DSV3_INTER_DIM,
+    dsv3_seq_len: int = DSV3_16B_671B_SEQ_LEN,
+    dsv3_dim: int = DSV3_16B_671B_DIM,
+    dsv3_inter_dim: int = DSV3_16B_671B_INTER_DIM,
 ):
     """
     Args:
     * `do_benchmarks`: if True, gemm and e2e fwd+bwd of LNLinearSigmoid are benchmarked
-    * `shape_gen_name`: `llama`, `pow2`, `pow2_extended`, or `sweep`
+    * `shape_gen_name`: `llama`, `pow2`, `pow2_extended`, `sweep`, or
+      `dsv3-16b-671b`
     * `gemm_cache_filename (optional)`: file to cache gemm benchmark results
     * `n_limit (optional)`: if specified, only runs `n_limit` iterations
     * `mx_recipe_name (optional)`: MX format recipe
     * `enable_fusion_modeling`: if False uses Linear, if True uses LNLinearSigmoid and models the fusion of float8 overhead
-    * `mx_recipe_name=blockwise_fp8_training`: benchmark the prototype
-      Float8BlockwiseLinear layer against a bf16 Linear and use blockwise FP8
-      roofline estimates
-    * `blockwise_use_triton`: if False, use the scaled_mm backend for blockwise
-      FP8 GEMMs; if True, use the custom Triton GEMM backend
+    * `mx_recipe_name=blockwise_fp8_training`: use prototype
+      Float8BlockwiseLinear roofline estimates. Benchmarks are not supported
+      for this recipe in this shared script.
     * `shape_gen_name=dsv3-16b-671b`: use DSV3 FFN shapes with M fixed to
       `dsv3_seq_len`
     """
@@ -477,8 +272,6 @@ def run(
     print(f"float8_recipe_name: {float8_recipe_name}")
     print(f"mx_recipe_name: {mx_recipe_name}")
     print(f"enable_fusion_modeling: {enable_fusion_modeling}")
-    print(f"blockwise_use_triton: {blockwise_use_triton}")
-    print(f"blockwise_compile_benchmarks: {blockwise_compile_benchmarks}")
     print(f"dsv3_seq_len: {dsv3_seq_len}")
     print(f"dsv3_dim: {dsv3_dim}")
     print(f"dsv3_inter_dim: {dsv3_inter_dim}")
@@ -498,10 +291,11 @@ def run(
         BLOCKWISE_FP8_TRAINING_RECIPE_NAME,
     ), f"unsupported {mx_recipe_name=}"
     is_blockwise_fp8_training = mx_recipe_name == BLOCKWISE_FP8_TRAINING_RECIPE_NAME
-    fp8_backend = "n/a"
-    if is_blockwise_fp8_training:
-        fp8_backend = (
-            "blockwise_triton_gemm" if blockwise_use_triton else "blockwise_scaled_mm"
+    if do_benchmarks:
+        assert not is_blockwise_fp8_training, (
+            "do_benchmarks unsupported with "
+            f"mx_recipe_name={BLOCKWISE_FP8_TRAINING_RECIPE_NAME}; run roofline "
+            "estimates with do_benchmarks=False"
         )
 
     M, K, N = sympy.symbols("M K N")
@@ -553,8 +347,6 @@ def run(
 
     headers = [
         "name",
-        "fp8_backend",
-        "compiled",
         "fwd_M",
         "fwd_K",
         "fwd_N",
@@ -586,12 +378,15 @@ def run(
     ]
     results = []
 
-    name_to_shapes = get_roofline_name_to_shapes_iter(
-        shape_gen_name,
-        dsv3_seq_len,
-        dsv3_dim,
-        dsv3_inter_dim,
-    )
+    if shape_gen_name == DSV3_16B_671B_SHAPE_GEN_NAME:
+        name_to_shapes = get_name_to_shapes_iter(
+            shape_gen_name,
+            dsv3_seq_len,
+            dsv3_dim,
+            dsv3_inter_dim,
+        )
+    else:
+        name_to_shapes = get_name_to_shapes_iter(shape_gen_name, None, None, None)
 
     for idx, (name, (M_val, K_val, N_val)) in enumerate(tqdm.tqdm(name_to_shapes)):
         if n_limit is not None and idx >= n_limit:
@@ -611,7 +406,7 @@ def run(
         rb_bf16_gemm_ratio = -1
         rb_fp8_gemm_ratio = -1
 
-        if do_benchmarks and not is_blockwise_fp8_training:
+        if do_benchmarks:
             assert mx_recipe_name not in (
                 "mxfp4_cutlass",
                 "mxfp8_32x32_flexible_gemm_layout",
@@ -688,40 +483,13 @@ def run(
 
             # get the bf16 gpu kernel time
             torch._dynamo.reset()
-            m_bf16 = copy.deepcopy(m_orig)
-            if (not is_blockwise_fp8_training) or blockwise_compile_benchmarks:
-                m_bf16 = torch.compile(m_bf16)
+            m_bf16 = torch.compile(copy.deepcopy(m_orig))
             b_bf16_e2e_time_s = get_gpu_kernel_time(m_bf16, x, grad_output)
 
             # get the float8 dynamic scaling gpu kernel time
 
             torch._dynamo.reset()
-            if is_blockwise_fp8_training:
-                assert is_sm_at_least_90(), (
-                    "Float8BlockwiseLinear benchmarks require CUDA SM90+"
-                )
-                assert K_val % BLOCKWISE_FP8_BLOCK_SIZE == 0, (
-                    f"K={K_val} must be divisible by {BLOCKWISE_FP8_BLOCK_SIZE}"
-                )
-                assert N_val % BLOCKWISE_FP8_BLOCK_SIZE == 0, (
-                    f"N={N_val} must be divisible by {BLOCKWISE_FP8_BLOCK_SIZE}"
-                )
-                from torchao.prototype.blockwise_fp8_training.linear import (
-                    Float8BlockwiseLinear,
-                    Float8BlockwiseLinearConfig,
-                )
-
-                m_fp8_dyn = copy.deepcopy(m_orig)
-                quantize_(m_fp8_dyn, config=Float8BlockwiseLinearConfig())
-                found_blockwise_linear = False
-                for module in m_fp8_dyn.modules():
-                    if isinstance(module, Float8BlockwiseLinear):
-                        module.use_triton = blockwise_use_triton
-                        found_blockwise_linear = True
-                assert found_blockwise_linear, "expected a Float8BlockwiseLinear"
-                if blockwise_compile_benchmarks:
-                    m_fp8_dyn = torch.compile(m_fp8_dyn)
-            elif float8_recipe_name is not None:
+            if float8_recipe_name is not None:
                 config = Float8LinearConfig.from_recipe_name(float8_recipe_name)
                 m_fp8_dyn = convert_to_float8_training(
                     copy.deepcopy(m_orig), config=config
@@ -739,8 +507,7 @@ def run(
                     )
                 m_fp8_dyn = copy.deepcopy(m_orig)
                 quantize_(m_fp8_dyn, config=config)
-            if not is_blockwise_fp8_training:
-                m_fp8_dyn = torch.compile(m_fp8_dyn)
+            m_fp8_dyn = torch.compile(m_fp8_dyn)
             b_fp8_e2e_time_s = get_gpu_kernel_time(m_fp8_dyn, x, grad_output)
 
         # Calculate e2e speedup if benchmarks were run, otherwise -1
@@ -756,8 +523,6 @@ def run(
         results.append(
             [
                 name,
-                fp8_backend,
-                blockwise_compile_benchmarks if is_blockwise_fp8_training else True,
                 M_val,
                 K_val,
                 N_val,
