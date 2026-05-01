@@ -78,9 +78,10 @@ from torchao.testing.training.roofline_utils import (
 )
 from torchao.utils import is_MI300, is_sm_at_least_90, round_up
 
-
 BLOCKWISE_FP8_TRAINING_RECIPE_NAME = "blockwise_fp8_training"
 BLOCKWISE_FP8_BLOCK_SIZE = 128
+BLOCKWISE_WEIGHT_QUANT_SEPARATE = "separate"
+BLOCKWISE_WEIGHT_QUANT_DUAL = "dual"
 DSV3_SEQ_LEN = 4096
 DSV3_DIM = 7168
 DSV3_INTER_DIM = 18432
@@ -287,9 +288,7 @@ def get_blockwise_mem_time_sympy(bytes_rw, gpu_name: Optional[str] = None):
     """
     specs = get_specs(gpu_name)
     mem_time_s = (
-        bytes_rw
-        / specs["peak_mem_bw_bytes_sec"]
-        / specs["pct_achievable_mem_bw"]
+        bytes_rw / specs["peak_mem_bw_bytes_sec"] / specs["pct_achievable_mem_bw"]
     )
     return sympy.Max(mem_time_s, KERNEL_LAUNCH_OVERHEAD_SEC)
 
@@ -372,9 +371,26 @@ def get_blockwise_quant_ovhd_s(
 ):
     read_bytes = 0 if fuse_read else BYTES_PER_EL_BF16 * numel
     bytes_rw = (
-        read_bytes
-        + BYTES_PER_EL_FLOAT8 * numel
-        + BYTES_PER_EL_FLOAT32 * scale_numel
+        read_bytes + BYTES_PER_EL_FLOAT8 * numel + BYTES_PER_EL_FLOAT32 * scale_numel
+    )
+    return get_blockwise_mem_time_sympy(bytes_rw, gpu_name)
+
+
+def get_blockwise_dual_weight_quant_ovhd_s(
+    numel,
+    scale_numel,
+    gpu_name: Optional[str] = None,
+):
+    """
+    Estimate the optimized dual-layout weight quantization kernel.
+
+    The optimized kernel reads the BF16 weight once, writes both FP8 RHS
+    layouts, and writes both FP32 scale layouts.
+    """
+    bytes_rw = (
+        BYTES_PER_EL_BF16 * numel
+        + 2 * BYTES_PER_EL_FLOAT8 * numel
+        + 2 * BYTES_PER_EL_FLOAT32 * scale_numel
     )
     return get_blockwise_mem_time_sympy(bytes_rw, gpu_name)
 
@@ -386,8 +402,13 @@ def get_blockwise_float8_mem_sympy(
     enable_fusion_modeling: bool,
     gpu_name: Optional[str] = None,
     block_size: int = BLOCKWISE_FP8_BLOCK_SIZE,
+    blockwise_weight_quant_mode: str = BLOCKWISE_WEIGHT_QUANT_SEPARATE,
 ):
     block_size = sympy.Integer(block_size)
+    assert blockwise_weight_quant_mode in (
+        BLOCKWISE_WEIGHT_QUANT_SEPARATE,
+        BLOCKWISE_WEIGHT_QUANT_DUAL,
+    ), f"unsupported {blockwise_weight_quant_mode=}"
 
     quant_input_lhs = get_blockwise_quant_ovhd_s(
         M * K,
@@ -395,18 +416,28 @@ def get_blockwise_float8_mem_sympy(
         gpu_name,
         fuse_read=enable_fusion_modeling,
     )
-    # Current Float8BlockwiseLinear quantizes the weight in two separate
-    # layouts: transposed RHS for forward and regular RHS for grad_input.
-    quant_weight_transposed_rhs = get_blockwise_quant_ovhd_s(
-        N * K,
-        N * K / (block_size * block_size),
-        gpu_name,
-    )
-    quant_weight_rhs = get_blockwise_quant_ovhd_s(
-        N * K,
-        N * K / (block_size * block_size),
-        gpu_name,
-    )
+    if blockwise_weight_quant_mode == BLOCKWISE_WEIGHT_QUANT_SEPARATE:
+        # Current Float8BlockwiseLinear on main quantizes the weight in two
+        # separate layouts: transposed RHS for forward and regular RHS for
+        # grad_input.
+        quant_weight = get_blockwise_quant_ovhd_s(
+            N * K,
+            N * K / (block_size * block_size),
+            gpu_name,
+        ) + get_blockwise_quant_ovhd_s(
+            N * K,
+            N * K / (block_size * block_size),
+            gpu_name,
+        )
+    else:
+        # Optimized Float8BlockwiseLinear emits both RHS layouts from one
+        # blockwise scale reduction and saves the regular RHS layout for
+        # backward.
+        quant_weight = get_blockwise_dual_weight_quant_ovhd_s(
+            N * K,
+            N * K / (block_size * block_size),
+            gpu_name,
+        )
     quant_grad_output_lhs = get_blockwise_quant_ovhd_s(
         M * N,
         M * N / block_size,
@@ -427,8 +458,7 @@ def get_blockwise_float8_mem_sympy(
     return sum(
         [
             quant_input_lhs,
-            quant_weight_transposed_rhs,
-            quant_weight_rhs,
+            quant_weight,
             quant_grad_output_lhs,
             quant_grad_output_transposed_lhs,
             quant_input_rhs,
@@ -447,6 +477,7 @@ def run(
     enable_fusion_modeling: bool = False,
     blockwise_use_triton: bool = False,
     blockwise_compile_benchmarks: bool = False,
+    blockwise_weight_quant_mode: str = BLOCKWISE_WEIGHT_QUANT_SEPARATE,
     dsv3_seq_len: int = DSV3_SEQ_LEN,
     dsv3_dim: int = DSV3_DIM,
     dsv3_inter_dim: int = DSV3_INTER_DIM,
@@ -464,6 +495,9 @@ def run(
       roofline estimates
     * `blockwise_use_triton`: if False, use the scaled_mm backend for blockwise
       FP8 GEMMs; if True, use the custom Triton GEMM backend
+    * `blockwise_weight_quant_mode`: `separate` models the current main branch
+      implementation; `dual` models the optimized kernel which emits both
+      weight RHS layouts from one quantization kernel
     * `shape_gen_name=dsv3-16b-671b`: use DSV3 FFN shapes with M fixed to
       `dsv3_seq_len`
     """
@@ -484,6 +518,7 @@ def run(
     print(f"enable_fusion_modeling: {enable_fusion_modeling}")
     print(f"blockwise_use_triton: {blockwise_use_triton}")
     print(f"blockwise_compile_benchmarks: {blockwise_compile_benchmarks}")
+    print(f"blockwise_weight_quant_mode: {blockwise_weight_quant_mode}")
     print(f"dsv3_seq_len: {dsv3_seq_len}")
     print(f"dsv3_dim: {dsv3_dim}")
     print(f"dsv3_inter_dim: {dsv3_inter_dim}")
@@ -521,6 +556,7 @@ def run(
             N,
             enable_fusion_modeling,
             roofline_gpu_name,
+            blockwise_weight_quant_mode=blockwise_weight_quant_mode,
         )
         fp8_gemm_time_sympy = get_blockwise_gemm_time_sympy(
             M,
@@ -560,6 +596,7 @@ def run(
         "name",
         "fp8_backend",
         "compiled",
+        "blockwise_weight_quant_mode",
         "fwd_M",
         "fwd_K",
         "fwd_N",
@@ -673,9 +710,7 @@ def run(
             fp8_ovhd_time_sympy.subs(M, M_val).subs(K, K_val).subs(N, N_val)
         )
         r_fp8_gemm_and_ovhd_time_s = r_fp8_gemm_time_s + r_fp8_ovhd_time_s
-        r_fp8_gemm_and_ovhd_speedup = (
-            r_bf16_gemm_time_s / r_fp8_gemm_and_ovhd_time_s
-        )
+        r_fp8_gemm_and_ovhd_speedup = r_bf16_gemm_time_s / r_fp8_gemm_and_ovhd_time_s
 
         b_bf16_e2e_time_s, b_fp8_e2e_time_s = 0, 0
         if do_benchmarks:
@@ -765,6 +800,7 @@ def run(
                 name,
                 fp8_backend,
                 blockwise_compile_benchmarks if is_blockwise_fp8_training else True,
+                (blockwise_weight_quant_mode if is_blockwise_fp8_training else "n/a"),
                 M_val,
                 K_val,
                 N_val,
