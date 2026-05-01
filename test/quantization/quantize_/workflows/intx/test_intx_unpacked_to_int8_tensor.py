@@ -408,5 +408,34 @@ class TestIntxUnpackedToInt8Tensor(TestCase):
             )
 
 
+    def test_int8_small_bf16_weights_precision(self):
+        """INT8 quantization of small bf16 weights must use full int8 range.
+
+        Regression: choose_qparams_affine in bf16 collapses per-group
+        scales for weights with small magnitudes (abs_mean ~0.01), wasting
+        most of the int8 dynamic range. The fix casts to float32 internally.
+        """
+        torch.manual_seed(42)
+        dtype = torch.bfloat16
+        device = "cpu"
+        config = IntxWeightOnlyConfig(
+            weight_dtype=torch.int8,
+            granularity=PerGroup(32),
+            version=2,
+        )
+        linear = torch.nn.Linear(256, 128, bias=False, dtype=dtype, device=device)
+        linear.weight.data.normal_(0, 0.01)
+        input = torch.randn(1, 256, dtype=dtype, device=device)
+        original = linear(input)
+        quantize_(linear, config)
+        quantized = linear(input)
+        error = compute_error(original, quantized)
+        self.assertTrue(
+            error > 30,
+            f"INT8 on small bf16 weights got SQNR {error:.1f} dB, expected > 30 dB. "
+            f"Likely quantizing in bf16 instead of float32.",
+        )
+
+
 if __name__ == "__main__":
     run_tests()
