@@ -268,7 +268,29 @@ def parse_args():
         default=False,
         help="Only quantize `o_proj` layers, useful for faster GPTQ runs for debugging",
     )
+    parser.add_argument(
+        "--olmoe-layers-10-to-15-experts-only",
+        action="store_true",
+        default=False,
+        help="For olmoe model, only quantize the experts (gate_up_proj and down_proj) on layers 10 through 15, useful for faster GPTQ runs for debugging",
+    )
     return parser.parse_args()
+
+
+def get_fqn_to_config(config, olmoe_layers_10_to_15_experts_only=False):
+    if olmoe_layers_10_to_15_experts_only:
+        return FqnToConfig(
+            {
+                r"re:model\.layers\.(10|11|12|13|14|15)\.mlp\.experts\.gate_up_proj": config,
+                r"re:model\.layers\.(10|11|12|13|14|15)\.mlp\.experts\.down_proj": config,
+            }
+        )
+    return FqnToConfig(
+        {
+            r"re:.*\.experts\.gate_up_proj": config,
+            r"re:.*\.experts\.down_proj": config,
+        }
+    )
 
 
 OLMOE_MODEL_ID = "allenai/OLMoE-1B-7B-0924"
@@ -374,6 +396,7 @@ def main():
 
     filter_fn_to_use = skip_lm_head
     if args.o_proj_only:
+        assert not is_olmoe, "unsupported"
         filter_fn_to_use = skip_lm_head_o_proj
 
     if args.quantization == "int4-rtn":
@@ -396,15 +419,14 @@ def main():
         if is_olmoe:
             quantize_(
                 model,
-                FqnToConfig(
-                    {
-                        r"re:.*\.experts\.gate_up_proj": config,
-                        r"re:.*\.experts\.down_proj": config,
-                    }
+                get_fqn_to_config(
+                    config,
+                    olmoe_layers_10_to_15_experts_only=args.olmoe_layers_10_to_15_experts_only,
                 ),
                 filter_fn=None,
             )
-            _verify_olmoe_experts_quantized(model)
+            if not args.olmoe_layers_10_to_15_experts_only:
+                _verify_olmoe_experts_quantized(model)
         else:
             quantize_(model, config, filter_fn=filter_fn_to_use)
         print(model)
@@ -444,11 +466,9 @@ def main():
         if is_olmoe:
             quantize_(
                 model,
-                FqnToConfig(
-                    {
-                        r"re:.*\.experts\.gate_up_proj": observe_config,
-                        r"re:.*\.experts\.down_proj": observe_config,
-                    }
+                get_fqn_to_config(
+                    observe_config,
+                    olmoe_layers_10_to_15_experts_only=args.olmoe_layers_10_to_15_experts_only,
                 ),
                 filter_fn=None,
             )
@@ -495,15 +515,14 @@ def main():
             if is_olmoe:
                 quantize_(
                     model,
-                    FqnToConfig(
-                        {
-                            r"re:.*\.experts\.gate_up_proj": convert_config,
-                            r"re:.*\.experts\.down_proj": convert_config,
-                        }
+                    get_fqn_to_config(
+                        convert_config,
+                        olmoe_layers_10_to_15_experts_only=args.olmoe_layers_10_to_15_experts_only,
                     ),
                     filter_fn=None,
                 )
-                _verify_olmoe_experts_quantized(model)
+                if not args.olmoe_layers_10_to_15_experts_only:
+                    _verify_olmoe_experts_quantized(model)
             else:
                 quantize_(model, convert_config, filter_fn=filter_fn_to_use)
         else:  # sequential
