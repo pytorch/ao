@@ -142,9 +142,11 @@ class QuantizedTiedEmbedding(nn.Module):
 
 def _replace_embedding_with_quantized_embedding(
     module: nn.Module,
-    kwargs={},
+    kwargs=None,
     fqn: str = "",
 ):
+    if kwargs is None:
+        kwargs = {}
     group_size = kwargs.get("group_size", None)
     bit_width = kwargs.get("bit_width", None)
     use_fallback = kwargs.get("use_fallback", None)
@@ -254,6 +256,10 @@ class QuantizedLinear(nn.Module):
         assert x.dim() == 2
         m, k = x.shape
         assert k == self.k
+        assert _is_kernel_library_loaded(), (
+            "QuantizedLinear requires the torchao kernel library to be loaded. "
+            "Please build torchao with C++ extensions enabled (USE_CPP=1)."
+        )
         return getattr(
             torch.ops.torchao, f"_linear_8bit_act_{self.bit_width}bit_weight"
         )(x, self.packed_weight, self.group_size, self.n, self.k)
