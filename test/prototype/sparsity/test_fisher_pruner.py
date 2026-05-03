@@ -14,7 +14,7 @@ from torch.nn.utils.parametrize import is_parametrized
 from torch.testing._internal.common_pruning import SimpleLinear
 from torch.testing._internal.common_utils import TestCase
 
-from torchao.sparsity import FisherPruner
+from torchao.prototype.sparsity import FisherPruner
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO

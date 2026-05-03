@@ -39,11 +39,12 @@ from typing import Optional
 
 import torch
 from torch import nn
-from torch.ao.pruning import BaseSparsifier, get_arg_info_from_tensor_fqn
+from torchao.prototype.sparsity.sparsifier.base_sparsifier import BaseSparsifier
+from torchao.prototype.sparsity.sparsifier.utils import get_arg_info_from_tensor_fqn
+from torchao.sparsity.utils import PerChannelNormObserver
 from torch.ao.quantization import QConfig, default_placeholder_observer
 from torch.ao.quantization.quantize import _remove_qconfig
 
-from .utils import PerChannelNormObserver
 
 __all__ = ["FisherPruner"]
 
@@ -135,7 +136,6 @@ class FisherPruner(BaseSparsifier):
                 tensor_fqn = module_config.get("tensor_fqn")
                 if tensor_fqn is None:
                     raise ValueError("Each config entry must contain 'tensor_fqn'.")
-                info = get_arg_info_from_tensor_fqn(model, tensor_fqn)
                 module = info["module"]
                 if module is not None:
                     module.qconfig = QConfig(  # type: ignore[assignment]
