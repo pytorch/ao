@@ -83,8 +83,12 @@ def to_nvfp4_reference(x_hp):
 
 
 def to_nvfp4_reference_triton_swizzle(x_hp):
+    per_tensor_scale = torch.tensor(1.0, dtype=torch.float32, device=x_hp.device)
     nvfp4_tensor = NVFP4Tensor.to_nvfp4(
-        x_hp, use_triton_kernel=True, is_swizzled_scales=True
+        x_hp,
+        per_tensor_scale=per_tensor_scale,
+        use_triton_kernel=True,
+        is_swizzled_scales=True,
     )
     return nvfp4_tensor.qdata, nvfp4_tensor.scale
 
@@ -105,6 +109,7 @@ def run(
     print(f"triton version: {triton.__version__}")
     print(f"mode: {mode}")
     assert mode in (
+        "memcpy",
         "dim0",
         "dim1",
         "dim0_dim1",
@@ -121,11 +126,33 @@ def run(
         "dim1_mxfp8_triton_rceil",
         "dim1_mxfp8_cuda_floor",
         "dim1_mxfp8_cuda_rceil",
+        "dim0_mxfp8_cutedsl_2d_floor",
+        "dim0_mxfp8_cutedsl_2d_rceil",
+        "dim1_mxfp8_cutedsl_2d_floor",
+        "dim1_mxfp8_cutedsl_2d_rceil",
     )
 
     x = torch.randn(M, K, dtype=torch.bfloat16, device="cuda") * 1000
 
-    if mode == "dim0":
+    if mode == "memcpy":
+        # Baseline memcpy benchmark to establish max achievable bandwidth
+        y = torch.randn_like(x)
+
+        # Warmup
+        for _ in range(2):
+            y.copy_(x)
+
+        time_us = benchmark_cuda_function_in_microseconds(
+            lambda src, dst: dst.copy_(src),
+            x,
+            y,
+        )
+
+        # bytes_read + bytes_written
+        bytes_rw = 2 * x.numel() * bytes_per_el_bf16
+        bps = bytes_rw / (time_us / 1e6)
+
+    elif mode == "dim0":
         scale_dim0_reference_c = torch.compile(scale_dim0_reference)
         y_d0, s_d0 = scale_dim0_reference_c(x, BLOCK_SIZE)
 
@@ -448,6 +475,128 @@ def run(
         bytes_w = (y_d1.numel() + s_d1.numel()) * bytes_per_el_fp8
         bps = (bytes_r + bytes_w) / (time_us / 1e6)
 
+    elif mode == "dim0_mxfp8_cutedsl_2d_floor":
+        from torchao.prototype.moe_training.kernels.mxfp8 import (
+            mxfp8_quantize_2d_1x32_cutedsl,
+        )
+
+        y_d0, s_d0 = mxfp8_quantize_2d_1x32_cutedsl(
+            x, block_size=BLOCK_SIZE, scaling_mode="floor"
+        )
+
+        for _ in range(2):
+            __ = mxfp8_quantize_2d_1x32_cutedsl(
+                x, block_size=BLOCK_SIZE, scaling_mode="floor"
+            )
+
+        time_us = benchmark_cuda_function_in_microseconds(
+            lambda x: mxfp8_quantize_2d_1x32_cutedsl(
+                x, block_size=BLOCK_SIZE, scaling_mode="floor"
+            ),
+            x,
+        )
+
+        assert y_d0.dtype == torch.float8_e4m3fn
+        assert s_d0.dtype == torch.float8_e8m0fnu
+
+        bytes_r = x.numel() * bytes_per_el_bf16
+        bytes_w = (y_d0.numel() + s_d0.numel()) * bytes_per_el_fp8
+        bps = (bytes_r + bytes_w) / (time_us / 1e6)
+
+    elif mode == "dim0_mxfp8_cutedsl_2d_rceil":
+        from torchao.prototype.moe_training.kernels.mxfp8 import (
+            mxfp8_quantize_2d_1x32_cutedsl,
+        )
+
+        y_d0, s_d0 = mxfp8_quantize_2d_1x32_cutedsl(
+            x, block_size=BLOCK_SIZE, scaling_mode="rceil"
+        )
+
+        for _ in range(2):
+            __ = mxfp8_quantize_2d_1x32_cutedsl(
+                x, block_size=BLOCK_SIZE, scaling_mode="rceil"
+            )
+
+        time_us = benchmark_cuda_function_in_microseconds(
+            lambda x: mxfp8_quantize_2d_1x32_cutedsl(
+                x, block_size=BLOCK_SIZE, scaling_mode="rceil"
+            ),
+            x,
+        )
+
+        assert y_d0.dtype == torch.float8_e4m3fn
+        assert s_d0.dtype == torch.float8_e8m0fnu
+
+        bytes_r = x.numel() * bytes_per_el_bf16
+        bytes_w = (y_d0.numel() + s_d0.numel()) * bytes_per_el_fp8
+        bps = (bytes_r + bytes_w) / (time_us / 1e6)
+    elif mode == "dim1_mxfp8_cutedsl_2d_floor":
+        from torchao.prototype.moe_training.kernels.mxfp8 import (
+            mxfp8_quantize_2d_32x1_cutedsl,
+        )
+
+        y_d0, s_d0 = mxfp8_quantize_2d_32x1_cutedsl(
+            x, block_size=BLOCK_SIZE, scaling_mode="floor", blocked_scale_output=True
+        )
+
+        for _ in range(2):
+            __ = mxfp8_quantize_2d_32x1_cutedsl(
+                x,
+                block_size=BLOCK_SIZE,
+                scaling_mode="floor",
+                blocked_scale_output=True,
+            )
+
+        time_us = benchmark_cuda_function_in_microseconds(
+            lambda x: mxfp8_quantize_2d_32x1_cutedsl(
+                x,
+                block_size=BLOCK_SIZE,
+                scaling_mode="floor",
+                blocked_scale_output=True,
+            ),
+            x,
+        )
+
+        assert y_d0.dtype == torch.float8_e4m3fn
+        assert s_d0.dtype == torch.float8_e8m0fnu
+
+        bytes_r = x.numel() * bytes_per_el_bf16
+        bytes_w = (y_d0.numel() + s_d0.numel()) * bytes_per_el_fp8
+        bps = (bytes_r + bytes_w) / (time_us / 1e6)
+
+    elif mode == "dim1_mxfp8_cutedsl_2d_rceil":
+        from torchao.prototype.moe_training.kernels.mxfp8 import (
+            mxfp8_quantize_2d_32x1_cutedsl,
+        )
+
+        y_d0, s_d0 = mxfp8_quantize_2d_32x1_cutedsl(
+            x, block_size=BLOCK_SIZE, scaling_mode="rceil", blocked_scale_output=True
+        )
+
+        for _ in range(2):
+            __ = mxfp8_quantize_2d_32x1_cutedsl(
+                x,
+                block_size=BLOCK_SIZE,
+                scaling_mode="rceil",
+                blocked_scale_output=True,
+            )
+
+        time_us = benchmark_cuda_function_in_microseconds(
+            lambda x: mxfp8_quantize_2d_32x1_cutedsl(
+                x,
+                block_size=BLOCK_SIZE,
+                scaling_mode="rceil",
+                blocked_scale_output=True,
+            ),
+            x,
+        )
+
+        assert y_d0.dtype == torch.float8_e4m3fn
+        assert s_d0.dtype == torch.float8_e8m0fnu
+
+        bytes_r = x.numel() * bytes_per_el_bf16
+        bytes_w = (y_d0.numel() + s_d0.numel()) * bytes_per_el_fp8
+        bps = (bytes_r + bytes_w) / (time_us / 1e6)
     else:
         raise AssertionError(f"unknown mode {mode}")
 

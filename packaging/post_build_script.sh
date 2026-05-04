@@ -7,28 +7,44 @@
 
 set -eux
 
-# Prepare manywheel, only for CUDA.
-# The wheel is a pure python wheel for other platforms.
-if [[ "$CU_VERSION" == cu* ]]; then
-    WHEEL_NAME=$(ls dist/)
+# Prepare manywheel for non-pure wheels that require repair:
+# - CUDA builds on x86_64 (existing behavior)
+# - all aarch64 builds (new nightly wheels are non-pure)
+WHEELS=(dist/*.whl)
+if [[ ${#WHEELS[@]} -gt 0 ]]; then
+    ARCH="$(uname -m)"
+    if [[ ${CU_VERSION:-} == cu* || $ARCH == "aarch64" ]]; then
+        case "${ARCH}" in
+            x86_64) manylinux_plat=manylinux_2_28_x86_64 ;;
+            aarch64) manylinux_plat=manylinux_2_28_aarch64 ;;
+            *) echo "Unsupported arch for auditwheel: ${ARCH}"; exit 1 ;;
+        esac
 
-    pushd dist
-    manylinux_plat=manylinux_2_28_x86_64
-    auditwheel repair --plat "$manylinux_plat" -w . \
-    --exclude libtorch.so \
-    --exclude libtorch_python.so \
-    --exclude libtorch_cuda.so \
-    --exclude libtorch_cpu.so \
-    --exclude libc10.so \
-    --exclude libc10_cuda.so \
-    --exclude libcuda.so.* \
-    --exclude libcudart.so.* \
-    "${WHEEL_NAME}"
+        for WHEEL_PATH in "${WHEELS[@]}"; do
+            WHEEL_NAME=$(basename "${WHEEL_PATH}")
+            if [[ "${WHEEL_NAME}" == *"none-any.whl" ]]; then
+                echo "Skipping pure Python wheel: ${WHEEL_NAME}"
+                continue
+            fi
 
-    ls -lah .
-    # Clean up the linux_x86_64 wheel
-    rm "${WHEEL_NAME}"
-    popd
+            pushd dist
+            auditwheel repair --plat "$manylinux_plat" -w . \
+            --exclude libtorch.so \
+            --exclude libtorch_python.so \
+            --exclude libtorch_cuda.so \
+            --exclude libtorch_cpu.so \
+            --exclude libc10.so \
+            --exclude libc10_cuda.so \
+            --exclude libcuda.so.* \
+            --exclude libcudart.so.* \
+            "${WHEEL_NAME}"
+
+            ls -lah .
+            # Clean up the original linux_* wheel after repair.
+            rm "${WHEEL_NAME}"
+            popd
+        done
+    fi
 fi
 
 MANYWHEEL_NAME=$(ls dist/)

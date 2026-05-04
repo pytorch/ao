@@ -13,6 +13,7 @@ from torch import Tensor
 class Grouper(ABC):
     def __init__(self, p: Tensor, in_dims: Optional[Union[int, tuple]] = None) -> None:
         self.p = p
+        self._param = p
         self.orig_shape = p.shape
         self.in_dims = in_dims
 
@@ -20,7 +21,7 @@ class Grouper(ABC):
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
-        self.p.data = self.p.data.view(self.orig_shape)
+        self.p = self._param
 
     def group_size(self):
         return self.p.numel() // self.p.size(self.in_dims)

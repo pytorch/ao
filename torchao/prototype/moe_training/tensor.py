@@ -21,6 +21,7 @@ from torchao.prototype.moe_training.config import (
 )
 from torchao.prototype.moe_training.utils import (
     _quantize_then_scaled_grouped_mm,
+    _to_fp8_then_scaled_mm,
     unwrap_weight,
 )
 from torchao.prototype.mx_formats.mx_linear import _to_mxfp8_then_scaled_mm
@@ -43,6 +44,8 @@ _ops_to_preserve_subclass = {
     torch.ops.aten.clone.default,
     torch.ops.aten.transpose.int,
     torch.ops.aten.t.default,
+    # required for TP - scatter_ is used to distribute weights
+    torch.ops.c10d.scatter_.default,
 }
 
 
@@ -248,7 +251,19 @@ class Float8TrainingWeightWrapperTensor(TrainingWeightWrapperBaseTensor):
                     config=config,
                 )
 
-        # TOOD: linear op override
+        # linear op override
+        elif func.__name__ in ("linear", "mm", "matmul", "addmm"):
+            A, B = args[0], args[1]
+            assert not isinstance(A, cls), f"A should not be a {cls.__name__}"
+            assert isinstance(B, cls), f"B should be a {cls.__name__}"
+            config = B.config
+            result = _to_fp8_then_scaled_mm(A, unwrap_weight(B), config)
+            # Handle bias for F.linear(input, weight, bias) calls
+            bias = args[2] if len(args) > 2 else kwargs.get("bias", None)
+            if bias is not None:
+                result = result + bias.to(result.dtype)
+            return result
+
         else:
             # Disable torch_function by hand because we don't want
             # the wrapping behavior of the super() impl, go directly to dispatch
@@ -288,7 +303,7 @@ class MXFP8TrainingWeightWrapperTensor(TrainingWeightWrapperBaseTensor):
             if A_is_2d and B_is_2d_or_3d and offs is not None:
                 return _quantize_then_scaled_grouped_mm(
                     A,
-                    B,
+                    unwrap_weight(B),
                     offs=offs,
                     config=config,
                 )
@@ -296,8 +311,8 @@ class MXFP8TrainingWeightWrapperTensor(TrainingWeightWrapperBaseTensor):
         # linear op override
         elif func.__name__ in ("linear", "mm", "matmul", "addmm"):
             A, B = args[0], args[1]
-            assert not isinstance(A, cls), f"A should not be a {cls.__name__}"
 
+            assert not isinstance(A, cls), f"A should not be a {cls.__name__}"
             assert isinstance(B, cls), f"B should be a {cls.__name__}"
 
             config = B.config
@@ -307,7 +322,7 @@ class MXFP8TrainingWeightWrapperTensor(TrainingWeightWrapperBaseTensor):
 
             return _to_mxfp8_then_scaled_mm(
                 A,
-                B,
+                unwrap_weight(B),
                 kernel_preference=config.kernel_preference,
                 scale_calculation_mode=config.scale_calculation_mode,
                 wgrad_with_hp=config.wgrad_with_hp,

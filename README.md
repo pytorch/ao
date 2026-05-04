@@ -110,6 +110,17 @@ pip install torchao
 
 Please see the [torchao compability table](https://github.com/pytorch/ao/issues/2919) for version requirements for dependencies.
 
+### Optional Dependencies
+
+[MSLK](https://github.com/pytorch/MSLK) is an optional runtime dependency that provides accelerated kernels for some of the workflows in torchao. Stable MSLK should be used with stable torchao, and nightly MSLK with nightly torchao.
+```bash
+# Stable
+pip install mslk-cuda==1.0.0
+
+# Nightly
+pip install --pre mslk --index-url https://download.pytorch.org/whl/nightly/cu128
+```
+
 ## 🔎 Inference
 
 TorchAO delivers substantial performance gains with minimal code changes:
@@ -164,9 +175,10 @@ For diffusion models, you can quantize using Hugging Face diffusers
 import torch
 from diffusers import DiffusionPipeline, PipelineQuantizationConfig, TorchAoConfig
 from torchao.quantization import Int8WeightOnlyConfig
+from torchao.quantization.granularity import PerGroup
 
 pipeline_quant_config = PipelineQuantizationConfig(
-    quant_mapping={"transformer": TorchAoConfig(Int8WeightOnlyConfig(group_size=128))}
+    quant_mapping={"transformer": TorchAoConfig(Int8WeightOnlyConfig(granularity=PerGroup(128)))}
 )
 pipeline = DiffusionPipeline.from_pretrained(
     "black-forest-labs/FLUX.1-dev",
@@ -263,7 +275,7 @@ optim.load_state_dict(ckpt["optim"])
 
 [FSDP2](https://github.com/pytorch/torchtitan/blob/main/docs/fsdp.md): Historically most quantization has been done for inference, there is now a thriving area of research combining distributed algorithms and quantization.
 
-The best example we have combining the composability of lower bit dtype with compile and fsdp is [NF4](torchao/dtypes/nf4tensor.py) which we used to implement the [QLoRA](https://www.youtube.com/watch?v=UvRl4ansfCg) algorithm. So if you're doing research at the intersection of this area we'd love to hear from you.
+The best example we have combining the composability of lower bit dtype with compile and fsdp is [NF4](torchao/quantization/quantize_/workflows/nf4/nf4_tensor.py) which we used to implement the [QLoRA](https://www.youtube.com/watch?v=UvRl4ansfCg) algorithm. So if you're doing research at the intersection of this area we'd love to hear from you.
 
 Our framework makes it straightforward to add tensor parallel support to your custom quantized tensor subclass. Check out our [tensor parallel tutorial](tutorials/developer_api_guide/tensor_parallel.py) to see how a quantized tensor subclass can be extended to support column and row-wise tensor sharding while maintaining compatibility with `torch.compile`.
 
@@ -298,14 +310,14 @@ TorchAO is integrated into some of the leading open-source libraries including:
 
 If you find the torchao library useful, please cite it in your work as below.
 
-<!-- TODO: update to cite CodeML paper after Jul 2025 -->
 ```bibtex
-@software{torchao,
+@misc{or2025torchao,
   title={TorchAO: PyTorch-Native Training-to-Serving Model Optimization},
-  author={torchao},
-  url={https://github.com/pytorch/ao},
-  license={BSD-3-Clause},
-  month={oct},
-  year={2024}
+  author={Andrew Or and Apurva Jain and Daniel Vega-Myhre and Jesse Cai and Charles David Hernandez and Zhenrui Zheng and Driss Guessous and Vasiliy Kuznetsov and Christian Puhrsch and Mark Saroufim and Supriya Rao and Thien Tran and Aleksandar Samardžić},
+  year={2025},
+  eprint={2507.16099},
+  archivePrefix={arXiv},
+  primaryClass={cs.LG},
+  url={https://arxiv.org/abs/2507.16099},
 }
 ```

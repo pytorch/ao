@@ -22,26 +22,59 @@ import lpips
 import numpy as np
 import torch
 import torch._dynamo
+from bench_utils import _set_sdpa_backend
 from datasets import load_dataset
 from diffusers import FluxPipeline
 from PIL import Image
 from torch.nn.attention import (
+    SDPBackend,
     activate_flash_attention_impl,
     restore_flash_attention_impl,
 )
 
 from torchao.prototype.attention import (
     AttentionBackend,
+    HadamardMode,
     apply_low_precision_attention,
 )
 
 BACKENDS = {
-    "fa2": {"flash_impl": None, "fp8": False},
-    "fa3": {"flash_impl": "FA3", "fp8": False},
+    "fa2": {
+        "flash_impl": None,
+        "fp8": False,
+        "sdpa_backend": SDPBackend.FLASH_ATTENTION,
+    },
+    "fa3": {
+        "flash_impl": "FA3",
+        "fp8": False,
+        "sdpa_backend": SDPBackend.FLASH_ATTENTION,
+    },
     "fa3_fp8": {
         "flash_impl": "FA3",
         "fp8": True,
         "fp8_backend": AttentionBackend.FP8_FA3,
+    },
+    "fa3_fp8_hadamard": {
+        "flash_impl": "FA3",
+        "fp8": True,
+        "fp8_backend": AttentionBackend.FP8_FA3,
+        "hadamard": HadamardMode.QKV,
+    },
+    "fa3_fp8_hadamard_v": {
+        "flash_impl": "FA3",
+        "fp8": True,
+        "fp8_backend": AttentionBackend.FP8_FA3,
+        "hadamard": HadamardMode.V_ONLY,
+    },
+    "fa4": {
+        "flash_impl": "FA4",
+        "fp8": False,
+        "sdpa_backend": SDPBackend.FLASH_ATTENTION,
+    },
+    "fa4_fp8": {
+        "flash_impl": "FA4",
+        "fp8": True,
+        "fp8_backend": AttentionBackend.FP8_FA4,
     },
 }
 
@@ -63,7 +96,7 @@ def setup_backend(
     compile_flag,
     orig_transformer,
 ):
-    """Set up a backend and return the flash_impl name."""
+    """Set up a backend and return (flash_impl, sdpa_backend)."""
     cfg = BACKENDS[backend_name]
     pipe.transformer = orig_transformer
 
@@ -72,16 +105,17 @@ def setup_backend(
         pipe.transformer = apply_low_precision_attention(
             pipe.transformer,
             backend=cfg["fp8_backend"],
+            hadamard=cfg.get("hadamard", HadamardMode.NONE),
         )
         if compile_flag:
             print(f"Compiling transformer with torch.compile ({backend_name})...")
             pipe.transformer = torch.compile(pipe.transformer)
-        return cfg["flash_impl"]
+        return cfg["flash_impl"], None
     else:
         if compile_flag:
             print(f"Compiling transformer with torch.compile ({backend_name})...")
             pipe.transformer = torch.compile(pipe.transformer)
-        return cfg["flash_impl"]
+        return cfg["flash_impl"], cfg.get("sdpa_backend")
 
 
 def pil_to_lpips_tensor(img: Image.Image, device: str) -> torch.Tensor:
@@ -110,6 +144,7 @@ def generate_image(
     height: int = 2048,
     width: int = 2048,
     flash_impl: Optional[str] = None,
+    sdpa_backend: Optional[SDPBackend] = None,
 ) -> Image.Image:
     """Generate an image from a prompt with deterministic seed."""
     generator = torch.Generator(device=device).manual_seed(seed)
@@ -117,14 +152,15 @@ def generate_image(
     if flash_impl:
         activate_flash_attention_impl(flash_impl)
     try:
-        image = pipe(
-            prompt=prompt,
-            num_inference_steps=num_inference_steps,
-            guidance_scale=3.5,
-            height=height,
-            width=width,
-            generator=generator,
-        ).images[0]
+        with _set_sdpa_backend(sdpa_backend):
+            image = pipe(
+                prompt=prompt,
+                num_inference_steps=num_inference_steps,
+                guidance_scale=3.5,
+                height=height,
+                width=width,
+                generator=generator,
+            ).images[0]
     finally:
         if flash_impl:
             restore_flash_attention_impl()
@@ -197,7 +233,7 @@ def run_benchmark(
     print(f"Phase 1: Generating images ({baseline_backend})")
     print("-" * 80)
 
-    baseline_flash_impl = setup_backend(
+    baseline_flash_impl, baseline_sdpa = setup_backend(
         pipe,
         baseline_backend,
         compile,
@@ -216,6 +252,7 @@ def run_benchmark(
             height=height,
             width=width,
             flash_impl=baseline_flash_impl,
+            sdpa_backend=baseline_sdpa,
         )
         print(f"  Warmup {i + 1}/{warmup_iters} complete")
 
@@ -237,6 +274,7 @@ def run_benchmark(
             height=height,
             width=width,
             flash_impl=baseline_flash_impl,
+            sdpa_backend=baseline_sdpa,
         )
         end_event.record()
         torch.cuda.synchronize()
@@ -260,7 +298,7 @@ def run_benchmark(
     print(f"Phase 2: Generating images ({test_backend})")
     print("-" * 80)
 
-    test_flash_impl = setup_backend(
+    test_flash_impl, test_sdpa = setup_backend(
         pipe,
         test_backend,
         compile,
@@ -278,6 +316,7 @@ def run_benchmark(
             height=height,
             width=width,
             flash_impl=test_flash_impl,
+            sdpa_backend=test_sdpa,
         )
         print(f"  Warmup {i + 1}/{warmup_iters} complete")
 
@@ -300,6 +339,7 @@ def run_benchmark(
             height=height,
             width=width,
             flash_impl=test_flash_impl,
+            sdpa_backend=test_sdpa,
         )
         end_event.record()
         torch.cuda.synchronize()

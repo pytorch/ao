@@ -19,20 +19,17 @@ namespace {
 #define PER_ROW 2
 #define PER_GROUP 3
 
-static bool cpublas_checked = false;
+static std::once_flag cpublas_flag;
 static bool cpublas_can_pack = false;
 
-bool cpublas_could_pack() {
-  // the could_pack check requires AMX support implicitly
-  if (cpublas_checked) {
-    return cpublas_can_pack;
-  }
+static inline bool cpublas_could_pack() {
+  std::call_once(cpublas_flag, []() {
 #ifdef CPUBLAS_BRGEMM_F8F8F32
-  cpublas_can_pack = at::native::cpublas::could_pack(at::kFloat8_e4m3fn);
+    cpublas_can_pack = at::native::cpublas::could_pack(at::kFloat8_e4m3fn);
 #else
-  cpublas_can_pack = at::native::cpublas::could_pack(at::kBFloat16);
+    cpublas_can_pack = at::native::cpublas::could_pack(at::kBFloat16);
 #endif
-  cpublas_checked = true;
+  });
   return cpublas_can_pack;
 }
 
@@ -124,58 +121,33 @@ float8_linear_prepack_impl(
 }
 
 #if defined(CPU_CAPABILITY_AVX512)
-// this doesn't handle NaN.
-inline __m512bh cvt_e4m3_bf16_intrinsic_no_nan(__m256i fp8_vec) {
-  const __m512i x = _mm512_cvtepu8_epi16(fp8_vec);
-
-  const __m512i mant = _mm512_slli_epi16(_mm512_and_si512(x, _mm512_set1_epi16(0x07)), 4);
-  const __m512i raw_exp = _mm512_srli_epi16(_mm512_and_si512(x, _mm512_set1_epi16(0x78)), 3);
-  const __m512i exp = _mm512_slli_epi16(_mm512_add_epi16(raw_exp, _mm512_set1_epi16(120)), 7);
-  const __m512i nonsign = _mm512_or_si512(exp, mant);
-
-  const __m512i sign = _mm512_slli_epi16(_mm512_and_si512(x, _mm512_set1_epi16(0x80)), 8);
-  const __m512i combined = _mm512_or_si512(nonsign, sign);
-
-  const __mmask32 is_nonzero = _mm512_cmpneq_epi16_mask(x, _mm512_setzero_si512());
-  return (__m512bh)_mm512_maskz_mov_epi16(is_nonzero, combined);
-}
-
 static void cvt_f8e4m3_to_bf16(
-    const at::Float8_e4m3fn* __restrict__ in,
-    at::BFloat16* out,
-    int64_t rows,
-    int64_t cols,
-    int64_t stride) {
-  if (stride == cols) {
-    // A contiguous buffer
-    size_t len = rows * cols;
-    size_t i = 0;
-    for (; i < len; i += 32) {
-      __m256i fp8_vec = _mm256_loadu_si256((__m256i*)&in[i]);
-      __m512bh bf16_vec = cvt_e4m3_bf16_intrinsic_no_nan(fp8_vec);
-      _mm512_storeu_si512((__m512i*)(out + i), (__m512i)bf16_vec);
-    }
-    for (; i < len; ++i) {
-      out[i] = (at::BFloat16)in[i];
-    }
-  } else {
-    // Non-contiguous. Access each row with stride
-    TORCH_CHECK(stride > cols);
-    for (int r = 0; r < rows; ++r) {
-      size_t i = 0;
-      size_t vec_len = cols / 32 * 32;
-      for (; i < vec_len; i += 32) {
-        __m256i fp8_vec = _mm256_loadu_si256((__m256i*)&in[r * stride + i]);
-        __m512bh bf16_vec = cvt_e4m3_bf16_intrinsic_no_nan(fp8_vec);
-        _mm512_storeu_si512((__m512i*)(out + r * cols + i), (__m512i)bf16_vec);
-      }
-      for (; i < cols; ++i) {
-        out[r * cols + i] = (at::BFloat16)in[r * stride + i];
-      }
-    }
+  const at::Float8_e4m3fn* __restrict__ in,
+  at::BFloat16* out,
+  int64_t rows,
+  int64_t cols,
+  int64_t stride) {
+  constexpr int64_t vec_len = 32; // 256 bit = 32 fp8 values
+  __m512 fp32_vec_0, fp32_vec_1;
+  for (int r = 0; r < rows; ++r) {
+  size_t i = 0;
+  size_t vec_len_aligned = cols / vec_len * vec_len;
+  for (; i < vec_len_aligned; i += vec_len) {
+    __m256i fp8_vec = _mm256_loadu_si256((__m256i*)&in[r * stride + i]);
+    // Convert fp8 to fp32
+    at::vec::CPU_CAPABILITY::cvtfp8e4m3_fp32(_mm256_castsi256_si128(fp8_vec), fp32_vec_0);
+    at::vec::CPU_CAPABILITY::cvtfp8e4m3_fp32(_mm256_extracti128_si256(fp8_vec, 1), fp32_vec_1);
+    // Convert to bf16 and store
+    __m256i bf16_vec_0 = at::vec::cvtfp32_bf16(fp32_vec_0);
+    __m256i bf16_vec_1 = at::vec::cvtfp32_bf16(fp32_vec_1);
+    __m512i bf16_vec = _mm512_inserti32x8(_mm512_castsi256_si512(bf16_vec_0), bf16_vec_1, 1);
+    _mm512_storeu_si512((__m512i*)(out + r * cols + i), bf16_vec);
+  }
+  for (; i < cols; ++i) {
+    out[r * cols + i] = (at::BFloat16)in[r * stride + i];
+  }
   }
 }
-
 
 // accumulate and store result to buffer
 // if act/wei are per_group quantized, apply scales
@@ -294,7 +266,8 @@ inline void store_out(
       if constexpr (wei_quant_mode == PER_ROW) {
         b_scale = scales_b[j];
       }
-      c_ptr[i * lda + j] = static_cast<out_dtype>(y_buf[i * N + j] * a_scale * b_scale);
+      float bias_val = bias ? bias[j] : 0.0f;
+      c_ptr[i * lda + j] = static_cast<out_dtype>(y_buf[i * N + j] * a_scale * b_scale + bias_val);
     }
   } // for M
 }
@@ -341,7 +314,8 @@ inline void store_out(
       if constexpr (wei_quant_mode == PER_ROW) {
         b_scale = scales_b[j];
       }
-      c_ptr[i * lda + j] = static_cast<out_dtype>(y_buf[i * N + j] * a_scale * b_scale);
+      float bias_val = bias ? bias[j] : 0.0f;
+      c_ptr[i * lda + j] = static_cast<out_dtype>(y_buf[i * N + j] * a_scale * b_scale + bias_val);
     }
   } // for M
 }
@@ -515,7 +489,7 @@ void _float8_linear_impl(
 
       for (int mci = mc; mci < mc_end; ++mci) {
         int64_t m_size = mci * block_m + block_m > M ? M - mci * block_m : block_m;
-        zero_buffer(y_buf, m_size * block_n);
+        memset(y_buf, 0, sizeof(float) * m_size * block_n);
         for (int kci = 0; kci < Kc; ++kci) {
           auto scales_a = a_scales_ptr + mci * block_m * num_groups + kci / block_per_group;
           auto scales_b = b_scales_ptr + nc * block_n * num_groups + kci / block_per_group * block_n;

@@ -5,9 +5,8 @@
 # LICENSE file in the root directory of this source tree.
 
 from abc import ABC, abstractmethod
-from typing import Union
+from typing import Tuple, Union
 
-import torch
 from torch import Tensor
 
 
@@ -17,21 +16,38 @@ class ProxMap(ABC):
     def __init__(self, reg_lambda: float) -> None:
         self.reg_lambda = reg_lambda
 
-    @staticmethod
     @abstractmethod
-    def tau(p: Tensor) -> float:
+    def _get_norm(self, p: Tensor) -> Tensor:
+        """Return group-level norm of p"""
+
+    @abstractmethod
+    def tau(self, p: Tensor) -> Union[float, Tensor]:
         """Return group-level regularization strength"""
 
-    def threshold(self, p: Tensor, gamma: Union[Tensor, float]) -> Union[Tensor, float]:
+    def threshold(
+        self,
+        p: Tensor,
+        gamma: Union[Tensor, float],
+        tau_reweight: Union[Tensor, float] = 1.0,
+    ) -> Union[Tensor, float]:
         """Return pruning threshold"""
-        return self.reg_lambda * self.tau(p) * gamma
+        return self.reg_lambda * self.tau(p) * tau_reweight * gamma
 
-    def apply_(self, p: Tensor, gamma: Union[Tensor, float]) -> Tensor:
-        """Provide interface for pruning (modify p in-place):
-            pruner.apply_(p, q, step_count)
-        Inputs:
-            p (Tensor): full or group-level tensor to be pruned
-            gamma (float): typically the cumulative sum over step sizes
+    @abstractmethod
+    def apply_(
+        self,
+        p: Tensor,
+        gamma: Union[Tensor, float],
+        tau_reweight: Union[Tensor, float] = 1.0,
+    ) -> Tuple[Tensor, Tensor]:
+        """Apply proximal mapping to p in-place and return number of zero
+        elements and group-level norm of p.
+
+        Arguments:
+            p (Tensor): full or group-level tensor to be pruned.
+            gamma (float): typically the cumulative sum over step sizes.
+
+        Returns:
+            zero_elts (Tensor): number of zero elements in p after pruning.
+            norm (Tensor): norm of p after pruning divided by self.tau(p).
         """
-        if isinstance(gamma, float) and gamma == 0:
-            return torch.zeros(1, dtype=torch.long, device=p.device)

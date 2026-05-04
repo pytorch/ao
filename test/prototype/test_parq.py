@@ -12,7 +12,6 @@ import torch
 from torch import nn
 from torch.testing._internal import common_utils
 
-from torchao.dtypes import Int4CPULayout
 from torchao.prototype.parq.optim import (
     ProxHardQuant,
     ProxPARQ,
@@ -46,7 +45,6 @@ from torchao.quantization.quant_primitives import MappingType
 from torchao.quantization.quantize_.workflows import IntxUnpackedToInt8Tensor
 from torchao.utils import (
     _is_mslk_available,
-    check_cpu_version,
     is_sm_at_least_90,
     torch_version_at_least,
 )
@@ -220,7 +218,7 @@ def compare_quantized_models(
 
         q, Q = quantizer.quantize(p, b=b, dim=-1)
 
-        # compare to AffineQuantizedTensor instance
+        # compare to quantized tensor instance
         q = q.view(original_shape)
         ref = getattr(m_ref, n).weight.dequantize()
         torch.testing.assert_close(q, ref, atol=0, rtol=0)
@@ -343,9 +341,6 @@ class TestUnifTorchaoQuantizer(common_utils.TestCase):
 
         m_ref = copy.deepcopy(model).eval().to(_DEVICE)
         config = Int4WeightOnlyConfig(group_size=group_size)
-        if check_cpu_version(_DEVICE):
-            config.layout = Int4CPULayout()
-            config.version = 1
         quantize_(m_ref, config)
 
         b = 4

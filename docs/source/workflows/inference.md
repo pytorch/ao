@@ -32,6 +32,9 @@ Below are the stable and near-stable inference workflows in torchao:
 | mxfp4 | mxfp4 | {class}`~torchao.prototype.mx_formats.MXDynamicActivationMXWeightConfig`(prototype): Applies mxfp8 or mxfp4 dynamic quantization to activations and weights. Requires NVIDIA SM100+ (Blackwell) or AMD MI350+. |
 | intx | bf16 | {class}`~torchao.quantization.IntxWeightOnlyConfig`: Applies intx (1-8 bit) weight-only quantization. Supports groupwise and per-channel. Works with Linear and Conv2D. |
 | intx | int8 | {class}`~torchao.quantization.Int8DynamicActivationIntxWeightConfig`: Applies int8 dynamic per-token activation and intx (1-8 bit) weight quantization. CPU optimized. |
+| uintx (4/8-bit) | bf16 | {class}`~torchao.prototype.quantization.UIntxWeightOnlyConfig`(prototype): Applies 4-bit (asymmetric, grouped) or 8-bit (symmetric, per-channel) weight-only quantization using gemlite (https://github.com/dropbox/gemlite) Triton kernels. Supports packing bit widths 8, 16, 32. Requires CUDA and gemlite. optimized for A100 and H100 GPUs. |
+| uintx (4/8-bit) | int8 | {class}`~torchao.prototype.quantization.Int8DynamicActivationUIntxWeightConfig`(prototype): Applies int8 dynamic activation with 4-bit or 8-bit weight quantization using gemlite (https://github.com/dropbox/gemlite) Triton kernels. Requires CUDA and gemlite. Optimized for A100 and H100 GPUs. |
+| int4 | int8 | {class}`~torchao.prototype.quantization.int4.Int8DynamicActivationInt4WeightConfig`(prototype): Applies int8 dynamic per-group activation and int4 weight per-group quantization on X86 CPU. Groupsize must be 128, 64, 32. |
 
 
 ## Accuracy benchmarks
@@ -110,7 +113,7 @@ Explanation: to see speedup from quantization of `activation -> gemm` during inf
 (bf16_activation_time + bf16_gemm_time) > (bf16_activation_and_quantize_tensor_time + fp8_gemm_time)
 ```
 
-In a perfect world (and our roofline model), 
+In a perfect world (and our roofline model),
 1. `bf16_activation_time > bf16_activation_and_quantize_tensor_time` is always true
 because `bf16_activation` reads+writes `M*K*2 bytes` and `bf16_activation_and_quantize_tensor` is a single
 fused kernel that reads+writes `M*K*1.5 bytes`.
@@ -135,15 +138,15 @@ to increase as MKN increases.
 > python benchmarks/float8/float8_inference_roofline.py --recipe_name mxfp8_cublas --enable_fusion_modeling True --skip_printing_detailed_metrics True
 ...
 GPU                     NVIDIA B200
-torch version           2.12.0.dev20260218+cu130
-torchao version         0.17.0+git3075bb624
+torch version           2.12.0.dev20260414+cu130
+torchao version         0.17.0+gitbd7717d20
 ...
    fwd_M  fwd_K  fwd_N  r_fp8_gemm_and_ovhd_spdp  b_fp8_e2e_spdp
-0   1024   1024   1024                      1.00            0.93
-1   2048   2048   2048                      1.75            1.20
-2   4096   4096   4096                      1.90            1.46
+0   1024   1024   1024                      1.00            0.96
+1   2048   2048   2048                      1.76            1.22
+2   4096   4096   4096                      1.89            1.50
 3   8192   8192   8192                      1.94            1.76
-4  16384  16384  16384                      1.97            1.77
+4  16384  16384  16384                      1.97            1.81
 
 #
 # nvfp4 with dynamic global scaling
@@ -151,15 +154,15 @@ torchao version         0.17.0+git3075bb624
 > python benchmarks/float8/float8_inference_roofline.py --recipe_name nvfp4 --enable_fusion_modeling True --skip_printing_detailed_metrics True
 ...
 GPU                     NVIDIA B200
-torch version           2.12.0.dev20260218+cu130
-torchao version         0.17.0+git3075bb624
+torch version           2.12.0.dev20260312+cu130
+torchao version         0.17.0+gitbd7717d20
 ...
    fwd_M  fwd_K  fwd_N  r_fp8_gemm_and_ovhd_spdp  b_fp8_e2e_spdp
-0   1024   1024   1024                      1.00            0.28
-1   2048   2048   2048                      2.36            0.52
-2   4096   4096   4096                      2.89            0.90
-3   8192   8192   8192                      3.32            1.41
-4  16384  16384  16384                      3.62            2.14
+0   1024   1024   1024                      1.00            0.46
+1   2048   2048   2048                      2.36            0.76
+2   4096   4096   4096                      2.89            1.37
+3   8192   8192   8192                      3.32            1.97
+4  16384  16384  16384                      3.62            2.77
 
 #
 # nvfp4 with static global scaling (user API in progress)
@@ -167,15 +170,44 @@ torchao version         0.17.0+git3075bb624
 > python benchmarks/float8/float8_inference_roofline.py --recipe_name nvfp4_static --enable_fusion_modeling True --skip_printing_detailed_metrics True
 ...
 GPU                     NVIDIA B200
-torch version           2.12.0.dev20260218+cu130
-torchao version         0.17.0+git3075bb624
+torch version           2.12.0.dev20260312+cu130
+torchao version         0.17.0+gitbd7717d20
 ...
    fwd_M  fwd_K  fwd_N  r_fp8_gemm_and_ovhd_spdp  b_fp8_e2e_spdp
-0   1024   1024   1024                      1.00            0.34
-1   2048   2048   2048                      2.74            0.64
-2   4096   4096   4096                      3.42            1.06
-3   8192   8192   8192                      3.67            1.58
-4  16384  16384  16384                      3.82            2.31
+0   1024   1024   1024                      1.00            0.55
+1   2048   2048   2048                      2.74            0.95
+2   4096   4096   4096                      3.42            1.69
+3   8192   8192   8192                      3.67            2.29
+4  16384  16384  16384                      3.82            2.98
+
+```
+
+## e2e flux-1.schnell benchmarks
+
+These benchmarks compare accuracy and performance of torchao inference quantization on the
+[flux-1.schnell](https://huggingface.co/black-forest-labs/FLUX.1-schnell) model.
+
+For accuracy, we measure the [LPIPS](https://github.com/richzhang/PerceptualSimilarity) score
+between images generated by the quantized model and the high precision (bfloat16) baseline,
+averaged over the prompts from the [sayakpaul/drawbench](https://huggingface.co/datasets/sayakpaul/drawbench) dataset —
+lower is better, with 0 meaning identical.
+
+Note that this benchmark optimizes for speed of iteration and does not represent
+the best possible metrics someone could achieve on this model. Instead, this is an
+apples-to-apples comparison intended to compare different quantization recipes at a
+high level, and measure performance improvements.
+
+| experiment | lpips_avg | time_s_bsz_1 | speedup_bsz_1 | time_s_bsz_4 | speedup_bsz_4 |
+| ---------- | --------- | ------------- | -------------- | ------------- | -------------- |
+| bfloat16 | 0 | 0.4178 | 1.00 | 1.4914 | 1.00 |
+| float8_rowwise | 0.1236| 0.3455 | 1.21 | 1.1986 | 1.24 |
+| mxfp8 | 0.1260 | 0.3673 | 1.14 | 1.2820 | 1.16 |
+| nvfp4 | 0.2694 | 0.3203 | 1.30 | 1.0913 | 1.37 |
+
+To reproduce, run:
+
+```bash
+./benchmarks/quantization/eval_accuracy_and_perf_of_flux.sh
 ```
 
 ## Other Available Quantization Techniques

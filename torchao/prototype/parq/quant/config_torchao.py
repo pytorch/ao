@@ -1,3 +1,9 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+# All rights reserved.
+#
+# This source code is licensed under the BSD 3-Clause license found in the
+# LICENSE file in the root directory of this source tree.
+
 import types
 from dataclasses import dataclass
 from typing import Callable, Optional
@@ -6,7 +12,6 @@ import torch
 from torch import nn
 
 from torchao.core.config import AOBaseConfig
-from torchao.dtypes import Int4CPULayout, Layout, QDQLayout
 from torchao.quantization import MappingType, PerAxis, PerGroup
 from torchao.quantization.quant_api import (
     Granularity,
@@ -18,7 +23,6 @@ from torchao.quantization.quant_api import (
 )
 from torchao.quantization.quantize_.workflows import IntxUnpackedToInt8Tensor
 from torchao.quantization.transform_module import register_quantize_module_handler
-from torchao.utils import check_cpu_version
 
 from .quant_api import choose_qparams_stretched_affine, quantize_stretched_affine
 from .uniform_torchao import (
@@ -39,7 +43,6 @@ except ImportError:
 class StretchedIntxWeightConfig(AOBaseConfig):
     granularity: Granularity = PerAxis(0)
     scale_dtype: Optional[torch.dtype] = None
-    layout: Layout = QDQLayout()
     version: int = 2
     b: Optional[int] = None
     quant_min: Optional[int] = None
@@ -124,9 +127,6 @@ def _get_config_from_quantizer(
             group_size=block_size,
             version=version,
         )
-        if check_cpu_version(device):
-            config.layout = Int4CPULayout()
-            config.version = 1
     elif isinstance(quantizer, StretchedUnifTorchaoQuantizer):
         config = StretchedIntxWeightConfig(
             b=b,

@@ -30,12 +30,22 @@ from torchao.prototype.attention.fp8_fa3.attention import fp8_fa3_sdpa
 from torchao.prototype.attention.fp8_fa4.attention import fp8_fa4_sdpa
 from torchao.quantization.utils import compute_error as compute_sqnr
 
-BACKENDS = ["fa2", "fa3", "fa3_fp8", "fa4", "fa4_fp8"]
+BACKENDS = [
+    "fa2",
+    "fa3",
+    "fa3_fp8",
+    "fa3_fp8_hadamard",
+    "fa3_fp8_hadamard_v",
+    "fa4",
+    "fa4_fp8",
+]
 
 BACKEND_LABELS = {
     "fa2": "FA2 BF16",
     "fa3": "FA3 BF16",
     "fa3_fp8": "FA3 FP8",
+    "fa3_fp8_hadamard": "FA3 FP8 Hadamard",
+    "fa3_fp8_hadamard_v": "FA3 FP8 Hadamard V",
     "fa4": "FA4 BF16",
     "fa4_fp8": "FA4 FP8",
 }
@@ -44,7 +54,7 @@ BACKEND_LABELS = {
 @contextmanager
 def _activate_backend(backend: str):
     """Context manager that activates the appropriate flash attention impl."""
-    if backend in ("fa3", "fa3_fp8"):
+    if "fa3" in backend:
         activate_flash_attention_impl("FA3")
     elif backend in ("fa4", "fa4_fp8"):
         activate_flash_attention_impl("FA4")
@@ -54,19 +64,33 @@ def _activate_backend(backend: str):
     try:
         yield
     finally:
-        if backend in ("fa3", "fa3_fp8", "fa4", "fa4_fp8"):
+        if "fa3" in backend or "fa4" in backend:
             restore_flash_attention_impl()
+
+
+_HADAMARD_MODE = {
+    "fa3_fp8": "NONE",
+    "fa3_fp8_hadamard": "QKV",
+    "fa3_fp8_hadamard_v": "V_ONLY",
+}
+
+_SDPA_BACKEND = {
+    "fa2": SDPBackend.FLASH_ATTENTION,
+    "fa3": SDPBackend.FLASH_ATTENTION,
+    "fa4": SDPBackend.FLASH_ATTENTION,
+}
 
 
 def _run_attention(backend: str, q, k, v, is_causal: bool):
     """Run a single attention call for the given backend."""
-    if backend == "fa3_fp8":
-        return fp8_fa3_sdpa(q, k, v, is_causal=is_causal)
-    elif backend == "fa4_fp8":
+    if backend in _HADAMARD_MODE:
+        return fp8_fa3_sdpa(
+            q, k, v, is_causal=is_causal, hadamard=_HADAMARD_MODE[backend]
+        )
+    if backend == "fa4_fp8":
         return fp8_fa4_sdpa(q, k, v, is_causal=is_causal)
-    else:
-        with sdpa_kernel(SDPBackend.FLASH_ATTENTION):
-            return F.scaled_dot_product_attention(q, k, v, is_causal=is_causal)
+    with sdpa_kernel(_SDPA_BACKEND[backend]):
+        return F.scaled_dot_product_attention(q, k, v, is_causal=is_causal)
 
 
 def benchmark_fn(fn, num_warmup, num_iters):
