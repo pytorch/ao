@@ -3,6 +3,9 @@
 #
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
+
+# TODO: migrate off Layout, see https://github.com/pytorch/ao/pull/4245
+
 """
 Following is a example for a simple dtype implemented with tensor subclass
 it shows
@@ -12,6 +15,7 @@ it shows
     * how the tensor subclass composes with torch.compile to get speedup
 """
 
+from dataclasses import dataclass
 from typing import Optional, Tuple
 
 import torch
@@ -19,7 +23,6 @@ from torch.utils._python_dispatch import return_and_correct_aliasing
 
 from torchao.dtypes.utils import (
     Layout,
-    PlainLayout,
 )
 from torchao.quantization import (
     MappingType,
@@ -33,6 +36,13 @@ from torchao.utils import (
 )
 
 aten = torch.ops.aten
+
+
+@dataclass(frozen=True)
+class PlainLayout(Layout):
+    """Layout that stores data in plain (uncompressed) format."""
+
+    pass
 
 
 ###############################

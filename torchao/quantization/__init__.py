@@ -1,30 +1,7 @@
-import importlib
-
 from torchao.kernel import (
     int_scaled_matmul,
     safe_int_mm,
 )
-
-# Lazy imports to avoid CUDA initialization at import time
-_lazy_imports = {
-    "ALL_AUTOQUANT_CLASS_LIST": ".autoquant",
-    "DEFAULT_AUTOQUANT_CLASS_LIST": ".autoquant",
-    "DEFAULT_FLOAT_AUTOQUANT_CLASS_LIST": ".autoquant",
-    "DEFAULT_INT4_AUTOQUANT_CLASS_LIST": ".autoquant",
-    "DEFAULT_SPARSE_AUTOQUANT_CLASS_LIST": ".autoquant",
-    "GEMLITE_INT4_AUTOQUANT_CLASS_LIST": ".autoquant",
-    "OTHER_AUTOQUANT_CLASS_LIST": ".autoquant",
-    "autoquant": ".autoquant",
-}
-
-
-def __getattr__(name):
-    if name in _lazy_imports:
-        module_path = _lazy_imports[name]
-        module = importlib.import_module(module_path, __name__)
-        return getattr(module, name)
-    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
-
 
 from .granularity import (
     Granularity,
@@ -34,13 +11,6 @@ from .granularity import (
     PerRow,
     PerTensor,
     PerToken,
-)
-from .linear_activation_quantized_tensor import (
-    LinearActivationQuantizedTensor,
-    to_linear_activation_quantized,
-)
-from .linear_activation_scale import (
-    to_weight_tensor_with_linear_activation_scale_metadata,
 )
 from .linear_quant_modules import (
     Int4WeightOnlyQuantizer,
@@ -58,7 +28,6 @@ from .quant_api import (
     Float8StaticActivationFloat8WeightConfig,
     Float8WeightOnlyConfig,
     FqnToConfig,
-    GemliteUIntXWeightOnlyConfig,
     Int4WeightOnlyConfig,
     Int8DynamicActivationInt8WeightConfig,
     Int8DynamicActivationIntxWeightConfig,
@@ -66,8 +35,6 @@ from .quant_api import (
     Int8WeightOnlyConfig,
     IntxWeightOnlyConfig,
     ModuleFqnToConfig,
-    PlainLayout,
-    TensorCoreTiledLayout,
     fqn_matches_fqn_config,
     intx_quantization_aware_training,
     quantize_,
@@ -91,9 +58,10 @@ from .quantize_.workflows import (
     Int8Tensor,
     IntxOpaqueTensor,
     IntxUnpackedToInt8Tensor,
+    NF4Tensor,
+    to_nf4,
 )
 from .transform_module import register_quantize_module_handler
-from .unified import Quantizer, TwoStepQuantizer
 from .utils import (
     compute_error,
 )
@@ -102,16 +70,7 @@ from .utils import (
 AOPerModuleConfig = ModuleFqnToConfig
 
 __all__ = [
-    # top level API - auto
-    "autoquant",
-    "DEFAULT_AUTOQUANT_CLASS_LIST",
-    "DEFAULT_INT4_AUTOQUANT_CLASS_LIST",
-    "GEMLITE_INT4_AUTOQUANT_CLASS_LIST",
-    "DEFAULT_FLOAT_AUTOQUANT_CLASS_LIST",
-    "DEFAULT_SPARSE_AUTOQUANT_CLASS_LIST",
-    "OTHER_AUTOQUANT_CLASS_LIST",
-    "ALL_AUTOQUANT_CLASS_LIST",
-    # top level API - manual
+    # top level API
     "quantize_",
     "intx_quantization_aware_training",
     "fqn_matches_fqn_config",
@@ -126,7 +85,6 @@ __all__ = [
     "Float8DynamicActivationFloat8WeightConfig",
     "Float8StaticActivationFloat8WeightConfig",
     "IntxWeightOnlyConfig",
-    "GemliteUIntXWeightOnlyConfig",
     "AOPerModuleConfig",
     "FqnToConfig",
     "ModuleFqnToConfig",
@@ -139,10 +97,10 @@ __all__ = [
     "IntxUnpackedToInt8Tensor",
     "Int4TilePackedTo4dTensor",
     "Float8Tensor",
+    "NF4Tensor",
+    "to_nf4",
     "compute_error",
     # building blocks
-    "to_linear_activation_quantized",
-    "to_weight_tensor_with_linear_activation_scale_metadata",
     "AffineQuantizedMinMaxObserver",
     "AffineQuantizedObserverBase",
     # quant primitive ops
@@ -166,14 +124,8 @@ __all__ = [
     "PerGroup",
     "PerRow",
     "PerToken",
-    "LinearActivationQuantizedTensor",
     "Int4WeightOnlyQuantizer",
     "Int8DynActInt4WeightQuantizer",
     "Int8DynActInt4WeightLinear",
-    "TwoStepQuantizer",
-    "Quantizer",
-    # Layouts for quant_api
-    "PlainLayout",
-    "TensorCoreTiledLayout",
     "Float8MMConfig",
 ]

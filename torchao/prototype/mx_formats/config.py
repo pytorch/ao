@@ -30,6 +30,7 @@ class MXFP8Dim1CastKernelChoice(Enum):
     TRITON = "triton"
     CUDA = "cuda"
     TORCH = "torch"
+    CUTEDSL = "cutedsl"
 
 
 # register as pytree constant so we can use dynamo nonstrict trace in torchao.prototype.moe_training.ep

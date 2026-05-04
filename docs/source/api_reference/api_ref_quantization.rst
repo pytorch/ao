@@ -80,3 +80,24 @@ nvfp4 weight configs (prototype)
 
     NVFP4DynamicActivationNVFP4WeightConfig
     NVFP4WeightOnlyConfig
+
+.. currentmodule:: torchao.prototype.quantization
+
+uintx weight configs (prototype)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. autosummary::
+    :toctree: generated/
+    :nosignatures:
+
+    UIntxWeightOnlyConfig
+    Int8DynamicActivationUIntxWeightConfig
+
+int4 weight configs (prototype)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. autosummary::
+    :toctree: generated/
+    :nosignatures:
+
+    Int8DynamicActivationInt4WeightConfig

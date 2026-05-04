@@ -1,7 +1,7 @@
 #include <torchao/csrc/cpu/shared_kernels/linear_8bit_act_xbit_weight/op_linear_8bit_act_xbit_weight-impl.h>
 
 #define DEFINE_OP(weight_nbit)                               \
-  Tensor _op_out_##weight_nbit(                              \
+  static Tensor _op_out_##weight_nbit(                       \
       RuntimeContext& ctx,                                   \
       const Tensor& activations,                             \
       const Tensor& packed_weights,                          \

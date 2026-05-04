@@ -81,16 +81,17 @@ def _reshape_cos_sin_to_2d(
         if len(shape) < 2:
             logger.debug("RoPE %s has fewer than 2 dims: shape=%s", name, shape)
             return None
-        for dim in shape[:-2]:
-            if dim != 1:
-                logger.debug(
-                    "RoPE %s has non-unit leading dim: shape=%s",
-                    name,
-                    shape,
-                )
-                return None
+        non_unit = [d for d in shape if d != 1]
+        if len(non_unit) != 2:
+            logger.debug(
+                "RoPE %s cannot be squeezed to 2D: shape=%s",
+                name,
+                shape,
+            )
+            return None
 
-    s, d = cos_shape[-2], cos_shape[-1]
+    cos_non_unit = [d for d in cos_shape if d != 1]
+    s, d = cos_non_unit[0], cos_non_unit[1]
     with graph.inserting_before(insert_before):
         cos_2d = graph.call_function(
             torch.ops.aten.view.default,
@@ -122,6 +123,7 @@ def _trace_through_views(node: Node) -> Node:
             "contiguous",
             "expand",
             "to",
+            "type_as",
             "float",
             "half",
             "bfloat16",
@@ -379,10 +381,10 @@ def detect_causal_mask(
     return all(all_causal)
 
 
-def _get_fp8_sdpa_params(node: Node) -> Tuple[bool, float, bool]:
-    """Extract is_causal, scale, and enable_gqa from an FP8 SDPA custom op node.
+def _get_fp8_sdpa_params(node: Node) -> Tuple[bool, float, bool, str]:
+    """Extract is_causal, scale, enable_gqa, and hadamard from an FP8 SDPA custom op node.
 
-    Custom op signature: (q, k, v, is_causal=False, scale=0.0, enable_gqa=False)
+    Custom op signature: (q, k, v, is_causal=False, scale=0.0, enable_gqa=False, hadamard="NONE")
     Scale uses 0.0 as sentinel for "default" (1/sqrt(D)).
     """
     args = node.args
@@ -391,8 +393,9 @@ def _get_fp8_sdpa_params(node: Node) -> Tuple[bool, float, bool]:
     is_causal = args[3] if len(args) > 3 else kwargs.get("is_causal", False)
     scale = args[4] if len(args) > 4 else kwargs.get("scale", 0.0)
     enable_gqa = args[5] if len(args) > 5 else kwargs.get("enable_gqa", False)
+    hadamard = args[6] if len(args) > 6 else kwargs.get("hadamard", "NONE")
 
-    return is_causal, scale, enable_gqa
+    return is_causal, scale, enable_gqa, hadamard
 
 
 def _get_fp8_sdpa_qkv(node: Node) -> Optional[Tuple[Node, Node, Node]]:
@@ -690,9 +693,205 @@ def _detect_neox_rope(node: Node) -> Optional[RoPEMatch]:
     return _try_match(right, left)
 
 
+def _parse_stride2_index(idx) -> Optional[int]:
+    """Parse ``(..., slice(start, None, 2))`` index tuples.
+
+    Returns the slice ``start`` value (defaulting to 0), or None if the
+    index does not match the expected stride-2 pattern.
+    """
+    if not isinstance(idx, tuple) or len(idx) < 1:
+        return None
+    last = idx[-1]
+    if not isinstance(last, slice) or last.step != 2:
+        return None
+    for entry in idx[:-1]:
+        if entry is not Ellipsis and entry != slice(None):
+            return None
+    return last.start if last.start is not None else 0
+
+
+def _get_setitem_stride2_slice(node: Node) -> Optional[Tuple[int, Node]]:
+    """Check if node is ``operator.setitem(tensor, (..., slice(start, None, 2)), value)``.
+
+    Returns ``(start, value_node)`` or None.
+    """
+    if not _is_op(node, operator.setitem):
+        return None
+    if len(node.args) < 3:
+        return None
+    value = node.args[2]
+    if not isinstance(value, Node):
+        return None
+    start = _parse_stride2_index(node.args[1])
+    if start is None:
+        return None
+    return start, value
+
+
+def _get_getitem_stride2_slice(node: Node) -> Optional[Tuple[int, Node]]:
+    """Check if node is ``operator.getitem(tensor, (..., slice(start, None, 2)))``.
+
+    Returns ``(start, source_tensor_node)`` or None.
+    """
+    if not _is_op(node, operator.getitem):
+        return None
+    if len(node.args) < 2:
+        return None
+    source = node.args[0]
+    if not isinstance(source, Node):
+        return None
+    start = _parse_stride2_index(node.args[1])
+    if start is None:
+        return None
+    return start, source
+
+
+def _find_freq_slice_arg(mul_node: Node) -> Optional[Tuple[Node, Node]]:
+    """Find which arg of a mul is a stride-2 getitem slice (freq), return (getitem_node, other_arg).
+
+    Handles commutativity: checks both orderings.
+    """
+    if not _is_op(mul_node, torch.ops.aten.mul.Tensor, operator.mul):
+        return None
+    a, b = mul_node.args[0], mul_node.args[1]
+    for freq_candidate, other in [(a, b), (b, a)]:
+        if not isinstance(freq_candidate, Node):
+            continue
+        traced = _trace_through_views(freq_candidate)
+        gi = _get_getitem_stride2_slice(traced)
+        if gi is not None:
+            return traced, other
+    return None
+
+
+def _get_freq_slice_start(node: Node) -> Optional[int]:
+    """Get the start value from a stride-2 frequency slice node."""
+    gi = _get_getitem_stride2_slice(node)
+    if gi is not None:
+        return gi[0]
+    return None
+
+
+def _get_freq_slice_source(node: Node) -> Node:
+    """Get the source tensor from a stride-2 frequency slice node."""
+    gi = _get_getitem_stride2_slice(node)
+    if gi is not None:
+        return _trace_through_views(gi[1])
+    return node
+
+
+def _detect_wan_rope(node: Node) -> Optional[RoPEMatch]:
+    """Detect Wan-style indexed-write RoPE pattern (Pattern C).
+
+    In the pre-grad FX graph (where the fusion pass runs), the pattern is:
+
+        out = torch.empty_like(hidden_states)
+        ...
+        setitem(out, (..., slice(0, None, 2)), sub)   # even positions
+        ...
+        setitem(out, (..., slice(1, None, 2)), add)    # odd positions
+        type_as(out, hidden_states)
+        transpose(out, 1, 2)
+
+    The detection starts from the ``empty_like`` node (reached after
+    ``_unwrap_transpose`` + ``_trace_through_views`` strips the transpose and
+    type_as).  We then scan the users of ``empty_like`` for the two stride-2
+    setitem writes.
+
+    This is mathematically identical to interleaved RoPE (pairs (2i, 2i+1)),
+    so we return rope_interleaved=True.
+    """
+    # The node should be empty_like(hidden_states)
+    if not _is_op(
+        node,
+        torch.ops.aten.empty_like.default,
+        torch.empty_like,
+    ):
+        return None
+
+    if not node.args or not isinstance(node.args[0], Node):
+        return None
+    pre_rope_input = node.args[0]
+
+    # Find the two stride-2 setitem users: one with start=0 (even), one with start=1 (odd)
+    even_val = None
+    odd_val = None
+    for user in node.users:
+        si = _get_setitem_stride2_slice(user)
+        if si is None:
+            continue
+        start, value = si
+        if start == 0 and even_val is None:
+            even_val = value
+        elif start == 1 and odd_val is None:
+            odd_val = value
+
+    if even_val is None or odd_val is None:
+        return None
+
+    # even_val = sub(mul(x1, cos), mul(x2, sin))
+    if not _is_op(even_val, torch.ops.aten.sub.Tensor, operator.sub):
+        return None
+    if len(even_val.args) < 2:
+        return None
+    even_left, even_right = even_val.args[0], even_val.args[1]
+    if not isinstance(even_left, Node) or not isinstance(even_right, Node):
+        return None
+    if not _is_op(even_left, torch.ops.aten.mul.Tensor, operator.mul):
+        return None
+    if not _is_op(even_right, torch.ops.aten.mul.Tensor, operator.mul):
+        return None
+
+    # odd_val = add(mul(x1, sin), mul(x2, cos))
+    if not _is_op(odd_val, torch.ops.aten.add.Tensor, operator.add):
+        return None
+    if len(odd_val.args) < 2:
+        return None
+    odd_left, odd_right = odd_val.args[0], odd_val.args[1]
+    if not isinstance(odd_left, Node) or not isinstance(odd_right, Node):
+        return None
+    if not _is_op(odd_left, torch.ops.aten.mul.Tensor, operator.mul):
+        return None
+    if not _is_op(odd_right, torch.ops.aten.mul.Tensor, operator.mul):
+        return None
+
+    # From even_val's mul nodes, identify cos/sin (stride-2 slices) vs x1/x2
+    even_left_match = _find_freq_slice_arg(even_left)
+    even_right_match = _find_freq_slice_arg(even_right)
+    if even_left_match is None or even_right_match is None:
+        return None
+
+    cos_slice_node, _x1 = even_left_match
+    sin_slice_node, _x2 = even_right_match
+
+    # Verify cos slice has start=0 (even positions) and sin slice has start=1 (odd positions)
+    cos_start = _get_freq_slice_start(cos_slice_node)
+    sin_start = _get_freq_slice_start(sin_slice_node)
+    if cos_start != 0 or sin_start != 1:
+        # Try swapping
+        if sin_start == 0 and cos_start == 1:
+            cos_slice_node, sin_slice_node = sin_slice_node, cos_slice_node
+        else:
+            return None
+
+    # Unwrap stride-2 slices to get original cos/sin tensors
+    cos_original = _get_freq_slice_source(cos_slice_node)
+    sin_original = _get_freq_slice_source(sin_slice_node)
+
+    return RoPEMatch(
+        pre_rope_input=pre_rope_input,
+        cos_node=cos_original,
+        sin_node=sin_original,
+        rope_interleaved=True,
+    )
+
+
 def _detect_rope(node: Node) -> Optional[RoPEMatch]:
     """Detect any supported RoPE variant at a given node."""
-    return _detect_neox_rope(node)
+    result = _detect_neox_rope(node)
+    if result is not None:
+        return result
+    return _detect_wan_rope(node)
 
 
 # Graph Surgery
@@ -710,6 +909,7 @@ def _replace_with_fused_op(
     scale: float,
     enable_gqa: bool,
     rope_interleaved: bool,
+    hadamard: str,
     rope_sdpa_op,
 ) -> None:
     """Replace an SDPA node with a fused RoPE+SDPA custom op."""
@@ -722,6 +922,7 @@ def _replace_with_fused_op(
                 "scale": scale,
                 "enable_gqa": enable_gqa,
                 "rope_interleaved": rope_interleaved,
+                "hadamard": hadamard,
             },
         )
 
@@ -755,6 +956,7 @@ def rope_sdpa_fusion_pass(
     Supported patterns:
       - Pattern A (RoPE -> transpose -> FP8 SDPA): FLUX-style
       - Pattern B (transpose -> RoPE -> FP8 SDPA): HuggingFace-style
+      - Pattern C (indexed-write RoPE -> transpose -> FP8 SDPA): Wan-style
 
     Note: KV caching must be disabled before compilation.
     DynamicCache.update() inserts torch.cat nodes that break pattern matching.
@@ -771,7 +973,7 @@ def rope_sdpa_fusion_pass(
     fused_count = 0
 
     for sdpa_node in fp8_sdpa_nodes:
-        is_causal, scale, enable_gqa = _get_fp8_sdpa_params(sdpa_node)
+        is_causal, scale, enable_gqa, hadamard = _get_fp8_sdpa_params(sdpa_node)
 
         qkv = _get_fp8_sdpa_qkv(sdpa_node)
         if qkv is None:
@@ -828,6 +1030,7 @@ def rope_sdpa_fusion_pass(
                     scale=scale,
                     enable_gqa=enable_gqa,
                     rope_interleaved=q_rope.rope_interleaved,
+                    hadamard=hadamard,
                     rope_sdpa_op=rope_sdpa_op,
                 )
                 fused_count += 1
@@ -893,6 +1096,7 @@ def rope_sdpa_fusion_pass(
                     scale=scale,
                     enable_gqa=fused_enable_gqa,
                     rope_interleaved=q_rope.rope_interleaved,
+                    hadamard=hadamard,
                     rope_sdpa_op=rope_sdpa_op,
                 )
                 fused_count += 1

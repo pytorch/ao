@@ -25,6 +25,7 @@ from torchao.prototype.awq import (
 )
 from torchao.quantization import (
     PerBlock,
+    PerGroup,
     PerRow,
     PerTensor,
 )
@@ -32,7 +33,6 @@ from torchao.quantization.quant_api import (
     Float8DynamicActivationFloat8WeightConfig,
     Float8DynamicActivationInt4WeightConfig,
     Float8WeightOnlyConfig,
-    GemliteUIntXWeightOnlyConfig,
     Int4WeightOnlyConfig,
     Int8DynamicActivationInt8WeightConfig,
     Int8WeightOnlyConfig,
@@ -65,13 +65,8 @@ configs = [
         version=2,
     ),
     Int8DynamicActivationInt8WeightConfig(),
-    # Int8DynamicActivationInt8WeightConfig(layout=SemiSparseLayout()),
     Int8WeightOnlyConfig(
-        group_size=128,
-    ),
-    GemliteUIntXWeightOnlyConfig(
-        group_size=128,  # Optional, has default of 64
-        bit_width=8,  # Optional, has default of 4
+        granularity=PerGroup(128),
     ),
     # Sparsity configs
     SemiSparseWeightConfig(),

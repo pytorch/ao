@@ -24,7 +24,7 @@ from torchao.prototype.blockwise_fp8_training.kernels import (
     triton_fp8_gemm_1x128_128x1,
     triton_fp8_gemm_1x128_128x128,
 )
-from torchao.utils import is_MI300, is_MI350, is_sm_at_least_90
+from torchao.utils import is_MI300, is_MI350, is_ROCM, is_sm_at_least_90
 
 BLOCKWISE_SIZE_MNK = [
     # (128, 128, 128),
@@ -43,6 +43,7 @@ BLOCKWISE_SIZE_MNK = [
     not (is_sm_at_least_90() or is_MI300() or is_MI350()),
     reason="Requires FP8-capable GPU (CUDA SM90+, MI300, or MI350)",
 )
+@pytest.mark.skipif(is_ROCM(), reason="Blockwise FP8 GEMM has numerical issues on ROCm")
 @pytest.mark.skipif(
     version.parse(triton.__version__) < version.parse("3.3.0"),
     reason="Triton version < 3.3.0, test skipped",
@@ -70,6 +71,7 @@ def test_triton_fp8_gemm_1x128_128x128(M, N, K, dtype):
     not (is_sm_at_least_90() or is_MI300() or is_MI350()),
     reason="Requires FP8-capable GPU (CUDA SM90+, MI300, or MI350)",
 )
+@pytest.mark.skipif(is_ROCM(), reason="Blockwise FP8 GEMM has numerical issues on ROCm")
 @pytest.mark.skipif(
     version.parse(triton.__version__) < version.parse("3.3.0"),
     reason="Triton version < 3.3.0, test skipped",

@@ -14,7 +14,6 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 from torchao.quantization import (
     quantize_,
 )
-from torchao.quantization.quant_api import autoquant
 
 torch._inductor.config.force_fuse_int_mm_with_mul = True
 torch._inductor.config.fx_graph_cache = True
@@ -40,11 +39,7 @@ def run_evaluation(
         device="cpu", dtype=precision
     )
 
-    if quantization == "autoquant":
-        model = autoquant(model.to(device=device))
-
-    # naive implementation of uniform precision quantization all layers
-    elif quantization in ["2", "3", "4", "5", "6", "8"]:
+    if quantization in ["2", "3", "4", "5", "6", "8"]:
         quantize_(
             model.to(device=device),
             intN_weight_only(

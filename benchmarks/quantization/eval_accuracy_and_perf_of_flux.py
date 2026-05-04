@@ -8,6 +8,8 @@ import csv
 import os
 import random
 import time
+from functools import wraps
+from typing import Callable, TypeVar
 
 import diffusers
 import fire
@@ -24,6 +26,9 @@ from torchao.quantization import (
     FqnToConfig,
     quantize_,
 )
+
+# Type variables for better type hinting
+T = TypeVar("T")
 
 # -----------------------------
 # Config
@@ -71,12 +76,18 @@ def print_pipeline_architecture(pipe):
 
 
 def generate_image(
-    pipe, prompt: str, seed: int, device: str, num_inference_steps: int
+    pipe,
+    prompt: str,
+    seed: int,
+    device: str,
+    num_inference_steps: int,
+    batch_size: int = 1,
 ) -> Image.Image:
     generator = torch.Generator(device=device).manual_seed(seed)
 
+    prompts = [prompt] * batch_size
     image = pipe(
-        prompt=prompt,
+        prompt=prompts,
         num_inference_steps=num_inference_steps,  # can tweak for speed vs quality
         guidance_scale=7.5,
         generator=generator,
@@ -238,11 +249,50 @@ def pil_to_lpips_tensor(img: Image.Image, device: str):
     return t.to(device)
 
 
+from torch.utils._pytree import tree_map_only
+
+
+def clone_output_wrapper(f: Callable[..., T]) -> Callable[..., T]:
+    """
+    Clone the CUDA output tensors of a function to avoid in-place operations.
+
+    This wrapper is useful when working with torch.compile to prevent errors
+    related to in-place operations on tensors.
+
+    Args:
+        f: The function whose CUDA tensor outputs should be cloned
+
+    Returns:
+        A wrapped function that clones any CUDA tensor outputs
+    """
+
+    @wraps(f)
+    def wrapped(*args, **kwargs):
+        outputs = f(*args, **kwargs)
+        return tree_map_only(
+            torch.Tensor, lambda t: t.clone() if t.is_cuda else t, outputs
+        )
+
+    return wrapped
+
+
+def apply_torch_compile(pipe, torch_compile_mode: str = "default"):
+    """Apply torch.compile to the transformer blocks in-place."""
+    for block in pipe.transformer.transformer_blocks:
+        block.forward = clone_output_wrapper(
+            torch.compile(block.forward, mode=torch_compile_mode)
+        )
+    for block in pipe.transformer.single_transformer_blocks:
+        block.forward = clone_output_wrapper(
+            torch.compile(block.forward, mode=torch_compile_mode)
+        )
+
+
 @torch.inference_mode()
 def run(
     mode: str = "accuracy",
     num_prompts: int = None,
-    num_inference_steps: int = 20,
+    num_inference_steps: int = 4,
     quant_config_str: str = "float8_rowwise",
     use_compile: bool = False,
     torch_compile_mode: str = "default",
@@ -250,6 +300,7 @@ def run(
     print_model: bool = False,
     cache_baseline_images: bool = False,
     perf_n_iter: int = 10,
+    batch_size: int = 1,
     use_deterministic_algorithms: bool = False,
     num_gpus_used: int = None,
 ):
@@ -282,6 +333,7 @@ def run(
           instead of regenerated, if available. This is useful to make eval runs faster
           if we know the baseline is not changing.
         perf_n_iter: number of measurements to take for measuring performance
+        batch_size: batch size for performance_hp and performance_quant modes (default 1)
         use_deterministic_algorithms: if True, sets torch.use_deterministic_algorithms(True)
         num_gpus_used: For 'aggregate_accuracy' mode, the number of GPUs that were used
           to generate the data. Required for aggregate_accuracy mode.
@@ -314,6 +366,7 @@ def run(
     print(f"[Rank {local_rank}/{world_size}] use_compile: {use_compile}")
     print(f"[Rank {local_rank}/{world_size}] torch_compile_mode: {torch_compile_mode}")
     print(f"[Rank {local_rank}/{world_size}] {use_deterministic_algorithms=}")
+    print(f"[Rank {local_rank}/{world_size}] {batch_size=}")
     print(f"[Rank {local_rank}/{world_size}] {cache_baseline_images=}")
 
     assert mode in (
@@ -322,6 +375,11 @@ def run(
         "performance_quant",
         "aggregate_accuracy",
     )
+    assert batch_size >= 1, f"batch_size must be >= 1, got {batch_size}"
+    if mode in ("accuracy", "aggregate_accuracy"):
+        assert batch_size == 1, (
+            f"batch_size must be 1 for {mode} mode, got {batch_size}"
+        )
 
     # Handle aggregate_accuracy mode separately
     if mode == "aggregate_accuracy":
@@ -438,14 +496,6 @@ def run(
 
     loss_fn = lpips.LPIPS(net="vgg").to(device)
 
-    # Store original for restoration later, since we will quantize it
-    # and compile the quantized version again
-    orig_transformer = pipe.transformer
-
-    if use_compile:
-        pipe.transformer = torch.compile(orig_transformer, mode=torch_compile_mode)
-        pipe.vae.decode = torch.compile(pipe.vae.decode, mode=torch_compile_mode)
-
     # -----------------------------
     # 2. Baseline images (for all prompts)
     # -----------------------------
@@ -473,6 +523,8 @@ def run(
     baseline_times = []
 
     if mode == "accuracy":
+        # note: never compile for baseline images
+
         for local_idx, prompt in enumerate(my_prompts):
             # Calculate global prompt index
             global_idx = local_rank + local_idx * world_size
@@ -500,32 +552,39 @@ def run(
             baseline_times.append(t1 - t0)
 
     elif mode == "performance_hp":
+        if use_compile:
+            apply_torch_compile(pipe, torch_compile_mode)
+
         # High precision performance mode - measure baseline without quantization
         if local_rank == 0:
             # warm up compile
             _ = generate_image(
-                pipe, prompts_to_use[0], RANDOM_SEED, device, num_inference_steps
+                pipe,
+                prompts_to_use[0],
+                RANDOM_SEED,
+                device,
+                num_inference_steps,
+                batch_size=batch_size,
             )
 
             for _ in range(perf_n_iter):
                 t0 = time.time()
                 _ = generate_image(
-                    pipe, prompts_to_use[0], RANDOM_SEED, device, num_inference_steps
+                    pipe,
+                    prompts_to_use[0],
+                    RANDOM_SEED,
+                    device,
+                    num_inference_steps,
+                    batch_size=batch_size,
                 )
                 t1 = time.time()
                 baseline_times.append(t1 - t0)
-
-    if use_compile and mode in ("accuracy", "performance_quant"):
-        print(
-            f"[Rank {local_rank}/{world_size}] Restoring original (uncompiled) transformer before quantization"
-        )
-        pipe.transformer = orig_transformer
 
     # Only quantize for accuracy and performance_quant modes
     if mode in ("accuracy", "performance_quant"):
         # Inspect Linear layers in main component
         component_linear_fqns_and_weight_shapes = []
-        for fqn, module in orig_transformer.named_modules():
+        for fqn, module in pipe.transformer.named_modules():
             if isinstance(module, torch.nn.Linear):
                 weight_shape = module.weight.shape
                 if print_model:
@@ -545,6 +604,10 @@ def run(
                 continue
             elif fqn == "proj_out":
                 continue
+            elif "norm.linear" in fqn:
+                # activations here have shape [batch_size, 3072], so
+                # too small to see speedups from activation quantization
+                continue
             elif weight_shape[0] < 1024 or weight_shape[1] < 1024:
                 continue
             fqn_to_config_dict[fqn] = config_obj
@@ -552,8 +615,10 @@ def run(
 
         # Quantize the main component using this config
         quantize_(pipe.transformer, fqn_to_config, filter_fn=None)
+
         if use_compile:
-            pipe.transformer = torch.compile(pipe.transformer, mode=torch_compile_mode)
+            apply_torch_compile(pipe, torch_compile_mode)
+
         if print_model:
             print_pipeline_architecture(pipe)
 
@@ -615,13 +680,23 @@ def run(
         if local_rank == 0:
             # warm up compile
             _ = generate_image(
-                pipe, prompts_to_use[0], RANDOM_SEED, device, num_inference_steps
+                pipe,
+                prompts_to_use[0],
+                RANDOM_SEED,
+                device,
+                num_inference_steps,
+                batch_size=batch_size,
             )
 
             for _ in range(perf_n_iter):
                 t0 = time.time()
                 _ = generate_image(
-                    pipe, prompts_to_use[0], RANDOM_SEED, device, num_inference_steps
+                    pipe,
+                    prompts_to_use[0],
+                    RANDOM_SEED,
+                    device,
+                    num_inference_steps,
+                    batch_size=batch_size,
                 )
                 t1 = time.time()
                 times.append(t1 - t0)
@@ -691,11 +766,13 @@ def run(
                 writer.writerow(["average_quantized_time", f"{avg_quant_time:.4f}"])
             elif mode == "performance_hp":
                 writer.writerow(["perf_n_iter", perf_n_iter])
+                writer.writerow(["batch_size", batch_size])
                 writer.writerow(["average_time", f"{avg_time:.4f}"])
                 for idx, val in enumerate(baseline_times):
                     writer.writerow([f"time_{idx}", f"{val:.4f}"])
             elif mode == "performance_quant":
                 writer.writerow(["perf_n_iter", perf_n_iter])
+                writer.writerow(["batch_size", batch_size])
                 writer.writerow(["average_time", f"{avg_time:.4f}"])
                 for idx, val in enumerate(times):
                     writer.writerow([f"time_{idx}", f"{val:.4f}"])

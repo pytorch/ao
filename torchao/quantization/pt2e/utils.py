@@ -28,7 +28,18 @@ from torch.export.unflatten import _assign_attr, _AttrKind
 from torch.fx import Graph, GraphModule, Node
 from torch.nn.utils.fusion import fuse_conv_bn_weights, fuse_linear_bn_weights
 from torch.nn.utils.parametrize import is_parametrized
-from torch.utils._pytree import LeafSpec
+
+# treespec_leaf() was added in newer PyTorch to replace LeafSpec(), which is
+# now deprecated and triggers a FutureWarning on instantiation. Fall back to
+# LeafSpec() for older PyTorch versions that don't have treespec_leaf yet.
+try:
+    from torch.utils._pytree import treespec_leaf
+except ImportError:
+    from torch.utils._pytree import LeafSpec
+
+    def treespec_leaf() -> "LeafSpec":
+        return LeafSpec()
+
 
 from torchao.utils import _assert_and_get_unique_device
 
@@ -584,7 +595,13 @@ def _is_connected(source: torch.fx.Node, dest: torch.fx.Node) -> bool:
 def _get_tensor_constant_from_node(node, m):
     if node is None:
         return None
-    assert node.op == "get_attr"
+    if node.op == "placeholder":
+        raise ValueError(
+            "Expected get_attr node, got placeholder. "
+            "If working with an ExportedProgram, make sure you are using .module()"
+        )
+    if node.op != "get_attr":
+        raise ValueError(f"Expected get_attr node, got {node.op}")
     target_atoms = node.target.split(".")
     attr_itr = m
     for i, atom in enumerate(target_atoms):
@@ -953,6 +970,33 @@ def _fuse_linear_bn_(m: GraphModule) -> None:
         if not _is_linear_node(n):
             continue
         linear_node = n
+
+        # Linear+BN fusion is only valid when both layers operate on
+        # the same dimension.  Linear always acts on the last dim
+        # while BatchNorm1d acts on the channel dim (dim 1).  These
+        # two coincide only when the linear input is 2-D (N, C).
+        # For higher-rank inputs (e.g. 3-D (N, C, L)), BN normalises
+        # along dim 1 whereas Linear transforms the last dim, so
+        # fusing would silently produce incorrect results.
+        # See https://github.com/pytorch/ao/issues/4116
+        linear_input_node = linear_node.args[0]
+        if isinstance(linear_input_node, Node):
+            linear_input_val = linear_input_node.meta.get("val")
+            if (
+                linear_input_val is not None
+                and isinstance(linear_input_val, torch.Tensor)
+                and linear_input_val.ndim > 2
+            ):
+                warnings.warn(
+                    f"Not fusing linear+bn for node "
+                    f"'{linear_node.name}': the linear input "
+                    f"is {linear_input_val.ndim}-D so Linear "
+                    f"and BatchNorm operate on different "
+                    f"dimensions",
+                    stacklevel=1,
+                )
+                continue
+
         linear_weight_node = linear_node.args[1]
         linear_bias_node = linear_node.args[2] if len(linear_node.args) > 2 else None
         fold_bn_weights_into_linear_node(
@@ -1135,7 +1179,7 @@ def _replace_literals_with_new_placeholders(
                     else:
                         ph_node = gm.graph.placeholder("arg" + str(cnt))
                         new_args.append(ph_node)
-                        args_spec.children_specs.append(LeafSpec())
+                        args_spec.children_specs.append(treespec_leaf())
                         cnt += 1
                         if merge_dup:
                             literal_to_ph[arg] = ph_node
