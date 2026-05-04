@@ -4,7 +4,7 @@
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
 
-"""Tests for FP8 low-precision attention (FA3 backend on Hopper)."""
+"""Tests for FP8 low-precision attention (FA3 on Hopper, FA4 on Blackwell)."""
 
 import unittest
 
@@ -18,7 +18,12 @@ from torchao.quantization.utils import compute_error
 from torchao.utils import torch_version_at_least
 
 if torch_version_at_least("2.11.0"):
-    from torchao.prototype.attention.utils import _is_fa3_available, _is_hopper
+    from torchao.prototype.attention.utils import (
+        _is_blackwell,
+        _is_fa3_available,
+        _is_fa4_available,
+        _is_hopper,
+    )
 
     if _is_hopper() and _is_fa3_available():
         from torch.nn.attention import (
@@ -41,6 +46,22 @@ if torch_version_at_least("2.11.0"):
             _fp8_rope_sdpa_quantize,
             _fp8_sdpa_quantize,
             _inverse_hadamard_transform,
+        )
+
+    if _is_blackwell() and _is_fa4_available():
+        from torch.nn.attention import (
+            activate_flash_attention_impl,
+            restore_flash_attention_impl,
+        )
+
+        from torchao.prototype.attention import (
+            AttentionBackend,
+            HadamardMode,
+            apply_low_precision_attention,
+        )
+        from torchao.prototype.attention.fp8_fa4.attention import (
+            fp8_fa4_rope_sdpa,
+            fp8_fa4_sdpa,
         )
 
 
@@ -241,6 +262,156 @@ class TestFP8FA3Attention(TestCase):
         fp8_model = apply_low_precision_attention(
             fp8_model,
             backend=AttentionBackend.FP8_FA3,
+            hadamard=HadamardMode(hadamard),
+        )
+        fp8_model = torch.compile(fp8_model)
+
+        with torch.no_grad():
+            out_fp8 = fp8_model(x, cos, sin)
+
+        sqnr = compute_error(out_ref, out_fp8)
+        self.assertGreater(
+            sqnr.item(),
+            20.0,
+            f"SQNR {sqnr.item():.2f} dB below 20 dB for dtype={dtype}, hadamard={hadamard}",
+        )
+
+
+@common_utils.instantiate_parametrized_tests
+class TestFP8FA4Attention(TestCase):
+    @unittest.skipUnless(
+        torch_version_at_least("2.11.0") and _is_blackwell() and _is_fa4_available(),
+        "Requires PyTorch >= 2.11, Blackwell GPU, and FA4",
+    )
+    @common_utils.parametrize("shape", [(2, 8, 1024, 64), (1, 16, 1024, 128)])
+    @common_utils.parametrize("dtype", [torch.bfloat16, torch.float16])
+    def test_sdpa_accuracy(self, shape, dtype):
+        B, H, S, D = shape
+        q = torch.randn(B, H, S, D, device="cuda", dtype=dtype)
+        k = torch.randn(B, H, S, D, device="cuda", dtype=dtype)
+        v = torch.randn(B, H, S, D, device="cuda", dtype=dtype)
+
+        with torch.no_grad():
+            out_ref = F.scaled_dot_product_attention(q, k, v, is_causal=False)
+
+        activate_flash_attention_impl("FA4")
+        try:
+            with torch.no_grad():
+                out_fp8 = fp8_fa4_sdpa(q, k, v, is_causal=False)
+        finally:
+            restore_flash_attention_impl()
+
+        sqnr = compute_error(out_ref, out_fp8)
+        self.assertGreater(
+            sqnr.item(),
+            25.0,
+            f"SQNR {sqnr.item():.2f} dB below 25 dB for shape={shape}, dtype={dtype}",
+        )
+
+    @unittest.skipUnless(
+        torch_version_at_least("2.11.0") and _is_blackwell() and _is_fa4_available(),
+        "Requires PyTorch >= 2.11, Blackwell GPU, and FA4",
+    )
+    @common_utils.parametrize("shape", [(2, 1024, 8, 64), (1, 1024, 16, 128)])
+    @common_utils.parametrize("dtype", [torch.bfloat16, torch.float16])
+    def test_rope_sdpa_accuracy(self, shape, dtype):
+        B, S, H, D = shape
+        q = torch.randn(B, S, H, D, device="cuda", dtype=dtype)
+        k = torch.randn(B, S, H, D, device="cuda", dtype=dtype)
+        v = torch.randn(B, S, H, D, device="cuda", dtype=dtype)
+        cos, sin = _rope_cos_sin(S, D, "cuda")
+
+        with torch.no_grad():
+            out_ref = F.scaled_dot_product_attention(
+                _apply_rope(q, cos, sin).transpose(1, 2),
+                _apply_rope(k, cos, sin).transpose(1, 2),
+                v.transpose(1, 2),
+                is_causal=False,
+            )
+
+        activate_flash_attention_impl("FA4")
+        try:
+            with torch.no_grad():
+                out_fp8 = fp8_fa4_rope_sdpa(q, k, v, cos, sin, is_causal=False)
+        finally:
+            restore_flash_attention_impl()
+
+        sqnr = compute_error(out_ref, out_fp8)
+        self.assertGreater(
+            sqnr.item(),
+            25.0,
+            f"SQNR {sqnr.item():.2f} dB below 25 dB for shape={shape}, dtype={dtype}",
+        )
+
+    @unittest.skipUnless(
+        torch_version_at_least("2.11.0") and _is_blackwell() and _is_fa4_available(),
+        "Requires PyTorch >= 2.11, Blackwell GPU, and FA4",
+    )
+    @common_utils.parametrize("dtype", [torch.bfloat16, torch.float16])
+    @common_utils.parametrize("hadamard", ["NONE", "QKV", "V_ONLY"])
+    def test_monkey_patch_model(self, dtype, hadamard):
+        embed_dim, num_heads = 512, 8
+        model = (
+            SimpleAttentionModel(embed_dim, num_heads)
+            .to(device="cuda", dtype=dtype)
+            .eval()
+        )
+        x = torch.randn(2, 128, embed_dim, device="cuda", dtype=dtype)
+
+        with torch.no_grad():
+            out_ref = model(x)
+
+        fp8_model = (
+            SimpleAttentionModel(embed_dim, num_heads)
+            .to(device="cuda", dtype=dtype)
+            .eval()
+        )
+        fp8_model.load_state_dict(model.state_dict())
+        fp8_model = apply_low_precision_attention(
+            fp8_model,
+            backend=AttentionBackend.FP8_FA4,
+            hadamard=HadamardMode(hadamard),
+        )
+
+        with torch.no_grad():
+            out_fp8 = fp8_model(x)
+
+        sqnr = compute_error(out_ref, out_fp8)
+        self.assertGreater(
+            sqnr.item(),
+            20.0,
+            f"SQNR {sqnr.item():.2f} dB below 20 dB for dtype={dtype}, hadamard={hadamard}",
+        )
+
+    @unittest.skipUnless(
+        torch_version_at_least("2.11.0") and _is_blackwell() and _is_fa4_available(),
+        "Requires PyTorch >= 2.11, Blackwell GPU, and FA4",
+    )
+    @common_utils.parametrize("dtype", [torch.bfloat16, torch.float16])
+    @common_utils.parametrize("hadamard", ["NONE", "QKV", "V_ONLY"])
+    def test_rope_fusion_model(self, dtype, hadamard):
+        embed_dim, num_heads = 512, 8
+        model = (
+            SimpleRoPEAttentionModel(embed_dim, num_heads)
+            .to(device="cuda", dtype=dtype)
+            .eval()
+        )
+        S = 128
+        x = torch.randn(2, S, embed_dim, device="cuda", dtype=dtype)
+        cos, sin = _rope_cos_sin(S, embed_dim // num_heads, "cuda")
+
+        with torch.no_grad():
+            out_ref = model(x, cos, sin)
+
+        fp8_model = (
+            SimpleRoPEAttentionModel(embed_dim, num_heads)
+            .to(device="cuda", dtype=dtype)
+            .eval()
+        )
+        fp8_model.load_state_dict(model.state_dict())
+        fp8_model = apply_low_precision_attention(
+            fp8_model,
+            backend=AttentionBackend.FP8_FA4,
             hadamard=HadamardMode(hadamard),
         )
         fp8_model = torch.compile(fp8_model)
