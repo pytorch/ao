@@ -17,6 +17,7 @@ from torchao.prototype.mx_formats.inference_workflow import (
     NVFP4DynamicActivationNVFP4WeightConfig,
     NVFP4WeightOnlyConfig,
 )
+from torchao.prototype.mx_formats.nvfp4_tensor import NVFP4Tensor
 from torchao.quantization import quantize_
 from torchao.quantization.quantize_.common import KernelPreference
 from torchao.quantization.utils import compute_error
@@ -217,7 +218,7 @@ def test_inference_workflow_nvfp4(
     y_ref = m(x)
 
     if use_triton_kernel and quant_type == "dynamic":
-        with cuda_kernel_profiler("quantize_nvfp4_triton_kernel") as result:
+        with cuda_kernel_profiler("triton_quantize_nvfp4_kernel") as result:
             y_mx = m_mx(x)
         assert result["found"], "Expected quantize_nvfp4 kernel to be found"
     else:
@@ -266,17 +267,6 @@ class VLLMIntegrationTestCase(TorchAOIntegrationTestCase):
             kernel_preference=KernelPreference.EMULATED,
         )
         self._test_narrow_similar_to_vllm(config)
-
-    @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
-    @pytest.mark.skipif(
-        not torch_version_at_least("2.8.0"),
-        reason="torch.compile requires PyTorch 2.8+",
-    )
-    def test_nvfp4_quantize_3d_param_similar_to_vllm(self):
-        config = NVFP4WeightOnlyConfig(
-            use_dynamic_per_tensor_scale=False,
-        )
-        self._test_quantize_3d_param_similar_to_vllm(config)
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
@@ -426,3 +416,132 @@ def test_nvfp4_static_vs_dynamic_quantization():
     assert torch.equal(y_dynamic, y_static), (
         "Expect dynamic and static quant result to be equal"
     )
+
+
+class GroupedMMModel(nn.Module):
+    """A toy model whose only op in forward is torch._grouped_mm."""
+
+    def __init__(self, E, K, N, device="cuda", dtype=torch.bfloat16):
+        super().__init__()
+        self.weight = nn.Parameter(torch.randn(E, N, K, device=device, dtype=dtype))
+
+    def forward(self, x, offs):
+        return torch._grouped_mm(x, self.weight.transpose(-2, -1), offs=offs)
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+@pytest.mark.skipif(
+    not torch_version_at_least("2.8.0"), reason="torch >= 2.8.0 required"
+)
+@pytest.mark.skipif(
+    not is_sm_at_least_100(), reason="CUDA capability >= 10.0 required for NVFP4"
+)
+@torch.no_grad()
+@skip_if_rocm("ROCm float4 gemm require gfx950")
+def test_grouped_mm_nvfp4():
+    """Smoke test: torch._grouped_mm forward pass with bfloat16 inputs."""
+    E, K, N = 4, 128, 256
+    m_per_group = [1, 3, 4, 16]
+    total_m = sum(m_per_group)
+
+    device = "cuda"
+    dtype = torch.bfloat16
+
+    model_ref = GroupedMMModel(E, K, N, device=device, dtype=dtype)
+
+    # make the future nvfp4 weight scales interesting
+    model_ref.weight[0, :, :] *= 10.0
+    model_ref.weight[-1, :, :] *= 1e-3
+
+    model = copy.deepcopy(model_ref)
+
+    x = torch.randn(total_m, K, device=device, dtype=dtype)
+
+    offs = torch.tensor(
+        [sum(m_per_group[: i + 1]) for i in range(E)],
+        device=device,
+        dtype=torch.int32,
+    )
+
+    # reference path
+    y_ref = model_ref(x, offs)
+
+    # quantized path
+    quantize_(
+        model,
+        NVFP4DynamicActivationNVFP4WeightConfig(
+            use_triton_kernel=False,
+        ),
+        filter_fn=lambda mod, *args: isinstance(mod, GroupedMMModel)
+        and hasattr(mod, "weight"),
+    )
+    assert isinstance(model.weight, NVFP4Tensor), (
+        f"Expected NVFP4Tensor weight, got {type(model.weight)}"
+    )
+    assert model.weight.per_tensor_scale.shape == (E, 1, 1)
+    w_sqnr = compute_error(model_ref.weight, model.weight.dequantize())
+    assert w_sqnr > 18.0
+
+    ww = model.weight
+    wwt = ww.transpose(-2, -1)
+    assert tuple(wwt.shape) == (ww.shape[0], ww.shape[2], ww.shape[1])
+
+    y = model(x, offs)
+    y_sqnr = compute_error(y_ref, y)
+    assert y_sqnr > 15.0
+
+
+class BatchedMMModel(nn.Module):
+    """A toy model whose only op in forward is torch.bmm."""
+
+    def __init__(self, E, K, N, device="cuda", dtype=torch.bfloat16):
+        super().__init__()
+        self.weight = nn.Parameter(torch.randn(E, N, K, device=device, dtype=dtype))
+
+    def forward(self, x):
+        return torch.bmm(x, self.weight.transpose(-2, -1))
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+@pytest.mark.skipif(
+    not torch_version_at_least("2.8.0"), reason="torch >= 2.8.0 required"
+)
+@pytest.mark.skipif(
+    not is_sm_at_least_100(), reason="CUDA capability >= 10.0 required for NVFP4"
+)
+@torch.no_grad()
+@skip_if_rocm("ROCm float4 gemm require gfx950")
+def test_bmm_nvfp4():
+    """Smoke test: torch.bmm forward pass with NVFP4 quantized weights."""
+    E, K, N = 4, 128, 256
+    M = 16
+
+    device = "cuda"
+    dtype = torch.bfloat16
+
+    model_ref = BatchedMMModel(E, K, N, device=device, dtype=dtype)
+
+    model_ref.weight[0, :, :] *= 10.0
+    model_ref.weight[-1, :, :] *= 1e-3
+
+    model = copy.deepcopy(model_ref)
+
+    x = torch.randn(E, M, K, device=device, dtype=dtype)
+
+    y_ref = model_ref(x)
+
+    quantize_(
+        model,
+        NVFP4DynamicActivationNVFP4WeightConfig(
+            use_triton_kernel=False,
+        ),
+        filter_fn=lambda mod, *args: isinstance(mod, BatchedMMModel)
+        and hasattr(mod, "weight"),
+    )
+    assert isinstance(model.weight, NVFP4Tensor), (
+        f"Expected NVFP4Tensor weight, got {type(model.weight)}"
+    )
+
+    y = model(x)
+    y_sqnr = compute_error(y_ref, y)
+    assert y_sqnr > 15.0

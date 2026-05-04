@@ -26,8 +26,11 @@ if _TORCH_VERSION_AT_LEAST_2_11:
     )
 
 from torchao.prototype.attention.quantization import (
+    _fp8_hadamard_rope_sdpa_quantize,
+    _fp8_hadamard_sdpa_quantize,
     _fp8_rope_sdpa_quantize,
     _fp8_sdpa_quantize,
+    _inverse_hadamard_transform,
 )
 
 
@@ -40,6 +43,7 @@ def _fp8_sdpa(
     is_causal: bool = False,
     scale: Optional[float] = None,
     enable_gqa: bool = False,
+    hadamard: str = "NONE",
     *,
     backend_name: str = "FP8",
 ) -> torch.Tensor:
@@ -61,10 +65,18 @@ def _fp8_sdpa(
         )
 
     input_dtype = query.dtype
+    use_hadamard = hadamard != "NONE"
 
-    q_fp8, k_fp8, v_fp8, descale_q, descale_k, descale_v = _fp8_sdpa_quantize(
-        query, key, value
-    )
+    if use_hadamard:
+        q_fp8, k_fp8, v_fp8, descale_q, descale_k, descale_v = (
+            _fp8_hadamard_sdpa_quantize(
+                query, key, value, v_only=(hadamard == "V_ONLY")
+            )
+        )
+    else:
+        q_fp8, k_fp8, v_fp8, descale_q, descale_k, descale_v = _fp8_sdpa_quantize(
+            query, key, value
+        )
 
     with sdpa_kernel(SDPBackend.FLASH_ATTENTION):
         out = _scaled_dot_product_attention_quantized(
@@ -78,7 +90,10 @@ def _fp8_sdpa(
             v_descale=descale_v,
         )
 
-    return out.to(input_dtype)
+    out = out.to(input_dtype)
+    if use_hadamard:
+        out = _inverse_hadamard_transform(out)
+    return out
 
 
 def _fp8_rope_sdpa(
@@ -93,6 +108,7 @@ def _fp8_rope_sdpa(
     scale: Optional[float] = None,
     enable_gqa: bool = False,
     rope_interleaved: bool = False,
+    hadamard: str = "NONE",
     *,
     backend_name: str = "FP8",
 ) -> torch.Tensor:
@@ -112,13 +128,27 @@ def _fp8_rope_sdpa(
         )
 
     input_dtype = query.dtype
+    use_hadamard = hadamard != "NONE"
 
     cos = cos.to(query.device)
     sin = sin.to(query.device)
 
-    q_fp8, k_fp8, v_fp8, descale_q, descale_k, descale_v = _fp8_rope_sdpa_quantize(
-        query, key, value, cos, sin, rope_interleaved=rope_interleaved
-    )
+    if use_hadamard:
+        q_fp8, k_fp8, v_fp8, descale_q, descale_k, descale_v = (
+            _fp8_hadamard_rope_sdpa_quantize(
+                query,
+                key,
+                value,
+                cos,
+                sin,
+                rope_interleaved=rope_interleaved,
+                v_only=(hadamard == "V_ONLY"),
+            )
+        )
+    else:
+        q_fp8, k_fp8, v_fp8, descale_q, descale_k, descale_v = _fp8_rope_sdpa_quantize(
+            query, key, value, cos, sin, rope_interleaved=rope_interleaved
+        )
 
     with sdpa_kernel(SDPBackend.FLASH_ATTENTION):
         out = _scaled_dot_product_attention_quantized(
@@ -132,4 +162,7 @@ def _fp8_rope_sdpa(
             v_descale=descale_v,
         )
 
-    return out.to(input_dtype)
+    out = out.to(input_dtype)
+    if use_hadamard:
+        out = _inverse_hadamard_transform(out)
+    return out

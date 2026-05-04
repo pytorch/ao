@@ -19,12 +19,12 @@ from torch.testing._internal.common_utils import (
 )
 
 from torchao import quantize_
-from torchao.dtypes import AffineQuantizedTensor
 from torchao.prototype.autoround.core import (
     apply_auto_round,
     prepare_model_for_applying_auto_round_,
 )
 from torchao.prototype.autoround.multi_tensor import MultiTensor
+from torchao.utils import TorchAOBaseTensor
 
 _AVAILABLE_DEVICES = ["cpu"] + (["cuda"] if torch.cuda.is_available() else [])
 
@@ -127,7 +127,7 @@ class TestAutoRound(TestCase):
         quantize_(m, apply_auto_round(), _is_two_linear, device=device)
         for l in m.modules():
             if isinstance(l, torch.nn.Linear):
-                assert isinstance(l.weight, AffineQuantizedTensor)
+                assert isinstance(l.weight, TorchAOBaseTensor)
         after_quant = m(*example_inputs)
         assert after_quant is not None, "Quantized model forward pass failed"
 
@@ -166,7 +166,7 @@ class TestAutoRound(TestCase):
         quantize_(m, apply_auto_round(), _is_model_with_inplace_op, device=device)
         for l in m.modules():
             if isinstance(l, torch.nn.Linear):
-                assert isinstance(l.weight, AffineQuantizedTensor)
+                assert isinstance(l.weight, TorchAOBaseTensor)
         after_quant = m(input1[0], input2[0])
         assert after_quant is not None, "Quantized model forward pass failed"
 

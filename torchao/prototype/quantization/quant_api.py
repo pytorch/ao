@@ -11,8 +11,8 @@ to prototype.
 
 import logging
 import types
-import warnings
 from dataclasses import dataclass
+from functools import partial
 from typing import Optional
 
 import torch
@@ -21,9 +21,6 @@ from torch import Tensor
 
 import torchao
 from torchao.core.config import AOBaseConfig
-from torchao.dtypes import (
-    to_affine_quantized_intx,
-)
 from torchao.float8.config import e4m3_dtype
 from torchao.float8.inference import (
     Float8MMConfig,
@@ -45,70 +42,180 @@ from torchao.quantization.transform_module import (
 )
 from torchao.quantization.utils import (
     _linear_extra_repr,
+    _module_extra_repr,
 )
 
 logger = logging.getLogger(__name__)
 
 
 @dataclass
-class GemliteUIntXWeightOnlyConfig(AOBaseConfig):
-    """
-    applies weight only 4 or 8 bit integer quantization and utilizes the gemlite triton kernel and its associated weight packing format.
-    This only works for fp16 models. 8 bit quantization is symmetric, 4 bit quantization is asymmetric.
+class UIntxWeightOnlyConfig(AOBaseConfig):
+    """Weight-only uintx quantization using bit-packed format with gemlite (https://github.com/dropbox/gemlite)
+       Triton kernels.
+
+    Supports 4-bit (asymmetric, grouped) and 8-bit (symmetric, per-channel) quantization.
+    Uses gemlite library for efficient Triton-based GEMM.
 
     Args:
-        `group_size`: parameter for quantization, controls the granularity of quantization, smaller
-         size is more fine grained
-        `bit_width`: bit width of the quantized weight.
-        `packing_bitwidth`: bit width of the packed weight, should be 8 or 32. Can have performance impacts depending on hardware.
-        `mode`: if set to "dynamic", activations are quantized at runtime; default is "weight_only" (weight-only quantization).
-        `set_inductor_config`: if True, adjusts `torchinductor` settings to recommended values.
+        group_size: quantization group size. Use None for per-channel (required for 8-bit).
+            Valid values: 32, 64, 128, 256, 512, 1024, None. Default: 128.
+        bit_width: quantization bit width, 4 or 8. Default: 4.
+        packing_bitwidth: bit width for packing, 8/16/32/None (auto). Default: None.
+        set_inductor_config: if True, set recommended torchinductor config. Default: True.
+
+    Example:
+
+    .. literalinclude:: ../../examples/inference/uintx_weight_only.py
+       :language: python
     """
 
     group_size: Optional[int] = 128
     bit_width: int = 4
     packing_bitwidth: Optional[int] = None
-    mode: Optional[str] = "weight_only"
+    set_inductor_config: bool = True
+
+    def __post_init__(self):
+        torch._C._log_api_usage_once("torchao.quantization.UIntxWeightOnlyConfig")
+        if self.bit_width not in [4, 8]:
+            raise ValueError(f"bit_width must be 4 or 8, got {self.bit_width}")
+        valid_group_sizes = [32, 64, 128, 256, 512, 1024, None]
+        if self.group_size not in valid_group_sizes:
+            raise ValueError(
+                f"group_size must be one of {valid_group_sizes}, got {self.group_size}"
+            )
+        if self.bit_width == 8 and self.group_size is not None:
+            raise ValueError("group_size must be None for bit_width=8")
+        if self.packing_bitwidth not in [8, 16, 32, None]:
+            raise ValueError(
+                f"packing_bitwidth must be 8, 16, 32, or None, got {self.packing_bitwidth}"
+            )
+
+
+@register_quantize_module_handler(UIntxWeightOnlyConfig)
+def _uintx_weight_only_transform(
+    module: torch.nn.Module,
+    config: UIntxWeightOnlyConfig,
+    *,
+    parameter_name: str = "weight",
+) -> torch.nn.Module:
+    from torchao.prototype.quantization.uintx.uintx_bit_packed_tensor import (
+        UIntxBitPackedTensor,
+    )
+
+    if config.set_inductor_config:
+        torchao.quantization.utils.recommended_inductor_config_setter()
+
+    assert hasattr(module, parameter_name), (
+        f"applying uintx weight only quant requires module to have {parameter_name} attribute"
+        + f" but {module} does not have one"
+    )
+    weight = getattr(module, parameter_name)
+    quantized_weight = UIntxBitPackedTensor.from_hp(
+        weight,
+        bit_width=config.bit_width,
+        group_size=config.group_size,
+        packing_bitwidth=config.packing_bitwidth,
+    )
+    setattr(
+        module,
+        parameter_name,
+        torch.nn.Parameter(quantized_weight, requires_grad=False),
+    )
+    module.extra_repr = types.MethodType(
+        partial(
+            _module_extra_repr,
+            original_extra_repr=module.extra_repr,
+            parameter_name=parameter_name,
+        ),
+        module,
+    )
+    return module
+
+
+@dataclass
+class Int8DynamicActivationUIntxWeightConfig(AOBaseConfig):
+    """Dynamic activation + uintx weight quantization using gemlite (https://github.com/dropbox/gemlite)
+       Triton kernels.
+
+    Activations are quantized dynamically at runtime (int8). Weights use bit-packed
+    uintx format. Supports 4-bit and 8-bit weight quantization.
+
+    Args:
+        group_size: quantization group size. Use None for per-channel (required for 8-bit).
+            Valid values: 32, 64, 128, 256, 512, 1024, None. Default: 128.
+        bit_width: weight quantization bit width, 4 or 8. Default: 4.
+        packing_bitwidth: bit width for packing, 8/16/32/None (auto). Default: None.
+        set_inductor_config: if True, set recommended torchinductor config. Default: True.
+
+    Example:
+
+    .. literalinclude:: ../../examples/inference/int8_dynamic_activation_uintx_weight.py
+       :language: python
+    """
+
+    group_size: Optional[int] = 128
+    bit_width: int = 4
+    packing_bitwidth: Optional[int] = None
     set_inductor_config: bool = True
 
     def __post_init__(self):
         torch._C._log_api_usage_once(
-            "torchao.quantization.GemliteUIntXWeightOnlyConfig"
+            "torchao.quantization.Int8DynamicActivationUIntxWeightConfig"
         )
-        warnings.warn(
-            "`GemliteUIntXWeightOnlyConfig` will be deleted in a future release of torchao. Please see https://github.com/pytorch/ao/issues/2752 for more details."
-        )
+        if self.bit_width not in [4, 8]:
+            raise ValueError(f"bit_width must be 4 or 8, got {self.bit_width}")
+        valid_group_sizes = [32, 64, 128, 256, 512, 1024, None]
+        if self.group_size not in valid_group_sizes:
+            raise ValueError(
+                f"group_size must be one of {valid_group_sizes}, got {self.group_size}"
+            )
+        if self.bit_width == 8 and self.group_size is not None:
+            raise ValueError("group_size must be None for bit_width=8")
+        if self.packing_bitwidth not in [8, 16, 32, None]:
+            raise ValueError(
+                f"packing_bitwidth must be 8, 16, 32, or None, got {self.packing_bitwidth}"
+            )
 
 
-@register_quantize_module_handler(GemliteUIntXWeightOnlyConfig)
-def _gemlite_uintx_weight_only_transform(
-    module: torch.nn.Module, config: GemliteUIntXWeightOnlyConfig
-):
-    group_size = config.group_size
-    bit_width = config.bit_width
-    packing_bitwidth = config.packing_bitwidth
-    mode = config.mode
+@register_quantize_module_handler(Int8DynamicActivationUIntxWeightConfig)
+def _int8_dynamic_activation_uintx_weight_transform(
+    module: torch.nn.Module,
+    config: Int8DynamicActivationUIntxWeightConfig,
+    *,
+    parameter_name: str = "weight",
+) -> torch.nn.Module:
+    from torchao.prototype.quantization.uintx.uintx_bit_packed_tensor import (
+        UIntxBitPackedTensor,
+    )
+
     if config.set_inductor_config:
         torchao.quantization.utils.recommended_inductor_config_setter()
 
-    weight = module.weight
-
-    from torchao.prototype.dtypes.uintx.gemlite_layout import get_gemlite_aqt_kwargs
-
-    use_hqq = True if bit_width == 4 else False
-    new_weight = to_affine_quantized_intx(
-        weight,
-        **get_gemlite_aqt_kwargs(
-            weight,
-            group_size=group_size,
-            bit_width=bit_width,
-            packing_bitwidth=packing_bitwidth,
-            mode=mode,
-            use_hqq=use_hqq,
-        ),
+    assert hasattr(module, parameter_name), (
+        f"applying int8 dynamic activation uintx weight quant requires module to have {parameter_name} attribute"
+        + f" but {module} does not have one"
     )
-    module.weight = torch.nn.Parameter(new_weight, requires_grad=False)
-    module.extra_repr = types.MethodType(_linear_extra_repr, module)
+    weight = getattr(module, parameter_name)
+    quantized_weight = UIntxBitPackedTensor.from_hp(
+        weight,
+        bit_width=config.bit_width,
+        group_size=config.group_size,
+        packing_bitwidth=config.packing_bitwidth,
+        mode="dynamic",
+    )
+    setattr(
+        module,
+        parameter_name,
+        torch.nn.Parameter(quantized_weight, requires_grad=False),
+    )
+    module.extra_repr = types.MethodType(
+        partial(
+            _module_extra_repr,
+            original_extra_repr=module.extra_repr,
+            parameter_name=parameter_name,
+        ),
+        module,
+    )
     return module
 
 
@@ -265,41 +372,34 @@ class Float8ObservedLinear(torch.nn.Linear):
 
 class Float8ObservedSoftmax(torch.nn.Softmax):
     """
-    A softmax module with an observer for float8 static quantization.
+    A softmax module placeholder for float8 static quantization.
 
-    This module wraps a softmax layer and adds an AffineQuantizedMinMaxObserver
-    that collects statistics on the output during calibration. After calibration,
-    use `quantize_` with `Float8StaticActivationFloat8WeightConfig(step="convert")`
-    to convert to a quantized softmax module that applies quantize-and-dequantize
-    to simulate quantization error.
+    Softmax output is always in [0, 1], so we use a fixed scale of
+    ``finfo(float8_dtype).max`` instead of observing. This module simply
+    marks the softmax for later conversion by the convert step.
+
+    Unlike linear observers, the calibration loop does not collect statistics
+    here — it only records the input device for scale tensor placement.
     """
 
     def __init__(
         self,
         dim: Optional[int] = None,
-        output_act_obs: Optional["AffineQuantizedMinMaxObserver"] = None,  # noqa: F821
     ):
         super().__init__(dim=dim)
-        self.output_act_obs = output_act_obs
+        self._device: Optional[torch.device] = None
 
     def forward(self, input: Tensor) -> Tensor:
-        output = F.softmax(input, self.dim, _stacklevel=5)
-        if self.output_act_obs is not None:
-            self.output_act_obs(output)
-        return output
+        self._device = input.device
+        return F.softmax(input, self.dim, _stacklevel=5)
 
     @classmethod
     def from_float(
         cls,
         float_softmax: torch.nn.Softmax,
-        output_act_obs: "AffineQuantizedMinMaxObserver",  # noqa: F821
     ) -> "Float8ObservedSoftmax":
         """Create an observed softmax from a float softmax module."""
-        observed_softmax = cls(
-            dim=float_softmax.dim,
-            output_act_obs=output_act_obs,
-        )
-        return observed_softmax
+        return cls(dim=float_softmax.dim)
 
 
 class Float8QuantizedSoftmax(torch.nn.Module):
@@ -325,10 +425,25 @@ class Float8QuantizedSoftmax(torch.nn.Module):
         else:
             self.output_act_quant_scale = None
         self.output_act_quant_kwargs = output_act_quant_kwargs
+        # Cached version of scale reshaped to match input ndim, populated on first forward
+        self._reshaped_scale: Optional[torch.Tensor] = None
 
     @property
     def dim(self) -> Optional[int]:
         return self._dim
+
+    def _get_reshaped_scale(self, target_ndim: int) -> torch.Tensor:
+        """Return the scale reshaped to match target_ndim, caching the result."""
+        if (
+            self._reshaped_scale is not None
+            and self._reshaped_scale.ndim == target_ndim
+        ):
+            return self._reshaped_scale
+        scale = self.output_act_quant_scale
+        while scale.ndim < target_ndim:
+            scale = scale.unsqueeze(0)
+        self._reshaped_scale = scale
+        return scale
 
     def forward(self, input: Tensor) -> Tensor:
         from torchao.prototype.quantization.float8_static_quant.prototype_float8_tensor import (
@@ -339,10 +454,11 @@ class Float8QuantizedSoftmax(torch.nn.Module):
 
         # Apply quantize-and-dequantize if configured
         if self.output_act_quant_kwargs is not None:
+            scale = self._get_reshaped_scale(output.ndim)
             quantized_output = _choose_quant_func_and_quantize_tensor(
                 output,
                 self.output_act_quant_kwargs,
-                act_quant_scale=self.output_act_quant_scale,
+                act_quant_scale=scale,
             )
             output = quantized_output.dequantize()
 
@@ -390,16 +506,7 @@ def _float8_static_activation_float8_weight_transform(
     if step == QuantizationStep.PREPARE or step == "prepare":
         # Handle Softmax modules
         if isinstance(module, torch.nn.Softmax):
-            output_observer = AffineQuantizedMinMaxObserver(
-                mapping_type=MappingType.SYMMETRIC,
-                target_dtype=config.activation_dtype,
-                granularity=granularity,
-                eps=torch.finfo(torch.float32).eps,
-                scale_dtype=torch.float32,
-                zero_point_dtype=torch.float32,
-                keepdim=True,
-            )
-            return Float8ObservedSoftmax.from_float(module, output_observer)
+            return Float8ObservedSoftmax.from_float(module)
 
         # Handle Linear modules
         # Create input observer and wrap linear
@@ -429,14 +536,19 @@ def _float8_static_activation_float8_weight_transform(
     elif step == QuantizationStep.CONVERT or step == "convert":
         # Handle observed Softmax modules
         if isinstance(module, Float8ObservedSoftmax):
-            if module.output_act_obs is None:
+            device = module._device
+            if device is None:
                 logger.warning(
-                    "Float8ObservedSoftmax has no output observer, returning as-is"
+                    "Float8ObservedSoftmax._device is None (forward() was never called). "
+                    "Defaulting scale device to CPU."
                 )
-                return module
-
-            # Extract output scale from observer
-            output_act_quant_scale, _ = module.output_act_obs.calculate_qparams()
+                device = torch.device("cpu")
+            # Softmax output is in [0, 1], so use a fixed scale:
+            # scale = float8_max / 1.0 = float8_max
+            float8_max = torch.finfo(config.activation_dtype).max
+            output_act_quant_scale = torch.tensor(
+                [float8_max], dtype=torch.float32, device=device
+            )
 
             output_act_quant_kwargs = QuantizeTensorToFloat8Kwargs(
                 float8_dtype=config.activation_dtype,
@@ -447,7 +559,7 @@ def _float8_static_activation_float8_weight_transform(
 
             return Float8QuantizedSoftmax.from_observed(
                 module,
-                output_act_quant_scale=output_act_quant_scale.detach(),
+                output_act_quant_scale=output_act_quant_scale,
                 output_act_quant_kwargs=output_act_quant_kwargs,
             )
 

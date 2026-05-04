@@ -17,23 +17,9 @@ import torch
 import triton
 import triton.language as tl
 
-
-def _compute_num_chunks(tensor: torch.Tensor, S: int) -> int:
-    """Compute optimal number of chunks based on GPU properties."""
-    props = torch.cuda.get_device_properties(tensor.device)
-    num_sms = props.multi_processor_count
-    B, _, H, _ = tensor.shape  # [B, S, H, D]
-    base_parallelism = B * H
-    # Target 2-4x SMs for good occupancy/latency hiding
-    target_blocks = num_sms * 4
-    num_chunks = max(1, target_blocks // base_parallelism)
-    # Ensure each chunk has at least 32 S positions for efficiency
-    num_chunks = min(num_chunks, S // 32) if S >= 32 else 1
-    # Cap at reasonable maximum
-    num_chunks = min(num_chunks, 64)
-    # Adjust if S is small
-    num_chunks = min(num_chunks, S)
-    return num_chunks
+from torchao.prototype.attention.quantization.triton_hadamard_utils import (
+    _compute_num_chunks,
+)
 
 
 @triton.autotune(
@@ -570,7 +556,7 @@ def triton_fp8_rope_sdpa_quantize(
 
     # Compute number of chunks
     if num_chunks is None:
-        num_chunks = _compute_num_chunks(q, S)
+        num_chunks = _compute_num_chunks(q.device, B, H_q, S)
     chunk_size = (S + num_chunks - 1) // num_chunks
 
     # Allocate output tensors in [B, H, S, D] layout for SDPA

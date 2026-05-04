@@ -3,15 +3,15 @@
 #
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
+
 import argparse
 import logging
 import os
 
 import torch
 
-import torchao
 import torchao.prototype.autoround.utils as ar_utils
-import torchao.quantization
+from torchao.utils import TorchAOBaseTensor
 
 logger = logging.getLogger(__name__)
 
@@ -140,7 +140,7 @@ def main(args):
                     compile_optimization_process=args.compile_optimization_process,
                 )
             quantized_layer_cnt = ar_utils.count_tensor_of_type(
-                model, torchao.dtypes.AffineQuantizedTensor
+                model, TorchAOBaseTensor
             )
             msg += f" quantized {quantized_layer_cnt} Linear layers "
         if not AO_USE_DETERMINISTIC_ALGORITHMS:

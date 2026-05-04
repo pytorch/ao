@@ -5,8 +5,8 @@
 # LICENSE file in the root directory of this source tree.
 import torch
 
-import torchao
-from torchao.dtypes import to_nf4
+from torchao.quantization import to_nf4
+from torchao.quantization.quantize_.workflows.nf4 import nf4_tensor
 
 # To create coverage for a new nf4 op we first attempt to run it
 
@@ -28,7 +28,7 @@ print(f"a_nf4: {a_nf4}")
 
 
 # Next you can add this function using the implements decorator
-@torchao.dtypes.nf4tensor.implements([torch.ops.aten.gelu.default])
+@nf4_tensor.implements([torch.ops.aten.gelu.default])
 def gelu(func, *args, **kwargs):
     # The torch dispatch convention is to pass all args and kwargs via the
     # args input.
@@ -47,5 +47,5 @@ def gelu(func, *args, **kwargs):
 print(f"gelu(a): {torch.nn.functional.gelu(a)}")
 print(f"gelu(a_nf4): {torch.nn.functional.gelu(a_nf4)}")
 
-# We collect these implementations in torchao.dtypes.nf4tensor, but you can also
+# We collect these implementations in the nf4_tensor module, but you can also
 # just roll your own.

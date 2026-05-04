@@ -209,13 +209,17 @@ template <typename T, int N> struct Vec {
   }
 };
 
-// Source:
-// https://github.com/NVIDIA/TransformerEngine/blob/1ae1d228d725a488621deba685bd26d6ee1cdb21/transformer_engine/common/utils.cuh#L971
+// Source: https://github.com/NVIDIA/TransformerEngine/blob/b7598aa887eb7d619d64c90692980009669379bf/transformer_engine/common/util/ptx.cuh#L332-L341
 __device__ __forceinline__ float exp2f_rcp(e8m0_t biased_exp) {
-  return (biased_exp == 0)
-             ? 1
-             : exp2f(FP32_EXPONENT_BIAS - static_cast<float>(biased_exp));
+  // Handle the special case of NaN.
+  if (biased_exp == 255) return __int_as_float(0x7fffffff);
+  // Handle the special case where the unbiased exponent is 127, so the reciprocal is 2^-127 which needs the first bit of
+  // the mantissa to be 1, which can't be obtained by shifting `FP32_MANTISSA_BITS` bits to the left.
+  if (biased_exp == 254) return __int_as_float(0x00400000);
+  // Fast calculation when the unbiased exp is in [-126, 126], and only the exponent part is used to express the reciprocal.
+  return __int_as_float((254 - biased_exp) << FP32_MANTISSA_BITS);
 }
+
 
 // Source:
 // https://github.com/NVIDIA/TransformerEngine/blob/1ae1d228d725a488621deba685bd26d6ee1cdb21/transformer_engine/common/utils.cuh#L937

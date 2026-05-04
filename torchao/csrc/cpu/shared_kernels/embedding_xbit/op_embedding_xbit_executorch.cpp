@@ -7,7 +7,7 @@
 #include <torchao/csrc/cpu/shared_kernels/embedding_xbit/op_embedding_xbit-impl.h>
 
 #define DEFINE_OP(weight_nbit)             \
-  Tensor _op_out_##weight_nbit(            \
+  static Tensor _op_out_##weight_nbit(     \
       RuntimeContext& ctx,                 \
       const Tensor& packed_weight_qvals,   \
       const int64_t& num_embeddings,       \
@@ -40,7 +40,7 @@ DEFINE_OP(7);
 DEFINE_OP(8);
 
 #define DEFINE_SHARED_OP(weight_nbit)                    \
-  Tensor _shared_op_out_##weight_nbit(                   \
+  static Tensor _shared_op_out_##weight_nbit(             \
       RuntimeContext& ctx,                               \
       const Tensor& packed_weights,                      \
       const int64_t& group_size,                         \

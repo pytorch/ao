@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from typing import Callable, Optional
 
 import torch
-from torch.sparse import to_sparse_semi_structured
+from torch.sparse import SparseSemiStructuredTensor, to_sparse_semi_structured
 
 from torchao.core.config import AOBaseConfig
 from torchao.prototype.sparsity.sparsifier.weight_norm_sparsifier import (
@@ -75,6 +75,10 @@ class SemiSparseWeightConfig(AOBaseConfig):
     Configuration for converting the weight of linear modules to semi-structured (2:4) sparsity
     """
 
+    def __init__(self, alg_id: int = SparseSemiStructuredTensor._DEFAULT_ALG_ID):
+        super().__init__()
+        self.alg_id = alg_id
+
     def __post_init__(self):
         torch._C._log_api_usage_once("torchao.sparsity.SemiSparseWeightConfig")
 
@@ -88,7 +92,19 @@ def _semi_sparse_weight_transform(
     module: torch.nn.Module,
     config: SemiSparseWeightConfig,
 ) -> torch.nn.Module:
-    new_weight = to_sparse_semi_structured(module.weight)
+    is_nightly_or_source = (
+        "dev" in torch.__version__
+        or "git" in torch.__version__
+        or "fb" in torch.__version__
+    )
+    if is_nightly_or_source:
+        new_weight = to_sparse_semi_structured(module.weight, alg_id=config.alg_id)
+    else:
+        if config.alg_id != SparseSemiStructuredTensor._DEFAULT_ALG_ID:
+            raise ValueError(
+                "SemiSparseWeightConfig.alg_id is only supported in nightly or source"
+            )
+        new_weight = to_sparse_semi_structured(module.weight)
     module.weight = torch.nn.Parameter(new_weight, requires_grad=False)
     module.extra_repr = types.MethodType(_linear_extra_repr, module)
     return module
@@ -102,9 +118,7 @@ def sparsify_(
     """Convert the weight of linear modules in the model with `apply_tensor_subclass`.
     This function is essentially the same as quantize, put for sparsity subclasses.
 
-    Currently, we support three options for sparsity:
-        - semi-structured (2:4) sparsity with `semi_sparse_weight`
-        - int8 dynamic quantization + 2:4 sparsity with `layout=SemiSparseLayout`
+    Currently, we support semi-structured (2:4) sparsity with `semi_sparse_weight`.
 
     Args:
         model (torch.nn.Module): input model
@@ -125,10 +139,6 @@ def sparsify_(
             # for 2:4 sparsity
             from torchao.sparse_api import semi_sparse_weight
             m = sparsify_(m, semi_sparse_weight(), filter_fn)
-
-            # for int8 dynamic quantization + 2:4 sparsity
-            from torchao.dtypes import SemiSparseLayout
-            m = quantize_(m, Int8DynamicActivationInt8WeightConfig(layout=SemiSparseLayout), filter_fn)
     """
     torch._C._log_api_usage_once("torchao.sparsity.sparsify_")
     handler = _QUANTIZE_CONFIG_HANDLER[type(config)]

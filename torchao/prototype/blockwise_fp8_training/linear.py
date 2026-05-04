@@ -5,10 +5,17 @@
 # LICENSE file in the root directory of this source tree.
 
 import torch
+import torch.nn.functional as F
 from torch import nn
+from torch.distributed._tensor import DTensor
 
 from torchao.core.config import AOBaseConfig
 from torchao.prototype.blockwise_fp8_training.kernels import (
+    BLOCKWISE_1X128_SCALING_TYPE,
+    BLOCKWISE_128X128_SCALING_TYPE,
+    _prepare_blockwise_scaled_mm_rhs_scale,
+    _scaling_type_value,
+    blockwise_scaled_mm,
     triton_fp8_blockwise_act_quant_lhs,
     triton_fp8_blockwise_act_quant_rhs,
     triton_fp8_blockwise_act_quant_transposed_lhs,
@@ -21,6 +28,71 @@ from torchao.quantization.transform_module import (
     register_quantize_module_handler,
 )
 from torchao.utils import is_sm_at_least_90
+
+
+def _scaled_mm(
+    mat_a: torch.Tensor,
+    mat_b: torch.Tensor,
+    scale_a: torch.Tensor,
+    scale_recipe_a,
+    scale_b: torch.Tensor,
+    scale_recipe_b,
+    out_dtype: torch.dtype,
+) -> torch.Tensor:
+    if not any(
+        isinstance(tensor, DTensor) for tensor in (mat_a, mat_b, scale_a, scale_b)
+    ):
+        return F.scaled_mm(
+            mat_a,
+            mat_b,
+            scale_a=scale_a,
+            scale_recipe_a=scale_recipe_a,
+            scale_b=_prepare_blockwise_scaled_mm_rhs_scale(scale_b, scale_recipe_b),
+            scale_recipe_b=scale_recipe_b,
+            output_dtype=out_dtype,
+        )
+
+    return blockwise_scaled_mm(
+        mat_a,
+        mat_b,
+        scale_a,
+        _scaling_type_value(scale_recipe_a),
+        scale_b,
+        _scaling_type_value(scale_recipe_b),
+        out_dtype,
+    )
+
+
+def _run_blockwise_mm(
+    *,
+    use_triton: bool,
+    triton_kernel,
+    mat_a: torch.Tensor,
+    mat_b: torch.Tensor,
+    scale_a: torch.Tensor,
+    scale_recipe_a,
+    scale_b: torch.Tensor,
+    scale_recipe_b,
+    triton_scale_b: torch.Tensor | None = None,
+    out_dtype: torch.dtype,
+) -> torch.Tensor:
+    if use_triton:
+        return triton_kernel(
+            mat_a,
+            mat_b,
+            scale_a,
+            scale_b if triton_scale_b is None else triton_scale_b,
+            out_dtype=out_dtype,
+        )
+    return _scaled_mm(
+        mat_a,
+        mat_b,
+        scale_a,
+        scale_recipe_a,
+        scale_b,
+        scale_recipe_b,
+        out_dtype,
+    )
 
 
 class fp8_blockwise_mm(torch.autograd.Function):
@@ -42,12 +114,15 @@ class fp8_blockwise_mm(torch.autograd.Function):
         )
 
         # out = input @ weight.T
-        fp8_gemm = triton_fp8_gemm_1x128_128x128 if use_triton else torch._scaled_mm
-        out = fp8_gemm(
-            x_fp8,
-            weight_t_fp8,
-            x_scale,
-            weight_t_scale,
+        out = _run_blockwise_mm(
+            use_triton=use_triton,
+            triton_kernel=triton_fp8_gemm_1x128_128x128,
+            mat_a=x_fp8,
+            mat_b=weight_t_fp8,
+            scale_a=x_scale,
+            scale_recipe_a=BLOCKWISE_1X128_SCALING_TYPE,
+            scale_b=weight_t_scale,
+            scale_recipe_b=BLOCKWISE_128X128_SCALING_TYPE,
             out_dtype=out_dtype,
         )
         out = out.reshape(*x_orig_shape[:-1], out.shape[-1])
@@ -86,14 +161,15 @@ class fp8_blockwise_mm(torch.autograd.Function):
         )
 
         # grad_x = grad_output @ weight
-        fp8_gemm_1x128_128x128 = (
-            triton_fp8_gemm_1x128_128x128 if use_triton else torch._scaled_mm
-        )
-        grad_x = fp8_gemm_1x128_128x128(
-            grad_output_fp8,
-            weight_fp8,
-            grad_output_scale,
-            weight_scale,
+        grad_x = _run_blockwise_mm(
+            use_triton=use_triton,
+            triton_kernel=triton_fp8_gemm_1x128_128x128,
+            mat_a=grad_output_fp8,
+            mat_b=weight_fp8,
+            scale_a=grad_output_scale,
+            scale_recipe_a=BLOCKWISE_1X128_SCALING_TYPE,
+            scale_b=weight_scale,
+            scale_recipe_b=BLOCKWISE_128X128_SCALING_TYPE,
             out_dtype=out_dtype,
         )
 
@@ -113,14 +189,20 @@ class fp8_blockwise_mm(torch.autograd.Function):
         x_fp8, x_scale = triton_fp8_blockwise_act_quant_rhs(x, block_size)
 
         # grad_weight = grad_output.T @ x
-        fp8_gemm_1x128_128x1 = (
-            triton_fp8_gemm_1x128_128x1 if use_triton else torch._scaled_mm
-        )
-        grad_weight = fp8_gemm_1x128_128x1(
-            grad_output_t_fp8,
-            x_fp8,
-            grad_output_t_scale,
-            x_scale,
+        grad_weight = _run_blockwise_mm(
+            use_triton=use_triton,
+            triton_kernel=triton_fp8_gemm_1x128_128x1,
+            mat_a=grad_output_t_fp8,
+            mat_b=x_fp8,
+            scale_a=grad_output_t_scale,
+            scale_recipe_a=BLOCKWISE_1X128_SCALING_TYPE,
+            scale_b=x_scale.transpose(-1, -2),
+            scale_recipe_b=BLOCKWISE_1X128_SCALING_TYPE,
+            # In the grad_weight path, Triton 1x128_128x1 expects RHS scales
+            # in row-major layout, while scaled_mm expects the transposed scale
+            # layout. Pass a separate Triton scale tensor so each backend gets
+            # its required layout.
+            triton_scale_b=x_scale,
             out_dtype=out_dtype,
         )
 

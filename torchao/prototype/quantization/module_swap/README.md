@@ -1,5 +1,7 @@
 # Module Swap Quantization (prototype)
 
+> **TODO:** migrate off AffineQuantizedTensor, see https://github.com/pytorch/ao/pull/4245
+
 This is an alternative to quantization based on tensor subclasses,
 bypassing the entire `AffineQuantizedTensor` stack for simplicity.
 Quantized modules supported today include:

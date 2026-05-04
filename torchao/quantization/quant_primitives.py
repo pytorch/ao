@@ -5,7 +5,8 @@
 # LICENSE file in the root directory of this source tree.
 
 import math
-from enum import Enum, auto
+import warnings
+from enum import Enum, EnumMeta, auto
 from typing import Callable, Dict, List, Optional, Tuple, Union
 
 import torch
@@ -88,7 +89,18 @@ class ZeroPointDomain(Enum):
     NONE = auto()
 
 
-class TorchAODType(Enum):
+class _TorchAODTypeMeta(EnumMeta):
+    def __getattribute__(cls, name):
+        result = super().__getattribute__(name)
+        if isinstance(result, cls):
+            warnings.warn(
+                "Deprecation: TorchAODType is deprecated, please use the torch.intN dtype instead "
+                "(e.g. TorchAODType.INT4 -> torch.int4)"
+            )
+        return result
+
+
+class TorchAODType(Enum, metaclass=_TorchAODTypeMeta):
     """
     Placeholder for dtypes that do not exist in PyTorch core yet.
     """
@@ -117,36 +129,41 @@ FP8_TYPES = {
 Map from dtype to the bound value of integers
 TODO: maybe can replace this with call to torch.iinfo
 """
-_DTYPE_TO_QVALUE_BOUNDS: Dict[Union[torch.dtype, TorchAODType], Tuple[int, int]] = {
-    torch.uint8: (0, 255),
-    torch.int8: (-128, 127),
-    torch.int16: (-(2**15), 2**15 - 1),
-    torch.int32: (-(2**31), 2**31 - 1),
-}
-_DTYPE_TO_BIT_WIDTH: Dict[Union[torch.dtype, TorchAODType], Tuple[int, int]] = {
-    TorchAODType.INT1: 1,
-    TorchAODType.INT2: 2,
-    TorchAODType.INT3: 3,
-    TorchAODType.INT4: 4,
-    TorchAODType.INT5: 5,
-    TorchAODType.INT6: 6,
-    TorchAODType.INT7: 7,
-    torch.uint8: 8,
-    torch.int8: 8,
-    torch.int16: 16,
-    torch.int32: 32,
-}
+# Suppress TorchAODType deprecation warnings for internal usage
+with warnings.catch_warnings():
+    warnings.simplefilter("ignore", UserWarning)
 
-_SUB_BYTE_UINT_BOUNDS: Dict[Union[torch.dtype, TorchAODType], Tuple[int, int]] = {}
-_SUB_BYTE_INT_BOUNDS: Dict[Union[torch.dtype, TorchAODType], Tuple[int, int]] = {
-    TorchAODType.INT1: (-(2**0), 2**0 - 1),
-    TorchAODType.INT2: (-(2**1), 2**1 - 1),
-    TorchAODType.INT3: (-(2**2), 2**2 - 1),
-    TorchAODType.INT4: (-(2**3), 2**3 - 1),
-    TorchAODType.INT5: (-(2**4), 2**4 - 1),
-    TorchAODType.INT6: (-(2**5), 2**5 - 1),
-    TorchAODType.INT7: (-(2**6), 2**6 - 1),
-}
+    _DTYPE_TO_QVALUE_BOUNDS: Dict[Union[torch.dtype, TorchAODType], Tuple[int, int]] = {
+        torch.uint8: (0, 255),
+        torch.int8: (-128, 127),
+        torch.int16: (-(2**15), 2**15 - 1),
+        torch.int32: (-(2**31), 2**31 - 1),
+    }
+
+    _DTYPE_TO_BIT_WIDTH: Dict[Union[torch.dtype, TorchAODType], int] = {
+        TorchAODType.INT1: 1,
+        TorchAODType.INT2: 2,
+        TorchAODType.INT3: 3,
+        TorchAODType.INT4: 4,
+        TorchAODType.INT5: 5,
+        TorchAODType.INT6: 6,
+        TorchAODType.INT7: 7,
+        torch.uint8: 8,
+        torch.int8: 8,
+        torch.int16: 16,
+        torch.int32: 32,
+    }
+
+    _SUB_BYTE_UINT_BOUNDS: Dict[Union[torch.dtype, TorchAODType], Tuple[int, int]] = {}
+    _SUB_BYTE_INT_BOUNDS: Dict[Union[torch.dtype, TorchAODType], Tuple[int, int]] = {
+        TorchAODType.INT1: (-(2**0), 2**0 - 1),
+        TorchAODType.INT2: (-(2**1), 2**1 - 1),
+        TorchAODType.INT3: (-(2**2), 2**2 - 1),
+        TorchAODType.INT4: (-(2**3), 2**3 - 1),
+        TorchAODType.INT5: (-(2**4), 2**4 - 1),
+        TorchAODType.INT6: (-(2**5), 2**5 - 1),
+        TorchAODType.INT7: (-(2**6), 2**6 - 1),
+    }
 
 _SUB_BYTE_UINT_BOUNDS = {
     torch.uint1: (0, 2**1 - 1),
@@ -1313,7 +1330,7 @@ def _choose_qparams_affine_tinygemm(
 
     # For zero_point_domain=FLOAT in asymmetric quantization
     mid_point = (quant_max + quant_min + 1) / 2
-    # this is not preserving zero_point, this is converting to TensorCoreTiledFormat
+    # this is not preserving zero_point, this is converting to tinygemm format
     zero_point = min_val_neg + scale * mid_point
 
     if zero_point_dtype is None:
@@ -1962,10 +1979,7 @@ def _choose_qparams_and_quantize_affine_hqq(
     # Store meta-data (we invert the scale for dequantization)
     scale = 1.0 / scale
 
-    # Convert to TensorCoreTiled format
-    # TODO move the conversion of zero_point out of quant_primitives
-    # and into TensorCoreTiledLayout.from_plain and rename this
-    # helper function correctly.
+    # Convert to tinygemm format
     if raw_output is False:
         W_q, scale, zero = _convert_to_affinequantized_format(
             W_q, scale, zero, nbits, shape

@@ -17,9 +17,19 @@ import os
 import pytest
 import torch
 
-if torch.version.hip is not None:
+from torchao.utils import is_MI300, is_MI350, is_ROCM, is_sm_at_least_89
+
+if not torch.cuda.is_available() or not (
+    is_sm_at_least_89() or is_MI300() or is_MI350()
+):
     pytest.skip(
-        "ROCm support for MoE quantization is under development",
+        "Requires FP8-capable GPU (CUDA SM89+, MI300, or MI350)",
+        allow_module_level=True,
+    )
+
+if is_ROCM():
+    pytest.skip(
+        "Distributed MoE tests require world_size=4; ROCm CI has 1 device",
         allow_module_level=True,
     )
 
@@ -42,12 +52,6 @@ except ImportError:
     pytest.skip(
         "torch version is too old, these tests require nightly build. Skipping MoE training tests.",
         allow_module_level=True,
-    )
-
-# this feature requires CUDA and SM89+
-if not torch.cuda.is_available() or torch.cuda.get_device_capability() < (8, 9):
-    pytest.skip(
-        "CUDA not available or compute capability < 8.9", allow_module_level=True
     )
 
 from torchao.float8.float8_utils import compute_error

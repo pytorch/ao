@@ -23,13 +23,18 @@ from typing import Optional, Union
 
 import torch
 import torch.nn.functional as F
-from torch.distributed._tensor import DTensor
+from torch._subclasses.fake_tensor import is_fake
+from torch.distributed.tensor import DTensor, Replicate, Shard
+from torch.distributed.tensor.experimental import local_map
 from torch.utils._python_dispatch import (
     return_and_correct_aliasing,
 )
 from torch.utils._pytree import tree_map
 
-from torchao.utils import torch_version_at_least
+from torchao.utils import is_sm_at_least_100, torch_version_at_least
+
+if torch_version_at_least("2.12.0.dev0"):
+    from torch._higher_order_ops.inline_asm_elementwise import inline_asm_elementwise
 
 # ScalingType and SwizzleType are only available in PyTorch 2.10+
 if torch_version_at_least("2.10.0"):
@@ -113,7 +118,9 @@ def _to_mx_rceil(
     https://docs.nvidia.com/cuda/cublas/#d-block-quantization
 
     For Nvidia GPU with Blackwell+ architecture, the scale factor derivation method
-    could be accelerated by the `cvt.rp.satfinite.ue8m0x2.f32` instruction.
+    is accelerated by the `cvt.rp.satfinite.ue8m0x2.f32` instruction via
+    `inline_asm_elementwise`, if torch.compile is on. Falls back to pure PyTorch ops
+    on other hardware and in eager mode.
 
     Args:
         data_hp: High precision data.
@@ -126,28 +133,79 @@ def _to_mx_rceil(
             (requires cast to low precision data type).
     """
     descale = max_abs / max_pos
-    # TODO: nan/inf needs to be set for any value
-    # of nan/inf in input not just amax.
-    exponent = torch.where(
-        torch.isnan(descale),
-        0xFF,  # Handle biased exponent for nan
-        # NOTE: descale < (torch.finfo(torch.float32).smallest_normal / 2) is handled through clamping
-        (
-            torch.clamp(
-                torch.ceil(torch.log2(descale)),
-                min=-E8M0_EXPONENT_BIAS,
-                max=E8M0_EXPONENT_BIAS,
-            )
-            + E8M0_EXPONENT_BIAS
-        ).to(torch.uint8),
+
+    if (
+        # gate the inline PTX to compile only because the functionality does
+        # not work properly in eager mode due to mismatch between input and
+        # output tensor dtype (limitation of JITerator).
+        # Note: we use both `torch.compiler.is_compiling()` as well as `is_fake`
+        # because `torch.compiler.is_compiling()` properly covers
+        # microbenchmarks, and `is_fake` properly covers e2e runs where this code
+        # path is hit through `__torch_dispatch__` and
+        # `torch.compiler.is_compiling()` returns False.
+        # Note that we need both checks, as neither of them work in both benchmark
+        # and e2e use cases by themselves.
+        (torch.compiler.is_compiling() or is_fake(descale))
+        and is_sm_at_least_100()
+        # the PyTorch Core support for inline_asm_elementwise is available in
+        # 2.12.0 nightly and above
+        and torch_version_at_least("2.12.0.dev0")
+        and descale.is_cuda
+    ):
+        # Use cvt.rp.satfinite.ue8m0x2.f32 to convert fp32 descale to e8m0.
+        # The instruction takes two fp32 inputs, packs two e8m0 results into uint16.
+        # We pass 0.0 as the first input (high byte) and descale as the second (low byte).
+        # Handles NaN->255, Inf->254, subnormals->0 in hardware.
+        scale_e8m0_u16 = inline_asm_elementwise(
+            descale.to(torch.float32),
+            asm_str="cvt.rp.satfinite.ue8m0x2.f32 $0, 0.0, $1;",
+            constraints="=h,r",
+            dtype=torch.uint16,
+        )
+        # Low byte contains e8m0 of our input; truncate uint16 -> uint8
+        exponent = scale_e8m0_u16.to(torch.uint8)
+    else:
+        # Fallback
+        exponent = torch.where(
+            torch.isnan(descale),
+            255,  # 0xFF for NaN in amax
+            torch.where(
+                torch.isinf(descale),
+                254,  # 0xFE for inf in amax
+                # Normal case
+                (
+                    torch.clamp(
+                        torch.ceil(torch.log2(descale)),
+                        min=-E8M0_EXPONENT_BIAS,
+                        max=E8M0_EXPONENT_BIAS,
+                    )
+                    + E8M0_EXPONENT_BIAS
+                ).to(torch.uint8),
+            ),
+        )
+
+    # Ref: https://github.com/NVIDIA/TransformerEngine/blob/b7598aa887eb7d619d64c90692980009669379bf/transformer_engine/common/util/ptx.cuh#L332-L341
+    rcp_fp32 = torch.where(
+        exponent == 255,  # NaN case -> stays NaN
+        float("nan"),
+        torch.where(
+            exponent == 254,  # Inf case -> return 2^-127
+            2**-127,
+            # Normal case
+            torch.where(
+                exponent == 0,
+                1.0,
+                torch.exp2(E8M0_EXPONENT_BIAS - exponent.to(torch.float32)),
+            ),
+        ),
     )
 
-    descale_fp = torch.where(
-        exponent == 0, 1.0, torch.exp2(E8M0_EXPONENT_BIAS - exponent.to(torch.float32))
-    )
+    # Scale the data
+    data_lp = data_hp * rcp_fp32
 
-    # scale and saturated cast the data elements to max of target dtype
-    data_lp = torch.clamp(data_hp * descale_fp, min=-1 * max_pos, max=max_pos)
+    # Note: clamp preserves NaN values
+    data_lp = torch.clamp(data_lp, min=-max_pos, max=max_pos)
+
     return exponent, data_lp
 
 
@@ -182,6 +240,8 @@ def to_mx(
     # Note: this only implements the `minimally supported` version of
     # https://www.opencompute.org/documents/ocp-microscaling-formats-mx-v1-0-spec-final-pdf
     # section 6.3.
+
+    # Calculate max_abs normally (torch.amax returns NaN if any input is NaN)
     max_abs = torch.amax(torch.abs(data_hp), -1).unsqueeze(-1)
 
     # We cast to float32 here because
@@ -353,7 +413,7 @@ def get_fp_scale(scale_e8m0):
     s_offset = scale_e8m0.to(torch.int16) - E8M0_EXPONENT_BIAS
     # TODO(later): it would be nice if there was a way to do the 2^x operation
     # in PyTorch without creating a tensor of twos
-    two = torch.full(s_offset.size(), 2.0, device=scale_e8m0.device)
+    two = torch.full_like(s_offset, 2.0, dtype=torch.float32)
     # pow(two, s_offset) can be out of range of floating point formats.
     # TODO(later): handle this for float16 if we decide to support float16
     # scales.
@@ -426,7 +486,7 @@ def tensor_size_hp_to_fp4x2(orig_size, is_contiguous):
         else:
             assert len(orig_size) == 3, "unsupported"
             # only supporting dim0, dim1, dim2 and dim0, dim2, dim1 orders
-            new_size = [new_size[0], new_size[2] // 2, new_size[1]]
+            new_size = [new_size[0], new_size[1] // 2, new_size[2]]
     return new_size
 
 
@@ -440,7 +500,7 @@ def tensor_size_fp4x2_to_hp(orig_size, is_contiguous):
         else:
             assert len(orig_size) == 3, "unsupported"
             # only supporting dim0, dim1, dim2 and dim0, dim2, dim1 orders
-            new_size = [new_size[0], new_size[2] * 2, new_size[1]]
+            new_size = [new_size[0], new_size[1] * 2, new_size[2]]
     return new_size
 
 
@@ -486,6 +546,10 @@ class MXTensor(TorchAOBaseTensor):
             dtype=orig_dtype,
             device=qdata.device,
         )
+        if elem_dtype in (torch.float8_e4m3fn, torch.float8_e5m2):
+            assert qdata.dtype == elem_dtype, (
+                f"qdata.dtype must match elem_dtype for MXFP8 tensors, got {qdata.dtype=} and {elem_dtype=}"
+            )
         assert scale.dtype == torch.float8_e8m0fnu, (
             f"scale.dtype must be `torch.float8_e8m0fnu`, got {scale.dtype}"
         )
@@ -540,6 +604,35 @@ class MXTensor(TorchAOBaseTensor):
 
     @staticmethod
     @torch._dynamo.allow_in_graph
+    def from_qdata_and_scales(
+        qdata: torch.Tensor,
+        scales: torch.Tensor,
+        orig_dtype: torch.dtype,
+        *,
+        block_size: int = BLOCK_SIZE_DEFAULT,
+        kernel_preference: Optional[KernelPreference] = None,
+        act_quant_kwargs: Optional[QuantizeTensorToMXKwargs] = None,
+        is_swizzled_scales: bool = False,
+    ) -> Union["MXTensor", DTensor]:
+        assert qdata.dtype != torch.uint8, (
+            "from_qdata_and_scales only supports typed MX qdata; "
+            "use MXTensor(...) directly for packed uint8 payloads"
+        )
+        elem_dtype = qdata.dtype
+
+        return MXTensor(
+            qdata,
+            scales,
+            elem_dtype,
+            block_size,
+            orig_dtype,
+            kernel_preference,
+            act_quant_kwargs,
+            is_swizzled_scales,
+        )
+
+    @staticmethod
+    @torch._dynamo.allow_in_graph
     def to_mx(
         data_hp: torch.Tensor,
         elem_dtype: Union[torch.dtype, str],
@@ -578,28 +671,6 @@ class MXTensor(TorchAOBaseTensor):
                 inner_block_size=block_size,
                 scaling_mode=scaling_mode.value,
             )
-        if isinstance(scale_e8m0_biased, DTensor):
-            assert isinstance(data_lp, DTensor), "unsupported"
-            local_scale_e8m0_biased = scale_e8m0_biased.to_local()
-            local_data_lp = data_lp.to_local()
-            inner_mx_tensor = MXTensor(
-                local_data_lp,
-                local_scale_e8m0_biased,
-                elem_dtype,
-                block_size,
-                data_hp.dtype,
-                kernel_preference,
-                act_quant_kwargs,
-                is_swizzled_scales,
-            )
-            return DTensor.from_local(
-                inner_mx_tensor,
-                data_lp.device_mesh,
-                data_lp.placements,
-                run_check=False,
-                shape=data_lp.size(),
-                stride=data_lp.stride(),
-            )
         return MXTensor(
             data_lp,
             scale_e8m0_biased,
@@ -625,6 +696,26 @@ def _(func, types, args, kwargs):
     )
 
 
+@implements([aten.is_pinned.default])
+def mx_is_pinned(func, types, args, kwargs):
+    return args[0].qdata.is_pinned() and args[0].scale.is_pinned()
+
+
+@implements([aten._pin_memory.default])
+def mx_pin_memory(func, types, args, kwargs):
+    tensor = args[0]
+    return MXTensor(
+        tensor.qdata.pin_memory(),
+        tensor.scale.pin_memory(),
+        tensor.elem_dtype,
+        tensor.block_size,
+        tensor.orig_dtype,
+        tensor.kernel_preference,
+        tensor.act_quant_kwargs,
+        tensor.is_swizzled_scales,
+    )
+
+
 def _get_gemm_choice(
     choice_a: Optional[KernelPreference], choice_b: Optional[KernelPreference]
 ) -> KernelPreference:
@@ -639,6 +730,29 @@ def _get_gemm_choice(
         "At least one gemm choice must be specified"
     )
     return choice_a if choice_a is not None else choice_b
+
+
+def maybe_dtensor_to_blocked(t: torch.Tensor) -> torch.Tensor:
+    # redistribute to Replicate or Shard(0); to_blocked will view/permute/flatten into a 1d tensor
+    # sharding is only preservable on the first dimension.
+    if isinstance(t, DTensor):
+        t_placements = [
+            x if x in (Replicate(), Shard(0)) else Replicate() for x in t.placements
+        ]
+        if t_placements != t.placements:  # can't perform collectives in float8
+            t = (
+                t.view(torch.uint8)
+                .redistribute(placements=t_placements)
+                .view(torch.float8_e8m0fnu)
+            )
+        out = local_map(
+            to_blocked,
+            in_placements=(t_placements,),
+            out_placements=t_placements,
+        )(t)
+    else:
+        out = to_blocked(t)
+    return out
 
 
 def _addmm_mx_dispatch(
@@ -675,13 +789,13 @@ def _addmm_mx_dispatch(
             a_scale_block = a.scale
         else:
             a_scale = a.scale.view(M, K // a.block_size)
-            a_scale_block = to_blocked(a_scale)
+            a_scale_block = maybe_dtensor_to_blocked(a_scale)
 
         if b.is_swizzled_scales:
             b_scale_block = b.scale.t()
         else:
             b_scale = b.scale.t().view(N, K // b.block_size)
-            b_scale_block = to_blocked(b_scale)
+            b_scale_block = maybe_dtensor_to_blocked(b_scale)
 
         if a.elem_dtype == torch.float8_e4m3fn:
             assert b.elem_dtype == torch.float8_e4m3fn

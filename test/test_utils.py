@@ -56,6 +56,39 @@ class TestTorchAOBaseTensor(unittest.TestCase):
         with self.assertRaisesRegex(NotImplementedError, "arg_types"):
             l.weight = torch.nn.Parameter(MyTensor(l.weight))
 
+    def test_get_to_kwargs_non_blocking(self):
+        """Verify _get_to_kwargs parses and returns the non_blocking flag."""
+
+        class MyTensor(TorchAOBaseTensor):
+            tensor_data_names = ["qdata"]
+            tensor_attribute_names = ["attr", "device"]
+
+            def __new__(cls, qdata, attr="attr", device=None):
+                if device is None:
+                    device = qdata.device
+                kwargs = {"device": device, "dtype": qdata.dtype}
+                r = torch.Tensor._make_wrapper_subclass(cls, qdata.shape, **kwargs)
+                r.qdata = qdata
+                r.attr = attr
+                return r
+
+            def __init__(self, qdata, attr="attr", device=None):
+                pass
+
+        t = MyTensor(torch.randn(4, 4))
+
+        # non_blocking=True is preserved
+        kwargs = t._get_to_kwargs(device="cpu", non_blocking=True)
+        self.assertTrue(kwargs["non_blocking"])
+
+        # non_blocking=False (explicit) is preserved
+        kwargs = t._get_to_kwargs(device="cpu", non_blocking=False)
+        self.assertFalse(kwargs["non_blocking"])
+
+        # default (not specified) → False
+        kwargs = t._get_to_kwargs(device="cpu")
+        self.assertFalse(kwargs["non_blocking"])
+
     def _test_default_impls_helper(self, lp_tensor, lp_tensor_for_copy):
         # get `all_tensor_data_names` and `all_tensor_attribute_names`
         all_tensor_data_names = lp_tensor.tensor_data_names.copy()
