@@ -1,6 +1,9 @@
 from .float8.float8_packing_format import (
     Float8PackingFormat,
 )
+from .float8.float8_sparse_2x4_1d_data_1d_metadata_tensor import (
+    Float8Sparse2x4_1DData1DMetadataTensor,
+)
 from .float8.float8_tensor import (
     Float8Tensor,
     QuantizeTensorToFloat8Kwargs,
@@ -34,6 +37,7 @@ from .intx.intx_packing_format import (
 from .intx.intx_unpacked_to_int8_tensor import (
     IntxUnpackedToInt8Tensor,
 )
+from .nf4.nf4_tensor import NF4Tensor, to_nf4
 
 __all__ = [
     "Int4Tensor",
@@ -44,6 +48,7 @@ __all__ = [
     "QuantizeTensorToInt8Kwargs",
     "Float8Tensor",
     "Sparse2x4CUTLASSFloat8Tensor",
+    "Float8Sparse2x4_1DData1DMetadataTensor",
     "Float8PackingFormat",
     "QuantizeTensorToFloat8Kwargs",
     "Int8Tensor",
@@ -54,4 +59,6 @@ __all__ = [
     "IntxPackingFormat",
     "IntxUnpackedToInt8Tensor",
     "IntxOpaqueTensor",
+    "NF4Tensor",
+    "to_nf4",
 ]

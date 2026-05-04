@@ -30,6 +30,7 @@ from .linear import (
     Int4WeightOnlyQATQuantizer,
     Int8DynActInt4WeightQATQuantizer,
 )
+from .two_step_quantizer import TwoStepQuantizer
 
 __all__ = [
     "QATConfig",
@@ -44,6 +45,7 @@ __all__ = [
     "FakeQuantizedEmbedding",
     # Prototype
     "initialize_fake_quantizers",
+    "TwoStepQuantizer",
     # Legacy quantizers
     "ComposableQATQuantizer",
     "Float8ActInt4WeightQATQuantizer",

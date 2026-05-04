@@ -2458,6 +2458,50 @@ def _register_qconv_binary_fusion():
             )
 
 
+def _extract_const_float_from_node(v: Any) -> float | None:
+    if isinstance(v, (int, float)):
+        return float(v)
+
+    if isinstance(v, torch.fx.Node):
+        # case 1: aten.full([1], c)
+        if v.target is torch.ops.aten.full.default:
+            if len(v.args) >= 2 and isinstance(v.args[1], (int, float)):
+                return float(v.args[1])
+
+        # case 2: aten.tensor
+        if v.target is torch.tensor and len(v.args) >= 1:
+            data = v.args[0]
+            if (
+                isinstance(data, (list, tuple))
+                and len(data) == 1
+                and isinstance(data[0], (int, float))
+            ):
+                return float(data[0])
+
+        # case 3: get_attr(lifted_tensor)
+        if v.op == "get_attr":
+            obj = v.graph.owning_module
+            for atom in str(v.target).split("."):
+                if not hasattr(obj, atom):
+                    obj = None
+                    break
+                obj = getattr(obj, atom)
+
+            if isinstance(obj, (int, float)):
+                return float(obj)
+            if isinstance(obj, torch.Tensor) and obj.numel() == 1:
+                return float(obj.item())
+
+        # case 4: meta val fallback
+        mv = v.meta.get("val", None)
+        if isinstance(mv, (int, float)):
+            return float(mv)
+        if isinstance(mv, torch.Tensor) and mv.numel() == 1:
+            return float(mv.item())
+
+    return None
+
+
 def _register_qlinear_post_op_fusion_pass(
     pattern,
     pass_number,
@@ -2495,10 +2539,10 @@ def _register_qlinear_post_op_fusion_pass(
 
         # Output QParams
         if output_dtype == torch.float8_e4m3fn:
-            # For float8, we assume the scale is from aten.full.default instead of
-            # a constant buffer to avoid constant folding of q/dq before fusion passes.
-            assert kwargs["o_inv_scale"].target is torch.ops.aten.full.default
-            o_inv_scale = kwargs["o_inv_scale"].args[1]
+            o_inv_scale = _extract_const_float_from_node(kwargs["o_inv_scale"])
+            assert o_inv_scale is not None, (
+                f"Unsupported fp8 o_inv_scale node: {kwargs['o_inv_scale']}"
+            )
         else:
             o_inv_scale = (
                 kwargs["o_inv_scale"]
@@ -2979,31 +3023,7 @@ def _register_scaled_embedding_bag_pass(pattern, pass_number, dtype=torch.float3
             normalized_o_dtype = _normalize_dtype(kwargs["o_dtype"])
             output_type = normalized_o_dtype
 
-            def _extract_const_float(val) -> float | None:
-                # Prefer extracting from python scalars and FX node structure
-                if isinstance(val, (int, float)):
-                    return float(val)
-                if isinstance(val, torch.fx.Node):
-                    meta_val = val.meta.get("val", None)
-                    if isinstance(meta_val, (int, float)):
-                        return float(meta_val)
-                    # Common pattern: aten.full([1], fill_value, dtype=float)
-                    if val.target is torch.ops.aten.full.default and len(val.args) >= 2:
-                        fill_value = val.args[1]
-                        if isinstance(fill_value, (int, float)):
-                            return float(fill_value)
-                    # Common pattern in user code: torch.tensor([scalar])
-                    if val.target is torch.tensor and len(val.args) >= 1:
-                        data = val.args[0]
-                        if (
-                            isinstance(data, (list, tuple))
-                            and len(data) == 1
-                            and isinstance(data[0], (int, float))
-                        ):
-                            return float(data[0])
-                return None
-
-            o_scale = _extract_const_float(kwargs["o_inv_scale"])
+            o_scale = _extract_const_float_from_node(kwargs["o_inv_scale"])
             assert o_scale is not None, "Output scale is not a constant float."
 
         graph = match.graph
@@ -3106,37 +3126,50 @@ def _register_quantization_embeddingbag_pass():
             )
 
 
-def _is_valid_concat_dq_q_pattern():
+def _is_valid_concat_dq_q_pattern(is_fp8=False):
     def _inner(match):
-        q_pattern_node = match.output_node()
-        dq_pattern_node = q_pattern_node.args[0]
-        assert q_pattern_node.target is quantized_decomposed.quantize_per_tensor.default
-        assert (
-            dq_pattern_node.target is quantized_decomposed.dequantize_per_tensor.default
-        )
-        # dq/q pattern_node args: (node, scale, zp, min, max, dtype)
-        for i in range(2, len(q_pattern_node.args)):
-            if not q_pattern_node.args[i] == dq_pattern_node.args[i]:
+        q_node = match.output_node()
+        dq_node = q_node.args[0]
+        if is_fp8:
+            if (
+                q_node.target
+                is not torch.ops.torchao.quantize_affine_float8_non_decomposed.default
+            ):
                 return False
-
-        q_scale = q_pattern_node.args[1]
-        dq_scale = dq_pattern_node.args[1]
+            if (
+                dq_node.target
+                is not torch.ops.torchao.dequantize_affine_float8_non_decomposed.default
+            ):
+                return False
+            dq_scale = _extract_const_float_from_node(dq_node.args[1])
+            q_scale = _extract_const_float_from_node(q_node.args[1])
+            if dq_scale is None or q_scale is None:
+                return False
+        else:
+            if q_node.target is not quantized_decomposed.quantize_per_tensor.default:
+                return False
+            if dq_node.target is not quantized_decomposed.dequantize_per_tensor.default:
+                return False
+            # dq/q pattern_node args: (node, scale, zp, min, max, dtype)
+            for i in range(2, len(q_node.args)):
+                if q_node.args[i] != dq_node.args[i]:
+                    return False
+            dq_scale = dq_node.args[1]
+            q_scale = q_node.args[1]
         if not math.isclose(q_scale, dq_scale, rel_tol=1e-5, abs_tol=1e-5):
             return False
-
-        cat_node = dq_pattern_node.args[0]
-        if not cat_node.target is torch.ops.aten.cat.default:
-            return False
-
-        return True
+        return dq_node.args[0].target is torch.ops.aten.cat.default
 
     return _inner
 
 
-def _register_concat_dequant_quant_pass(pattern, pass_number=3):
+def _register_concat_dequant_quant_pass(pattern, pass_number=3, extra_check=None):
+    if extra_check is None:
+        extra_check = _is_valid_concat_dq_q_pattern()
+
     @register_freezing_graph_pattern(
         pattern,
-        extra_check=_is_valid_concat_dq_q_pattern(),
+        extra_check=extra_check,
         pass_number=pass_number,
     )
     def concat_dq_q_fusion(match: Match, *args, **kwargs):
@@ -3200,6 +3233,25 @@ def _register_concat_dq_q_pattern():
         KeywordArg("o_dtype"),
     )
     _register_concat_dequant_quant_pass(quantized_op_output_pattern_pt2e)
+
+    # FP8 version: cat(fp8) -> dequant_fp8 -> quant_fp8 -> users
+    # Eliminates the redundant dq/q when both use the same scale tensor node.
+    dequantize_fp8_activation_pattern = CallFunction(
+        torch.ops.torchao.dequantize_affine_float8_non_decomposed.default,
+        Arg(),
+        KeywordArg("fp8_dq_scale"),
+        output_dtype=Arg(),
+    )
+    quantize_fp8_output_pattern = CallFunction(
+        torch.ops.torchao.quantize_affine_float8_non_decomposed.default,
+        dequantize_fp8_activation_pattern,
+        KeywordArg("fp8_q_scale"),
+        float8_dtype=KeywordArg("fp8_q_dtype"),
+    )
+    _register_concat_dequant_quant_pass(
+        quantize_fp8_output_pattern,
+        extra_check=_is_valid_concat_dq_q_pattern(is_fp8=True),
+    )
 
 
 @functools.lru_cache(None)

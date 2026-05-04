@@ -391,45 +391,12 @@ def model_type_to_paths(checkpoint_path, model_type):
     return sam2_checkpoint, model_cfg
 
 
-def set_autoquant(mask_generator, autoquant_type, min_sqnr):
-    import torchao
-    from torchao import autoquant
-
-    # NOTE: Not baseline feature
-    if autoquant_type == "autoquant":
-        mask_generator.predictor.model.image_encoder = autoquant(
-            mask_generator.predictor.model.image_encoder, min_sqnr=min_sqnr
-        )
-    elif autoquant_type == "autoquant-fp":
-        mask_generator.predictor.model.image_encoder = autoquant(
-            mask_generator.predictor.model.image_encoder,
-            qtensor_class_list=torchao.quantization.DEFAULT_FLOAT_AUTOQUANT_CLASS_LIST,
-            min_sqnr=min_sqnr,
-        )
-    elif autoquant_type == "autoquant-all":
-        mask_generator.predictor.model.image_encoder = autoquant(
-            mask_generator.predictor.model.image_encoder,
-            qtensor_class_list=torchao.quantization.ALL_AUTOQUANT_CLASS_LIST,
-            min_sqnr=min_sqnr,
-        )
-    else:
-        raise ValueError(f"Unexpected autoquant type: {autoquant_type}")
-
-    mask_generator.predictor._transforms_device = mask_generator.predictor.device
-    torch.set_float32_matmul_precision("high")
-    # NOTE: this fails when we run
-    # python server.py ~/checkpoints/sam2 large --port 8000 --host localhost --fast --autoquant_type autoquant --unittest
-    # https://gist.github.com/jerryzh168/d337cb5de0a1dec306069fe48ac8225e
-    # mask_generator.predictor.model.sam_mask_decoder = autoquant(mask_generator.predictor.model.sam_mask_decoder, qtensor_class_list=DEFAULT_FLOAT_AUTOQUANT_CLASS_LIST, min_sqnr=40)
-
-
 def main(
     checkpoint_path,
     model_type,
     baseline=False,
     fast=False,
     furious=False,
-    autoquant_type=None,
     min_sqnr=None,
     unittest=False,
     benchmark=False,
@@ -515,11 +482,6 @@ def main(
         )
         set_fast(mask_generator, "amg", load_fast)
 
-    # since autoquant is replicating what furious mode is doing, don't use these two together
-    if autoquant_type is not None:
-        assert not furious, "autoquant can't be used together with furious"
-        set_autoquant(mask_generator, autoquant_type, min_sqnr)
-
     with open("dog.jpg", "rb") as f:
         output_format = "numpy" if baseline else "torch"
         image_tensor = file_bytes_to_image_tensor(
@@ -590,7 +552,7 @@ def main(
             ]
             name = "sam2-" + model_type
             arch = get_arch_name()
-            dtype = autoquant_type or "noquant"
+            dtype = "noquant"
             # boolean flag to indicate whether it's eager or compile
             compile = fast
             (

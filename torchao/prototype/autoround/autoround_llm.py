@@ -3,12 +3,12 @@
 #
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
+
 import argparse
 from typing import Optional
 
 import torch
 
-import torchao
 import torchao.prototype.autoround.utils as ar_utils
 from torchao.prototype.autoround.core import (
     apply_auto_round,
@@ -16,6 +16,7 @@ from torchao.prototype.autoround.core import (
 )
 from torchao.prototype.autoround.multi_tensor import MultiTensor
 from torchao.quantization import quantize_
+from torchao.utils import TorchAOBaseTensor
 
 ar_utils.freeze_random(42)
 
@@ -76,9 +77,7 @@ def quantize_model_with_autoround_(
     # Step 3. Apply the quantization
     quantize_(model, apply_auto_round(), is_target_module, device=device)
 
-    num_quantized_weight = ar_utils.count_tensor_of_type(
-        model, torchao.dtypes.AffineQuantizedTensor
-    )
+    num_quantized_weight = ar_utils.count_tensor_of_type(model, TorchAOBaseTensor)
     print(f"Quantized {num_quantized_weight} Linear layers.")
 
     return model

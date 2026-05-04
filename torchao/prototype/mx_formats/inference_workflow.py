@@ -25,12 +25,12 @@ from torchao.prototype.mx_formats.nvfp4_tensor import (
     QuantizeTensorToNVFP4Kwargs,
     per_tensor_amax_to_scale,
 )
-from torchao.quantization.quant_api import _module_extra_repr, _quantization_type
 from torchao.quantization.quantize_.common.kernel_preference import KernelPreference
 from torchao.quantization.quantize_.common.quantization_step import QuantizationStep
 from torchao.quantization.transform_module import (
     register_quantize_module_handler,
 )
+from torchao.quantization.utils import _module_extra_repr, _quantization_type
 from torchao.utils import (
     is_sm_at_least_100,
     torch_version_at_least,
@@ -204,7 +204,8 @@ class NVFP4DynamicActivationNVFP4WeightConfig(AOBaseConfig):
     set to False.
 
     Configuration parameters:
-    - use_triton_kernel: bool, whether to use fused triton kernel for activation scaling (default: True)
+    - use_triton_kernel: bool, whether to use fused triton kernel for activation scaling (default: True).
+      Requires `MSLK <https://github.com/pytorch/MSLK>`__ to be installed.
     - use_dynamic_per_tensor_scale: bool, whether to dynamically compute per tensor scale (default: True)
     - step: Optional[QuantizationStep], the quantization step for observer-based flow
     - Data: float4_e2m1fn_x2
@@ -263,6 +264,7 @@ def _nvfp4_inference_linear_transform(
         return NVFP4ObservedLinear.from_float(module)
 
     elif step == QuantizationStep.CONVERT or step == "convert":
+        assert len(weight.shape) == 2, "3D weights not yet supported here"
         if not isinstance(module, NVFP4ObservedLinear):
             return module
 
@@ -313,8 +315,17 @@ def _nvfp4_inference_linear_transform(
 
         per_tensor_scale = None
         if config.use_dynamic_per_tensor_scale:
-            tensor_amax = torch.max(torch.abs(weight))
-            per_tensor_scale = per_tensor_amax_to_scale(tensor_amax)
+            if len(weight.shape) == 2:
+                tensor_amax = torch.max(torch.abs(weight))
+                per_tensor_scale = per_tensor_amax_to_scale(tensor_amax)
+            else:
+                assert len(weight.shape) == 3, f"unsupported {weight.shape=}"
+                tensor_amax = torch.amax(torch.abs(weight), dim=(1, 2))
+                per_tensor_scale = per_tensor_amax_to_scale(tensor_amax)
+                # 1D -> 3D
+                per_tensor_scale = per_tensor_scale.view(
+                    per_tensor_scale.shape[0], 1, 1
+                )
 
         act_quant_kwargs = QuantizeTensorToNVFP4Kwargs(
             use_dynamic_per_tensor_scale=config.use_dynamic_per_tensor_scale,
@@ -382,6 +393,7 @@ def _nvfp4_weight_only_linear_transform(
     """Quantization handler for NVFP4WeightOnlyConfig"""
     weight = module.weight
 
+    assert len(weight.shape) == 2, "3D weights not yet supported in this workflow"
     if weight.shape[-2] % 16 != 0 or weight.shape[-1] % 16 != 0:
         raise RuntimeError(
             f"NVFP4 only supports weight shape with last 2 dims divisible by 16, got {weight.shape}"

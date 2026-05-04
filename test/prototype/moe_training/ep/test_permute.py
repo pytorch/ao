@@ -11,7 +11,7 @@ if not (
     pytest.skip("Test requires CUDA 12.8+ with SM >= 100", allow_module_level=True)
 
 from torchao.prototype.moe_training.ep import permute_mxfp8_fwd_hp_bwd
-from torchao.prototype.moe_training.ep.permute import _permute_bf16
+from torchao.prototype.moe_training.ep.permute import permute_and_pad
 from torchao.prototype.mx_formats.mx_tensor import MXTensor
 from torchao.quantization.utils import compute_error
 
@@ -57,7 +57,7 @@ def test_mxfp8_permute_forward():
         _,
         _,
         _,
-    ) = _permute_bf16(
+    ) = permute_and_pad(
         input_tensor,
         num_tokens_per_expert,
         ep_degree,

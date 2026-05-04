@@ -30,7 +30,7 @@ jobs:
       with-cpu: enable
       with-cuda: disable
       # Note: if free-threaded python is required add py3.13t here
-      python-versions: '["3.10"]'
+      python-versions: '["3.10", "3.12"]'
 
   build:
     needs: generate-matrix

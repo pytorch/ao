@@ -17,7 +17,7 @@ from transformers import AutoModelForCausalLM, AutoTokenizer, TorchAoConfig
 from torchao.prototype.awq import (
     AWQConfig,
 )
-from torchao.prototype.int4_opaque_tensor import Int4WeightOnlyOpaqueTensorConfig
+from torchao.prototype.quantization.int4 import PrototypeInt4WeightOnlyConfig
 from torchao.quantization import Int4WeightOnlyConfig, quantize_
 
 
@@ -260,7 +260,7 @@ def quantize_and_eval(
                 group_size=group_size, int4_packing_format="plain_int32"
             )
         elif device == "cpu":
-            base_config = Int4WeightOnlyOpaqueTensorConfig(group_size=group_size)
+            base_config = PrototypeInt4WeightOnlyConfig(group_size=group_size)
         else:
             assert False, "Unsupported device: {}".format(device)
         print(f"running {quant} prepare and calibrate")
@@ -300,7 +300,7 @@ def quantize_and_eval(
         if device == "cuda":
             base_config = Int4WeightOnlyConfig(group_size=group_size)
         elif device == "cpu":
-            base_config = Int4WeightOnlyOpaqueTensorConfig(group_size=group_size)
+            base_config = PrototypeInt4WeightOnlyConfig(group_size=group_size)
         else:
             assert False, "Unsupported device: {}".format(device)
         quantize_(model, base_config)
