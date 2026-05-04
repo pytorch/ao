@@ -216,7 +216,7 @@ def run(args: argparse.Namespace):
         r_fp8_gemm_and_ovhd_s = r_fp8_gemm_s + r_fp8_ovhd_s
         r_fp8_gemm_and_ovhd_spdp = r_bf16_gemm_s / r_fp8_gemm_and_ovhd_s
         b_fp8_e2e_spdp = b_bf16_e2e_s / b_fp8_e2e_s
-        b_fp8_e2e_spdp_pct_of_r = b_fp8_e2e_spdp / r_fp8_gemm_and_ovhd_spdp * 100
+        b_fp8_e2e_spdp_ratio_of_r = b_fp8_e2e_spdp / r_fp8_gemm_and_ovhd_spdp
 
         rows.append(
             {
@@ -234,7 +234,7 @@ def run(args: argparse.Namespace):
                 "b_bf16_e2e_s": b_bf16_e2e_s,
                 "b_fp8_e2e_s": b_fp8_e2e_s,
                 "b_fp8_e2e_spdp": b_fp8_e2e_spdp,
-                "b_fp8_e2e_spdp_pct_of_r": b_fp8_e2e_spdp_pct_of_r,
+                "b_fp8_e2e_spdp_ratio_of_r": b_fp8_e2e_spdp_ratio_of_r,
             }
         )
 

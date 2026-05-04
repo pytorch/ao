@@ -18,7 +18,7 @@ What it reports:
 - `b_fp8_e2e_s`: measured `Float8BlockwiseLinear` fwd/bwd time.
 - `b_fp8_e2e_spdp`: measured BF16 / FP8 speedup.
 - `r_fp8_gemm_and_ovhd_spdp`: modeled blockwise FP8 roofline speedup.
-- `b_fp8_e2e_spdp_pct_of_r`: measured speedup as a percentage of modeled
+- `b_fp8_e2e_spdp_ratio_of_r`: measured speedup as a ratio of modeled
   roofline speedup.
 
 By default, it runs the DSV3 16B/671B FFN shapes with the scaled-mm backend.
