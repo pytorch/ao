@@ -239,6 +239,9 @@ class _Round(torch.autograd.Function):
 class _RoundToFloat8(torch.autograd.Function):
     """
     Implementation of `tensor.to(float8_dtype)` with backward STE.
+
+    Callers that require saturated FP8 semantics should clamp before invoking
+    this function; `_quantize_affine_float8` does that before casting.
     """
 
     @staticmethod

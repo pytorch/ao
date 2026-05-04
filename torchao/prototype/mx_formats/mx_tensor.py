@@ -363,12 +363,9 @@ def to_mx(
             elem_dtype in (torch.float8_e4m3fn, torch.float8_e5m2)
             and not torch._dynamo.is_compiling()
         ):
-            # As of 20250317, the Pytorch eager mode cast to `torch.float8_e4m3fn`
-            # is unsaturated. This cast is saturated in triton. If we are compute bound,
-            # we see a speedup if we remove this redundant clamp if we are compiling
-            # to triton.
-            # TODO(#1912): make the saturated cast work in eager mode and remove this
-            # workaround.
+            # Keep eager conversion saturated across PyTorch versions and FP8
+            # dtypes. Inductor/Triton casts already saturate, so compiled mode
+            # skips this redundant clamp for better fusion/codegen.
             data_lp = torch.clamp(data_lp, min=-1 * max_pos, max=max_pos)
 
     # cast to target dtype
