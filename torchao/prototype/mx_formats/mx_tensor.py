@@ -363,9 +363,13 @@ def to_mx(
             elem_dtype in (torch.float8_e4m3fn, torch.float8_e5m2)
             and not torch._dynamo.is_compiling()
         ):
-            # Keep eager conversion saturated across PyTorch versions and FP8
-            # dtypes. Inductor/Triton casts already saturate, so compiled mode
-            # skips this redundant clamp for better fusion/codegen.
+            # PyTorch 2.11 and older eager casts did not saturate finite
+            # overflow values, so torchao clamps before casting. Triton
+            # casts saturate, if we are compute bound we see a speedup if we remove
+            # this redundant clamp (in the case of compiling to Triton)
+            # TODO(#1912): PyTorch core fixed eager saturation in
+            # https://github.com/pytorch/pytorch/pull/178817. Remove this
+            # workaround after torchao stops supporting PyTorch 2.11.
             data_lp = torch.clamp(data_lp, min=-1 * max_pos, max=max_pos)
 
     # cast to target dtype

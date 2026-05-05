@@ -119,11 +119,17 @@ def to_fp8_saturated(x: torch.Tensor, float8_dtype: torch.dtype):
     """Converts a tensor to a saturated fp8 tensor.
 
     Note:
-        This helper clamps explicitly before casting so torchao has stable
-        saturation semantics across PyTorch versions and FP8 dtypes. A common
-        case where we want to saturate is delayed scaling, where the history of
-        a tensor has a maximum value of `amax1`, and the current amax value is
-        `amax2`, where `amax1 < amax2`.
+        In PyTorch 2.11 and older, eager casts to FP8 did not saturate finite
+        overflow values. So we saturate in this function. In compile, it was
+        satured and so this extra clamp is a no-op in accuracy and regresses
+        performance.
+        
+        In PyTorch 2.12 and newer, eager mode now saturates and this clamp
+        is no longer needed. 
+        
+        TODO:
+        this explicit clamp can be removed after torchao stops supporting
+        PyTorch 2.11.
     """
     if float8_dtype in FP8_TYPES:
         max_value = torch.finfo(float8_dtype).max
