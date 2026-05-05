@@ -22,6 +22,7 @@ import lpips
 import numpy as np
 import torch
 import torch._dynamo
+from bench_utils import _set_sdpa_backend
 from datasets import load_dataset
 from diffusers import FluxPipeline
 from PIL import Image
@@ -29,7 +30,6 @@ from torch.nn.attention import (
     SDPBackend,
     activate_flash_attention_impl,
     restore_flash_attention_impl,
-    sdpa_kernel,
 )
 
 from torchao.prototype.attention import (
@@ -65,6 +65,16 @@ BACKENDS = {
         "fp8": True,
         "fp8_backend": AttentionBackend.FP8_FA3,
         "hadamard": HadamardMode.V_ONLY,
+    },
+    "fa4": {
+        "flash_impl": "FA4",
+        "fp8": False,
+        "sdpa_backend": SDPBackend.FLASH_ATTENTION,
+    },
+    "fa4_fp8": {
+        "flash_impl": "FA4",
+        "fp8": True,
+        "fp8_backend": AttentionBackend.FP8_FA4,
     },
 }
 
@@ -139,34 +149,19 @@ def generate_image(
     """Generate an image from a prompt with deterministic seed."""
     generator = torch.Generator(device=device).manual_seed(seed)
 
-    # For BF16 backends, force the correct SDPA backend on the transformer
-    # only (not the VAE, whose head_dim=512 exceeds flash/cuDNN limits and
-    # needs the math backend). FP8 backends call their ops directly and
-    # don't need this.
-    orig_forward = None
-    if sdpa_backend is not None:
-        orig_forward = pipe.transformer.forward
-
-        def _forced_backend_forward(*args, **kwargs):
-            with sdpa_kernel(sdpa_backend):
-                return orig_forward(*args, **kwargs)
-
-        pipe.transformer.forward = _forced_backend_forward
-
     if flash_impl:
         activate_flash_attention_impl(flash_impl)
     try:
-        image = pipe(
-            prompt=prompt,
-            num_inference_steps=num_inference_steps,
-            guidance_scale=3.5,
-            height=height,
-            width=width,
-            generator=generator,
-        ).images[0]
+        with _set_sdpa_backend(sdpa_backend):
+            image = pipe(
+                prompt=prompt,
+                num_inference_steps=num_inference_steps,
+                guidance_scale=3.5,
+                height=height,
+                width=width,
+                generator=generator,
+            ).images[0]
     finally:
-        if orig_forward is not None:
-            pipe.transformer.forward = orig_forward
         if flash_impl:
             restore_flash_attention_impl()
 
