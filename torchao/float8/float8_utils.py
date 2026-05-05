@@ -123,10 +123,10 @@ def to_fp8_saturated(x: torch.Tensor, float8_dtype: torch.dtype):
         overflow values. So we saturate in this function. In compile, it was
         satured and so this extra clamp is a no-op in accuracy and regresses
         performance.
-        
+
         In PyTorch 2.12 and newer, eager mode now saturates and this clamp
-        is no longer needed. 
-        
+        is no longer needed.
+
         TODO:
         this explicit clamp can be removed after torchao stops supporting
         PyTorch 2.11.
