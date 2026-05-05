@@ -28,10 +28,14 @@ def setup_fp8_backend(
         from torchao.prototype.attention.fp8_fa3.attention import _ops
     elif flash_impl_name == "FA4":
         from torchao.prototype.attention.fp8_fa4.attention import _ops
+    elif flash_impl_name == "CUDNN":
+        from torchao.prototype.attention.fp8_cudnn.attention import _ops
     else:
         raise ValueError(f"Unknown flash_impl_name: {flash_impl_name}")
 
-    strip_causal_mask = detect_causal_mask(model, flash_impl_name=flash_impl_name)
+    # cuDNN doesn't use flash attention impl for causal mask detection
+    causal_flash_impl = flash_impl_name if flash_impl_name != "CUDNN" else None
+    strip_causal_mask = detect_causal_mask(model, flash_impl_name=causal_flash_impl)
 
     inductor_config.pre_grad_custom_pass = partial(
         rope_sdpa_fusion_pass,
@@ -40,9 +44,12 @@ def setup_fp8_backend(
         backend_name=flash_impl_name,
     )
 
+    # cuDNN doesn't need flash attention impl activation
+    wrapper_flash_impl = flash_impl_name if flash_impl_name != "CUDNN" else None
+
     return _FP8FlashAttentionMonkeyPatchWrapper(
         model,
-        flash_impl_name=flash_impl_name,
+        flash_impl_name=wrapper_flash_impl,
         sdpa_patch_fn=_make_causal_aware_sdpa(
             _ops.fp8_sdpa_op, strip_causal_mask, hadamard=hadamard
         ),
