@@ -16,11 +16,11 @@ Usage:
 
 import argparse
 import gc
-from contextlib import nullcontext
 
 import torch
 import torch._dynamo
 import torch._inductor.config as inductor_config
+from bench_utils import _set_sdpa_backend
 from lm_eval import evaluator
 from lm_eval.models.huggingface import HFLM
 from torch._inductor.compile_fx import compile_fx
@@ -28,7 +28,6 @@ from torch.nn.attention import (
     SDPBackend,
     activate_flash_attention_impl,
     restore_flash_attention_impl,
-    sdpa_kernel,
 )
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
@@ -76,6 +75,18 @@ BACKENDS = {
         "fp8_backend": AttentionBackend.FP8_FA3,
         "hadamard": HadamardMode.V_ONLY,
         "label": "FA3 FP8 Hadamard V",
+    },
+    "fa4": {
+        "flash_impl": "FA4",
+        "fp8": False,
+        "label": "FA4 BF16",
+        "sdpa_backend": SDPBackend.FLASH_ATTENTION,
+    },
+    "fa4_fp8": {
+        "flash_impl": "FA4",
+        "fp8": True,
+        "fp8_backend": AttentionBackend.FP8_FA4,
+        "label": "FA4 FP8",
     },
 }
 
@@ -162,9 +173,8 @@ def evaluate_perplexity(model, tokenizer, flash_impl, sdpa_backend=None) -> floa
     # Evaluate perplexity on WikiText-2 using lm_eval.
     if flash_impl:
         activate_flash_attention_impl(flash_impl)
-    ctx = sdpa_kernel(sdpa_backend) if sdpa_backend is not None else nullcontext()
     try:
-        with ctx:
+        with _set_sdpa_backend(sdpa_backend):
             results = evaluator.simple_evaluate(
                 HFLM(pretrained=model, tokenizer=tokenizer),
                 tasks=["wikitext"],
@@ -193,9 +203,8 @@ def benchmark_runtime(
 
     if flash_impl:
         activate_flash_attention_impl(flash_impl)
-    ctx = sdpa_kernel(sdpa_backend) if sdpa_backend is not None else nullcontext()
     try:
-        with ctx:
+        with _set_sdpa_backend(sdpa_backend):
             # Warmup
             for _ in range(num_warmup):
                 model(input_ids)

@@ -5,10 +5,12 @@
 # LICENSE file in the root directory of this source tree.
 
 """
-Benchmark two attention backends against each other for a single layer,
-sweeping sequence lengths and measuring runtime and SQNR.
+Benchmark two attention backends against each other for a single layer.
 
-Usage: python benchmarks/prototype/attention/benchmark_sdpa.py --baseline fa2 --test fa3_fp8
+Sweeps over sequence lengths from 1K to 128K, measuring runtime and SQNR.
+
+Usage:
+    python benchmarks/prototype/attention/benchmark_sdpa.py --baseline fa3 --test fa3_fp8
 """
 
 import argparse
@@ -25,9 +27,18 @@ from torch.nn.attention import (
 )
 
 from torchao.prototype.attention.fp8_fa3.attention import fp8_fa3_sdpa
+from torchao.prototype.attention.fp8_fa4.attention import fp8_fa4_sdpa
 from torchao.quantization.utils import compute_error as compute_sqnr
 
-BACKENDS = ["fa2", "fa3", "fa3_fp8", "fa3_fp8_hadamard", "fa3_fp8_hadamard_v"]
+BACKENDS = [
+    "fa2",
+    "fa3",
+    "fa3_fp8",
+    "fa3_fp8_hadamard",
+    "fa3_fp8_hadamard_v",
+    "fa4",
+    "fa4_fp8",
+]
 
 BACKEND_LABELS = {
     "fa2": "FA2 BF16",
@@ -35,6 +46,8 @@ BACKEND_LABELS = {
     "fa3_fp8": "FA3 FP8",
     "fa3_fp8_hadamard": "FA3 FP8 Hadamard",
     "fa3_fp8_hadamard_v": "FA3 FP8 Hadamard V",
+    "fa4": "FA4 BF16",
+    "fa4_fp8": "FA4 FP8",
 }
 
 
@@ -43,10 +56,15 @@ def _activate_backend(backend: str):
     """Context manager that activates the appropriate flash attention impl."""
     if "fa3" in backend:
         activate_flash_attention_impl("FA3")
+    elif backend in ("fa4", "fa4_fp8"):
+        activate_flash_attention_impl("FA4")
+    else:
+        # fa2 is the default, no activation needed
+        pass
     try:
         yield
     finally:
-        if "fa3" in backend:
+        if "fa3" in backend or "fa4" in backend:
             restore_flash_attention_impl()
 
 
@@ -59,6 +77,7 @@ _HADAMARD_MODE = {
 _SDPA_BACKEND = {
     "fa2": SDPBackend.FLASH_ATTENTION,
     "fa3": SDPBackend.FLASH_ATTENTION,
+    "fa4": SDPBackend.FLASH_ATTENTION,
 }
 
 
@@ -68,6 +87,8 @@ def _run_attention(backend: str, q, k, v, is_causal: bool):
         return fp8_fa3_sdpa(
             q, k, v, is_causal=is_causal, hadamard=_HADAMARD_MODE[backend]
         )
+    if backend == "fa4_fp8":
+        return fp8_fa4_sdpa(q, k, v, is_causal=is_causal)
     with sdpa_kernel(_SDPA_BACKEND[backend]):
         return F.scaled_dot_product_attention(q, k, v, is_causal=is_causal)
 
