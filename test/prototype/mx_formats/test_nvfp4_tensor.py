@@ -712,3 +712,63 @@ def test_nvfp4_matmul_optional_per_tensor_scale(shapes, a_has_scale, use_triton_
     sqnr = compute_error(C_ref, C_nvfp4)
     SQNR_THRESHOLD = 16.0
     assert sqnr >= SQNR_THRESHOLD, f"SQNR {sqnr:.2f} < {SQNR_THRESHOLD}, {a_has_scale=}"
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+@pytest.mark.skipif(
+    not torch_version_at_least("2.8.0"), reason="torch.compile requires PyTorch 2.8+"
+)
+def test_nvfp4_per_expert_scale():
+    # per-tensor scale reference
+    E, K, N = 2, 64, 128
+    x0 = torch.randn(N, K, dtype=torch.bfloat16, device="cuda")
+    x1 = torch.randn(N, K, dtype=torch.bfloat16, device="cuda") * 2
+    tensor_amax_x0 = torch.max(torch.abs(x0))
+    per_tensor_scale_x0 = per_tensor_amax_to_scale(tensor_amax_x0)
+    tensor_amax_x1 = torch.max(torch.abs(x1))
+    per_tensor_scale_x1 = per_tensor_amax_to_scale(tensor_amax_x1)
+    x0_nvfp4 = NVFP4Tensor.to_nvfp4(
+        x0, per_tensor_scale=per_tensor_scale_x0, is_swizzled_scales=False
+    )
+    x1_nvfp4 = NVFP4Tensor.to_nvfp4(
+        x1, per_tensor_scale=per_tensor_scale_x1, is_swizzled_scales=False
+    )
+
+    xc = torch.cat([x0, x1], dim=0).view(E, N, K)
+    scalec = torch.cat(
+        [
+            per_tensor_scale_x0.view(
+                1,
+            ),
+            per_tensor_scale_x1.view(
+                1,
+            ),
+        ],
+        dim=0,
+    ).view(E, 1, 1)
+
+    xc_nvfp4 = NVFP4Tensor.to_nvfp4(
+        xc, per_tensor_scale=scalec, is_swizzled_scales=False
+    )
+
+    # internals must match
+    torch.testing.assert_close(
+        torch.cat([x0_nvfp4.qdata, x1_nvfp4.qdata], dim=0).view(E, N, K // 2),
+        xc_nvfp4.qdata,
+        atol=0,
+        rtol=0,
+    )
+
+    torch.testing.assert_close(
+        torch.cat([x0_nvfp4.scale, x1_nvfp4.scale], dim=0).view(E, N, K // 16),
+        xc_nvfp4.scale,
+        atol=0,
+        rtol=0,
+    )
+
+    x0_dq = x0_nvfp4.dequantize()
+    x1_dq = x1_nvfp4.dequantize()
+    xc_dq = xc_nvfp4.dequantize()
+
+    xc_dq_ref = torch.cat([x0_dq, x1_dq], dim=0).view(E, N, K)
+    torch.testing.assert_close(xc_dq_ref, xc_dq, atol=0, rtol=0)

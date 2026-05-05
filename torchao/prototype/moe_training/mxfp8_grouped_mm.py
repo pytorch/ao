@@ -14,6 +14,7 @@ from torchao.prototype.moe_training.kernels.mxfp8 import (
 )
 from torchao.prototype.moe_training.kernels.mxfp8 import (
     mx_block_rearrange_2d_M_groups_cuda,
+    mxfp8_quantize_2d_1x32_cutedsl,
     mxfp8_quantize_cuda_3d,
     triton_mx_block_rearrange_2d_K_groups,
     triton_mx_block_rearrange_per_group_3d,
@@ -423,7 +424,7 @@ def _compute_dgrad(
             scale_calculation_mode,
         )
     else:
-        return __compute_dgrad_sm100(
+        return _compute_dgrad_sm100(
             grad_output,
             weight_t,
             group_end_offsets,
@@ -481,34 +482,7 @@ def _compute_wgrad(
         )
 
 
-def _extract_or_quantize_dim0_auto(
-    tensor: torch.Tensor,
-    block_size: int,
-    scale_calculation_mode: ScaleCalculationMode,
-) -> tuple[torch.Tensor, torch.Tensor]:
-    """
-    Extract qdata and scales from MXTensor or quantize using Triton kernels (AUTO path).
-
-    Args:
-        tensor: Input tensor (MXTensor or high-precision)
-        block_size: Block size for quantization
-        scale_calculation_mode: Mode for scale calculation
-
-    Returns:
-        tuple: (quantized_data, scales)
-    """
-    if isinstance(tensor, MXTensor):
-        return tensor.qdata, tensor.scale
-
-    qdata, scale = triton_to_mxfp8_dim0(
-        tensor,
-        inner_block_size=block_size,
-        scaling_mode=str(scale_calculation_mode.value).lower(),
-    )
-    return qdata, scale
-
-
-def _extract_or_quantize_dim0_emulated(
+def _extract_or_quantize_1x32_emulated(
     tensor: torch.Tensor,
     block_size: int,
     scale_calculation_mode: ScaleCalculationMode,
@@ -558,19 +532,28 @@ def _compute_fwd_sm100(
     Returns:
         Output tensor, shape (M, N)
     """
-    # Quantize input activations along dim0
-    input_act_e4m3, input_act_scales = _extract_or_quantize_dim0_auto(
-        padded_input_act, block_size, scale_calculation_mode
-    )
+    # Quantize input activations along dim0.
+    # May be prequantized, if so extract qdata and scales.
+    if isinstance(padded_input_act, MXTensor):
+        input_act_e4m3, input_act_scales_blocked = (
+            padded_input_act.qdata,
+            padded_input_act.scale,
+        )
+        if not padded_input_act.is_swizzled_scales:
+            # Convert scales to blocked layout for SM100 kernels
+            input_act_scales_blocked = mx_block_rearrange_2d_M_groups_cuda(
+                padded_input_act.scales, padded_group_end_offsets
+            )
+    else:
+        input_act_e4m3, input_act_scales_blocked = mxfp8_quantize_2d_1x32_cutedsl(
+            padded_input_act,
+            scaling_mode=scale_calculation_mode.value.lower(),
+            offs=padded_group_end_offsets,
+        )
 
     # Quantize weights along dim0 (after transposing from (E, K, N) to (E, N, K))
-    weight_e4m3, weight_scales = _extract_or_quantize_dim0_auto(
-        weight_t.transpose(-2, -1), block_size, scale_calculation_mode
-    )
-
-    # Convert scales to blocked layout for SM100 kernels
-    input_act_scales_blocked = mx_block_rearrange_2d_M_groups_cuda(
-        input_act_scales, padded_group_end_offsets
+    weight_e4m3, weight_scales = triton_to_mxfp8_dim0(
+        weight_t.transpose(-2, -1), block_size, scale_calculation_mode.value.lower()
     )
     weight_scales_blocked = triton_mx_block_rearrange_per_group_3d(weight_scales)
 
@@ -609,12 +592,12 @@ def _compute_fwd_emulated(
         Output tensor, shape (M, N)
     """
     # Quantize input activations along dim0
-    input_act_e4m3, input_act_scales = _extract_or_quantize_dim0_emulated(
+    input_act_e4m3, input_act_scales = _extract_or_quantize_1x32_emulated(
         padded_input_act, block_size, scale_calculation_mode
     )
 
     # Quantize weights along dim0 (after transposing from (E, K, N) to (E, N, K))
-    weight_e4m3, weight_scales = _extract_or_quantize_dim0_emulated(
+    weight_e4m3, weight_scales = _extract_or_quantize_1x32_emulated(
         weight_t.transpose(-2, -1), block_size, scale_calculation_mode
     )
 
@@ -631,7 +614,7 @@ def _compute_fwd_emulated(
     return output
 
 
-def __compute_dgrad_sm100(
+def _compute_dgrad_sm100(
     grad_output: torch.Tensor,
     weight_t: torch.Tensor,
     group_end_offsets: torch.Tensor,
@@ -654,25 +637,34 @@ def __compute_dgrad_sm100(
         grad_input, shape (M, K)
     """
     # Quantize grad_output along dim0
-    grad_output_data, grad_output_scales = _extract_or_quantize_dim0_auto(
-        grad_output, block_size, scale_calculation_mode
-    )
+    if isinstance(grad_output, MXTensor):
+        grad_out_e4m3, grad_output_scales_blocked = grad_output.qdata, grad_output.scale
+        if not grad_output.is_swizzled_scales:
+            # Convert scales to blocked layout for SM100 kernels
+            grad_output_scales_blocked = mx_block_rearrange_2d_M_groups_cuda(
+                grad_output.scales, group_end_offsets
+            )
+    else:
+        grad_out_e4m3, grad_output_scales_blocked = mxfp8_quantize_2d_1x32_cutedsl(
+            grad_output,
+            scaling_mode=scale_calculation_mode.value.lower(),
+            offs=group_end_offsets,
+        )
 
-    # Quantize weights directly to blocked tcgen05 scales
+    # Quantize weights directly to blocked tcgen05 scales.
+    # (E,N,K) with 1x32 scaling, per-expert column major layout.
     weight = weight_t.transpose(-2, -1)
     weight_e4m3, weight_scales_blocked = mxfp8_quantize_cuda_3d(
         weight._data if hasattr(weight, "_data") else weight,
         block_size,
+        scale_block_n=block_size,
+        scale_block_k=1,
         scaling_mode=scale_calculation_mode.value.lower(),
-    )
-
-    grad_output_scales_blocked = mx_block_rearrange_2d_M_groups_cuda(
-        grad_output_scales, group_end_offsets
     )
 
     # Compute grad_input = grad_output @ weight
     grad_input = torch._scaled_grouped_mm(
-        grad_output_data,
+        grad_out_e4m3,
         weight_e4m3,
         grad_output_scales_blocked,
         weight_scales_blocked,
@@ -705,7 +697,7 @@ def _compute_dgrad_emulated(
         grad_input, shape (M, K)
     """
     # Quantize grad_output along dim0
-    grad_output_data, grad_output_scales = _extract_or_quantize_dim0_emulated(
+    grad_output_data, grad_output_scales = _extract_or_quantize_1x32_emulated(
         grad_output, block_size, scale_calculation_mode
     )
 

@@ -10,11 +10,21 @@ import pytest
 import torch
 from torch.distributed._tensor import DTensor
 from torch.distributed.tensor import Partial, Replicate, Shard
+from torch.nn import functional as F
 from torch.testing._internal.common_utils import run_tests
 from torch.testing._internal.distributed._tensor.common_dtensor import (
     DTensorTestBase,
     with_comms,
 )
+
+try:
+    from torch.distributed.tensor.parallel import (
+        ColwiseParallel,
+        RowwiseParallel,
+        parallelize_module,
+    )
+except ImportError:
+    ColwiseParallel = RowwiseParallel = parallelize_module = None
 
 from packaging import version
 
@@ -31,6 +41,14 @@ from torchao.prototype.blockwise_fp8_training.kernels import (
     triton_fp8_gemm_1x128_128x128,
 )
 from torchao.utils import is_MI300, is_MI350, is_ROCM, is_sm_at_least_90
+
+from ._distributed_test_utils import (
+    assert_close,
+    assert_dtensor_parameter_grads_match,
+    assert_dtensor_parameter_values_match,
+    get_blockwise_linear_skip_reason,
+    make_quantized_toy_model_pair,
+)
 
 QUANT_PRESERVE_PLACEMENTS = (
     (Replicate(), (Replicate(), Replicate())),
@@ -71,6 +89,10 @@ def _op_name(op) -> str:
 
 QUANT_SKIP_REASON = _quant_skip_reason()
 GEMM_SKIP_REASON = _gemm_skip_reason()
+LINEAR_SKIP_REASON = get_blockwise_linear_skip_reason(
+    triton_module=triton,
+    min_cuda_devices=2,
+)
 
 
 class TestBlockwiseFP8DTensorSharding(DTensorTestBase):
@@ -368,6 +390,73 @@ class TestBlockwiseFP8DTensorSharding(DTensorTestBase):
                         expected_global_output=expected_global_output,
                         expected_placement=expected_output_placement,
                         expected_global_shape=expected_shape,
+                    )
+
+    @with_comms
+    @unittest.skipIf(LINEAR_SKIP_REASON is not None, LINEAR_SKIP_REASON or "")
+    def test_linear_tp_parity(self):
+        if parallelize_module is None:
+            self.skipTest("Tensor parallel APIs require a newer torch build")
+
+        mesh = self._build_cuda_mesh()
+        device = torch.device(f"cuda:{self.rank % torch.cuda.device_count()}")
+        size = 128
+        tp_plan = {
+            "ffn.w1": ColwiseParallel(),
+            "ffn.w2": ColwiseParallel(),
+            "ffn.out_proj": RowwiseParallel(),
+        }
+
+        for use_triton in (False, True):
+            with self.subTest(use_triton=use_triton):
+                ref_model, tp_model = make_quantized_toy_model_pair(
+                    size=size,
+                    seed=11,
+                    device=device,
+                    use_triton=use_triton,
+                )
+
+                tp_model = parallelize_module(tp_model, mesh, tp_plan)
+                self.assertIsInstance(tp_model.ffn.w1.weight, DTensor)
+                self.assertIsInstance(tp_model.ffn.w2.weight, DTensor)
+                self.assertIsInstance(tp_model.ffn.out_proj.weight, DTensor)
+                self.assertEqual(tp_model.ffn.w1.weight.placements, (Shard(0),))
+                self.assertEqual(tp_model.ffn.w2.weight.placements, (Shard(0),))
+                self.assertEqual(tp_model.ffn.out_proj.weight.placements, (Shard(1),))
+
+                ref_optim = torch.optim.SGD(ref_model.parameters(), lr=1e-2)
+                tp_optim = torch.optim.SGD(tp_model.parameters(), lr=1e-2)
+
+                for iter_idx in range(2):
+                    torch.manual_seed(101 + iter_idx)
+                    x = torch.randn(2, 64, size, device=device, dtype=torch.bfloat16)
+                    target = torch.randn_like(x)
+
+                    ref_optim.zero_grad(set_to_none=True)
+                    tp_optim.zero_grad(set_to_none=True)
+
+                    ref_out = ref_model(x)
+                    tp_out = tp_model(x)
+                    assert_close(tp_out, ref_out)
+
+                    ref_loss = F.mse_loss(ref_out, target)
+                    tp_loss = F.mse_loss(tp_out, target)
+                    assert_close(tp_loss, ref_loss, atol=1e-3, rtol=1e-3)
+
+                    ref_loss.backward()
+                    tp_loss.backward()
+
+                    assert_dtensor_parameter_grads_match(
+                        ref_model.parameters(),
+                        tp_model.parameters(),
+                    )
+
+                    ref_optim.step()
+                    tp_optim.step()
+
+                    assert_dtensor_parameter_values_match(
+                        ref_model.parameters(),
+                        tp_model.parameters(),
                     )
 
 
