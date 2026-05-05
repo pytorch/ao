@@ -14,6 +14,11 @@ from .nvfp4_moe import (
     apply_nvfp4_moe_qat,
     remove_nvfp4_moe_qat,
 )
+from .nvfp4_moe_simple import (
+    SimpleFP4FakeQuantizedGroupedMMTensor,
+    apply_simple_fp4_moe_qat,
+    remove_simple_fp4_moe_qat,
+)
 
 __all__ = [
     "MXFakeQuantizeConfig",
@@ -21,6 +26,9 @@ __all__ = [
     "NVFP4FakeQuantizeConfig",
     "NVFP4FakeQuantizedLinear",
     "NVFP4FakeQuantizedScaledGroupedMMTensor",
+    "SimpleFP4FakeQuantizedGroupedMMTensor",
     "apply_nvfp4_moe_qat",
+    "apply_simple_fp4_moe_qat",
     "remove_nvfp4_moe_qat",
+    "remove_simple_fp4_moe_qat",
 ]

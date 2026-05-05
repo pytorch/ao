@@ -9,11 +9,14 @@ Usage::
     # SFT on GSM8K (default)
     python torchao/prototype/qat/temp_finetune.py
     python torchao/prototype/qat/temp_finetune.py --qat
-    python torchao/prototype/qat/temp_finetune.py --qat --qat-impl module_swap
+    python torchao/prototype/qat/temp_finetune.py --qat --qat-impl reference_module_swap
 
     # SFT on ARC-Challenge
     python torchao/prototype/qat/temp_finetune.py --task arc_challenge
     python torchao/prototype/qat/temp_finetune.py --task arc_challenge --qat
+
+    # Tailpatch QAT: resume from SFT checkpoint, apply QAT for 50 steps
+    python torchao/prototype/qat/temp_finetune.py --resume-from ./sft-checkpoint --qat-impl simple --max-steps 50
 """
 
 import argparse
@@ -75,6 +78,31 @@ TASKS = {
 }
 
 
+def _get_qat_fns(qat_impl):
+    """Return (apply_fn, remove_fn) for the given QAT implementation."""
+    if qat_impl == "reference_subclass":
+        from torchao.prototype.qat.nvfp4_moe import (
+            apply_nvfp4_moe_qat,
+            remove_nvfp4_moe_qat,
+        )
+
+        return apply_nvfp4_moe_qat, remove_nvfp4_moe_qat
+    elif qat_impl == "simple_subclass":
+        from torchao.prototype.qat.nvfp4_moe_simple import (
+            apply_simple_fp4_moe_qat,
+            remove_simple_fp4_moe_qat,
+        )
+
+        return apply_simple_fp4_moe_qat, remove_simple_fp4_moe_qat
+    else:
+        from torchao.prototype.qat.nvfp4_moe_module_swap import (
+            apply_nvfp4_moe_qat,
+            remove_nvfp4_moe_qat,
+        )
+
+        return apply_nvfp4_moe_qat, remove_nvfp4_moe_qat
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="SFT on configurable tasks")
     parser.add_argument(
@@ -93,12 +121,21 @@ if __name__ == "__main__":
         "--qat-impl",
         type=str,
         default=None,
-        choices=["tensor_subclass", "module_swap"],
-        help="QAT implementation (default: tensor_subclass). Implies --qat. "
-        "tensor_subclass intercepts torch._grouped_mm via a tensor subclass "
-        "and works with any HF MoE architecture that uses grouped_mm experts; "
-        "module_swap replaces the SparseMoeBlock with a custom module "
+        choices=["reference_subclass", "reference_module_swap", "simple_subclass"],
+        help="QAT implementation (default: reference_subclass). Implies --qat. "
+        "reference_subclass intercepts torch._grouped_mm via a tensor subclass "
+        "matching the flashinfer kernel's two-level NvFP4 scaling; "
+        "simple intercepts torch._grouped_mm with a simpler per-tensor FP4 "
+        "fake quantize (no two-level scaling or per-expert quantization); "
+        "reference_module_swap replaces the SparseMoeBlock with a custom module "
         "(currently only supports Qwen3 MoE).",
+    )
+    parser.add_argument(
+        "--resume-from",
+        type=str,
+        default=None,
+        help="Load model from this checkpoint instead of the base pretrained model. "
+        "Useful for tailpatch QAT: first SFT without QAT, then resume with QAT.",
     )
     parser.add_argument(
         "--max-steps",
@@ -114,38 +151,32 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
 
-    # --qat-impl implies --qat; default to tensor_subclass when --qat is used
+    # --qat-impl implies --qat; default to reference_subclass when --qat is used
     if args.qat_impl is not None:
         args.qat = True
 
     if args.qat and args.qat_impl is None:
-        args.qat_impl = "tensor_subclass"
+        args.qat_impl = "reference_subclass"
 
     task_cfg = TASKS[args.task]
     output_dir = args.output_dir or (
         task_cfg["default_output_dir"] + ("-qat" if args.qat else "")
     )
 
+    model_path = args.resume_from or MODEL_NAME
     model = AutoModelForCausalLM.from_pretrained(
-        MODEL_NAME,
+        model_path,
         torch_dtype=torch.bfloat16,
         device_map="auto",
         experts_implementation="grouped_mm",
     )
 
+    apply_qat, remove_qat = None, None
     if args.qat:
-        # tensor_subclass: model-agnostic, works with any HF MoE using grouped_mm
-        # module_swap: Qwen3 MoE only
-        if args.qat_impl == "tensor_subclass":
-            from torchao.prototype.qat.nvfp4_moe import apply_nvfp4_moe_qat
-        else:
-            from torchao.prototype.qat.nvfp4_moe_module_swap import (
-                apply_nvfp4_moe_qat,
-            )
+        apply_qat, remove_qat = _get_qat_fns(args.qat_impl)
+        model = apply_qat(model)
 
-        model = apply_nvfp4_moe_qat(model)
-
-    tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
+    tokenizer = AutoTokenizer.from_pretrained(model_path)
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
 
@@ -186,14 +217,7 @@ if __name__ == "__main__":
         print("\nSkipping training (--max-steps 0)")
 
     if args.qat:
-        if args.qat_impl == "tensor_subclass":
-            from torchao.prototype.qat.nvfp4_moe import remove_nvfp4_moe_qat
-        else:
-            from torchao.prototype.qat.nvfp4_moe_module_swap import (
-                remove_nvfp4_moe_qat,
-            )
-
-        remove_nvfp4_moe_qat(model)
+        remove_qat(model)
 
     # Save bf16 checkpoint
     model.save_pretrained(output_dir)
