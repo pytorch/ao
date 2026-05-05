@@ -69,6 +69,7 @@ def apply_low_precision_attention(
     model: nn.Module,
     backend: Optional[AttentionBackend] = None,
     hadamard: HadamardMode = HadamardMode.NONE,
+    inplace: bool = False,
 ) -> nn.Module:
     """Apply low-precision attention to a model.
 
@@ -90,6 +91,9 @@ def apply_low_precision_attention(
             the transform to V only, improving V quantization quality
             without the cost of transforming Q and K. Requires D to be
             a power of 2 and <= 256.
+        inplace: If True, monkey-patch ``model.forward`` in place and
+            return the same model object instead of wrapping it. Useful
+            for frameworks that require the model type to be preserved.
 
     Example:
 
@@ -99,6 +103,10 @@ def apply_low_precision_attention(
     if not _TORCH_VERSION_AT_LEAST_2_11:
         raise RuntimeError("Low-precision attention requires PyTorch 2.11+.")
     if isinstance(model, _LowPrecisionAttentionWrapper):
+        raise RuntimeError(
+            "apply_low_precision_attention has already been applied to this module."
+        )
+    if getattr(model, "_low_precision_attention_applied", False):
         raise RuntimeError(
             "apply_low_precision_attention has already been applied to this module."
         )
@@ -113,6 +121,6 @@ def apply_low_precision_attention(
         _check_backend_available(backend)
 
     if backend == AttentionBackend.FP8_FA3:
-        return setup_fp8_backend(model, "FA3", hadamard=hadamard.value)
+        return setup_fp8_backend(model, "FA3", hadamard=hadamard.value, inplace=inplace)
 
     raise ValueError(f"Unknown backend: {backend}")
