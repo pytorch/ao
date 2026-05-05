@@ -178,7 +178,8 @@ class TestFP8FA3Attention(TestCase):
     )
     @common_utils.parametrize("dtype", [torch.bfloat16, torch.float16])
     @common_utils.parametrize("hadamard", ["NONE", "QKV", "V_ONLY"])
-    def test_monkey_patch_model(self, dtype, hadamard):
+    @common_utils.parametrize("inplace", [False, True])
+    def test_monkey_patch_model(self, dtype, hadamard, inplace):
         embed_dim, num_heads = 512, 8
         model = (
             SimpleAttentionModel(embed_dim, num_heads)
@@ -200,7 +201,12 @@ class TestFP8FA3Attention(TestCase):
             fp8_model,
             backend=AttentionBackend.FP8_FA3,
             hadamard=HadamardMode(hadamard),
+            inplace=inplace,
         )
+
+        if inplace:
+            self.assertIsInstance(fp8_model, SimpleAttentionModel)
+            self.assertTrue(fp8_model._low_precision_attention_applied)
 
         with torch.no_grad():
             out_fp8 = fp8_model(x)
@@ -209,7 +215,7 @@ class TestFP8FA3Attention(TestCase):
         self.assertGreater(
             sqnr.item(),
             20.0,
-            f"SQNR {sqnr.item():.2f} dB below 20 dB for dtype={dtype}, hadamard={hadamard}",
+            f"SQNR {sqnr.item():.2f} dB below 20 dB for dtype={dtype}, hadamard={hadamard}, inplace={inplace}",
         )
 
     @unittest.skipUnless(
@@ -218,7 +224,8 @@ class TestFP8FA3Attention(TestCase):
     )
     @common_utils.parametrize("dtype", [torch.bfloat16, torch.float16])
     @common_utils.parametrize("hadamard", ["NONE", "QKV", "V_ONLY"])
-    def test_rope_fusion_model(self, dtype, hadamard):
+    @common_utils.parametrize("inplace", [False, True])
+    def test_rope_fusion_model(self, dtype, hadamard, inplace):
         embed_dim, num_heads = 512, 8
         model = (
             SimpleRoPEAttentionModel(embed_dim, num_heads)
@@ -242,6 +249,7 @@ class TestFP8FA3Attention(TestCase):
             fp8_model,
             backend=AttentionBackend.FP8_FA3,
             hadamard=HadamardMode(hadamard),
+            inplace=inplace,
         )
         fp8_model = torch.compile(fp8_model)
 
@@ -252,7 +260,7 @@ class TestFP8FA3Attention(TestCase):
         self.assertGreater(
             sqnr.item(),
             20.0,
-            f"SQNR {sqnr.item():.2f} dB below 20 dB for dtype={dtype}, hadamard={hadamard}",
+            f"SQNR {sqnr.item():.2f} dB below 20 dB for dtype={dtype}, hadamard={hadamard}, inplace={inplace}",
         )
 
 
