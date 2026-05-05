@@ -1074,6 +1074,20 @@ def test_flydsl_mx_dim0_2d_numerics(M, K, input_dtype):
     not _mxfp8_flydsl_kernels_available,
     reason="MXFP8 FlyDSL kernels not available",
 )
+@pytest.mark.parametrize("M", (1, 16, 33))
+def test_flydsl_2d_32x1_rejects_misaligned_M(M):
+    """32x1 kernel requires M % 32 == 0; ``_pick_layout`` should raise a
+    clear AssertionError for any M that is not a multiple of the block size.
+    """
+    x = torch.randn(M, 256, dtype=torch.bfloat16, device="cuda")
+    with pytest.raises(AssertionError, match="must be a multiple of block_size"):
+        mxfp8_quantize_2d_32x1_flydsl(x, block_size=32, scaling_mode="floor")
+
+
+@pytest.mark.skipif(
+    not _mxfp8_flydsl_kernels_available,
+    reason="MXFP8 FlyDSL kernels not available",
+)
 @pytest.mark.parametrize("E", _FLYDSL_3D_E)
 @pytest.mark.parametrize("N", _FLYDSL_3D_N)
 @pytest.mark.parametrize("K", _FLYDSL_3D_K)
@@ -1110,10 +1124,14 @@ def test_flydsl_mx_dim1_3d_numerics(E, N, K, input_dtype):
     not _mxfp8_flydsl_kernels_available,
     reason="MXFP8 FlyDSL kernels not available",
 )
-@pytest.mark.parametrize("E", _FLYDSL_3D_E)
-@pytest.mark.parametrize("N", _FLYDSL_3D_N)
-@pytest.mark.parametrize("K", _FLYDSL_3D_K)
-@pytest.mark.parametrize("input_dtype", (torch.bfloat16, torch.float32))
+# The default-config 3D test above already sweeps (E,N,K,dtype) on
+# (sbk=1, bso=False); this test only needs to exercise the
+# (scale_block_k × blocked_scale_output) cross-product, so the shape
+# grid is intentionally narrow (one small + one larger value per axis).
+@pytest.mark.parametrize("E", (1, 8))
+@pytest.mark.parametrize("N", (32, 256))
+@pytest.mark.parametrize("K", (256, 4096))
+@pytest.mark.parametrize("input_dtype", (torch.bfloat16,))
 @pytest.mark.parametrize(
     "scale_block_k",
     (1, 32),

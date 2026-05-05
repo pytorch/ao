@@ -25,6 +25,8 @@ Parallelization:
 from __future__ import annotations
 
 import functools
+import os
+from contextlib import nullcontext
 from typing import Optional, Tuple
 
 import torch
@@ -248,6 +250,11 @@ if _flydsl_runtime_available():
             grid_k: fx.Int32,
             stream: fx.Stream = fx.Stream(None),
         ):
+            # The outer ``_compile_quantize_2d_32x1`` is ``functools.cache``d,
+            # so the same ``SmemAllocator`` instance is reused across launches;
+            # ``finalize()`` flips ``finalized=True`` and rejects subsequent
+            # calls. Reset to allow re-finalization into the current MLIR
+            # InsertionPoint on every cached launch.
             alloc.finalized = False
             ctx = CompilationContext.get_current()
             with ir.InsertionPoint(ctx.gpu_module_body):
@@ -280,6 +287,10 @@ def mxfp8_quantize_flydsl_2d_32x1(
 
     AMD counterpart of :func:`mxfp8_quantize_cutedsl_2d_32x1`. Output data
     is column-major (stride ``(1, M)``); scales are ``(K, M // 32)``.
+
+    Shape requirements: ``M % 32 == 0`` (the kernel is a 32-row block layout
+    by design — see :func:`_pick_layout`, which raises :class:`AssertionError`
+    on misaligned ``M``) and ``K % 256 == 0`` (the K-tile width).
 
     ``stage_count`` is accepted for API parity with the cutedsl wrapper
     (TMA pipeline depth) and ignored on AMD. ``blocked_scale_output`` and
@@ -324,11 +335,22 @@ def mxfp8_quantize_flydsl_2d_32x1(
     launch = _compile_quantize_2d_32x1(
         str(x.dtype), scaling_mode, M, K, m_blocks_per_wg,
     )
+    # Mirrors `FLYDSL_3D_FORCE_WAVES`: env override for the AMDGPU
+    # `waves_per_eu` codegen hint. The hint is read at MLIR-compile time,
+    # which happens lazily on the first `launch(...)` call — so the
+    # `with` block must wrap the call, not the `_compile_*` lookup.
+    _wpeu_env = os.environ.get("FLYDSL_32X1_WAVES_PER_EU")
+    _wpeu_ctx = (
+        CompilationContext.compile_hints({"waves_per_eu": int(_wpeu_env)})
+        if _wpeu_env is not None
+        else nullcontext()
+    )
     # Pass `x` raw (not via from_dlpack) so FlyDSL's bare-pointer fast path
     # avoids the per-call DLPack adapter overhead.
-    launch(x, q_storage.view(torch.int32), scales_u8,
-           M // m_tile, K // _K_TILE,
-           stream=current_stream_fast(x.device))
+    with _wpeu_ctx:
+        launch(x, q_storage.view(torch.int32), scales_u8,
+               M // m_tile, K // _K_TILE,
+               stream=current_stream_fast(x.device))
     return (
         q_storage.as_strided((M, K), (1, M)),
         scales_u8.view(torch.float8_e8m0fnu),

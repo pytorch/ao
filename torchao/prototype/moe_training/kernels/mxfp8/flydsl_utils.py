@@ -101,9 +101,16 @@ if _flydsl_runtime_available():
         and ``fx.Stream`` accepts the raw ``int`` pointer directly. Combined
         wrapper-side cost drops to ~0.2 µs — saves ~2.4 µs per launch, which
         is meaningful at small shapes where the kernel itself is <10 µs.
+
+        The private API may disappear across PyTorch versions; fall back to
+        the public ``torch.cuda.current_stream()`` if it does so we degrade
+        gracefully rather than break at import time.
         """
         idx = device.index if device.index is not None else 0
-        return fx.Stream(torch._C._cuda_getCurrentStream(idx)[0])
+        try:
+            return fx.Stream(torch._C._cuda_getCurrentStream(idx)[0])
+        except AttributeError:
+            return fx.Stream(torch.cuda.current_stream(device).cuda_stream)
 
     def floor_scale_and_inv_scale(amax_f32):
         """Derive the FLOOR-mode E8M0 byte and the matching inverse scale.

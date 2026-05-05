@@ -19,6 +19,8 @@ No cross-lane reduction needed because each block fits in one lane's registers.
 from __future__ import annotations
 
 import functools
+import os
+from contextlib import nullcontext
 from typing import Optional, Tuple
 
 import torch
@@ -27,7 +29,6 @@ from .flydsl_utils import (
     AMD_WAVE_SIZE,
     BLOCK_SIZE,
     CHUNKS_PER_BLOCK,
-    E8M0_EXPONENT_BIAS,
     VEC,
     _flydsl_runtime_available,
     _missing_flydsl_runtime_packages,
@@ -45,6 +46,7 @@ _K_PER_CHUNK = AMD_WAVE_SIZE * BLOCK_SIZE  # 2048
 if _flydsl_runtime_available():
     import flydsl.compiler as flyc
     import flydsl.expr as fx
+    from flydsl.compiler.kernel_function import CompilationContext
     from flydsl.expr import buffer_ops, range_constexpr
     from flydsl.expr.vector import ReductionOp
 
@@ -200,8 +202,19 @@ def mxfp8_quantize_flydsl_2d_1x32(
     scales_u8 = torch.empty((M, K // BLOCK_SIZE), device=x.device, dtype=torch.uint8)
 
     launch = _compile_quantize_2d_1x32(str(x.dtype), scaling_mode, K)
+    # Mirrors `FLYDSL_3D_FORCE_WAVES`: env override for the AMDGPU
+    # `waves_per_eu` codegen hint. The hint is read at MLIR-compile time,
+    # which happens lazily on the first `launch(...)` call — so the
+    # `with` block must wrap the call, not the `_compile_*` lookup.
+    _wpeu_env = os.environ.get("FLYDSL_1X32_WAVES_PER_EU")
+    _wpeu_ctx = (
+        CompilationContext.compile_hints({"waves_per_eu": int(_wpeu_env)})
+        if _wpeu_env is not None
+        else nullcontext()
+    )
     # Pass `x` raw (not via from_dlpack) so FlyDSL's bare-pointer fast path
     # avoids the per-call DLPack adapter overhead.
-    launch(x, q_data.view(torch.int32), scales_u8, M,
-           stream=current_stream_fast(x.device))
+    with _wpeu_ctx:
+        launch(x, q_data.view(torch.int32), scales_u8, M,
+               stream=current_stream_fast(x.device))
     return q_data, scales_u8.view(torch.float8_e8m0fnu)

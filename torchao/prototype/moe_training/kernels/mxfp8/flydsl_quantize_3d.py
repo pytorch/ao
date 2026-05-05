@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import functools
 import os
+from contextlib import nullcontext
 from typing import Tuple
 
 import torch
@@ -84,6 +85,7 @@ if _flydsl_runtime_available():
         waves_per_block: int,
         scale_block_k: int = 1,
         blocked_scale_output: bool = False,
+        data_store_cache_modifier: int = 0,
     ):
         if scaling_mode != "floor":
             raise NotImplementedError(
@@ -228,7 +230,10 @@ if _flydsl_runtime_available():
                     out = quantize_pack_chunk_to_i32(
                         chunks_local[c], inv_scale, f8_min_v, f8_max_v,
                     )
-                    buffer_ops.buffer_store(out, q_rsrc, col_i32_base + fx.Int32(c))
+                    buffer_ops.buffer_store(
+                        out, q_rsrc, col_i32_base + fx.Int32(c),
+                        cache_modifier=data_store_cache_modifier,
+                    )
 
                 if blocked_scale_output:
                     # Logical (k_row=k_col_global, n_block) → flat per-expert
@@ -308,6 +313,11 @@ if _flydsl_runtime_available():
             grid_e: fx.Int32,
             stream: fx.Stream = fx.Stream(None),
         ):
+            # The outer ``_compile_quantize_3d`` is ``functools.cache``d, so
+            # the same ``SmemAllocator`` instance is reused across launches;
+            # ``finalize()`` flips ``finalized=True`` and rejects subsequent
+            # calls. Reset to allow re-finalization into the current MLIR
+            # InsertionPoint on every cached launch.
             alloc.finalized = False
             ctx = CompilationContext.get_current()
             with ir.InsertionPoint(ctx.gpu_module_body):
@@ -378,6 +388,15 @@ def mxfp8_quantize_flydsl_3d(
     assert N % BLOCK_SIZE == 0, "N must be divisible by block_size"
     assert K % _K_TILE == 0, f"K must be divisible by {_K_TILE}"
 
+    # ------------------------------------------------------------------
+    # FLYDSL_3D_* env vars below are diagnostic-only knobs for follow-up
+    # perf tuning, NOT production toggles. The per-call os.environ.get
+    # lookups are ~100 ns dict reads (negligible vs a multi-µs kernel)
+    # and intentionally re-read on every call so a tuner can sweep them
+    # mid-process; their effective value is folded into the JIT cache
+    # key, so changes trigger a recompile rather than silent reuse.
+    # ------------------------------------------------------------------
+
     # Diagnostic override: FLYDSL_3D_FORCE_WAVES ∈ {1, 2, 4} bypasses the
     # auto-pick to test the LDS-budget / CTAs-per-CU scheduling hypothesis.
     _force = os.environ.get("FLYDSL_3D_FORCE_WAVES")
@@ -410,15 +429,34 @@ def mxfp8_quantize_flydsl_3d(
             (E, n_blocks_n, scales_k_dim), device=x.device, dtype=torch.uint8,
         )
 
+    # FLYDSL_3D_NT_STORES: optional AUX bits on the fp8 *data* `buffer_store`s
+    # (the L2-channel-saturating writes per regime-C PMC analysis). 2 = SLC bit
+    # → L2 treats the write as streaming/non-temporal, bypassing the line-fill.
+    # Scale `buffer_store_byte`s stay cached. Part of the JIT cache key.
+    _nt_env = os.environ.get("FLYDSL_3D_NT_STORES")
+    data_store_cm = int(_nt_env) if _nt_env is not None else 0
+
     launch = _compile_quantize_3d(
         str(x.dtype), scaling_mode, N, K, waves_per_block,
-        scale_block_k, blocked_scale_output,
+        scale_block_k, blocked_scale_output, data_store_cm,
+    )
+    # Mirrors `FLYDSL_3D_FORCE_WAVES`: env override for the AMDGPU
+    # `waves_per_eu` codegen hint. The hint is read at MLIR-compile time,
+    # which happens lazily on the first `launch(...)` call — so the
+    # `with` block must wrap the call, not the lookup. Pattern matches
+    # `flydsl.autotune._run_with_hints`.
+    _wpeu_env = os.environ.get("FLYDSL_3D_WAVES_PER_EU")
+    _wpeu_ctx = (
+        CompilationContext.compile_hints({"waves_per_eu": int(_wpeu_env)})
+        if _wpeu_env is not None
+        else nullcontext()
     )
     # Pass `x` raw (not via from_dlpack) so FlyDSL's bare-pointer fast path
     # avoids the per-call DLPack adapter overhead.
-    launch(x, q_storage.view(torch.int32), scales_u8,
-           n_blocks_n, K // k_per_block, E,
-           stream=current_stream_fast(x.device))
+    with _wpeu_ctx:
+        launch(x, q_storage.view(torch.int32), scales_u8,
+               n_blocks_n, K // k_per_block, E,
+               stream=current_stream_fast(x.device))
     return (
         q_storage.as_strided((E, N, K), (N * K, 1, N)),
         scales_u8.view(torch.float8_e8m0fnu),
