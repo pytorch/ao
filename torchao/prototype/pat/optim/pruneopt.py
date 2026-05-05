@@ -25,6 +25,7 @@ from ..distributed_utils import (
 )
 from ..utils import get_index_linspace, instantiate_module
 from .group_lasso import ProxGroupLasso, ProxGroupLassoVectorized
+from .iterative_reweight import IterativeReweight
 
 
 class PruneOptimizer(Optimizer):
@@ -41,6 +42,12 @@ class PruneOptimizer(Optimizer):
             pruned parameters are frozen. Must be greater than warmup_steps.
         reg_lambda: Regularization strength for the proximal updates. Can be
             overridden per parameter group.
+        reweight_tau_freq: Frequency in steps to apply an iterative reweighting
+            heuristic after each proximal update to adjust the regularization
+            strength based on the current magnitude of the parameters.
+        reweight_tau_end_step: Last step at which to apply iterative reweighting.
+        reweight_eps: Small constant to prevent division by zero in iterative
+            reweighting.
     """
 
     def __init__(
@@ -49,6 +56,9 @@ class PruneOptimizer(Optimizer):
         warmup_steps: int = 0,
         healing_start_step: int = sys.maxsize,
         reg_lambda: float = 0.0,
+        reweight_tau_freq: int = 0,
+        reweight_tau_end_step: int = sys.maxsize,
+        reweight_eps: float = 1e-3,
     ) -> None:
         # need to reconstruct these objects if loading checkpoint
         self.base_optimizer = base_optimizer
@@ -64,6 +74,12 @@ class PruneOptimizer(Optimizer):
         for group in self.regularized_param_groups():
             group.setdefault("gamma", 0.0)
             group.setdefault("reg_lambda", reg_lambda)
+
+        self.iterative_reweight = (
+            IterativeReweight(reweight_tau_freq, reweight_tau_end_step, reweight_eps)
+            if reweight_tau_freq > 0
+            else None
+        )
 
         self.relative_sparsity = 0
         self.relative_factored_frac = 0
@@ -154,7 +170,9 @@ class PruneOptimizer(Optimizer):
         return grouper_kwargs
 
     @staticmethod
-    def _apply_prox_dtensor(grouper, prox_map, p, gamma, gamma_in_dims):
+    def _apply_prox_dtensor(
+        grouper, prox_map, p, gamma, gamma_in_dims, tau_reweight, tau_reweight_in_dims
+    ):
         """Apply prox_map to a DTensor parameter via local_map.
 
         Returns:
@@ -189,6 +207,8 @@ class PruneOptimizer(Optimizer):
                 reduce_dim=int(not grouper.in_dims),
             )
             local_fn = prox_map_vec.apply_
+            if torch.is_tensor(tau_reweight) and tau_reweight.dim() < grouper.p.dim():
+                tau_reweight = tau_reweight.unsqueeze(int(not grouper.in_dims))
         else:
             # Use vmap for other prox types
             local_fn = torch.vmap(
@@ -196,6 +216,7 @@ class PruneOptimizer(Optimizer):
                 in_dims=(
                     grouper.in_dims,
                     gamma_in_dims,
+                    tau_reweight_in_dims,
                 ),
                 out_dims=(0, 0),
             )
@@ -209,16 +230,17 @@ class PruneOptimizer(Optimizer):
             in_placements=(
                 p_in_placements,
                 gamma.placements if _is_dtensor(gamma) else None,
+                tau_reweight.placements if _is_dtensor(tau_reweight) else None,
             ),
             redistribute_inputs=True,
-        )(grouper.p, gamma)
+        )(grouper.p, gamma, tau_reweight)
 
         # Gather counts across shards
         return zero_elts_per_group.full_tensor().sum().item(), group_norm
 
     @staticmethod
     def _apply_prox(
-        grouper, prox_map, p, sv_count=None, **prox_kwargs
+        grouper, prox_map, p, tau_reweight=1.0, sv_count=None, **prox_kwargs
     ) -> tuple[Tensor, Tensor, bool]:
         """
         Apply `prox_map` to the grouped parameter tensor `p` in place. Update
@@ -236,6 +258,9 @@ class PruneOptimizer(Optimizer):
         zeros_are_summed = False
         with grouper:
             gamma_in_dims = None
+            tau_reweight_in_dims = None
+            if torch.is_tensor(tau_reweight) and tau_reweight.dim() > 0:
+                tau_reweight_in_dims = 0
             if prox_kwargs["gamma_index_slope"] > 0:
                 # y = slope(2x - 1) + 1
                 gamma = gamma * get_index_linspace(
@@ -247,7 +272,7 @@ class PruneOptimizer(Optimizer):
 
             if prox_kwargs["disable_vmap"]:
                 # Element- or layer-wise pruning
-                zero_elts, group_norm = prox_map.apply_(grouper.p, gamma)
+                zero_elts, group_norm = prox_map.apply_(grouper.p, gamma, tau_reweight)
                 zeros_are_summed = zero_elts.dim() == 0
             else:
                 if not prox_kwargs["is_svd_grouper"] and _is_dtensor(p):
@@ -257,6 +282,8 @@ class PruneOptimizer(Optimizer):
                         p,
                         gamma,
                         gamma_in_dims,
+                        tau_reweight,
+                        tau_reweight_in_dims,
                     )
                 else:
                     # torch.Tensor branch - use standard vmap
@@ -265,9 +292,10 @@ class PruneOptimizer(Optimizer):
                         in_dims=(
                             grouper.in_dims,
                             gamma_in_dims,
+                            tau_reweight_in_dims,
                         ),
                         out_dims=(0, 0),
-                    )(grouper.p, gamma)
+                    )(grouper.p, gamma, tau_reweight)
                     zero_elts = zero_elts_per_group.sum().item()
                 zeros_are_summed = True
 
@@ -359,6 +387,14 @@ class PruneOptimizer(Optimizer):
                 self.base_optimizer.state[p]["latent"] = self._state[p]["latent"]
             del self._state
 
+        init_sigma_reweight, update_tau_reweight = False, False
+        if self.iterative_reweight is not None:
+            init_sigma_reweight = self.num_steps == self.warmup_steps
+            # offset by 1 since we update tau_reweight for the next step's prox map
+            update_tau_reweight = self.iterative_reweight.should_update(
+                self.num_steps + 1
+            )
+
         regularized_params = 0
         regularized_unfactored_size = 0
         dist_is_init = torch.distributed.is_initialized()
@@ -418,6 +454,7 @@ class PruneOptimizer(Optimizer):
                         grouper,
                         prox_map,
                         p,
+                        tau_reweight=state.get("tau_reweight", 1.0),
                         sv_count=sv_count,
                         **prox_kwargs,
                     )
@@ -429,6 +466,14 @@ class PruneOptimizer(Optimizer):
 
                     if torch.is_tensor(zero_elts):
                         zero_elts = zero_elts.item()
+
+                    if self.iterative_reweight is not None:
+                        if init_sigma_reweight:
+                            state["sigma"] = group_norm
+                        if "sigma" in state and update_tau_reweight:
+                            state["tau_reweight"] = self.iterative_reweight(
+                                group_norm, state["sigma"]
+                            )
 
                     if prox_kwargs["is_svd_grouper"]:
                         unfactored_size = grouper.U.size(0) * grouper.Vh.size(1)

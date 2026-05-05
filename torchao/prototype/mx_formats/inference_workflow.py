@@ -264,6 +264,7 @@ def _nvfp4_inference_linear_transform(
         return NVFP4ObservedLinear.from_float(module)
 
     elif step == QuantizationStep.CONVERT or step == "convert":
+        assert len(weight.shape) == 2, "3D weights not yet supported here"
         if not isinstance(module, NVFP4ObservedLinear):
             return module
 
@@ -314,8 +315,17 @@ def _nvfp4_inference_linear_transform(
 
         per_tensor_scale = None
         if config.use_dynamic_per_tensor_scale:
-            tensor_amax = torch.max(torch.abs(weight))
-            per_tensor_scale = per_tensor_amax_to_scale(tensor_amax)
+            if len(weight.shape) == 2:
+                tensor_amax = torch.max(torch.abs(weight))
+                per_tensor_scale = per_tensor_amax_to_scale(tensor_amax)
+            else:
+                assert len(weight.shape) == 3, f"unsupported {weight.shape=}"
+                tensor_amax = torch.amax(torch.abs(weight), dim=(1, 2))
+                per_tensor_scale = per_tensor_amax_to_scale(tensor_amax)
+                # 1D -> 3D
+                per_tensor_scale = per_tensor_scale.view(
+                    per_tensor_scale.shape[0], 1, 1
+                )
 
         act_quant_kwargs = QuantizeTensorToNVFP4Kwargs(
             use_dynamic_per_tensor_scale=config.use_dynamic_per_tensor_scale,
@@ -383,6 +393,7 @@ def _nvfp4_weight_only_linear_transform(
     """Quantization handler for NVFP4WeightOnlyConfig"""
     weight = module.weight
 
+    assert len(weight.shape) == 2, "3D weights not yet supported in this workflow"
     if weight.shape[-2] % 16 != 0 or weight.shape[-1] % 16 != 0:
         raise RuntimeError(
             f"NVFP4 only supports weight shape with last 2 dims divisible by 16, got {weight.shape}"
