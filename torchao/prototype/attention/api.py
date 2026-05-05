@@ -13,7 +13,12 @@ import torch
 import torch._dynamo
 import torch.nn as nn
 
-from torchao.prototype.attention.utils import _is_fa3_available, _is_hopper
+from torchao.prototype.attention.utils import (
+    _is_blackwell,
+    _is_fa3_available,
+    _is_fa4_available,
+    _is_hopper,
+)
 from torchao.utils import torch_version_at_least
 
 _TORCH_VERSION_AT_LEAST_2_11 = torch_version_at_least("2.11.0")
@@ -37,12 +42,15 @@ class AttentionBackend(str, Enum):
     """Backend kernel for computing attention."""
 
     FP8_FA3 = "FP8_FA3"  # Requires SM90+ (Hopper)
+    FP8_FA4 = "FP8_FA4"  # Requires SM100+ (Blackwell)
 
 
 def _get_available_backend() -> AttentionBackend:
     if not torch.cuda.is_available():
         raise RuntimeError("Low-precision attention requires CUDA.")
     capability = torch.cuda.get_device_capability()
+    if _is_blackwell() and _is_fa4_available():
+        return AttentionBackend.FP8_FA4
     if _is_hopper() and _is_fa3_available():
         return AttentionBackend.FP8_FA3
     raise RuntimeError(f"No compatible backend for SM{capability[0]}{capability[1]}.")
@@ -60,6 +68,16 @@ def _check_backend_available(backend: AttentionBackend) -> None:
         if not _is_fa3_available():
             raise RuntimeError(
                 "FP8_FA3 requires the flash-attn package with FA3 support."
+            )
+    elif backend == AttentionBackend.FP8_FA4:
+        if not _is_blackwell():
+            raise RuntimeError(
+                f"FP8_FA4 requires Blackwell (SM100), got SM{capability[0]}{capability[1]}."
+            )
+        if not _is_fa4_available():
+            raise RuntimeError(
+                "FP8_FA4 requires the flash-attn package with FA4 support "
+                "(flash_attn.cute.interface)."
             )
     else:
         raise ValueError(f"Unknown backend: {backend}")
@@ -114,5 +132,8 @@ def apply_low_precision_attention(
 
     if backend == AttentionBackend.FP8_FA3:
         return setup_fp8_backend(model, "FA3", hadamard=hadamard.value)
+
+    if backend == AttentionBackend.FP8_FA4:
+        return setup_fp8_backend(model, "FA4", hadamard=hadamard.value)
 
     raise ValueError(f"Unknown backend: {backend}")
