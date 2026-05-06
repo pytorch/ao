@@ -163,23 +163,23 @@ def run_experiment(config: ExperimentConfig) -> ExperimentResult:
         time_cuda_2d_us = float("nan")
 
     quant_input = get_quant_input(input_tensor)
-    scale_block_n = block_size
-    scale_block_k = 1 if variant in ("32x1_t", "32x1_n") else block_size
+    scale_block_dim1 = block_size
+    scale_block_dim2 = 1 if variant in ("32x1_t", "32x1_n") else block_size
 
     # bench 3d CuTeDSL kernel
     data_cuda_3d, scales_cuda_3d = mxfp8_quantize_cuda_3d(
         quant_input,
         block_size=block_size,
-        scale_block_n=scale_block_n,
-        scale_block_k=scale_block_k,
+        scale_block_dim1=scale_block_dim1,
+        scale_block_dim2=scale_block_dim2,
         scaling_mode=str(config.scaling_mode.value),
     )
     time_cutedsl_3d_us = benchmark_cuda_function_in_microseconds(
         mxfp8_quantize_cuda_3d,
         quant_input,
         block_size=block_size,
-        scale_block_n=scale_block_n,
-        scale_block_k=scale_block_k,
+        scale_block_dim1=scale_block_dim1,
+        scale_block_dim2=scale_block_dim2,
         scaling_mode=str(config.scaling_mode.value),
     )
 

@@ -74,12 +74,12 @@ def test_emulate_mxfp8_grouped_gemm_2d_3d(M, K, N, num_experts, variant, scale_m
         input_act = torch.randn(M, K, dtype=torch.bfloat16, device="cuda")
         weight = torch.randn(num_experts, N, K, dtype=torch.bfloat16, device="cuda")
         mat2 = weight.transpose(-2, -1)
-        scale_block_k = 1
+        scale_block_dim2 = 1
     else:
         # Dgrad-style grouped MM: grad_out @ weight.
         input_act = torch.randn(M, N, dtype=torch.bfloat16, device="cuda")
         mat2 = torch.randn(num_experts, N, K, dtype=torch.bfloat16, device="cuda")
-        scale_block_k = 32 if variant == "32x32_n" else 1
+        scale_block_dim2 = 32 if variant == "32x32_n" else 1
 
     input_fp8, input_scale = triton_to_mxfp8_dim0(
         input_act,
@@ -89,15 +89,17 @@ def test_emulate_mxfp8_grouped_gemm_2d_3d(M, K, N, num_experts, variant, scale_m
     mat2_fp8, mat2_scale = mxfp8_quantize_cuda_3d(
         mat2,
         block_size=block_size,
-        scale_block_n=block_size,
-        scale_block_k=scale_block_k,
+        scale_block_dim1=block_size,
+        scale_block_dim2=scale_block_dim2,
         scaling_mode=scale_mode.value.lower(),
         blocked_scale_output=False,
     )
 
+    # Expand LHS 1x32 scales from (M, K//32) to (M, K) for the BF16
+    # reference dequantization below.
     input_scale_ref = input_scale.repeat_interleave(block_size, dim=1)
     input_ref = input_fp8.to(torch.bfloat16) * input_scale_ref.to(torch.bfloat16)
-    if scale_block_k == 1:
+    if scale_block_dim2 == 1:
         mat2_scale_ref = mat2_scale.repeat_interleave(block_size, dim=1)
         mat2_scale_for_emulated = mat2_scale
     else:
@@ -144,12 +146,12 @@ def test_mxfp8_grouped_gemm_2d_3d(M, K, N, num_experts, variant, scale_mode):
         input_act = torch.randn(M, K, dtype=torch.bfloat16, device="cuda")
         weight = torch.randn(num_experts, N, K, dtype=torch.bfloat16, device="cuda")
         mat2 = weight.transpose(-2, -1)
-        scale_block_k = 1
+        scale_block_dim2 = 1
     else:
         # Dgrad-style grouped MM: grad_out @ weight.
         input_act = torch.randn(M, N, dtype=torch.bfloat16, device="cuda")
         mat2 = torch.randn(num_experts, N, K, dtype=torch.bfloat16, device="cuda")
-        scale_block_k = 32 if variant == "32x32_n" else 1
+        scale_block_dim2 = 32 if variant == "32x32_n" else 1
 
     input_fp8, input_scale = triton_to_mxfp8_dim0(
         input_act,
@@ -159,23 +161,25 @@ def test_mxfp8_grouped_gemm_2d_3d(M, K, N, num_experts, variant, scale_mode):
     mat2_fp8, mat2_scale = mxfp8_quantize_cuda_3d(
         mat2,
         block_size=block_size,
-        scale_block_n=block_size,
-        scale_block_k=scale_block_k,
+        scale_block_dim1=block_size,
+        scale_block_dim2=scale_block_dim2,
         scaling_mode=scale_mode.value.lower(),
         blocked_scale_output=True,
     )
     mat2_fp8_ref, mat2_scale_ref = mxfp8_quantize_cuda_3d(
         mat2,
         block_size=block_size,
-        scale_block_n=block_size,
-        scale_block_k=scale_block_k,
+        scale_block_dim1=block_size,
+        scale_block_dim2=scale_block_dim2,
         scaling_mode=scale_mode.value.lower(),
         blocked_scale_output=False,
     )
 
+    # Expand LHS 1x32 scales from (M, K//32) to (M, K) for the BF16
+    # reference dequantization below.
     input_scale_ref = input_scale.repeat_interleave(block_size, dim=1)
     input_ref = input_fp8.to(torch.bfloat16) * input_scale_ref.to(torch.bfloat16)
-    if scale_block_k == 1:
+    if scale_block_dim2 == 1:
         mat2_scale_ref = mat2_scale_ref.repeat_interleave(block_size, dim=1)
     else:
         mat2_scale_ref = mat2_scale_ref.repeat_interleave(

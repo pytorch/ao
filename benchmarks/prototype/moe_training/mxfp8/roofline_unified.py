@@ -432,6 +432,8 @@ def benchmark_mxfp8_grouped_mm_fwd_bwd(x, w_t, offs, labels):
     x_clone = x.clone().requires_grad_(True)
     w_t_clone = w_t.clone().requires_grad_(True)
 
+    fn = torch.compile(_to_mxfp8_then_scaled_grouped_mm, fullgraph=True)
+
     # Set all parameters explicitly as variables for positional args
     A = x_clone
     B_t = w_t_clone
@@ -442,7 +444,7 @@ def benchmark_mxfp8_grouped_mm_fwd_bwd(x, w_t, offs, labels):
     scale_calculation_mode = MoEScaleCalculationMode.RCEIL
 
     def wrapper():
-        out = _to_mxfp8_then_scaled_grouped_mm(
+        out = fn(
             A,
             B_t,
             offs_arg,
@@ -486,8 +488,8 @@ def benchmark_mxfp8_quantize_cuda_3d(tensor, block_size=32):
         lambda: mxfp8_quantize_cuda_3d(
             tensor,
             block_size=block_size,
-            scale_block_n=block_size,
-            scale_block_k=1,
+            scale_block_dim1=block_size,
+            scale_block_dim2=1,
             scaling_mode="rceil",
         )
     )
@@ -1026,8 +1028,8 @@ def run(
         w_fp8, w_scales_blocked = mxfp8_quantize_cuda_3d(
             w_t,
             block_size=32,
-            scale_block_n=32,
-            scale_block_k=1,
+            scale_block_dim1=32,
+            scale_block_dim2=1,
             scaling_mode="rceil",
         )
 

@@ -404,7 +404,7 @@ def test_cuda_mx_3d_cutedsl_numerics(E, N, K, input_dtype, scaling_mode, variant
         "floor" if scaling_mode == ScaleCalculationMode.FLOOR else "rceil"
     )
     block_size = 32
-    scale_block_k = 32 if variant == "32x32_n" else 1
+    scale_block_dim2 = 32 if variant == "32x32_n" else 1
 
     # Use disinct incrementing values from 0 to E*M*K-1 to make debugging easier.
     x = (
@@ -427,8 +427,8 @@ def test_cuda_mx_3d_cutedsl_numerics(E, N, K, input_dtype, scaling_mode, variant
         y_unblocked, s_unblocked = mxfp8_quantize_cuda_3d(
             x_t,
             block_size=block_size,
-            scale_block_n=block_size,
-            scale_block_k=1,
+            scale_block_dim1=block_size,
+            scale_block_dim2=1,
             scaling_mode=scaling_mode_str,
             blocked_scale_output=False,
         )
@@ -441,8 +441,8 @@ def test_cuda_mx_3d_cutedsl_numerics(E, N, K, input_dtype, scaling_mode, variant
         y, s = mxfp8_quantize_cuda_3d(
             x_t,
             block_size=block_size,
-            scale_block_n=block_size,
-            scale_block_k=1,
+            scale_block_dim1=block_size,
+            scale_block_dim2=1,
             scaling_mode=scaling_mode_str,
             blocked_scale_output=True,
         )
@@ -466,7 +466,7 @@ def test_cuda_mx_3d_cutedsl_numerics(E, N, K, input_dtype, scaling_mode, variant
         )
         return
 
-    if scale_block_k == 1:
+    if scale_block_dim2 == 1:
         s_ref, y_ref = to_mx(
             x.transpose(-2, -1).contiguous(),
             elem_dtype=torch.float8_e4m3fn,
@@ -512,12 +512,12 @@ def test_cuda_mx_3d_cutedsl_numerics(E, N, K, input_dtype, scaling_mode, variant
     y, s = mxfp8_quantize_cuda_3d(
         x,
         block_size=block_size,
-        scale_block_n=block_size,
-        scale_block_k=scale_block_k,
+        scale_block_dim1=block_size,
+        scale_block_dim2=scale_block_dim2,
         scaling_mode=scaling_mode_str,
         blocked_scale_output=True,
     )
-    if scale_block_k == 32:
+    if scale_block_dim2 == 32:
         s_blocked_full = (
             torch.stack(
                 [
@@ -546,8 +546,8 @@ def test_cuda_mx_3d_cutedsl_numerics(E, N, K, input_dtype, scaling_mode, variant
     y_unblocked, s_unblocked = mxfp8_quantize_cuda_3d(
         x,
         block_size=block_size,
-        scale_block_n=block_size,
-        scale_block_k=scale_block_k,
+        scale_block_dim1=block_size,
+        scale_block_dim2=scale_block_dim2,
         scaling_mode=scaling_mode_str,
         blocked_scale_output=False,
     )
