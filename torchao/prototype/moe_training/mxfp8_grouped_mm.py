@@ -657,6 +657,8 @@ def _compute_dgrad_sm100(
     weight_e4m3, weight_scales_blocked = mxfp8_quantize_cuda_3d(
         weight._data if hasattr(weight, "_data") else weight,
         block_size,
+        scale_block_n=block_size,
+        scale_block_k=1,
         scaling_mode=scale_calculation_mode.value.lower(),
     )
 

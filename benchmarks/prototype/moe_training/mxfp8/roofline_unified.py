@@ -495,7 +495,11 @@ def benchmark_mxfp8_quantize_cuda_3d(tensor, block_size=32):
     """Benchmark mxfp8_quantize_cuda_3d kernel"""
     return benchmark_cuda_function_in_microseconds(
         lambda: mxfp8_quantize_cuda_3d(
-            tensor, block_size=block_size, scaling_mode="rceil"
+            tensor,
+            block_size=block_size,
+            scale_block_n=block_size,
+            scale_block_k=1,
+            scaling_mode="rceil",
         )
     )
 
