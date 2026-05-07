@@ -70,7 +70,8 @@ if torch_version_at_least("2.7.0") and has_triton():
         stride_output_rhs_n,
         stride_output_rhs_k,
         expert_amax_ptr,  # (E,) float32
-        scales_out_ptr,   # (E,) float32 computed scales
+        fwd_inv_scales_ptr,  # (E, N) float32 inverse scale output
+        rhs_inv_scales_ptr,  # (E, K) float32 inverse scale output
         E: int,
         K: int,
         N: int,
@@ -93,13 +94,18 @@ if torch_version_at_least("2.7.0") and has_triton():
         scale = fp8_dtype_max / tl.maximum(amax, EPS)
         if ROUND_POW2:
             scale = tl.exp2(tl.floor(tl.log2(scale)))
+        inv_scale = 1.0 / scale
 
-        if n_block_idx == 0:
-            tl.store(scales_out_ptr + expert_idx, scale)
+        fwd_scale_offs = expert_idx * N + n_offs
+        tl.store(fwd_inv_scales_ptr + fwd_scale_offs, inv_scale, mask=n_mask)
 
         for k_start in range(0, K, BLOCK_SIZE_K):
             k_offs = k_start + tl.arange(0, BLOCK_SIZE_K)
             k_mask = k_offs < K
+
+            if n_block_idx == 0:
+                rhs_scale_offs = expert_idx * K + k_offs
+                tl.store(rhs_inv_scales_ptr + rhs_scale_offs, inv_scale, mask=k_mask)
 
             input_offs = (
                 expert_idx * stride_input_e

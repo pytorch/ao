@@ -21,10 +21,14 @@ import torch
 from torchao.float8.float8_utils import amax_to_scale, to_fp8_saturated
 from torchao.prototype.moe_training.kernels.fp8_tensorwise_2d import (
     triton_fp8_tensorwise_quantize_2d,
+    triton_fp8_tensorwise_quantize_2d_dual_layout,
 )
 from torchao.prototype.moe_training.utils import _is_column_major
 
 _USE_TRITON_QUANTIZE_2D = triton_fp8_tensorwise_quantize_2d is not None
+_USE_TRITON_QUANTIZE_2D_DUAL = (
+    triton_fp8_tensorwise_quantize_2d_dual_layout is not None
+)
 
 try:
     from torchao.prototype.moe_training.kernels.fp8_tensorwise_2d import (
@@ -82,6 +86,43 @@ def _fake_fp8_tensorwise_quantize_2d(
 
 
 @torch.library.custom_op(
+    "torchao::fp8_tensorwise_quantize_2d_dual_layout", mutates_args={}
+)
+def _fp8_tensorwise_quantize_2d_dual_layout(
+    tensor: torch.Tensor,
+    output_dtype: torch.dtype,
+) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    """
+    Tensorwise quantize a 2D tensor to FP8 and return row-major and column-major
+    copies plus the expanded inverse scale.
+    """
+    if _USE_TRITON_QUANTIZE_2D_DUAL and tensor.is_contiguous():
+        return triton_fp8_tensorwise_quantize_2d_dual_layout(
+            tensor, output_dtype, round_scales_to_power_of_2=True
+        )
+
+    fp8_data, inv_scale_expanded = _fp8_tensorwise_quantize_2d(
+        tensor, output_dtype
+    )
+    M, D = fp8_data.shape
+    fp8_col_major = torch.empty(D, M, dtype=fp8_data.dtype, device=fp8_data.device).t()
+    fp8_col_major.copy_(fp8_data)
+    return fp8_data, fp8_col_major, inv_scale_expanded
+
+
+@_fp8_tensorwise_quantize_2d_dual_layout.register_fake
+def _fake_fp8_tensorwise_quantize_2d_dual_layout(
+    tensor: torch.Tensor,
+    output_dtype: torch.dtype,
+) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    M, K = tensor.shape
+    fp8_row = torch.empty(M, K, dtype=output_dtype, device=tensor.device)
+    fp8_col = torch.empty(K, M, dtype=output_dtype, device=tensor.device).t()
+    inv_scale_expanded = torch.empty(M, dtype=torch.float32, device=tensor.device)
+    return fp8_row, fp8_col, inv_scale_expanded
+
+
+@torch.library.custom_op(
     "torchao::fp8_tensorwise_quantize_3d_single_scale", mutates_args={}
 )
 def _fp8_tensorwise_quantize_3d_single_scale(
@@ -124,7 +165,8 @@ def _fp8_tensorwise_quantize_3d_single_scale(
         )
         expert_amax = amax_buf.expand(E).contiguous()
 
-        scales = torch.empty(E, dtype=torch.float32, device=tensor.device)
+        fwd_inv_scales = torch.empty(E, N, dtype=torch.float32, device=tensor.device)
+        rhs_inv_scales = torch.empty(E, K, dtype=torch.float32, device=tensor.device)
         grid = lambda meta: (E, _triton.cdiv(N, meta["BLOCK_SIZE_N"]))
 
         _fp8_tensorwise_3d_dual_layout_quantize_kernel[grid](
@@ -135,7 +177,8 @@ def _fp8_tensorwise_quantize_3d_single_scale(
             rhs_buf,
             rhs_buf.stride(0), rhs_buf.stride(1), rhs_buf.stride(2),
             expert_amax,
-            scales,
+            fwd_inv_scales,
+            rhs_inv_scales,
             E, K, N,
             fp8_dtype_min, fp8_dtype_max,
             tl_output_dtype,
@@ -144,10 +187,6 @@ def _fp8_tensorwise_quantize_3d_single_scale(
             EPS=_EPS_3D,
         )
 
-        scale = scales[0]
-        inv_scale = 1.0 / scale
-        fwd_inv_scales = inv_scale.unsqueeze(0).expand(E, N).contiguous()
-        rhs_inv_scales = inv_scale.unsqueeze(0).expand(E, K).contiguous()
         return fwd_buf, fwd_inv_scales, rhs_buf, rhs_inv_scales
 
     # PyTorch fallback.
@@ -263,7 +302,7 @@ class _Float8TensorwiseGroupedMM(torch.autograd.Function):
 
         B_t_data = B_t._data if hasattr(B_t, "_data") else B_t
 
-        A_fp8, A_inv_scales = _fp8_tensorwise_quantize_2d(
+        A_fp8, A_col_major, A_inv_scales = _fp8_tensorwise_quantize_2d_dual_layout(
             A, float8_dtype
         )
         (B_t_fp8, B_t_inv_scales,
@@ -274,7 +313,6 @@ class _Float8TensorwiseGroupedMM(torch.autograd.Function):
         # Pre-build col-major A and flat inv-scales for grad_B in backward.
         _, K = A.shape
         num_groups = offs.numel()
-        A_col_major = _copy_to_column_major(A_fp8)
         A_inv_scales_flat = A_inv_scales[:1].expand(num_groups * K).contiguous()
 
         ctx.save_for_backward(
@@ -301,9 +339,11 @@ class _Float8TensorwiseGroupedMM(torch.autograd.Function):
         out_dtype = ctx.out_dtype
         float8_dtype = ctx.float8_dtype
 
-        grad_output_fp8, go_inv_scales = _fp8_tensorwise_quantize_2d(
-            grad_output, float8_dtype
-        )
+        (
+            grad_output_fp8,
+            grad_output_col_major,
+            go_inv_scales,
+        ) = _fp8_tensorwise_quantize_2d_dual_layout(grad_output, float8_dtype)
 
         # grad_A = grad_output @ B
         grad_A = torch._scaled_grouped_mm(
@@ -320,7 +360,6 @@ class _Float8TensorwiseGroupedMM(torch.autograd.Function):
         _, N = grad_output.shape
         num_groups = offs.numel()
 
-        grad_output_col_major = _copy_to_column_major(grad_output_fp8)
         grad_output_t_row_major = grad_output_col_major.t()
         go_inv_scales_flat = (
             go_inv_scales[:1].expand(num_groups * N).contiguous()

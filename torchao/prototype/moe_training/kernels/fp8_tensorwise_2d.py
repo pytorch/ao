@@ -98,7 +98,8 @@ if torch_version_at_least("2.7.0") and has_triton():
         x_ptr,
         out_ptr,                # *FP8 output, same shape as x
         amax_ptr,               # *float32 scalar amax written by pass 1
-        scale_out_ptr,          # *float32 scalar scale output (written by block 0)
+        inv_scale_out_ptr,      # (M,) float32 inverse scale output
+        K: int,
         numel: int,
         fp8_max: tl.constexpr,
         fp8_min: tl.constexpr,
@@ -123,10 +124,7 @@ if torch_version_at_least("2.7.0") and has_triton():
         scale = fp8_max / tl.maximum(amax, EPS)
         if ROUND_POW2:
             scale = tl.exp2(tl.floor(tl.log2(scale)))
-
-        # Block 0 writes the scale so the caller can build scale_expanded.
-        if pid == 0:
-            tl.store(scale_out_ptr, scale)
+        inv_scale = 1.0 / scale
 
         offs = pid * BLOCK_SIZE + tl.arange(0, BLOCK_SIZE)
         mask = offs < numel
@@ -143,6 +141,55 @@ if torch_version_at_least("2.7.0") and has_triton():
         # incorrect FP8 values on AMD ROCm.
         x_clamped = tl.minimum(tl.maximum(x * scale, fp8_min), fp8_max)
         tl.store(out_ptr + offs, x_clamped.to(OUTPUT_DTYPE), mask=mask)
+        tl.store(inv_scale_out_ptr + offs // K, inv_scale, mask=mask & ((offs % K) == 0))
+
+    @triton.autotune(configs=_configs, key=["numel"])
+    @triton.jit
+    def _fp8_tensorwise_2d_dual_layout_quantize_kernel(
+        x_ptr,
+        out_row_ptr,            # *FP8 row-major output, same shape as x
+        out_col_ptr,            # *FP8 col-major output, same shape as x
+        amax_ptr,               # *float32 scalar amax written by pass 1
+        inv_scale_out_ptr,      # (M,) float32 inverse scale output
+        M: int,
+        K: int,
+        stride_col_row,
+        stride_col_col,
+        numel: int,
+        fp8_max: tl.constexpr,
+        fp8_min: tl.constexpr,
+        INPUT_DTYPE_MAX: tl.constexpr,
+        EPS: tl.constexpr,
+        ROUND_POW2: tl.constexpr,
+        OUTPUT_DTYPE: tl.constexpr,
+        BLOCK_SIZE: tl.constexpr,
+    ):
+        pid = tl.program_id(0)
+
+        amax = tl.load(amax_ptr).to(tl.float32)
+        scale = fp8_max / tl.maximum(amax, EPS)
+        if ROUND_POW2:
+            scale = tl.exp2(tl.floor(tl.log2(scale)))
+        inv_scale = 1.0 / scale
+
+        offs = pid * BLOCK_SIZE + tl.arange(0, BLOCK_SIZE)
+        mask = offs < numel
+        x = tl.load(x_ptr + offs, mask=mask, other=0.0).to(tl.float32)
+
+        x = tl.where(x != x, 0.0, x)
+        x = tl.where(x > INPUT_DTYPE_MAX, INPUT_DTYPE_MAX, x)
+        x = tl.where(x < -INPUT_DTYPE_MAX, -INPUT_DTYPE_MAX, x)
+
+        fp8_vals = tl.minimum(tl.maximum(x * scale, fp8_min), fp8_max).to(
+            OUTPUT_DTYPE
+        )
+        tl.store(out_row_ptr + offs, fp8_vals, mask=mask)
+
+        rows = offs // K
+        cols = offs - rows * K
+        tl.store(inv_scale_out_ptr + rows, inv_scale, mask=mask & (cols == 0))
+        col_major_offsets = rows * stride_col_row + cols * stride_col_col
+        tl.store(out_col_ptr + col_major_offsets, fp8_vals, mask=mask)
 
     def triton_fp8_tensorwise_quantize_2d(
         tensor: torch.Tensor,
@@ -179,7 +226,7 @@ if torch_version_at_least("2.7.0") and has_triton():
 
         fp8_out = torch.empty(M, K, dtype=output_dtype, device=tensor.device)
         amax_buf = torch.zeros(1, dtype=torch.float32, device=tensor.device)
-        scale_buf = torch.empty(1, dtype=torch.float32, device=tensor.device)
+        inv_scale_expanded = torch.empty(M, dtype=torch.float32, device=tensor.device)
 
         grid = lambda meta: (triton.cdiv(numel, meta["BLOCK_SIZE"]),)
 
@@ -194,7 +241,8 @@ if torch_version_at_least("2.7.0") and has_triton():
             tensor,
             fp8_out,
             amax_buf,
-            scale_buf,
+            inv_scale_expanded,
+            K,
             numel,
             fp8_max=fp8_max,
             fp8_min=fp8_min,
@@ -204,10 +252,62 @@ if torch_version_at_least("2.7.0") and has_triton():
             OUTPUT_DTYPE=tl_output_dtype,
         )
 
-        inv_scale_buf = 1.0 / scale_buf
-        inv_scale_expanded = inv_scale_buf.expand(M).contiguous()
-
         return fp8_out, inv_scale_expanded
+
+    def triton_fp8_tensorwise_quantize_2d_dual_layout(
+        tensor: torch.Tensor,
+        output_dtype: torch.dtype,
+        round_scales_to_power_of_2: bool = True,
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        """
+        Tensorwise quantize a 2D contiguous tensor and materialize both row-major
+        and column-major FP8 layouts from the same quantize pass.
+        """
+        assert tensor.ndim == 2 and tensor.is_contiguous(), (
+            "triton_fp8_tensorwise_quantize_2d_dual_layout requires a 2D contiguous input tensor"
+        )
+        M, K = tensor.shape
+        numel = M * K
+
+        tl_output_dtype = FP8_DTYPE_MAP[output_dtype]
+        fp8_max = torch.finfo(output_dtype).max
+        fp8_min = torch.finfo(output_dtype).min
+        input_dtype_max = torch.finfo(tensor.dtype).max
+
+        fp8_row = torch.empty(M, K, dtype=output_dtype, device=tensor.device)
+        fp8_col = torch.empty(K, M, dtype=output_dtype, device=tensor.device).t()
+        amax_buf = torch.zeros(1, dtype=torch.float32, device=tensor.device)
+        inv_scale_expanded = torch.empty(M, dtype=torch.float32, device=tensor.device)
+
+        grid = lambda meta: (triton.cdiv(numel, meta["BLOCK_SIZE"]),)
+        _fp8_tensorwise_2d_amax_kernel[grid](
+            tensor,
+            amax_buf,
+            numel,
+            INPUT_DTYPE_MAX=input_dtype_max,
+        )
+
+        _fp8_tensorwise_2d_dual_layout_quantize_kernel[grid](
+            tensor,
+            fp8_row,
+            fp8_col,
+            amax_buf,
+            inv_scale_expanded,
+            M,
+            K,
+            fp8_col.stride(0),
+            fp8_col.stride(1),
+            numel,
+            fp8_max=fp8_max,
+            fp8_min=fp8_min,
+            INPUT_DTYPE_MAX=input_dtype_max,
+            EPS=EPS,
+            ROUND_POW2=round_scales_to_power_of_2,
+            OUTPUT_DTYPE=tl_output_dtype,
+        )
+
+        return fp8_row, fp8_col, inv_scale_expanded
 
 else:
     triton_fp8_tensorwise_quantize_2d = None
+    triton_fp8_tensorwise_quantize_2d_dual_layout = None
