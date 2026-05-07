@@ -169,6 +169,109 @@ Primus Turbo f+b:         ~353 us
 The main gap is not only quantization. Primus Turbo uses its own grouped FP8
 backend, while TorchAO currently calls `torch._scaled_grouped_mm`.
 
+## Results Timeline
+
+This section records the measured speedup from the work done after the cleanup
+commit. All timings below use:
+
+```text
+shape: 8,256,2048,2048
+M=2048, K=2048, N=2048, experts=8
+GPU: MI355X
+torch: 2.13.0.dev20260428+rocm7.2
+hip: 7.2.53211
+TorchAO install: USE_CPP=0 pip install --no-build-isolation .
+```
+
+### Before Today's Performance Work
+
+After the cleanup/benchmark commit `b917f1345`, before the dual-layout and
+fused inverse-scale experiments, the representative large-shape run was:
+
+```text
+BF16 forward:             114.66 us
+TorchAO TensorWise fwd:   192.36 us
+TorchAO TensorWise bwd:   163.92 us
+TorchAO TensorWise f+b:   516.25 us
+Primus Turbo fwd:          96.40 us
+Primus Turbo bwd:         137.16 us
+Primus Turbo f+b:         353.04 us
+```
+
+This is the practical baseline for the optimization work. The main observation
+was that TorchAO forward was roughly 2x Primus Turbo forward, and TorchAO
+forward+backward had a large remaining gap.
+
+### After Fused Inverse-Scale Materialization
+
+Committed as:
+
+```text
+9889e1e00 [moe training] Fuse tensorwise inverse scale materialization
+```
+
+After reinstalling that commit in the same container:
+
+```text
+torchao-0.18.0+git9889e1e00
+```
+
+Three repeated large-shape runs produced:
+
+```text
+Run  TorchAO fwd  TorchAO bwd  TorchAO f+b  Turbo fwd  Turbo bwd  Turbo f+b
+1    144.56 us    143.80 us    430.98 us    96.40 us   132.88 us  338.60 us
+2    135.42 us    147.58 us    444.92 us    96.44 us   138.80 us  352.28 us
+3    143.48 us    144.56 us    430.80 us    96.40 us   132.56 us  337.48 us
+```
+
+Using the median-ish post-change run against the pre-change baseline:
+
+```text
+Metric                Before      After       Improvement
+TorchAO fwd           192.36 us   ~143 us     ~25-30% faster
+TorchAO bwd           163.92 us   ~145 us     ~10-13% faster
+TorchAO fwd+bwd       516.25 us   ~431-445 us ~14-17% faster
+```
+
+The larger win is in forward because the 2D and 3D quantization kernels now
+write the contiguous inverse-scale buffers required by `torch._scaled_grouped_mm`
+directly. This removes post-kernel scalar reciprocal and expanded contiguous
+scale materialization from the hot path.
+
+### Current Gap to Primus Turbo
+
+After the committed optimization, the large-shape gap is approximately:
+
+```text
+Metric          TorchAO      Primus Turbo   Remaining gap
+forward         ~143 us      ~96 us         ~1.5x slower
+backward        ~145 us      ~133-139 us    near parity
+forward+backward~431-445 us  ~337-352 us    ~1.25-1.3x slower
+```
+
+This suggests the backward quant/layout overhead is now much closer to Primus
+Turbo, while forward still has a substantial gap. The remaining forward gap is
+likely a mix of quantization launch overhead and the grouped GEMM backend:
+TorchAO calls `torch._scaled_grouped_mm`, while Primus Turbo dispatches through
+its own grouped FP8 backend.
+
+### Multi-Shape Snapshot After Commit `9889e1e00`
+
+The same committed state was also measured across smaller shapes:
+
+```text
+experts  tokens/expert  M     K     N     TorchAO fwd  TorchAO bwd  TorchAO f+b  Turbo fwd  Turbo bwd  Turbo f+b
+1        128            128   512   512   135.76 us    143.76 us    431.72 us    63.08 us   140.68 us  355.88 us
+2        128            256   512   512   141.84 us    104.42 us    308.48 us    64.80 us    98.24 us  216.42 us
+4        128            512   1024  1024  138.86 us    104.08 us    302.36 us    66.40 us    99.50 us  213.64 us
+8        256            2048  2048  2048  140.70 us    143.56 us    318.36 us    93.64 us   131.68 us  225.80 us
+```
+
+These one-shot multi-shape numbers are useful for spotting trends, but the
+larger-shape repeated runs above are the better apples-to-apples result for
+tracking progress.
+
 ## Experiment 1: Defer Backward Layouts
 
 Goal:
@@ -306,21 +409,25 @@ Conclusion:
 
 ## Current State After Experiments
 
-As of the latest local changes after commit `b917f1345`, the working tree has an
-uncommitted TensorWise performance experiment that combines:
+As of commit `9889e1e00`, the TensorWise path includes:
 
 - dual-layout 2D quantization
 - fused inverse-scale materialization in 2D and 3D quant kernels
 
-This experiment is correct and measured faster on the target MI355X ROCm 7.2
-nightly setup.
+This is committed because it was correct and measured faster on the target
+MI355X ROCm 7.2 nightly setup.
 
 The remaining gap to Primus Turbo on the large shape is roughly:
 
 ```text
-TorchAO TensorWise f+b: ~432-471 us
-Primus Turbo f+b:      ~347-371 us
+Metric            TorchAO TensorWise   Primus Turbo
+forward           ~135-145 us          ~96 us
+backward          ~144-148 us          ~133-139 us
+forward+backward  ~431-445 us          ~337-352 us
 ```
+
+Forward still has the largest relative gap. Backward is much closer to Primus
+Turbo after the inverse-scale materialization change.
 
 ## Remaining Optimization Ideas
 
