@@ -148,7 +148,7 @@ if torch_version_at_least("2.7.0") and has_triton():
         tensor: torch.Tensor,
         output_dtype: torch.dtype,
         round_scales_to_power_of_2: bool = True,
-    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
         """
         Fused two-pass FP8 tensorwise quantization of a 2D contiguous tensor.
 
@@ -163,7 +163,6 @@ if torch_version_at_least("2.7.0") and has_triton():
 
         Returns:
             fp8_data: (M, K) FP8 tensor, row-major layout.
-            scale_expanded: (M,) float32 tensor — forward scale (for quantizing).
             inv_scale_expanded: (M,) float32 tensor — inverse scale (for
                 _scaled_grouped_mm, which expects 1/scale to dequantize).
         """
@@ -206,10 +205,9 @@ if torch_version_at_least("2.7.0") and has_triton():
         )
 
         inv_scale_buf = 1.0 / scale_buf
-        scale_expanded = scale_buf.expand(M).contiguous()
         inv_scale_expanded = inv_scale_buf.expand(M).contiguous()
 
-        return fp8_out, scale_expanded, inv_scale_expanded
+        return fp8_out, inv_scale_expanded
 
 else:
     triton_fp8_tensorwise_quantize_2d = None

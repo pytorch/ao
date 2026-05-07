@@ -32,7 +32,6 @@ try:
     )
     from torchao.prototype.moe_training.kernels.fp8_tensorwise_3d import (
         _fp8_tensorwise_3d_dual_layout_quantize_kernel,
-        _tensorwise_3d_configs,
         FP8_DTYPE_MAP as _FP8_DTYPE_MAP_3D,
         EPS as _EPS_3D,
     )
@@ -48,11 +47,11 @@ except ImportError:
 def _fp8_tensorwise_quantize_2d(
     tensor: torch.Tensor,
     output_dtype: torch.dtype,
-) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+) -> Tuple[torch.Tensor, torch.Tensor]:
     """
-    Tensorwise quantize a 2D tensor to FP8. Returns (fp8_data, scale_expanded,
-    inv_scale_expanded) where both scale arrays have shape (M,) and hold the
-    single tensorwise scale / its reciprocal broadcast to every row.
+    Tensorwise quantize a 2D tensor to FP8. Returns (fp8_data,
+    inv_scale_expanded), where inv_scale_expanded has shape (M,) and holds the
+    reciprocal of the single tensorwise scale broadcast to every row.
 
     Registered as custom_op so inductor does not fuse quantization into
     Triton kernels that may crash during autotuning on certain hardware.
@@ -67,21 +66,19 @@ def _fp8_tensorwise_quantize_2d(
     scale = amax_to_scale(amax, output_dtype, round_scales_to_power_of_2=True)
     fp8_data = to_fp8_saturated(tensor_clean * scale.to(tensor_clean.dtype), output_dtype)
     inv_scale = 1.0 / scale
-    scale_expanded = scale.reshape(1).expand(tensor.size(0)).contiguous()
     inv_scale_expanded = inv_scale.reshape(1).expand(tensor.size(0)).contiguous()
-    return fp8_data, scale_expanded, inv_scale_expanded
+    return fp8_data, inv_scale_expanded
 
 
 @_fp8_tensorwise_quantize_2d.register_fake
 def _fake_fp8_tensorwise_quantize_2d(
     tensor: torch.Tensor,
     output_dtype: torch.dtype,
-) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+) -> Tuple[torch.Tensor, torch.Tensor]:
     M, K = tensor.shape
     fp8_data = torch.empty(M, K, dtype=output_dtype, device=tensor.device)
-    scale_expanded = torch.empty(M, dtype=torch.float32, device=tensor.device)
     inv_scale_expanded = torch.empty(M, dtype=torch.float32, device=tensor.device)
-    return fp8_data, scale_expanded, inv_scale_expanded
+    return fp8_data, inv_scale_expanded
 
 
 @torch.library.custom_op(
@@ -90,7 +87,7 @@ def _fake_fp8_tensorwise_quantize_2d(
 def _fp8_tensorwise_quantize_3d_single_scale(
     tensor: torch.Tensor,
     output_dtype: torch.dtype,
-) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
     """
     Quantize entire 3D (E, K, N) col-major tensor with a single scalar scale
     across all experts. Materializes both FP8 layouts for forward and backward.
@@ -100,8 +97,6 @@ def _fp8_tensorwise_quantize_3d_single_scale(
         fwd_inv_scales: (E, N) — inverse scale for _scaled_grouped_mm
         rhs_fp8: (E, N, K) column-major (transposed layout for grad_A)
         rhs_inv_scales: (E, K) — inverse scale for _scaled_grouped_mm
-        fwd_scales: (E, N) — forward scale (for reference / backward reuse)
-        rhs_scales: (E, K) — forward scale (for reference / backward reuse)
     """
     E, K, N = tensor.shape
 
@@ -153,9 +148,7 @@ def _fp8_tensorwise_quantize_3d_single_scale(
         inv_scale = 1.0 / scale
         fwd_inv_scales = inv_scale.unsqueeze(0).expand(E, N).contiguous()
         rhs_inv_scales = inv_scale.unsqueeze(0).expand(E, K).contiguous()
-        fwd_scales = scale.unsqueeze(0).expand(E, N).contiguous()
-        rhs_scales = scale.unsqueeze(0).expand(E, K).contiguous()
-        return fwd_buf, fwd_inv_scales, rhs_buf, rhs_inv_scales, fwd_scales, rhs_scales
+        return fwd_buf, fwd_inv_scales, rhs_buf, rhs_inv_scales
 
     # PyTorch fallback.
     tensor_clean = torch.nan_to_num(tensor)
@@ -169,18 +162,16 @@ def _fp8_tensorwise_quantize_3d_single_scale(
 
     fwd_inv_scales = inv_scale.unsqueeze(0).expand(E, N).contiguous()
     rhs_inv_scales = inv_scale.unsqueeze(0).expand(E, K).contiguous()
-    fwd_scales = scale.unsqueeze(0).expand(E, N).contiguous()
     rhs_fp8 = fp8_data.contiguous().transpose(-2, -1)
-    rhs_scales = scale.unsqueeze(0).expand(E, K).contiguous()
 
-    return fp8_data, fwd_inv_scales, rhs_fp8, rhs_inv_scales, fwd_scales, rhs_scales
+    return fp8_data, fwd_inv_scales, rhs_fp8, rhs_inv_scales
 
 
 @_fp8_tensorwise_quantize_3d_single_scale.register_fake
 def _fake_fp8_tensorwise_quantize_3d_single_scale(
     tensor: torch.Tensor,
     output_dtype: torch.dtype,
-) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
     E, K, N = tensor.shape
     fwd_fp8 = torch.empty(E, K, N, dtype=output_dtype, device=tensor.device)
     fwd_fp8 = fwd_fp8.as_strided((E, K, N), (K * N, 1, K))
@@ -188,9 +179,7 @@ def _fake_fp8_tensorwise_quantize_3d_single_scale(
     rhs_fp8 = torch.empty(E, N, K, dtype=output_dtype, device=tensor.device)
     rhs_fp8 = rhs_fp8.as_strided((E, N, K), (K * N, 1, N))
     rhs_inv_scales = torch.empty(E, K, dtype=torch.float32, device=tensor.device)
-    fwd_scales = torch.empty(E, N, dtype=torch.float32, device=tensor.device)
-    rhs_scales = torch.empty(E, K, dtype=torch.float32, device=tensor.device)
-    return fwd_fp8, fwd_inv_scales, rhs_fp8, rhs_inv_scales, fwd_scales, rhs_scales
+    return fwd_fp8, fwd_inv_scales, rhs_fp8, rhs_inv_scales
 
 
 def _to_fp8_tensorwise_then_scaled_grouped_mm(
@@ -224,11 +213,6 @@ def _to_fp8_tensorwise_then_scaled_grouped_mm(
     return _Float8TensorwiseGroupedMM.apply(A, B_t, offs, out_dtype, float8_dtype)
 
 
-_to_fp8_tensorwise_primus_like_then_scaled_grouped_mm = (
-    _to_fp8_tensorwise_then_scaled_grouped_mm
-)
-
-
 def _copy_to_column_major(tensor: torch.Tensor) -> torch.Tensor:
     """Return a same-shape FP8 tensor with column-major strides."""
     assert tensor.ndim == 2, "column-major copy helper expects a 2D tensor"
@@ -250,7 +234,7 @@ class _Float8TensorwiseGroupedMM(torch.autograd.Function):
         out_dtype: Optional[torch.dtype] = torch.bfloat16,
         float8_dtype: torch.dtype = torch.float8_e4m3fn,
     ) -> torch.Tensor:
-        assert A.ndim == 2 or A.ndim == 3, "A must be 2D or 3D"
+        assert A.ndim == 2, "A must be 2D"
         assert B_t.ndim == 3, "B must be 3D"
 
         assert A.size(-1) % 16 == 0, (
@@ -266,8 +250,8 @@ class _Float8TensorwiseGroupedMM(torch.autograd.Function):
         assert B_t.dtype == torch.float32 or B_t.dtype == torch.bfloat16, (
             "B must be float32 or bfloat16"
         )
-        assert offs is None or offs.dtype == torch.int32, (
-            "offs must be int32 tensor or None"
+        assert offs is not None and offs.dtype == torch.int32, (
+            "offs must be an int32 tensor"
         )
 
         assert A.size(-1) == B_t.size(-2), (
@@ -279,12 +263,11 @@ class _Float8TensorwiseGroupedMM(torch.autograd.Function):
 
         B_t_data = B_t._data if hasattr(B_t, "_data") else B_t
 
-        A_fp8, A_scales, A_inv_scales = _fp8_tensorwise_quantize_2d(
+        A_fp8, A_inv_scales = _fp8_tensorwise_quantize_2d(
             A, float8_dtype
         )
         (B_t_fp8, B_t_inv_scales,
-         B_rhs_fp8, B_rhs_inv_scales,
-         _B_fwd_scales, _B_rhs_scales) = (
+         B_rhs_fp8, B_rhs_inv_scales) = (
             _fp8_tensorwise_quantize_3d_single_scale(B_t_data, float8_dtype)
         )
 
@@ -318,7 +301,7 @@ class _Float8TensorwiseGroupedMM(torch.autograd.Function):
         out_dtype = ctx.out_dtype
         float8_dtype = ctx.float8_dtype
 
-        grad_output_fp8, _go_scales, go_inv_scales = _fp8_tensorwise_quantize_2d(
+        grad_output_fp8, go_inv_scales = _fp8_tensorwise_quantize_2d(
             grad_output, float8_dtype
         )
 
