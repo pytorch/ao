@@ -148,11 +148,11 @@ if torch_version_at_least("2.7.0") and has_triton():
         tensor: torch.Tensor,
         output_dtype: torch.dtype,
         round_scales_to_power_of_2: bool = True,
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """
         Fused two-pass FP8 tensorwise quantization of a 2D contiguous tensor.
 
-        GPU launches: amax kernel + quantize kernel + scale broadcast = 3 total.
+        GPU launches: amax kernel + quantize kernel + 2 scale broadcasts = 4 total.
         The fallback PyTorch path requires ~15 separate ATen kernel launches.
 
         Args:
@@ -163,8 +163,9 @@ if torch_version_at_least("2.7.0") and has_triton():
 
         Returns:
             fp8_data: (M, K) FP8 tensor, row-major layout.
-            scale_expanded: (M,) float32 tensor, all values equal to the single
-                tensorwise scale (format required by _scaled_grouped_mm).
+            scale_expanded: (M,) float32 tensor — forward scale (for quantizing).
+            inv_scale_expanded: (M,) float32 tensor — inverse scale (for
+                _scaled_grouped_mm, which expects 1/scale to dequantize).
         """
         assert tensor.ndim == 2 and tensor.is_contiguous(), (
             "triton_fp8_tensorwise_quantize_2d requires a 2D contiguous input tensor"
@@ -178,14 +179,11 @@ if torch_version_at_least("2.7.0") and has_triton():
         input_dtype_max = torch.finfo(tensor.dtype).max
 
         fp8_out = torch.empty(M, K, dtype=output_dtype, device=tensor.device)
-        # amax_buf: pre-zeroed so atomic_max accumulates from 0 (identity for max-abs).
         amax_buf = torch.zeros(1, dtype=torch.float32, device=tensor.device)
-        # scale_buf: written by block 0 of the quantize kernel.
         scale_buf = torch.empty(1, dtype=torch.float32, device=tensor.device)
 
         grid = lambda meta: (triton.cdiv(numel, meta["BLOCK_SIZE"]),)
 
-        # Pass 1: reduce to global amax.
         _fp8_tensorwise_2d_amax_kernel[grid](
             tensor,
             amax_buf,
@@ -193,7 +191,6 @@ if torch_version_at_least("2.7.0") and has_triton():
             INPUT_DTYPE_MAX=input_dtype_max,
         )
 
-        # Pass 2: compute scale inline, write FP8 output and scalar scale.
         _fp8_tensorwise_2d_quantize_kernel[grid](
             tensor,
             fp8_out,
@@ -208,11 +205,11 @@ if torch_version_at_least("2.7.0") and has_triton():
             OUTPUT_DTYPE=tl_output_dtype,
         )
 
-        # Broadcast the scalar scale to (M,) for _scaled_grouped_mm.
-        # scale_buf is (1,); expand + contiguous is a single ~384 KB fill kernel.
+        inv_scale_buf = 1.0 / scale_buf
         scale_expanded = scale_buf.expand(M).contiguous()
+        inv_scale_expanded = inv_scale_buf.expand(M).contiguous()
 
-        return fp8_out, scale_expanded
+        return fp8_out, scale_expanded, inv_scale_expanded
 
 else:
     triton_fp8_tensorwise_quantize_2d = None
