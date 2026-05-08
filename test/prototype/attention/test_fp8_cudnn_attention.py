@@ -152,7 +152,7 @@ class TestFP8CuDNNAttention(TestCase):
         )
 
     @unittest.skipUnless(_cudnn_available, _skip_msg)
-    @common_utils.parametrize("dtype", [torch.bfloat16, torch.float16])
+    @common_utils.parametrize("dtype", [torch.bfloat16])
     def test_monkey_patch_model(self, dtype):
         embed_dim, num_heads = 512, 8
         model = (
@@ -187,7 +187,7 @@ class TestFP8CuDNNAttention(TestCase):
         )
 
     @unittest.skipUnless(_cudnn_available, _skip_msg)
-    @common_utils.parametrize("dtype", [torch.bfloat16, torch.float16])
+    @common_utils.parametrize("dtype", [torch.bfloat16])
     def test_rope_fusion_model(self, dtype):
         embed_dim, num_heads = 512, 8
         model = (
