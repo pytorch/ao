@@ -49,6 +49,11 @@ BACKENDS = {
         "fp8": False,
         "sdpa_backend": SDPBackend.FLASH_ATTENTION,
     },
+    "cudnn": {
+        "flash_impl": None,
+        "fp8": False,
+        "sdpa_backend": SDPBackend.CUDNN_ATTENTION,
+    },
     "fa3_fp8": {
         "flash_impl": "FA3",
         "fp8": True,
@@ -75,6 +80,11 @@ BACKENDS = {
         "flash_impl": "FA4",
         "fp8": True,
         "fp8_backend": AttentionBackend.FP8_FA4,
+    },
+    "cudnn_fp8": {
+        "flash_impl": None,
+        "fp8": True,
+        "fp8_backend": AttentionBackend.FP8_CUDNN,
     },
 }
 

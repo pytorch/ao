@@ -37,3 +37,12 @@ def _is_fa4_available() -> bool:
         return True
     except ModuleNotFoundError:
         return False
+
+
+def _is_cudnn_fp8_available() -> bool:
+    if not torch.cuda.is_available():
+        return False
+    return hasattr(
+        torch.ops.aten,
+        "_scaled_dot_product_cudnn_attention_quantized_per_tensor",
+    )

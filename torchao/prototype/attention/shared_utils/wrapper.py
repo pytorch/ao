@@ -4,7 +4,7 @@
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
 
-from typing import Callable
+from typing import Callable, Optional
 
 import torch.nn as nn
 import torch.nn.functional as F
@@ -34,14 +34,18 @@ class _FP8FlashAttentionMonkeyPatchWrapper(_LowPrecisionAttentionWrapper):
     """
 
     def __init__(
-        self, orig_mod: nn.Module, flash_impl_name: str, sdpa_patch_fn: Callable
+        self,
+        orig_mod: nn.Module,
+        flash_impl_name: Optional[str],
+        sdpa_patch_fn: Callable,
     ):
         super().__init__(orig_mod)
         self._flash_impl_name = flash_impl_name
         self._sdpa_patch_fn = sdpa_patch_fn
 
     def forward(self, *args, **kwargs):
-        activate_flash_attention_impl(self._flash_impl_name)
+        if self._flash_impl_name is not None:
+            activate_flash_attention_impl(self._flash_impl_name)
         try:
             original_sdpa = F.scaled_dot_product_attention
             F.scaled_dot_product_attention = self._sdpa_patch_fn
@@ -50,7 +54,8 @@ class _FP8FlashAttentionMonkeyPatchWrapper(_LowPrecisionAttentionWrapper):
             finally:
                 F.scaled_dot_product_attention = original_sdpa
         finally:
-            restore_flash_attention_impl()
+            if self._flash_impl_name is not None:
+                restore_flash_attention_impl()
 
 
 def _make_causal_aware_sdpa(

@@ -39,6 +39,10 @@ def _set_sdpa_backend(backend: SDPBackend | None):
             _backends.cuda.enable_flash_sdp(True)
             _backends.cuda.enable_cudnn_sdp(False)
             _backends.cuda.enable_mem_efficient_sdp(False)
+        elif backend == SDPBackend.CUDNN_ATTENTION:
+            _backends.cuda.enable_cudnn_sdp(True)
+            _backends.cuda.enable_flash_sdp(False)
+            _backends.cuda.enable_mem_efficient_sdp(False)
         yield
     finally:
         _backends.cuda.enable_flash_sdp(prev_flash)
