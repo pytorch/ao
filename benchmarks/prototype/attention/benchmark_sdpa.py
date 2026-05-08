@@ -26,6 +26,7 @@ from torch.nn.attention import (
     sdpa_kernel,
 )
 
+from torchao.prototype.attention.fp8_cudnn.attention import fp8_cudnn_sdpa
 from torchao.prototype.attention.fp8_fa3.attention import fp8_fa3_sdpa
 from torchao.prototype.attention.fp8_fa4.attention import fp8_fa4_sdpa
 from torchao.quantization.utils import compute_error as compute_sqnr
@@ -33,28 +34,33 @@ from torchao.quantization.utils import compute_error as compute_sqnr
 BACKENDS = [
     "fa2",
     "fa3",
+    "fa4",
+    "cudnn",
     "fa3_fp8",
     "fa3_fp8_hadamard",
     "fa3_fp8_hadamard_v",
-    "fa4",
     "fa4_fp8",
+    "cudnn_fp8",
 ]
 
 BACKEND_LABELS = {
     "fa2": "FA2 BF16",
     "fa3": "FA3 BF16",
+    "cudnn": "cuDNN BF16",
     "fa3_fp8": "FA3 FP8",
     "fa3_fp8_hadamard": "FA3 FP8 Hadamard",
     "fa3_fp8_hadamard_v": "FA3 FP8 Hadamard V",
     "fa4": "FA4 BF16",
     "fa4_fp8": "FA4 FP8",
+    "cudnn_fp8": "cuDNN FP8",
 }
 
 
 @contextmanager
 def _activate_backend(backend: str):
     """Context manager that activates the appropriate flash attention impl."""
-    if "fa3" in backend:
+    needs_fa3 = "fa3" in backend
+    if needs_fa3:
         activate_flash_attention_impl("FA3")
     elif backend in ("fa4", "fa4_fp8"):
         activate_flash_attention_impl("FA4")
@@ -78,11 +84,14 @@ _SDPA_BACKEND = {
     "fa2": SDPBackend.FLASH_ATTENTION,
     "fa3": SDPBackend.FLASH_ATTENTION,
     "fa4": SDPBackend.FLASH_ATTENTION,
+    "cudnn": SDPBackend.CUDNN_ATTENTION,
 }
 
 
 def _run_attention(backend: str, q, k, v, is_causal: bool):
     """Run a single attention call for the given backend."""
+    if backend == "cudnn_fp8":
+        return fp8_cudnn_sdpa(q, k, v, is_causal=is_causal)
     if backend in _HADAMARD_MODE:
         return fp8_fa3_sdpa(
             q, k, v, is_causal=is_causal, hadamard=_HADAMARD_MODE[backend]

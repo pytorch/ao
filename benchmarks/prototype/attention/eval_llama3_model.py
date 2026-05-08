@@ -56,6 +56,12 @@ BACKENDS = {
         "label": "FA3 BF16",
         "sdpa_backend": SDPBackend.FLASH_ATTENTION,
     },
+    "cudnn": {
+        "flash_impl": None,
+        "sdpa_backend": SDPBackend.CUDNN_ATTENTION,
+        "fp8": False,
+        "label": "cuDNN BF16",
+    },
     "fa3_fp8": {
         "flash_impl": "FA3",
         "fp8": True,
@@ -87,6 +93,12 @@ BACKENDS = {
         "fp8": True,
         "fp8_backend": AttentionBackend.FP8_FA4,
         "label": "FA4 FP8",
+    },
+    "cudnn_fp8": {
+        "flash_impl": None,
+        "fp8": True,
+        "fp8_backend": AttentionBackend.FP8_CUDNN,
+        "label": "cuDNN FP8",
     },
 }
 
