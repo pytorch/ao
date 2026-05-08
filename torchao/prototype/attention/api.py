@@ -30,6 +30,7 @@ class HadamardMode(str, Enum):
 
     NONE = "NONE"  # No Hadamard transform
     QKV = "QKV"  # Apply Hadamard to Q, K, and V
+    V_ONLY = "V_ONLY"  # Apply Hadamard to V only
 
 
 class AttentionBackend(str, Enum):
@@ -85,8 +86,10 @@ def apply_low_precision_attention(
         hadamard: Hadamard transform mode. ``HadamardMode.QKV`` applies
             the Hadamard transform to Q, K, and V before FP8 quantization,
             spreading outliers across the head dimension for better
-            dynamic range utilization. Requires D to be a power of 2
-            and <= 256.
+            dynamic range utilization. ``HadamardMode.V_ONLY`` applies
+            the transform to V only, improving V quantization quality
+            without the cost of transforming Q and K. Requires D to be
+            a power of 2 and <= 256.
 
     Example:
 

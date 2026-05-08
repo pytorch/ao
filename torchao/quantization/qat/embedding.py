@@ -10,7 +10,6 @@ import torch
 import torch.nn.functional as F
 
 from torchao.quantization.quant_primitives import TorchAODType
-from torchao.quantization.unified import TwoStepQuantizer
 from torchao.quantization.utils import get_group_qparams_symmetric
 
 from .fake_quantize_config import (
@@ -18,6 +17,7 @@ from .fake_quantize_config import (
     IntxFakeQuantizeConfig,
 )
 from .fake_quantizer import FakeQuantizerBase
+from .two_step_quantizer import TwoStepQuantizer
 from .utils import (
     _get_qmin_qmax,
 )

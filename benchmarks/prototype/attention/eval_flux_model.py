@@ -26,8 +26,10 @@ from datasets import load_dataset
 from diffusers import FluxPipeline
 from PIL import Image
 from torch.nn.attention import (
+    SDPBackend,
     activate_flash_attention_impl,
     restore_flash_attention_impl,
+    sdpa_kernel,
 )
 
 from torchao.prototype.attention import (
@@ -37,8 +39,16 @@ from torchao.prototype.attention import (
 )
 
 BACKENDS = {
-    "fa2": {"flash_impl": None, "fp8": False},
-    "fa3": {"flash_impl": "FA3", "fp8": False},
+    "fa2": {
+        "flash_impl": None,
+        "fp8": False,
+        "sdpa_backend": SDPBackend.FLASH_ATTENTION,
+    },
+    "fa3": {
+        "flash_impl": "FA3",
+        "fp8": False,
+        "sdpa_backend": SDPBackend.FLASH_ATTENTION,
+    },
     "fa3_fp8": {
         "flash_impl": "FA3",
         "fp8": True,
@@ -49,6 +59,12 @@ BACKENDS = {
         "fp8": True,
         "fp8_backend": AttentionBackend.FP8_FA3,
         "hadamard": HadamardMode.QKV,
+    },
+    "fa3_fp8_hadamard_v": {
+        "flash_impl": "FA3",
+        "fp8": True,
+        "fp8_backend": AttentionBackend.FP8_FA3,
+        "hadamard": HadamardMode.V_ONLY,
     },
 }
 
@@ -70,7 +86,7 @@ def setup_backend(
     compile_flag,
     orig_transformer,
 ):
-    """Set up a backend and return the flash_impl name."""
+    """Set up a backend and return (flash_impl, sdpa_backend)."""
     cfg = BACKENDS[backend_name]
     pipe.transformer = orig_transformer
 
@@ -84,12 +100,12 @@ def setup_backend(
         if compile_flag:
             print(f"Compiling transformer with torch.compile ({backend_name})...")
             pipe.transformer = torch.compile(pipe.transformer)
-        return cfg["flash_impl"]
+        return cfg["flash_impl"], None
     else:
         if compile_flag:
             print(f"Compiling transformer with torch.compile ({backend_name})...")
             pipe.transformer = torch.compile(pipe.transformer)
-        return cfg["flash_impl"]
+        return cfg["flash_impl"], cfg.get("sdpa_backend")
 
 
 def pil_to_lpips_tensor(img: Image.Image, device: str) -> torch.Tensor:
@@ -118,9 +134,24 @@ def generate_image(
     height: int = 2048,
     width: int = 2048,
     flash_impl: Optional[str] = None,
+    sdpa_backend: Optional[SDPBackend] = None,
 ) -> Image.Image:
     """Generate an image from a prompt with deterministic seed."""
     generator = torch.Generator(device=device).manual_seed(seed)
+
+    # For BF16 backends, force the correct SDPA backend on the transformer
+    # only (not the VAE, whose head_dim=512 exceeds flash/cuDNN limits and
+    # needs the math backend). FP8 backends call their ops directly and
+    # don't need this.
+    orig_forward = None
+    if sdpa_backend is not None:
+        orig_forward = pipe.transformer.forward
+
+        def _forced_backend_forward(*args, **kwargs):
+            with sdpa_kernel(sdpa_backend):
+                return orig_forward(*args, **kwargs)
+
+        pipe.transformer.forward = _forced_backend_forward
 
     if flash_impl:
         activate_flash_attention_impl(flash_impl)
@@ -134,6 +165,8 @@ def generate_image(
             generator=generator,
         ).images[0]
     finally:
+        if orig_forward is not None:
+            pipe.transformer.forward = orig_forward
         if flash_impl:
             restore_flash_attention_impl()
 
@@ -205,7 +238,7 @@ def run_benchmark(
     print(f"Phase 1: Generating images ({baseline_backend})")
     print("-" * 80)
 
-    baseline_flash_impl = setup_backend(
+    baseline_flash_impl, baseline_sdpa = setup_backend(
         pipe,
         baseline_backend,
         compile,
@@ -224,6 +257,7 @@ def run_benchmark(
             height=height,
             width=width,
             flash_impl=baseline_flash_impl,
+            sdpa_backend=baseline_sdpa,
         )
         print(f"  Warmup {i + 1}/{warmup_iters} complete")
 
@@ -245,6 +279,7 @@ def run_benchmark(
             height=height,
             width=width,
             flash_impl=baseline_flash_impl,
+            sdpa_backend=baseline_sdpa,
         )
         end_event.record()
         torch.cuda.synchronize()
@@ -268,7 +303,7 @@ def run_benchmark(
     print(f"Phase 2: Generating images ({test_backend})")
     print("-" * 80)
 
-    test_flash_impl = setup_backend(
+    test_flash_impl, test_sdpa = setup_backend(
         pipe,
         test_backend,
         compile,
@@ -286,6 +321,7 @@ def run_benchmark(
             height=height,
             width=width,
             flash_impl=test_flash_impl,
+            sdpa_backend=test_sdpa,
         )
         print(f"  Warmup {i + 1}/{warmup_iters} complete")
 
@@ -308,6 +344,7 @@ def run_benchmark(
             height=height,
             width=width,
             flash_impl=test_flash_impl,
+            sdpa_backend=test_sdpa,
         )
         end_event.record()
         torch.cuda.synchronize()

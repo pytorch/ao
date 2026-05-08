@@ -35,6 +35,13 @@ if torch_version_at_least("2.11.0"):
             fp8_fa3_rope_sdpa,
             fp8_fa3_sdpa,
         )
+        from torchao.prototype.attention.quantization import (
+            _fp8_hadamard_rope_sdpa_quantize,
+            _fp8_hadamard_sdpa_quantize,
+            _fp8_rope_sdpa_quantize,
+            _fp8_sdpa_quantize,
+            _inverse_hadamard_transform,
+        )
 
 
 def _rope_cos_sin(S, D, device):
@@ -170,7 +177,7 @@ class TestFP8FA3Attention(TestCase):
         "Requires PyTorch >= 2.11, Hopper GPU, and FA3",
     )
     @common_utils.parametrize("dtype", [torch.bfloat16, torch.float16])
-    @common_utils.parametrize("hadamard", ["NONE", "QKV"])
+    @common_utils.parametrize("hadamard", ["NONE", "QKV", "V_ONLY"])
     def test_monkey_patch_model(self, dtype, hadamard):
         embed_dim, num_heads = 512, 8
         model = (
@@ -210,7 +217,7 @@ class TestFP8FA3Attention(TestCase):
         "Requires PyTorch >= 2.11, Hopper GPU, and FA3",
     )
     @common_utils.parametrize("dtype", [torch.bfloat16, torch.float16])
-    @common_utils.parametrize("hadamard", ["NONE", "QKV"])
+    @common_utils.parametrize("hadamard", ["NONE", "QKV", "V_ONLY"])
     def test_rope_fusion_model(self, dtype, hadamard):
         embed_dim, num_heads = 512, 8
         model = (
@@ -261,13 +268,16 @@ def _make_outlier_tensor(shape, dtype, outlier_channels=(0,), outlier_scale=20.0
 class TestHadamardAccuracy(TestCase):
     """Tests that Hadamard improves FP8 quantization quality on outlier-heavy inputs."""
 
+    # -- QKV Hadamard: full SDPA SQNR improvement (nonlinear softmax) --
+
     @unittest.skipUnless(
         torch_version_at_least("2.11.0") and _is_hopper() and _is_fa3_available(),
         "Requires PyTorch >= 2.11, Hopper GPU, and FA3",
     )
     @common_utils.parametrize("shape", [(2, 8, 1024, 64), (1, 16, 1024, 128)])
     @common_utils.parametrize("dtype", [torch.bfloat16, torch.float16])
-    def test_hadamard_sdpa_improves_sqnr(self, shape, dtype):
+    def test_hadamard_qkv_sdpa_improves_sqnr(self, shape, dtype):
+        """QKV Hadamard improves full SDPA output SQNR via nonlinear softmax."""
         B, H, S, D = shape
         outlier_channels = (0, D // 2)
         q = _make_outlier_tensor((B, H, S, D), dtype, outlier_channels)
@@ -290,8 +300,8 @@ class TestHadamardAccuracy(TestCase):
         self.assertGreater(
             sqnr_had,
             sqnr_no_had,
-            f"Hadamard SQNR ({sqnr_had:.2f} dB) should exceed baseline ({sqnr_no_had:.2f} dB) "
-            f"for shape={shape}, dtype={dtype}",
+            f"Hadamard(QKV) SQNR ({sqnr_had:.2f} dB) should exceed baseline "
+            f"({sqnr_no_had:.2f} dB) for shape={shape}, dtype={dtype}",
         )
 
     @unittest.skipUnless(
@@ -300,7 +310,8 @@ class TestHadamardAccuracy(TestCase):
     )
     @common_utils.parametrize("shape", [(2, 1024, 8, 64), (1, 1024, 16, 128)])
     @common_utils.parametrize("dtype", [torch.bfloat16, torch.float16])
-    def test_hadamard_rope_sdpa_improves_sqnr(self, shape, dtype):
+    def test_hadamard_qkv_rope_sdpa_improves_sqnr(self, shape, dtype):
+        """QKV Hadamard improves full RoPE SDPA output SQNR."""
         B, S, H, D = shape
         outlier_channels = (0, D // 2)
         q = _make_outlier_tensor((B, S, H, D), dtype, outlier_channels)
@@ -333,9 +344,105 @@ class TestHadamardAccuracy(TestCase):
         self.assertGreater(
             sqnr_had,
             sqnr_no_had,
-            f"Hadamard SQNR ({sqnr_had:.2f} dB) should exceed baseline ({sqnr_no_had:.2f} dB) "
-            f"for shape={shape}, dtype={dtype}",
+            f"Hadamard(QKV) SQNR ({sqnr_had:.2f} dB) should exceed baseline "
+            f"({sqnr_no_had:.2f} dB) for shape={shape}, dtype={dtype}",
         )
+
+    # -- V_ONLY Hadamard: SDPA non-regression + outlier dim improvement --
+    #
+    # V_ONLY cannot improve overall SDPA SQNR because V's contribution to the
+    # attention output is linear and Hadamard preserves L2 norms, so FP8
+    # quantization noise power is unchanged. The real benefit (confirmed in
+    # end-to-end model benchmarks) is that outlier-channel quantization error
+    # is reduced, which compounds across layers.
+
+    @unittest.skipUnless(
+        torch_version_at_least("2.11.0") and _is_hopper() and _is_fa3_available(),
+        "Requires PyTorch >= 2.11, Hopper GPU, and FA3",
+    )
+    @common_utils.parametrize("shape", [(2, 8, 1024, 64), (1, 16, 1024, 128)])
+    @common_utils.parametrize("dtype", [torch.bfloat16, torch.float16])
+    def test_hadamard_v_only_improves_outlier_dims(self, shape, dtype):
+        """V_ONLY Hadamard reduces quantization error on V's outlier channels."""
+        B, H, S, D = shape
+        outlier_channels = (0, D // 2)
+        q = torch.randn(B, H, S, D, device="cuda", dtype=dtype)
+        k = torch.randn(B, H, S, D, device="cuda", dtype=dtype)
+        v = _make_outlier_tensor(
+            (B, H, S, D), dtype, outlier_channels, outlier_scale=20.0
+        )
+
+        # Quantize V without Hadamard
+        _, _, v_fp8_none, _, _, v_descale_none = _fp8_sdpa_quantize(q, k, v)
+        v_recon_none = (v_fp8_none.float() * v_descale_none[:, :, None, None]).to(dtype)
+
+        # Quantize V with Hadamard (v_only=True)
+        _, _, v_fp8_had, _, _, v_descale_had = _fp8_hadamard_sdpa_quantize(
+            q, k, v, v_only=True
+        )
+        v_recon_had = _inverse_hadamard_transform(
+            (v_fp8_had.float() * v_descale_had[:, :, None, None]).to(dtype)
+        )
+
+        for ch in outlier_channels:
+            err_none = (v[..., ch].float() - v_recon_none[..., ch].float()).abs().mean()
+            err_had = (v[..., ch].float() - v_recon_had[..., ch].float()).abs().mean()
+            self.assertLess(
+                err_had.item(),
+                err_none.item(),
+                f"V_ONLY Hadamard should reduce error on outlier dim {ch}: "
+                f"had={err_had.item():.6f} vs none={err_none.item():.6f} "
+                f"for shape={shape}, dtype={dtype}",
+            )
+
+    @unittest.skipUnless(
+        torch_version_at_least("2.11.0") and _is_hopper() and _is_fa3_available(),
+        "Requires PyTorch >= 2.11, Hopper GPU, and FA3",
+    )
+    @common_utils.parametrize("shape", [(2, 1024, 8, 64), (1, 1024, 16, 128)])
+    @common_utils.parametrize("dtype", [torch.bfloat16, torch.float16])
+    def test_hadamard_v_only_rope_improves_outlier_dims(self, shape, dtype):
+        """V_ONLY Hadamard reduces RoPE-path quantization error on outlier channels."""
+        B, S, H, D = shape
+        outlier_channels = (0, D // 2)
+        q = torch.randn(B, S, H, D, device="cuda", dtype=dtype)
+        k = torch.randn(B, S, H, D, device="cuda", dtype=dtype)
+        v = _make_outlier_tensor(
+            (B, S, H, D), dtype, outlier_channels, outlier_scale=20.0
+        )
+        cos, sin = _rope_cos_sin(S, D, "cuda")
+
+        # Quantize V without Hadamard (RoPE path)
+        _, _, v_fp8_none, _, _, v_descale_none = _fp8_rope_sdpa_quantize(
+            q, k, v, cos, sin
+        )
+        v_recon_none = (v_fp8_none.float() * v_descale_none[:, :, None, None]).to(dtype)
+
+        # Quantize V with Hadamard (RoPE path, v_only=True)
+        _, _, v_fp8_had, _, _, v_descale_had = _fp8_hadamard_rope_sdpa_quantize(
+            q, k, v, cos, sin, v_only=True
+        )
+        v_recon_had = _inverse_hadamard_transform(
+            (v_fp8_had.float() * v_descale_had[:, :, None, None]).to(dtype)
+        )
+
+        # V in the RoPE path is transposed to [B, H, S, D] by the kernel
+        v_bhsd = v.transpose(1, 2)
+
+        for ch in outlier_channels:
+            err_none = (
+                (v_bhsd[..., ch].float() - v_recon_none[..., ch].float()).abs().mean()
+            )
+            err_had = (
+                (v_bhsd[..., ch].float() - v_recon_had[..., ch].float()).abs().mean()
+            )
+            self.assertLess(
+                err_had.item(),
+                err_none.item(),
+                f"V_ONLY Hadamard should reduce error on outlier dim {ch}: "
+                f"had={err_had.item():.6f} vs none={err_none.item():.6f} "
+                f"for shape={shape}, dtype={dtype}",
+            )
 
 
 if __name__ == "__main__":

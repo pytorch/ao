@@ -5,7 +5,7 @@ Static quantization refers to using a fixed quantization range for all inputs du
 
 In static quantization, this fixed quantization range is typically calibrated on similar inputs before quantizing the model. During the calibration phase, we first insert observers into the model to "observe" the distribution of the inputs to be quantized, and use this distribution to decide what scales and zero points to ultimately use when quantizing the model.
 
-In this tutorial, we walk through an example of how to achieve this in torchao. All code can be found in this `example script <https://github.com/pytorch/ao/tree/main/tutorials/calibration_flow/static_quant.py>`__. Let's start with our toy linear model:
+In this tutorial, we walk through an example of how to achieve this in torchao. Let's start with our toy linear model:
 
 .. code:: py
 
@@ -139,11 +139,12 @@ Now we are ready to calibrate the model, which populates the observers we insert
 Quantization Phase
 ~~~~~~~~~~~~~~~~~~
 
-There are multiple ways to actually quantize the model. Here we walk through the simpler alternative, which is to define a `QuantizedLinear` class that we will swap our `ObservedLinear` to. Defining this new class isn't strictly necessary. For an alternative method that simply uses the existing `torch.nn.Linear`, please see the full `example script <https://github.com/pytorch/ao/tree/main/tutorials/calibration_flow/static_quant.py>`__.
+There are multiple ways to actually quantize the model. Here we walk through the simpler alternative, which is to define a `QuantizedLinear` class that we will swap our `ObservedLinear` to.
 
 .. code:: py
 
-   from torchao.dtypes import to_affine_quantized_intx_static
+   from torchao.quantization import Int8Tensor
+   from torchao.quantization import PerRow, PerTensor
 
    class QuantizedLinear(torch.nn.Module):
        def __init__(
@@ -154,27 +155,22 @@ There are multiple ways to actually quantize the model. Here we walk through the
            weight_obs: torch.nn.Module,
            weight: torch.Tensor,
            bias: torch.Tensor,
-           target_dtype: torch.dtype,
        ):
            super().__init__()
            self.act_scale, self.act_zero_point = act_obs.calculate_qparams()
            weight_scale, weight_zero_point = weight_obs.calculate_qparams()
-           assert weight.dim() == 2
-           block_size = (1, weight.shape[1])
-           self.target_dtype = target_dtype
            self.bias = bias
-           self.qweight = to_affine_quantized_intx_static(
-               weight, weight_scale, weight_zero_point, block_size, self.target_dtype
+           self.qweight = Int8Tensor.from_hp(
+               weight, granularity=PerRow(),
+               scale=weight_scale, zero_point=weight_zero_point,
            )
 
        def forward(self, input: torch.Tensor):
-           block_size = input.shape
-           qinput = to_affine_quantized_intx_static(
+           qinput = Int8Tensor.from_hp(
                input,
-               self.act_scale,
-               self.act_zero_point,
-               block_size,
-               self.target_dtype,
+               granularity=PerTensor(),
+               scale=self.act_scale,
+               zero_point=self.act_zero_point,
            )
            return F.linear(qinput, self.qweight, self.bias)
 
@@ -240,4 +236,4 @@ Now, we will see that the linear layers in our model are swapped to our `Quantiz
    >>> m.linear1.qweight  # quantized weight tensor with scale and zero_point
    IntxUnpackedToInt8Tensor(...)  # actual repr depends on quantization config
 
-In this tutorial, we walked through a basic example of how to perform integer static quantization in torchao. We also have an example of how to perform the same static quantization in float8. Please see the full `example script <https://github.com/pytorch/ao/tree/main/tutorials/calibration_flow/static_quant.py>`__ for more detail!
+In this tutorial, we walked through a basic example of how to perform integer static quantization in torchao.

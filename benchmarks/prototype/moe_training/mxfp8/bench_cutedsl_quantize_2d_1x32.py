@@ -94,9 +94,7 @@ def run_experiment(config: ExperimentConfig) -> ExperimentResult:
 
     # Generate jagged offsets with multiples of 128
     # TODO: we use multiple of 128 here to avoid per-group padding requirement in blocked scales layout, which cutedsl doesn't support yet.
-    group_end_offsets = generate_jagged_offs(
-        num_groups, M, multiple_of=128, device=device
-    )
+    offs = generate_jagged_offs(num_groups, M, multiple_of=128, device=device)
 
     # Benchmark 1: CuTeDSL kernel with blocked scale output
     data_cutedsl, scales_cutedsl = mxfp8_quantize_cutedsl_2d_1x32(
@@ -127,11 +125,11 @@ def run_experiment(config: ExperimentConfig) -> ExperimentResult:
         )
         return data, scales_blocked
 
-    data_triton, scales_triton = triton_plus_rearrange(input_tensor, group_end_offsets)
+    data_triton, scales_triton = triton_plus_rearrange(input_tensor, offs)
     triton_plus_rearrange_time_us = benchmark_cuda_function_in_microseconds(
         triton_plus_rearrange,
         input_tensor,
-        group_end_offsets,
+        offs,
     )
 
     # Memory bandwidth calculations

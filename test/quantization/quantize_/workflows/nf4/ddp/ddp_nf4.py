@@ -15,7 +15,8 @@ import torch.nn as nn
 from torch._dynamo import config as dynamo_config
 from torch.nn.parallel import DistributedDataParallel as DDP
 
-from torchao.dtypes.nf4tensor import linear_nf4, to_nf4
+from torchao.quantization import to_nf4
+from torchao.quantization.quantize_.workflows.nf4.nf4_tensor import linear_nf4
 
 
 class LoRALinear(nn.Module):

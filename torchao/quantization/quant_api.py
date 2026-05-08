@@ -32,10 +32,6 @@ import torch.nn.utils.parametrize as parametrize
 
 import torchao
 from torchao.core.config import AOBaseConfig
-from torchao.dtypes import (
-    AffineQuantizedTensor,
-    to_affine_quantized_intx,
-)
 from torchao.float8.config import e4m3_dtype
 from torchao.float8.float8_linear import Float8Linear
 from torchao.float8.inference import (
@@ -51,15 +47,12 @@ from torchao.float8.inference import (
 from torchao.prototype.quantization.quant_api import (
     Float8StaticActivationFloat8WeightConfig,  # noqa: F401
 )
-from torchao.quantization.linear_activation_weight_observed_tensor import (
-    LinearActivationWeightObservedTensor,
-)
-from torchao.quantization.observer import AffineQuantizedObserverBase
 from torchao.quantization.quantize_.common import (
     KernelPreference,
 )
 from torchao.quantization.quantize_.workflows import (
     Float8PackingFormat,
+    Float8Sparse2x4_1DData1DMetadataTensor,
     Float8Tensor,
     Int4ChooseQParamsAlgorithm,
     Int4PackingFormat,
@@ -99,9 +92,6 @@ from .granularity import (
     PerRow,
     PerTensor,
 )
-from .linear_activation_quantized_tensor import (
-    LinearActivationQuantizedTensor,
-)
 from .linear_quant_modules import (
     Int4WeightOnlyQuantizer,
     Int8DynActInt4WeightQuantizer,
@@ -114,16 +104,12 @@ from .quant_primitives import (
     MappingType,
     quantize_affine,
 )
-from .unified import Quantizer, TwoStepQuantizer
-from .utils import _get_per_token_block_size
 
 logger = logging.getLogger(__name__)
 
 # TODO: revisit this list?
 __all__ = [
     "swap_conv2d_1x1_to_linear",
-    "Quantizer",
-    "TwoStepQuantizer",
     "Int4WeightOnlyQuantizer",
     "_get_subclass_inserter",
     "quantize_",
@@ -187,11 +173,10 @@ def _is_linear(mod, *args):
 
     # adding weight tensor subclass isinstance check to make sure the weight is only quantized once
     # when it is shared by multiple linear modules
+    # TODO: check isinstance(TorchAOBaseTensor)?
     return (
         isinstance(mod, torch.nn.Linear)
         and hasattr(mod, "weight")
-        and not isinstance(mod.weight, AffineQuantizedTensor)
-        and not isinstance(mod.weight, LinearActivationQuantizedTensor)
         and not isinstance(mod.weight, _AffineFakeQuantizedTensor)
         and not isinstance(mod, nn.modules.linear.NonDynamicallyQuantizableLinear)
     )
@@ -260,87 +245,6 @@ def swap_conv2d_1x1_to_linear(model, filter_fn=None):
 
     _replace_with_custom_fn_if_matches_filter(
         model, replace_conv2d_1x1, filter_fn=filter_fn
-    )
-
-
-def insert_observers_(
-    model: nn.Module,
-    input_observer: Optional[AffineQuantizedObserverBase],
-    weight_observer: Optional[AffineQuantizedObserverBase],
-    *,
-    filter_fn: Optional[Callable[[torch.nn.Module, str], bool]] = None,
-):
-    """
-    Converts the weight of a linear module to a LinearActivationWeightObservedTensor.
-
-    This function wraps the weight of the given linear module with a LinearActivationWeightObservedTensor,
-    which enables observation of both input and weight tensors during forward passes.
-    The wrapped weight is then re-wrapped as a nn.Parameter to maintain compatibility
-    with PyTorch's module system.
-
-    Example::
-
-    ```
-        import torch
-        import torch.nn as nn
-        from torchao.quantization import PerTensor
-        from torchao.quantization.linear_observer_tensor import insert_observers_
-        from torchao.quantization.observer import (
-            AffineQuantizedMinMaxObserver,
-            MappingType
-        )
-
-        # Create observers
-        input_observer = AffineQuantizedMinMaxObserver(
-            MappingType.SYMMETRIC,
-            torch.float8_e4m3fn,
-            granularity_type=PerTensor(),
-            eps=torch.finfo(torch.float32).eps,
-            scale_dtype=torch.float,
-            zero_point_dtype=torch.int,
-            zero_point_domain=ZeroPointDomain.NONE,
-        )
-
-        # Create a linear module
-        linear_module = nn.Linear(10, 20)
-
-        # Convert the linear module's weight to an observed tensor
-        insert_observers_(linear_module, input_observer, weight_observer=None)
-
-        # The linear_module can now be used as usual, with observers calculating statistics
-        output = linear_module(torch.randn(10, 10))
-
-        # Get the scale and zero point of the input observer
-        scale, zero_point = linear_module.weight.input_observer.calculate_qparams()
-    ```
-
-    Args:
-        model (nn.Module): The nn.Module to convert.
-        input_observer (Optional[AffineQuantizedObserverBase]): Observer for input tensor.
-        weight_observer (Optional[AffineQuantizedObserverBase]): Observer for weight tensor.
-        filter_fn (Optional[Callable[[torch.nn.Module, str], bool]]): Filter function to select which modules to convert.
-            If not provided, all linear modules will be converted. This function should take a module and its fully qualified name.
-
-    Returns:
-        nn.Linear: The modified linear module with its weight wrapped in a LinearActivationWeightObservedTensor.
-    """
-
-    def convert_to_linear_observer(linear_module: nn.Linear):
-        # Wrap the weight with LinearActivationWeightObservedTensor and then with nn.Parameter
-        linear_module.weight = nn.Parameter(
-            LinearActivationWeightObservedTensor.from_float(
-                linear_module.weight,
-                input_observer=input_observer,
-                weight_observer=weight_observer,
-            ),
-            requires_grad=linear_module.weight.requires_grad,
-        )
-        return linear_module
-
-    _replace_with_custom_fn_if_matches_filter(
-        model,
-        convert_to_linear_observer,
-        _is_linear if filter_fn is None else filter_fn,
     )
 
 
@@ -441,65 +345,6 @@ def quantize_(
         raise AssertionError(
             """Passing a generic Callable to `quantize_` is no longer recommended and will be deprecated at a later release. Please see https://github.com/pytorch/ao/issues/1690 for instructions on how to pass in workflow configuration instead."""
         )
-
-
-def _int8_asymm_per_token_quant(x: torch.Tensor) -> torch.Tensor:
-    """This is defined here instead of local function to support serialization"""
-    mapping_type = MappingType.ASYMMETRIC
-    target_dtype = torch.int8
-    scale_dtype = torch.float32
-    eps = torch.finfo(torch.float32).eps
-    zero_point_dtype = torch.int8
-    return to_affine_quantized_intx(
-        x,
-        mapping_type,
-        _get_per_token_block_size(x),
-        target_dtype,
-        eps=eps,
-        scale_dtype=scale_dtype,
-        zero_point_dtype=zero_point_dtype,
-    )
-
-
-def _uint8_asymm_per_token_quant(x: torch.Tensor) -> torch.Tensor:
-    mapping_type = MappingType.ASYMMETRIC
-    target_dtype = torch.uint8
-    scale_dtype = torch.float32
-    eps = torch.finfo(torch.float32).eps
-    zero_point_dtype = torch.int32
-    quant_min = 0
-    quant_max = 255
-    out = to_affine_quantized_intx(
-        x,
-        mapping_type,
-        _get_per_token_block_size(x),
-        target_dtype,
-        quant_min=quant_min,
-        quant_max=quant_max,
-        eps=eps,
-        scale_dtype=scale_dtype,
-        zero_point_dtype=zero_point_dtype,
-    )
-    return out
-
-
-def _int8_symm_per_token_quant(x: torch.Tensor) -> torch.Tensor:
-    mapping_type = MappingType.SYMMETRIC
-    target_dtype = torch.int8
-    eps = 1e-5
-    quant_min = -127
-    quant_max = 127
-
-    return to_affine_quantized_intx(
-        x,
-        mapping_type,
-        _get_per_token_block_size(x),
-        target_dtype,
-        eps=eps,
-        quant_min=quant_min,
-        quant_max=quant_max,
-        scale_dtype=torch.float32,
-    )
 
 
 @dataclass
@@ -958,47 +803,6 @@ def _int8_weight_only_transform(
     return module
 
 
-def _int8_symm_per_token_reduced_range_quant(x: torch.Tensor) -> torch.Tensor:
-    mapping_type = MappingType.SYMMETRIC
-    target_dtype = torch.int8
-    eps = 1e-5
-    quant_min = -127
-    quant_max = 127
-    return to_affine_quantized_intx(
-        x,
-        mapping_type,
-        _get_per_token_block_size(x),
-        target_dtype,
-        eps=eps,
-        quant_min=quant_min,
-        quant_max=quant_max,
-        scale_dtype=torch.float32 if x.dtype == torch.float16 else None,
-    )
-
-
-def _int8_symm_per_token_reduced_range_quant_noop_decode(
-    x: torch.Tensor,
-) -> torch.Tensor:
-    mapping_type = MappingType.SYMMETRIC
-    target_dtype = torch.int8
-    eps = 1e-5
-    quant_min = -127
-    quant_max = 127
-    if x.shape[1] == 1:
-        return x
-    else:
-        return to_affine_quantized_intx(
-            x,
-            mapping_type,
-            _get_per_token_block_size(x),
-            target_dtype,
-            eps=eps,
-            quant_min=quant_min,
-            quant_max=quant_max,
-            scale_dtype=torch.float32 if x.dtype == torch.float16 else None,
-        )
-
-
 def _validate_granularity_int8(
     act_granularity: Granularity,
     weight_granularity: Granularity,
@@ -1040,6 +844,9 @@ class Int8DynamicActivationInt8WeightConfig(AOBaseConfig):
             SYMMETRIC and ASYMMETRIC are supported.
         set_inductor_config: bool = True - If True, adjusts `torchinductor` settings to recommended values
             for better performance with this quantization scheme.
+        version (int): the version of the config
+        reduce_range (Optional[bool] = False): If True, use reduced activation and weight quantization ranges
+            to avoid overflow on CPU without VNNI. Users can call should_reduce_range() to help determine.
 
     Example:
 
@@ -1054,6 +861,7 @@ class Int8DynamicActivationInt8WeightConfig(AOBaseConfig):
     ] = PerRow()
     set_inductor_config: bool = True
     version: int = 2
+    reduce_range: Optional[bool] = False
 
     def __post_init__(self):
         torch._C._log_api_usage_once(
@@ -1092,7 +900,9 @@ def _int8_dynamic_activation_int8_weight_quantize_tensor(weight, config):
         act_quant_kwargs=QuantizeTensorToInt8Kwargs(
             granularity=act_granularity,
             mapping_type=config.act_mapping_type,
+            reduce_range=config.reduce_range,
         ),
+        reduce_range=config.reduce_range,
     )
 
     return quantized_weight
@@ -1146,6 +956,8 @@ class Int8StaticActivationInt8WeightConfig(AOBaseConfig):
         act_mapping_type (MappingType): The mapping type for activation quantization. SYMMETRIC and ASYMMETRIC are supported.
         set_inductor_config (bool): if True, adjusts `torchinductor` settings to recommended values.
         version (int): the version of the config
+        reduce_range (Optional[bool] = False): If True, use reduced activation and weight quantization ranges
+            to avoid overflow on CPU without VNNI. Users can call should_reduce_range() to help determine.
     """
 
     act_quant_scale: Optional[torch.Tensor] = None
@@ -1156,6 +968,7 @@ class Int8StaticActivationInt8WeightConfig(AOBaseConfig):
     act_mapping_type: Optional[MappingType] = MappingType.SYMMETRIC
     set_inductor_config: bool = True
     version: int = 1
+    reduce_range: Optional[bool] = False
 
     def __post_init__(self):
         torch._C._log_api_usage_once(
@@ -1189,6 +1002,7 @@ class Int8StaticActivationInt8WeightConfig(AOBaseConfig):
         return QuantizeTensorToInt8Kwargs(
             granularity=act_granularity,
             mapping_type=self.act_mapping_type,
+            reduce_range=self.reduce_range,
         )
 
 
@@ -1219,9 +1033,11 @@ def _int8_static_activation_int8_weight_transform(
         act_quant_kwargs=QuantizeTensorToInt8Kwargs(
             granularity=activation_granularity,
             mapping_type=config.act_mapping_type,
+            reduce_range=config.reduce_range,
         ),
         act_quant_scale=config.act_quant_scale.detach(),
         act_quant_zero_point=act_quant_zero_point,
+        reduce_range=config.reduce_range,
     )
 
     setattr(
@@ -1447,6 +1263,17 @@ def _float8_dynamic_activation_float8_weight_quantize_tensor(weight, config):
             "Sparse packing format only supports per-row quantization"
         )
         quantized_weight = Sparse2x4CUTLASSFloat8Tensor.from_hp(
+            weight,
+            float8_dtype=weight_dtype,
+            granularity=weight_granularity,
+            act_quant_kwargs=act_quant_kwargs,
+        )
+        return quantized_weight
+    elif packing_format == Float8PackingFormat.SPARSE_1D_DATA_1D_METADATA:
+        assert isinstance(weight_granularity, PerTensor), (
+            "Sparse 1D data 1D metadata packing format only supports per-tensor quantization"
+        )
+        quantized_weight = Float8Sparse2x4_1DData1DMetadataTensor.from_hp(
             weight,
             float8_dtype=weight_dtype,
             granularity=weight_granularity,
@@ -1921,11 +1748,3 @@ def _unwrap_float8_linear(module: Float8Linear) -> nn.Linear:
     new_module.weight = module.weight
     new_module.bias = module.bias
     return new_module
-
-
-torch.serialization.add_safe_globals(
-    [
-        _int8_asymm_per_token_quant,
-        _int8_symm_per_token_reduced_range_quant,
-    ]
-)

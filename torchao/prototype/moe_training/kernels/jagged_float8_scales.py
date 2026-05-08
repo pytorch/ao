@@ -38,33 +38,34 @@ if torch_version_at_least("2.7.0") and has_triton():
         torch.float64: tl.float64,
     }
 
-    if torch.version.hip is not None:
-        # Single fixed config on AMD — avoids per-key autotuning D2H sync overhead.
-        # Multiple configs trigger hipDeviceSynchronize for each unique (key) shape
-        # encountered during training, adding hundreds of syncs per step.
-        #
-        # Config chosen by sweeping (BLOCK_SIZE, BLOCK_SIZE_ITER, num_warps) on MI300X
-        # over representative DeepSeek-MoE-16B backward shapes (M=16640, K=2048/5120,
-        # E=64/128). Best single compromise across all shapes:
-        #   BLOCK_SIZE=32, BLOCK_SIZE_ITER=128, num_warps=4
-        # (2-3x faster than the previous 128/128/8 config).
-        kernel_configs_2D = [
-            triton.Config(
-                {"BLOCK_SIZE": 32, "BLOCK_SIZE_ITER": 128},
-                num_warps=4,
-                num_stages=2,
-            ),
-        ]
-        kernel_configs_2D_dual = kernel_configs_2D
-    else:
-        kernel_configs_2D = [
-            triton.Config(
-                {"BLOCK_SIZE": 32, "BLOCK_SIZE_ITER": 128},
-                num_warps=4,
-                num_stages=3,
-            )
-        ]
-        kernel_configs_2D_dual = kernel_configs_2D
+    # Two-pass kernel configs: iterate over rows in chunks of BLOCK_SIZE_ITER,
+    # reading data twice (once for amax, once for scale+write).
+    kernel_configs_2D = [
+        triton.Config(
+            {"BLOCK_SIZE": block_size, "BLOCK_SIZE_ITER": block_size_iter},
+            num_warps=warps,
+            num_stages=stages,
+        )
+        for block_size in [32, 64, 128]
+        for block_size_iter in [64, 128, 256]
+        for warps in [4, 8]
+        for stages in [2, 3]
+    ]
+    kernel_configs_2D_dual = kernel_configs_2D
+
+    # Fused single-pass kernel configs: MAX_GROUP_SIZE (passed as constexpr)
+    # determines the tile height so all rows are loaded at once.
+    # Only BLOCK_SIZE and num_warps are autotuned.
+    kernel_configs_fused = [
+        triton.Config(
+            {"BLOCK_SIZE": block_size, "MAX_GROUP_SIZE": max_gs},
+            num_warps=warps,
+            num_stages=1,
+        )
+        for block_size in [32, 64]
+        for max_gs in [256, 512, 1024, 2048]
+        for warps in [8]
+    ]
 
     @torch.library.custom_op(
         "torchao::triton_fp8_per_group_rowwise_scales", mutates_args={}
@@ -121,8 +122,6 @@ if torch_version_at_least("2.7.0") and has_triton():
             k,
             n_groups,
             hp_tensor.stride(0),
-            hp_tensor.stride(1),
-            output_buffer.stride(0),
             output_buffer.stride(1),
             fp8_dtype_min,
             fp8_dtype_max,
@@ -130,6 +129,8 @@ if torch_version_at_least("2.7.0") and has_triton():
             tl_output_dtype,
             round_scales_to_power_of_2,
             EPS=EPS,
+            STRIDE_OUTPUT_ROW=1,
+            STRIDE_INPUT_COL=hp_tensor.stride(1),
         )
         return output_buffer, scales_buffer
 
@@ -169,8 +170,6 @@ if torch_version_at_least("2.7.0") and has_triton():
         K: tl.int64,
         N_GROUPS: tl.int64,
         stride_input_row: tl.int64,
-        stride_input_col: tl.int64,
-        stride_output_row: tl.int64,
         stride_output_col: tl.int64,
         fp8_dtype_min: tl.constexpr,
         fp8_dtype_max: tl.constexpr,
@@ -180,6 +179,8 @@ if torch_version_at_least("2.7.0") and has_triton():
         BLOCK_SIZE: tl.constexpr,
         BLOCK_SIZE_ITER: tl.constexpr,
         EPS: tl.constexpr,
+        STRIDE_OUTPUT_ROW: tl.constexpr,
+        STRIDE_INPUT_COL: tl.constexpr,
     ):
         # parallel across rows and groups (offsets)
         block_row_id = tl.program_id(axis=0)
@@ -204,7 +205,7 @@ if torch_version_at_least("2.7.0") and has_triton():
             )
             block_offs = (
                 block_row_offs[:, None] * stride_input_row
-                + block_col_offs[None, :] * stride_input_col
+                + block_col_offs[None, :] * STRIDE_INPUT_COL
             )
             block_mask = (block_row_offs[:, None] < M) & (
                 block_col_offs[None, :] < group_col_end_idx
@@ -241,7 +242,7 @@ if torch_version_at_least("2.7.0") and has_triton():
             )
             block_offs = (
                 block_row_offs[:, None] * stride_input_row
-                + block_col_offs[None, :] * stride_input_col
+                + block_col_offs[None, :] * STRIDE_INPUT_COL
             )
             block_mask = (block_row_offs[:, None] < M) & (
                 block_col_offs[None, :] < group_col_end_idx
@@ -254,7 +255,7 @@ if torch_version_at_least("2.7.0") and has_triton():
                 output_dtype
             )
             out_offs = (
-                block_row_offs[:, None] * stride_output_row
+                block_row_offs[:, None] * STRIDE_OUTPUT_ROW
                 + block_col_offs[None, :] * stride_output_col
             )
             tl.store(out_ptr + out_offs, fp8_data, mask=block_mask)
@@ -285,6 +286,7 @@ if torch_version_at_least("2.7.0") and has_triton():
         """
         assert hp_tensor.ndim == 2, "input tensor must be 2D"
 
+        num_elements = hp_tensor.numel()
         tl_input_dtype = FP8_DTYPE_MAP[hp_tensor.dtype]
         tl_output_dtype = FP8_DTYPE_MAP[output_dtype]
 
@@ -308,25 +310,68 @@ if torch_version_at_least("2.7.0") and has_triton():
             triton.cdiv(n, meta["BLOCK_SIZE"]),
             offsets.numel(),
         )
-        _triton_fp8_per_group_colwise_scales_kernel[grid](
-            hp_tensor,
-            offsets,
-            output_buffer,
-            scales_buffer,
-            k,
-            n,
-            n_groups,
-            hp_tensor.stride(0),
-            hp_tensor.stride(1),
-            output_buffer.stride(0),
-            output_buffer.stride(1),
-            fp8_dtype_min,
-            fp8_dtype_max,
-            tl_input_dtype,
-            tl_output_dtype,
-            round_scales_to_power_of_2,
-            EPS=EPS,
-        )
+
+        # Compute max group size to decide which kernel to use.
+        # For uniform groups: max_group_size = k / n_groups.
+        # For jagged groups: need the max of consecutive offset diffs.
+        max_group_size = (k + n_groups - 1) // n_groups
+
+        # Use fused single-pass kernel when the max group size fits in
+        # the largest BLOCK_SIZE_ITER (2048). The fused kernel loads all
+        # rows for a group in one shot, keeping data in registers for
+        # both amax and scaling, reducing HBM traffic from 5 to 3 B/elem.
+        # Round up to next power of 2 for the constexpr tile size.
+        # Fused kernel config has MAX_GROUP_SIZE in [256, 512, 1024, 2048].
+        # Use fused only when rounded-up group size matches a config.
+        _FUSED_GROUP_SIZES = {c.kwargs["MAX_GROUP_SIZE"] for c in kernel_configs_fused}
+        bsi = 1
+        while bsi < max_group_size:
+            bsi *= 2
+        if bsi in _FUSED_GROUP_SIZES:
+            # Filter configs to only the matching MAX_GROUP_SIZE
+            valid_configs = [
+                c for c in kernel_configs_fused if c.kwargs["MAX_GROUP_SIZE"] == bsi
+            ]
+            _triton_fp8_per_group_colwise_scales_fused_kernel.configs = valid_configs
+            _triton_fp8_per_group_colwise_scales_fused_kernel[grid](
+                hp_tensor,
+                offsets,
+                output_buffer,
+                scales_buffer,
+                k,
+                n,
+                hp_tensor.stride(0),
+                output_buffer.stride(1),
+                num_elements,
+                fp8_dtype_min,
+                fp8_dtype_max,
+                tl_input_dtype,
+                tl_output_dtype,
+                round_scales_to_power_of_2,
+                EPS=EPS,
+                STRIDE_OUTPUT_ROW=1,
+                STRIDE_INPUT_COL=hp_tensor.stride(1),
+            )
+        else:
+            _triton_fp8_per_group_colwise_scales_kernel[grid](
+                hp_tensor,
+                offsets,
+                output_buffer,
+                scales_buffer,
+                k,
+                n,
+                n_groups,
+                hp_tensor.stride(0),
+                output_buffer.stride(1),
+                fp8_dtype_min,
+                fp8_dtype_max,
+                tl_input_dtype,
+                tl_output_dtype,
+                round_scales_to_power_of_2,
+                EPS=EPS,
+                STRIDE_OUTPUT_ROW=1,
+                STRIDE_INPUT_COL=hp_tensor.stride(1),
+            )
         return output_buffer, scales_buffer
 
     @triton_fp8_per_group_colwise_scales.register_fake
@@ -363,8 +408,6 @@ if torch_version_at_least("2.7.0") and has_triton():
         N: tl.int64,
         N_GROUPS: tl.int64,
         stride_input_row: tl.int64,
-        stride_input_col: tl.int64,
-        stride_output_row: tl.int64,
         stride_output_col: tl.int64,
         fp8_dtype_min: tl.constexpr,
         fp8_dtype_max: tl.constexpr,
@@ -374,6 +417,8 @@ if torch_version_at_least("2.7.0") and has_triton():
         BLOCK_SIZE: tl.constexpr,
         BLOCK_SIZE_ITER: tl.constexpr,
         EPS: tl.constexpr,
+        STRIDE_OUTPUT_ROW: tl.constexpr,
+        STRIDE_INPUT_COL: tl.constexpr,
     ):
         # parallel across columns and groups (offsets)
         block_col_id = tl.program_id(axis=0)
@@ -398,7 +443,7 @@ if torch_version_at_least("2.7.0") and has_triton():
             )
             block_offs = (
                 block_row_offs[:, None] * stride_input_row
-                + block_col_offs[None, :] * stride_input_col
+                + block_col_offs[None, :] * STRIDE_INPUT_COL
             )
             block_mask = (block_row_offs[:, None] < group_row_end_idx) & (
                 block_col_offs[None, :] < N
@@ -412,7 +457,7 @@ if torch_version_at_least("2.7.0") and has_triton():
                 input_dtype
             )
 
-        # compute rowwise scales for this group.
+        # compute colwise scales for this group.
         amax_buffer = amax_buffer.to(tl.float64)
         scales = (fp8_dtype_max / tl.clamp(amax_buffer, min=EPS, max=float("inf"))).to(
             tl.float32
@@ -428,6 +473,8 @@ if torch_version_at_least("2.7.0") and has_triton():
         tl.store(scales_ptr + scales_offs, scales, mask=scales_mask)
 
         # perform float8 conversion for this group
+        # transpose tile before writing so consecutive SIMD lanes write
+        # consecutive rows (stride 1 in column-major output) for coalescing
         for row_start_idx in range(
             group_row_start_idx, group_row_end_idx, BLOCK_SIZE_ITER
         ):
@@ -436,7 +483,7 @@ if torch_version_at_least("2.7.0") and has_triton():
             )
             block_offs = (
                 block_row_offs[:, None] * stride_input_row
-                + block_col_offs[None, :] * stride_input_col
+                + block_col_offs[None, :] * STRIDE_INPUT_COL
             )
             block_mask = (block_row_offs[:, None] < group_row_end_idx) & (
                 block_col_offs[None, :] < N
@@ -449,10 +496,94 @@ if torch_version_at_least("2.7.0") and has_triton():
                 output_dtype
             )
             out_offs = (
-                block_row_offs[:, None] * stride_output_row
+                block_row_offs[:, None] * STRIDE_OUTPUT_ROW
                 + block_col_offs[None, :] * stride_output_col
             )
             tl.store(out_ptr + out_offs, fp8_data, mask=block_mask)
+
+    # Fused single-pass kernel: loads all rows for a group in one shot,
+    # keeping data in registers for both amax computation and fp8 scaling.
+    # Reduces HBM traffic from 5 to 3 bytes/elem (eliminates second read).
+    # Requires BLOCK_SIZE_ITER >= max group size (enforced by wrapper).
+    @triton.autotune(configs=kernel_configs_fused, key=["K"])
+    @triton.jit
+    def _triton_fp8_per_group_colwise_scales_fused_kernel(
+        input_ptr,
+        offsets_ptr,
+        out_ptr,
+        scales_ptr,
+        K: tl.int64,
+        N: tl.int64,
+        stride_input_row: tl.int64,
+        stride_output_col: tl.int64,
+        num_elements: tl.int64,
+        fp8_dtype_min: tl.constexpr,
+        fp8_dtype_max: tl.constexpr,
+        input_dtype: tl.constexpr,
+        output_dtype: tl.constexpr,
+        round_scales_to_power_of_2: tl.constexpr,
+        BLOCK_SIZE: tl.constexpr,
+        EPS: tl.constexpr,
+        MAX_GROUP_SIZE: tl.constexpr,
+        STRIDE_OUTPUT_ROW: tl.constexpr,
+        STRIDE_INPUT_COL: tl.constexpr,
+    ):
+        # parallel across columns and groups (offsets)
+        block_col_id = tl.program_id(axis=0)
+        offset_idx = tl.program_id(axis=1)
+
+        # determine start and end row idx for this group
+        group_row_start_idx = tl.load(
+            offsets_ptr + offset_idx - 1, mask=offset_idx > 0, other=0
+        )
+        group_row_end_idx = tl.load(offsets_ptr + offset_idx)
+        block_col_offs = block_col_id * BLOCK_SIZE + tl.arange(0, BLOCK_SIZE)
+
+        # Single pass: load ALL rows for this group at once.
+        # MAX_GROUP_SIZE is a power-of-2 >= actual max group size,
+        # so the mask handles any excess rows.
+        # Keep offsets in int32 to reduce register pressure; the
+        # multiplication with int64 strides handles promotion automatically.
+        block_row_offs = group_row_start_idx + tl.arange(0, MAX_GROUP_SIZE)
+        block_offs = (
+            block_row_offs[:, None] * stride_input_row
+            + block_col_offs[None, :] * STRIDE_INPUT_COL
+        )
+        block_mask = (block_row_offs[:, None] < group_row_end_idx) & (
+            block_col_offs[None, :] < N
+        )
+
+        # Load once from HBM -- data stays in registers
+        data = tl.load(input_ptr + block_offs, mask=block_mask, other=0.0).to(
+            input_dtype
+        )
+
+        # Compute colwise amax from registers
+        amax_buffer = tl.max(tl.abs(data), axis=0).to(input_dtype)
+
+        # Compute scales
+        amax_buffer = amax_buffer.to(tl.float64)
+        scales = (fp8_dtype_max / tl.clamp(amax_buffer, min=EPS, max=float("inf"))).to(
+            tl.float32
+        )
+        if round_scales_to_power_of_2:
+            scales = tl.exp2(tl.floor(tl.log2(scales)))
+
+        # Store scales
+        scales_offs = block_col_offs + (N * offset_idx)
+        scales_mask = tl.arange(0, BLOCK_SIZE) < N
+        tl.store(scales_ptr + scales_offs, scales, mask=scales_mask)
+
+        # Scale from registers (no second HBM read) and write fp8
+        scaled_data = data * scales[None, :]
+        fp8_data = tl.clamp(scaled_data, min=fp8_dtype_min, max=fp8_dtype_max).to(
+            output_dtype
+        )
+        out_offs = (
+            block_row_offs[:, None] * STRIDE_OUTPUT_ROW
+            + block_col_offs[None, :] * stride_output_col
+        )
+        tl.store(out_ptr + out_offs, fp8_data, mask=block_mask)
 
     @triton.autotune(configs=kernel_configs_2D_dual, key=["K", "N_GROUPS"])
     @triton.jit
@@ -463,8 +594,6 @@ if torch_version_at_least("2.7.0") and has_triton():
         scales_ptr_1,
         N1: tl.int64,
         stride_input_row_1: tl.int64,
-        stride_input_col_1: tl.int64,
-        stride_output_row_1: tl.int64,
         stride_output_col_1: tl.int64,
         # Tensor 2 (e.g. padded_A): shape (K, N2)
         input_ptr_2,
@@ -472,8 +601,6 @@ if torch_version_at_least("2.7.0") and has_triton():
         scales_ptr_2,
         N2: tl.int64,
         stride_input_row_2: tl.int64,
-        stride_input_col_2: tl.int64,
-        stride_output_row_2: tl.int64,
         stride_output_col_2: tl.int64,
         # Shared: group offsets and dimensions
         offsets_ptr,
@@ -488,6 +615,10 @@ if torch_version_at_least("2.7.0") and has_triton():
         BLOCK_SIZE: tl.constexpr,
         BLOCK_SIZE_ITER: tl.constexpr,
         EPS: tl.constexpr,
+        STRIDE_INPUT_COL_1: tl.constexpr,
+        STRIDE_OUTPUT_ROW_1: tl.constexpr,
+        STRIDE_INPUT_COL_2: tl.constexpr,
+        STRIDE_OUTPUT_ROW_2: tl.constexpr,
     ):
         block_col_id = tl.program_id(axis=0)
         offset_idx = tl.program_id(axis=1)
@@ -523,7 +654,7 @@ if torch_version_at_least("2.7.0") and has_triton():
             if process_1:
                 block_offs_1 = (
                     block_row_offs[:, None] * stride_input_row_1
-                    + block_col_offs[None, :] * stride_input_col_1
+                    + block_col_offs[None, :] * STRIDE_INPUT_COL_1
                 )
                 mask_1 = row_mask[:, None] & (block_col_offs[None, :] < N1)
                 data_1 = tl.load(input_ptr_1 + block_offs_1, mask=mask_1, other=0.0).to(
@@ -536,7 +667,7 @@ if torch_version_at_least("2.7.0") and has_triton():
             if process_2:
                 block_offs_2 = (
                     block_row_offs[:, None] * stride_input_row_2
-                    + block_col_offs[None, :] * stride_input_col_2
+                    + block_col_offs[None, :] * STRIDE_INPUT_COL_2
                 )
                 mask_2 = row_mask[:, None] & (block_col_offs[None, :] < N2)
                 data_2 = tl.load(input_ptr_2 + block_offs_2, mask=mask_2, other=0.0).to(
@@ -590,7 +721,7 @@ if torch_version_at_least("2.7.0") and has_triton():
             if process_1:
                 block_offs_1 = (
                     block_row_offs[:, None] * stride_input_row_1
-                    + block_col_offs[None, :] * stride_input_col_1
+                    + block_col_offs[None, :] * STRIDE_INPUT_COL_1
                 )
                 mask_1 = row_mask[:, None] & (block_col_offs[None, :] < N1)
                 data_1 = tl.load(input_ptr_1 + block_offs_1, mask=mask_1, other=0.0).to(
@@ -600,7 +731,7 @@ if torch_version_at_least("2.7.0") and has_triton():
                     data_1 * scales_1[None, :], min=fp8_dtype_min, max=fp8_dtype_max
                 ).to(output_dtype)
                 out_offs_1 = (
-                    block_row_offs[:, None] * stride_output_row_1
+                    block_row_offs[:, None] * STRIDE_OUTPUT_ROW_1
                     + block_col_offs[None, :] * stride_output_col_1
                 )
                 tl.store(out_ptr_1 + out_offs_1, fp8_1, mask=mask_1)
@@ -608,7 +739,7 @@ if torch_version_at_least("2.7.0") and has_triton():
             if process_2:
                 block_offs_2 = (
                     block_row_offs[:, None] * stride_input_row_2
-                    + block_col_offs[None, :] * stride_input_col_2
+                    + block_col_offs[None, :] * STRIDE_INPUT_COL_2
                 )
                 mask_2 = row_mask[:, None] & (block_col_offs[None, :] < N2)
                 data_2 = tl.load(input_ptr_2 + block_offs_2, mask=mask_2, other=0.0).to(
@@ -618,7 +749,7 @@ if torch_version_at_least("2.7.0") and has_triton():
                     data_2 * scales_2[None, :], min=fp8_dtype_min, max=fp8_dtype_max
                 ).to(output_dtype)
                 out_offs_2 = (
-                    block_row_offs[:, None] * stride_output_row_2
+                    block_row_offs[:, None] * STRIDE_OUTPUT_ROW_2
                     + block_col_offs[None, :] * stride_output_col_2
                 )
                 tl.store(out_ptr_2 + out_offs_2, fp8_2, mask=mask_2)
@@ -701,16 +832,12 @@ if torch_version_at_least("2.7.0") and has_triton():
             scales_buffer_1,
             n1,
             hp_tensor_1.stride(0),
-            hp_tensor_1.stride(1),
-            output_buffer_1.stride(0),
             output_buffer_1.stride(1),
             hp_tensor_2,
             output_buffer_2,
             scales_buffer_2,
             n2,
             hp_tensor_2.stride(0),
-            hp_tensor_2.stride(1),
-            output_buffer_2.stride(0),
             output_buffer_2.stride(1),
             offsets,
             k,
@@ -722,6 +849,10 @@ if torch_version_at_least("2.7.0") and has_triton():
             tl_output_dtype,
             round_scales_to_power_of_2,
             EPS=EPS,
+            STRIDE_INPUT_COL_1=hp_tensor_1.stride(1),
+            STRIDE_OUTPUT_ROW_1=1,
+            STRIDE_INPUT_COL_2=hp_tensor_2.stride(1),
+            STRIDE_OUTPUT_ROW_2=1,
         )
         return output_buffer_1, scales_buffer_1, output_buffer_2, scales_buffer_2
 

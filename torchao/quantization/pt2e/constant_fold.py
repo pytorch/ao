@@ -10,6 +10,7 @@ from typing import Any, Callable, Optional
 import torch
 import torch.utils._pytree as pytree
 from torch._inductor.freezing_utils import maybe_set_is_frozen_param
+from torch.ao.quantization.fx.utils import collect_producer_nodes
 from torch.utils._ordered_set import OrderedSet
 
 aten = torch.ops.aten
@@ -94,19 +95,37 @@ class ConstantFolder(torch.fx.Interpreter):
         # Identify mutable buffers by finding copy_ operations
         self.mutable_buffers = self._find_mutable_buffers()
 
+    def _is_mutable_buffer(self, node: torch.fx.Node) -> bool:
+        """Check if a node is a mutable buffer."""
+        named_buffers = dict(self.module.named_buffers())
+        if node.op == "placeholder":
+            return True
+
+        if node.op == "get_attr" and str(node.target) in named_buffers:
+            return True
+
+        return False
+
     def _find_mutable_buffers(self) -> set[torch.fx.Node]:
-        """Find mutable buffers by identifying copy_ operations.
-        The first argument of copy_ op is the mutable buffer."""
+        """Find mutable buffers by identifying copy_ or put_ operations.
+        The graph then traces all nodes that lead to a mutable buffer."""
         mutable_buffers = set()
         for node in self.module.graph.nodes:
             if (
                 node.op == "call_function"
                 and hasattr(node.target, "_schema")
-                and "copy_" in str(node.target)
+                and ("copy_" in str(node.target) or "put_" in str(node.target))
             ):
-                # The first argument of copy_ is the mutable buffer
+                # The first argument of copy_ or put_ is the mutable input.
+                # If any producer in the chain is a mutable buffer, mark
+                # all producers as mutable to prevent constant folding.
                 if len(node.args) > 0 and isinstance(node.args[0], torch.fx.Node):
-                    mutable_buffers.add(node.args[0])
+                    producer_nodes = collect_producer_nodes(node.args[0])
+                    if producer_nodes is not None and any(
+                        self._is_mutable_buffer(p) for p in producer_nodes
+                    ):
+                        mutable_buffers.update(producer_nodes)
+
         return mutable_buffers
 
     def _support_dynamic_shape(self) -> bool:

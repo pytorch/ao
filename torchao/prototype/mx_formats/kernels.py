@@ -472,28 +472,60 @@ if _triton_kernels_available:
     IS_ROCM = tl.constexpr(is_ROCM())
 
     @triton.jit
+    def _calculate_reciprocal_scale(scale_e8m0_biased):
+        """
+        Helper function to calculate reciprocal scale from E8M0 biased exponent.
+        """
+        FP32_MANTISSA_BITS: tl.constexpr = 23
+
+        # Handle special cases and normal values using nested tl.where
+        descale_fp = tl.where(
+            scale_e8m0_biased == 255,  # NaN case -> return NaN
+            float("nan"),
+            tl.where(
+                scale_e8m0_biased == 254,  # Inf case -> return 2^-127
+                2**-127,
+                tl.where(
+                    scale_e8m0_biased == 0,  # Zero case -> return 1.0 (no scaling)
+                    1.0,
+                    # Normal case: fast bit manipulation (254 - biased_exp) << 23
+                    ((254 - scale_e8m0_biased).to(tl.int32) << FP32_MANTISSA_BITS).to(
+                        tl.float32, bitcast=True
+                    ),
+                ),
+            ),
+        )
+
+        return descale_fp
+
+    @triton.jit
     def _triton_calculate_scale_rceil(x, axis, USE_PTX: tl.constexpr):
+        """
+        Calculates and returns reciprocal scale using RCEIL rounding mode
+        """
         # There is no good support for accessing globals from a jit'ed triton
         # function, so we redefine them here. Since this is prototype code which
         # we plan to remove after torch.compile catches up, this is fine.
         e8m0_exponent_bias = 127
-        fp32_mbits = 23
 
         # Find the maximum absolute value for each row
         max_abs = tl.max(x, axis=axis)
 
+        # Check for NaN presence: if ANY element in each row is NaN,
+        # set that row's max_abs to NaN (per-axis NaN detection)
+        nan_mask = x != x
+        has_nan_per_axis = tl.max(nan_mask, axis=axis)
+
+        # If any element in a row was NaN, set that row's max_abs to NaN
+        max_abs = tl.where(has_nan_per_axis > 0, float("nan"), max_abs)
+
         F8E4M3_MAX_RCP: tl.constexpr = 1.0 / 448.0
 
-        if USE_PTX:
-            # RCEIL scaling mode using PTX instruction supported on sm100.
-            # The input should be: amax / 448.0
-            # where 448.0 is the max representable value in FP8 E4M3 format.
-            scale_input = max_abs.to(tl.float32) * F8E4M3_MAX_RCP
+        # Calculate scale input
+        scale_input = max_abs * F8E4M3_MAX_RCP
 
-            # The PTX instruction outputs a packed uint16 where:
-            # - high byte = E8M0 of first input (0.0 in our case)
-            # - low byte = E8M0 of second input (scale_input)
-            # Casting uint16 to uint8 naturally truncates to the low byte.
+        if USE_PTX:
+            # Use PTX instruction for normal values
             scale_e8m0_biased = tl.inline_asm_elementwise(
                 asm="cvt.rp.satfinite.ue8m0x2.f32 $0, 0.0, $1;",
                 constraints="=h,r",
@@ -503,35 +535,17 @@ if _triton_kernels_available:
                 pack=1,
             ).to(tl.uint8)
         else:
-            # Original recil implementation described in https://docs.nvidia.com/cuda/cublas/#d-block-quantization
-            descale = max_abs * F8E4M3_MAX_RCP
-
-            # Clamp to exponents that can be represented in e8m0
+            # Fallback implementation
             scale_e8m0_unbiased = tl.clamp(
-                tl.ceil(tl.log2(descale)),
+                tl.ceil(tl.log2(scale_input)),
                 min=-1 * e8m0_exponent_bias,
                 max=e8m0_exponent_bias,
             )
+            scale_e8m0_biased = (scale_e8m0_unbiased + 127).to(tl.uint8)
 
-            # Create the biased e8m0 representation and cast it to 8 bits
-            # Set NaN values to 0xFF
-            is_nan = descale != descale
-            scale_e8m0_biased = tl.where(is_nan, 0xFF, scale_e8m0_unbiased + 127)
-            scale_e8m0_biased = scale_e8m0_biased.to(tl.uint8)
+        descale_fp = _calculate_reciprocal_scale(scale_e8m0_biased)
 
-        # TODO(future PR): add NaN handling here,
-        # https://github.com/pytorch/pytorch/pull/100572 will likely be useful to
-        # get proper NaN propagation working
-        # Calculate the scale in floating point.
-        scale_fp = (scale_e8m0_biased.to(tl.int32) << fp32_mbits).to(
-            tl.float32, bitcast=True
-        )
-
-        fp32_exp_bias = 127.0
-        fp32_min_normal = tl.exp2(-fp32_exp_bias + 1)
-        scale_fp = tl.clamp(scale_fp, min=fp32_min_normal, max=float("inf"))
-
-        return scale_fp, scale_e8m0_biased
+        return descale_fp, scale_e8m0_biased
 
     @triton.jit
     def _triton_calculate_scale_floor(
@@ -545,7 +559,6 @@ if _triton_kernels_available:
         e8m0_exponent_bias = 127
         bf16_mbits = 7
         bf16_exp_bias = 127
-        fp32_mbits = 23
 
         # Find the maximum absolute value for each row
         max_abs = tl.max(x, axis=axis)
@@ -568,19 +581,10 @@ if _triton_kernels_available:
         scale_e8m0_biased = scale_e8m0_unbiased + e8m0_exponent_bias
         scale_e8m0_biased = scale_e8m0_biased.to(tl.uint8)
 
-        # TODO(future PR): add NaN handling here,
-        # https://github.com/pytorch/pytorch/pull/100572 will likely be useful to
-        # get proper NaN propagation working
-        # Calculate the scale in floating point.
-        scale_fp = (scale_e8m0_biased.to(tl.int32) << fp32_mbits).to(
-            tl.float32, bitcast=True
-        )
+        # Calculate reciprocal scale using helper function for consistency with RCEIL
+        descale_fp = _calculate_reciprocal_scale(scale_e8m0_biased)
 
-        fp32_exp_bias = 127.0
-        fp32_min_normal = tl.exp2(-fp32_exp_bias + 1)
-        scale_fp = tl.clamp(scale_fp, min=fp32_min_normal, max=float("inf"))
-
-        return scale_fp, scale_e8m0_biased
+        return descale_fp, scale_e8m0_biased
 
     @triton.autotune(
         configs=_get_mxfp8_quant_autotune_configs(),
@@ -659,10 +663,10 @@ if _triton_kernels_available:
         mask = row_mask & col_mask
 
         # Compute memory offsets for row-major layout (rows, cols)
-        row_major_offsets = (rows * n_cols + cols).to(tl.int32)
+        row_major_offsets = rows.to(tl.int64) * n_cols + cols
 
         # Compute memory offsets for column-major layout (cols, rows)
-        col_major_offsets = (cols * n_rows + rows).to(tl.int32)
+        col_major_offsets = cols.to(tl.int64) * n_rows + rows
 
         # Load the entire block in a single operation
         # shape: (ROW_TILE_SIZE, COL_TILE_SIZE)
@@ -684,14 +688,14 @@ if _triton_kernels_available:
         # Find the maximum absolute value for each column
         # shape: (COL_TILE_SIZE * BLOCKS_PER_ROW_TILE,)
         if SCALING_MODE == "rceil":
-            col_scale_r, col_scale_e8m0_r = _triton_calculate_scale_rceil(
+            col_rcp_scale_fp32, col_scale_e8m0_r = _triton_calculate_scale_rceil(
                 x_block_abs_t_r,
                 axis=1,
                 USE_PTX=not IS_ROCM,
             )
         else:
             tl.static_assert(SCALING_MODE == "floor")
-            col_scale_r, col_scale_e8m0_r = _triton_calculate_scale_floor(
+            col_rcp_scale_fp32, col_scale_e8m0_r = _triton_calculate_scale_floor(
                 x_block_abs_t_r,
                 axis=1,
             )
@@ -700,7 +704,7 @@ if _triton_kernels_available:
         # Broadcasting col_scale to match x_block's shape
         # x_block_t_r shape (COL_TILE_SIZE * BLOCKS_PER_ROW_TILE, INNER_BLOCK_SIZE)
         # col_scale shape (COL_TILE_SIZE * BLOCKS_PER_ROW_TILE,) -> (COL_TILE_SIZE * BLOCKS_PER_ROW_TILE, 1)
-        col_normalized_t_r = x_block_t_r / col_scale_r[:, None]
+        col_normalized_t_r = x_block_t_r * col_rcp_scale_fp32[:, None]
 
         # Reshape back to original tile size
         col_normalized_t = tl.reshape(col_normalized_t_r, COL_TILE_SIZE, ROW_TILE_SIZE)
@@ -775,7 +779,9 @@ if _triton_kernels_available:
         col_offs = start_col + tl.arange(0, COL_TILE_SIZE)[None, :]
 
         # Compute memory offsets for row-major layout (rows, cols)
-        row_major_offsets = (row_offs * n_cols + col_offs).to(tl.int32)
+        row_major_offsets = (
+            row_offs.to(tl.int64) * n_cols + col_offs
+        )  # use int64 to prevent overlow on large tensors
 
         # Load the entire block in a single operation
         # shape: (ROW_TILE_SIZE, COL_TILE_SIZE)
@@ -791,28 +797,23 @@ if _triton_kernels_available:
         # Calculate the absolute values of elements in the block
         x_block_abs_r = tl.abs(x_block_r)
 
-        # Find the maximum absolute value for each row (across columns)
-        # shape: (ROW_TILE_SIZE * BLOCKS_PER_COL_TILE,)
+        # Calcculate the reciprocal fp32 scale (for quantization) and the e8m0 scale (for GEMM)
         if SCALING_MODE == "rceil":
-            scale_fp32_r, scale_e8m0_r = _triton_calculate_scale_rceil(
+            descale_fp32_r, scale_e8m0_r = _triton_calculate_scale_rceil(
                 x_block_abs_r,
                 axis=1,
                 USE_PTX=not IS_ROCM,
             )
         else:
             tl.static_assert(SCALING_MODE == "floor")
-            scale_fp32_r, scale_e8m0_r = _triton_calculate_scale_floor(
+            descale_fp32_r, scale_e8m0_r = _triton_calculate_scale_floor(
                 x_block_abs_r,
                 axis=1,
             )
 
-        # Divide each row by scale
-        # Broadcasting scale to match x_block's shape
-        # x_block_r shape:
-        #    (ROW_TILE_SIZE * BLOCKS_PER_COL_TILE, SCALE_BLOCK_SIZE)
-        # scale[:, None] shape:
-        #    (ROW_TILE_SIZE * BLOCKS_PER_COL_TILE, 1)
-        scaled_data_r = x_block_r / scale_fp32_r[:, None]
+        # Both modes use multiplication now
+        descale_broadcast = descale_fp32_r[:, None]
+        scaled_data_r = x_block_r * descale_broadcast
 
         # Reshape back to original tile size
         e4m3_data_2d = tl.reshape(scaled_data_r, ROW_TILE_SIZE, COL_TILE_SIZE).to(
@@ -822,8 +823,10 @@ if _triton_kernels_available:
         # Store the row-normalized result in row-major format
         tl.store(output_ptr + row_major_offsets, e4m3_data_2d, mask=mask)
 
-        # Calculate scale offsets to write to
+        # Store e8m0 scales
         scales_per_row = n_cols // SCALE_BLOCK_SIZE
+
+        # Calculate scale storage offsets and mask
         scale_row_indices = (
             pid_row * ROW_TILE_SIZE + tl.arange(0, ROW_TILE_SIZE)[:, None]
         )
@@ -832,9 +835,9 @@ if _triton_kernels_available:
             + tl.arange(0, SCALE_BLOCKS_PER_COL_TILE)[None, :]
         )
         scale_offsets = scale_row_indices * scales_per_row + scale_col_indices
-
-        # Store e8m0 scales
         scale_mask = (scale_row_indices < n_rows) & (scale_col_indices < scales_per_row)
+
+        # Reshape scale values to 2D and store
         scale_e8m0_2d = scale_e8m0_r.reshape(ROW_TILE_SIZE, SCALE_BLOCKS_PER_COL_TILE)
         tl.store(scale_ptr + scale_offsets, scale_e8m0_2d, mask=scale_mask)
 
@@ -1210,7 +1213,7 @@ def _mslk_quantize_nvfp4_custom_op(
     """
     assert _mslk_available, (
         "mslk is required for NVFP4 triton quantization. "
-        "Install from https://github.com/pytorch/MSLK"
+        "Install from https://github.com/meta-pytorch/MSLK"
     )
     from mslk.quantize.triton.fp4_quantize import (
         triton_quantize_nvfp4 as _mslk_triton_quantize_nvfp4,
@@ -1246,3 +1249,87 @@ def _(x, global_scale=None):
     scales = scales.view(*orig_leading_dims, -1, padded_cols)
     xq = xq.view(*orig_leading_dims, -1, N // 2)
     return scales, xq
+
+
+def mslk_calculate_group_max(x: torch.Tensor, m_sizes: torch.Tensor) -> torch.Tensor:
+    """Compute per-expert activation global scale (encoding convention).
+
+    Args:
+        x: [M, K] concatenated activation tensor (bf16/fp16).
+        m_sizes: [E] int64 tensor of rows per expert.
+
+    Returns:
+        Per-expert global scale in encoding convention (448 * FP4_MAX / amax),
+        shape [E], dtype float32.
+    """
+    return _mslk_calculate_group_max_custom_op(x, m_sizes)
+
+
+@torch.library.custom_op("ao::mslk_calculate_group_max", mutates_args=())
+def _mslk_calculate_group_max_custom_op(
+    x: torch.Tensor, m_sizes: torch.Tensor
+) -> torch.Tensor:
+    assert _mslk_available, (
+        "mslk is required for calculate_group_max. "
+        "Install from https://github.com/meta-pytorch/MSLK"
+    )
+    from mslk.quantize.triton.fp4_quantize import calculate_group_max
+
+    global_scale, _ = calculate_group_max(x, m_sizes)
+    return global_scale
+
+
+@_mslk_calculate_group_max_custom_op.register_fake
+def _(x, m_sizes):
+    E = m_sizes.shape[0]
+    return x.new_empty(E, dtype=torch.float32)
+
+
+def mslk_quantize_nvfp4_stacked(
+    m_sizes: torch.Tensor,
+    x: torch.Tensor,
+    global_scale: torch.Tensor,
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    """Quantize concatenated MoE activations to NVFP4 with per-expert global scales.
+
+    Args:
+        m_sizes: [E] int64 tensor of rows per expert.
+        x: [M, K] concatenated activation tensor (bf16/fp16).
+        global_scale: [E] fp32 per-expert global scales in encoding convention.
+
+    Returns:
+        Tuple of (xq, scale):
+            xq: [M, K//2] float4_e2m1fn_x2 packed FP4 data.
+            scale: Padded+swizzled float8_e4m3fn block scales.
+    """
+    return _mslk_quantize_nvfp4_stacked_custom_op(m_sizes, x, global_scale)
+
+
+@torch.library.custom_op("ao::mslk_quantize_nvfp4_stacked", mutates_args=())
+def _mslk_quantize_nvfp4_stacked_custom_op(
+    m_sizes: torch.Tensor,
+    x: torch.Tensor,
+    global_scale: torch.Tensor,
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    assert _mslk_available, (
+        "mslk is required for nvfp4_quantize_stacked. "
+        "Install from https://github.com/meta-pytorch/MSLK"
+    )
+    from mslk.quantize.triton.fp4_quantize import nvfp4_quantize_stacked
+
+    xq, scale = nvfp4_quantize_stacked(m_sizes, x, global_scale)
+    return xq, scale
+
+
+@_mslk_quantize_nvfp4_stacked_custom_op.register_fake
+def _(m_sizes, x, global_scale):
+    M, K = x.shape[0], x.shape[1]
+    num_segments = m_sizes.shape[0]
+    # Upper-bound on padded total rows (each segment can add at most 127 padding rows)
+    padded_total_M_ub = M + num_segments * 127
+    num_scales_per_row = K // 16
+    n_col_blocks = triton.cdiv(num_scales_per_row, 4)
+    padded_cols = n_col_blocks * 4
+    xq = x.new_empty(M, K // 2, dtype=torch.float4_e2m1fn_x2)
+    scale = x.new_empty(padded_total_M_ub, padded_cols, dtype=torch.float8_e4m3fn)
+    return xq, scale

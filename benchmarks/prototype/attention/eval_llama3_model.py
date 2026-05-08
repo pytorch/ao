@@ -16,6 +16,7 @@ Usage:
 
 import argparse
 import gc
+from contextlib import nullcontext
 
 import torch
 import torch._dynamo
@@ -24,8 +25,10 @@ from lm_eval import evaluator
 from lm_eval.models.huggingface import HFLM
 from torch._inductor.compile_fx import compile_fx
 from torch.nn.attention import (
+    SDPBackend,
     activate_flash_attention_impl,
     restore_flash_attention_impl,
+    sdpa_kernel,
 )
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
@@ -46,11 +49,13 @@ BACKENDS = {
         "flash_impl": None,
         "fp8": False,
         "label": "FA2 BF16",
+        "sdpa_backend": SDPBackend.FLASH_ATTENTION,
     },
     "fa3": {
         "flash_impl": "FA3",
         "fp8": False,
         "label": "FA3 BF16",
+        "sdpa_backend": SDPBackend.FLASH_ATTENTION,
     },
     "fa3_fp8": {
         "flash_impl": "FA3",
@@ -64,6 +69,13 @@ BACKENDS = {
         "fp8_backend": AttentionBackend.FP8_FA3,
         "hadamard": HadamardMode.QKV,
         "label": "FA3 FP8 Hadamard",
+    },
+    "fa3_fp8_hadamard_v": {
+        "flash_impl": "FA3",
+        "fp8": True,
+        "fp8_backend": AttentionBackend.FP8_FA3,
+        "hadamard": HadamardMode.V_ONLY,
+        "label": "FA3 FP8 Hadamard V",
     },
 }
 
@@ -113,8 +125,9 @@ def _compile_with_mask_strip(model, flash_impl_name=None):
 
 
 def setup_backend(orig_model, backend_name, compile_flag):
-    """Set up a backend and return (model, flash_impl)."""
+    """Set up a backend and return (model, flash_impl, sdpa_backend)."""
     cfg = BACKENDS[backend_name]
+    sdpa_backend = cfg.get("sdpa_backend")
 
     if cfg["fp8"]:
         print(f"  Applying low-precision FP8 attention ({backend_name})...")
@@ -129,7 +142,7 @@ def setup_backend(orig_model, backend_name, compile_flag):
         if compile_flag:
             print(f"  Compiling model with torch.compile ({backend_name})...")
             model = torch.compile(model)
-        return model, cfg["flash_impl"]
+        return model, cfg["flash_impl"], sdpa_backend
     else:
         if compile_flag:
             print(f"  Compiling model with torch.compile ({backend_name})...")
@@ -139,22 +152,24 @@ def setup_backend(orig_model, backend_name, compile_flag):
             model = _compile_with_mask_strip(
                 orig_model, flash_impl_name=cfg["flash_impl"]
             )
-            return model, cfg["flash_impl"]
+            return model, cfg["flash_impl"], sdpa_backend
         # Restore use_cache in case a prior setup disabled it.
         orig_model.config.use_cache = True
-        return orig_model, cfg["flash_impl"]
+        return orig_model, cfg["flash_impl"], sdpa_backend
 
 
-def evaluate_perplexity(model, tokenizer, flash_impl) -> float:
+def evaluate_perplexity(model, tokenizer, flash_impl, sdpa_backend=None) -> float:
     # Evaluate perplexity on WikiText-2 using lm_eval.
     if flash_impl:
         activate_flash_attention_impl(flash_impl)
+    ctx = sdpa_kernel(sdpa_backend) if sdpa_backend is not None else nullcontext()
     try:
-        results = evaluator.simple_evaluate(
-            HFLM(pretrained=model, tokenizer=tokenizer),
-            tasks=["wikitext"],
-            batch_size=1,
-        )
+        with ctx:
+            results = evaluator.simple_evaluate(
+                HFLM(pretrained=model, tokenizer=tokenizer),
+                tasks=["wikitext"],
+                batch_size=1,
+            )
     finally:
         if flash_impl:
             restore_flash_attention_impl()
@@ -171,26 +186,33 @@ def benchmark_runtime(
     flash_impl,
     num_warmup,
     num_iters,
+    sdpa_backend=None,
 ) -> float:
     """Benchmark forward-pass latency at a given sequence length. Returns median ms."""
     input_ids = torch.randint(0, vocab_size, (1, seq_len), device=device)
 
     if flash_impl:
         activate_flash_attention_impl(flash_impl)
+    ctx = sdpa_kernel(sdpa_backend) if sdpa_backend is not None else nullcontext()
     try:
-        # Warmup
-        for _ in range(num_warmup):
-            model(input_ids)
-        torch.cuda.synchronize()
+        with ctx:
+            # Warmup
+            for _ in range(num_warmup):
+                model(input_ids)
+            torch.cuda.synchronize()
 
-        start_events = [torch.cuda.Event(enable_timing=True) for _ in range(num_iters)]
-        end_events = [torch.cuda.Event(enable_timing=True) for _ in range(num_iters)]
+            start_events = [
+                torch.cuda.Event(enable_timing=True) for _ in range(num_iters)
+            ]
+            end_events = [
+                torch.cuda.Event(enable_timing=True) for _ in range(num_iters)
+            ]
 
-        for i in range(num_iters):
-            start_events[i].record()
-            model(input_ids)
-            end_events[i].record()
-        torch.cuda.synchronize()
+            for i in range(num_iters):
+                start_events[i].record()
+                model(input_ids)
+                end_events[i].record()
+            torch.cuda.synchronize()
     finally:
         if flash_impl:
             restore_flash_attention_impl()
@@ -251,22 +273,24 @@ def run_benchmark(
 
     # --- Baseline perplexity ---
     print(f"\n  Computing perplexity with {baseline_label}...")
-    baseline_model, baseline_flash = setup_backend(
+    baseline_model, baseline_flash, baseline_sdpa = setup_backend(
         orig_model,
         baseline_backend,
         compile,
     )
-    baseline_ppl = evaluate_perplexity(baseline_model, tokenizer, baseline_flash)
+    baseline_ppl = evaluate_perplexity(
+        baseline_model, tokenizer, baseline_flash, baseline_sdpa
+    )
     print(f"  {baseline_label} perplexity: {baseline_ppl:.2f}")
 
     # --- Test perplexity ---
     print(f"\n  Computing perplexity with {test_label}...")
-    test_model, test_flash = setup_backend(
+    test_model, test_flash, test_sdpa = setup_backend(
         orig_model,
         test_backend,
         compile,
     )
-    test_ppl = evaluate_perplexity(test_model, tokenizer, test_flash)
+    test_ppl = evaluate_perplexity(test_model, tokenizer, test_flash, test_sdpa)
     print(f"  {test_label} perplexity: {test_ppl:.2f}")
 
     print(f"\n  Delta: {test_ppl - baseline_ppl:+.2f}")
@@ -282,7 +306,7 @@ def run_benchmark(
 
     # --- Baseline runtime (all sequence lengths) ---
     print(f"\n  Running baseline ({baseline_label})...")
-    baseline_model, baseline_flash = setup_backend(
+    baseline_model, baseline_flash, baseline_sdpa = setup_backend(
         orig_model,
         baseline_backend,
         compile,
@@ -298,6 +322,7 @@ def run_benchmark(
                 baseline_flash,
                 num_warmup,
                 num_runtime_iters,
+                sdpa_backend=baseline_sdpa,
             )
             baseline_runtimes[S] = ms
             print(f"    seq_len={S:>6}: {ms:.1f} ms")
@@ -312,7 +337,7 @@ def run_benchmark(
 
     # --- Test runtime (all sequence lengths) ---
     print(f"\n  Running test ({test_label})...")
-    test_model, test_flash = setup_backend(
+    test_model, test_flash, test_sdpa = setup_backend(
         orig_model,
         test_backend,
         compile,
@@ -328,6 +353,7 @@ def run_benchmark(
                 test_flash,
                 num_warmup,
                 num_runtime_iters,
+                sdpa_backend=test_sdpa,
             )
             test_runtimes[S] = ms
             print(f"    seq_len={S:>6}: {ms:.1f} ms")

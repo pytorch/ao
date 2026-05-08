@@ -27,6 +27,7 @@ from torchao.prototype.attention.quantization.triton_hadamard_utils import (
 )
 from torchao.prototype.attention.quantization.triton_rope_qkv_quantization import (
     group_reduce_kernel,
+    rope_single_phase1_kernel,
     rope_single_phase2_kernel,
     single_reduce_kernel,
 )
@@ -258,6 +259,7 @@ def triton_fp8_hadamard_rope_sdpa_quantize(
     sin: torch.Tensor,
     num_chunks: Optional[int] = None,
     rope_interleaved: bool = False,
+    v_only: bool = False,
 ) -> Tuple[
     torch.Tensor,
     torch.Tensor,
@@ -362,7 +364,10 @@ def triton_fp8_hadamard_rope_sdpa_quantize(
     v_intermediate = torch.empty(B, H_kv, S, D, dtype=v.dtype, device=q.device)
 
     # Temp buffers for Hadamard butterfly
-    q_temp = torch.empty(B, H_q, num_chunks, D, dtype=torch.float32, device=q.device)
+    if not v_only:
+        q_temp = torch.empty(
+            B, H_q, num_chunks, D, dtype=torch.float32, device=q.device
+        )
     kv_temp = torch.empty(B, H_kv, num_chunks, D, dtype=torch.float32, device=q.device)
 
     # Partial max buffers
@@ -387,77 +392,129 @@ def triton_fp8_hadamard_rope_sdpa_quantize(
     q_grid = (B, H_q, num_chunks)
     kv_grid = (B, H_kv, num_chunks)
 
-    # ---- Phase 1: RoPE + Hadamard + max for Q ----
-    hadamard_rope_single_phase1_kernel[q_grid](
-        q,
-        cos,
-        sin,
-        q_intermediate,
-        q_temp,
-        q_partial_max,
-        # Input strides [B, S, H_q, D]
-        q.stride(0),
-        q.stride(1),
-        q.stride(2),
-        q.stride(3),
-        # Output strides [B, H_q, S, D]
-        q_intermediate.stride(0),
-        q_intermediate.stride(1),
-        q_intermediate.stride(2),
-        q_intermediate.stride(3),
-        # Temp strides
-        q_temp.stride(0),
-        q_temp.stride(1),
-        q_temp.stride(2),
-        q_temp.stride(3),
-        S,
-        H_q,
-        D_HALF,
-        chunk_size,
-        num_chunks,
-        D=D,
-        LOG2_D=LOG2_D,
-        USE_BFLOAT16=use_bfloat16,
-        ROPE_INTERLEAVED=rope_interleaved,
-    )
+    # ---- Phase 1: Q ----
+    if v_only:
+        rope_single_phase1_kernel[q_grid](
+            q,
+            cos,
+            sin,
+            q_intermediate,
+            q_partial_max,
+            # Input strides [B, S, H_q, D]
+            q.stride(0),
+            q.stride(1),
+            q.stride(2),
+            q.stride(3),
+            # Output strides [B, H_q, S, D]
+            q_intermediate.stride(0),
+            q_intermediate.stride(1),
+            q_intermediate.stride(2),
+            q_intermediate.stride(3),
+            S,
+            D,
+            D_HALF,
+            H_q,
+            chunk_size,
+            num_chunks,
+            ROPE_INTERLEAVED=rope_interleaved,
+        )
+    else:
+        hadamard_rope_single_phase1_kernel[q_grid](
+            q,
+            cos,
+            sin,
+            q_intermediate,
+            q_temp,
+            q_partial_max,
+            # Input strides [B, S, H_q, D]
+            q.stride(0),
+            q.stride(1),
+            q.stride(2),
+            q.stride(3),
+            # Output strides [B, H_q, S, D]
+            q_intermediate.stride(0),
+            q_intermediate.stride(1),
+            q_intermediate.stride(2),
+            q_intermediate.stride(3),
+            # Temp strides
+            q_temp.stride(0),
+            q_temp.stride(1),
+            q_temp.stride(2),
+            q_temp.stride(3),
+            S,
+            H_q,
+            D_HALF,
+            chunk_size,
+            num_chunks,
+            D=D,
+            LOG2_D=LOG2_D,
+            USE_BFLOAT16=use_bfloat16,
+            ROPE_INTERLEAVED=rope_interleaved,
+        )
 
-    # ---- Phase 1: RoPE + Hadamard + max for K ----
-    hadamard_rope_single_phase1_kernel[kv_grid](
-        k,
-        cos,
-        sin,
-        k_intermediate,
-        kv_temp,
-        k_partial_max,
-        # Input strides [B, S, H_kv, D]
-        k.stride(0),
-        k.stride(1),
-        k.stride(2),
-        k.stride(3),
-        # Output strides [B, H_kv, S, D]
-        k_intermediate.stride(0),
-        k_intermediate.stride(1),
-        k_intermediate.stride(2),
-        k_intermediate.stride(3),
-        # Temp strides
-        kv_temp.stride(0),
-        kv_temp.stride(1),
-        kv_temp.stride(2),
-        kv_temp.stride(3),
-        S,
-        H_kv,
-        D_HALF,
-        chunk_size,
-        num_chunks,
-        D=D,
-        LOG2_D=LOG2_D,
-        USE_BFLOAT16=use_bfloat16,
-        ROPE_INTERLEAVED=rope_interleaved,
-    )
+    # ---- Phase 1: K ----
+    if v_only:
+        rope_single_phase1_kernel[kv_grid](
+            k,
+            cos,
+            sin,
+            k_intermediate,
+            k_partial_max,
+            # Input strides [B, S, H_kv, D]
+            k.stride(0),
+            k.stride(1),
+            k.stride(2),
+            k.stride(3),
+            # Output strides [B, H_kv, S, D]
+            k_intermediate.stride(0),
+            k_intermediate.stride(1),
+            k_intermediate.stride(2),
+            k_intermediate.stride(3),
+            S,
+            D,
+            D_HALF,
+            H_kv,
+            chunk_size,
+            num_chunks,
+            ROPE_INTERLEAVED=rope_interleaved,
+        )
+    else:
+        hadamard_rope_single_phase1_kernel[kv_grid](
+            k,
+            cos,
+            sin,
+            k_intermediate,
+            kv_temp,
+            k_partial_max,
+            # Input strides [B, S, H_kv, D]
+            k.stride(0),
+            k.stride(1),
+            k.stride(2),
+            k.stride(3),
+            # Output strides [B, H_kv, S, D]
+            k_intermediate.stride(0),
+            k_intermediate.stride(1),
+            k_intermediate.stride(2),
+            k_intermediate.stride(3),
+            # Temp strides
+            kv_temp.stride(0),
+            kv_temp.stride(1),
+            kv_temp.stride(2),
+            kv_temp.stride(3),
+            S,
+            H_kv,
+            D_HALF,
+            chunk_size,
+            num_chunks,
+            D=D,
+            LOG2_D=LOG2_D,
+            USE_BFLOAT16=use_bfloat16,
+            ROPE_INTERLEAVED=rope_interleaved,
+        )
 
-    # ---- Phase 1: Hadamard + max for V (no RoPE, with transpose) ----
-    # kv_temp reused from K: safe because both launches are on the same CUDA
-    # stream, so K's kernel fully completes before V's starts.
+    # ---- Phase 1: V (always Hadamard + transpose, no RoPE) ----
+    # kv_temp reused from K (when not v_only): safe because both launches are
+    # on the same CUDA stream, so K's kernel fully completes before V's starts.
     hadamard_v_phase1_kernel[kv_grid](
         v,
         v_intermediate,
