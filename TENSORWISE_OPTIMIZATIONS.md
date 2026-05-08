@@ -429,6 +429,144 @@ forward+backward  ~431-445 us          ~337-352 us
 Forward still has the largest relative gap. Backward is much closer to Primus
 Turbo after the inverse-scale materialization change.
 
+## Memory Save Policy Experiments
+
+This section records experiments around reducing tensors saved by
+`ctx.save_for_backward`.
+
+### Rowwise Saved Context
+
+The rowwise FP8 grouped GEMM implementation saves high-precision inputs and
+metadata:
+
+```python
+ctx.save_for_backward(
+    padded_A, B_t, offs, padded_group_start_offsets, padded_group_end_offsets
+)
+```
+
+For the main tensors, this is roughly:
+
+```text
+padded_A: M*K*input_dtype_bytes
+B_t:      E*K*N*input_dtype_bytes
+```
+
+So rowwise is not saving less memory than the committed TensorWise
+implementation. It is primarily choosing a recompute strategy. Its advantage is
+that rowwise has mature fused backward quantization kernels that make this
+recompute strategy less costly.
+
+### Committed TensorWise Saved Context
+
+The committed TensorWise implementation saves backward-ready FP8 layouts:
+
+```text
+A_col_major:         fp8, shape M*K
+B_rhs_fp8:           fp8, shape E*N*K
+A_inv_scales_flat:   fp32, shape num_groups*K
+B_rhs_inv_scales:    fp32, shape E*K
+offs
+```
+
+For bf16 inputs, this is generally smaller than saving high-precision `A` and
+`B_t` because the dominant tensor payloads are FP8 rather than bf16:
+
+```text
+rowwise saved A+B_t:      2 bytes * (M*K + E*K*N)
+tensorwise saved layouts: 1 byte  * (M*K + E*K*N) + scale buffers
+```
+
+The scale buffers add overhead, but for large expert weights the FP8 payload
+dominates. In saved-context memory terms, committed TensorWise should be better
+than rowwise.
+
+### Full Recompute Experiment
+
+We tested a rowwise-style TensorWise save policy:
+
+```python
+ctx.save_for_backward(A, B_t_data, offs)
+```
+
+Backward then recomputed:
+
+- `B_data_col_major` and `B_inv_scales_expanded` from `B_t_data`
+- `A_col_major` and `A_inv_scales_flat` from `A`
+
+Large-shape result:
+
+```text
+Metric                  committed fast path   full recompute
+forward                 140.52 us             127.88 us
+backward                143.32 us             281.48 us
+forward+backward        428.08 us             562.00 us
+after_forward_alloc     312.25 MB             240.00 MB
+after_forward_peak      348.32 MB             308.13 MB
+peak_alloc              400.32 MB             400.27 MB
+final_alloc             356.13 MB             320.00 MB
+```
+
+Conclusion:
+
+- Saves about 72 MB after forward.
+- Saves about 36 MB in final allocated memory after backward.
+- Does not reduce measured peak allocation in this microbenchmark.
+- Slows forward+backward by roughly 31%.
+- Useful only if saved activation/layout memory is the limiting issue.
+
+### `cache_rhs` Hybrid Experiment
+
+We also tested a middle policy:
+
+- save high-precision `A`
+- save `B_rhs_fp8`
+- save only a scalar `B` inverse scale
+- recompute only the `A_col_major` path in backward
+
+This avoids saving full high-precision `B_t`, while avoiding the expensive
+backward recomputation of the 3D `B_t` TensorWise quantization.
+
+Large-shape result:
+
+```text
+Metric                  committed fast path   cache_rhs
+forward                 140.52 us             128.96 us
+backward                143.32 us             208.22 us
+forward+backward        428.08 us             473.56 us
+after_forward_alloc     312.25 MB             304.13 MB
+after_forward_peak      348.32 MB             340.20 MB
+peak_alloc              400.32 MB             400.33 MB
+final_alloc             356.13 MB             352.06 MB
+```
+
+Conclusion:
+
+- Correct numerically.
+- Saves only a small amount of memory versus the committed fast path:
+  about 8 MB after forward and about 4 MB final allocated.
+- Slower than the committed fast path by about 10-11% on forward+backward.
+- Much faster than full recompute, but the memory reduction is probably too
+  small to justify the runtime hit unless a specific model is right at the
+  memory edge.
+
+### Memory Takeaway
+
+For TensorWise, the committed fast path is already more memory efficient than
+rowwise in terms of saved main tensors because it saves FP8 layouts instead of
+bf16/fp32 inputs.
+
+The rowwise-style recompute strategy is valid, but for TensorWise it is a
+runtime/memory tradeoff rather than a clear improvement. A future implementation
+should expose this as an explicit policy only if TorchTitan E2E shows memory
+pressure that justifies the runtime loss:
+
+```text
+cache_all   -> fastest, saves FP8 backward layouts
+cache_rhs   -> modest memory reduction, moderate runtime cost
+recompute   -> largest saved-context reduction, largest runtime cost
+```
+
 ## Remaining Optimization Ideas
 
 ### Test `use_fast_accum=False`
@@ -474,3 +612,101 @@ backend that accepts scalar TensorWise scales, it may remove more overhead.
 The largest remaining win may require calling a faster grouped FP8 backend than
 `torch._scaled_grouped_mm`, or adding a transpose-aware/tensorwise-specialized
 path to PyTorch/TorchAO.
+
+## Experiment 4: Tiled 2D Dual-Layout Quantization
+
+Trace analysis showed that the flat 1D dual-layout 2D quantization kernel had
+become the dominant TensorWise hotspot:
+
+```text
+old _fp8_tensorwise_2d_dual_layout_quantize_kernel:
+  total: 52.19 ms
+  calls: 36
+  avg:   1.45 ms
+```
+
+The issue was the column-major write pattern. The old flat kernel walked the
+input as a 1D vector and wrote the row-major output contiguously, but the
+column-major output wrote adjacent lanes with a stride of `M`:
+
+```text
+col_major_offset = row * stride_col_row + col * stride_col_col
+```
+
+For a column-major `(M, K)` tensor with strides `(1, M)`, adjacent columns are
+far apart in memory, so the write was poorly coalesced.
+
+The new implementation changes `_fp8_tensorwise_2d_dual_layout_quantize_kernel`
+to a 2D tiled kernel:
+
+```text
+program_id(0) -> M tile
+program_id(1) -> K tile
+```
+
+Each program loads a `(BLOCK_M, BLOCK_K)` tile, writes the row-major output
+normally, then transposes the tile before writing the column-major output:
+
+```python
+fp8_vals_t = tl.trans(fp8_vals)
+col_major_offsets = (
+    rows[None, :] * stride_col_row + cols[:, None] * stride_col_col
+)
+tl.store(out_col_ptr + col_major_offsets, fp8_vals_t, mask=tl.trans(mask))
+```
+
+This makes adjacent row elements for each column contiguous in memory for the
+column-major store.
+
+### Trace Result
+
+The rank-7 tensorwise trace after this change showed:
+
+```text
+new _fp8_tensorwise_2d_dual_layout_quantize_kernel:
+  total: 8.07 ms
+  calls: 36
+  avg:   0.224 ms
+```
+
+This is about a 6.5x reduction in total time for that kernel in the captured
+trace.
+
+### E2E Result
+
+The E2E result is saved in:
+
+```text
+/home/rishi.sinha@amd.com/alex_tensorwise_microbench/benchmark_results/torchtitan_671b4l_tensorwise_tiled_dual_20260508_1955/summary.md
+```
+
+For DeepSeek V3 671B 4-layer, 8 GPUs, batch 1, sequence length 4096:
+
+```text
+Variant             Avg TPS   Avg TFLOPS   Steady Memory
+Rowwise             8,203     193.86       118.77 GiB
+Previous tensorwise 7,545     178.32       120.73 GiB
+Tiled tensorwise    8,279     195.67       120.73 GiB
+```
+
+Compared with the previous TensorWise implementation:
+
+```text
+TPS:    +9.7%
+TFLOPS: +9.7%
+Memory: unchanged
+```
+
+Compared with rowwise:
+
+```text
+TPS:    +0.9%
+TFLOPS: +0.9%
+Memory: +1.96 GiB
+```
+
+Conclusion:
+
+- The tiled dual-layout kernel closes the previous TensorWise E2E gap.
+- TensorWise is now slightly faster than rowwise on this run.
+- TensorWise still uses about 2 GiB more memory than rowwise in this setup.

@@ -51,11 +51,36 @@ if torch_version_at_least("2.7.0") and has_triton():
             triton.Config({"BLOCK_SIZE": 8192}, num_warps=8, num_stages=2),
             triton.Config({"BLOCK_SIZE": 4096}, num_warps=4, num_stages=2),
         ]
+        _dual_layout_configs = [
+            triton.Config(
+                {"BLOCK_M": bm, "BLOCK_K": bk},
+                num_warps=warps,
+                num_stages=2,
+            )
+            for bm, bk, warps in [
+                (16, 256, 8),
+                (16, 128, 4),
+                (32, 128, 4),
+                (32, 256, 8),
+            ]
+        ]
     else:
         _configs = [
             triton.Config({"BLOCK_SIZE": 8192}, num_warps=4, num_stages=4),
             triton.Config({"BLOCK_SIZE": 4096}, num_warps=4, num_stages=4),
             triton.Config({"BLOCK_SIZE": 2048}, num_warps=4, num_stages=4),
+        ]
+        _dual_layout_configs = [
+            triton.Config(
+                {"BLOCK_M": bm, "BLOCK_K": bk},
+                num_warps=warps,
+                num_stages=4,
+            )
+            for bm, bk, warps in [
+                (16, 128, 4),
+                (16, 64, 4),
+                (32, 64, 4),
+            ]
         ]
 
     @triton.autotune(configs=_configs, key=["numel"])
@@ -143,7 +168,7 @@ if torch_version_at_least("2.7.0") and has_triton():
         tl.store(out_ptr + offs, x_clamped.to(OUTPUT_DTYPE), mask=mask)
         tl.store(inv_scale_out_ptr + offs // K, inv_scale, mask=mask & ((offs % K) == 0))
 
-    @triton.autotune(configs=_configs, key=["numel"])
+    @triton.autotune(configs=_dual_layout_configs, key=["M", "K"])
     @triton.jit
     def _fp8_tensorwise_2d_dual_layout_quantize_kernel(
         x_ptr,
@@ -155,16 +180,17 @@ if torch_version_at_least("2.7.0") and has_triton():
         K: int,
         stride_col_row,
         stride_col_col,
-        numel: int,
         fp8_max: tl.constexpr,
         fp8_min: tl.constexpr,
         INPUT_DTYPE_MAX: tl.constexpr,
         EPS: tl.constexpr,
         ROUND_POW2: tl.constexpr,
         OUTPUT_DTYPE: tl.constexpr,
-        BLOCK_SIZE: tl.constexpr,
+        BLOCK_M: tl.constexpr,
+        BLOCK_K: tl.constexpr,
     ):
-        pid = tl.program_id(0)
+        pid_m = tl.program_id(0)
+        pid_k = tl.program_id(1)
 
         amax = tl.load(amax_ptr).to(tl.float32)
         scale = fp8_max / tl.maximum(amax, EPS)
@@ -172,9 +198,11 @@ if torch_version_at_least("2.7.0") and has_triton():
             scale = tl.exp2(tl.floor(tl.log2(scale)))
         inv_scale = 1.0 / scale
 
-        offs = pid * BLOCK_SIZE + tl.arange(0, BLOCK_SIZE)
-        mask = offs < numel
-        x = tl.load(x_ptr + offs, mask=mask, other=0.0).to(tl.float32)
+        rows = pid_m * BLOCK_M + tl.arange(0, BLOCK_M)
+        cols = pid_k * BLOCK_K + tl.arange(0, BLOCK_K)
+        mask = (rows[:, None] < M) & (cols[None, :] < K)
+        input_offsets = rows[:, None] * K + cols[None, :]
+        x = tl.load(x_ptr + input_offsets, mask=mask, other=0.0).to(tl.float32)
 
         x = tl.where(x != x, 0.0, x)
         x = tl.where(x > INPUT_DTYPE_MAX, INPUT_DTYPE_MAX, x)
@@ -183,13 +211,18 @@ if torch_version_at_least("2.7.0") and has_triton():
         fp8_vals = tl.minimum(tl.maximum(x * scale, fp8_min), fp8_max).to(
             OUTPUT_DTYPE
         )
-        tl.store(out_row_ptr + offs, fp8_vals, mask=mask)
+        tl.store(out_row_ptr + input_offsets, fp8_vals, mask=mask)
 
-        rows = offs // K
-        cols = offs - rows * K
-        tl.store(inv_scale_out_ptr + rows, inv_scale, mask=mask & (cols == 0))
-        col_major_offsets = rows * stride_col_row + cols * stride_col_col
-        tl.store(out_col_ptr + col_major_offsets, fp8_vals, mask=mask)
+        if pid_k == 0:
+            tl.store(inv_scale_out_ptr + rows, inv_scale, mask=rows < M)
+
+        # Store a transposed tile for the column-major layout so adjacent rows
+        # for each column are contiguous in memory.
+        fp8_vals_t = tl.trans(fp8_vals)
+        col_major_offsets = (
+            rows[None, :] * stride_col_row + cols[:, None] * stride_col_col
+        )
+        tl.store(out_col_ptr + col_major_offsets, fp8_vals_t, mask=tl.trans(mask))
 
     def triton_fp8_tensorwise_quantize_2d(
         tensor: torch.Tensor,
@@ -279,15 +312,19 @@ if torch_version_at_least("2.7.0") and has_triton():
         amax_buf = torch.zeros(1, dtype=torch.float32, device=tensor.device)
         inv_scale_expanded = torch.empty(M, dtype=torch.float32, device=tensor.device)
 
-        grid = lambda meta: (triton.cdiv(numel, meta["BLOCK_SIZE"]),)
-        _fp8_tensorwise_2d_amax_kernel[grid](
+        amax_grid = lambda meta: (triton.cdiv(numel, meta["BLOCK_SIZE"]),)
+        quant_grid = lambda meta: (
+            triton.cdiv(M, meta["BLOCK_M"]),
+            triton.cdiv(K, meta["BLOCK_K"]),
+        )
+        _fp8_tensorwise_2d_amax_kernel[amax_grid](
             tensor,
             amax_buf,
             numel,
             INPUT_DTYPE_MAX=input_dtype_max,
         )
 
-        _fp8_tensorwise_2d_dual_layout_quantize_kernel[grid](
+        _fp8_tensorwise_2d_dual_layout_quantize_kernel[quant_grid](
             tensor,
             fp8_row,
             fp8_col,
@@ -297,7 +334,6 @@ if torch_version_at_least("2.7.0") and has_triton():
             K,
             fp8_col.stride(0),
             fp8_col.stride(1),
-            numel,
             fp8_max=fp8_max,
             fp8_min=fp8_min,
             INPUT_DTYPE_MAX=input_dtype_max,
