@@ -193,7 +193,7 @@ purposes as an extension point:
       (`DTensor <https://github.com/pytorch/pytorch/blob/main/torch/distributed/tensor/_api.py#L217>`__,
       `docs <https://pytorch.org/docs/stable/distributed.tensor.html#pytorch-dtensor-distributed-tensor>`__)
    2) [quantization] scale/zero_point metadata
-      (`AffineQuantizedTensor <https://github.com/pytorch/ao/blob/v0.8.0/torchao/dtypes/affine_quantized_tensor.py#L46>`__)
+      (e.g. `Int8Tensor <https://github.com/pytorch/ao/blob/main/torchao/quantization/quantize_/workflows/int8/int8_tensor.py>`__)
    3) [raggedness] metadata on ragged structure
       (`NestedTensor <https://github.com/pytorch/pytorch/blob/main/torch/nested/_internal/nested_tensor.py#L53>`__,
       `docs <https://pytorch.org/tutorials/prototype/nestedtensor.html#getting-started-with-nested-tensors>`__)
@@ -455,7 +455,7 @@ subclass. This is part one of two tutorials in this series. The
 `next post <subclass_advanced.html>`__ will discuss how to add more advanced
 features to your tensor subclass, such as making it trainable, composing
 with DTensors, and adding tensor parallelism support. For a more detailed
-example of how `AffineQuantizedTensor` in torchao was built using tensor
+example of how quantized tensors in torchao are built using tensor
 subclasses, also check out `this example <https://github.com/pytorch/ao/blob/main/tutorials/developer_api_guide/my_dtype_tensor_subclass.py>`__.
 
 If you have any questions while implementing your subclass, feel free to

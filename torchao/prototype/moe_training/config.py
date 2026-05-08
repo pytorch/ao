@@ -6,12 +6,14 @@
 
 from dataclasses import dataclass
 from enum import Enum
-from typing import Optional
+from typing import Literal, Optional
 
 import torch
 from torch import nn
 
 from torchao.core.config import AOBaseConfig
+from torchao.float8.config import Float8LinearConfig
+from torchao.float8.float8_training_tensor import LinearMMConfig, ScaledMMConfig
 from torchao.prototype.mx_formats.config import ScaleCalculationMode
 from torchao.quantization.quantize_.common import KernelPreference
 from torchao.quantization.transform_module import register_quantize_module_handler
@@ -44,6 +46,7 @@ class TrainingOpBaseConfig(AOBaseConfig):
     pass
 
 
+@register_as_pytree_constant
 @dataclass
 class Float8TrainingOpConfig(TrainingOpBaseConfig):
     """
@@ -63,6 +66,41 @@ class Float8TrainingOpConfig(TrainingOpBaseConfig):
     # causes a D2H sync that breaks torch.compile.
     pad_token_groups_for_grouped_mm: bool = False
 
+    # Recipe for the float8 linear op override ("tensorwise" or "rowwise").
+    float8_linear_recipe: Literal["tensorwise", "rowwise", "rowwise_with_gw_hp"] = (
+        "rowwise"
+    )
+
+    def __post_init__(self):
+        # Pre-build internal configs for the linear op override.
+        self._float8_linear_config = Float8LinearConfig.from_recipe_name(
+            self.float8_linear_recipe
+        )
+        c = self._float8_linear_config
+        self._linear_mm_config = LinearMMConfig(
+            # output
+            ScaledMMConfig(
+                c.emulate,
+                c.gemm_config_output.use_fast_accum,
+                False,
+                c.pad_inner_dim,
+            ),
+            # grad_input
+            ScaledMMConfig(
+                c.emulate,
+                c.gemm_config_grad_input.use_fast_accum,
+                False,
+                c.pad_inner_dim,
+            ),
+            # grad_weight
+            ScaledMMConfig(
+                c.emulate,
+                c.gemm_config_grad_weight.use_fast_accum,
+                False,
+                c.pad_inner_dim,
+            ),
+        )
+
     @classmethod
     def from_recipe(
         cls,
@@ -73,6 +111,27 @@ class Float8TrainingOpConfig(TrainingOpBaseConfig):
             return cls()
         else:
             raise ValueError(f"Unsupported FP8 recipe: {recipe}")
+
+    def __eq__(self, other):
+        if isinstance(other, Float8TrainingOpConfig):
+            return (
+                self.float8_dtype == other.float8_dtype
+                and self.out_dtype == other.out_dtype
+                and self.pad_token_groups_for_grouped_mm
+                == other.pad_token_groups_for_grouped_mm
+                and self.float8_linear_recipe == other.float8_linear_recipe
+            )
+        return NotImplemented
+
+    def __hash__(self):
+        return hash(
+            (
+                self.float8_dtype,
+                self.out_dtype,
+                self.pad_token_groups_for_grouped_mm,
+                self.float8_linear_recipe,
+            )
+        )
 
 
 # register as pytree constant so we can use dynamo nonstrict trace in torchao.prototype.moe_training.ep

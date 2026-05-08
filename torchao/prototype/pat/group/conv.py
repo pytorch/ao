@@ -11,9 +11,9 @@ from .grouper import Grouper
 
 class ConvFilterGrouper(Grouper):
     def __init__(self, p: Tensor):
-        assert p.dim() == 4, "ConvFilterGrouper only supports 4D tensors"
+        assert 2 < p.dim() <= 4, "ConvFilterGrouper only supports 3D and 4D tensors"
         super().__init__(p, in_dims=0)
 
     def __enter__(self):
-        self.p.data = self.p.data.view(self.orig_shape[0] * self.orig_shape[1], -1)
+        self.p = self.p.view(self.orig_shape[0] * self.orig_shape[1], -1)
         return self

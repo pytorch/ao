@@ -17,9 +17,7 @@ from torch.testing._internal.distributed._tensor.common_dtensor import (
 
 import torchao
 from torchao.core.config import AOBaseConfig
-from torchao.dtypes import AffineQuantizedTensor, to_affine_quantized_intx
-from torchao.quantization import Int8WeightOnlyConfig, quantize_
-from torchao.quantization.quant_primitives import MappingType
+from torchao.quantization import Int8Tensor, Int8WeightOnlyConfig, quantize_
 from torchao.quantization.transform_module import (
     _QUANTIZE_CONFIG_HANDLER,
 )
@@ -213,12 +211,10 @@ class TorchAOBasicTestCase(common_utils.TestCase):
     COMMON_DEVICES = ["cpu"] + (["cuda"] if torch.cuda.is_available() else [])
     COMMON_DTYPES = [torch.float32, torch.float16, torch.bfloat16]
 
-    TENSOR_SUBCLASS = AffineQuantizedTensor
-    FACTORY_FN = to_affine_quantized_intx
+    TENSOR_SUBCLASS = Int8Tensor
+    FACTORY_FN = staticmethod(Int8Tensor.from_hp)
     kwargs = {
-        "mapping_type": MappingType.ASYMMETRIC,
-        "block_size": (1, 32),
-        "target_dtype": torch.uint8,
+        "granularity": torchao.quantization.PerRow(),
     }
     # minimum sqnr for linear operation when the weight is quantized to low precision
     # with the above setting
@@ -293,12 +289,10 @@ class TorchAOCompileTestCase(common_utils.TestCase):
     COMMON_DEVICES = ["cpu"] + (["cuda"] if torch.cuda.is_available() else [])
     COMMON_DTYPES = [torch.float32, torch.float16, torch.bfloat16]
 
-    TENSOR_SUBCLASS = AffineQuantizedTensor
-    FACTORY_FN = to_affine_quantized_intx
+    TENSOR_SUBCLASS = Int8Tensor
+    FACTORY_FN = staticmethod(Int8Tensor.from_hp)
     kwargs = {
-        "mapping_type": MappingType.ASYMMETRIC,
-        "block_size": (1, 32),
-        "target_dtype": torch.uint8,
+        "granularity": torchao.quantization.PerRow(),
     }
     # minimum sqnr for linear operation when the weight is quantized to low precision
     # with the above setting
@@ -378,7 +372,7 @@ class TorchAOTensorParallelTestCase(DTensorTestBase):
 
     COMMON_DTYPES = [torch.float32, torch.float16, torch.bfloat16]
 
-    TENSOR_SUBCLASS = AffineQuantizedTensor
+    TENSOR_SUBCLASS = Int8Tensor
     QUANT_METHOD_FN = staticmethod(Int8WeightOnlyConfig)
     QUANT_METHOD_KWARGS = {}
 

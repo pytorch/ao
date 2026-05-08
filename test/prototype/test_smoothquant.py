@@ -13,6 +13,10 @@ from torchao.prototype.smoothquant import (
     SmoothQuantConfig,
     SmoothQuantObservedLinear,
 )
+from torchao.prototype.smoothquant.core import (
+    RunningAbsMaxSmoothQuantObserver,
+    SmoothQuantObserver,
+)
 from torchao.quantization import quantize_
 from torchao.quantization.granularity import PerRow, PerTensor
 from torchao.quantization.quant_api import (
@@ -83,9 +87,14 @@ class TestSmoothQuant(unittest.TestCase):
     @common_utils.parametrize(
         "base_config",
         [
-            Int8DynamicActivationInt8WeightConfig(version=2),
-            Int8StaticActivationInt8WeightConfig(granularity=PerRow()),
+            Int8DynamicActivationInt8WeightConfig(),
+            Int8DynamicActivationInt8WeightConfig(granularity=PerTensor()),
+            Int8DynamicActivationInt8WeightConfig(granularity=[PerRow(), PerTensor()]),
+            Int8DynamicActivationInt8WeightConfig(granularity=[PerTensor(), PerRow()]),
+            Int8StaticActivationInt8WeightConfig(),
             Int8StaticActivationInt8WeightConfig(granularity=PerTensor()),
+            Int8StaticActivationInt8WeightConfig(granularity=[PerRow(), PerTensor()]),
+            Int8StaticActivationInt8WeightConfig(granularity=[PerTensor(), PerRow()]),
             # Note: float8_static_activation_float8_weight is broken after recent PyTorch update.
             # TODO(#1639): Fix for supporting more API in torchao/quantization/quant_api.py
         ],
@@ -228,6 +237,499 @@ class TestSmoothQuant(unittest.TestCase):
 
 
 common_utils.instantiate_parametrized_tests(TestSmoothQuant)
+
+
+class SmoothQuantObserverTest(unittest.TestCase):
+    """Tests for SmoothQuantObserver and RunningAbsMaxSmoothQuantObserver."""
+
+    def test_smoothing_factor_equivalence_single_batch(self):
+        """Both observers should produce identical smoothing factors for a single input batch."""
+        torch.manual_seed(42)
+        in_features = 64
+        out_features = 32
+
+        weight = torch.randn(out_features, in_features)
+        input_batch = torch.randn(8, in_features)
+
+        regular_obs = SmoothQuantObserver(weight=weight, alpha=0.5)
+        running_obs = RunningAbsMaxSmoothQuantObserver(weight=weight, alpha=0.5)
+
+        regular_obs(input_batch)
+        running_obs(input_batch)
+
+        regular_sf, _, _ = regular_obs.calculate_qparams()
+        running_sf, _, _ = running_obs.calculate_qparams()
+
+        torch.testing.assert_close(
+            regular_sf,
+            running_sf,
+            rtol=1e-5,
+            atol=1e-5,
+            msg="Smoothing factors should be identical for single batch",
+        )
+
+    def test_smoothing_factor_equivalence_multiple_batches(self):
+        """Both observers should produce identical smoothing factors across multiple batches."""
+        torch.manual_seed(42)
+        in_features = 64
+        out_features = 32
+
+        weight = torch.randn(out_features, in_features)
+        batches = [torch.randn(8, in_features) for _ in range(5)]
+
+        regular_obs = SmoothQuantObserver(weight=weight, alpha=0.5)
+        running_obs = RunningAbsMaxSmoothQuantObserver(weight=weight, alpha=0.5)
+
+        for batch in batches:
+            regular_obs(batch)
+            running_obs(batch)
+
+        regular_sf, _, _ = regular_obs.calculate_qparams()
+        running_sf, _, _ = running_obs.calculate_qparams()
+
+        torch.testing.assert_close(
+            regular_sf,
+            running_sf,
+            rtol=1e-5,
+            atol=1e-5,
+            msg="Smoothing factors should be identical across multiple batches",
+        )
+
+    def test_smoothing_factor_equivalence_3d_input(self):
+        """Both observers should handle 3D inputs (batch, seq, features) correctly."""
+        torch.manual_seed(42)
+        in_features = 64
+        out_features = 32
+
+        weight = torch.randn(out_features, in_features)
+        batches = [torch.randn(4, 16, in_features) for _ in range(3)]
+
+        regular_obs = SmoothQuantObserver(weight=weight, alpha=0.5)
+        running_obs = RunningAbsMaxSmoothQuantObserver(weight=weight, alpha=0.5)
+
+        for batch in batches:
+            regular_obs(batch)
+            running_obs(batch)
+
+        regular_sf, _, _ = regular_obs.calculate_qparams()
+        running_sf, _, _ = running_obs.calculate_qparams()
+
+        torch.testing.assert_close(
+            regular_sf,
+            running_sf,
+            rtol=1e-5,
+            atol=1e-5,
+            msg="Smoothing factors should be identical for 3D inputs",
+        )
+
+    def test_smoothing_factor_with_alpha_none(self):
+        """Both observers should return ones when alpha is None."""
+        torch.manual_seed(42)
+        in_features = 64
+        out_features = 32
+
+        weight = torch.randn(out_features, in_features)
+        input_batch = torch.randn(8, in_features)
+
+        regular_obs = SmoothQuantObserver(weight=weight, alpha=None)
+        running_obs = RunningAbsMaxSmoothQuantObserver(weight=weight, alpha=None)
+
+        regular_obs(input_batch)
+        running_obs(input_batch)
+
+        regular_sf, _, _ = regular_obs.calculate_qparams()
+        running_sf, _, _ = running_obs.calculate_qparams()
+
+        expected = torch.ones(in_features)
+        torch.testing.assert_close(regular_sf, expected, rtol=1e-5, atol=1e-5)
+        torch.testing.assert_close(running_sf, expected, rtol=1e-5, atol=1e-5)
+
+    def test_smoothing_factor_with_different_alphas(self):
+        """Both observers should produce identical results for various alpha values."""
+        torch.manual_seed(42)
+        in_features = 64
+        out_features = 32
+
+        weight = torch.randn(out_features, in_features)
+        batches = [torch.randn(8, in_features) for _ in range(3)]
+
+        for alpha in [0.0, 0.25, 0.5, 0.75, 1.0]:
+            regular_obs = SmoothQuantObserver(weight=weight, alpha=alpha)
+            running_obs = RunningAbsMaxSmoothQuantObserver(weight=weight, alpha=alpha)
+
+            for batch in batches:
+                regular_obs(batch)
+                running_obs(batch)
+
+            regular_sf, _, _ = regular_obs.calculate_qparams()
+            running_sf, _, _ = running_obs.calculate_qparams()
+
+            torch.testing.assert_close(
+                regular_sf,
+                running_sf,
+                rtol=1e-5,
+                atol=1e-5,
+                msg=f"Smoothing factors should be identical for alpha={alpha}",
+            )
+
+    def test_running_observer_memory_efficiency(self):
+        """RunningAbsMaxSmoothQuantObserver should not store all inputs."""
+        torch.manual_seed(42)
+        in_features = 64
+        out_features = 32
+
+        weight = torch.randn(out_features, in_features)
+        running_obs = RunningAbsMaxSmoothQuantObserver(weight=weight, alpha=0.5)
+
+        for _ in range(100):
+            batch = torch.randn(32, in_features)
+            running_obs(batch)
+
+        self.assertEqual(running_obs.calibration_count, 100)
+        self.assertIsNotNone(running_obs.x_abs_max)
+        self.assertEqual(running_obs.x_abs_max.shape, (in_features,))
+
+    def test_regular_observer_stores_all_inputs(self):
+        """SmoothQuantObserver should store all inputs for reference."""
+        torch.manual_seed(42)
+        in_features = 64
+        out_features = 32
+
+        weight = torch.randn(out_features, in_features)
+        regular_obs = SmoothQuantObserver(weight=weight, alpha=0.5)
+
+        num_batches = 10
+        for _ in range(num_batches):
+            batch = torch.randn(32, in_features)
+            regular_obs(batch)
+
+        self.assertEqual(len(regular_obs.inputs), num_batches)
+
+    def test_observers_raise_without_calibration(self):
+        """Both observers should raise assertion error if calculate_qparams called without calibration."""
+        torch.manual_seed(42)
+        in_features = 64
+        out_features = 32
+
+        weight = torch.randn(out_features, in_features)
+
+        regular_obs = SmoothQuantObserver(weight=weight, alpha=0.5)
+        running_obs = RunningAbsMaxSmoothQuantObserver(weight=weight, alpha=0.5)
+
+        with self.assertRaises(AssertionError):
+            regular_obs.calculate_qparams()
+
+        with self.assertRaises(AssertionError):
+            running_obs.calculate_qparams()
+
+    def test_observers_forward_returns_input_unchanged(self):
+        """Forward pass should return the input tensor unchanged."""
+        torch.manual_seed(42)
+        in_features = 64
+        out_features = 32
+
+        weight = torch.randn(out_features, in_features)
+        input_batch = torch.randn(8, in_features)
+
+        regular_obs = SmoothQuantObserver(weight=weight, alpha=0.5)
+        running_obs = RunningAbsMaxSmoothQuantObserver(weight=weight, alpha=0.5)
+
+        regular_output = regular_obs(input_batch)
+        running_output = running_obs(input_batch)
+
+        torch.testing.assert_close(regular_output, input_batch)
+        torch.testing.assert_close(running_output, input_batch)
+
+    def test_smoothing_factor_equivalence_large_scale(self):
+        """Test equivalence with larger feature dimensions and more batches."""
+        torch.manual_seed(42)
+        in_features = 512
+        out_features = 256
+
+        weight = torch.randn(out_features, in_features)
+        batches = [torch.randn(16, 32, in_features) for _ in range(20)]
+
+        regular_obs = SmoothQuantObserver(weight=weight, alpha=0.5)
+        running_obs = RunningAbsMaxSmoothQuantObserver(weight=weight, alpha=0.5)
+
+        for batch in batches:
+            regular_obs(batch)
+            running_obs(batch)
+
+        regular_sf, _, _ = regular_obs.calculate_qparams()
+        running_sf, _, _ = running_obs.calculate_qparams()
+
+        torch.testing.assert_close(
+            regular_sf,
+            running_sf,
+            rtol=1e-5,
+            atol=1e-5,
+            msg="Smoothing factors should be identical for large-scale test",
+        )
+
+    def test_two_pass_calibration(self):
+        """Test the two-pass calibration workflow for RunningAbsMaxSmoothQuantObserver."""
+        torch.manual_seed(42)
+        in_features = 64
+        out_features = 32
+
+        weight = torch.randn(out_features, in_features)
+        batches = [torch.randn(8, in_features) for _ in range(5)]
+
+        running_obs = RunningAbsMaxSmoothQuantObserver(weight=weight, alpha=0.5)
+
+        # First pass: collect x_abs_max
+        for batch in batches:
+            running_obs(batch)
+
+        self.assertEqual(running_obs.calibration_count, 5)
+        self.assertFalse(running_obs._in_second_pass)
+
+        # Compute smoothing factor
+        smoothing_factor = running_obs.compute_smoothing_factor()
+
+        self.assertTrue(running_obs._in_second_pass)
+        self.assertIsNotNone(smoothing_factor)
+        self.assertEqual(smoothing_factor.shape, (in_features,))
+
+        # Second pass: collect smoothed activation stats
+        for batch in batches:
+            running_obs(batch)
+
+        self.assertEqual(running_obs._second_pass_count, 5)
+        self.assertIsNotNone(running_obs._smooth_input_min)
+        self.assertIsNotNone(running_obs._smooth_input_max)
+
+    def test_two_pass_activation_scale_symmetric(self):
+        """Test activation scale computation with symmetric quantization in two-pass mode."""
+        torch.manual_seed(42)
+        in_features = 64
+        out_features = 32
+
+        weight = torch.randn(out_features, in_features)
+        batches = [torch.randn(8, in_features) for _ in range(5)]
+
+        regular_obs = SmoothQuantObserver(weight=weight, alpha=0.5)
+        running_obs = RunningAbsMaxSmoothQuantObserver(weight=weight, alpha=0.5)
+
+        # Regular observer: single pass
+        for batch in batches:
+            regular_obs(batch)
+
+        # Running observer: two passes
+        for batch in batches:
+            running_obs(batch)
+
+        running_obs.compute_smoothing_factor()
+
+        for batch in batches:
+            running_obs(batch)
+
+        # Compare smoothing factors
+        weight_quant_kwargs = {
+            "quant_min": -128,
+            "quant_max": 127,
+            "qscheme": torch.per_tensor_symmetric,
+        }
+
+        regular_sf, _, _ = regular_obs.calculate_qparams()
+        running_sf, running_scale, running_zp = running_obs.calculate_qparams(
+            weight_quant_kwargs
+        )
+
+        torch.testing.assert_close(
+            regular_sf,
+            running_sf,
+            rtol=1e-5,
+            atol=1e-5,
+            msg="Smoothing factors should match between single-pass and two-pass",
+        )
+
+        # Verify activation scale and zero_point are computed
+        self.assertIsNotNone(running_scale)
+        self.assertIsNotNone(running_zp)
+
+    def test_two_pass_activation_scale_affine(self):
+        """Test activation scale computation with affine quantization in two-pass mode."""
+        torch.manual_seed(42)
+        in_features = 64
+        out_features = 32
+
+        weight = torch.randn(out_features, in_features)
+        batches = [torch.randn(8, in_features) for _ in range(5)]
+
+        running_obs = RunningAbsMaxSmoothQuantObserver(weight=weight, alpha=0.5)
+
+        # First pass
+        for batch in batches:
+            running_obs(batch)
+
+        running_obs.compute_smoothing_factor()
+
+        # Second pass
+        for batch in batches:
+            running_obs(batch)
+
+        weight_quant_kwargs = {
+            "quant_min": 0,
+            "quant_max": 255,
+            "is_symmetric": False,
+        }
+
+        _, running_scale, running_zp = running_obs.calculate_qparams(
+            weight_quant_kwargs
+        )
+
+        self.assertIsNotNone(running_scale)
+        self.assertGreater(running_scale.item(), 0)
+        self.assertIsNotNone(running_zp)
+
+    def test_no_second_pass_returns_none_scale(self):
+        """Without second pass, calculate_qparams should return None for activation scale."""
+        torch.manual_seed(42)
+        in_features = 64
+        out_features = 32
+
+        weight = torch.randn(out_features, in_features)
+        batches = [torch.randn(8, in_features) for _ in range(5)]
+
+        running_obs = RunningAbsMaxSmoothQuantObserver(weight=weight, alpha=0.5)
+
+        # Only first pass
+        for batch in batches:
+            running_obs(batch)
+
+        weight_quant_kwargs = {
+            "quant_min": -128,
+            "quant_max": 127,
+            "qscheme": torch.per_tensor_symmetric,
+        }
+
+        sf, scale, zp = running_obs.calculate_qparams(weight_quant_kwargs)
+
+        self.assertIsNotNone(sf)
+        self.assertIsNone(scale)
+        self.assertIsNone(zp)
+
+    def test_compute_smoothing_factor_resets_state(self):
+        """compute_smoothing_factor should reset second pass state."""
+        torch.manual_seed(42)
+        in_features = 64
+        out_features = 32
+
+        weight = torch.randn(out_features, in_features)
+        batches = [torch.randn(8, in_features) for _ in range(3)]
+
+        running_obs = RunningAbsMaxSmoothQuantObserver(weight=weight, alpha=0.5)
+
+        # First pass
+        for batch in batches:
+            running_obs(batch)
+
+        running_obs.compute_smoothing_factor()
+
+        # Some second pass data
+        running_obs(batches[0])
+        self.assertEqual(running_obs._second_pass_count, 1)
+
+        # Call compute_smoothing_factor again (should reset)
+        running_obs.compute_smoothing_factor()
+
+        self.assertEqual(running_obs._second_pass_count, 0)
+        self.assertIsNone(running_obs._smooth_input_min)
+        self.assertIsNone(running_obs._smooth_input_max)
+
+    def test_two_pass_qparam_equivalence_symmetric(self):
+        """Two-pass running observer should produce smoothing factors matching the regular observer,
+        and should compute valid symmetric qparams."""
+        torch.manual_seed(42)
+        in_features = 64
+        out_features = 32
+
+        weight = torch.randn(out_features, in_features)
+        batches = [torch.randn(8, in_features) for _ in range(5)]
+
+        weight_quant_kwargs = {
+            "quant_min": -128,
+            "quant_max": 127,
+            "qscheme": torch.per_tensor_symmetric,
+        }
+
+        regular_obs = SmoothQuantObserver(weight=weight, alpha=0.5)
+        running_obs = RunningAbsMaxSmoothQuantObserver(weight=weight, alpha=0.5)
+
+        for batch in batches:
+            regular_obs(batch)
+            running_obs(batch)
+
+        running_obs.compute_smoothing_factor()
+
+        for batch in batches:
+            running_obs(batch)
+
+        regular_sf, _, _ = regular_obs.calculate_qparams()
+        running_sf, running_scale, running_zp = running_obs.calculate_qparams(
+            weight_quant_kwargs
+        )
+
+        torch.testing.assert_close(
+            regular_sf,
+            running_sf,
+            rtol=1e-5,
+            atol=1e-5,
+            msg="Smoothing factors should match",
+        )
+
+        self.assertIsNotNone(running_scale)
+        self.assertGreater(running_scale.item(), 0)
+        self.assertIsNotNone(running_zp)
+        self.assertEqual(running_zp.item(), 0)
+
+    def test_two_pass_qparam_equivalence_affine(self):
+        """Two-pass running observer should produce smoothing factors matching the regular observer,
+        and should compute valid affine qparams."""
+        torch.manual_seed(42)
+        in_features = 64
+        out_features = 32
+
+        weight = torch.randn(out_features, in_features)
+        batches = [torch.randn(8, in_features) for _ in range(5)]
+
+        weight_quant_kwargs = {
+            "quant_min": 0,
+            "quant_max": 255,
+            "is_symmetric": False,
+        }
+
+        regular_obs = SmoothQuantObserver(weight=weight, alpha=0.5)
+        running_obs = RunningAbsMaxSmoothQuantObserver(weight=weight, alpha=0.5)
+
+        for batch in batches:
+            regular_obs(batch)
+            running_obs(batch)
+
+        running_obs.compute_smoothing_factor()
+
+        for batch in batches:
+            running_obs(batch)
+
+        regular_sf, _, _ = regular_obs.calculate_qparams()
+        running_sf, running_scale, running_zp = running_obs.calculate_qparams(
+            weight_quant_kwargs
+        )
+
+        torch.testing.assert_close(
+            regular_sf,
+            running_sf,
+            rtol=1e-5,
+            atol=1e-5,
+            msg="Smoothing factors should match",
+        )
+
+        self.assertIsNotNone(running_scale)
+        self.assertGreater(running_scale.item(), 0)
+        self.assertIsNotNone(running_zp)
+
 
 if __name__ == "__main__":
     unittest.main()

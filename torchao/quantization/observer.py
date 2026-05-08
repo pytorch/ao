@@ -70,7 +70,7 @@ class AffineQuantizedObserverBase(ABC, torch.nn.Module):
       `granularity` and `block_size`: The granularity of the quantization,
         must specify at least one, if both are specified `block_size` takes precedence
         Current supported granularity type are `PerTensor` and `PerAxis`
-      other args: please see `:class:torchao.dtypes.AffineQuantizedTensor`
+      other args: please see :mod:`torchao.quantization.quant_primitives`
     """
 
     with_args = classmethod(_with_args)

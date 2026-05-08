@@ -29,7 +29,7 @@
 ## Deprecated APIs
 
 Do not use or recommend these:
-- `AffineQuantizedTensor` (AQT) in `torchao/dtypes/` - old v1 system, being removed. New tensor types inherit from `TorchAOBaseTensor`
+- `AffineQuantizedTensor` (AQT) - deleted. New tensor types inherit from `TorchAOBaseTensor`
 - `autoquant()` - deleted
 - Layout registration system (`PlainLayout`, `Float8Layout`, `TensorCoreTiledLayout`, etc.) - deleted
 - `TorchAODType` - deprecated

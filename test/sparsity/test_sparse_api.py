@@ -39,7 +39,7 @@ class TestSemiStructuredSparse(common_utils.TestCase):
         apply_fake_sparsity(model)
         dense_result = model(input)
 
-        sparsify_(model, semi_sparse_weight())
+        sparsify_(model, semi_sparse_weight(alg_id=0))
         sparse_result = model(input)
 
         torch.testing.assert_close(dense_result, sparse_result, rtol=1e-3, atol=1e-3)

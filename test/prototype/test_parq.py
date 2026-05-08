@@ -218,7 +218,7 @@ def compare_quantized_models(
 
         q, Q = quantizer.quantize(p, b=b, dim=-1)
 
-        # compare to AffineQuantizedTensor instance
+        # compare to quantized tensor instance
         q = q.view(original_shape)
         ref = getattr(m_ref, n).weight.dequantize()
         torch.testing.assert_close(q, ref, atol=0, rtol=0)

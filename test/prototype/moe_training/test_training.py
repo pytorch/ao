@@ -133,9 +133,7 @@ def test_moe_training(
             f"Skipping MXFP8 hardware mode tests, only supported on compute capability 10.0 and found {torch.cuda.get_device_capability()}"
         )
 
-    alignment_size = 32 if isinstance(recipe, MXFP8TrainingRecipe) else 16
-    if not token_groups_aligned:
-        alignment_size = 1
+    alignment_size = 128 if isinstance(recipe, MXFP8TrainingRecipe) else 16
     set_token_group_alignment_size_m(alignment_size)
 
     model_args = MoEArgs(

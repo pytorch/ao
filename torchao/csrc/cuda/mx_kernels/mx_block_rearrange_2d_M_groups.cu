@@ -316,10 +316,9 @@ __global__ void mx_blocked_layout_2d_M_groups_kernel(
                 ) = data;
             }
         }
-        __syncthreads();
-
         // Fence to ensure SMEM writes are visible to TMA async proxy
         ptx::fence_proxy_async_shared_cta();
+        __syncthreads();
 
         // Compute output tile coordinates
         const int chunk_sf_row_tile = (superblock_idx_in_group * CHUNKS_PER_TB) + chunk_idx;
@@ -785,8 +784,8 @@ __global__ void mx_blocked_layout_2d_simple_kernel(
     }
 
     // Ensure threads finish their smem writes and use explicit fence to ensure visibility to async proxy for TMA
-    __syncthreads();
     ptx::fence_proxy_async_shared_cta();
+    __syncthreads();
 
     if (is_master_thread) {
         // Issue separate 1D TMA stores for each valid SF tile

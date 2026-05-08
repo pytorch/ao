@@ -25,10 +25,7 @@ from torchao.quantization.quant_primitives import (
     dequantize_affine,
     quantize_affine,
 )
-from torchao.utils import (
-    check_cpu_version,
-    check_xpu_version,
-)
+from torchao.utils import _is_device
 
 from .granularity import (
     Granularity,
@@ -38,9 +35,6 @@ from .granularity import (
     PerRow,
     PerTensor,
     PerToken,
-)
-from .linear_activation_quantized_tensor import (
-    LinearActivationQuantizedTensor,
 )
 
 __all__ = [
@@ -465,11 +459,11 @@ def groupwise_affine_quantize_tensor_from_qparams(
         quant_max,
     )
     if w.shape[-1] > 1:
-        if (not (check_cpu_version(int_data.device))) and (
-            not (check_xpu_version(int_data.device))
+        if (not (_is_device("cpu", int_data.device))) and (
+            not (_is_device("xpu", int_data.device))
         ):
             int_data = (int_data[::, ::2] << 4 | int_data[::, 1::2]).to(torch.uint8)
-        if check_xpu_version(int_data.device):
+        if _is_device("xpu", int_data.device):
             int_data = (int_data[::, 1::2] << 4 | int_data[::, ::2]).to(torch.uint8)
     return int_data
 
@@ -486,7 +480,7 @@ def groupwise_affine_dequantize_tensor_from_qparams(
     assert w_int4x8.dim() == 2
     # need to handle single column case so check for dtype/size from groupwise_affine_quantize_tensor_from_qparams path
     if (w_int4x8.dtype == torch.uint8 or w_int4x8.shape[-1] > 1) and not (
-        check_cpu_version(w_int4x8.device)
+        _is_device("cpu", w_int4x8.device)
     ):
         data = w_int4x8.to(torch.int32)
         high_bits = data >> 4
@@ -496,7 +490,7 @@ def groupwise_affine_dequantize_tensor_from_qparams(
             dtype=torch.int32,
             device=w_int4x8.device,
         )
-        if not (check_xpu_version(w_int4x8.device)):
+        if not (_is_device("xpu", w_int4x8.device)):
             w_int32[::, ::2] = high_bits
             w_int32[::, 1::2] = low_bits
         else:
@@ -744,15 +738,6 @@ def get_block_size(
 
 
 def _quantization_type(weight: torch.Tensor):
-    # prevent circular import
-    from torchao.dtypes import AffineQuantizedTensor
-
-    if isinstance(weight, AffineQuantizedTensor):
-        return f"{weight.__class__.__name__}({weight._quantization_type()})"
-
-    if isinstance(weight, LinearActivationQuantizedTensor):
-        return f"{weight.__class__.__name__}(activation={weight.input_quant_func}, weight={_quantization_type(weight.original_weight_tensor)})"
-
     if hasattr(weight, "_quantization_type"):
         return f"{weight.__class__.__name__}({weight._quantization_type()})"
 

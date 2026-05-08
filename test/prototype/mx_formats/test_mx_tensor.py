@@ -130,22 +130,13 @@ def test_to_mx_rceil():
         dtype=torch.uint32,
     ).view(torch.float32)
 
-    ground_truth_fp8 = torch.tensor(
-        [
-        127, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0,
-        ],
-        dtype=torch.uint8,
-    ).view(torch.float8_e4m3fn)
     # fmt: on
     data_mx = MXTensor.to_mx(
         data_hp, torch.float8_e4m3fn, 32, ScaleCalculationMode.RCEIL
     )
     assert torch.isnan(data_mx.scale)
-    assert torch.isnan(data_mx.qdata[0])
-    assert torch.all(data_mx.qdata[1:] == 0)
+    # When any element in block is NaN, entire quantized block becomes NaN
+    assert torch.all(torch.isnan(data_mx.qdata))
     # fp32 denorm
     # fmt: off
     data_hp = torch.tensor(
@@ -339,6 +330,72 @@ def test_exponent_nan_in(elem_dtype):
     tensor_mx = MXTensor.to_mx(tensor_hp, elem_dtype, block_size)
     assert torch.all(torch.isnan(tensor_mx.scale[0]))
     assert not torch.any(torch.isnan(tensor_mx.scale[1:]))
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+@pytest.mark.parametrize("elem_dtype", SUPPORTED_ELEM_DTYPES)
+def test_all_nan_blocks(elem_dtype):
+    """
+    Test NaN handling for blocks with all NaN values vs mixed NaN + real values.
+    - Mixed real + NaN: scale = NaN
+    - All NaN: scale = NaN
+    """
+    block_size = 4
+
+    # Test case 1: Mixed NaN + real values
+    mixed_tensor = torch.tensor(
+        [float("nan"), 2.0, float("nan"), 4.0, 1.0, 3.0, 5.0, 2.0],
+        device="cuda",
+        dtype=torch.bfloat16,
+    )
+    mixed_mx = MXTensor.to_mx(mixed_tensor, elem_dtype, block_size)
+
+    # First block [NaN, 2.0, NaN, 4.0] should have NaN scale
+    assert torch.isnan(mixed_mx.scale[0]), "Mixed NaN+real block should have NaN scale"
+
+    # Second block [1.0, 3.0, 5.0, 2.0] should have real scale
+    assert not torch.isnan(mixed_mx.scale[1]), (
+        "Real-only block should not have NaN scale"
+    )
+
+    # Test case 2: All NaN blocks (should return NaN scale)
+    all_nan_tensor = torch.tensor(
+        [float("nan"), float("nan"), float("nan"), float("nan"), 1.0, 2.0, 3.0, 4.0],
+        device="cuda",
+        dtype=torch.bfloat16,
+    )
+    all_nan_mx = MXTensor.to_mx(all_nan_tensor, elem_dtype, block_size)
+
+    # First block [NaN, NaN, NaN, NaN] should have NaN scale (matches CUDA/Triton)
+    assert torch.isnan(all_nan_mx.scale[0]), (
+        "All-NaN block should have NaN scale to match CUDA/Triton"
+    )
+    # Second block [1.0, 2.0, 3.0, 4.0] should have real scale
+    assert not torch.isnan(all_nan_mx.scale[1]), (
+        "Real-only block should not have NaN scale"
+    )
+
+    # Test case 3: Completely all NaN tensor
+    completely_nan_tensor = torch.tensor(
+        [
+            float("nan"),
+            float("nan"),
+            float("nan"),
+            float("nan"),
+            float("nan"),
+            float("nan"),
+            float("nan"),
+            float("nan"),
+        ],
+        device="cuda",
+        dtype=torch.bfloat16,
+    )
+    completely_nan_mx = MXTensor.to_mx(completely_nan_tensor, elem_dtype, block_size)
+
+    # Both blocks should have NaN scales
+    assert torch.all(torch.isnan(completely_nan_mx.scale)), (
+        "All-NaN tensor should have all NaN scales"
+    )
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
@@ -811,3 +868,28 @@ def test_swizzle(elem_dtype, transpose, shape):
     x_dq = x.dequantize(x.dtype)
     xs_dq = xs.dequantize(xs.dtype)
     torch.testing.assert_close(x_dq, xs_dq, atol=0, rtol=0)
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+@pytest.mark.skipif(
+    not torch_version_at_least("2.8.0"), reason="MX requires PyTorch 2.8+"
+)
+@pytest.mark.parametrize("elem_dtype", [torch.float8_e4m3fn, torch.float8_e5m2])
+def test_mx_pin_memory(elem_dtype):
+    x_hp = torch.randn(128, 256, device="cuda", dtype=torch.bfloat16)
+    x_mx = MXTensor.to_mx(x_hp, elem_dtype, block_size=32)
+    x_cpu = x_mx.cpu()
+
+    assert not x_cpu.is_pinned()
+
+    x_pinned = x_cpu.pin_memory()
+
+    assert x_pinned.is_pinned()
+    assert not x_cpu.is_pinned()
+
+    assert x_pinned.qdata.is_pinned()
+    assert x_pinned.scale.is_pinned()
+
+    assert torch.equal(
+        x_cpu.dequantize(torch.float32), x_pinned.dequantize(torch.float32)
+    )

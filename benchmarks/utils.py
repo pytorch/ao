@@ -94,12 +94,10 @@ def profile_fn(fn, *args, profile_name="profile", distributed=False, **kwargs):
             prof.step()
 
     if distributed:
-        if torch.distributed.get_rank() == 0:
-            # Save profiler results
-            prof.export_chrome_trace(f"{profile_name}.json")
-            print(f"Saved: {profile_name}.json")
+        rank = torch.distributed.get_rank()
+        prof.export_chrome_trace(f"{profile_name}_rank{rank}.json")
+        print(f"Saved: {profile_name}_rank{rank}.json")
     else:
-        # Save profiler results for non-distributed runs
         prof.export_chrome_trace(f"{profile_name}.json")
         print(f"Saved: {profile_name}.json")
 

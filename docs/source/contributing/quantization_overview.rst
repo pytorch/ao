@@ -58,7 +58,7 @@ We'll also have efficient kernels that works with the low precision tensors, for
 * `int_scaled_matmul <https://github.com/pytorch/ao/blob/3e9746cf636e39e3c1ec0de6e0ef2e31f75c4c02/torchao/kernel/intmm.py#L107>`__ that does matmul and also applies a scale to the result.
 
 .. note::
-   We can also rely on torch.compile to generate kernels (through triton), for example the current int8 weight only quantization `kernel <https://github.com/pytorch/ao/blob/e283743b3cc4612bb641b88dca3670231724d396/torchao/dtypes/affine_quantized_tensor.py#L1292-L1309>`__ just relies on torch.compile to get speedup. In this case there is no custom handwritten "efficient kernel" that's corresponding to the type of quantization.
+   We can also rely on torch.compile to generate kernels (through triton), for example the int8 weight only quantization kernel just relies on torch.compile to get speedup. In this case there is no custom handwritten "efficient kernel" that's corresponding to the type of quantization.
 
 Quantized Tensors (derived dtypes and packing format)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -141,7 +141,7 @@ We'll skip the instruction for now since we haven't seen many use cases for stat
 Other Quantization Flows
 ########################
 
-For other quantization flow/algorithms that does not fit into any of the above, we also intend to provide examples for common patterns. For example, `GPTQ like quantization flow <https://github.com/pytorch/ao/blob/e283743b3cc4612bb641b88dca3670231724d396/tutorials/calibration_flow/gptq_like.py>`__ that is adopted by `Autoround <https://github.com/pytorch/ao/blob/e283743b3cc4612bb641b88dca3670231724d396/torchao/prototype/autoround/README.md>`__, it uses `MultiTensor <https://gist.github.com/HDCharles/a1b575bbf8875f994af8a01b225e1227>`__ and module hooks to optimize the module.
+For other quantization flow/algorithms that does not fit into any of the above, we also intend to provide examples for common patterns. For example, `Autoround <https://github.com/pytorch/ao/blob/main/torchao/prototype/autoround/README.md>`__ uses `MultiTensor <https://gist.github.com/HDCharles/a1b575bbf8875f994af8a01b225e1227>`__ and module hooks to optimize the module.
 
 If you are working on a new quantization algorithm/flow and not sure how to implement it in a PyTorch native way, please feel free to open an issue to describe how your algorithm works and we can help advise on the implementation details.
 

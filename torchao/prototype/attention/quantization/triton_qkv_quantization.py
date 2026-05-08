@@ -17,23 +17,9 @@ import torch
 import triton
 import triton.language as tl
 
-
-def _compute_num_chunks(tensor: torch.Tensor, S: int) -> int:
-    """Compute optimal number of chunks based on GPU properties."""
-    props = torch.cuda.get_device_properties(tensor.device)
-    num_sms = props.multi_processor_count
-    B, H = tensor.shape[:2]  # [B, H, S, D]
-    base_parallelism = B * H
-    # Target 2-4x SMs for good occupancy/latency hiding
-    target_blocks = num_sms * 4
-    num_chunks = max(1, target_blocks // base_parallelism)
-    # Ensure each chunk has at least 32 S positions for efficiency
-    num_chunks = min(num_chunks, S // 32) if S >= 32 else 1
-    # Cap at reasonable maximum
-    num_chunks = min(num_chunks, 64)
-    # Adjust if S is small
-    num_chunks = min(num_chunks, S)
-    return num_chunks
+from torchao.prototype.attention.quantization.triton_hadamard_utils import (
+    _compute_num_chunks,
+)
 
 
 @triton.autotune(
@@ -322,8 +308,8 @@ def triton_fp8_sdpa_quantize(
 
     # Compute number of chunks independently for Q and KV
     if num_chunks is None:
-        q_num_chunks = _compute_num_chunks(q, S_q)
-        kv_num_chunks = _compute_num_chunks(k, S_kv)
+        q_num_chunks = _compute_num_chunks(q.device, B, H_q, S_q)
+        kv_num_chunks = _compute_num_chunks(k.device, B, H_kv, S_kv)
     else:
         q_num_chunks = num_chunks
         kv_num_chunks = num_chunks

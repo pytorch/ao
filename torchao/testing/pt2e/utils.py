@@ -255,7 +255,7 @@ class FP8QDQLinear(torch.nn.Module):
 
     def forward(self, input):
         weight = torch.ops.torchao.dequantize_affine_float8_non_decomposed.default(
-            tensor=self.weight.data,
+            tensor=self.weight,
             scale=torch.tensor([self.weight_scale]),
             output_dtype=torch.float,
         )
