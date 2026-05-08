@@ -260,3 +260,32 @@ class mx_mm(torch.autograd.Function):
             None,
             None,
         )
+
+
+class MXFP8Linear:
+    """
+    A linear layer that performs dynamic MXFP8 quantization on inputs to GEMMs in both the forward and backward passes.
+    """
+
+    def __init__(
+        self,
+        *args,
+        kernel_preference: KernelPreference = KernelPreference.AUTO,
+        wgrad_with_hp: bool = False,
+        **kwargs,
+    ):
+        super().__init__(*args, **kwargs)
+        self.wgrad_with_hp = wgrad_with_hp
+        self.kernel_preference = kernel_preference
+
+    def forward(self, input: torch.Tensor) -> torch.Tensor:
+        output = _to_mxfp8_then_scaled_mm(
+            input,
+            self.weight,
+            kernel_preference=self.kernel_preference,
+            scale_calculation_mode=ScaleCalculationMode.RCEIL,
+            wgrad_with_hp=self.wgrad_with_hp,
+        )
+        if self.bias:
+            output += self.bias
+        return output
