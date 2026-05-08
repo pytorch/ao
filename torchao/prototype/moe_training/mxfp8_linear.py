@@ -11,6 +11,7 @@ MX format matrix multiplication utilities for training.
 from typing import Any
 
 import torch
+from torch import nn
 
 from torchao.prototype.mx_formats.config import (
     MXFP8Dim0CastKernelChoice,
@@ -262,7 +263,7 @@ class mx_mm(torch.autograd.Function):
         )
 
 
-class MXFP8Linear:
+class MXFP8Linear(nn.Linear):
     """
     A linear layer that performs dynamic MXFP8 quantization on inputs to GEMMs in both the forward and backward passes.
     """
@@ -286,6 +287,6 @@ class MXFP8Linear:
             scale_calculation_mode=ScaleCalculationMode.RCEIL,
             wgrad_with_hp=self.wgrad_with_hp,
         )
-        if self.bias:
-            output += self.bias
+        if self.bias is not None:
+            output = output + self.bias.to(output.dtype)
         return output
