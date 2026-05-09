@@ -204,7 +204,7 @@ class Int8Tensor(TorchAOBaseTensor):
                 target_dtype=torch.int8,
                 quant_min=quant_min,
                 quant_max=quant_max,
-                scale_dtype=hp_tensor.dtype,
+                scale_dtype=torch.float32,
                 zero_point_dtype=torch.int8,
                 keepdim=True,
                 # Use float32 eps for all dtypes to avoid accuracy loss with bfloat16 (bfloat16 eps is ~65x larger).
