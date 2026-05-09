@@ -151,8 +151,6 @@ template <typename mask_t>
 inline void fp8_dequant_mask_max_fusion_kernel(
     const float* in,
     const mask_t* mask_ptr,
-    const float* sum_a_ptr,
-    const float* sum_b_ptr,
     const int& M,
     const int& N,
     const int& ldi,
@@ -164,8 +162,6 @@ inline void fp8_dequant_mask_max_fusion_kernel(
   const int32_t vec_size = at::vec::Vectorized<float>::size();
   auto vec_alpha = at::vec::Vectorized<float>(alpha);
   for (long row = 0; row < M; row += 1) {
-    auto sum_a = sum_a_ptr[row];
-    auto vec_sum_a = at::vec::Vectorized<float>(sum_a);
     const float* tmp_in = in + row * ldi;
     float* tmp_out = out + row * ldo;
     const mask_t* mask_data_ptr = mask_ptr + row * ldm;
@@ -173,28 +169,22 @@ inline void fp8_dequant_mask_max_fusion_kernel(
     auto vec_tmp_max = at::vec::Vectorized<float>(tmp_max);
     long col = 0;
     for (; col < vec_size * (N / vec_size); col += vec_size) {
-      auto vec_sum_b = at::vec::Vectorized<float>::loadu(sum_b_ptr + col);
       auto tmp0 = at::vec::Vectorized<float>::loadu(tmp_in + col);
-      auto tmp1 = tmp0 - vec_sum_b;
-      auto tmp2 = tmp1 - vec_sum_a;
-      auto tmp3 = tmp2 * vec_alpha;
-      auto tmp4 = at::vec::Vectorized<mask_t>::loadu(mask_data_ptr + col);
-      auto tmp5 = at::vec::convert<float>(tmp4);
-      auto tmp6 = tmp3 + tmp5;
-      vec_tmp_max = at::vec::clamp_min(vec_tmp_max, tmp6);
-      store(tmp_out + col, tmp6);
+      auto tmp1 = tmp0 * vec_alpha;
+      auto tmp2 = at::vec::Vectorized<mask_t>::loadu(mask_data_ptr + col);
+      auto tmp3 = at::vec::convert<float>(tmp2);
+      auto tmp4 = tmp1 + tmp3;
+      vec_tmp_max = at::vec::clamp_min(vec_tmp_max, tmp4);
+      store(tmp_out + col, tmp4);
     }
     if (col < N) {
-      auto vec_sum_b = at::vec::Vectorized<float>::loadu(sum_b_ptr + col, N - col);
       auto tmp0 = at::vec::Vectorized<float>::loadu(tmp_in + col, N - col);
-      auto tmp1 = tmp0 - vec_sum_b;
-      auto tmp2 = tmp1 - vec_sum_a;
-      auto tmp3 = tmp2 * vec_alpha;
-      auto tmp4 = at::vec::Vectorized<mask_t>::loadu(mask_data_ptr + col, N - col);
-      auto tmp5 = at::vec::convert<float>(tmp4);
-      auto tmp6 = tmp3 + tmp5;
-      store(tmp_out + col, tmp6, N - col);
-      vec_tmp_max = at::vec::Vectorized<float>::set(vec_tmp_max, at::vec::clamp_min(vec_tmp_max, tmp6), N - col);
+      auto tmp1 = tmp0 * vec_alpha;
+      auto tmp2 = at::vec::Vectorized<mask_t>::loadu(mask_data_ptr + col, N - col);
+      auto tmp3 = at::vec::convert<float>(tmp2);
+      auto tmp4 = tmp1 + tmp3;
+      store(tmp_out + col, tmp4, N - col);
+      vec_tmp_max = at::vec::Vectorized<float>::set(vec_tmp_max, at::vec::clamp_min(vec_tmp_max, tmp4), N - col);
     }
     sfm_max_ptr[row] = std::max(sfm_max_ptr[row], vec_tmp_max.reduce_max());
   }
@@ -259,8 +249,6 @@ inline void dequant_max_fusion_kernel(
 */
 inline void fp8_dequant_max_fusion_kernel(
     const float* in,
-    const float* sum_a_ptr,
-    const float* sum_b_ptr,
     const int& M,
     const int& N,
     const int& ldi,
@@ -271,30 +259,22 @@ inline void fp8_dequant_max_fusion_kernel(
   const int32_t vec_size = at::vec::Vectorized<float>::size();
   auto vec_alpha = at::vec::Vectorized<float>(alpha);
   for (long row = 0; row < M; row += 1) {
-    auto sum_a = sum_a_ptr[row];
-    auto vec_sum_a = at::vec::Vectorized<float>(sum_a);
     const float* tmp_in = in + row * ldi;
     float* tmp_out = out + row * ldo;
     float tmp_max = -std::numeric_limits<float>::infinity();
     auto vec_tmp_max = at::vec::Vectorized<float>(tmp_max);
     long col = 0;
     for (; col < vec_size * (N / vec_size); col += vec_size) {
-      auto vec_sum_b = at::vec::Vectorized<float>::loadu(sum_b_ptr + col);
       auto tmp0 = at::vec::Vectorized<float>::loadu(tmp_in + col);
-      auto tmp1 = tmp0 - vec_sum_b;
-      auto tmp2 = tmp1 - vec_sum_a;
-      auto tmp3 = tmp2 * vec_alpha;
-      vec_tmp_max = at::vec::clamp_min(vec_tmp_max, tmp3);
-      store(tmp_out + col, tmp3);
+      auto tmp1 = tmp0 * vec_alpha;
+      vec_tmp_max = at::vec::clamp_min(vec_tmp_max, tmp1);
+      store(tmp_out + col, tmp1);
     }
     if (col < N) {
-      auto vec_sum_b = at::vec::Vectorized<float>::loadu(sum_b_ptr + col, N - col);
       auto tmp0 = at::vec::Vectorized<float>::loadu(tmp_in + col, N - col);
-      auto tmp1 = tmp0 - vec_sum_b;
-      auto tmp2 = tmp1 - vec_sum_a;
-      auto tmp3 = tmp2 * vec_alpha;
-      store(tmp_out + col, tmp3, N - col);
-      vec_tmp_max = at::vec::Vectorized<float>::set(vec_tmp_max, at::vec::clamp_min(vec_tmp_max, tmp3), N - col);
+      auto tmp1 = tmp0 * vec_alpha;
+      store(tmp_out + col, tmp1, N - col);
+      vec_tmp_max = at::vec::Vectorized<float>::set(vec_tmp_max, at::vec::clamp_min(vec_tmp_max, tmp1), N - col);
     }
     sfm_max_ptr[row] = std::max(sfm_max_ptr[row], vec_tmp_max.reduce_max());
   }
@@ -679,7 +659,6 @@ inline void dequant_quant_fusion_kernel(
 template <typename scalar_t>
 inline void fp8_dequant_quant_fusion_kernel(
     const float* in,
-    const float* sum_a_ptr,
     const int& M,
     const int& N,
     const int& ldi,
@@ -693,26 +672,20 @@ inline void fp8_dequant_quant_fusion_kernel(
   auto vec_max_val = at::vec::Vectorized<float>(max_val);
   auto vec_alpha = at::vec::Vectorized<float>(alpha);
   for (long row = 0; row < M; row += 1) {
-    auto sum_a = sum_a_ptr[row];
-    auto vec_sum_a = at::vec::Vectorized<float>(sum_a);
     const float* tmp_in = in + row * ldi;
     scalar_t* tmp_out = out + row * ldo;
     long col = 0;
     for (; col < vec_size * (N / vec_size); col += vec_size) {
       auto tmp1 = at::vec::Vectorized<float>::loadu(tmp_in + col);
-      auto tmp3 = tmp1 - vec_sum_a;
-      auto tmp4 = at::vec::convert<float>(tmp3);
-      auto tmp5 = tmp4 * vec_alpha;
-      auto tmp6 = at::vec::clamp(tmp5, vec_min_val, vec_max_val);
-      store(tmp_out + col, tmp6);
+      auto tmp2 = tmp1 * vec_alpha;
+      auto tmp3 = at::vec::clamp(tmp2, vec_min_val, vec_max_val);
+      store(tmp_out + col, tmp3);
     }
     if (col < N) {
       auto tmp1 = at::vec::Vectorized<float>::loadu(tmp_in + col, N - col);
-      auto tmp3 = tmp1 - vec_sum_a;
-      auto tmp4 = at::vec::convert<float>(tmp3);
-      auto tmp5 = tmp4 * vec_alpha;
-      auto tmp6 = at::vec::clamp(tmp5, vec_min_val, vec_max_val);
-      store(tmp_out + col, tmp6, N - col);
+      auto tmp2 = tmp1 * vec_alpha;
+      auto tmp3 = at::vec::clamp(tmp2, vec_min_val, vec_max_val);
+      store(tmp_out + col, tmp3, N - col);
     }
   }
 }
@@ -1892,15 +1865,8 @@ extern "C"
     /* qk_fp32   */ qSplitSize * rndkvSplitSize * 4 +
     /* dst_fp32  */ qSplitSize * rndHeadSize * 4 +
     /* softmax_sum   */ qSplitSize * 4 +
-    /* query_sum     */ qSplitSize * 4 +
-    /* attention_sum */ qSplitSize * 4 +
     /* softmax max */ qSplitSize * 4;
   {{template.codegen_allocate_buffer("total_buf_data", "scalar_t", "num_thread * total_size_uint8_per_thread")}}
-
-  int64_t kv_sum_size_per_BH =
-    /* key_sum */ kvSize +
-    /* value_sum */ headSize;
-  {{template.codegen_allocate_buffer("kv_sum_buf_data", "float", "batchSize * num_head * kv_sum_size_per_BH")}}
 
   int64_t kv_reorder_size_per_BH =
     /* key_t_reorder */ rndHeadSize * rndkvSize +
@@ -1908,26 +1874,6 @@ extern "C"
   {{template.codegen_allocate_buffer("kv_reorder_buf_data", "scalar_t", "batchSize * num_head * kv_reorder_size_per_BH")}}
   scalar_t* key_reorder_ptr = kv_reorder_buf_data;
   scalar_t* value_reorder_ptr = kv_reorder_buf_data + batchSize * num_head * rndHeadSize * rndkvSize;
-
-  // sum k and v
-  at::parallel_for(
-      0, batchSize * num_head, 1, [&](int64_t begin, int64_t end) {
-        int64_t i = 0, j = 0;
-        at::native::data_index_init(
-            begin, i, batchSize, j, num_head);
-        for (const auto z : c10::irange(begin, end)) {
-          (void)z; // Suppress unused variable
-          float* kv_sum_ptr = kv_sum_buf_data
-              + i * num_head * kv_sum_size_per_BH
-              + j * kv_sum_size_per_BH;
-          float* k_sum_ptr = kv_sum_ptr;
-          float* v_sum_ptr = kv_sum_ptr + kvSize;
-          fill_stub(k_sum_ptr, static_cast<float>(0), kvSize);
-          fill_stub(v_sum_ptr, static_cast<float>(0), headSize);
-        // Move to the next query
-        at::native::data_index_step(i, batchSize, j, num_head);
-      }
-    });
 
   // packing
   at::parallel_for(
@@ -1984,20 +1930,10 @@ extern "C"
         offset += qSplitSize * rndHeadSize * 4;
         accum_t* sfm_sum_ptr = reinterpret_cast<accum_t*>(total_buf_ptr + offset);
         offset += qSplitSize * 4;
-        float* q_sum_ptr = reinterpret_cast<float*>(total_buf_ptr + offset);
-        offset += qSplitSize * 4;
-        float* a_sum_ptr = reinterpret_cast<float*>(total_buf_ptr + offset);
-        offset += qSplitSize * 4;
         accum_t* sfm_max_ptr = reinterpret_cast<accum_t*>(total_buf_ptr + offset);
 
         for (const auto z : c10::irange(begin, end)) {
           (void)z; // Suppress unused variable
-
-          float* kv_sum_ptr = kv_sum_buf_data
-              + i * num_head * kv_sum_size_per_BH
-              + j * kv_sum_size_per_BH;
-          float* k_sum_ptr = kv_sum_ptr;
-          float* v_sum_ptr = kv_sum_ptr + kvSize;
 
           // sdpa core
           int64_t m = k * qSplitSize;
@@ -2006,14 +1942,10 @@ extern "C"
           fill_stub(
               sfm_sum_ptr, static_cast<accum_t>(0), qSplitSize);
           fill_stub(
-              a_sum_ptr, static_cast<float>(0), qSplitSize);
-          fill_stub(
               sfm_max_ptr, static_cast<accum_t>(-std::numeric_limits<accum_t>::infinity()), qSplitSize);
           int64_t num_keys = kvSize;
           // sum q
           const scalar_t* q_tmp = q_data + i * qStrideB + j * qStrideH + m * qStrideM;
-          fill_stub(
-            q_sum_ptr, static_cast<float>(0), qSplitSize);
           const int64_t rkvSlice = (num_keys - 1) / kvSplitSize + 1;
 
           for (int64_t l = 0; l < rkvSlice; l++) {
@@ -2039,8 +1971,6 @@ extern "C"
             fp8_dequant_mask_max_fusion_kernel(
               qk_fp32_data, //in
               mask_data_offset, //mask_ptr
-              q_sum_ptr, //sum_a_ptr
-              k_sum_ptr + n, //sum_b_ptr
               qBlockSize, //M
               kvBlockSize, //N
               rndkvSplitSize, //ldi
@@ -2053,8 +1983,6 @@ extern "C"
 {%- else %}
             fp8_dequant_max_fusion_kernel(
               qk_fp32_data, //in
-              q_sum_ptr, //sum_a_ptr
-              k_sum_ptr + n, //sum_b_ptr
               qBlockSize, //M
               kvBlockSize, //N
               rndkvSplitSize, //ldi
@@ -2103,7 +2031,6 @@ extern "C"
           // do dequant compensation, quant and convert from fp32 to fp8
           fp8_dequant_quant_fusion_kernel(
             dst_fp32_data, //in
-            a_sum_ptr, //sum_a_ptr
             qBlockSize, //M
             headSize, //N
             rndHeadSize, //ldi
