@@ -239,6 +239,11 @@ class _Round(torch.autograd.Function):
 class _RoundToFloat8(torch.autograd.Function):
     """
     Implementation of `tensor.to(float8_dtype)` with backward STE.
+
+    In PyTorch 2.11 and older, eager casts to FP8 do not saturate finite
+    overflow values. Callers that require saturated FP8 semantics should
+    clamp before invoking this function, `_quantize_affine_float8` does
+    that before casting.
     """
 
     @staticmethod

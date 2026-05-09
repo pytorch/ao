@@ -27,3 +27,11 @@
 
 # Docs
 /docs/ @vkuzo @svekars
+
+# X86
+torchao/csrc/cpu/aten_kernels/ @Xia-Weiwen @Valentine233
+torchao/prototype/float8_opaque_tensor/ @Xia-Weiwen
+torchao/prototype/inductor/ @Xia-Weiwen @Valentine233
+torchao/prototype/quantization/int4/ @Xia-Weiwen
+torchao/quantization/pt2e/inductor_passes/ @Xia-Weiwen
+torchao/quantization/pt2e/quantizer/x86_inductor_quantizer.py @Xia-Weiwen

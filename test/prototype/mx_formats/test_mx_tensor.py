@@ -669,9 +669,11 @@ def test_index_select():
     not is_sm_at_least_89(),
     reason="float8 in triton requires CUDA capability 8.9 or greater",
 )
+@pytest.mark.skipif(
+    not torch_version_at_least("2.12.0.dev0"),
+    reason="eager float8_e4m3fn casts saturate in PyTorch 2.12+",
+)
 def test_cast_to_float8_e4m3fn_saturation_behavior():
-    # TODO(#1912): make the saturated cast work in eager mode and remove this
-    # test
     max_val = torch.finfo(torch.float8_e4m3fn).max
 
     # create example data inside the representable range
@@ -694,11 +696,13 @@ def test_cast_to_float8_e4m3fn_saturation_behavior():
         device="cuda",
     )
 
-    # verify that in eager mode PyTorch casting to float8 is unsaturated
+    # PyTorch core saturates finite-overflow e4m3fn casts as of
+    # https://github.com/pytorch/pytorch/pull/178817.
     data_in_range_f8 = data_in_range_bf16.to(torch.float8_e4m3fn)
     data_out_of_range_f8 = data_out_of_range_bf16.to(torch.float8_e4m3fn)
     assert not torch.any(torch.isnan(data_in_range_f8))
-    assert torch.all(torch.isnan(data_out_of_range_f8))
+    assert not torch.any(torch.isnan(data_out_of_range_f8))
+    torch.testing.assert_close(data_in_range_f8, data_out_of_range_f8, atol=0, rtol=0)
 
     # verify that in triton, casting to float8 is saturated
     # for simplicity, use torch.compile to generate triton code
