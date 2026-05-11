@@ -58,8 +58,17 @@ def _fp4_quant_dequant(x: torch.Tensor) -> torch.Tensor:
     representable range, rounds each element to the nearest E2M1 value,
     and scales back.
 
+    For 3D tensors (expert weights), quantizes each expert slice independently
+    to avoid OOM from materializing the full tensor in float32.
+
     Returns the dequantized tensor in the same dtype as *x*.
     """
+    if x.ndim == 3:
+        out = torch.empty_like(x)
+        for i in range(x.shape[0]):
+            out[i] = _fp4_quant_dequant(x[i])
+        return out
+
     device = x.device
     amax = x.float().abs().amax()
     scale = amax / _FP4_MAX

@@ -41,7 +41,27 @@ TASKS = {
         "calib_text_key": "question",
         "default_checkpoint": "./qwen3-30b-a3b-arc-challenge-sft",
     },
+    "arc_easy": {
+        "eval_task": "arc_easy",
+        "calib_dataset": ("allenai/ai2_arc", "ARC-Easy", "train"),
+        "calib_text_key": "question",
+        "default_checkpoint": "./qwen3-30b-a3b-arc-challenge-sft",
+    },
+    "winogrande": {
+        "eval_task": "winogrande",
+        "calib_dataset": ("allenai/winogrande", "winogrande_xl", "train"),
+        "calib_text_key": "sentence",
+        "default_checkpoint": "./qwen3-30b-a3b-arc-challenge-sft",
+    },
+    "boolq": {
+        "eval_task": "boolq",
+        "calib_dataset": ("google/boolq", None, "train"),
+        "calib_text_key": "question",
+        "default_checkpoint": "./qwen3-30b-a3b-arc-challenge-sft",
+    },
 }
+
+EVAL_SUITE = ["arc_challenge", "arc_easy", "winogrande", "boolq"]
 
 
 def _unfuse_experts_model(model: torch.nn.Module) -> None:
@@ -265,11 +285,13 @@ def quantize_to_nvfp4(
 
 def run_eval_nvfp4(
     model_path: str,
-    eval_task: str,
+    eval_tasks: str | list[str],
     limit: int | None = None,
     batch_size: int = 4,
 ) -> dict:
     """Evaluate using vllm with the NVFP4 trtllm kernel (modelopt_fp4)."""
+    if isinstance(eval_tasks, str):
+        eval_tasks = [eval_tasks]
     return simple_evaluate(
         model="vllm",
         model_args={
@@ -279,7 +301,7 @@ def run_eval_nvfp4(
             "gpu_memory_utilization": 0.65,
             "max_model_len": 2048,
         },
-        tasks=[eval_task],
+        tasks=eval_tasks,
         num_fewshot=0,
         batch_size=batch_size,
         limit=limit,
@@ -289,11 +311,13 @@ def run_eval_nvfp4(
 
 def run_eval_bf16(
     model_path: str,
-    eval_task: str,
+    eval_tasks: str | list[str],
     limit: int | None = None,
     batch_size: int = 4,
 ) -> dict:
     """Evaluate using HuggingFace backend (bf16 inference)."""
+    if isinstance(eval_tasks, str):
+        eval_tasks = [eval_tasks]
     from lm_eval.models.huggingface import HFLM
     from transformers import AutoModelForCausalLM, AutoTokenizer
 
@@ -309,7 +333,7 @@ def run_eval_bf16(
     lm = HFLM(pretrained=model, tokenizer=tokenizer, batch_size=batch_size)
     return simple_evaluate(
         model=lm,
-        tasks=[eval_task],
+        tasks=eval_tasks,
         num_fewshot=0,
         limit=limit,
         log_samples=False,
@@ -330,9 +354,9 @@ if __name__ == "__main__":
     parser.add_argument(
         "--task",
         type=str,
-        default="gsm8k",
-        choices=list(TASKS.keys()),
-        help=f"Eval task (default: gsm8k). Choices: {list(TASKS.keys())}.",
+        default="arc_challenge",
+        choices=list(TASKS.keys()) + ["suite"],
+        help=f"Eval task (default: arc_challenge). 'suite' runs {EVAL_SUITE}.",
     )
     parser.add_argument(
         "--checkpoint",
@@ -359,32 +383,33 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
 
-    task_cfg = TASKS[args.task]
-    eval_task = task_cfg["eval_task"]
-    model_path = args.checkpoint or task_cfg["default_checkpoint"]
+    tasks_to_run = EVAL_SUITE if args.task == "suite" else [args.task]
+    model_path = args.checkpoint or TASKS[tasks_to_run[0]]["default_checkpoint"]
 
     n = f"{args.limit} examples" if args.limit else "all examples"
+    eval_task_names = [TASKS[t]["eval_task"] for t in tasks_to_run]
 
     if args.bf16:
         label = f"checkpoint: {model_path} (bf16)"
-        print(f"Evaluating {model_path} on {eval_task} ({n}, bf16)")
+        print(f"Evaluating {model_path} on {eval_task_names} ({n}, bf16)")
         results = run_eval_bf16(
             model_path,
-            eval_task,
+            eval_task_names,
             limit=args.limit,
             batch_size=args.batch_size,
         )
     else:
-        # Quantize bf16 checkpoint to NVFP4, then evaluate via vllm
         nvfp4_dir = model_path.rstrip("/") + "-nvfp4"
-        nvfp4_dir = quantize_to_nvfp4(model_path, nvfp4_dir, task_name=args.task)
+        calib_task = tasks_to_run[0]
+        nvfp4_dir = quantize_to_nvfp4(model_path, nvfp4_dir, task_name=calib_task)
         label = f"checkpoint: {nvfp4_dir} (nvfp4 kernel)"
-        print(f"Evaluating {nvfp4_dir} on {eval_task} ({n}, nvfp4)")
+        print(f"Evaluating {nvfp4_dir} on {eval_task_names} ({n}, nvfp4)")
         results = run_eval_nvfp4(
             nvfp4_dir,
-            eval_task,
+            eval_task_names,
             limit=args.limit,
             batch_size=args.batch_size,
         )
 
-    print_results(results, eval_task, label)
+    for eval_task in eval_task_names:
+        print_results(results, eval_task, label)
