@@ -21,19 +21,20 @@ from .cute_utils import (
 )
 
 
-def _make_tile_smem_layouts(cute, tile_m: int, tile_k: int):
+def _make_tile_smem_layouts(tile_m: int, tile_k: int):
     """Create shared memory layouts for input and output tiles.
 
     Input uses row-major format. Output uses column-major format.
 
     Args:
-        cute: CuTe module
         tile_m: Tile size in M dimension
         tile_k: Tile size in K dimension
 
     Returns:
         Tuple of (smem_layout_in, smem_layout_out) for shared memory
     """
+    import cutlass.cute as cute
+
     # Input SMEM: Row-major layout
     smem_layout_in = cute.make_layout(
         (tile_m, tile_k),
@@ -586,9 +587,7 @@ def _compile_mxfp8_quantize_2d_32x1_cutedsl(
             if cutlass.const_expr(STAGE_COUNT_VALUE > 1):
                 tma_mbar_ptr1 = tma_mbar_ptr0 + 1
 
-            smem_layout_in, smem_layout_out = _make_tile_smem_layouts(
-                cute, TILE_M, TILE_K
-            )
+            smem_layout_in, smem_layout_out = _make_tile_smem_layouts(TILE_M, TILE_K)
             staged_layout_in = cute.make_layout(
                 (STAGE_COUNT_VALUE, TILE_M, TILE_K),
                 stride=(TILE_M * TILE_K, TILE_K, 1),
@@ -836,9 +835,7 @@ def _compile_mxfp8_quantize_2d_32x1_cutedsl(
             Storage locations:
                 All tensors in global memory
             """
-            smem_layout_in, smem_layout_out = _make_tile_smem_layouts(
-                cute, TILE_M, TILE_K
-            )
+            smem_layout_in, smem_layout_out = _make_tile_smem_layouts(TILE_M, TILE_K)
             # Use tcgen05.CtaGroup.ONE for the optimised single-CTA Blackwell (SM 10.x) TMA load path.
             g2s_op = cpasync.CopyBulkTensorTileG2SOp(tcgen05.CtaGroup.ONE)
             tma_atom_in, tma_tensor_in = cpasync.make_tiled_tma_atom(
