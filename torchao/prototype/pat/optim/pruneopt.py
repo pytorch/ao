@@ -29,9 +29,8 @@ from .iterative_reweight import IterativeReweight
 
 
 class PruneOptimizer(Optimizer):
-    """PruneOptimizer is a wrapper around a base optimizer that applies proximal
-    updates to induce sparsity or low-rank structure in the parameters during
-    training.
+    """Wraps a base optimizer to apply proximal updates that induce sparsity
+    or low-rank structure during training.
 
     Arguments:
         base_optimizer: The underlying optimizer (e.g., SGD or AdamW) that
@@ -200,8 +199,8 @@ class PruneOptimizer(Optimizer):
         else:
             gamma = distribute_tensor(gamma, device_mesh=p.device_mesh)
 
+        # Use ProxGroupLassoVectorized for group lasso
         if isinstance(prox_map, ProxGroupLasso):
-            # Use ProxGroupLassoVectorized for group lasso
             prox_map_vec = ProxGroupLassoVectorized(
                 prox_map.reg_lambda,
                 reduce_dim=int(not grouper.in_dims),
@@ -221,6 +220,15 @@ class PruneOptimizer(Optimizer):
                 out_dims=(0, 0),
             )
 
+        # Redistribute explicitly so the in-place prox mutation lands on a
+        # tensor we can copy back; local_map's own redistribute would discard it.
+        needs_redistribute = tuple(grouper.p.placements) != p_in_placements
+        p_for_prox = (
+            grouper.p.redistribute(placements=p_in_placements)
+            if needs_redistribute
+            else grouper.p
+        )
+
         zero_elts_per_group, group_norm = local_map(
             local_fn,
             out_placements=(
@@ -232,10 +240,13 @@ class PruneOptimizer(Optimizer):
                 gamma.placements if _is_dtensor(gamma) else None,
                 tau_reweight.placements if _is_dtensor(tau_reweight) else None,
             ),
-            redistribute_inputs=True,
-        )(grouper.p, gamma, tau_reweight)
+            redistribute_inputs=False,
+        )(p_for_prox, gamma, tau_reweight)
 
-        # Gather counts across shards
+        if needs_redistribute:
+            # Write mutated values back to the original parameter.
+            grouper.p.copy_(p_for_prox.redistribute(placements=grouper.p.placements))
+
         return zero_elts_per_group.full_tensor().sum().item(), group_norm
 
     @staticmethod
@@ -250,8 +261,7 @@ class PruneOptimizer(Optimizer):
 
         Returns:
             zero_elts: number of zero elements after applying prox map
-            group_norm: group-level norm of parameters after applying prox map,
-                divided by the prox map's tau term
+            group_norm: per-group norm divided by the prox map's tau
             zeros_are_summed: whether zero_elts is already globally summed
         """
         gamma = prox_kwargs["gamma"]
@@ -334,9 +344,8 @@ class PruneOptimizer(Optimizer):
             closure (callable, optional): A closure that reevaluates the model
                 and returns the loss.
         """
-        # during healing, freeze pruned params by zeroing out their gradients
-        # and saving masks to re-zero after optimizer step (momentum may push
-        # pruned params away from zero)
+        # during healing, zero grads of pruned params and save masks to re-zero
+        # them after the step (momentum may push them non-zero)
         healing_masks = {}
         if self.num_steps >= self.healing_start_step:
             for group in self.regularized_param_groups():
@@ -356,7 +365,7 @@ class PruneOptimizer(Optimizer):
         ):
             # run base optimizer only during warmup and healing periods
             loss = self.base_optimizer.step(closure=closure)  # pyre-ignore[6]
-            # re-zero pruned params (optimizer momentum may push them non-zero)
+            # re-zero pruned params after step
             for group in self.regularized_param_groups():
                 for p in group["params"]:
                     mask = healing_masks.get(id(p))
@@ -371,10 +380,10 @@ class PruneOptimizer(Optimizer):
             return loss
 
         if self.num_steps == self.warmup_steps:
-            # first step of PAT: save latent params for future proximal updates
+            # first PAT step: save latent params
             self.save_latent_params()
         else:
-            # restore latent params for update by the base optimizer
+            # restore latent params for base optimizer update
             self.restore_latent_params()
 
         # call base optimizer step() method to update latent parameters

@@ -8,7 +8,7 @@ import re
 from contextlib import contextmanager
 from functools import partial
 from importlib import import_module
-from typing import Any, Dict, Optional, Set, Tuple
+from typing import Any, Optional
 
 import torch
 from torch import nn
@@ -59,10 +59,10 @@ def instantiate_module(module_name: str):
 
 def get_param_groups(
     model: nn.Module,
-    prune_config: Dict[Tuple[nn.Module, str], Any],
-    skip_wd_names: Optional[Set[str]] = None,
+    prune_config: dict[tuple[nn.Module, str], Any],
+    skip_wd_names: Optional[set[str]] = None,
     verbose: bool = True,
-) -> Dict[str, Dict[str, Any]]:
+) -> dict[str, dict[str, Any]]:
     # Create list of regex patterns for matching parameter names
     re_pats = [
         re.compile(k[len(RE_PREFIX) :])

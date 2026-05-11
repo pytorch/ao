@@ -5,7 +5,7 @@
 # LICENSE file in the root directory of this source tree.
 
 from abc import ABC, abstractmethod
-from typing import Tuple, Union
+from typing import Union
 
 from torch import Tensor
 
@@ -39,7 +39,7 @@ class ProxMap(ABC):
         p: Tensor,
         gamma: Union[Tensor, float],
         tau_reweight: Union[Tensor, float] = 1.0,
-    ) -> Tuple[Tensor, Tensor]:
+    ) -> tuple[Tensor, Tensor]:
         """Apply proximal mapping to p in-place and return number of zero
         elements and group-level norm of p.
 
