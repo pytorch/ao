@@ -250,5 +250,11 @@ def _(func, types, args, kwargs):
     )
 
 
+@implements(aten.abs.default)
+def _(func, types, args, kwargs):
+
+    return torch.abs(args[0].dequantize())
+
+
 # Allow a model with Float8Tensor weights to be loaded with `weights_only=True`
 torch.serialization.add_safe_globals([Sparse2x4CUTLASSFloat8Tensor])
