@@ -29,10 +29,10 @@ class Float8PackingFormat(str, Enum):
     """
     Sparse packing format for 2:4 sparsity + FP8 quantization
 
-    SPARSE_CUTLASS will pack the quantized_data into two tensors, qdata and sparse_metadata, for the specified values and metadata respectively.
+    SPARSE_2D_DATA_2D_METADATA will pack the quantized_data into two tensors, qdata and sparse_metadata, for the specified values and metadata respectively.
     This packing format will dispatch to `rowwise_scaled_linear_sparse_cutlass_f8f8`, which will fuse the per-row scaling into the sparse matmul.
     """
-    SPARSE_CUTLASS = "sparse_cutlass"
+    SPARSE_2D_DATA_2D_METADATA = "sparse_2d_data_2d_metadata"
     """
     Sparse packing format for 2:4 sparsity + FP8 quantization using hipSPARSELt (ROCm/AMD only).
 
@@ -51,5 +51,7 @@ class Float8PackingFormat(str, Enum):
     """
     SPARSE_1D_DATA_1D_METADATA = "sparse_1d_data_1d_metadata"
 
+
+Float8PackingFormat.SPARSE_CUTLASS = Float8PackingFormat.SPARSE_2D_DATA_2D_METADATA
 
 torch.serialization.add_safe_globals([Float8PackingFormat])

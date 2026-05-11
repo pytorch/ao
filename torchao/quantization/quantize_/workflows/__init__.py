@@ -4,12 +4,12 @@ from .float8.float8_packing_format import (
 from .float8.float8_sparse_2x4_1d_data_1d_metadata_tensor import (
     Float8Sparse2x4_1DData1DMetadataTensor,
 )
+from .float8.float8_sparse_2x4_2d_data_2d_metadata_tensor import (
+    Float8Sparse2x4_2DData2DMetadataTensor,
+)
 from .float8.float8_tensor import (
     Float8Tensor,
     QuantizeTensorToFloat8Kwargs,
-)
-from .float8.sparse_2x4_cutlass_float8_tensor import (
-    Sparse2x4CUTLASSFloat8Tensor,
 )
 from .int4.int4_choose_qparams_algorithm import Int4ChooseQParamsAlgorithm
 from .int4.int4_packing_format import Int4PackingFormat
@@ -39,26 +39,27 @@ from .intx.intx_unpacked_to_int8_tensor import (
 )
 from .nf4.nf4_tensor import NF4Tensor, to_nf4
 
+Sparse2x4CUTLASSFloat8Tensor = Float8Sparse2x4_2DData2DMetadataTensor
+
 __all__ = [
-    "Int4Tensor",
-    "Int4PreshuffledTensor",
-    "Int4PlainInt32Tensor",
-    "Int4TilePackedTo4dTensor",
-    "Int8Tensor",
-    "QuantizeTensorToInt8Kwargs",
-    "Float8Tensor",
-    "Sparse2x4CUTLASSFloat8Tensor",
-    "Float8Sparse2x4_1DData1DMetadataTensor",
     "Float8PackingFormat",
-    "QuantizeTensorToFloat8Kwargs",
-    "Int8Tensor",
-    "QuantizeTensorToInt8Kwargs",
+    "Float8Sparse2x4_1DData1DMetadataTensor",
+    "Float8Sparse2x4_2DData2DMetadataTensor",
+    "Float8Tensor",
     "Int4ChooseQParamsAlgorithm",
     "Int4PackingFormat",
+    "Int4PlainInt32Tensor",
+    "Int4PreshuffledTensor",
+    "Int4Tensor",
+    "Int4TilePackedTo4dTensor",
+    "Int8Tensor",
     "IntxChooseQParamsAlgorithm",
+    "IntxOpaqueTensor",
     "IntxPackingFormat",
     "IntxUnpackedToInt8Tensor",
-    "IntxOpaqueTensor",
     "NF4Tensor",
+    "QuantizeTensorToFloat8Kwargs",
+    "QuantizeTensorToInt8Kwargs",
+    "Sparse2x4CUTLASSFloat8Tensor",
     "to_nf4",
 ]
