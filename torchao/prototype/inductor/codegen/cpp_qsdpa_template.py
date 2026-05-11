@@ -623,7 +623,6 @@ inline void dequant_quant_fusion_kernel(
     const float& alpha, // scale_a*scale_b/scale_c
     scalar_t* out) {
   const int32_t vec_size = at::vec::Vectorized<float>::size();
-  // auto vec_beta1 = at::vec::Vectorized<int32_t>(beta1);
   auto vec_alpha = at::vec::Vectorized<float>(alpha);
   float beta2_float = (float) beta2;
   auto vec_beta2 = at::vec::Vectorized<float>(beta2_float);
@@ -636,7 +635,6 @@ inline void dequant_quant_fusion_kernel(
     for (; col < vec_size * (N / vec_size); col += vec_size) {
       auto tmp1 = at::vec::Vectorized<int32_t>::loadu(tmp_in + col);
       auto tmp3 = tmp1 - vec_sum_a;
-      // auto tmp3 = tmp2 + vec_beta1;
       auto tmp4 = at::vec::convert<float>(tmp3);
       auto tmp5 = at::vec::fmadd(tmp4, vec_alpha, vec_beta2);
       store(tmp_out + col, tmp5);
@@ -2276,14 +2274,14 @@ class CppQsdpaTemplate(CppFlexAttentionTemplate):
         )
         options.update(new_options)
         if query.layout.dtype is torch.uint8:
-            INT8_SDPA_TEMPLATE = (
+            QSDPA_TEMPLATE = (
                 INT8_SDPA_ONE_LOOP_TEMPLATE
                 if options["use_one_parallel_loop"]
                 else INT8_SDPA_SEVERAL_LOOPS_TEMPLATE
             )
         else:
-            INT8_SDPA_TEMPLATE = FP8_SDPA_SEVERAL_LOOPS_TEMPLATE
-        return self._template_from_string(INT8_SDPA_TEMPLATE).render(**options)
+            QSDPA_TEMPLATE = FP8_SDPA_SEVERAL_LOOPS_TEMPLATE
+        return self._template_from_string(QSDPA_TEMPLATE).render(**options)
 
     def codegen_useful_function(self, kernel_name: str):
         return self._template_from_string(USEFUL_FUNCTIONS).render(
