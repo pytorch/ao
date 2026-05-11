@@ -16,4 +16,5 @@ from .grouper import (  # noqa: F401
     Grouper,
     LayerGrouper,
 )
+from .k_element import KElementGrouper  # noqa: F401
 from .low_rank import PackedSVDGrouper, SVDGrouper  # noqa: F401
