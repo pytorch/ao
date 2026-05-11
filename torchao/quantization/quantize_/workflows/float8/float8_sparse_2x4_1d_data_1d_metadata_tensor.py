@@ -8,6 +8,8 @@
 from typing import List, Optional, Tuple
 
 import torch
+from torch.library import custom_op
+from torch.sparse import SparseSemiStructuredTensorCUSPARSELT
 
 from torchao.float8.inference import (
     FP8Granularity,
@@ -181,6 +183,55 @@ implements_torch_function = (
 )
 
 
+@custom_op("float8_sparse::fp8_sparse_mm", mutates_args=())
+def fp8_sparse_mm(
+    dense: torch.Tensor,
+    packed: torch.Tensor,
+    bias: Optional[torch.Tensor],
+    alpha: torch.Tensor,
+    out_features: int,
+    min_size: int,
+) -> torch.Tensor:
+    """Padded sparse matmul for hipSPARSELt with per-tensor FP8 scaling.
+
+    Wraps torch._cslt_sparse_mm with batch-dim padding so that torch.export
+    does not see a data-dependent shape change.
+    """
+    batch, k = dense.shape
+    to_pad = (-batch) % min_size
+    if to_pad:
+        dense = torch.nn.functional.pad(dense, (0, 0, 0, to_pad))
+    result = torch._cslt_sparse_mm(
+        packed,
+        dense.t(),
+        bias=bias,
+        alpha=alpha,
+        out_dtype=torch.float32,
+    )
+    result = result.t()
+    if to_pad:
+        result = result.narrow(0, 0, batch)
+    return result.contiguous()
+
+
+@fp8_sparse_mm.register_fake
+def _fp8_sparse_mm_fake(
+    dense: torch.Tensor,
+    packed: torch.Tensor,
+    bias: Optional[torch.Tensor],
+    alpha: torch.Tensor,
+    out_features: int,
+    min_size: int,
+) -> torch.Tensor:
+    batch = dense.shape[0]
+    return torch.empty(
+        batch,
+        out_features,
+        dtype=torch.float32,
+        device=dense.device,
+    )
+
+
 @implements(aten.linear.default)
 @implements_torch_function(torch.nn.functional.linear)
 def _(func, types, args, kwargs):
@@ -206,29 +257,31 @@ def _(func, types, args, kwargs):
     weight_packed = weight_tensor.qdata_and_metadata
     weight_scale = weight_tensor.scale
 
-    mm_out_dtype = torch.float32
-
     # linear: y = x @ W^T
     # _cslt_sparse_mm(compressed_A [m,k], dense_B [k,n]) -> [m,n]
     # A = weight (out_features, in_features), B = input^T (in_features, batch)
     orig_shape = input_fp8.shape
     input_2d = input_fp8.reshape(-1, orig_shape[-1])
 
+    constraints = SparseSemiStructuredTensorCUSPARSELT._DTYPE_SHAPE_CONSTRAINTS[
+        input_2d.dtype
+    ]
+
     # Per-tensor scaling: pass combined scale as alpha
     alpha = input_scale * weight_scale
 
-    # hipSPARSELt requires bias dtype to match out_dtype
-    bias_mm = bias.to(mm_out_dtype) if bias is not None else None
+    # hipSPARSELt requires bias dtype to match out_dtype (float32)
+    bias_mm = bias.to(torch.float32) if bias is not None else None
 
-    result = torch._cslt_sparse_mm(
+    result = torch.ops.float8_sparse.fp8_sparse_mm(
+        input_2d,
         weight_packed,
-        input_2d.t(),
-        bias=bias_mm,
-        alpha=alpha,
-        out_dtype=mm_out_dtype,
+        bias_mm,
+        alpha,
+        weight_tensor.original_shape[0],
+        # dense_min_rows == dense_min_cols == 16 for float8_e4m3fn
+        constraints.dense_min_rows,
     )
-    # result: (out_features, batch) -> (batch, out_features)
-    result = result.t()
 
     out_dtype = input_tensor.dtype
     result = result.to(out_dtype)
