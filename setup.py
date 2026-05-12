@@ -535,11 +535,12 @@ int main() {
         return flags
 
     @staticmethod
-    def add_compile_flags(extra_compile_args: dict) -> None:
-        """Extend *extra_compile_args* with CPU-kernel compile options.
+    def add_compile_flags(extra_compile_args: dict, extra_link_args: dict) -> None:
+        """Extend extra_compile_args and extra_link_args with CPU-kernel compile options.
 
-        These flags are for non-AVX512/AVX10.2 builds only.
+        Compile flags are for non-AVX512/AVX10.2 builds only.
         The AVX512/AVX10.2-specific flags are added in precompile_isa_objects.
+        Link flags are set for default path of torch libs.
         """
         if not X86KernelBuild.is_enabled():
             return
@@ -554,6 +555,8 @@ int main() {
         if X86KernelBuild._isa_at_least("avx10_2"):
             flags.append("-DBUILD_AVX10_2")
         extra_compile_args["cxx"].extend(flags)
+        # Default path to find torch libs
+        extra_link_args.append("-Wl,-rpath,$ORIGIN/../torch/lib")
 
     @staticmethod
     def filter_sources(sources: list, extensions_dir: str) -> list:
@@ -796,7 +799,7 @@ def get_extensions():
         )
 
         # X86-specific compile flags
-        X86KernelBuild.add_compile_flags(extra_compile_args)
+        X86KernelBuild.add_compile_flags(extra_compile_args, extra_link_args)
 
         if debug_mode:
             extra_compile_args["cxx"].append("-g")
