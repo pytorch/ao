@@ -295,7 +295,9 @@ class TestNF4Linear(TestCase):
     @parametrize("dtype", [torch.bfloat16, torch.float16, torch.float32])
     @parametrize("shape", [(16, 16), (32, 16)])
     @parametrize("chunk_size", [8, 16, 32])
-    def test_chunk_size_equivalence(self, device, dtype: torch.dtype, shape, chunk_size):
+    def test_chunk_size_equivalence(
+        self, device, dtype: torch.dtype, shape, chunk_size
+    ):
         if device == "cpu":
             self.skipTest("Need GPU available")
         a = torch.randn(shape, device=device, dtype=dtype)
