@@ -550,7 +550,7 @@ def _compute_fwd_sm100(
         swizzle_a=SwizzleType.SWIZZLE_32_4_4,
         swizzle_b=SwizzleType.SWIZZLE_32_4_4,
         offs=padded_group_end_offsets,
-        out_dtype=out_dtype,
+        output_dtype=out_dtype,
     )
     return output
 
