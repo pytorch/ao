@@ -33,10 +33,13 @@ def get_index_linspace(
 
 
 @contextmanager
-def use_deterministic_algorithms():
-    """Context manager to enable deterministic algorithms in PyTorch"""
+def use_deterministic_algorithms(mode: bool = True):
+    """Context manager that toggles PyTorch's deterministic-algorithms mode."""
     deterministic_restore = torch.are_deterministic_algorithms_enabled()
-    torch.use_deterministic_algorithms(True)
+    if deterministic_restore == mode:
+        yield
+        return
+    torch.use_deterministic_algorithms(mode)
     try:
         yield
     finally:
@@ -127,7 +130,7 @@ def latent_svd(self, name=""):
     S = getattr(self, f"{name}_S")
     Vh = getattr(self, f"{name}_Vh")
     orig_shape = torch.Size(getattr(self, f"{name}_orig_shape"))
-    return torch.linalg.multi_dot([U, torch.diag(S), Vh]).view(orig_shape)
+    return ((U * S) @ Vh).view(orig_shape)
 
 
 def insert_svd_modules_(model: nn.Module, optimizer: torch.optim.Optimizer):

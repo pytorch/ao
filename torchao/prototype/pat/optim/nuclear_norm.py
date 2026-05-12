@@ -6,7 +6,6 @@
 
 from typing import Union
 
-import torch
 from torch import Tensor
 
 from .proxmap import ProxMap
@@ -26,6 +25,9 @@ class ProxNuclearNorm(ProxMap):
         tau_reweight: Union[Tensor, float] = 1.0,
     ) -> tuple[Tensor, Tensor]:
         thresh = self.threshold(p, gamma, tau_reweight)
-        zero_mask = p.le(thresh)
-        p.sub_(torch.where(zero_mask, p, thresh))
-        return zero_mask.sum(), self._get_norm(p)
+        # Soft-threshold non-negative singular values to zero: equivalent to
+        # relu(p - thresh) for p >= 0. Avoids a torch.where intermediate and
+        # composes under torch.vmap (relu_ has a batching rule; clamp_ does
+        # not at the time of writing).
+        p.sub_(thresh).relu_()
+        return p.eq(0).sum(), self._get_norm(p)
