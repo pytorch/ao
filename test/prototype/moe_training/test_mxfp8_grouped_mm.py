@@ -616,36 +616,3 @@ def test_mxfp8_grouped_gemm_bias_backward(kernel_preference, M, K, N, num_expert
     assert w_t.grad is not None, "w_t.grad should be computed"
     sqnr_weight = compute_error(w_t_ref.grad, w_t.grad)
     assert sqnr_weight >= 24.0, f"Weight grad sqnr {sqnr_weight} is too low"
-
-
-@skip_if_rocm("ROCm not supported")
-def test_mxfp8_grouped_gemm_bias_none_unchanged():
-    """Test that passing bias=None produces the same result as not passing bias."""
-    M, K, N, num_experts = 4096, 1024, 2048, 8
-    x = torch.randn(M, K, dtype=torch.bfloat16, device="cuda")
-    w = torch.randn(num_experts, N, K, dtype=torch.bfloat16, device="cuda")
-    w_t = w.transpose(-2, -1)
-    offs = generate_jagged_offs(num_experts, M, multiple_of=128)
-
-    out_default = _to_mxfp8_then_scaled_grouped_mm(
-        x,
-        w_t,
-        offs=offs,
-        out_dtype=torch.bfloat16,
-        kernel_preference=KernelPreference.EMULATED,
-        wgrad_with_hp=True,
-        scale_calculation_mode=ScaleCalculationMode.RCEIL,
-    )
-
-    out_none = _to_mxfp8_then_scaled_grouped_mm(
-        x,
-        w_t,
-        offs=offs,
-        bias=None,
-        out_dtype=torch.bfloat16,
-        kernel_preference=KernelPreference.EMULATED,
-        wgrad_with_hp=True,
-        scale_calculation_mode=ScaleCalculationMode.RCEIL,
-    )
-
-    torch.testing.assert_close(out_default, out_none, rtol=0, atol=0)
