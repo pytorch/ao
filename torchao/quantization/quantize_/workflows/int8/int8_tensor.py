@@ -152,7 +152,6 @@ class Int8Tensor(TorchAOBaseTensor):
         granularity: Optional[
             Union[
                 Granularity,
-                Tuple[Granularity, Granularity],
                 list[Granularity],
             ]
         ],
@@ -161,17 +160,17 @@ class Int8Tensor(TorchAOBaseTensor):
             return (PerRow(), PerRow())
         elif isinstance(granularity, Granularity):
             return (granularity, granularity)
-        elif isinstance(granularity, (tuple, list)):
+        elif isinstance(granularity, list):
             if len(granularity) == 2:
                 return tuple(granularity)
             else:
                 raise ValueError(
-                    f"Granularity tuple/list must have exactly 2 elements, got {len(granularity)}: {granularity}"
+                    f"Granularity list must have exactly 2 elements, got {len(granularity)}: {granularity}"
                 )
         else:
             raise ValueError(
                 f"Invalid granularity type: {granularity}. "
-                f"Expected None, Granularity, or tuple/list of 2 Granularities."
+                f"Expected None, Granularity, or list of 2 Granularities."
             )
 
     @classmethod

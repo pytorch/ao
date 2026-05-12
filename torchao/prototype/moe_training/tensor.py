@@ -19,12 +19,12 @@ from torchao.prototype.moe_training.config import (
     MXFP8TrainingOpConfig,
     TrainingOpBaseConfig,
 )
+from torchao.prototype.moe_training.mxfp8_linear import _to_mxfp8_then_scaled_mm
 from torchao.prototype.moe_training.utils import (
     _quantize_then_scaled_grouped_mm,
     _to_fp8_then_scaled_mm,
     unwrap_weight,
 )
-from torchao.prototype.mx_formats.mx_linear import _to_mxfp8_then_scaled_mm
 from torchao.utils import TorchAOBaseTensor
 
 aten = torch.ops.aten

@@ -2808,10 +2808,10 @@ class TestPatternMatcher(TestPatternMatcherBase):
     @parametrize(
         "base_config",
         [
-            Int8StaticActivationInt8WeightConfig(granularity=(PerTensor(), PerRow())),
+            Int8StaticActivationInt8WeightConfig(granularity=[PerTensor(), PerRow()]),
             Int8StaticActivationInt8WeightConfig(),
             Int8DynamicActivationInt8WeightConfig(
-                version=2, granularity=(PerTensor(), PerRow())
+                version=2, granularity=[PerTensor(), PerRow()]
             ),
             Int8DynamicActivationInt8WeightConfig(version=2),
         ],

@@ -39,7 +39,7 @@ class TestInt8TensorCPU(TorchAOIntegrationTestCase):
     @common_utils.parametrize("config_mode", ["dynamic", "static"])
     @common_utils.parametrize(
         "granularity",
-        [PerRow(), PerTensor(), (PerRow(), PerTensor()), (PerTensor(), PerRow())],
+        [PerRow(), PerTensor(), [PerRow(), PerTensor()], [PerTensor(), PerRow()]],
     )
     @common_utils.parametrize(
         "act_mapping_type", [MappingType.SYMMETRIC, MappingType.ASYMMETRIC]
