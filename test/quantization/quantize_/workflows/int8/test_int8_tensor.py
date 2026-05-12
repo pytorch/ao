@@ -28,7 +28,7 @@ from torchao.quantization.quantize_.workflows.int8.int8_tensor import (
 )
 from torchao.quantization.utils import compute_error, get_block_size
 from torchao.testing.model_architectures import ToyTwoLinearModel
-from torchao.testing.utils import TorchAOIntegrationTestCase, skip_if_xpu
+from torchao.testing.utils import TorchAOIntegrationTestCase
 from torchao.utils import (
     get_available_devices,
     is_ROCM,
@@ -277,11 +277,11 @@ class TestInt8Tensor(TorchAOIntegrationTestCase):
             "extern_kernels._int_mm", 1
         ).check_count("triton_poi_fused", 1).run(code[0])
 
-    @skip_if_xpu("pin memory is not supported on XPU")
+    @common_utils.parametrize("device", get_available_devices())
     @common_utils.parametrize("config", INT8_TEST_CONFIGS)
-    def test_pin_memory(self, config):
+    def test_pin_memory(self, config, device):
         linear = torch.nn.Linear(
-            256, 512, bias=False, dtype=torch.bfloat16, device="cuda"
+            256, 512, bias=False, dtype=torch.bfloat16, device=device
         )
         quantize_(linear, config)
         weight_cpu = linear.weight.cpu()
