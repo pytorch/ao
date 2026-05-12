@@ -178,6 +178,7 @@ def test_K_or_N_dim_not_multiple_of_16(m, n, k, device):
             offs=offs,
             out_dtype=config.out_dtype,
             float8_dtype=config.float8_dtype,
+            pad_token_groups_for_grouped_mm=config.pad_token_groups_for_grouped_mm,
         )
 
 
