@@ -41,22 +41,35 @@ logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
-# FP4 E2M1 quantization (simple per-tensor scale)
+# FP4 E2M1 quantization (block-scale, matching NvFP4 kernel numerics)
 # ---------------------------------------------------------------------------
 
 # Representable positive E2M1 values: 0, 0.5, 1, 1.5, 2, 3, 4, 6
 _E2M1_VALUES = [0.0, 0.5, 1.0, 1.5, 2.0, 3.0, 4.0, 6.0]
 # Midpoint boundaries between consecutive values (for round-to-nearest)
 _E2M1_BOUNDARIES = [0.25, 0.75, 1.25, 1.75, 2.5, 3.5, 5.0]
-_FP4_MAX = 6.0
+_SF_BLOCK_SIZE = 16
 
 
 def _fp4_quant_dequant(x: torch.Tensor) -> torch.Tensor:
-    """Simple FP4 E2M1 quantize-dequantize with per-tensor scale.
+    """FP4 E2M1 block-scale quantize-dequantize roundtrip.
 
-    Computes ``scale = amax(x) / 6.0``, scales the tensor into the FP4
-    representable range, rounds each element to the nearest E2M1 value,
-    and scales back.
+    Uses two levels of scaling to map values into the FP4 E2M1 representable
+    range, matching the NvFP4 kernel numerics:
+
+    **Level 1 — Global scale factor (per-tensor):**
+    Computed as ``(448 * 6) / amax(x)``, where 448 is the max FP8-E4M3 value
+    and 6 is the max FP4-E2M1 value. This maps the tensor's dynamic range
+    into the combined FP8 * FP4 representable range.
+
+    **Level 2 — Block scale factor (per block of 16 elements):**
+    The globally-scaled tensor is reshaped into blocks of 16. Each block gets
+    its own FP8-E4M3 scale factor: ``block_amax / 6.0``, quantized to FP8.
+    This adapts precision to local magnitude variation within each block.
+
+    After both scales are applied, each element is rounded to the nearest
+    E2M1 value (0, 0.5, 1, 1.5, 2, 3, 4, 6), then dequantized by reversing
+    both scale factors.
 
     For 3D tensors (expert weights), quantizes each expert slice independently
     to avoid OOM from materializing the full tensor in float32.
@@ -70,19 +83,30 @@ def _fp4_quant_dequant(x: torch.Tensor) -> torch.Tensor:
         return out
 
     device = x.device
-    amax = x.float().abs().amax()
-    scale = amax / _FP4_MAX
+    orig_dtype = x.dtype
 
-    x_scaled = x.float() / scale.clamp(min=1e-12)
+    # Level 1: global scale factor maps tensor range into FP8*FP4 range
+    gsf = (448 * 6) / x.float().abs().nan_to_num().max()
+    x = x.float() * gsf
 
-    sign = x_scaled.sign()
-    x_abs = x_scaled.abs()
+    # Level 2: per-block FP8 scale factor adapts to local magnitudes
+    orig_shape = x.shape
+    x_flat = x.reshape(-1, _SF_BLOCK_SIZE)
+    block_amax = x_flat.abs().amax(dim=-1, keepdim=True)
+    block_sf = (block_amax / 6.0).to(torch.float8_e4m3fn).float()
+
+    # Round to nearest E2M1 value
+    x_norm = x_flat / block_sf.clamp(min=torch.finfo(torch.float8_e4m3fn).tiny)
+    sign = x_norm.sign()
+    x_abs = x_norm.abs()
     boundaries = torch.tensor(_E2M1_BOUNDARIES, device=device)
     values = torch.tensor(_E2M1_VALUES, device=device)
     indices = torch.bucketize(x_abs, boundaries)
     x_quant = sign * values[indices]
 
-    return (x_quant * scale).to(x.dtype)
+    # Dequantize: reverse block scale, reshape, reverse global scale
+    x_dq = (x_quant * block_sf).reshape(orig_shape) / gsf
+    return x_dq.to(orig_dtype)
 
 
 def _fp4_fake_quantize(x: torch.Tensor) -> torch.Tensor:

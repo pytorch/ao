@@ -446,8 +446,8 @@ class TestSimpleVsFullNvfp4:
             f"Full NvFP4 SQNR {sqnr_nvfp4:.2f} dB too low"
         )
 
-    def test_simple_and_full_differ(self):
-        """Simple and full NvFP4 should produce different outputs (different scaling)."""
+    def test_simple_and_full_match(self):
+        """Simple and full NvFP4 should produce the same outputs (same block scaling)."""
         from torchao.prototype.qat.nvfp4_moe import (
             _fp4_fake_quantize_forward as nvfp4_fq_forward,
         )
@@ -458,8 +458,8 @@ class TestSimpleVsFullNvfp4:
         simple_dq = _fp4_quant_dequant(x)
         nvfp4_dq = nvfp4_fq_forward(x)
 
-        assert not torch.equal(simple_dq, nvfp4_dq), (
-            "Simple and full NvFP4 should produce different outputs"
+        assert torch.equal(simple_dq, nvfp4_dq), (
+            "Simple and full NvFP4 should produce the same outputs"
         )
 
 
