@@ -22,7 +22,6 @@ from torchao.prototype.inductor.fx_passes.qsdpa_fusion import (
     custom_pass,
 )
 from torchao.testing.pt2e.utils import qdq_fp8
-from torchao.utils import torch_version_at_least
 
 
 def fp8_convert_(model):
@@ -325,10 +324,6 @@ class TestSDPAPatternRewriterTemplate(TestCase):
 
     @skipIfRocm
     @unittest.skipIf(
-        not torch_version_at_least("2.7.0"),
-        reason="qsdpa requires torch 2.7 or later",
-    )
-    @unittest.skipIf(
         "CPU" not in torch._C._dispatch_dump("torchao::qscaled_dot_product"),
         reason="cpp kernels not built",
     )
@@ -385,10 +380,6 @@ class TestSDPAPatternRewriterTemplate(TestCase):
                 )
 
     @skipIfRocm
-    @unittest.skipIf(
-        not torch_version_at_least("2.7.0"),
-        reason="qsdpa requires torch 2.7 or later",
-    )
     @unittest.skipIf(
         "CPU" not in torch._C._dispatch_dump("torchao::qscaled_dot_product"),
         reason="cpp kernels not built",

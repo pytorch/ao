@@ -17,10 +17,6 @@ from torch.testing._internal.common_utils import (
 )
 from torch.testing._internal.optests import opcheck
 
-from torchao.utils import (
-    torch_version_at_least,
-)
-
 IS_CUDA = torch.cuda.is_available() and torch.version.cuda
 IS_ROCM = torch.cuda.is_available() and torch.version.hip
 
@@ -109,10 +105,6 @@ class TestOps(TestCase):
         out = torch.clamp(out / o_scale, min=-448, max=448)
         return out.to(torch.float8_e4m3fn)
 
-    @pytest.mark.skipif(
-        not torch_version_at_least("2.7.0"),
-        reason="quantized sdpa requires torch 2.7 or later",
-    )
     @pytest.mark.skipif(not IS_LINUX, reason="only support on linux")
     @pytest.mark.skipif(
         "CPU" not in torch._C._dispatch_dump("torchao::qscaled_dot_product"),
@@ -208,10 +200,6 @@ class TestOps(TestCase):
             )
         self.assertEqual(actual.float(), math_ref.float(), atol=atol, rtol=rtol)
 
-    @pytest.mark.skipif(
-        not torch_version_at_least("2.7.0"),
-        reason="quantized sdpa requires torch 2.7 or later",
-    )
     @pytest.mark.skipif(not IS_LINUX, reason="only support on linux")
     @pytest.mark.skipif(
         "CPU" not in torch._C._dispatch_dump("torchao::qscaled_dot_product"),
@@ -440,9 +428,6 @@ def test_scaled_embedding_bag_fp8_cpu(
     "CPU" not in torch._C._dispatch_dump("torchao::float8_linear_prepack_cpu")
     or "CPU" not in torch._C._dispatch_dump("torchao::float8_linear_cpu"),
     reason="cpp kernels not built",
-)
-@pytest.mark.skipif(
-    not torch_version_at_least("2.6.0"), reason="Test only enabled for 2.6+"
 )
 @pytest.mark.parametrize("shape", [(64, 64), (256, 256)])
 @pytest.mark.parametrize("bs", [1, 160])

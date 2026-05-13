@@ -5,7 +5,6 @@
 # LICENSE file in the root directory of this source tree.
 
 import tempfile
-import unittest
 
 import torch
 from torch.testing._internal.common_utils import (
@@ -19,9 +18,6 @@ from torchao.prototype.quantization.int4 import PrototypeInt4WeightOnlyConfig
 from torchao.quantization import quantize_
 from torchao.quantization.quantize_.common import SupportsActivationPreScaling
 from torchao.quantization.utils import compute_error
-from torchao.utils import (
-    torch_version_at_least,
-)
 
 
 def get_config(group_size, use_hqq):
@@ -31,7 +27,6 @@ def get_config(group_size, use_hqq):
     )
 
 
-@unittest.skipIf(not torch_version_at_least("2.6.0"), "Need pytorch 2.6+")
 class TestInt4OpaqueTensor(TestCase):
     @parametrize(
         "sizes",

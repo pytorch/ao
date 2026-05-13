@@ -47,7 +47,6 @@ class TestDa8w4Cpu(TestCase):
         "CPU" not in torch._C._dispatch_dump("torchao::da8w4_linear_cpu"),
         reason="cpp kernels not built",
     )
-    @unittest.skipIf(not torch_version_at_least("2.7.0"), "Test only enabled for 2.7+")
     @common_utils.parametrize("dtype", [torch.float, torch.bfloat16, torch.half])
     @common_utils.parametrize("x_dim", [2, 3])
     @common_utils.parametrize("bias", [True, False])

@@ -9,10 +9,10 @@ import torch
 import torch.nn.functional as F
 
 from torchao.quantization.utils import compute_error
-from torchao.utils import is_sm_at_least_100, torch_version_at_least
+from torchao.utils import is_sm_at_least_100
 
-if not (torch_version_at_least("2.7.0") and torch.cuda.is_available()):
-    pytest.skip("CUDA and PyTorch 2.7.0+ required", allow_module_level=True)
+if not torch.cuda.is_available():
+    pytest.skip("CUDA required", allow_module_level=True)
 
 from torchao.prototype.moe_training.mxfp8_linear import MXFP8Linear
 from torchao.quantization.quantize_.common.kernel_preference import KernelPreference

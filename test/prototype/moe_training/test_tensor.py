@@ -8,11 +8,9 @@ import pytest
 import torch
 import torch.nn.functional as F
 
-from torchao.utils import torch_version_at_least
-
 # Skip module if basic requirements aren't met
-if not (torch_version_at_least("2.7.0") and torch.cuda.is_available()):
-    pytest.skip("CUDA and PyTorch 2.7.0+ required", allow_module_level=True)
+if not torch.cuda.is_available():
+    pytest.skip("CUDA required", allow_module_level=True)
 
 from torchao.prototype.moe_training.config import (
     Float8TrainingOpConfig,
