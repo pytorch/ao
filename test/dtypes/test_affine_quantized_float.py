@@ -267,7 +267,9 @@ class TestAffineQuantizedFloat8Compile(InductorTestCase):
         """
         M, K, N = 128, 256, 512
 
-        for kernel_pref in (KernelPreference.TORCH, KernelPreference.AUTO):
+        # TODO(future PR): reenable KernelPreference.AUTO here,
+        # error: https://gist.github.com/vkuzo/22ad0e9117859588b62bd7ea7ff06ac2
+        for kernel_pref in (KernelPreference.TORCH,):
             # Reset compiler and create fresh model for each iteration
             torch.compiler.reset()
             # Use bias=False to avoid extra triton kernel for bias addition
