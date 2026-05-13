@@ -48,9 +48,9 @@ def _to_column_major_per_group(q_data: Tensor) -> Tensor:
 def _to_blocked_per_group_3d_layout(
     scales: Tensor,
     *,
-    scale_block_k: int,
+    scale_block_dim2: int,
 ) -> Tensor:
-    if scale_block_k == 1:
+    if scale_block_dim2 == 1:
         return torch_to_blocked_per_group_3d(scales.transpose(-2, -1).contiguous())
     replicated_scales = scales.transpose(-2, -1).repeat_interleave(32, dim=1)
     return torch_to_blocked_per_group_3d(replicated_scales)
@@ -60,14 +60,14 @@ def _mxfp8_quantize_reference_3d(
     x: torch.Tensor,
     *,
     block_size: int,
-    scale_block_n: int,
-    scale_block_k: int,
+    scale_block_dim1: int,
+    scale_block_dim2: int,
     scaling_mode: str,
     blocked_scale_output: bool,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     scale_mode = _to_scale_calculation_mode(scaling_mode)
 
-    if scale_block_k == 1:
+    if scale_block_dim2 == 1:
         scale_t, q_data_t = to_mx(
             x.transpose(-2, -1).contiguous(),
             elem_dtype=torch.float8_e4m3fn,
@@ -76,26 +76,37 @@ def _mxfp8_quantize_reference_3d(
         )
         q_data = q_data_t.transpose(-2, -1)
         scales = scale_t.transpose(-2, -1).contiguous()
-    elif scale_block_k == block_size:
+    elif scale_block_dim2 == block_size:
         E, N, K = x.shape
         x_tiles = (
-            x.view(E, N // scale_block_n, scale_block_n, K // block_size, block_size)
+            x.view(
+                E,
+                N // scale_block_dim1,
+                scale_block_dim1,
+                K // block_size,
+                block_size,
+            )
             .permute(0, 1, 3, 2, 4)
             .contiguous()
-            .view(E, N // scale_block_n, K // block_size, scale_block_n * block_size)
+            .view(
+                E,
+                N // scale_block_dim1,
+                K // block_size,
+                scale_block_dim1 * block_size,
+            )
         )
         scales, q_tiles = to_mx(
             x_tiles,
             elem_dtype=torch.float8_e4m3fn,
-            block_size=scale_block_n * block_size,
+            block_size=scale_block_dim1 * block_size,
             scaling_mode=scale_mode,
         )
         q_data = (
             q_tiles.view(
                 E,
-                N // scale_block_n,
+                N // scale_block_dim1,
                 K // block_size,
-                scale_block_n,
+                scale_block_dim1,
                 block_size,
             )
             .permute(0, 1, 3, 2, 4)
@@ -105,14 +116,14 @@ def _mxfp8_quantize_reference_3d(
         q_data = _to_column_major_per_group(q_data)
     else:
         raise ValueError(
-            f"Unsupported 3D MXFP8 scale_block_k={scale_block_k}. "
+            f"Unsupported 3D MXFP8 scale_block_dim2={scale_block_dim2}. "
             f"Supported values are 1 and {block_size}."
         )
 
     if blocked_scale_output:
         scales = _to_blocked_per_group_3d_layout(
             scales,
-            scale_block_k=scale_block_k,
+            scale_block_dim2=scale_block_dim2,
         )
     return q_data, scales
 
@@ -978,8 +989,8 @@ _mxfp8_cutedsl_kernels_available = (
 def _mxfp8_quantize_3d_cutedsl_custom_op(
     x: torch.Tensor,
     block_size: int = 32,
-    scale_block_n: int = 32,
-    scale_block_k: int = 1,
+    scale_block_dim1: int = 32,
+    scale_block_dim2: int = 1,
     scaling_mode: str = "rceil",
     stage_count: int = 2,
     blocked_scale_output: bool = True,
@@ -991,8 +1002,8 @@ def _mxfp8_quantize_3d_cutedsl_custom_op(
     return mxfp8_quantize_cutedsl_3d(
         x,
         block_size=block_size,
-        scale_block_n=scale_block_n,
-        scale_block_k=scale_block_k,
+        scale_block_dim1=scale_block_dim1,
+        scale_block_dim2=scale_block_dim2,
         scaling_mode=scaling_mode,
         stage_count=stage_count,
         blocked_scale_output=blocked_scale_output,
@@ -1003,16 +1014,16 @@ def _mxfp8_quantize_3d_cutedsl_custom_op(
 def _fake_mxfp8_quantize_3d_cutedsl_custom_op(
     x: torch.Tensor,
     block_size: int = 32,
-    scale_block_n: int = 32,
-    scale_block_k: int = 1,
+    scale_block_dim1: int = 32,
+    scale_block_dim2: int = 1,
     scaling_mode: str = "rceil",
     stage_count: int = 2,
     blocked_scale_output: bool = True,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     assert x.ndim == 3, "input tensor must be 3D"
     assert block_size == 32, "Only block_size=32 is supported"
-    assert scale_block_n == 32, "scale_block_n must be 32"
-    assert scale_block_k in (1, 32), "scale_block_k must be 1 or 32"
+    assert scale_block_dim1 == 32, "scale_block_dim1 must be 32"
+    assert scale_block_dim2 in (1, 32), "scale_block_dim2 must be 1 or 32"
     e, n, k = x.shape
     q_data = torch.empty_strided(
         (e, n, k),
@@ -1020,7 +1031,7 @@ def _fake_mxfp8_quantize_3d_cutedsl_custom_op(
         device=x.device,
         dtype=torch.float8_e4m3fn,
     )
-    n_blocks = n // scale_block_n
+    n_blocks = n // scale_block_dim1
     if blocked_scale_output:
         padded_scale_rows = ceil_div(k, 128) * 128
         padded_scale_cols = ceil_div(n_blocks, 4) * 4
@@ -1030,7 +1041,7 @@ def _fake_mxfp8_quantize_3d_cutedsl_custom_op(
         )
     else:
         scales = x.new_empty(
-            (e, n_blocks, k if scale_block_k == 1 else k // block_size),
+            (e, n_blocks, k if scale_block_dim2 == 1 else k // block_size),
             dtype=torch.float8_e8m0fnu,
         )
     return q_data, scales
@@ -1397,23 +1408,29 @@ else:
 def mxfp8_quantize_cuda_3d(
     x: torch.Tensor,
     block_size: int = 32,
-    scale_block_n: Literal[32] = 32,
-    scale_block_k: Literal[1, 32] = 1,
+    scale_block_dim1: Literal[32] = 32,
+    scale_block_dim2: Literal[1, 32] = 1,
     scaling_mode: str = "rceil",
     stage_count: int = 2,
     blocked_scale_output: bool = True,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     """
-    Quantize a 3D tensor of shape (E, N, K) with MXFP8 scaling.
+    Quantize a 3D tensor with MXFP8 scaling.
 
-    `scale_block_n` and `scale_block_k` define the logical MXFP8 scale tile over
-    the per-expert `(N, K)` matrix. Currently supported modes are:
-    - `(32, 1)`: scales are shared across 32 rows in `N`
-    - `(32, 32)`: scales are shared across 32 rows in `N` and 32 columns in `K`
+    Supported contracts:
+    - standard expert layout: `(E, N, K)` with `K`-major input
+    - transposed expert view: `(E, K, N)` for the `32x1_t` path
 
-    Returns quantized data in column-major-per-expert layout. Scales are returned
-    either in logical row-major form or in blocked tcgen05 layout depending on
-    `blocked_scale_output`.
+    `scale_block_dim1` applies to the tensor's middle dimension and
+    `scale_block_dim2` applies to the trailing dimension of the chosen contract.
+    Currently supported modes are:
+    - `(32, 1)`: scales are shared across 32 values of the middle dimension
+    - `(32, 32)`: standard-layout path where scales are shared across 32 values
+      of the middle dimension and 32 values of the trailing dimension
+
+    Returns quantized data in column-major-per-expert layout for the input's
+    trailing two dimensions. Scales are returned either in logical form or in
+    blocked tcgen05 layout depending on `blocked_scale_output`.
     """
     assert block_size == 32, "Only block_size=32 is supported"
     assert x.ndim == 3, "x must be 3D"
@@ -1421,11 +1438,11 @@ def mxfp8_quantize_cuda_3d(
     assert x.shape[2] % block_size == 0, "K must be divisible by block_size"
 
     supported_scale_blocks = {(block_size, 1), (block_size, block_size)}
-    if (scale_block_n, scale_block_k) not in supported_scale_blocks:
+    if (scale_block_dim1, scale_block_dim2) not in supported_scale_blocks:
         raise ValueError(
-            "Supported 3D MXFP8 (scale_block_n, scale_block_k) values are "
+            "Supported 3D MXFP8 (scale_block_dim1, scale_block_dim2) values are "
             f"({block_size}, 1) and ({block_size}, {block_size}), "
-            f"got ({scale_block_n}, {scale_block_k})"
+            f"got ({scale_block_dim1}, {scale_block_dim2})"
         )
 
     # Keep the existing CuTeDSL kernel as the fast path for the current 3D mode,
@@ -1434,8 +1451,8 @@ def mxfp8_quantize_cuda_3d(
         return _mxfp8_quantize_3d_cutedsl_custom_op(
             x,
             block_size=block_size,
-            scale_block_n=scale_block_n,
-            scale_block_k=scale_block_k,
+            scale_block_dim1=scale_block_dim1,
+            scale_block_dim2=scale_block_dim2,
             scaling_mode=scaling_mode,
             stage_count=stage_count,
             blocked_scale_output=blocked_scale_output,
@@ -1457,8 +1474,8 @@ def mxfp8_quantize_cuda_3d(
     return _mxfp8_quantize_reference_3d(
         x,
         block_size=block_size,
-        scale_block_n=scale_block_n,
-        scale_block_k=scale_block_k,
+        scale_block_dim1=scale_block_dim1,
+        scale_block_dim2=scale_block_dim2,
         scaling_mode=scaling_mode,
         blocked_scale_output=blocked_scale_output,
     )

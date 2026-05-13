@@ -53,6 +53,7 @@ from torchao.quantization.quantize_.common import (
 from torchao.quantization.quantize_.workflows import (
     Float8PackingFormat,
     Float8Sparse2x4_1DData1DMetadataTensor,
+    Float8Sparse2x4_2DData2DMetadataTensor,
     Float8Tensor,
     Int4ChooseQParamsAlgorithm,
     Int4PackingFormat,
@@ -67,7 +68,6 @@ from torchao.quantization.quantize_.workflows import (
     IntxUnpackedToInt8Tensor,
     QuantizeTensorToFloat8Kwargs,
     QuantizeTensorToInt8Kwargs,
-    Sparse2x4CUTLASSFloat8Tensor,
 )
 from torchao.quantization.transform_module import (
     _QUANTIZE_CONFIG_HANDLER,
@@ -1254,11 +1254,11 @@ def _float8_dynamic_activation_float8_weight_quantize_tensor(weight, config):
             act_quant_kwargs=act_quant_kwargs,
         )
         return quantized_weight
-    elif packing_format == Float8PackingFormat.SPARSE_CUTLASS:
+    elif packing_format == Float8PackingFormat.SPARSE_2D_DATA_2D_METADATA:
         assert isinstance(weight_granularity, PerRow), (
             "Sparse packing format only supports per-row quantization"
         )
-        quantized_weight = Sparse2x4CUTLASSFloat8Tensor.from_hp(
+        quantized_weight = Float8Sparse2x4_2DData2DMetadataTensor.from_hp(
             weight,
             float8_dtype=weight_dtype,
             granularity=weight_granularity,

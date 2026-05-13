@@ -21,7 +21,6 @@ from triton.testing import do_bench
 from torchao.prototype.moe_training.kernels.mxfp8 import (
     mx_block_rearrange_2d_M_groups_cuda,
     torch_to_blocked_2d_M_groups,
-    torch_to_blocked_per_group_3d,
     triton_mx_block_rearrange_2d_K_groups,
     triton_mx_block_rearrange_per_group_3d,
 )
@@ -238,19 +237,16 @@ class RooflineModel:
         return time_s
 
     def compute_mxfp8_fwd_bwd_time(self, M, K, N, G):
-        """Compute time for MXFP8 forward + backward pass including scale rearrangement overhead"""
+        """Compute time for MXFP8 forward + backward pass."""
         block_size = 32
 
         # Forward: (M, K) @ (G, K, N)^T -> (M, N) [2D-3D]
         fwd_quant_time = self.compute_mxfp8_fwd_quant_time(M, K, G, N)
         # Forward scale rearrangement:
         # - Input scales (M, K//32) -> M-groups rearrangement
-        # - Weight scales (G, N, K//32) -> 3D per-group rearrangement
+        # - Weight scales are emitted directly in blocked layout by the 3D kernel
         fwd_input_scale_rearrange_time = self.compute_rearrange_2d_M_groups_time(
             M, K // block_size
-        )
-        fwd_weight_scale_rearrange_time = self.compute_rearrange_3d_per_group_time(
-            G, N, K // block_size
         )
         fwd_gemm_time = self.compute_mxfp8_2d_3d_gemm_time(M, K, N)
 
@@ -258,12 +254,9 @@ class RooflineModel:
         bwd_input_quant_time = self.compute_mxfp8_bwd_input_quant_time(M, K, G, N)
         # Backward input scale rearrangement:
         # - grad_output scales (M, N//32) -> M-groups rearrangement
-        # - Weight scales (G, K, N//32) -> 3D per-group rearrangement (transposed weight)
+        # - Weight scales are emitted directly in blocked layout by the 3D kernel
         bwd_input_grad_scale_rearrange_time = self.compute_rearrange_2d_M_groups_time(
             M, N // block_size
-        )
-        bwd_input_weight_scale_rearrange_time = (
-            self.compute_rearrange_3d_per_group_time(G, K, N // block_size)
         )
         bwd_input_gemm_time = self.compute_mxfp8_2d_3d_gemm_time(M, N, K)
 
@@ -283,11 +276,9 @@ class RooflineModel:
         total_time = (
             fwd_quant_time
             + fwd_input_scale_rearrange_time
-            + fwd_weight_scale_rearrange_time
             + fwd_gemm_time
             + bwd_input_quant_time
             + bwd_input_grad_scale_rearrange_time
-            + bwd_input_weight_scale_rearrange_time
             + bwd_input_gemm_time
             + bwd_weight_quant_time
             + bwd_weight_grad_scale_rearrange_time
@@ -492,13 +483,13 @@ def benchmark_to_mxfp8_dim1_cuda(tensor, block_size=32):
 
 
 def benchmark_mxfp8_quantize_cuda_3d(tensor, block_size=32):
-    """Benchmark mxfp8_quantize_cuda_3d kernel"""
+    """Benchmark the 3D 32x1 quantizer on its input tensor."""
     return benchmark_cuda_function_in_microseconds(
         lambda: mxfp8_quantize_cuda_3d(
             tensor,
             block_size=block_size,
-            scale_block_n=block_size,
-            scale_block_k=1,
+            scale_block_dim1=block_size,
+            scale_block_dim2=1,
             scaling_mode="rceil",
         )
     )
@@ -715,7 +706,7 @@ def run(
     # 3. 3D Quantization Kernel Analysis
     # =============================================================================
     print("\n" + "=" * 80)
-    print("3D QUANTIZATION KERNELS (Backward Pass - Weight Quantization)")
+    print("3D QUANTIZATION KERNELS (Direct Transposed-Weight Quantization)")
     print("=" * 80)
 
     quant_3d_results = []
@@ -741,8 +732,10 @@ def run(
 
         print(f"\nBenchmarking {desc}...")
 
-        # Create test tensor
-        tensor = torch.randn(G_val, N_val, K_val, dtype=torch.bfloat16, device="cuda")
+        # Benchmark the direct grouped-GEMM weight contract: w_t has shape
+        # (G, K, N), and the existing 3D 32x1 kernel quantizes it directly.
+        weight = torch.randn(G_val, N_val, K_val, dtype=torch.bfloat16, device="cuda")
+        tensor = weight.transpose(-2, -1)
 
         # Benchmark mxfp8_quantize_cuda_3d
         cuda_3d_time_us = benchmark_mxfp8_quantize_cuda_3d(tensor)
@@ -1030,21 +1023,25 @@ def run(
             f"  BF16 Grouped GEMM: Roofline={model.bf16_tflops:.1f} TFLOPS, Actual={bf16_actual_tflops:.1f} TFLOPS, Efficiency={result_dict['bf16_tflops_efficiency_pct']:.1f}%"
         )
 
-        # Convert to MXFP8 format using triton_to_mxfp8_dim0 (blocks along dim0)
+        # Convert activations to MXFP8 format using triton_to_mxfp8_dim0
         x_fp8, x_scales = triton_to_mxfp8_dim0(x, inner_block_size=32)
-        w_fp8, w_scales = triton_to_mxfp8_dim0(
-            w_t.transpose(-2, -1), inner_block_size=32
+        w_fp8, w_scales_blocked = mxfp8_quantize_cuda_3d(
+            w_t,
+            block_size=32,
+            scale_block_dim1=32,
+            scale_block_dim2=1,
+            scaling_mode="rceil",
         )
 
-        # Convert scales to blocked format
+        # Convert only activation scales to blocked format. Weight scales are
+        # already produced in blocked layout by mxfp8_quantize_cuda_3d.
         x_scales_blocked, _ = torch_to_blocked_2d_M_groups(
             x_scales, offs, block_size=32
         )
-        w_scales_blocked = torch_to_blocked_per_group_3d(w_scales)
 
         # Benchmark the MXFP8 grouped GEMM kernel
         mxfp8_gemm_time_us = benchmark_mxfp8_grouped_gemm(
-            x_fp8, w_fp8.transpose(-2, -1), x_scales_blocked, w_scales_blocked, offs
+            x_fp8, w_fp8, x_scales_blocked, w_scales_blocked, offs
         )
 
         # Calculate MXFP8 actual TFLOPS
@@ -1068,7 +1065,7 @@ def run(
         grouped_gemm_results.append(result_dict)
 
         # Clean up tensors to free GPU memory
-        del x, w, w_t, offs, x_fp8, x_scales, w_fp8, w_scales
+        del x, w, w_t, offs, x_fp8, x_scales, w_fp8
         del x_scales_blocked, w_scales_blocked
         torch.cuda.empty_cache()
 
@@ -1436,7 +1433,8 @@ def run(
     # Input quantization: use triton_to_mxfp8_dim0 for (M, K)
     fwd_input_quant_ms = df_quant_2d.loc[idx_large, "triton_to_mxfp8_dim0_us"] / 1000
 
-    # Weight quantization: use mxfp8_quantize_cuda_3d for (G, N, K)
+    # Weight quantization: use mxfp8_quantize_cuda_3d directly on w_t, shape
+    # (G, K, N), with no separate 3D scale rearrangement step.
     idx_3d_large = df_quant_3d[df_quant_3d["description"] == f"M={M_large}"].index[0]
     fwd_weight_quant_ms = (
         df_quant_3d.loc[idx_3d_large, "mxfp8_quantize_cuda_3d_us"] / 1000
@@ -1450,14 +1448,8 @@ def run(
         df_rearrange.loc[idx_m_groups, "mx_block_rearrange_2d_M_groups_cuda_us"] / 1000
     )
 
-    # Weight scale rearrangement: 3D per-group for (G, N, K//32)
-    idx_3d_rearrange = df_rearrange_3d[df_rearrange_3d["M"] == M_large].index[0]
-    fwd_weight_scale_rearrange_ms = (
-        df_rearrange_3d.loc[
-            idx_3d_rearrange, "triton_mx_block_rearrange_per_group_3d_us"
-        ]
-        / 1000
-    )
+    # Weight scales are emitted directly in blocked layout by the 3D quantizer.
+    fwd_weight_scale_rearrange_ms = 0.0
 
     # GEMM: use actual MXFP8 2D/3D grouped GEMM time
     idx_gemm = df_grouped_gemm[df_grouped_gemm["M"] == M_large].index[0]
