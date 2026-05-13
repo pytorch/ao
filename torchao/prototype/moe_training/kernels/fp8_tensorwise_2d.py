@@ -42,6 +42,8 @@ if torch_version_at_least("2.7.0") and has_triton():
         torch.float8_e5m2: tl.float8e5,
         torch.float8_e5m2fnuz: tl.float8e5b16,
     }
+    STAGED_AMAX_BLOCK_SIZE = 16384
+    STAGED_AMAX_MAX_PARTIALS = 65536
 
     # ROCm MI300X benefits from large blocks (high memory bandwidth, many CUs).
     # CUDA uses smaller blocks with more pipeline stages.
@@ -58,6 +60,9 @@ if torch_version_at_least("2.7.0") and has_triton():
                 num_stages=2,
             )
             for bm, bk, warps in [
+                (8, 256, 4),
+                (8, 512, 8),
+                (16, 512, 8),
                 (16, 256, 8),
                 (16, 128, 4),
                 (32, 128, 4),
@@ -87,7 +92,7 @@ if torch_version_at_least("2.7.0") and has_triton():
     @triton.jit
     def _fp8_tensorwise_2d_amax_kernel(
         x_ptr,
-        amax_ptr,               # *float32 scalar, pre-zeroed by caller
+        amax_ptr,  # *float32 scalar, pre-zeroed by caller
         numel: int,
         INPUT_DTYPE_MAX: tl.constexpr,  # max finite value of the input dtype
         BLOCK_SIZE: tl.constexpr,
@@ -105,7 +110,7 @@ if torch_version_at_least("2.7.0") and has_triton():
         x = tl.load(x_ptr + offs, mask=mask, other=0.0).to(tl.float32)
 
         # nan_to_num: NaN → 0, ±inf → ±INPUT_DTYPE_MAX (matches torch.nan_to_num)
-        x = tl.where(x != x, 0.0, x)                          # NaN → 0
+        x = tl.where(x != x, 0.0, x)  # NaN → 0
         x = tl.where(x > INPUT_DTYPE_MAX, INPUT_DTYPE_MAX, x)  # +inf → max
         x = tl.where(x < -INPUT_DTYPE_MAX, -INPUT_DTYPE_MAX, x)  # -inf → -max
 
@@ -117,13 +122,44 @@ if torch_version_at_least("2.7.0") and has_triton():
         else:
             tl.atomic_max(amax_ptr, local_max)
 
+    @triton.jit
+    def _fp8_tensorwise_staged_amax_stage1_kernel(
+        x_ptr,
+        partials_ptr,
+        numel: int,
+        INPUT_DTYPE_MAX: tl.constexpr,
+        BLOCK_SIZE: tl.constexpr,
+    ):
+        pid = tl.program_id(0)
+        offs = pid * BLOCK_SIZE + tl.arange(0, BLOCK_SIZE)
+        mask = offs < numel
+
+        x = tl.load(x_ptr + offs, mask=mask, other=0.0).to(tl.float32)
+        x = tl.where(x != x, 0.0, x)
+        x = tl.where(x > INPUT_DTYPE_MAX, INPUT_DTYPE_MAX, x)
+        x = tl.where(x < -INPUT_DTYPE_MAX, -INPUT_DTYPE_MAX, x)
+
+        tl.store(partials_ptr + pid, tl.max(tl.abs(x)))
+
+    @triton.jit
+    def _fp8_tensorwise_staged_amax_stage2_kernel(
+        partials_ptr,
+        amax_ptr,
+        n_partials: int,
+        BLOCK_PARTIALS: tl.constexpr,
+    ):
+        offs = tl.arange(0, BLOCK_PARTIALS)
+        mask = offs < n_partials
+        partials = tl.load(partials_ptr + offs, mask=mask, other=0.0).to(tl.float32)
+        tl.store(amax_ptr, tl.max(partials))
+
     @triton.autotune(configs=_configs, key=["numel"])
     @triton.jit
     def _fp8_tensorwise_2d_quantize_kernel(
         x_ptr,
-        out_ptr,                # *FP8 output, same shape as x
-        amax_ptr,               # *float32 scalar amax written by pass 1
-        inv_scale_out_ptr,      # (M,) float32 inverse scale output
+        out_ptr,  # *FP8 output, same shape as x
+        amax_ptr,  # *float32 scalar amax written by pass 1
+        inv_scale_out_ptr,  # (M,) float32 inverse scale output
         K: int,
         numel: int,
         fp8_max: tl.constexpr,
@@ -166,16 +202,20 @@ if torch_version_at_least("2.7.0") and has_triton():
         # incorrect FP8 values on AMD ROCm.
         x_clamped = tl.minimum(tl.maximum(x * scale, fp8_min), fp8_max)
         tl.store(out_ptr + offs, x_clamped.to(OUTPUT_DTYPE), mask=mask)
-        tl.store(inv_scale_out_ptr + offs // K, inv_scale, mask=mask & ((offs % K) == 0))
+        tl.store(
+            inv_scale_out_ptr + offs // K,
+            inv_scale,
+            mask=mask & ((offs % K) == 0),
+        )
 
     @triton.autotune(configs=_dual_layout_configs, key=["M", "K"])
     @triton.jit
     def _fp8_tensorwise_2d_dual_layout_quantize_kernel(
         x_ptr,
-        out_row_ptr,            # *FP8 row-major output, same shape as x
-        out_col_ptr,            # *FP8 col-major output, same shape as x
-        amax_ptr,               # *float32 scalar amax written by pass 1
-        inv_scale_out_ptr,      # (M,) float32 inverse scale output
+        out_row_ptr,  # *FP8 row-major output, same shape as x
+        out_col_ptr,  # *FP8 col-major output, same shape as x
+        amax_ptr,  # *float32 scalar amax written by pass 1
+        inv_scale_out_ptr,  # (M,) float32 inverse scale output
         M: int,
         K: int,
         stride_col_row,
@@ -258,17 +298,10 @@ if torch_version_at_least("2.7.0") and has_triton():
         input_dtype_max = torch.finfo(tensor.dtype).max
 
         fp8_out = torch.empty(M, K, dtype=output_dtype, device=tensor.device)
-        amax_buf = torch.zeros(1, dtype=torch.float32, device=tensor.device)
+        amax_buf = triton_fp8_tensorwise_amax(tensor)
         inv_scale_expanded = torch.empty(M, dtype=torch.float32, device=tensor.device)
 
         grid = lambda meta: (triton.cdiv(numel, meta["BLOCK_SIZE"]),)
-
-        _fp8_tensorwise_2d_amax_kernel[grid](
-            tensor,
-            amax_buf,
-            numel,
-            INPUT_DTYPE_MAX=input_dtype_max,
-        )
 
         _fp8_tensorwise_2d_quantize_kernel[grid](
             tensor,
@@ -309,19 +342,12 @@ if torch_version_at_least("2.7.0") and has_triton():
 
         fp8_row = torch.empty(M, K, dtype=output_dtype, device=tensor.device)
         fp8_col = torch.empty(K, M, dtype=output_dtype, device=tensor.device).t()
-        amax_buf = torch.zeros(1, dtype=torch.float32, device=tensor.device)
+        amax_buf = triton_fp8_tensorwise_amax(tensor)
         inv_scale_expanded = torch.empty(M, dtype=torch.float32, device=tensor.device)
 
-        amax_grid = lambda meta: (triton.cdiv(numel, meta["BLOCK_SIZE"]),)
         quant_grid = lambda meta: (
             triton.cdiv(M, meta["BLOCK_M"]),
             triton.cdiv(K, meta["BLOCK_K"]),
-        )
-        _fp8_tensorwise_2d_amax_kernel[amax_grid](
-            tensor,
-            amax_buf,
-            numel,
-            INPUT_DTYPE_MAX=input_dtype_max,
         )
 
         _fp8_tensorwise_2d_dual_layout_quantize_kernel[quant_grid](
@@ -344,6 +370,42 @@ if torch_version_at_least("2.7.0") and has_triton():
 
         return fp8_row, fp8_col, inv_scale_expanded
 
+    def triton_fp8_tensorwise_amax(tensor: torch.Tensor) -> torch.Tensor:
+        numel = tensor.numel()
+        input_dtype_max = torch.finfo(tensor.dtype).max
+        n_partials = triton.cdiv(numel, STAGED_AMAX_BLOCK_SIZE)
+        amax_buf = torch.empty(1, dtype=torch.float32, device=tensor.device)
+
+        if n_partials <= STAGED_AMAX_MAX_PARTIALS:
+            partials = torch.empty(
+                n_partials, dtype=torch.float32, device=tensor.device
+            )
+            _fp8_tensorwise_staged_amax_stage1_kernel[(n_partials,)](
+                tensor,
+                partials,
+                numel,
+                INPUT_DTYPE_MAX=input_dtype_max,
+                BLOCK_SIZE=STAGED_AMAX_BLOCK_SIZE,
+            )
+            _fp8_tensorwise_staged_amax_stage2_kernel[(1,)](
+                partials,
+                amax_buf,
+                n_partials,
+                BLOCK_PARTIALS=STAGED_AMAX_MAX_PARTIALS,
+            )
+            return amax_buf
+
+        amax_buf.zero_()
+        grid = lambda meta: (triton.cdiv(numel, meta["BLOCK_SIZE"]),)
+        _fp8_tensorwise_2d_amax_kernel[grid](
+            tensor,
+            amax_buf,
+            numel,
+            INPUT_DTYPE_MAX=input_dtype_max,
+        )
+        return amax_buf
+
 else:
+    triton_fp8_tensorwise_amax = None
     triton_fp8_tensorwise_quantize_2d = None
     triton_fp8_tensorwise_quantize_2d_dual_layout = None

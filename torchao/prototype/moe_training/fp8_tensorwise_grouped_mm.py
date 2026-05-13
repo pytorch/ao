@@ -32,7 +32,7 @@ _USE_TRITON_QUANTIZE_2D_DUAL = (
 
 try:
     from torchao.prototype.moe_training.kernels.fp8_tensorwise_2d import (
-        _fp8_tensorwise_2d_amax_kernel,
+        triton_fp8_tensorwise_amax,
     )
     from torchao.prototype.moe_training.kernels.fp8_tensorwise_3d import (
         _fp8_tensorwise_3d_dual_layout_quantize_kernel,
@@ -154,15 +154,10 @@ def _fp8_tensorwise_quantize_3d_single_scale(
             (E, N, K), dtype=output_dtype, device=tensor.device
         ).as_strided((E, N, K), (N * K, 1, N))
 
-        # Flat 1D amax over the entire tensor via atomic_max — one scalar
-        # output, no per-expert partial buffers or Python-side reduction.
-        numel = E * K * N
-        amax_buf = torch.zeros(1, dtype=torch.float32, device=tensor.device)
-        amax_grid = lambda meta: (_triton.cdiv(numel, meta["BLOCK_SIZE"]),)
-        _fp8_tensorwise_2d_amax_kernel[amax_grid](
-            tensor, amax_buf, numel,
-            INPUT_DTYPE_MAX=input_dtype_max,
-        )
+        # Flat 1D amax over the entire tensor. The staged path avoids global
+        # atomics for DeepSeek-sized tensors and falls back to atomic amax only
+        # for tensors with too many partial blocks.
+        amax_buf = triton_fp8_tensorwise_amax(tensor)
         expert_amax = amax_buf.expand(E).contiguous()
 
         fwd_inv_scales = torch.empty(E, N, dtype=torch.float32, device=tensor.device)
