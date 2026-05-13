@@ -805,8 +805,6 @@ class TestExport(unittest.TestCase):
     @unittest.skipIf(
         not is_sm_at_least_89(), "Requires GPU with compute capability >= 8.9"
     )
-    # error: https://gist.github.com/vkuzo/365414dfe350b7daae11a672ed14976c
-    @unittest.skip("TODO(future): reenable me")
     def test_export_float8(self):
         class SimpleNetwork(torch.nn.Module):
             def __init__(self):

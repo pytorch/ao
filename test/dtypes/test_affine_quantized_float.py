@@ -267,9 +267,7 @@ class TestAffineQuantizedFloat8Compile(InductorTestCase):
         """
         M, K, N = 128, 256, 512
 
-        # TODO(future PR): reenable KernelPreference.AUTO here,
-        # error: https://gist.github.com/vkuzo/22ad0e9117859588b62bd7ea7ff06ac2
-        for kernel_pref in (KernelPreference.TORCH,):
+        for kernel_pref in (KernelPreference.TORCH, KernelPreference.AUTO):
             # Reset compiler and create fresh model for each iteration
             torch.compiler.reset()
             # Use bias=False to avoid extra triton kernel for bias addition
@@ -318,7 +316,7 @@ class TestAffineQuantizedFloat8Compile(InductorTestCase):
                     # TORCH path: three triton kernels for quantizing the
                     # activation + one scaled_mm call
                     FileCheck().check("def call(").check_count(
-                        ".run(", 3, exactly=True
+                        ".run(", 1, exactly=True
                     ).run(code[0])
                     FileCheck().check("def call(").check_count(
                         "._scaled_mm(", 1, exactly=True
@@ -330,7 +328,7 @@ class TestAffineQuantizedFloat8Compile(InductorTestCase):
                         # B200/GB200: AUTO avoids MSLK for per-tensor scales,
                         # falls back to torch path (scaled_mm)
                         FileCheck().check("def call(").check_count(
-                            ".run(", 3, exactly=True
+                            ".run(", 1, exactly=True
                         ).run(code[0])
                         FileCheck().check("def call(").check_count(
                             "._scaled_mm(", 1, exactly=True
@@ -341,7 +339,7 @@ class TestAffineQuantizedFloat8Compile(InductorTestCase):
                     else:
                         # No MSLK: falls back to torch path (scaled_mm)
                         FileCheck().check("def call(").check_count(
-                            ".run(", 3, exactly=True
+                            ".run(", 1, exactly=True
                         ).run(code[0])
                         FileCheck().check("def call(").check_count(
                             "._scaled_mm(", 1, exactly=True
