@@ -314,7 +314,7 @@ class ArmInductorQuantTestCase(QuantizationTestCase):
 
         # program capture
         m = copy.deepcopy(m_eager)
-        m = torch.export.export(m, example_inputs).module()
+        m = torch.export.export(m, example_inputs, strict=True).module()
 
         # QAT Model failed to deepcopy
         export_model = m if is_qat else copy.deepcopy(m)
@@ -323,6 +323,7 @@ class ArmInductorQuantTestCase(QuantizationTestCase):
         m(*example_inputs)
         prepare_model = copy.deepcopy(m)
         m = convert_pt2e(m)
+
         convert_model = copy.deepcopy(m)
         if debug:
             convert_model.print_readable(True)
@@ -348,7 +349,7 @@ class ArmInductorQuantTestCase(QuantizationTestCase):
 
 
 @skipIfNoInductorSupport
-@unittest.skipIf(not torch_version_at_least("2.7.0"), "Requires torch 2.7+")
+@unittest.skipIf(not torch_version_at_least("2.8.0"), "Requires torch 2.8+")
 class TestQuantizePT2EArmInductor(ArmInductorQuantTestCase):
     @skipIfNoArm
     def test_conv2d(self):
@@ -1074,7 +1075,7 @@ class TestQuantizePT2EArmInductor(ArmInductorQuantTestCase):
         )
         example_inputs = (torch.randn(2, 2),)
         m = M().eval()
-        m = torch.export.export(m, example_inputs).module()
+        m = torch.export.export(m, example_inputs, strict=True).module()
         m = prepare_pt2e(m, quantizer)
         # Use a linear count instead of names because the names might change, but
         # the order should be the same.
