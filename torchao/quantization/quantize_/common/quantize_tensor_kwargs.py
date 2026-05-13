@@ -65,6 +65,7 @@ def _choose_quant_func_and_quantize_tensor(
             mapping_type=quant_kwargs.mapping_type,
             scale=scale,
             zero_point=zero_point,
+            reduce_range=quant_kwargs.reduce_range,
         )
 
     raise NotImplementedError(f"Quant kwargs not supported: {quant_kwargs}")

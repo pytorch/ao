@@ -11,6 +11,7 @@ MX format matrix multiplication utilities for training.
 from typing import Any
 
 import torch
+from torch import nn
 
 from torchao.prototype.mx_formats.config import (
     MXFP8Dim0CastKernelChoice,
@@ -260,3 +261,40 @@ class mx_mm(torch.autograd.Function):
             None,
             None,
         )
+
+
+class MXFP8Linear(nn.Linear):
+    """
+    A linear layer that performs dynamic MXFP8 quantization on inputs to GEMMs in both the forward and backward passes.
+    """
+
+    def __init__(
+        self,
+        *args,
+        kernel_preference: KernelPreference = KernelPreference.AUTO,
+        scale_calculation_mode: ScaleCalculationMode = ScaleCalculationMode.RCEIL,
+        wgrad_with_hp: bool = False,
+        **kwargs,
+    ):
+        """
+        Args:
+            kernel_preference: Whether to use AUTO (best sm100 kernel for each operation) or EMULATED mode (torch native code with MXFP8 emulation). Default: AUTO
+            scale_calculation_mode: Scale calculation method (RCEIL or FLOOR) for MXFP8 scale factor calculation. Default: RCEIL
+            wgrad_with_hp: If True, compute grad_weight in high precision instead of MXFP8. Default: False
+        """
+        super().__init__(*args, **kwargs)
+        self.kernel_preference = kernel_preference
+        self.scale_calculation_mode = scale_calculation_mode
+        self.wgrad_with_hp = wgrad_with_hp
+
+    def forward(self, input: torch.Tensor) -> torch.Tensor:
+        output = _to_mxfp8_then_scaled_mm(
+            input,
+            self.weight,
+            kernel_preference=self.kernel_preference,
+            scale_calculation_mode=self.scale_calculation_mode,
+            wgrad_with_hp=self.wgrad_with_hp,
+        )
+        if self.bias is not None:
+            output = output + self.bias.to(output.dtype)
+        return output
