@@ -1,3 +1,7 @@
+from torchao.prototype.moe_training.kernels.mxfp8.cutedsl_grad_quantize import (
+    cutedsl_mxfp8_quantize_dim0_dim1_single_read,  # noqa: F401
+    cutedsl_mxfp8_quantize_dim0_dim1_streams,  # noqa: F401
+)
 from torchao.prototype.moe_training.kernels.mxfp8.quant import (
     _mxfp8_cuda_kernels_available,  # noqa: F401
     fused_pad_token_groups_cuda,  # noqa: F401

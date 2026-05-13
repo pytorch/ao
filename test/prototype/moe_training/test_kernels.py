@@ -35,6 +35,8 @@ from torchao.prototype.moe_training.kernels.jagged_float8_scales import (
     triton_fp8_per_group_rowwise_scales,
 )
 from torchao.prototype.moe_training.kernels.mxfp8 import (
+    cutedsl_mxfp8_quantize_dim0_dim1_single_read,
+    cutedsl_mxfp8_quantize_dim0_dim1_streams,
     fused_pad_token_groups_cuda,
     fused_unpad_token_groups_cuda,
     mx_block_rearrange_2d_M_groups_cuda,
@@ -797,9 +799,7 @@ def test_triton_mxfp8_pad_and_quantize_numerics(
         qdata_fused[:padded_M_ub].view(torch.uint8), qdata_ref.view(torch.uint8)
     ), "fused fp8 data differs from reference"
 
-    _assert_blocked_scales_equal(
-        blocked_fused, blocked_ref, padded_M_ub, k // 32
-    )
+    _assert_blocked_scales_equal(blocked_fused, blocked_ref, padded_M_ub, k // 32)
 
 
 @pytest.mark.skipif(
@@ -874,16 +874,12 @@ def test_triton_mxfp8_dispatch_and_quantize_numerics(
     # want to compare the full padded_M we treat it as one big "group" of
     # padded_M rows (alignment=128, so padded_M itself is a valid group end).
     one_group_offsets = torch.tensor([padded_M], dtype=torch.int32, device=device)
-    blocked_ref = triton_mx_block_rearrange_2d_M_groups(
-        scales_ref, one_group_offsets
-    )
+    blocked_ref = triton_mx_block_rearrange_2d_M_groups(scales_ref, one_group_offsets)
 
-    assert torch.equal(
-        qdata_fused.view(torch.uint8), qdata_ref.view(torch.uint8)
-    ), "fused fp8 data differs from gather+quantize reference"
-    _assert_blocked_scales_equal(
-        blocked_fused, blocked_ref, padded_M, k // 32
+    assert torch.equal(qdata_fused.view(torch.uint8), qdata_ref.view(torch.uint8)), (
+        "fused fp8 data differs from gather+quantize reference"
     )
+    _assert_blocked_scales_equal(blocked_fused, blocked_ref, padded_M, k // 32)
 
 
 @pytest.mark.skipif(
@@ -951,9 +947,9 @@ def test_triton_mxfp8_quantize_dim0_dim1_numerics(
     # qdata_dim0: (M, N) row-major e4m3 - bit-exact parity.
     assert qdata0_fused.shape == (M, N)
     assert qdata0_fused.dtype == torch.float8_e4m3fn
-    assert torch.equal(
-        qdata0_fused.view(torch.uint8), qdata0_ref.view(torch.uint8)
-    ), "fused dim0 fp8 data differs from triton_to_mxfp8_dim0 reference"
+    assert torch.equal(qdata0_fused.view(torch.uint8), qdata0_ref.view(torch.uint8)), (
+        "fused dim0 fp8 data differs from triton_to_mxfp8_dim0 reference"
+    )
 
     # qdata_dim1_t: (N, M) row-major e4m3 - bit-exact parity vs.
     # transposed dim1 reference. ``triton_to_mxfp8_dim1`` returns its data
@@ -973,6 +969,100 @@ def test_triton_mxfp8_quantize_dim0_dim1_numerics(
     _assert_blocked_scales_equal(scales0_fused, scales0_blocked_ref, M, N // 32)
     # Blocked scales for dim1 live in an (N, M/32) logical tensor.
     _assert_blocked_scales_equal(scales1_fused, scales1_blocked_ref, N, M // 32)
+
+
+@pytest.mark.skipif(
+    not _is_sm_10x() or not _mxfp8_cutedsl_kernels_available,
+    reason="requires CUDA SM 10.x and CuTeDSL kernels",
+)
+@skip_if_rocm("ROCm enablement in progress")
+@pytest.mark.parametrize(
+    "M,N",
+    [
+        (128, 128),
+        (1024, 2048),
+    ],
+)
+@pytest.mark.parametrize("scaling_mode_str", ["rceil", "floor"])
+def test_cutedsl_mxfp8_quantize_dim0_dim1_streams_numerics(
+    M: int, N: int, scaling_mode_str: str
+):
+    device = "cuda"
+    torch.manual_seed(2024)
+    x = torch.randn(M, N, dtype=torch.bfloat16, device=device)
+
+    qdata0, qdata1_t, scales0, scales1 = cutedsl_mxfp8_quantize_dim0_dim1_streams(
+        x, scaling_mode=scaling_mode_str
+    )
+
+    qdata0_ref, scales0_ref = mxfp8_quantize_2d_1x32_cutedsl(
+        x, scaling_mode=scaling_mode_str
+    )
+    qdata1_ref, scales1_ref = mxfp8_quantize_2d_32x1_cutedsl(
+        x, scaling_mode=scaling_mode_str, blocked_scale_output=True
+    )
+
+    assert qdata0.shape == (M, N)
+    assert qdata0.dtype == torch.float8_e4m3fn
+    assert torch.equal(qdata0.view(torch.uint8), qdata0_ref.view(torch.uint8))
+
+    assert qdata1_t.shape == (N, M)
+    assert qdata1_t.dtype == torch.float8_e4m3fn
+    assert qdata1_t.is_contiguous()
+    assert torch.equal(
+        qdata1_t.view(torch.uint8),
+        qdata1_ref.t().view(torch.uint8),
+    )
+
+    assert torch.equal(scales0.view(torch.uint8), scales0_ref.view(torch.uint8))
+    assert torch.equal(scales1.view(torch.uint8), scales1_ref.view(torch.uint8))
+
+
+@pytest.mark.skipif(
+    not _is_sm_10x() or not _mxfp8_cutedsl_kernels_available,
+    reason="requires CUDA SM 10.x and CuTeDSL kernels",
+)
+@skip_if_rocm("ROCm enablement in progress")
+@pytest.mark.parametrize(
+    "M,N",
+    [
+        (128, 128),
+        (1024, 2048),
+    ],
+)
+@pytest.mark.parametrize("scaling_mode_str", ["rceil", "floor"])
+def test_cutedsl_mxfp8_quantize_dim0_dim1_single_read_numerics(
+    M: int, N: int, scaling_mode_str: str
+):
+    device = "cuda"
+    torch.manual_seed(2024)
+    x = torch.randn(M, N, dtype=torch.bfloat16, device=device)
+
+    qdata0, qdata1_t, scales0, scales1 = cutedsl_mxfp8_quantize_dim0_dim1_single_read(
+        x, scaling_mode=scaling_mode_str
+    )
+
+    qdata0_ref, scales0_ref = mxfp8_quantize_2d_1x32_cutedsl(
+        x, scaling_mode=scaling_mode_str
+    )
+    qdata1_ref, scales1_ref = mxfp8_quantize_2d_32x1_cutedsl(
+        x, scaling_mode=scaling_mode_str, blocked_scale_output=True
+    )
+
+    assert qdata0.shape == (M, N)
+    assert qdata0.dtype == torch.float8_e4m3fn
+    assert torch.equal(qdata0.view(torch.uint8), qdata0_ref.view(torch.uint8))
+
+    assert qdata1_t.shape == (N, M)
+    assert qdata1_t.dtype == torch.float8_e4m3fn
+    assert qdata1_t.is_contiguous()
+    assert torch.equal(
+        qdata1_t.view(torch.uint8),
+        qdata1_ref.t().view(torch.uint8),
+    )
+
+    assert torch.equal(scales0.view(torch.uint8), scales0_ref.view(torch.uint8))
+    assert torch.equal(scales1.view(torch.uint8), scales1_ref.view(torch.uint8))
 
 
 @pytest.mark.parametrize("round_scales_to_power_of_2", [True, False])

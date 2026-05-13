@@ -181,6 +181,16 @@ constexpr size_t THREADS_PER_WARP = 32; // lol
 // Utility macros
 #define DIVUP(x, y) (((x) + (y) - 1) / (y))
 
+__device__ __forceinline__ size_t blocked_scale_offset(const size_t row,
+                                                       const size_t col,
+                                                       const size_t padded_cols) {
+  return (row / 128) * (128 * padded_cols) +
+      (col / 4) * (128 * 4) +
+      ((row % 128) % 32) * 16 +
+      ((row % 128) / 32) * 4 +
+      (col % 4);
+}
+
 // Vector type for loading/storing multiple elements
 template <typename T, int N> struct Vec {
   union {
@@ -585,7 +595,8 @@ struct BoundsChecker {
 
 // Main MXFP8 quantization kernel (with TMA)
 template <typename IType, typename OType, size_t SCALE_DIM_Y,
-          size_t SCALE_DIM_X, ScaleCalculationMode ScalingMode>
+          size_t SCALE_DIM_X, ScaleCalculationMode ScalingMode,
+          bool ScalesAreBlocked = false>
 __global__ void __launch_bounds__(MXFP8_THREADS_PER_CHUNK)
     mxfp8_quantize_kernel(
         const __grid_constant__ CUtensorMap tensor_map_input,
@@ -623,6 +634,8 @@ __global__ void __launch_bounds__(MXFP8_THREADS_PER_CHUNK)
 
   constexpr bool USE_ROWWISE_SCALING = SCALE_DIM_X > 1;
   constexpr bool USE_COLWISE_SCALING = SCALE_DIM_Y > 1;
+  constexpr bool EARLY_ROWWISE_TMA =
+      USE_ROWWISE_SCALING && USE_COLWISE_SCALING;
 
   constexpr size_t SCALES_ROWWISE_PER_CHUNK_Y =
       MXFP8_CHUNK_DIM_Y; //   2 = 64 / 32
@@ -828,9 +841,15 @@ __global__ void __launch_bounds__(MXFP8_THREADS_PER_CHUNK)
             const int global_scales_offset_X =
                 scales_rowwise_chunk_offset_X +
                 tid_rowwise_X / THREADS_PER_SCALE_X_ROWWISE;
-            const int scale_idx =
-                global_scales_offset_Y * scales_rowwise_stride_dim0 +
-                global_scales_offset_X;
+            size_t scale_idx;
+            if constexpr (ScalesAreBlocked) {
+              scale_idx = blocked_scale_offset(
+                  global_scales_offset_Y, global_scales_offset_X,
+                  scales_rowwise_stride_dim0);
+            } else {
+              scale_idx = global_scales_offset_Y * scales_rowwise_stride_dim0 +
+                  global_scales_offset_X * scales_rowwise_stride_dim1;
+            }
             scales_rowwise[scale_idx] = e8m0_biased_scale;
           }
 
@@ -850,6 +869,23 @@ __global__ void __launch_bounds__(MXFP8_THREADS_PER_CHUNK)
         }
       }
       // ======== End RowWise SCALING ========
+
+      if constexpr (EARLY_ROWWISE_TMA) {
+        // Start the rowwise output TMA before colwise quantization so the two
+        // output paths can overlap instead of serializing behind one store site.
+        ptx::fence_proxy_async_shared_cta();
+        __syncthreads();
+        if (is_master_thread) {
+          const int chunk_it_offset_y =
+              chunk_offset_Y + iter * MXFP8_BUFFER_DIM_Y;
+          const int chunk_it_offset_x = chunk_offset_X;
+          ptx::cp_async_bulk_tensor_2d_shared_to_global(
+              reinterpret_cast<const uint64_t *>(&tensor_map_output_rowwise),
+              chunk_it_offset_x, chunk_it_offset_y,
+              reinterpret_cast<uint64_t *>(&out_rowwise_sh[buff]));
+          ptx::cp_async_bulk_commit_group();
+        }
+      }
 
       // ======== ColWise SCALING ========
       // Column-wise scaling
@@ -894,9 +930,15 @@ __global__ void __launch_bounds__(MXFP8_THREADS_PER_CHUNK)
 
         // Write scale in column major memory layout, shape (cols, num_row_blocks, 1).
         // Stride along `cols` dim must be 1, for coalesced writes to global memory.
-        const int scale_idx =
-            global_scales_offset_Y * scales_colwise_stride_dim1 +
-            global_scales_offset_X * scales_colwise_stride_dim0;
+        size_t scale_idx;
+        if constexpr (ScalesAreBlocked) {
+          scale_idx = blocked_scale_offset(
+              global_scales_offset_X, global_scales_offset_Y,
+              scales_colwise_stride_dim0);
+        } else {
+          scale_idx = global_scales_offset_Y * scales_colwise_stride_dim1 +
+              global_scales_offset_X * scales_colwise_stride_dim0;
+        }
 
         // Bounds check for scale writing
         const bool row_out_of_bounds = (row_base >= rows);
@@ -924,7 +966,7 @@ __global__ void __launch_bounds__(MXFP8_THREADS_PER_CHUNK)
 
       // Initiate TMA transfer to copy shared memory to global memory
       if (is_master_thread) {
-        if constexpr (USE_ROWWISE_SCALING) {
+        if constexpr (USE_ROWWISE_SCALING && !EARLY_ROWWISE_TMA) {
           const int chunk_it_offset_y =
               chunk_offset_Y + iter * MXFP8_BUFFER_DIM_Y;
           const int chunk_it_offset_x = chunk_offset_X;
@@ -942,11 +984,16 @@ __global__ void __launch_bounds__(MXFP8_THREADS_PER_CHUNK)
               chunk_it_offset_x, chunk_it_offset_y,
               reinterpret_cast<uint64_t *>(&out_colwise_sh[buff]));
         }
-        // Create a "bulk async-group" out of the previous bulk copy operation.
-        ptx::cp_async_bulk_commit_group();
+        if constexpr (USE_ROWWISE_SCALING && !EARLY_ROWWISE_TMA ||
+                      USE_COLWISE_SCALING) {
+          // Create a "bulk async-group" out of the previous bulk copy operation.
+          ptx::cp_async_bulk_commit_group();
 
-        // Wait for TMA transfer to have finished reading shared memory.
-        ptx::cp_async_bulk_wait_group_read<MXFP8_PREFETCH_BUFFERS_NUM>();
+          // Wait for TMA transfer to have finished reading shared memory.
+          if constexpr (!EARLY_ROWWISE_TMA) {
+            ptx::cp_async_bulk_wait_group_read<MXFP8_PREFETCH_BUFFERS_NUM>();
+          }
+        }
       }
     }
     ptx::cp_async_bulk_wait_group_read<0>();
@@ -1213,7 +1260,7 @@ public:
            size_t rows, size_t cols, DType input_dtype, DType output_dtype,
            size_t scale_dim_x = 32, size_t scale_dim_y = 32,
            ScaleCalculationMode scaling_mode = ScaleCalculationMode::FLOOR,
-           cudaStream_t stream = 0) {
+           cudaStream_t stream = 0, bool scales_are_blocked = false) {
 
     // Check parameters
     assert((scale_dim_x == 1 || scale_dim_x == 32) &&
@@ -1272,13 +1319,22 @@ public:
     (!defined(__CUDA_ARCH__) || __CUDA_ARCH__ >= MIN_CUDA_SM)
 
     // Use TMA and mbarrier instructions
-#define LAUNCH_KERNEL(IType, OType, SCALE_Y, SCALE_X, ScalingMode)                          \
-  mxfp8_quantize_kernel<IType, OType, SCALE_Y, SCALE_X, ScalingMode>                        \
+#define LAUNCH_KERNEL_BASE(IType, OType, SCALE_Y, SCALE_X, ScalingMode, ScalesBlocked)      \
+  mxfp8_quantize_kernel<IType, OType, SCALE_Y, SCALE_X, ScalingMode, ScalesBlocked>         \
       <<<grid, block, 0, stream>>>(                                            \
           tensor_map_input, tensor_map_output_rowwise,                         \
           tensor_map_output_colwise, scales_rowwise, scales_colwise, rows,     \
           cols, scales_rowwise_stride_dim0, scales_rowwise_stride_dim1,        \
           scales_colwise_stride_dim0, scales_colwise_stride_dim1);
+
+#define LAUNCH_KERNEL(IType, OType, SCALE_Y, SCALE_X, ScalingMode)             \
+  do {                                                                         \
+    if (scales_are_blocked) {                                                  \
+      LAUNCH_KERNEL_BASE(IType, OType, SCALE_Y, SCALE_X, ScalingMode, true);   \
+    } else {                                                                   \
+      LAUNCH_KERNEL_BASE(IType, OType, SCALE_Y, SCALE_X, ScalingMode, false);  \
+    }                                                                          \
+  } while (0)
 
     // Validate output dtype.
     if (output_dtype != DType::kFloat8E4M3) {
@@ -1334,6 +1390,7 @@ public:
     }
 
 #undef LAUNCH_KERNEL
+#undef LAUNCH_KERNEL_BASE
 
 #endif
   }
