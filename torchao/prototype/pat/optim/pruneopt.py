@@ -73,6 +73,11 @@ class PruneOptimizer(Optimizer):
         for group in self.regularized_param_groups():
             group.setdefault("gamma", 0.0)
             group.setdefault("reg_lambda", reg_lambda)
+            if group.get("min_sparsity_schedule", False):
+                assert self.healing_start_step != sys.maxsize, (
+                    "min_sparsity_schedule requires a finite healing_start_step; "
+                    "the ramp ends when the mask freezes."
+                )
 
         self.iterative_reweight = (
             IterativeReweight(reweight_tau_freq, reweight_tau_end_step, reweight_eps)
@@ -150,8 +155,7 @@ class PruneOptimizer(Optimizer):
             if group.get("prox_type"):
                 yield group
 
-    @staticmethod
-    def _get_prox_kwargs(group: dict[str, Any]) -> dict[str, Any]:
+    def _get_prox_kwargs(self, group: dict[str, Any]) -> dict[str, Any]:
         prox_kwargs = {}
         if group["prox_type"] == "NMSparseConstraint":
             assert "n_nonzero" in group, (
@@ -162,8 +166,26 @@ class PruneOptimizer(Optimizer):
             assert "min_sparsity" in group, (
                 "MinSparsityConstraint requires 'min_sparsity' in prune config"
             )
-            prox_kwargs["min_sparsity"] = group["min_sparsity"]
+            prox_kwargs["min_sparsity"] = self._effective_min_sparsity(group)
         return prox_kwargs
+
+    def _effective_min_sparsity(self, group: dict[str, Any]) -> float:
+        """Cubic ramp from 0 -> ``min_sparsity`` over (warmup, healing_start).
+
+        When ``min_sparsity_schedule`` is unset (default), returns the static
+        target. The ramp ends at ``healing_start_step`` because the mask
+        freezes there — pushing the target up after that would be a no-op.
+        """
+        target = group["min_sparsity"]
+        if not group.get("min_sparsity_schedule", False):
+            return target
+        n = self.num_steps
+        if n <= self.warmup_steps:
+            return 0.0
+        if n >= self.healing_start_step:
+            return target
+        t = (n - self.warmup_steps) / (self.healing_start_step - self.warmup_steps)
+        return target * (1 - (1 - t) ** 3)
 
     @staticmethod
     def _get_grouper_kwargs(group: dict[str, Any]) -> dict[str, Any]:
