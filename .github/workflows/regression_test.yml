@@ -61,7 +61,7 @@ jobs:
         include:
           - name: CUDA 2.11
             runs-on: linux.g5.12xlarge.nvidia.gpu
-            torch-spec: 'torch==2.11.0 torchvision==0.26.0'
+            torch-spec: 'torch==2.11.0 torchvision==0.26.0 --index-url https://download.pytorch.org/whl/cu126'
             gpu-arch-type: "cuda"
             gpu-arch-version: "12.6"
             dev-requirements-overrides: ""
