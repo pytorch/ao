@@ -25,9 +25,6 @@ from torchao.quantization import (
 )
 from torchao.quantization.utils import compute_error
 from torchao.testing.model_architectures import ToyTwoLinearModel
-from torchao.utils import (
-    torch_version_at_least,
-)
 
 
 def get_config(granularity):
@@ -47,7 +44,6 @@ class TestFloat8OpaqueTensor(TestCase):
         "CPU" not in torch._C._dispatch_dump("torchao::float8_linear_cpu"),
         reason="cpp kernels not built",
     )
-    @unittest.skipIf(not torch_version_at_least("2.6.0"), "Test only enabled for 2.6+")
     @common_utils.parametrize("dtype", [torch.float, torch.bfloat16, torch.half])
     @common_utils.parametrize("x_dim", [2, 3])
     @common_utils.parametrize("bias", [True, False])
@@ -93,7 +89,6 @@ class TestFloat8OpaqueTensor(TestCase):
         "CPU" not in torch._C._dispatch_dump("torchao::float8_linear_cpu"),
         reason="cpp kernels not built",
     )
-    @unittest.skipIf(not torch_version_at_least("2.6.0"), "Test only enabled for 2.6+")
     @common_utils.parametrize("dtype", [torch.float, torch.bfloat16, torch.half])
     @common_utils.parametrize("x_dim", [2, 3])
     @common_utils.parametrize("bias", [True, False])

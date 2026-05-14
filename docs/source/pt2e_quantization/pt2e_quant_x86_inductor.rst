@@ -103,7 +103,6 @@ We will start by performing the necessary imports, capturing the FX Graph from t
 
     # Capture the FX Graph to be quantized
     with torch.no_grad():
-        # Note: requires torch >= 2.6
         exported_model = export(
             model,
             example_inputs
