@@ -500,7 +500,6 @@ def _extract_or_quantize_1x32_emulated(
     """
     if isinstance(tensor, MXTensor):
         return tensor.qdata, tensor.scale
-
     scale, qdata = to_mx(
         tensor,
         elem_dtype=torch.float8_e4m3fn,
@@ -605,8 +604,8 @@ def _compute_fwd_emulated(
     output = _emulated_mxfp8_scaled_grouped_mm_2d_3d(
         input_act_e4m3,
         input_act_scales,
-        weight_e4m3,
-        weight_scales,
+        weight_e4m3.transpose(-2, -1),
+        weight_scales.transpose(-2, -1),
         offs=padded_group_end_offsets,
         out_dtype=out_dtype,
         block_size=block_size,
@@ -979,43 +978,35 @@ def _to_mxfp8_dim1_3d(
 def _emulated_mxfp8_scaled_grouped_mm_2d_3d(
     A_data: torch.Tensor,
     A_scale: torch.Tensor,
-    B_t_data: torch.Tensor,
-    B_t_scale: torch.Tensor,
+    B_data: torch.Tensor,
+    B_scale: torch.Tensor,
     offs: Optional[torch.Tensor] = None,
     out_dtype: Optional[torch.dtype] = torch.bfloat16,
     block_size: int = 32,
 ) -> torch.Tensor:
     assert A_data.ndim == 2, f"A must be 2D, got {A_data.ndim}"
-    assert B_t_data.ndim == 3, f"B_t must be 3D, got {B_t_data.ndim}"
+    assert B_data.ndim == 3, f"B must be 3D, got {B_data.ndim}"
     assert A_scale.shape[0] == A_data.shape[0], (
         f"A_scale must have same M dim as A_data, got A={A_data.shape} and A_scale={A_scale.shape}"
     )
     assert A_scale.shape[1] == A_data.shape[1] // block_size, (
         f"A_scale dim1 should be size K//block_size, got A={A_data.shape} and A_scale={A_scale.shape}"
     )
-    assert B_t_scale.shape[0] == B_t_data.shape[0], (
-        f"B_t_scale must have same E dim as B_t_data, got B_t={B_t_data.shape} and B_t_scale={B_t_scale.shape}"
+    assert B_scale.shape[0] == B_data.shape[0], (
+        f"B_scale must have same E dim as B_data, got B={B_data.shape} and B_scale={B_scale.shape}"
     )
 
-    # The 3D transposed-weight path has been rebased more than once, so accept
-    # either of the two equivalent scale orientations here:
-    # - (E, K//32, N): direct grouped-GEMM layout
-    # - (E, N, K//32): logical layout emitted by the newer quantizer contract
+    E, K, N = B_data.shape
     if (
-        B_t_scale.shape[1] == B_t_data.shape[1] // block_size
-        and B_t_scale.shape[2] == B_t_data.shape[2]
+        B_scale.shape[0] == E
+        and B_scale.shape[1] == K // block_size
+        and B_scale.shape[2] == N
     ):
-        B_t_scale_for_dequant = B_t_scale.unsqueeze(-2)
-    elif (
-        B_t_scale.shape[1] == B_t_data.shape[2]
-        and B_t_scale.shape[2] == B_t_data.shape[1] // block_size
-    ):
-        B_t_scale_for_dequant = B_t_scale.transpose(-2, -1).unsqueeze(-2)
+        B_scale_for_dequant = B_scale.unsqueeze(-2)  # (E, K//32, N) -> (E, K//32, 1, N)
     else:
         raise AssertionError(
-            "B_t_scale must match either (E, K//block_size, N) or "
-            "(E, N, K//block_size), "
-            f"got B_t={B_t_data.shape} and B_t_scale={B_t_scale.shape}"
+            "B_scale must match (E, N, K//block_size), "
+            f"got B={B_data.shape} and B_scale={B_scale.shape}"
         )
 
     # Dequantize input
@@ -1040,14 +1031,14 @@ def _emulated_mxfp8_scaled_grouped_mm_2d_3d(
 
     # Dequantize transposed weights directly. B_t_data already has grouped-GEMM
     # layout (E, K, N) and B_t_scale stores one scale per 32 values along K.
-    E, K, N = B_t_data.shape
-    B_t_data = B_t_data.reshape(E, K // block_size, block_size, N)
-    B_t = (
-        B_t_data.to(torch.bfloat16) * B_t_scale_for_dequant.to(torch.bfloat16)
-    ).reshape(E, K, N)
+    E, K, N = B_data.shape
+    B_data = B_data.reshape(E, K // block_size, block_size, N)
+    B = (B_data.to(torch.bfloat16) * B_scale_for_dequant.to(torch.bfloat16)).reshape(
+        E, K, N
+    )
 
     # Perform bf16 grouped GEMM.
-    out = torch._grouped_mm(A, B_t, offs=offs, out_dtype=out_dtype)
+    out = torch._grouped_mm(A, B, offs=offs, out_dtype=out_dtype)
     return out
 
 

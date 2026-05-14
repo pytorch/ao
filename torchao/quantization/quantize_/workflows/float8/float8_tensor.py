@@ -49,6 +49,8 @@ from torchao.utils import (
 
 if _is_mslk_available():
     import mslk.conv  # noqa: F401
+    import mslk.gemm  # noqa: F401  # registers fake/meta kernels for mslk gemm ops
+    import mslk.quantize.triton.fp8_quantize  # noqa: F401  # registers fake/meta kernels for triton quantize ops
 
 __all__ = [
     "Float8Tensor",
