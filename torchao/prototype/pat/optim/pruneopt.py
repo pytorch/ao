@@ -182,6 +182,11 @@ class PruneOptimizer(Optimizer):
         n = self.num_steps
         if n <= self.warmup_steps:
             return 0.0
+        # NOTE: During normal training this branch is unreachable: step() takes
+        # the healing early-return at n == healing_start_step before the prox
+        # map runs, so _effective_min_sparsity is only invoked for
+        # warmup_steps < n < healing_start_step. Kept as a correct guard for
+        # direct callers (tests, introspection) reasoning about the boundary.
         if n >= self.healing_start_step:
             return target
         t = (n - self.warmup_steps) / (self.healing_start_step - self.warmup_steps)

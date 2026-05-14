@@ -274,22 +274,23 @@ class TestMinSparsitySchedule(common_utils.TestCase):
         if schedule:
             cfg[(torch.nn.Linear, "weight")]["min_sparsity_schedule"] = True
         param_groups = get_param_groups(model, cfg, verbose=False)
-        return PruneOptimizer(
+        opt = PruneOptimizer(
             torch.optim.SGD(param_groups, lr=0.1),
             warmup_steps=warmup,
             healing_start_step=healing,
             reg_lambda=0.0,
         )
+        return model, opt
 
     def test_disabled_returns_target(self):
-        opt = self._make_optimizer(schedule=False, warmup=2, healing=10, target=0.8)
+        _, opt = self._make_optimizer(schedule=False, warmup=2, healing=10, target=0.8)
         opt.num_steps = 5
         for g in opt.regularized_param_groups():
             self.assertEqual(opt._effective_min_sparsity(g), 0.8)
 
     def test_cubic_endpoints_and_midpoint(self):
         warmup, healing, target = 4, 12, 0.8
-        opt = self._make_optimizer(True, warmup, healing, target)
+        _, opt = self._make_optimizer(True, warmup, healing, target)
         g = next(opt.regularized_param_groups())
         # Pre-warmup -> 0
         opt.num_steps = 0
@@ -311,22 +312,34 @@ class TestMinSparsitySchedule(common_utils.TestCase):
         with self.assertRaises(AssertionError):
             self._make_optimizer(True, warmup=2, healing=sys.maxsize, target=0.5)
 
-    def test_resume_equivalence(self):
-        """Saving + restoring num_steps via patch_state_dict yields the same
-        effective min_sparsity at every step."""
+    def test_resume_via_patch_state_dict(self):
+        """Drive opt_a forward with real step() calls, snapshot via state_dict(),
+        then load_state_dict() + patch_state_dict() into a fresh opt_b and
+        verify the schedule state survives the checkpoint round-trip."""
         warmup, healing, target = 2, 10, 0.6
-        opt_a = self._make_optimizer(True, warmup, healing, target)
-        opt_b = self._make_optimizer(True, warmup, healing, target)
+        model, opt_a = self._make_optimizer(True, warmup, healing, target)
+        # 5 real step() calls land us mid-ramp (warmup < n < healing).
+        n_steps = 5
+        dummy_input = torch.randn(n_steps, 8)
+        label = torch.randint(0, 2, (n_steps,))
+        for s in range(n_steps):
+            optim_step(model, opt_a, dummy_input, label, s)
+        self.assertGreater(opt_a.num_steps, warmup)
+        self.assertLess(opt_a.num_steps, healing)
+
+        # Snapshot, then load + patch into a fresh optimizer.
+        sd = opt_a.state_dict()
+        _, opt_b = self._make_optimizer(True, warmup, healing, target)
+        opt_b.load_state_dict(sd)
+        opt_b.patch_state_dict(sd)
+
+        self.assertEqual(opt_b.num_steps, opt_a.num_steps)
         g_a = next(opt_a.regularized_param_groups())
         g_b = next(opt_b.regularized_param_groups())
-        # Drive opt_a forward, snapshot num_steps, restore into opt_b.
-        for n in (0, warmup, warmup + 3, healing, healing + 1):
-            opt_a.num_steps = n
-            opt_b.num_steps = n  # mimic patch_state_dict restoring this scalar
-            self.assertEqual(
-                opt_a._effective_min_sparsity(g_a),
-                opt_b._effective_min_sparsity(g_b),
-            )
+        self.assertEqual(
+            opt_a._effective_min_sparsity(g_a),
+            opt_b._effective_min_sparsity(g_b),
+        )
 
 
 common_utils.instantiate_parametrized_tests(TestMinSparsityConstraint)
