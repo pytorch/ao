@@ -64,8 +64,6 @@ The PyTorch 2 export quantization API looks like this:
   m = M().eval()
 
   # Step 1. program capture
-  # This is available for pytorch 2.6+, for more details on lower pytorch versions
-  # please check `Export the model with torch.export` section
   m = torch.export.export(m, example_inputs).module()
   # we get a model with aten ops
 
@@ -349,25 +347,14 @@ Here is how you can use ``torch.export`` to export the model:
 .. code-block:: python
 
     example_inputs = (torch.rand(2, 3, 224, 224),)
-    # for pytorch 2.6+
     exported_model = torch.export.export(model_to_quantize, example_inputs).module()
 
-    # for pytorch 2.5 and before
-    # from torch._export import capture_pre_autograd_graph
-    # exported_model = capture_pre_autograd_graph(model_to_quantize, example_inputs)
-
     # or capture with dynamic dimensions
-    # for pytorch 2.6+
     dynamic_shapes = tuple(
       {0: torch.export.Dim("dim")} if i == 0 else None
       for i in range(len(example_inputs))
     )
     exported_model = torch.export.export(model_to_quantize, example_inputs, dynamic_shapes=dynamic_shapes).module()
-
-    # for pytorch 2.5 and before
-    # dynamic_shape API may vary as well
-    # from torch._export import dynamic_dim
-    # exported_model = capture_pre_autograd_graph(model_to_quantize, example_inputs, constraints=[dynamic_dim(example_inputs[0], 0)])
 
 
 Import the Backend Specific Quantizer and Configure how to Quantize the Model

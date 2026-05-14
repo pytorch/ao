@@ -35,8 +35,6 @@ to the post training quantization (PTQ) flow for the most part:
   m = M()
 
   # Step 1. program capture
-  # This is available for pytorch 2.6+, for more details on lower pytorch versions
-  # please check `Export the model with torch.export` section
   m = torch.export.export(m, example_inputs).module()
   # we get a model with aten ops
 
@@ -271,18 +269,13 @@ Here is how you can use ``torch.export`` to export the model:
     from torch.export import export
 
     example_inputs = (torch.rand(2, 3, 224, 224),)
-    # for pytorch 2.6+
     exported_model = torch.export.export(float_model, example_inputs).module()
-    # for pytorch 2.5 and before
-    # from torch._export import capture_pre_autograd_graph
-    # exported_model = capture_pre_autograd_graph(model_to_quantize, example_inputs)
 
 
 .. code:: python
 
     # or, to capture with dynamic dimensions:
 
-    # for pytorch 2.6+
     dynamic_shapes = tuple(
       {0: torch.export.Dim("dim")} if i == 0 else None
       for i in range(len(example_inputs))

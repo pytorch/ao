@@ -25,8 +25,8 @@ Basic DTypes
 
 No matter what quantization we are doing, in the end we will be using some low precision dtypes to represent the quantized data or quantization parameters, the low precision dtypes relevant for torchao are:
 
-* ``torch.uint1`` to ``torch.uint7`` available in pytorch 2.3 and later
-* ``torch.int1`` to ``torch.int7`` available in pytorch 2.6 and later
+* ``torch.uint1`` to ``torch.uint7``
+* ``torch.int1`` to ``torch.int7``
 * ``torch.float4_e2m1fn_x2``, ``torch.float8_e4m3fn``, ``torch.float8_e4m3fnuz``, ``torch.float8_e5m2``, ``torch.float8_e5m2fnuz``, ``torch.float8_e8m0fnu``
 
 In terms of actual implementation, ``uint1`` to ``uint7`` and ``int1`` to ``int7`` are just placeholders that does not have real implementations (i.e. the ops does not work for the PyTorch Tensor with these dtypes). Example PR added these dtypes can be found `here <https://github.com/pytorch/pytorch/pull/117208>`__. Floating point dtypes are what we call shell dtypes that have limited op support.
