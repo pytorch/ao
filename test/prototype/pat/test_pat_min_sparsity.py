@@ -317,19 +317,19 @@ class TestMinSparsitySchedule(common_utils.TestCase):
         then load_state_dict() + patch_state_dict() into a fresh opt_b and
         verify the schedule state survives the checkpoint round-trip."""
         warmup, healing, target = 2, 10, 0.6
-        model, opt_a = self._make_optimizer(True, warmup, healing, target)
+        model_a, opt_a = self._make_optimizer(True, warmup, healing, target)
         # 5 real step() calls land us mid-ramp (warmup < n < healing).
         n_steps = 5
-        dummy_input = torch.randn(n_steps, 8)
-        label = torch.randint(0, 2, (n_steps,))
+        dummy_input = torch.randn(n_steps + 3, 8)
+        label = torch.randint(0, 2, (n_steps + 3,))
         for s in range(n_steps):
-            optim_step(model, opt_a, dummy_input, label, s)
+            optim_step(model_a, opt_a, dummy_input, label, s)
         self.assertGreater(opt_a.num_steps, warmup)
         self.assertLess(opt_a.num_steps, healing)
 
         # Snapshot, then load + patch into a fresh optimizer.
         sd = opt_a.state_dict()
-        _, opt_b = self._make_optimizer(True, warmup, healing, target)
+        model_b, opt_b = self._make_optimizer(True, warmup, healing, target)
         opt_b.load_state_dict(sd)
         opt_b.patch_state_dict(sd)
 
@@ -340,6 +340,17 @@ class TestMinSparsitySchedule(common_utils.TestCase):
             opt_a._effective_min_sparsity(g_a),
             opt_b._effective_min_sparsity(g_b),
         )
+
+        # Continue training both. Schedule state must stay in sync, including
+        # across the healing boundary where the ramp clamps to target.
+        for s in range(n_steps, n_steps + 3):
+            optim_step(model_a, opt_a, dummy_input, label, s)
+            optim_step(model_b, opt_b, dummy_input, label, s)
+            self.assertEqual(opt_b.num_steps, opt_a.num_steps)
+            self.assertEqual(
+                opt_a._effective_min_sparsity(g_a),
+                opt_b._effective_min_sparsity(g_b),
+            )
 
 
 common_utils.instantiate_parametrized_tests(TestMinSparsityConstraint)
