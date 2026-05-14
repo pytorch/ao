@@ -13,6 +13,7 @@ from torchao.float8.float8_utils import compute_error
 from torchao.prototype.mx_formats.mx_tensor import MXTensor
 from torchao.prototype.mx_formats.utils import to_blocked
 from torchao.utils import (
+    is_MI350,
     is_sm_at_least_100,
     torch_version_at_least,
 )
@@ -26,7 +27,7 @@ if torch_version_at_least("2.10.0"):
 
 
 def _mxfp4_scaled_mm(a_data, b_data, a_scale_block, b_scale_block):
-    """Wrapper for F.scaled_mm with MXFP4 configuration."""
+    """Wrapper for F.scaled_mm with MXFP4 configuration on CUDA."""
     if not torch_version_at_least("2.10.0"):
         raise RuntimeError(
             "MXFP4 matmul requires PyTorch 2.10.0 or later for F.scaled_mm support"
@@ -44,19 +45,65 @@ def _mxfp4_scaled_mm(a_data, b_data, a_scale_block, b_scale_block):
     )
 
 
+def _mxfp4_scaled_mm_rocm(a_data, b_data, a_scale_block, b_scale_block):
+    """Wrapper for F.scaled_mm with MXFP4 configuration on ROCm."""
+    if not torch_version_at_least("2.10.0"):
+        raise RuntimeError(
+            "MXFP4 matmul requires PyTorch 2.10.0 or later for F.scaled_mm support"
+        )
+    return F.scaled_mm(
+        a_data.view(torch.float4_e2m1fn_x2),
+        b_data.view(torch.float4_e2m1fn_x2),
+        scale_a=a_scale_block,
+        scale_recipe_a=ScalingType.BlockWise1x32,
+        scale_b=b_scale_block,
+        scale_recipe_b=ScalingType.BlockWise1x32,
+        swizzle_a=SwizzleType.NO_SWIZZLE,
+        swizzle_b=SwizzleType.NO_SWIZZLE,
+        output_dtype=torch.bfloat16,
+    )
+
+
+def _mxfp8_scaled_mm_rocm(a_data, b_data, a_scale_block, b_scale_block):
+    """Wrapper for F.scaled_mm with MXFP8 configuration on ROCm."""
+    if not torch_version_at_least("2.10.0"):
+        raise RuntimeError(
+            "MXFP8 matmul requires PyTorch 2.10.0 or later for F.scaled_mm support"
+        )
+    return F.scaled_mm(
+        a_data,
+        b_data,
+        scale_a=a_scale_block,
+        scale_recipe_a=ScalingType.BlockWise1x32,
+        scale_b=b_scale_block,
+        scale_recipe_b=ScalingType.BlockWise1x32,
+        swizzle_a=SwizzleType.NO_SWIZZLE,
+        swizzle_b=SwizzleType.NO_SWIZZLE,
+        output_dtype=torch.bfloat16,
+    )
+
+
 def run_matrix_test(M: int, K: int, N: int, format) -> float:
     dtype = torch.bfloat16
     device = torch.device("cuda")
 
-    a = torch.rand((M, K), dtype=dtype, device=device)
-    b = torch.rand((N, K), dtype=dtype, device=device)
+    # hand craft input values to ensure we get scales where
+    # not all scale values are equal to each other
+    a = torch.arange(0, M * K, dtype=dtype, device=device).view(M, K) / (M * K)
+    b = torch.arange(N * K, 0, -1, dtype=dtype, device=device).view(N, K) / (M * K)
 
     fmt = torch.float8_e4m3fn if format == "fp8" else torch.float4_e2m1fn_x2
-    mx_func = (
-        partial(torch._scaled_mm, out_dtype=torch.bfloat16)
-        if format == "fp8"
-        else _mxfp4_scaled_mm
-    )
+    if format == "fp8":
+        if is_MI350():
+            mx_func = _mxfp8_scaled_mm_rocm
+        else:
+            mx_func = partial(torch._scaled_mm, out_dtype=torch.bfloat16)
+    else:
+        assert format == "fp4"
+        if is_MI350():
+            mx_func = _mxfp4_scaled_mm_rocm
+        else:
+            mx_func = _mxfp4_scaled_mm
 
     a_mx = MXTensor.to_mx(a, fmt, 32)
     b_mx = MXTensor.to_mx(b, fmt, 32)
@@ -69,8 +116,13 @@ def run_matrix_test(M: int, K: int, N: int, format) -> float:
     a_scale = a_mx.scale.view(M, K // 32)
     b_scale = b_mx.scale.view(N, K // 32)
 
-    a_scale_block = to_blocked(a_scale)
-    b_scale_block = to_blocked(b_scale)
+    if is_MI350():
+        # no swizzling on ROCm
+        a_scale_block = a_scale
+        b_scale_block = b_scale
+    else:
+        a_scale_block = to_blocked(a_scale)
+        b_scale_block = to_blocked(b_scale)
 
     out_hp = a_mx.dequantize(torch.bfloat16) @ b_mx.dequantize(
         torch.bfloat16
@@ -82,7 +134,8 @@ def run_matrix_test(M: int, K: int, N: int, format) -> float:
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 @pytest.mark.skipif(
-    not is_sm_at_least_100(), reason="CUDA capability >= 10.0 required for mxfloat8"
+    not is_sm_at_least_100() and not is_MI350(),
+    reason="CUDA capability >= 10.0 or MI350x required for mxfloat8",
 )
 @pytest.mark.parametrize(
     "size",
@@ -106,8 +159,10 @@ def run_matrix_test(M: int, K: int, N: int, format) -> float:
 )
 def test_matrix_multiplication(size, format):
     M, K, N = size
+    if is_MI350() and (M % 128 != 0):
+        pytest.skip("TODO add support for unaligned M on AMD MI350x")
     sqnr = run_matrix_test(M, K, N, format)
-    threshold = 80.0
+    threshold = 45.0 if is_MI350() else 80.0
     assert sqnr >= threshold, (
         f"{format} SQNR {sqnr} below threshold for dims {M}x{K}x{N}"
     )

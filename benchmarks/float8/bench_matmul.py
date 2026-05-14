@@ -19,7 +19,7 @@ from utils import (
 from torchao.prototype.mx_formats.mx_tensor import to_mx
 from torchao.prototype.mx_formats.utils import to_blocked
 from torchao.testing.training.roofline_utils import get_specs
-from torchao.utils import is_MI300, torch_version_at_least
+from torchao.utils import is_MI300, is_ROCM, torch_version_at_least
 
 # ScalingType and SwizzleType are only available in PyTorch 2.10+
 if torch_version_at_least("2.10.0"):
@@ -42,6 +42,7 @@ def run(
     assert recipe in (
         "tensorwise",
         "rowwise",
+        "mxfp8_cublas",
         "mxfp4_cutlass",
         "nvfp4",
     ), "unsupported"
@@ -132,13 +133,18 @@ def run(
         elif recipe == "mxfp8_cublas":
             scale_a = torch.ones(M, K // 32, device=device, dtype=torch.float8_e8m0fnu)
             scale_b = torch.ones(N, K // 32, device=device, dtype=torch.float8_e8m0fnu)
-            # pad if needed
-            scale_a = to_blocked(scale_a)
-            scale_b = to_blocked(scale_b)
+            if not is_ROCM():
+                # pad if needed
+                scale_a = to_blocked(scale_a)
+                scale_b = to_blocked(scale_b)
         elif recipe == "mxfp4_cutlass":
             # Use the blockwise scales from to_mx
-            scale_a = to_blocked(A_scales)
-            scale_b = to_blocked(B_scales)
+            if is_ROCM():
+                scale_a = A_scales
+                scale_b = B_scales
+            else:
+                scale_a = to_blocked(A_scales)
+                scale_b = to_blocked(B_scales)
         elif recipe == "nvfp4":
             # Use the blockwise scales from nvfp4_quantize
             scale_a = A_scales.view(torch.float8_e4m3fn)
@@ -163,6 +169,9 @@ def run(
                 raise RuntimeError(
                     "MXFP4 matmul requires PyTorch 2.10.0 or later for F.scaled_mm support"
                 )
+            swizzle = (
+                SwizzleType.NO_SWIZZLE if is_ROCM() else SwizzleType.SWIZZLE_32_4_4
+            )
             return F.scaled_mm(
                 A,
                 B,
@@ -170,8 +179,32 @@ def run(
                 scale_recipe_a=ScalingType.BlockWise1x32,
                 scale_b=scale_b,
                 scale_recipe_b=ScalingType.BlockWise1x32,
-                swizzle_a=SwizzleType.SWIZZLE_32_4_4,
-                swizzle_b=SwizzleType.SWIZZLE_32_4_4,
+                swizzle_a=swizzle,
+                swizzle_b=swizzle,
+                output_dtype=dtype,
+            )
+
+        def do_matmul_mxfp8_rocm(A, B):
+            nonlocal scale_a
+            nonlocal scale_b
+            if not torch_version_at_least("2.10.0"):
+                raise RuntimeError(
+                    "MXFP8 matmul requires PyTorch 2.10.0 or later for F.scaled_mm support"
+                )
+            if not is_ROCM():
+                # TODO(future): add CUDA support for mxfp8_cublas via F.scaled_mm
+                raise NotImplementedError(
+                    "mxfp8_cublas bench_matmul only supports AMD/ROCm for now"
+                )
+            return F.scaled_mm(
+                A,
+                B,
+                scale_a=scale_a,
+                scale_recipe_a=ScalingType.BlockWise1x32,
+                scale_b=scale_b,
+                scale_recipe_b=ScalingType.BlockWise1x32,
+                swizzle_a=SwizzleType.NO_SWIZZLE,
+                swizzle_b=SwizzleType.NO_SWIZZLE,
                 output_dtype=dtype,
             )
 
@@ -190,7 +223,9 @@ def run(
                 A, B, scale_a, scale_b, use_fast_accum=fast_accum
             )
 
-        if recipe == "mxfp4_cutlass":
+        if recipe == "mxfp8_cublas":
+            do_matmul = do_matmul_mxfp8_rocm
+        elif recipe == "mxfp4_cutlass":
             do_matmul = do_matmul_mxfp4
         elif recipe == "nvfp4":
             do_matmul = do_matmul_nvfp4

@@ -62,7 +62,7 @@ from torchao.testing.training.roofline_utils import (
     get_inference_float8_mem_sympy,
     get_inference_gemm_time_sympy,
 )
-from torchao.utils import _is_mslk_available, is_MI300, is_sm_at_least_100
+from torchao.utils import _is_mslk_available, is_MI300, is_MI350, is_sm_at_least_100
 
 # Import mslk.conv to register the fp8 conv operator
 if _is_mslk_available():
@@ -791,6 +791,7 @@ def run(
                         activation_dtype=torch.float8_e4m3fn,
                         weight_dtype=torch.float8_e4m3fn,
                         kernel_preference=KernelPreference.AUTO,
+                        swizzle_scales=(not is_MI350()),
                     )
                 elif recipe_name == "mxfp4_cutlass":
                     config = MXDynamicActivationMXWeightConfig(
