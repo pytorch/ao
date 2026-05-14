@@ -25,7 +25,6 @@ from torchao.utils import (
     is_mslk_version_at_least,
     is_ROCM,
     is_sm_at_least_100,
-    torch_version_at_least,
 )
 
 logger = logging.getLogger(__name__)
@@ -165,7 +164,7 @@ def pack_uint4(uint8_data: torch.Tensor) -> torch.Tensor:
     return (uint8_data[::2] | uint8_data[1::2] << 4).view(down_size(shape))
 
 
-if torch_version_at_least("2.7.0") and has_triton():
+if has_triton():
     import triton
     import triton.language as tl
     from torch.library import triton_op, wrap_triton
@@ -442,10 +441,10 @@ else:
         x_hp: torch.Tensor,
         block_size,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
-        raise AssertionError("needs torch version 2.8+ and triton")
+        raise AssertionError("needs triton")
 
     def triton_mx_block_rearrange(scale_tensor: torch.Tensor) -> torch.Tensor:
-        raise AssertionError("needs torch version 2.8+ and triton")
+        raise AssertionError("needs triton")
 
     def triton_mxfp8_dequant_dim0(
         e4m3_data: torch.Tensor,
@@ -453,12 +452,11 @@ else:
         out_dtype: torch.dtype,
         inner_block_size=32,
     ) -> torch.Tensor:
-        raise AssertionError("needs torch version 2.8+ and triton")
+        raise AssertionError("needs triton")
 
 
 _triton_kernels_available = (
-    torch_version_at_least("2.7.0")
-    and has_triton()
+    has_triton()
     and torch.cuda.is_available()
     and (is_sm_at_least_100() and is_cuda_version_at_least(12, 8))
     or (is_ROCM() and is_MI350())
@@ -1001,14 +999,14 @@ else:
         inner_block_size=32,
         scaling_mode: str = "rceil",
     ) -> Tuple[torch.Tensor, torch.Tensor]:
-        raise AssertionError("needs torch version 2.8+ and triton")
+        raise AssertionError("needs triton")
 
     def triton_to_mxfp8_dim1(
         x,
         inner_block_size=32,
         scaling_mode: str = "rceil",
     ) -> Tuple[torch.Tensor, torch.Tensor]:
-        raise AssertionError("needs torch version 2.8+ and triton")
+        raise AssertionError("needs triton")
 
 
 _mxfp8_cuda_kernels_available = (

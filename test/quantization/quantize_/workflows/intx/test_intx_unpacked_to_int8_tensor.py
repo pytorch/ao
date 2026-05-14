@@ -5,7 +5,6 @@
 # LICENSE file in the root directory of this source tree.
 
 import tempfile
-import unittest
 
 import torch
 from parameterized import param, parameterized
@@ -25,10 +24,9 @@ from torchao.quantization.granularity import PerAxis, PerGroup
 from torchao.quantization.qat import IntxFakeQuantizeConfig, QATConfig
 from torchao.quantization.quantize_.workflows import IntxPackingFormat
 from torchao.quantization.utils import compute_error
-from torchao.utils import torch_version_at_least, unwrap_tensor_subclass
+from torchao.utils import unwrap_tensor_subclass
 
 
-@unittest.skipIf(not torch_version_at_least("2.7.0"), "Need pytorch 2.7+")
 class TestIntxUnpackedToInt8Tensor(TestCase):
     def setUp(self):
         self.config = IntxWeightOnlyConfig(

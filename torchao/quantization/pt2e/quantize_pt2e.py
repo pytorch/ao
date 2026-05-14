@@ -5,12 +5,6 @@
 # LICENSE file in the root directory of this source tree.
 
 import torch
-
-from torchao.utils import torch_version_at_least
-
-if torch_version_at_least("2.7.0"):
-    from .constant_fold import constant_fold
-
 from torch.fx import GraphModule, Node
 from torch.fx.passes.infra.pass_manager import PassManager
 
@@ -27,6 +21,7 @@ from torchao.quantization.pt2e.utils import (
     _get_node_name_to_scope,
 )
 
+from .constant_fold import constant_fold
 from .convert import _convert_to_reference_decomposed_fx
 from .prepare import prepare
 from .reference_representation_rewrite import reference_representation_rewrite
@@ -352,7 +347,7 @@ def convert_pt2e(
     pm = PassManager([PortNodeMetaForQDQ()])
     model = pm(model).graph_module
 
-    if fold_quantize and torch_version_at_least("2.7.0"):
+    if fold_quantize:
         constant_fold(model, _quant_node_constraint)
 
     if use_reference_representation:

@@ -14,7 +14,7 @@ from torchao.quantization.quant_primitives import (
     choose_qparams_affine,
     quantize_affine,
 )
-from torchao.utils import TorchAOBaseTensor, torch_version_at_least
+from torchao.utils import TorchAOBaseTensor
 
 __all__ = [
     "Int4PlainInt32Tensor",
@@ -166,10 +166,7 @@ def _from_hp_npu(
     assert (
         torch.accelerator.is_available()
         and torch.accelerator.current_accelerator().type == "npu"
-        and torch_version_at_least("2.7.1")
-    ), (
-        f"PyTorch NPU 2.7.1+ needed for int4 packing and matmul ops, {torch.__version__} found"
-    )
+    ), "NPU device required for int4 packing and matmul ops"
 
     assert w.ndim == 2 and w.device.type == "npu", (
         f"Expecting 2D tensor on NPU, but got: {w.shape} on {w.device.type}"

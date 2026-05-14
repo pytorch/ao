@@ -58,8 +58,6 @@ from torchao.utils import (
     is_fbcode,
     is_ROCM,
     is_sm_at_least_89,
-    torch_version_at_least,
-    unwrap_tensor_subclass,
 )
 
 logger = logging.getLogger("INFO")
@@ -725,8 +723,6 @@ class TestAOTI(unittest.TestCase):
         model(x)
 
         api(model)
-        if not torch_version_at_least("2.7.0"):
-            unwrap_tensor_subclass(model)
 
         # running model
         model(x)
@@ -787,8 +783,6 @@ class TestExport(unittest.TestCase):
         model(x)
 
         api(model)
-        if not torch_version_at_least("2.7.0"):
-            unwrap_tensor_subclass(model)
 
         # running model
         ref = model(x)

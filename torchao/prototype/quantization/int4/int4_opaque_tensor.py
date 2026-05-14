@@ -333,9 +333,6 @@ def _da8w4_linear(input_tensor, weight_tensor, bias):
             quant_max=127,
         )
     else:
-        assert torch_version_at_least("2.7.0"), (
-            "Asymmetric uint8 activation quantization requires PyTorch 2.7+"
-        )
         # Asymmetric uint8 quantization: values in [0, 255]
         act_scale, act_zero_point = choose_qparams_affine(
             act_fp,

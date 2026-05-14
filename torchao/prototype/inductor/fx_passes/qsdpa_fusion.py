@@ -5,7 +5,6 @@ import torch
 from torch._dynamo.utils import counters
 from torch._inductor import config
 from torch._inductor.lowering import lowerings as L
-from torch._inductor.lowering import make_fallback
 from torch._inductor.pattern_matcher import (
     Arg,
     CallFunction,
@@ -15,13 +14,7 @@ from torch._inductor.pattern_matcher import (
     register_lowering_pattern,
 )
 
-from torchao.utils import torch_version_at_least
-
-if torch_version_at_least("2.7.0"):
-    # PyTorch 2.7+ is needed for functions in qsdpa lowering
-    from ..qsdpa_lowering import register_qsdpa  # noqa: F401
-else:
-    make_fallback(torch.ops.torchao.qscaled_dot_product.default)
+from ..qsdpa_lowering import register_qsdpa  # noqa: F401
 
 __all__ = [
     "_qsdpa_init",
@@ -484,28 +477,23 @@ def _register_qsdpa_lowerings(custom_pass_dict):
         )
 
 
-custom_pass = None
-if torch_version_at_least("2.7.0"):
-    # PyTorch 2.7+ is needed for custom graph pass
-    from torch._inductor.custom_graph_pass import CustomGraphPass, get_hash_for_files
+from torch._inductor.custom_graph_pass import CustomGraphPass, get_hash_for_files
 
-    # define the custom pass
-    class _CustomPass(PatternMatcherPass, CustomGraphPass):
-        def __init__(self) -> None:
-            super().__init__()
 
-        def __call__(self, g: torch.fx.graph.Graph):
-            self.apply(g)
+class _CustomPass(PatternMatcherPass, CustomGraphPass):
+    def __init__(self) -> None:
+        super().__init__()
 
-        def uuid(self) -> bytes:
-            return get_hash_for_files((__file__,))
+    def __call__(self, g: torch.fx.graph.Graph):
+        self.apply(g)
 
-    custom_pass = _CustomPass()
+    def uuid(self) -> bytes:
+        return get_hash_for_files((__file__,))
+
+
+custom_pass = _CustomPass()
 
 
 @functools.lru_cache(None)
 def _qsdpa_init():
-    if torch_version_at_least("2.7.0"):
-        _register_qsdpa_lowerings(config.post_grad_custom_pre_pass)
-    else:
-        pass
+    _register_qsdpa_lowerings(config.post_grad_custom_pre_pass)
