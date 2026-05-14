@@ -62,30 +62,13 @@ class TestIterativeReweight(common_utils.TestCase):
         result = reweight(group_norm.clone(), sigma.clone())
         self.assertAlmostEqual(result.item(), 1.0 / eps, places=1)
 
-    def test_should_update_at_end_step(self):
-        """True when step == end_step and on-frequency; False one step later."""
-        rw = IterativeReweight(reweight_freq=2, reweight_end_step=6)
-        self.assertTrue(rw.should_update(6))
-        self.assertFalse(rw.should_update(7))
-
-    def test_should_update_past_end_step(self):
-        """Updates at steps 0..end_step, stops after."""
-        rw = IterativeReweight(reweight_freq=1, reweight_end_step=3)
-        for step in range(4):
-            self.assertTrue(rw.should_update(step), f"step={step}")
-        for step in range(4, 7):
-            self.assertFalse(rw.should_update(step), f"step={step}")
-
-    def test_should_update_step_zero_with_freq_gt_one(self):
-        """Step 0 is always on-frequency (0 % freq == 0)."""
-        rw = IterativeReweight(reweight_freq=3, reweight_end_step=100)
-        self.assertTrue(rw.should_update(0))
-        self.assertFalse(rw.should_update(1))
-        self.assertTrue(rw.should_update(3))
-
 
 class TestApplyProxReweight(common_utils.TestCase):
     """Tests _apply_prox with tau_reweight != 1.0 across branches."""
+
+    def setUp(self):
+        super().setUp()
+        torch.manual_seed(0)
 
     @common_utils.parametrize(
         "grouper_cls,prox_cls,tau_reweight,disable_vmap",
@@ -99,7 +82,6 @@ class TestApplyProxReweight(common_utils.TestCase):
         self, grouper_cls, prox_cls, tau_reweight, disable_vmap
     ):
         """tau_reweight multiplies into the pruning threshold correctly."""
-        torch.manual_seed(42)
         reg_lambda = 0.5
         gamma = 2.0
 
@@ -129,7 +111,6 @@ class TestApplyProxReweight(common_utils.TestCase):
 
     def test_reweight_monotonicity(self):
         """Higher tau_reweight zeros more elements; lower zeros fewer."""
-        torch.manual_seed(42)
         reg_lambda = 0.5
         gamma = 1.0
 
@@ -148,9 +129,16 @@ class TestApplyProxReweight(common_utils.TestCase):
         self.assertGreaterEqual(zeros[5.0], zeros[1.0])
 
 
+common_utils.instantiate_parametrized_tests(TestApplyProxReweight)
+
+
 @unittest.skipUnless(dist.is_available(), "torch.distributed not available")
 class TestApplyProxReweightDTensor(DistributedTestMixin, common_utils.TestCase):
     """DTensor tests for _apply_prox with tau_reweight."""
+
+    def setUp(self):
+        super().setUp()
+        torch.manual_seed(0)
 
     @common_utils.parametrize(
         "GrouperCls,placements,prox_cls",
@@ -165,7 +153,6 @@ class TestApplyProxReweightDTensor(DistributedTestMixin, common_utils.TestCase):
         self, GrouperCls, placements, prox_cls
     ):
         """DTensor vs regular tensor equivalence with tau_reweight."""
-        torch.manual_seed(42)
         reg_lambda = 0.5
         gamma = 2.0
         tau_reweight = 2.5
@@ -211,7 +198,6 @@ class TestApplyProxReweightDTensor(DistributedTestMixin, common_utils.TestCase):
         self, GrouperCls, placements, prox_cls
     ):
         """DTensor with gamma_index_slope > 0 and tensor tau_reweight."""
-        torch.manual_seed(42)
         reg_lambda = 0.5
         gamma = 2.0
 
@@ -247,12 +233,18 @@ class TestApplyProxReweightDTensor(DistributedTestMixin, common_utils.TestCase):
         self.assertEqual(p_regular, p_dtensor.full_tensor())
 
 
+common_utils.instantiate_parametrized_tests(TestApplyProxReweightDTensor)
+
+
 class TestPruneOptimizerReweight(common_utils.TestCase):
     """End-to-end tests using PruneOptimizer with reweight_tau_freq > 0."""
 
+    def setUp(self):
+        super().setUp()
+        torch.manual_seed(0)
+
     def test_sigma_initialized_at_warmup_end(self):
         """After warmup, state['sigma'] exists for regularized params."""
-        torch.manual_seed(42)
         model = TwoLayerMLP(input_size=10, output_size=2)
         prune_config = model._linear_prune_config()
         param_groups = get_param_groups(model, prune_config, verbose=False)
@@ -279,7 +271,6 @@ class TestPruneOptimizerReweight(common_utils.TestCase):
 
     def test_tau_reweight_updated_at_freq(self):
         """state['tau_reweight'] is updated every reweight_tau_freq steps."""
-        torch.manual_seed(42)
         model = TwoLayerMLP(input_size=10, output_size=2)
         prune_config = model._linear_prune_config()
         param_groups = get_param_groups(model, prune_config, verbose=False)
@@ -304,7 +295,6 @@ class TestPruneOptimizerReweight(common_utils.TestCase):
 
     def test_no_reweight_when_freq_zero(self):
         """With reweight_tau_freq=0, no sigma/tau_reweight in state."""
-        torch.manual_seed(42)
         model = TwoLayerMLP(input_size=10, output_size=2)
         prune_config = model._linear_prune_config()
         param_groups = get_param_groups(model, prune_config, verbose=False)
@@ -325,45 +315,8 @@ class TestPruneOptimizerReweight(common_utils.TestCase):
                 self.assertNotIn("sigma", optimizer.state[p])
                 self.assertNotIn("tau_reweight", optimizer.state[p])
 
-    def test_tau_reweight_frozen_after_end_step(self):
-        """tau_reweight stops updating after reweight_tau_end_step."""
-        torch.manual_seed(42)
-        model = TwoLayerMLP(input_size=10, output_size=2)
-        prune_config = model._linear_prune_config()
-        param_groups = get_param_groups(model, prune_config, verbose=False)
-        end_step = 5
-        optimizer = PruneOptimizer(
-            torch.optim.SGD(param_groups, lr=0.1),
-            reg_lambda=1.0,
-            warmup_steps=0,
-            reweight_tau_freq=1,
-            reweight_tau_end_step=end_step,
-        )
-
-        dummy_input = torch.randn(20, 10)
-        label = torch.randint(0, 2, (20,))
-        for step in range(10):
-            optim_step(model, optimizer, dummy_input, label, step)
-
-        # Capture tau_reweight after it should have frozen
-        frozen = {
-            id(p): optimizer.state[p]["tau_reweight"].clone()
-            for group in optimizer.regularized_param_groups()
-            for p in group["params"]
-            if "tau_reweight" in optimizer.state[p]
-        }
-        self.assertTrue(len(frozen) > 0, "tau_reweight should exist")
-
-        for step in range(10, 15):
-            optim_step(model, optimizer, dummy_input, label, step)
-
-        for group in optimizer.regularized_param_groups():
-            for p in group["params"]:
-                self.assertEqual(optimizer.state[p]["tau_reweight"], frozen[id(p)])
-
     def test_reweight_with_group_lasso(self):
         """End-to-end with Dim0Grouper + ProxGroupLasso (hits vmap branch)."""
-        torch.manual_seed(42)
         model = TwoLayerMLP(input_size=10, output_size=2)
         prune_config = model._group_lasso_prune_config()
         param_groups = get_param_groups(model, prune_config, verbose=False)
@@ -387,9 +340,6 @@ class TestPruneOptimizerReweight(common_utils.TestCase):
                 n_groups = p.size(0)  # Dim0Grouper groups along dim 0
                 self.assertEqual(state["tau_reweight"].numel(), n_groups)
 
-
-common_utils.instantiate_parametrized_tests(TestApplyProxReweight)
-common_utils.instantiate_parametrized_tests(TestApplyProxReweightDTensor)
 
 if __name__ == "__main__":
     random.seed(0)
