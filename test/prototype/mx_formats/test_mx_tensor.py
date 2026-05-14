@@ -34,9 +34,6 @@ from torchao.utils import (
 
 torch.manual_seed(2)
 
-if not torch_version_at_least("2.8.0"):
-    pytest.skip("Unsupported PyTorch version", allow_module_level=True)
-
 
 @pytest.fixture(autouse=True)
 def run_before_and_after_tests():
@@ -734,9 +731,6 @@ def test_cast_to_float8_e4m3fn_saturation_behavior():
 @pytest.mark.parametrize(
     "use_triton_kernel", [False, True] if torch.cuda.is_available() else [False]
 )
-@pytest.mark.skipif(
-    not torch_version_at_least("2.8.0"), reason="torch.compile requires PyTorch 2.8+"
-)
 def test_to_blocked_from_blocked_roundtrip(shape, use_triton_kernel: bool):
     rows, cols = shape
     device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -756,7 +750,6 @@ def test_to_blocked_from_blocked_roundtrip(shape, use_triton_kernel: bool):
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
-@pytest.mark.skipif(not torch_version_at_least("2.8.0"), reason="requires PyTorch 2.8+")
 @pytest.mark.parametrize("transpose", [False, True])
 @pytest.mark.parametrize(
     "shape",
@@ -810,7 +803,6 @@ def test_scale_shape_matches_qdata(transpose, shape):
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
-@pytest.mark.skipif(not torch_version_at_least("2.8.0"), reason="requires PyTorch 2.8+")
 @pytest.mark.parametrize("elem_dtype", (torch.float8_e4m3fn, torch.float4_e2m1fn_x2))
 @pytest.mark.parametrize("transpose", [False, True])
 @pytest.mark.parametrize(
@@ -875,9 +867,6 @@ def test_swizzle(elem_dtype, transpose, shape):
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
-@pytest.mark.skipif(
-    not torch_version_at_least("2.8.0"), reason="MX requires PyTorch 2.8+"
-)
 @pytest.mark.parametrize("elem_dtype", [torch.float8_e4m3fn, torch.float8_e5m2])
 def test_mx_pin_memory(elem_dtype):
     x_hp = torch.randn(128, 256, device="cuda", dtype=torch.bfloat16)

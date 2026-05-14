@@ -18,13 +18,7 @@ from torchao.prototype.mx_formats.inference_workflow import (
 )
 from torchao.quantization import quantize_
 from torchao.quantization.quantize_.common import KernelPreference
-from torchao.utils import (
-    is_sm_at_least_100,
-    torch_version_at_least,
-)
-
-if not torch_version_at_least("2.8.0"):
-    pytest.skip("Unsupported PyTorch version", allow_module_level=True)
+from torchao.utils import is_sm_at_least_100
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")

@@ -62,7 +62,6 @@ from torchao.utils import (
     is_sm_at_least_89,
     is_sm_at_least_90,
     is_sm_at_least_100,
-    torch_version_at_least,
     unwrap_tensor_subclass,
 )
 
@@ -1041,7 +1040,7 @@ class TestFqnToConfig(TestCase):
         ]
         if is_sm_at_least_100():
             configs.append(MXDynamicActivationMXWeightConfig())
-        if is_sm_at_least_100() and torch_version_at_least("2.8.0"):
+        if is_sm_at_least_100():
             configs.append(NVFP4DynamicActivationNVFP4WeightConfig())
         for config in configs:
             with self.subTest(config=type(config).__name__):

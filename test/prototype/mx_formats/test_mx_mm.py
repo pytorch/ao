@@ -17,9 +17,6 @@ from torchao.utils import (
     torch_version_at_least,
 )
 
-if not torch_version_at_least("2.8.0"):
-    pytest.skip("Unsupported PyTorch version", allow_module_level=True)
-
 # ScalingType and SwizzleType are only available in PyTorch 2.10+
 if torch_version_at_least("2.10.0"):
     from torch.nn.functional import ScalingType, SwizzleType

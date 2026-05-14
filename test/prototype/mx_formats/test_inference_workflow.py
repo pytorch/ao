@@ -25,13 +25,9 @@ from torchao.testing.utils import TorchAOIntegrationTestCase, skip_if_rocm
 from torchao.utils import (
     is_sm_at_least_89,
     is_sm_at_least_100,
-    torch_version_at_least,
 )
 
 torch.manual_seed(2)
-
-if not torch_version_at_least("2.8.0"):
-    pytest.skip("Unsupported PyTorch version", allow_module_level=True)
 
 
 # source: https://stackoverflow.com/a/22638709
@@ -62,9 +58,6 @@ def cuda_kernel_profiler(kernel_pattern):
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
-@pytest.mark.skipif(
-    not torch_version_at_least("2.8.0"), reason="torch.compile requires PyTorch 2.8+"
-)
 @pytest.mark.parametrize("elem_dtype", [torch.float8_e4m3fn, torch.float4_e2m1fn_x2])
 @pytest.mark.parametrize("bias", [True, False])
 @pytest.mark.parametrize("compile", [True, False])
@@ -134,9 +127,6 @@ def test_inference_workflow_mx(
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
-@pytest.mark.skipif(
-    not torch_version_at_least("2.8.0"), reason="torch.compile requires PyTorch 2.8+"
-)
 @pytest.mark.parametrize("bias", [True, False])
 @pytest.mark.parametrize("compile", [True, False])
 @pytest.mark.parametrize("quant_type", ["dynamic", "weight_only"])
@@ -243,10 +233,6 @@ def test_inference_workflow_nvfp4(
 
 class VLLMIntegrationTestCase(TorchAOIntegrationTestCase):
     @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
-    @pytest.mark.skipif(
-        not torch_version_at_least("2.8.0"),
-        reason="torch.compile requires PyTorch 2.8+",
-    )
     def test_slice_and_copy_similar_to_vllm(self):
         config = MXDynamicActivationMXWeightConfig(
             activation_dtype=torch.float8_e4m3fn,
@@ -256,10 +242,6 @@ class VLLMIntegrationTestCase(TorchAOIntegrationTestCase):
         self._test_slice_and_copy_similar_to_vllm(config)
 
     @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
-    @pytest.mark.skipif(
-        not torch_version_at_least("2.8.0"),
-        reason="torch.compile requires PyTorch 2.8+",
-    )
     def test_narrow_similar_to_vllm(self):
         config = MXDynamicActivationMXWeightConfig(
             activation_dtype=torch.float8_e4m3fn,
@@ -270,9 +252,6 @@ class VLLMIntegrationTestCase(TorchAOIntegrationTestCase):
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
-@pytest.mark.skipif(
-    not torch_version_at_least("2.8.0"), reason="torch.compile requires PyTorch 2.8+"
-)
 @pytest.mark.skipif(
     not is_sm_at_least_100(), reason="CUDA capability >= 10.0 required for NVFP4"
 )
@@ -353,9 +332,6 @@ def test_nvfp4_static_quantization_flow(
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 @pytest.mark.skipif(
-    not torch_version_at_least("2.8.0"), reason="torch.compile requires PyTorch 2.8+"
-)
-@pytest.mark.skipif(
     not is_sm_at_least_100(), reason="CUDA capability >= 10.0 required for NVFP4"
 )
 @torch.no_grad()
@@ -431,9 +407,6 @@ class GroupedMMModel(nn.Module):
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 @pytest.mark.skipif(
-    not torch_version_at_least("2.8.0"), reason="torch >= 2.8.0 required"
-)
-@pytest.mark.skipif(
     not is_sm_at_least_100(), reason="CUDA capability >= 10.0 required for NVFP4"
 )
 @torch.no_grad()
@@ -503,9 +476,6 @@ class BatchedMMModel(nn.Module):
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
-@pytest.mark.skipif(
-    not torch_version_at_least("2.8.0"), reason="torch >= 2.8.0 required"
-)
 @pytest.mark.skipif(
     not is_sm_at_least_100(), reason="CUDA capability >= 10.0 required for NVFP4"
 )
