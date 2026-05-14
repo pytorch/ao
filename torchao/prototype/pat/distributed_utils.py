@@ -4,8 +4,6 @@
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
 
-from typing import List
-
 from torch import Tensor
 from torch import distributed as dist
 from torch.distributed.tensor import DTensor
@@ -26,7 +24,7 @@ class _NoopHandle:
 
 
 def _maybe_async_aggregate(
-    handle_buf: List[tuple[Tensor, dist.Work | _NoopHandle]], input_tensor: Tensor
+    handle_buf: list[tuple[Tensor, dist.Work | _NoopHandle]], input_tensor: Tensor
 ) -> None:
     if dist.is_initialized() and not _is_dtensor(input_tensor):
         handle = dist.reduce(input_tensor, dst=0, async_op=True)
@@ -38,7 +36,7 @@ def _maybe_async_aggregate(
             handle_buf.append((input_tensor, _NoopHandle()))
 
 
-def _sum_async_streams(handle_buf: List[tuple[Tensor, dist.Work | _NoopHandle]]) -> int:
+def _sum_async_streams(handle_buf: list[tuple[Tensor, dist.Work | _NoopHandle]]) -> int:
     assert isinstance(handle_buf, list), (
         f"Expected a list of async handles but got {type(handle_buf)}"
     )

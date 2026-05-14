@@ -5,7 +5,7 @@
 # LICENSE file in the root directory of this source tree.
 
 import math
-from typing import Tuple, Union
+from typing import Union
 
 import torch
 from torch import Tensor
@@ -26,7 +26,7 @@ class ProxGroupLasso(ProxMap):
         p: Tensor,
         gamma: Union[Tensor, float],
         tau_reweight: Union[Tensor, float] = 1.0,
-    ) -> Tuple[Tensor, Tensor]:
+    ) -> tuple[Tensor, Tensor]:
         p_norm = self._get_norm(p)
         mult = torch.maximum(
             1 - self.threshold(p, gamma, tau_reweight) / p_norm,
@@ -56,7 +56,7 @@ class ProxGroupLassoVectorized(ProxGroupLasso):
         p: Tensor,
         gamma: Union[Tensor, float],
         tau_reweight: Union[Tensor, float] = 1.0,
-    ) -> Tuple[Tensor, Tensor]:
+    ) -> tuple[Tensor, Tensor]:
         p_norm_vec = self._get_norm(p)
         mult = torch.maximum(
             1 - self.threshold(p, gamma, tau_reweight) / p_norm_vec,

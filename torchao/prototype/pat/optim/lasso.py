@@ -4,7 +4,7 @@
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
 
-from typing import Tuple, Union
+from typing import Union
 
 from torch import Tensor
 
@@ -23,7 +23,7 @@ class ProxLasso(ProxMap):
         p: Tensor,
         gamma: Union[Tensor, float],
         tau_reweight: Union[Tensor, float] = 1.0,
-    ) -> Tuple[Tensor, Tensor]:
+    ) -> tuple[Tensor, Tensor]:
         mult = (1 - self.threshold(p, gamma, tau_reweight) / self._get_norm(p)).clamp(
             min=0
         )
