@@ -40,11 +40,8 @@ from utils import (
 )
 
 import torchao
-from torchao.utils import torch_version_at_least
 
-# ScalingType and SwizzleType are only available in PyTorch 2.10+
-if torch_version_at_least("2.10.0"):
-    from torch.nn.functional import ScalingType, SwizzleType
+from torch.nn.functional import ScalingType, SwizzleType
 from torchao.prototype.mx_formats.inference_workflow import (
     MXDynamicActivationMXWeightConfig,
     NVFP4DynamicActivationNVFP4WeightConfig,
@@ -167,10 +164,6 @@ def get_gemm_times(
 
     def do_matmul(A, B):
         if recipe_name == "mxfp4_cutlass":
-            if not torch_version_at_least("2.10.0"):
-                raise RuntimeError(
-                    "MXFP4 matmul requires PyTorch 2.10.0 or later for F.scaled_mm support"
-                )
             return F.scaled_mm(
                 A,
                 B,

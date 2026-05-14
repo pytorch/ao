@@ -19,11 +19,9 @@ from utils import (
 from torchao.prototype.mx_formats.mx_tensor import to_mx
 from torchao.prototype.mx_formats.utils import to_blocked
 from torchao.testing.training.roofline_utils import get_specs
-from torchao.utils import is_MI300, torch_version_at_least
+from torchao.utils import is_MI300
 
-# ScalingType and SwizzleType are only available in PyTorch 2.10+
-if torch_version_at_least("2.10.0"):
-    from torch.nn.functional import ScalingType, SwizzleType
+from torch.nn.functional import ScalingType, SwizzleType
 
 
 @torch.inference_mode()
@@ -159,10 +157,6 @@ def run(
         def do_matmul_mxfp4(A, B):
             nonlocal scale_a
             nonlocal scale_b
-            if not torch_version_at_least("2.10.0"):
-                raise RuntimeError(
-                    "MXFP4 matmul requires PyTorch 2.10.0 or later for F.scaled_mm support"
-                )
             return F.scaled_mm(
                 A,
                 B,

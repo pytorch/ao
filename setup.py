@@ -795,12 +795,10 @@ def get_extensions():
             )
 
     # Only build the cutlass_90a extension if sm90a is in the architecture flags
-    # and if torch version >= 2.10
     if (
         cutlass_90a_sources is not None
         and len(cutlass_90a_sources) > 0
         and build_for_sm90a
-        and _torch_version_at_least("2.10.0")
     ):
         cutlass_90a_extra_compile_args = copy.deepcopy(extra_compile_args)
         # Only use sm90a architecture for these sources, ignoring other flags
@@ -811,7 +809,7 @@ def get_extensions():
                 "-DTORCH_TARGET_VERSION=0x020a000000000000",
             ]
         )
-        # Add compile flags for stable ABI support (requires torch >= 2.10)
+        # Add compile flags for stable ABI support
         cutlass_90a_extra_compile_args["cxx"].extend(
             [
                 "-DUSE_CUDA",
