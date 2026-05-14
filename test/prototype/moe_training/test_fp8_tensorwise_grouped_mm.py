@@ -30,7 +30,6 @@ import triton
 
 from torchao.prototype.moe_training.config import (  # noqa: E402
     Float8TrainingOpConfig,
-    Float8TrainingRecipe,
 )
 from torchao.prototype.moe_training.fp8_tensorwise_grouped_mm import (  # noqa: E402
     _to_fp8_tensorwise_then_scaled_grouped_mm,
@@ -138,7 +137,7 @@ def test_tensorwise_staged_amax_matches_atomic_amax(shape):
 @pytest.mark.parametrize("shape", [(128, 256), (129, 512)])
 def test_tensorwise_2d_quantize_matches_atomic_amax_baseline(shape):
     torch.manual_seed(1)
-    config = Float8TrainingOpConfig.from_recipe(Float8TrainingRecipe.FP8_TENSORWISE)
+    config = Float8TrainingOpConfig(float8_recipe="tensorwise")
     tensor = torch.randn(shape, device="cuda", dtype=torch.bfloat16)
 
     atomic_fp8, atomic_inv_scale = _atomic_quantize_2d(tensor, config.float8_dtype)
@@ -155,7 +154,7 @@ def test_tensorwise_2d_quantize_matches_atomic_amax_baseline(shape):
 @pytest.mark.parametrize("shape", [(128, 256), (129, 512)])
 def test_tensorwise_dual_layout_quantize_matches_atomic_amax_baseline(shape):
     torch.manual_seed(2)
-    config = Float8TrainingOpConfig.from_recipe(Float8TrainingRecipe.FP8_TENSORWISE)
+    config = Float8TrainingOpConfig(float8_recipe="tensorwise")
     tensor = torch.randn(shape, device="cuda", dtype=torch.bfloat16)
 
     atomic_row, atomic_col, atomic_inv_scale = _atomic_quantize_2d_dual_layout(
@@ -176,7 +175,7 @@ def test_tensorwise_dual_layout_quantize_matches_atomic_amax_baseline(shape):
 
 def test_tensorwise_grouped_mm_forward_backward_nonuniform_offsets():
     torch.manual_seed(3)
-    config = Float8TrainingOpConfig.from_recipe(Float8TrainingRecipe.FP8_TENSORWISE)
+    config = Float8TrainingOpConfig(float8_recipe="tensorwise")
     device = "cuda"
     experts, k, n = 3, 64, 80
     group_sizes = torch.tensor([16, 32, 48], device=device, dtype=torch.int32)

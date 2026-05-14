@@ -390,9 +390,9 @@ def _quantize_then_scaled_grouped_mm(
         _to_mxfp8_then_scaled_grouped_mm,
     )
 
-    # Dispatch based on derived dtype
+    # Dispatch based on recipe
     if isinstance(config, Float8TrainingOpConfig):
-        if config.scaling_granularity == ScalingGranularity.TENSORWISE:
+        if config.float8_recipe == "tensorwise":
             return _to_fp8_tensorwise_then_scaled_grouped_mm(
                 A,
                 B_t,

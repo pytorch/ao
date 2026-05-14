@@ -32,7 +32,6 @@ from triton.testing import do_bench
 
 from torchao.prototype.moe_training.config import (
     Float8TrainingOpConfig,
-    Float8TrainingRecipe,
 )
 from torchao.prototype.moe_training.fp8_grouped_mm import (
     _to_fp8_rowwise_then_scaled_grouped_mm,
@@ -118,7 +117,7 @@ def bench_forward_backward(fn: Callable[[], torch.Tensor]) -> float:
 def make_fns(
     shape: GemmShape,
 ) -> Dict[str, Callable[[], torch.Tensor]]:
-    config = Float8TrainingOpConfig.from_recipe(Float8TrainingRecipe.FP8_TENSORWISE)
+    config = Float8TrainingOpConfig(float8_recipe="tensorwise")
     a, _b, b_t, offs = make_inputs(shape)
 
     def bf16_fn():
