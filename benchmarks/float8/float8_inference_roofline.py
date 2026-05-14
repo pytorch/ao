@@ -31,6 +31,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import tqdm
 from tabulate import tabulate
+from torch.nn.functional import ScalingType, SwizzleType
 from torch.profiler import ProfilerActivity, profile
 from utils import (
     get_gpu_kernel_conv_time_s,
@@ -40,8 +41,6 @@ from utils import (
 )
 
 import torchao
-
-from torch.nn.functional import ScalingType, SwizzleType
 from torchao.prototype.mx_formats.inference_workflow import (
     MXDynamicActivationMXWeightConfig,
     NVFP4DynamicActivationNVFP4WeightConfig,

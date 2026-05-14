@@ -11,6 +11,7 @@ import pandas as pd
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from torch.nn.functional import ScalingType, SwizzleType
 from utils import (
     do_benchmarks,
     get_name_to_shapes_iter,
@@ -20,8 +21,6 @@ from torchao.prototype.mx_formats.mx_tensor import to_mx
 from torchao.prototype.mx_formats.utils import to_blocked
 from torchao.testing.training.roofline_utils import get_specs
 from torchao.utils import is_MI300
-
-from torch.nn.functional import ScalingType, SwizzleType
 
 
 @torch.inference_mode()

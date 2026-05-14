@@ -116,7 +116,6 @@ quantization_inplace_add_fn_list = [
 ]
 
 
-
 def _get_fp8_aoti_options():
     """
     Detect whether AOTI can exercise the FP8 fusion path.

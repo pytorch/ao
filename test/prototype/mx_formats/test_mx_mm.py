@@ -8,13 +8,12 @@ from functools import partial
 import pytest
 import torch
 import torch.nn.functional as F
+from torch.nn.functional import ScalingType, SwizzleType
 
 from torchao.float8.float8_utils import compute_error
 from torchao.prototype.mx_formats.mx_tensor import MXTensor
 from torchao.prototype.mx_formats.utils import to_blocked
 from torchao.utils import is_sm_at_least_100
-
-from torch.nn.functional import ScalingType, SwizzleType
 
 
 def _mxfp4_scaled_mm(a_data, b_data, a_scale_block, b_scale_block):
@@ -89,9 +88,7 @@ def run_matrix_test(M: int, K: int, N: int, format) -> float:
     ],
     ids=lambda x: f"{x[0]}x{x[1]}x{x[2]}",
 )
-@pytest.mark.parametrize(
-    "format", ["fp8", "fp4"]
-)
+@pytest.mark.parametrize("format", ["fp8", "fp4"])
 def test_matrix_multiplication(size, format):
     M, K, N = size
     sqnr = run_matrix_test(M, K, N, format)
