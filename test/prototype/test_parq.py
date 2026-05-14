@@ -46,7 +46,6 @@ from torchao.quantization.quantize_.workflows import IntxUnpackedToInt8Tensor
 from torchao.utils import (
     _is_mslk_available,
     is_sm_at_least_90,
-    torch_version_at_least,
 )
 
 _DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -332,7 +331,6 @@ class TestUnifTorchaoQuantizer(common_utils.TestCase):
     def setUp(self):
         torch.manual_seed(123)
 
-    @unittest.skipIf(not torch_version_at_least("2.8.0"), "Need pytorch >= 2.8.0")
     @unittest.skipIf(not is_sm_at_least_90(), "Need sm >= 90")
     @unittest.skipIf(not _is_mslk_available(), "Requires mslk >= 1.0.0")
     @common_utils.parametrize("group_size", [32, 256])
@@ -364,7 +362,6 @@ class TestUnifTorchaoQuantizer(common_utils.TestCase):
         quantizer = UnifTorchaoQuantizer()
         compare_quantized_models(model, m_ref, quantizer, b, group_size)
 
-    @unittest.skipIf(not torch_version_at_least("2.8.0"), "Need pytorch >= 2.8.0")
     @unittest.skipIf(not is_sm_at_least_90(), "Need sm >= 90")
     @unittest.skipIf(not _is_mslk_available(), "Requires mslk >= 1.0.0")
     def test_int4_weight_only_e2e(self, group_size: int = 32):

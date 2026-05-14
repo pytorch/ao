@@ -21,9 +21,6 @@ from torchao.quantization import (
 )
 from torchao.quantization.quantize_.common import SupportsActivationPreScaling
 from torchao.quantization.utils import compute_error
-from torchao.utils import (
-    torch_version_at_least,
-)
 
 
 def get_config(group_size):
@@ -34,18 +31,6 @@ def get_config(group_size):
 
 
 class Int4PlainInt32Tensor(TestCase):
-    _MIN_VER = {
-        "xpu": "2.8.0",
-        "npu": "2.7.1",
-    }
-
-    def setUp(self):
-        min_req = type(self)._MIN_VER.get(self.device_type)
-        if not torch_version_at_least(min_req):
-            self.skipTest(
-                f"{self.device_type} requires torch >= {min_req}, current {torch.__version__}"
-            )
-
     @parametrize(
         "sizes",
         [
