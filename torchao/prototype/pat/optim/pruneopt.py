@@ -73,6 +73,11 @@ class PruneOptimizer(Optimizer):
         for group in self.regularized_param_groups():
             group.setdefault("gamma", 0.0)
             group.setdefault("reg_lambda", reg_lambda)
+            if group.get("min_sparsity_schedule", False):
+                assert self.healing_start_step != sys.maxsize, (
+                    "min_sparsity_schedule requires a finite healing_start_step; "
+                    "the ramp ends when the mask freezes."
+                )
 
         self.iterative_reweight = (
             IterativeReweight(reweight_tau_freq, reweight_tau_end_step, reweight_eps)
@@ -150,8 +155,42 @@ class PruneOptimizer(Optimizer):
             if group.get("prox_type"):
                 yield group
 
+    def _get_prox_kwargs(self, group: dict[str, Any]) -> dict[str, Any]:
+        prox_kwargs = {}
+        if group["prox_type"] == "NMSparseConstraint":
+            assert "n_nonzero" in group, (
+                "NMSparseConstraint requires 'n_nonzero' in prune config"
+            )
+            prox_kwargs["n_nonzero"] = group["n_nonzero"]
+        elif group["prox_type"] == "MinSparsityConstraint":
+            assert "min_sparsity" in group, (
+                "MinSparsityConstraint requires 'min_sparsity' in prune config"
+            )
+            prox_kwargs["min_sparsity"] = self._effective_min_sparsity(group)
+        return prox_kwargs
+
+    def _effective_min_sparsity(self, group: dict[str, Any]) -> float:
+        """Cubic ramp from 0 -> ``min_sparsity`` over (warmup, healing_start).
+
+        When ``min_sparsity_schedule`` is unset (default), returns the static
+        target. The ramp ends at ``healing_start_step`` because the mask
+        freezes there — pushing the target up after that would be a no-op.
+        """
+        target = group["min_sparsity"]
+        if not group.get("min_sparsity_schedule", False):
+            return target
+        n = self.num_steps
+        if n <= self.warmup_steps:
+            return 0.0
+        # Unreachable in training (step() short-circuits at healing_start_step);
+        # kept as a boundary guard for direct callers.
+        if n >= self.healing_start_step:
+            return target
+        t = (n - self.warmup_steps) / (self.healing_start_step - self.warmup_steps)
+        return target * (1 - (1 - t) ** 3)
+
     @staticmethod
-    def _get_grouper_kwargs(group) -> dict[str, Any]:
+    def _get_grouper_kwargs(group: dict[str, Any]) -> dict[str, Any]:
         grouper_kwargs = {}
         if group["group_type"].startswith("AttentionHeadGrouper"):
             grouper_kwargs["num_heads"] = group["num_heads"]
@@ -280,9 +319,30 @@ class PruneOptimizer(Optimizer):
                 )
                 gamma_in_dims = 0
 
-            if prox_kwargs["disable_vmap"]:
-                # Element- or layer-wise pruning
-                zero_elts, group_norm = prox_map.apply_(grouper.p, gamma, tau_reweight)
+            if prox_kwargs["disable_vmap"] or prox_map.whole_tensor:
+                # Element-, layer-, or whole-tensor pruning: bypass vmap and
+                # call apply_ once on the full grouped view. whole_tensor prox
+                # maps treat p.size(0) as n_groups, so transpose when the
+                # grouper iterates dim 1 (e.g. Dim1Grouper).
+                transpose = getattr(grouper, "in_dims", 0) == 1 and grouper.p.dim() == 2
+                if _is_dtensor(grouper.p):
+                    # Prox maps that mutate via index_put_ (e.g.
+                    # MinSparsityConstraint) have no DTensor sharding rule and
+                    # the whole-tensor variants need a global view to compute
+                    # correct top-k. Gather, mutate, then scatter back.
+                    full = grouper.p.full_tensor()
+                    view = full.transpose(0, 1) if transpose else full
+                    zero_elts, group_norm = prox_map.apply_(view, gamma, tau_reweight)
+                    grouper.p.copy_(
+                        distribute_tensor(
+                            full,
+                            device_mesh=grouper.p.device_mesh,
+                            placements=grouper.p.placements,
+                        )
+                    )
+                else:
+                    view = grouper.p.transpose(0, 1) if transpose else grouper.p
+                    zero_elts, group_norm = prox_map.apply_(view, gamma, tau_reweight)
                 zeros_are_summed = zero_elts.dim() == 0
             else:
                 if not prox_kwargs["is_svd_grouper"] and _is_dtensor(p):
@@ -310,7 +370,9 @@ class PruneOptimizer(Optimizer):
                 zeros_are_summed = True
 
                 # Adjust for group-based pruning
-                if not prox_kwargs["is_svd_grouper"]:
+                if not prox_kwargs["is_svd_grouper"] and not prox_kwargs.get(
+                    "zero_elts_are_counts", False
+                ):
                     zero_elts *= grouper.group_size()
 
             # Record for reconstruction and logging
@@ -419,7 +481,7 @@ class PruneOptimizer(Optimizer):
             # apply shrinkage to latent parameters in place
             prox_map = instantiate_module(
                 f"torchao.prototype.pat.optim.{group['prox_type']}"
-            )(group["reg_lambda"])
+            )(group["reg_lambda"], **self._get_prox_kwargs(group))
 
             # grouper is a context manager that reshapes p if needed
             grouper_cls = instantiate_module(
@@ -433,6 +495,8 @@ class PruneOptimizer(Optimizer):
                     ("ElemGrouper", "LayerGrouper")
                 ),
                 "is_svd_grouper": group["group_type"].endswith("SVDGrouper"),
+                "zero_elts_are_counts": group["prox_type"]
+                in ("NMSparseConstraint", "MinSparsityConstraint"),
             }
             for p in group["params"]:
                 if not p.requires_grad:

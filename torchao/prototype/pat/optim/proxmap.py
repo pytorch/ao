@@ -13,6 +13,8 @@ from torch import Tensor
 class ProxMap(ABC):
     """Abstract base class that defines the proximal mapping interface"""
 
+    whole_tensor: bool = False
+
     def __init__(self, reg_lambda: float) -> None:
         self.reg_lambda = reg_lambda
 

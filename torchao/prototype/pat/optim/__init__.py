@@ -10,6 +10,7 @@ from torch.optim import Optimizer
 
 from .group_lasso import ProxGroupLasso, ProxGroupLassoVectorized  # noqa: F401
 from .lasso import ProxLasso  # noqa: F401
+from .min_sparsity import MinSparsityConstraint, NMSparseConstraint  # noqa: F401
 from .nuclear_norm import ProxNuclearNorm  # noqa: F401
 from .proxmap import ProxMap  # noqa: F401
 from .pruneopt import PruneOptimizer
