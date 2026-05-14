@@ -21,15 +21,9 @@ from torchao.prototype.mx_formats.nvfp4_tensor import (
 from torchao.prototype.mx_formats.utils import ceil_div
 from torchao.quantization.utils import compute_error
 from torchao.testing.utils import skip_if_rocm
-from torchao.utils import (
-    is_sm_at_least_100,
-    torch_version_at_least,
-)
+from torchao.utils import is_sm_at_least_100
 
 torch.manual_seed(2)
-
-if not torch_version_at_least("2.8.0"):
-    pytest.skip("Unsupported PyTorch version", allow_module_level=True)
 
 
 @pytest.mark.parametrize(
@@ -43,9 +37,6 @@ if not torch_version_at_least("2.8.0"):
     ],
 )
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
-@pytest.mark.skipif(
-    not torch_version_at_least("2.8.0"), reason="torch.compile requires PyTorch 2.8+"
-)
 def test_nvfp4_reconstruction(dtype, shape, use_per_tensor_scale):
     x = torch.randn(shape, dtype=dtype, device="cuda")
     if use_per_tensor_scale:
@@ -110,9 +101,6 @@ def test_nvfp4_reconstruction(dtype, shape, use_per_tensor_scale):
         (1, 32, 64),
     ],
 )
-@pytest.mark.skipif(
-    not torch_version_at_least("2.8.0"), reason="torch.compile requires PyTorch 2.8+"
-)
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 def test_nvfp4_swizzled_scales_construction(is_swizzled_scales, shape):
     """
@@ -147,9 +135,6 @@ def test_nvfp4_swizzled_scales_construction(is_swizzled_scales, shape):
     ],
 )
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
-@pytest.mark.skipif(
-    not torch_version_at_least("2.8.0"), reason="NVFP4 requires PyTorch 2.8+"
-)
 def test_nvfp4_swizzled_scales_slicing(slice_dim, slice_spec):
     """
     Test that slicing works correctly with swizzled scales and maintains
@@ -241,9 +226,6 @@ def test_nvfp4_swizzled_scales_slicing(slice_dim, slice_spec):
     ],
 )
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
-@pytest.mark.skipif(
-    not torch_version_at_least("2.8.0"), reason="NVFP4 requires PyTorch 2.8+"
-)
 def test_nvfp4_swizzled_scales_slicing_errors(slice_dim, slice_spec, expected_error):
     """
     Test that slicing raises appropriate errors for misaligned boundaries.
@@ -261,9 +243,6 @@ def test_nvfp4_swizzled_scales_slicing_errors(slice_dim, slice_spec, expected_er
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
-@pytest.mark.skipif(
-    not torch_version_at_least("2.8.0"), reason="NVFP4 requires PyTorch 2.8+"
-)
 def test_nvfp4_swizzled_scales_view_semantics():
     """
     Test that slicing maintains proper view semantics where possible.
@@ -287,9 +266,6 @@ def test_nvfp4_swizzled_scales_view_semantics():
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
-@pytest.mark.skipif(
-    not torch_version_at_least("2.8.0"), reason="NVFP4 requires PyTorch 2.8+"
-)
 def test_nvfp4_swizzled_scales_serialization():
     """
     Test that tensor flatten/unflatten preserves the swizzled scales state.
@@ -328,9 +304,6 @@ def test_nvfp4_swizzled_scales_serialization():
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
-@pytest.mark.skipif(
-    not torch_version_at_least("2.8.0"), reason="NVFP4 requires PyTorch 2.8+"
-)
 def test_nvfp4_swizzled_scales_get_scales_method():
     """
     Test that the get_scales() method correctly unswizzles scales when needed.
@@ -413,9 +386,6 @@ def test_triton_nvfp4_quantize_equivalence(M, N, use_per_tensor_scale, dtype):
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
-@pytest.mark.skipif(
-    not torch_version_at_least("2.8.0"), reason="torch.compile requires PyTorch 2.8+"
-)
 @pytest.mark.parametrize("use_gelu", [True, False])
 @pytest.mark.parametrize(
     "quant_type",
@@ -511,9 +481,6 @@ def test_nvfp4_matmul_with_amax(
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
-@pytest.mark.skipif(
-    not torch_version_at_least("2.8.0"), reason="NVFP4 requires PyTorch 2.8+"
-)
 def test_nvfp4_to_copy():
     x = NVFP4Tensor.to_nvfp4(torch.randn((32, 128))).cuda()
     y = torch.ops.aten._to_copy(x, dtype=torch.bfloat16)
@@ -531,9 +498,6 @@ def test_nvfp4_to_copy():
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
-@pytest.mark.skipif(
-    not torch_version_at_least("2.8.0"), reason="NVFP4 requires PyTorch 2.8+"
-)
 @pytest.mark.parametrize("transpose", [False, True])
 @pytest.mark.parametrize("use_triton_kernel", [False, True])
 @pytest.mark.parametrize("is_swizzled_scales", [False, True])
@@ -605,9 +569,6 @@ def test_scale_shape_matches_qdata(
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
-@pytest.mark.skipif(
-    not torch_version_at_least("2.8.0"), reason="NVFP4 requires PyTorch 2.8+"
-)
 @pytest.mark.parametrize("dims", ((1, 2), (2, 1), (-1, -2), (-2, -1)))
 @pytest.mark.parametrize("is_swizzled_scales", [True, False])
 def test_3d_transpose(dims, is_swizzled_scales):
@@ -619,9 +580,6 @@ def test_3d_transpose(dims, is_swizzled_scales):
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
-@pytest.mark.skipif(
-    not torch_version_at_least("2.8.0"), reason="NVFP4 requires PyTorch 2.8+"
-)
 @pytest.mark.parametrize("use_per_tensor_scale", [True, False])
 def test_nvfp4_pin_memory(use_per_tensor_scale):
     x_hp = torch.randn(128, 256, device="cuda", dtype=torch.bfloat16)
@@ -715,9 +673,6 @@ def test_nvfp4_matmul_optional_per_tensor_scale(shapes, a_has_scale, use_triton_
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
-@pytest.mark.skipif(
-    not torch_version_at_least("2.8.0"), reason="torch.compile requires PyTorch 2.8+"
-)
 def test_nvfp4_per_expert_scale():
     # per-tensor scale reference
     E, K, N = 2, 64, 128
