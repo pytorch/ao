@@ -1515,10 +1515,6 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
 
     @unittest.skipIf(not torch.cuda.is_available(), "CUDA not available")
     @unittest.skipIf(not is_sm_at_least_90(), "Need sm90+")
-    @unittest.skipIf(
-        not torch_version_at_least("2.8.0"),
-        "torch >= 2.8.0 required for _grouped_mm",
-    )
     @common_utils.parametrize(
         "E,K,N,m_per_group",
         [
@@ -1565,14 +1561,10 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
 
     @unittest.skipIf(not torch.cuda.is_available(), "CUDA not available")
     @unittest.skipIf(not is_sm_at_least_90(), "Need sm90+")
-    @unittest.skipIf(
-        not torch_version_at_least("2.8.0"),
-        "torch >= 2.8.0 required for _grouped_mm",
-    )
     @common_utils.parametrize("E,K,N", [(4, 128, 256)])
     @torch.no_grad()
     def test_fp8_grouped_mm_weight_only(self, E, K, N):
-        """Test Float8WeightOnlyConfig with grouped_mm dispatch (dequant path)."""
+        """Test Float8WeightOnlyConfig with grouped_mm dispatch (weight-only dequant path)."""
         device = get_current_accelerator_device()
         dtype = torch.bfloat16
         m_per_group = [32, 64, 16, 48]
@@ -1607,21 +1599,16 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
 
     @unittest.skipIf(not torch.cuda.is_available(), "CUDA not available")
     @unittest.skipIf(not is_sm_at_least_90(), "Need sm90+")
-    @unittest.skipIf(
-        not torch_version_at_least("2.8.0"),
-        "torch >= 2.8.0 required for _grouped_mm",
-    )
     @common_utils.parametrize("E,K,N", [(4, 128, 256)])
     @torch.no_grad()
-    def test_fp8_grouped_mm_dequantize_roundtrip(self, E, K, N):
-        """Test grouped_mm dispatch dequant path with PerTensor (non-RowWise) weight."""
+    def test_fp8_grouped_mm_non_rowwise_raises(self, E, K, N):
+        """Test that _grouped_mm with non-PerRow granularity raises NotImplementedError."""
         device = get_current_accelerator_device()
         dtype = torch.bfloat16
         m_per_group = [32, 64, 16, 48]
         total_m = sum(m_per_group)
 
-        model_ref = GroupedMMModel(E, K, N, device=device, dtype=dtype)
-        model = copy.deepcopy(model_ref)
+        model = GroupedMMModel(E, K, N, device=device, dtype=dtype)
 
         x = torch.randn(total_m, K, device=device, dtype=dtype)
         offs = torch.tensor(
@@ -1629,8 +1616,6 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
             device=device,
             dtype=torch.int32,
         )
-
-        y_ref = model_ref(x, offs)
 
         config = Float8WeightOnlyConfig(granularity=PerTensor())
         quantize_(
@@ -1643,9 +1628,8 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
 
         self.assertIsInstance(model.weight, Float8Tensor)
 
-        y = model(x, offs)
-        y_sqnr = compute_error(y_ref, y)
-        self.assertGreater(y_sqnr, 25.0, f"Output SQNR too low: {y_sqnr:.2f}")
+        with self.assertRaises(NotImplementedError):
+            model(x, offs)
 
 
 common_utils.instantiate_parametrized_tests(TestFloat8Tensor)

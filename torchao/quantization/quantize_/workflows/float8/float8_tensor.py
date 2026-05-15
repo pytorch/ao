@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from typing import List, Optional
 
 import torch
+from torch.nn.functional import ScalingType, scaled_grouped_mm
 from torch.utils._python_dispatch import return_and_correct_aliasing
 
 from torchao.float8.inference import (
@@ -1098,62 +1099,48 @@ Float8Tensor.__module__ = "torchao.quantization"
 def float8_grouped_mm(func, types, args, kwargs):
     """Handles torch._grouped_mm when weight (mat_b) is a Float8Tensor.
 
-    If weight is RowWise-scaled, quantize activation and try
-    F.scaled_grouped_mm; otherwise dequantize weight to bf16.
+    Supports two modes based on act_quant_kwargs:
+    - Weight-only (act_quant_kwargs is None): dequantize weight to bf16.
+    - Dynamic activation + weight: quantize activation and use
+      F.scaled_grouped_mm.
+    Only PerRow granularity is supported; non-PerRow raises NotImplementedError.
     """
-    from torch.nn.functional import ScalingType, scaled_grouped_mm
-
     mat_a, mat_b = args[0], args[1]
     offs = args[2] if len(args) > 2 else kwargs.get("offs", None)
     assert isinstance(mat_b, Float8Tensor)
-    output_dtype = mat_a.dtype
+    assert offs is not None, "offs is required for _grouped_mm"
 
-    # Detect transposed mat_b and check RowWise scaling
+    # Only transposed weight is supported: grouped_mm(act, weight.T, ...)
     is_b_transposed = mat_b.qdata.stride(-2) < mat_b.qdata.stride(-1)
-    if is_b_transposed:
-        orig_bs = list(mat_b.block_size)
-        orig_bs[-2], orig_bs[-1] = orig_bs[-1], orig_bs[-2]
-        orig_sh = list(mat_b.shape)
-        orig_sh[-2], orig_sh[-1] = orig_sh[-1], orig_sh[-2]
-        is_b_rowwise = tuple(orig_bs) == (1,) * (len(orig_bs) - 1) + (orig_sh[-1],)
-    else:
-        is_b_rowwise = _is_rowwise_scaled(mat_b)
+    assert is_b_transposed, "_grouped_mm requires weight.transpose(-2, -1)"
 
-    # Non-RowWise: dequantize weight only
-    if not is_b_rowwise:
+    output_dtype = mat_a.dtype
+    act_quant_kwargs = mat_b.act_quant_kwargs
+
+    # Weight-only: dequantize weight, bf16 matmul
+    if act_quant_kwargs is None:
         return torch._grouped_mm(mat_a, mat_b.dequantize(), offs=offs)
 
-    # RowWise: quantize activation
-    act_quant_kwargs = mat_b.act_quant_kwargs
-    if act_quant_kwargs is not None:
-        mat_a_q = _choose_quant_func_and_quantize_tensor(mat_a, act_quant_kwargs)
-    else:
-        mat_a_q = Float8Tensor.from_hp(
-            mat_a, float8_dtype=mat_b.qdata.dtype, granularity=PerRow()
+    # Only PerRow granularity is supported for scaled path
+    if not isinstance(act_quant_kwargs.granularity, PerRow):
+        raise NotImplementedError(
+            f"_grouped_mm only supports PerRow granularity, "
+            f"got {act_quant_kwargs.granularity}"
         )
 
-    # Try scaled path
-    if isinstance(mat_a_q, Float8Tensor) and _is_rowwise_scaled(mat_a_q):
-        try:
-            b_scale = mat_b.scale.transpose(-2, -1) if is_b_transposed else mat_b.scale
-            return scaled_grouped_mm(
-                mat_a_q.qdata,
-                mat_b.qdata,
-                scale_a=mat_a_q.scale.squeeze(-1),
-                scale_recipe_a=ScalingType.RowWise,
-                scale_b=b_scale.squeeze(-1),
-                scale_recipe_b=ScalingType.RowWise,
-                offs=offs,
-                output_dtype=output_dtype,
-            )
-        except (RuntimeError, NotImplementedError) as e:
-            warnings.warn(
-                f"scaled_grouped_mm failed: {e}, falling back to dequant + _grouped_mm"
-            )
-
-    # Fallback: dequantize both
-    a_hp = mat_a_q.dequantize() if isinstance(mat_a_q, Float8Tensor) else mat_a_q
-    return torch._grouped_mm(a_hp, mat_b.dequantize(), offs=offs)
+    # Dynamic activation + weight: quantize activation, use scaled_grouped_mm
+    mat_a_q = _choose_quant_func_and_quantize_tensor(mat_a, act_quant_kwargs)
+    b_scale = mat_b.scale.transpose(-2, -1)
+    return scaled_grouped_mm(
+        mat_a_q.qdata,
+        mat_b.qdata,
+        scale_a=mat_a_q.scale.squeeze(-1),
+        scale_recipe_a=ScalingType.RowWise,
+        scale_b=b_scale.squeeze(-1),
+        scale_recipe_b=ScalingType.RowWise,
+        offs=offs,
+        output_dtype=output_dtype,
+    )
 
 
 # Allow a model with Float8Tensor weights to be loaded with `weights_only=True`
