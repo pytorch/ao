@@ -3270,8 +3270,14 @@ def _register_quantization_weight_pack_pass():
     _register_smooth_quant_int_mm_pattern()
 
     # Step 5: QLinear post op Fusion
-    if not torch.ops.mkldnn._is_mkldnn_acl_supported():
-        # skip fusion on ARM
+    # torch.ops.mkldnn._is_mkldnn_acl_supported is only registered when PyTorch
+    # is built with AT_MKLDNN_ENABLED (e.g. not on macOS ARM wheels). Treat its
+    # absence as "MKLDNN unavailable" and skip x86 MKLDNN fusion passes there.
+    _mkldnn_acl_check = getattr(
+        torch.ops.mkldnn, "_is_mkldnn_acl_supported", None
+    )
+    if _mkldnn_acl_check is not None and not _mkldnn_acl_check():
+        # skip fusion on ARM with MKLDNN-ACL, or when MKLDNN is not built in
         _register_qconv_unary_fusion()
         _register_qconv_binary_fusion()
         _register_qlinear_unary_fusion()
