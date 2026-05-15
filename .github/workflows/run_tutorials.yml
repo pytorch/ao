@@ -6,6 +6,9 @@ on:
       - ciflow/tutorials/*
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   run_tutorials:
     runs-on: linux.aws.a100
