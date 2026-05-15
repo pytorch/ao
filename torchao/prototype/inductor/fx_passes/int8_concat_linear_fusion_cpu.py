@@ -7,6 +7,7 @@
 import operator
 
 import torch
+from torch._dynamo.utils import counters
 
 
 QLINEAR_TARGETS = {
@@ -53,10 +54,13 @@ def _build_qlinear_node(graph, target, **kwargs):
 
 
 def _create_constant_tensor_node(graph, gm, base_name, value):
-    if not isinstance(value, torch.Tensor):
-        return None
-    node_name = _make_unique_buffer_name(gm, base_name)
+    node_name = base_name
+    idx = 1
+    while hasattr(gm, node_name):
+        node_name = f"{base_name}_{idx}"
+        idx += 1
     gm.register_buffer(node_name, value)
+    setattr(gm, node_name, value)
     return graph.create_node("get_attr", node_name, (), {})
 
 
@@ -64,8 +68,6 @@ def _build_concat_arg(graph, gm, args, dim, base_name):
     resolved_values = [_resolve_arg_value(arg, gm) for arg in args]
     if all(isinstance(value, torch.Tensor) for value in resolved_values):
         concat_value = _concat_tensors(resolved_values)
-        if concat_value is None:
-            return None
         return _create_constant_tensor_node(graph, gm, base_name, concat_value)
 
     input_nodes = []
@@ -82,8 +84,6 @@ def _build_concat_arg(graph, gm, args, dim, base_name):
             f"{base_name}_{idx}",
             resolved_value,
         )
-        if constant_node is None:
-            return None
         input_nodes.append(constant_node)
 
     return graph.create_node(
@@ -108,50 +108,27 @@ def _resolve_arg_value(arg, gm):
 
 
 def _as_dense_tensor(value):
-    if not isinstance(value, torch.Tensor):
-        return None
     if getattr(value, "is_mkldnn", False):
-        return value.to_dense()
+        return value.to_dense().t().contiguous()
     return value
 
 
 def _to_scalar(arg, gm, cast=float):
     value = _resolve_arg_value(arg, gm)
+    if isinstance(value, (int, float)):
+        return cast(value)
     if isinstance(value, torch.Tensor):
         if value.numel() != 1:
             return None
         return cast(value.item())
-    if isinstance(value, (int, float)):
-        return cast(value)
     return None
 
 
 def _concat_tensors(values):
-    if len(values) == 0:
-        return None
     dense_values = [_as_dense_tensor(value) for value in values]
-    if not isinstance(dense_values[0], torch.Tensor):
-        return None
     if dense_values[0].dim() == 0:
         return torch.stack(dense_values)
     return torch.cat(dense_values, dim=0)
-
-
-def _concat_packed_weights(packed_weights):
-    concat_dense_weight = _concat_tensors(packed_weights)
-    if concat_dense_weight is None:
-        return (None, None)
-    concat_packed_weight = torch.ops.onednn.qlinear_prepack(concat_dense_weight, None)
-    return (concat_packed_weight, concat_dense_weight)
-
-
-def _make_unique_buffer_name(gm, base_name):
-    name = base_name
-    idx = 1
-    while hasattr(gm, name):
-        name = f"{base_name}_{idx}"
-        idx += 1
-    return name
 
 
 def _compute_merged_qparams(qlinear_nodes, gm):
@@ -170,9 +147,7 @@ def _compute_merged_qparams(qlinear_nodes, gm):
         global_min = cur_min if global_min is None else min(global_min, cur_min)
         global_max = cur_max if global_max is None else max(global_max, cur_max)
 
-    if global_min is None or global_max is None:
-        return None
-
+    assert global_min is not None and global_max is not None
     eps = 1e-12
     scale = max((global_max - global_min) / float(qmax - qmin), eps)
     zp = int(round(qmin - global_min / scale))
@@ -194,9 +169,6 @@ def _is_valid_concat_linear_int8_fusion(qlinear_nodes):
     if len(qlinear_nodes) != 3:
         return False
 
-    computation_op = qlinear_nodes[0].target
-    if not _is_qlinear_target(computation_op):
-        return False
     act = _get_node_arg(qlinear_nodes[0], "x", 0)
     act_scale = _get_node_arg(qlinear_nodes[0], "x_scale", 1)
     act_zp = _get_node_arg(qlinear_nodes[0], "x_zp", 2)
@@ -298,8 +270,11 @@ def _concat_linear_int8_cpu(graph: torch.fx.Graph):
                 u
                 for u in act.users
                 if u.op == "call_function" and _is_qlinear_target(u.target)
-            ]
+            ][::-1]
+            
             if _is_valid_concat_linear_int8_fusion(qlinear_users):
+                counters["inductor"]["int8_concat_linear_fusion"] += 1
+                counters["inductor"]["int8_concat_linear_nodes"] += len(qlinear_users)
                 fused_output_scale, fused_output_zero_point = _get_fused_output_qparams(
                     qlinear_users, gm
                 )
@@ -310,11 +285,16 @@ def _concat_linear_int8_cpu(graph: torch.fx.Graph):
                         getattr(gm, _get_node_arg(user, "packed_weight", 3).target)
                         for user in qlinear_users
                     ]
+                    act_shape = None
+                    if isinstance(act, torch.fx.Node):
+                        act_val = act.meta.get("val")
+                        if isinstance(act_val, torch.Tensor):
+                            act_shape = list(act_val.shape)
                     with_bias = _get_node_arg(qlinear_users[0], "b", 6) is not None
 
-                    concat_wgt, concat_dense_wgt = _concat_packed_weights(packed_wgts)
-                    if concat_wgt is None or concat_dense_wgt is None:
-                        continue
+                    concat_wgt = torch.ops.onednn.qlinear_prepack(
+                        _concat_tensors(packed_wgts), act_shape
+                    )
 
                     out_feature_size_list = [
                         _as_dense_tensor(w).size(0) for w in packed_wgts
@@ -326,8 +306,6 @@ def _concat_linear_int8_cpu(graph: torch.fx.Graph):
                         f"{_get_node_arg(computation_node_0, 'packed_weight', 3).target}_concat",
                         concat_wgt,
                     )
-                    if concat_w_node is None:
-                        continue
 
                     with graph.inserting_after(concat_w_node):
                         concat_wgt_scales_node = _build_concat_arg(
@@ -337,8 +315,6 @@ def _concat_linear_int8_cpu(graph: torch.fx.Graph):
                             0,
                             f"{_get_node_arg(computation_node_0, 'packed_weight', 3).target}_scales_concat",
                         )
-                    if concat_wgt_scales_node is None:
-                        continue
 
                     with graph.inserting_after(concat_wgt_scales_node):
                         concat_wgt_qzeros_node = _build_concat_arg(
@@ -348,9 +324,6 @@ def _concat_linear_int8_cpu(graph: torch.fx.Graph):
                             0,
                             f"{_get_node_arg(computation_node_0, 'packed_weight', 3).target}_qzeros_concat",
                         )
-                    if concat_wgt_qzeros_node is None:
-                        continue
-
                     node_before_linear = concat_wgt_qzeros_node
                     if with_bias:
                         with graph.inserting_after(concat_wgt_qzeros_node):
@@ -361,8 +334,6 @@ def _concat_linear_int8_cpu(graph: torch.fx.Graph):
                                 0,
                                 "concat_bias",
                             )
-                        if concat_bias_node is None:
-                            continue
                         node_before_linear = concat_bias_node
                     else:
                         concat_bias_node = None
@@ -433,8 +404,7 @@ def _concat_linear_int8_cpu(graph: torch.fx.Graph):
                             delayed_erase_nodes.append(quant_node)
 
                     for old_node in delayed_erase_nodes:
-                        if not old_node._erased:
-                            graph.erase_node(old_node)
+                        graph.erase_node(old_node)
 
                 processed.update(qlinear_users)
 
