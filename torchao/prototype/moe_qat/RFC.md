@@ -45,15 +45,15 @@ precision and enables reusing the existing low-precision training pipeline which
 ### Compatibility
 
 - **FSDP2**, **Expert Parallel**, **torch.compile**: planned
-- **Target hardware**: not hardware-specific
+- **Target hardware**: not hardware-specific. The current infrastructure is used for CPU, GPU, and XPU support. Ascend-NPU support is planned.
 - **Target model**: not model-specific
 
 ## Design
 
 ### Architecture
 
-Contrary to dense layers which are usually `nn.Linear`, expert layers in MoE models
-are usually user-defined classes:
+Unlike dense layers which are `nn.Linear`, expert layers in MoE models
+are user-defined classes:
 - `Qwen3MoeExperts` in `unsloth/Qwen3-4B-instruct-25507`
 - `GptOssExperts` in `openai/gpt-oss-20b`
 - `DeepseekV4Experts` in `deepseek-ai/DeepSeek-V4-Flash` and `deepseek-ai/DeepSeek-V4-Pro`
