@@ -1098,11 +1098,6 @@ Float8Tensor.__module__ = "torchao.quantization"
 @implements([aten._grouped_mm.default])
 def float8_grouped_mm(func, types, args, kwargs):
     """Handles torch._grouped_mm when weight (mat_b) is a Float8Tensor.
-
-    Supports two modes based on act_quant_kwargs:
-    - Weight-only (act_quant_kwargs is None): dequantize weight to bf16.
-    - Dynamic activation + weight: quantize activation and use
-      F.scaled_grouped_mm.
     Only PerRow granularity is supported; non-PerRow raises NotImplementedError.
     """
     mat_a, mat_b = args[0], args[1]
@@ -1110,14 +1105,12 @@ def float8_grouped_mm(func, types, args, kwargs):
     assert isinstance(mat_b, Float8Tensor)
     assert offs is not None, "offs is required for _grouped_mm"
 
-    # Only transposed weight is supported: grouped_mm(act, weight.T, ...)
     is_b_transposed = mat_b.qdata.stride(-2) < mat_b.qdata.stride(-1)
-    assert is_b_transposed, "_grouped_mm requires weight.transpose(-2, -1)"
+    assert is_b_transposed, "unsupported"
 
     output_dtype = mat_a.dtype
     act_quant_kwargs = mat_b.act_quant_kwargs
 
-    # Weight-only: dequantize weight, bf16 matmul
     if act_quant_kwargs is None:
         return torch._grouped_mm(mat_a, mat_b.dequantize(), offs=offs)
 
@@ -1128,7 +1121,6 @@ def float8_grouped_mm(func, types, args, kwargs):
             f"got {act_quant_kwargs.granularity}"
         )
 
-    # Dynamic activation + weight: quantize activation, use scaled_grouped_mm
     mat_a_q = _choose_quant_func_and_quantize_tensor(mat_a, act_quant_kwargs)
     b_scale = mat_b.scale.transpose(-2, -1)
     return scaled_grouped_mm(
