@@ -105,7 +105,7 @@ A common question about float8 training is "when is float8 linear faster vs bflo
 
 <img width="753" height="773" alt="Image" src="https://github.com/user-attachments/assets/e46c671a-ed35-41b4-b17c-50caf1629ecb" />
 
-```lang=shell
+```bash
 # reproduction: run the script below
 python benchmarks/float8/float8_roofline.py your_output_filename.csv --shape_gen_name sweep
 ```
@@ -114,7 +114,7 @@ python benchmarks/float8/float8_roofline.py your_output_filename.csv --shape_gen
 
 <img width="755" height="778" alt="Image" src="https://github.com/user-attachments/assets/7d70ba36-f480-459f-b5c0-797895332631" />
 
-```lang=shell
+```bash
 # reproduction: run the script below
 python benchmarks/float8/float8_roofline.py your_output_filename.csv --shape_gen_name sweep --float8_recipe_name rowwise
 ```
@@ -123,7 +123,7 @@ python benchmarks/float8/float8_roofline.py your_output_filename.csv --shape_gen
 
 <img width="750" height="797" alt="Image" src="https://github.com/user-attachments/assets/e4479abc-1aca-436d-a142-60e5e804ff10" />
 
-```lang=shell
+```bash
 # reproduction: run the script below
 python benchmarks/float8/float8_roofline.py your_output_filename.csv --shape_gen_name sweep --float8_recipe_name rowwise_with_gw_hp
 ```

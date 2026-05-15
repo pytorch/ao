@@ -125,20 +125,20 @@ def sparsify_(
         config (AOBaseConfig): a workflow configuration object
         filter_fn (Optional[Callable[[torch.nn.Module, str], bool]]): function that takes a nn.Module instance and fully qualified name of the module, returns True if we want to apply the specified workflow to this module.
 
-    **Example:**
-    ::
-            import torch
-            import torch.nn as nn
-            from torchao.sparsity import sparsify_
+    Example::
 
-            def filter_fn(module: nn.Module, fqn: str) -> bool:
-                return isinstance(module, nn.Linear)
+        import torch
+        import torch.nn as nn
+        from torchao.sparsity import sparsify_
 
-            m = nn.Sequential(nn.Linear(32, 1024), nn.Linear(1024, 32))
+        def filter_fn(module: nn.Module, fqn: str) -> bool:
+            return isinstance(module, nn.Linear)
 
-            # for 2:4 sparsity
-            from torchao.sparse_api import semi_sparse_weight
-            m = sparsify_(m, semi_sparse_weight(), filter_fn)
+        m = nn.Sequential(nn.Linear(32, 1024), nn.Linear(1024, 32))
+
+        # for 2:4 sparsity
+        from torchao.sparse_api import semi_sparse_weight
+        m = sparsify_(m, semi_sparse_weight(), filter_fn)
     """
     torch._C._log_api_usage_once("torchao.sparsity.sparsify_")
     handler = _QUANTIZE_CONFIG_HANDLER[type(config)]

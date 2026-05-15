@@ -16,14 +16,16 @@ __all__ = [
 
 
 class QuantizeTensorKwargs(abc.ABC):
-    """Base class for keyword argument container for quantized tensor creation.  This is needed to support storing activation construction arguments on the weight tensor while supporting multiple types of activation quantization.
+    """Base class for keyword argument container for quantized tensor creation.
+    This is needed to support storing activation construction arguments on the
+    weight tensor while supporting multiple types of activation quantization.
 
-    e.g.
+    Example::
 
-    class Float8Tensor(...)
-        @classmethod
-        def from_hp(cls, tensor, quant_kwargs: QuantizeTensorKwargs)
-            ...
+        class Float8Tensor(...):
+            @classmethod
+            def from_hp(cls, tensor, quant_kwargs: QuantizeTensorKwargs):
+                ...
     """
 
     # Base Version of a config

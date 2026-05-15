@@ -111,11 +111,12 @@ class IntxFakeQuantizeConfig(FakeQuantizeConfigBase):
         dtype: dtype to simulate during fake quantization, e.g. torch.int8.
         granularity: granularity of scales and zero points, e.g. PerGroup(32).
             We also support the following strings:
-               1) 'per_token': equivalent to PerToken()
-               2) 'per_channel': equivalent to PerAxis(0)
-               3) 'per_group': equivalent to PerGroup(group_size), must be combined
-                   with separate `group_size` kwarg, Alternatively, just set the
-                   `group_size` kwarg and leave this field empty.
+
+            1) 'per_token': equivalent to PerToken()
+            2) 'per_channel': equivalent to PerAxis(0)
+            3) 'per_group': equivalent to PerGroup(group_size), must be combined
+               with separate ``group_size`` kwarg. Alternatively, just set the
+               ``group_size`` kwarg and leave this field empty.
         mapping_type: whether to use symmetric (default) or asymmetric quantization
             Alternatively, set `is_symmetric` (bool) and leave this field empty.
         scale_precision: scale dtype (default torch.fp32)

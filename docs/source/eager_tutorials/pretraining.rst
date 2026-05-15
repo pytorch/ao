@@ -7,19 +7,19 @@ techniques integrated into our partner frameworks. This is part 1 of 3
 such tutorials showcasing this end-to-end flow, focusing on the
 pre-training step.
 
-.. image:: ../../static/e2e_flow_part1.png
+.. image:: ../_static/e2e_flow_part1.png
 
 Pre-training with float8 using torchao can provide `up to 1.5x speedups <https://pytorch.org/blog/training-using-float8-fsdp2/>`__ on 512 GPU clusters,
 and up to `1.34-1.43x speedups <https://pytorch.org/blog/accelerating-large-scale-training-and-convergence-with-pytorch-float8-rowwise-on-crusoe-2k-h200s/>`__ on 2K H200 clusters with the latest `torchao.float8` rowwise recipe.
 
 In this tutorial, we will show 2 ways to use the **torchao.float8** recipes for pre-training:
 
-1. :ref:`Pre-training with torchtitan`, the offical PyTorch pre-training framework with native torchao integration.
-2. :ref:`Pre-training with torchao directly`, to integrate torchao's float8 training recipes into your own pre-training code.
+1. :ref:`Pre-training with torchtitan <eager_tutorials/pretraining:Pre-training with torchtitan>`, the offical PyTorch pre-training framework with native torchao integration.
+2. :ref:`Pre-training with torchao directly <eager_tutorials/pretraining:Pre-training with torchao directly>`, to integrate torchao's float8 training recipes into your own pre-training code.
 
 
 Pre-training with torchtitan
-###########################
+############################
 
 In this tutorial we'll pre-train Llama3-8B using torchtitan with torchao's float8 training recipes: rowwise scaling and tensorwise scaling.
 
@@ -116,7 +116,7 @@ This is because rowwise scaling using a more granular scaling factor (per row, i
 
 Below you can see the loss curves comparing bfloat16, float8 tensorwise, and float8 rowwise training for training Llama3-8B on 8xH100 GPUs:
 
-.. image:: ../../static/fp8-loss-curves.png
+.. image:: ../_static/fp8-loss-curves.png
   :alt: Loss curves for training Llama3-8B on 8xH100s with torchtitan using bfloat16, float8 tensorwise, and float8 rowwise training.
 
 
@@ -128,7 +128,7 @@ Important notes
 
 
 Pre-training with torchao directly
-#################################
+##################################
 
 In this tutorial we'll pre-train a toy model using torchao APIs directly.
 

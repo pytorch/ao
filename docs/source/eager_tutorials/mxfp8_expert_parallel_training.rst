@@ -13,8 +13,8 @@ This approach achieves 10% - 25% tokens/second speedup for DeepSeekV3 16b traini
 
 In this tutorial, we will show 2 ways to use MXFP8 expert parallel training:
 
-1. :ref:`Training with torchtitan`, using torchtitan's native integration with torchao.
-2. :ref:`Training with torchao directly`, to integrate MXFP8 expert parallelism into your own training code.
+1. :ref:`Training with torchtitan <eager_tutorials/mxfp8_expert_parallel_training:Training with torchtitan>`, using torchtitan's native integration with torchao.
+2. :ref:`Training with torchao directly <eager_tutorials/mxfp8_expert_parallel_training:Training with torchao directly>`, to integrate MXFP8 expert parallelism into your own training code.
 
 
 MXFP8 Expert Parallel APIs
@@ -56,8 +56,8 @@ Prerequisites
 
 You're now ready to start a training job with MXFP8 expert parallel!
 
-MXFP8 Expert Parallel Training
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+Running MXFP8 Expert Parallel Training
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 Run the following command from torchtitan root directory to launch a DeepSeek-V3-16B training job on 8 B200 GPUs with MXFP8 expert parallel training:
 
