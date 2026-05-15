@@ -2,13 +2,24 @@
 
 ## Motivation
 
-TorchAO's QAT support targets `nn.Linear` modules via module swap (`FakeQuantizedLinear`).
-MoE models use 3D expert weight `nn.Parameter` tensors routed through ops such as
-`torch._grouped_mm`, `torch.bmm`, and `F.linear`, which fall entirely outside the
-existing QAT path. Meanwhile, `torchao.prototype.moe_training`
-has established a parameter-swap pattern (tensor subclass on `param.data`) for low-precision
-MoE training that composes with FSDP2, Expert Parallel, and `torch.compile`. This RFC proposes
-extending QAT to MoE models using the same parameter-swap approach.
+Quantization-aware training for MoE models is becoming a production standard.
+**DeepSeek-V4** applies MXFP4 QAT to its MoE expert weights during post-training.
+**Kimi K2 Thinking** employs INT4 QAT on its MoE components during post-training,
+achieving lossless 2× speedup (as reported in the model card). There is also an open request for MXFP4 QAT support
+for **GPT-OSS** (a 120B MoE model) in torchao
+(issue [#3547](https://github.com/pytorch/ao/issues/3547)).
+
+TorchAO's current QAT support partially addresses this need: it handles
+`nn.Linear` layers (Q, K, V, O projections in attention) via module swap
+(`FakeQuantizedLinear`). However, the MoE expert weights — where the majority
+of parameters reside — are 3D `nn.Parameter` tensors routed through ops such
+as `torch._grouped_mm`, `torch.bmm`, and `F.linear`, which fall entirely
+outside the existing QAT path.
+
+`torchao.prototype.moe_training` has already established a parameter-swap pattern
+(tensor subclass on `param.data`) for low-precision MoE training that composes with
+FSDP2, Expert Parallel, and `torch.compile`. This RFC proposes extending QAT to MoE
+models using the same parameter-swap approach.
 
 ## Goal
 
@@ -16,66 +27,83 @@ Deliver MoE QAT support using the parameter-swap pattern from `moe_training`, st
 FP8 row-wise weight-only fake quantization and designed for future extension to other precisions
 and activation QAT.
 
+### Features Plan
+
+| Precision | Weight-only QAT | Activation+Weight QAT |
+|-----------|----------------|----------------------|
+| FP8 rowwise | Planned | Planned |
+| Int4 weight-only | Planned | — |
+| Int8 dynamic activation + IntX weight | Planned | Planned |
+| MXFP8 / MXFP4 | Planned | Planned |
+| NVFP4 | Planned | Planned |
+
+Additionally, we plan to support a dual-precision QAT path: fake-quantize from the original
+precision to an ultra-low precision (e.g., MXFP4) for storage, then dequantize to a low
+precision (e.g., MXFP8) for computation. This decouples storage precision from compute
+precision and enables reusing the existing low-precision training pipeline which is usually customized by users. This is inspired by **DeepSeek-V4**, where the path is FP32 → MXFP4 (1×32) → FP8 (128×128).
+
+### Compatibility
+
+- **FSDP2**, **Expert Parallel**, **torch.compile**: planned
+- **Target hardware**: not hardware-specific
+- **Target model**: not model-specific
+
 ## Design
 
 ### Architecture
 
-Contrary to dense layers which are usually `nn.Linear`, expert layers in MoE models are usually user-defined classes,
-such as `Qwen3MoeExperts` in `unsloth/Qwen3-4B-instruct-25507` and `GptOssExperts` in `openai/gpt-oss-20b`.
-To provide a model-agnostic MoE QAT support, we choose to adopt a parameter-swap approach rather than the module-swap
+Contrary to dense layers which are usually `nn.Linear`, expert layers in MoE models
+are usually user-defined classes:
+- `Qwen3MoeExperts` in `unsloth/Qwen3-4B-instruct-25507`
+- `GptOssExperts` in `openai/gpt-oss-20b`
+- `DeepseekV4Experts` in `deepseek-ai/DeepSeek-V4-Flash` and `deepseek-ai/DeepSeek-V4-Pro`
+
+To provide a model-agnostic MoE QAT support, we choose to adopt a parameter-swap
+approach rather than the module-swap
 approach used by dense QAT:
 
-1. **Injection**: a `MoEQATConfig` (extending `QATConfig`) uses a dedicated handler that
-   wraps 3D expert weight `nn.Parameter.data` with a fake-quantized tensor subclass.
+1. **Injection**: `QATConfig`'s handler swaps `nn.Linear` and `nn.Embedding` modules for
+   their fake-quantized counterparts. For expert layers, the swapping logic is fundamentally
+   different — it must operate at the parameter level (wrapping `nn.Parameter.data`) rather
+   than the module level, since expert layer classes vary across models. We therefore define
+   `MoEQATConfig` (extending `QATConfig`) with its own handler registered via
+   `register_quantize_module_handler`.
 
 2. **Fake quantization**: the wrapper subclass intercepts computation ops via
-   `__torch_function__` and applies fake quantization before delegating to the
-   standard op. We reuse the `FakeQuantizeConfig` hierarchy from the existing QAT
-   infrastructure (config types, `_infer_fake_quantize_configs`, and the underlying
-   quantization primitives), but give up the `FakeQuantizer` module system.
-   `FakeQuantizer` is an `nn.Module` — attaching a module to a tensor subclass is
-   awkward and may cause potential incompatibilities with `torch.compile` and FSDP2.
+   `__torch_function__`, applies fake quantization, and delegates to the standard op.
+   We reuse the existing `FakeQuantizeConfig` hierarchy (config types,
+   `_infer_fake_quantize_configs`, and quantization primitives) but discard the
+   `FakeQuantizer` module system — attaching an `nn.Module` to a tensor subclass
+   is awkward and may cause incompatibilities with `torch.compile` and FSDP2.
    
-   1. **Stateless fake quantization**: This case is relevant with FP8 row-wise,
-      MX formats, and NVFP4 fake-quantization. The fake quantization logic is expressed
-      as stateless functions driven by config, stored directly as static methods on the
-      wrapper tensor subclass. 
-   
-   2. **Stateful fake quantization**: This case is only relevant with `IntxFakeQuantizeConfig` in
-      the current `FakeQuantizeConfig` hierarchy. The design for this case remains to be discussed.
-      The key point is where to store the trainable quantization states and how the quantization
-      logic accesses them. A first attempt may be:
-      * Separate the logic and state of fake quantization.
-      * The logic is implemented in the same way as in stateless fake quantization.
-      * Trainable states are stored as `nn.Parameter` fields in the wrapper tensor. They
-        are registered on the parent module so optimizers can see them.
-      * The wrapper tensor stores a reference to its parent module. It deregisters
-        trainable states from the parent module when the wrapper tensor is unwrapped.
+   1. **Stateless**: FP8 row-wise, MX, and NVFP4. Fake quantization is a stateless
+      function driven by config, stored as a static method on the subclass.
 
-      The shortcoming is that customized code is needed for this design to be compatible with
-      `torch.compile`, checkpointing, and FSDP2.
-   
-   3. **Deferred fake quantization**: slicing, indexing, and dimension-manipulation ops preserve
-   the wrapper subclass without applying fake quantization. Quantization is deferred to
-   computation time, avoiding double quantization.
+   2. **Stateful**: `IntxFakeQuantizeConfig` only (range learning). We have not yet
+      found a clean design for this case — trainable states must be visible to
+      `model.parameters()` so the optimizer can find and update them, but tensor subclass
+      attributes are not reachable through the module hierarchy.
+      A possible approach: store `nn.Parameter` states on the wrapper, register them
+      on the parent module, and deregister on unwrap. This requires custom code for
+      `torch.compile`, checkpointing, and FSDP2 compatibility.
 
-3. **Parameter-level traversal & filtering**: when `MoEQATConfig` is passed to `quantize_`, it
-   starts a module-level recursive traversal, passing modules picked up by `filter_fn` to the
-   handler of `MoEQATConfig`. The handler in turn invokes a parameter-level recursive traversal
-   that scans through parameters of this module and its sub-modules, uses a filter function carried
-   by `MoEQATConfig` to pick up `nn.Parameter`, and replaces it using a handler chosen based on
-   `weight_config` carried by `MoEQATConfig`. A function `_replace_params_with_custom_fn_if_matches_filter`
-   is implemented for this recursion with filtering and replacing logic injected into it via arguments.
-   This could be a common pattern for the support of MoE training, MoE QAT, and MoE inference.
+   3. **Deferred**: slicing, indexing, and dimension-manipulation ops preserve the
+      wrapper without applying fake quantization. Quantization is deferred until
+      computation time, avoiding double quantization.
 
-4. **Handler registration**: handlers for the parameter-level traversal targeting different
-   fake-quantization configs are registered in a dictionary via a decorator. The handler of
-   `MoEQATConfig` relies on the dictionary to dispatch handlers.
+3. **Parameter-level traversal with handler dispatch**: `quantize_` passes each module
+   that matches `filter_fn` to the handler of `MoEQATConfig`. The handler walks the
+   module's parameters (including sub-modules), filters them via `config.params_filter_fn`,
+   and replaces each matching `nn.Parameter` using a handler selected from a registry.
+   Handlers for different `FakeQuantizeConfig` types are registered in a dictionary via a
+   decorator. This two-level traversal pattern is reusable for MoE training, QAT, and
+   inference.
 
-5. **PTQ in the convert step**: applying PTQ during convert is closer to MoE inference
-   quantization. We will reuse the infrastructure if MoE inference quantization support
-   already exists in TorchAO. If not, MoE PTQ will be implemented first and reused in
-   MoE QAT.
+4. **PTQ in the convert step**: applying PTQ during convert is closer to MoE inference
+   quantization. A related RFC for MoE inference quantization
+   ([#4355](https://github.com/pytorch/ao/issues/4355)) is under discussion in TorchAO.
+   We will reuse that infrastructure if available. If not, MoE PTQ will be implemented
+   first and reused in MoE QAT.
 
 
 
@@ -84,13 +112,10 @@ approach used by dense QAT:
 Dense QAT uses different forward-precision strategies for different configs, and we follow
 the same choices:
 
-- **Float8, Int4, IntX**: fully fake-quantized forward — quantize to low precision then
-  immediately dequantize back to the original dtype, running the matmul in high precision.
-  The STE carries gradients through the quantize-dequantize step, including any clamp.
-- **MX, NVFP4**: quantized forward, fake-quantized backward — real low-precision quantization
-  and low-precision matmul in the forward pass, dequantized high-precision matmul in the
-  backward pass. The clamp is applied during forward quantization but bypassed in the
-  backward STE.
+- **Float8, Int4, IntX**: fully fake-quantized forward — quantize to low precision,
+  dequantize back, run the matmul in high precision. STE with clamp.
+- **MX, NVFP4**: real low-precision quantization and matmul in forward, dequantized
+  high-precision matmul in backward. Clamp is bypassed in STE.
 
 MoE QAT reuses the same underlying quantization primitives and follows the same
 precision strategy per config type.
@@ -171,61 +196,12 @@ train(model)
 quantize_(model, MoEQATConfig(step="convert"))
 ```
 
-### Key Design Decisions
-
-1. **Parameter swap, not module swap**: avoids per-model module implementations.
-   Compatible with all HF MoE models using `@use_experts_implementation`.
-
-2. **Config-driven, not quantizer-driven**: `FakeQuantizeConfig` dataclasses
-   drive the fake quantization logic via plain functions, compatible with
-   `torch.compile`, FSDP2, and pickling. No `FakeQuantizer` nn.Modules stored
-   on the tensor.
-
-3. **`detach` semantics**: properly detaches `_data` (`requires_grad=False`),
-   unlike `moe_training` which preserves `requires_grad=True` on the wrapper.
-
-4. **`copy_` preserves self-reference**: returns the original wrapper for
-   in-place semantics (`x.copy_(y) is x`).
-
-## Features Plan
-
-| Precision | Weight-only QAT | Activation+Weight QAT |
-|-----------|----------------|----------------------|
-| FP8 rowwise | Implemented | Planned |
-| Int4 weight-only | Planned | — |
-| Int8 dynamic act + IntX weight | Planned | Planned |
-| MXFP8 / MXFP4 | Planned | Planned |
-| NVFP4 | Planned | Planned |
-
-## Compatibility
-
-- **FSDP2**: supported via the standard wrapper subclass contract: `__tensor_flatten__`, `__tensor_unflatten__`  and `fsdp_pre_all_gather`, `fsdp_post_all_gather` hooks.
-- **Expert Parallel**: same parameter-swap pattern as `moe_training`
-- **torch.compile**: plain function calls in `__torch_function__`, proven by `moe_training` tests
-- **Target hardware**: not hardware-specific. The current infrastructure is used for CPU/GPU/XPU support. Ascend-NPU support is planned.
-- **Target model**: not model-specific 
-
 ## Deferred
 
 - Applying real PTQ during the convert step
 - Range learning (stateful quantizers with learnable scale/zero_point)
 
-## To be Discussed
-
-### Design for stateful fake quantization
-
-What is a suitable design for stateful fake-quantization in
-`FakeQuantizedWeightWrapperBaseTensor`? The trainable parameters (e.g., scale,
-zero_point for range learning) must be visible to `model.parameters()` so the
-optimizer can update them, but tensor subclass attributes are not reachable via
-the `nn.Module` hierarchy.
 
 
-### Fragility of deferred fake quantization after view operations
-If complex view operations (such as transpose, permute, index, slice) are applied,
-the deferred fake-quantization may cause ambiguity about the desired dimension
-along which the fake-quantization should apply. `PerRow(dim=-1)` is positional —
-it depends on the tensor's current shape, which may have been rearranged by
-intervening view ops. Is this a critical concern in practice? If so, how to
-avoid this ambiguity?
+
 
