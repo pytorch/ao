@@ -3470,7 +3470,12 @@ def _register_quantization_weight_pack_pass():
     _register_smooth_quant_int_mm_pattern()
 
     # Step 5: QLinear post op Fusion
-    if not torch.ops.mkldnn._is_mkldnn_acl_supported():
+    _acl_supported = (
+        hasattr(torch.ops, "mkldnn")
+        and hasattr(torch.ops.mkldnn, "_is_mkldnn_acl_supported")
+        and torch.ops.mkldnn._is_mkldnn_acl_supported()
+    )
+    if not _acl_supported:
         # skip fusion on ARM
         _register_qconv_unary_fusion()
         _register_qconv_binary_fusion()
