@@ -138,16 +138,18 @@ class TestSmoothQuant(unittest.TestCase):
 
         config.step = QuantizationStep.CONVERT
         quantize_(model, config)
-        assert isinstance(model.linear1.weight, SupportsActivationPreScaling)
-        assert isinstance(model.linear2.weight, SupportsActivationPreScaling)
-        assert model.linear1.weight.act_pre_scale is not None
-        assert model.linear2.weight.act_pre_scale is not None
+        self.assertIsInstance(model.linear1.weight, SupportsActivationPreScaling)
+        self.assertIsInstance(model.linear2.weight, SupportsActivationPreScaling)
+        self.assertIsNotNone(model.linear1.weight.act_pre_scale)
+        self.assertIsNotNone(model.linear2.weight.act_pre_scale)
 
         out_smoothquant = model(*x)
         loss_smoothquant = torch.nn.functional.mse_loss(out_smoothquant, out_ref).item()
 
-        assert loss_smoothquant < loss_base, (
-            f"SmoothQuant loss ({loss_smoothquant:.6f}) should not be higher than basic loss ({loss_base:.6f})"
+        self.assertLess(
+            loss_smoothquant,
+            loss_base,
+            f"SmoothQuant loss ({loss_smoothquant:.6f}) should not be higher than basic loss ({loss_base:.6f})",
         )
         # Make sure the result is reasonable
         self.assertGreater(SQNR(out_ref, out_smoothquant), 20.0)

@@ -3,12 +3,7 @@
 #
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
-import pytest
-
-from torchao.prototype.autoround.utils import is_auto_round_available
-
-if not is_auto_round_available():
-    pytest.skip("AutoRound is not available", allow_module_level=True)
+import unittest
 
 import torch
 from torch.testing._internal.common_utils import (
@@ -17,6 +12,8 @@ from torch.testing._internal.common_utils import (
     parametrize,
     run_tests,
 )
+
+from torchao.prototype.autoround.utils import is_auto_round_available
 
 from torchao import quantize_
 from torchao.prototype.autoround.core import (
@@ -89,8 +86,9 @@ def _check_params_and_buffers_type(module, check_fun):
     ]
 
 
+@unittest.skipUnless(is_auto_round_available(), "AutoRound is not available")
 class TestAutoRound(TestCase):
-    @pytest.mark.skip("these tests are broken on main branch")
+    @unittest.skip("these tests are broken on main branch")
     @parametrize("device", _AVAILABLE_DEVICES)
     @torch.no_grad()
     def test_auto_round(self, device: str):
@@ -108,9 +106,14 @@ class TestAutoRound(TestCase):
             iters=20,
             device=device,
         )
-        assert all(
-            _check_params_and_buffers_type(m, lambda x: isinstance(x, MultiTensor))
-        ), "Expected all parameters and buffers to be `MultiTensor`."
+        self.assertTrue(
+            all(
+                _check_params_and_buffers_type(
+                    m, lambda x: isinstance(x, MultiTensor)
+                )
+            ),
+            "Expected all parameters and buffers to be `MultiTensor`.",
+        )
         input1 = []
         input2 = []
         for _ in range(10):
@@ -120,18 +123,23 @@ class TestAutoRound(TestCase):
         mt_input1 = MultiTensor(input1)
         mt_input2 = MultiTensor(input2)
         out = m(mt_input1, mt_input2)
-        assert isinstance(out, MultiTensor), f"Expected MultiTensor, got {type(out)}"
-        assert all(
-            _check_params_and_buffers_type(m, lambda x: not isinstance(x, MultiTensor))
-        ), "Expected all parameters and buffers have been converted back to tensor."
+        self.assertIsInstance(out, MultiTensor)
+        self.assertTrue(
+            all(
+                _check_params_and_buffers_type(
+                    m, lambda x: not isinstance(x, MultiTensor)
+                )
+            ),
+            "Expected all parameters and buffers have been converted back to tensor.",
+        )
         quantize_(m, apply_auto_round(), _is_two_linear, device=device)
         for l in m.modules():
             if isinstance(l, torch.nn.Linear):
-                assert isinstance(l.weight, TorchAOBaseTensor)
+                self.assertIsInstance(l.weight, TorchAOBaseTensor)
         after_quant = m(*example_inputs)
-        assert after_quant is not None, "Quantized model forward pass failed"
+        self.assertIsNotNone(after_quant, "Quantized model forward pass failed")
 
-    @pytest.mark.skip("these tests are broken on main branch")
+    @unittest.skip("these tests are broken on main branch")
     @parametrize("device", _AVAILABLE_DEVICES)
     @torch.no_grad()
     def test_wrap_model_with_multi_tensor(self, device: str):
@@ -147,9 +155,14 @@ class TestAutoRound(TestCase):
             iters=20,
             device=device,
         )
-        assert all(
-            _check_params_and_buffers_type(m, lambda x: isinstance(x, MultiTensor))
-        ), "Expected all parameters and buffers to be `MultiTensor`."
+        self.assertTrue(
+            all(
+                _check_params_and_buffers_type(
+                    m, lambda x: isinstance(x, MultiTensor)
+                )
+            ),
+            "Expected all parameters and buffers to be `MultiTensor`.",
+        )
         input1 = []
         input2 = []
         for _ in range(2):
@@ -159,16 +172,21 @@ class TestAutoRound(TestCase):
         mt_input1 = MultiTensor(input1)
         mt_input2 = MultiTensor(input2)
         out = m(mt_input1, mt_input2)
-        assert isinstance(out, MultiTensor), f"Expected MultiTensor, got {type(out)}"
-        assert all(
-            _check_params_and_buffers_type(m, lambda x: not isinstance(x, MultiTensor))
-        ), "Expected all parameters and buffers have been converted back to tensor."
+        self.assertIsInstance(out, MultiTensor)
+        self.assertTrue(
+            all(
+                _check_params_and_buffers_type(
+                    m, lambda x: not isinstance(x, MultiTensor)
+                )
+            ),
+            "Expected all parameters and buffers have been converted back to tensor.",
+        )
         quantize_(m, apply_auto_round(), _is_model_with_inplace_op, device=device)
         for l in m.modules():
             if isinstance(l, torch.nn.Linear):
-                assert isinstance(l.weight, TorchAOBaseTensor)
+                self.assertIsInstance(l.weight, TorchAOBaseTensor)
         after_quant = m(input1[0], input2[0])
-        assert after_quant is not None, "Quantized model forward pass failed"
+        self.assertIsNotNone(after_quant, "Quantized model forward pass failed")
 
 
 instantiate_parametrized_tests(TestAutoRound)
