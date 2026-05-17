@@ -38,6 +38,8 @@ class ExperimentResult:
     triton_gbps: float
     eager_us: float
     eager_gbps: float
+    memcpy_us: float
+    memcpy_gbps: float
 
 
 @dataclass(frozen=True)
@@ -81,6 +83,11 @@ def _eager_dequant(
         data_bf16 * scales_expanded.to(out_dtype)
     )
     return out_buffer
+
+
+def _memcpy(dst: torch.Tensor, src: torch.Tensor) -> torch.Tensor:
+    dst.copy_(src)
+    return dst
 
 
 def run_experiment(config: ExperimentConfig) -> ExperimentResult:
@@ -138,6 +145,14 @@ def run_experiment(config: ExperimentConfig) -> ExperimentResult:
         out_dtype,
     )
 
+    # --- Same-shape memcpy benchmark ---
+    memcpy_src = torch.empty_like(input_tensor)
+    memcpy_dst = torch.empty_like(input_tensor)
+    _memcpy(memcpy_dst, memcpy_src)
+    memcpy_us = benchmark_cuda_function_in_microseconds(
+        _memcpy, memcpy_dst, memcpy_src
+    )
+
     # --- Memory bandwidth ---
     # Reads: e4m3_data (M x dim, 1B) + e8m0_scales (M x scale_dim, 1B)
     # Writes: out_buffer (M x dim, 2B for bf16 / 4B for fp32)
@@ -149,12 +164,16 @@ def run_experiment(config: ExperimentConfig) -> ExperimentResult:
 
     triton_gbps = (total_bytes / 1e9) / (triton_us / 1e6)
     eager_gbps = (total_bytes / 1e9) / (eager_us / 1e6)
+    memcpy_bytes = input_tensor.numel() * input_tensor.element_size() * 2
+    memcpy_gbps = (memcpy_bytes / 1e9) / (memcpy_us / 1e6)
 
     return ExperimentResult(
         triton_us=triton_us,
         triton_gbps=triton_gbps,
         eager_us=eager_us,
         eager_gbps=eager_gbps,
+        memcpy_us=memcpy_us,
+        memcpy_gbps=memcpy_gbps,
     )
 
 
@@ -164,8 +183,10 @@ def print_results(experiments: List[Experiment]):
         "out_dtype",
         "triton_us",
         "eager_us",
+        "memcpy_us",
         "triton_gbps",
         "eager_gbps",
+        "memcpy_gbps",
         "speedup",
     ]
     rows = []
@@ -178,8 +199,10 @@ def print_results(experiments: List[Experiment]):
                 str(c.out_dtype),
                 round(r.triton_us, 3),
                 round(r.eager_us, 3),
+                round(r.memcpy_us, 3),
                 round(r.triton_gbps, 1),
                 round(r.eager_gbps, 1),
+                round(r.memcpy_gbps, 1),
                 f"{speedup}x",
             ]
         )

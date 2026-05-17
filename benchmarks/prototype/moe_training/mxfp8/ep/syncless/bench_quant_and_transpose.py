@@ -49,6 +49,8 @@ class ExperimentResult:
     # 2-stage: quant + rearrange for both non-transpose and transpose
     two_stage_us: float
     two_stage_gbps: float
+    memcpy_us: float
+    memcpy_gbps: float
 
 
 @dataclass(frozen=True)
@@ -92,6 +94,11 @@ def _two_stage_quant_and_transpose(
     )
 
     return e4m3, t_e4m3
+
+
+def _memcpy(dst: torch.Tensor, src: torch.Tensor) -> torch.Tensor:
+    dst.copy_(src)
+    return dst
 
 
 def run_experiment(config: ExperimentConfig) -> ExperimentResult:
@@ -149,6 +156,14 @@ def run_experiment(config: ExperimentConfig) -> ExperimentResult:
         ref_t_scales_out,
     )
 
+    # --- Same-shape memcpy benchmark ---
+    memcpy_src = torch.empty_like(input_bf16)
+    memcpy_dst = torch.empty_like(input_bf16)
+    _memcpy(memcpy_dst, memcpy_src)
+    memcpy_us = benchmark_cuda_function_in_microseconds(
+        _memcpy, memcpy_dst, memcpy_src
+    )
+
     # --- Memory bandwidth ---
     # Fused: reads input once (M*N*2B), writes 2x FP8 data + 2x scales
     # Non-transpose FP8: M*N*1B, scales: padded_M * padded_N_scale_cols * 1B
@@ -162,12 +177,16 @@ def run_experiment(config: ExperimentConfig) -> ExperimentResult:
 
     fused_gbps = (total_bytes / 1e9) / (fused_us / 1e6)
     two_stage_gbps = (total_bytes / 1e9) / (two_stage_us / 1e6)
+    memcpy_bytes = input_bf16.numel() * input_bf16.element_size() * 2
+    memcpy_gbps = (memcpy_bytes / 1e9) / (memcpy_us / 1e6)
 
     return ExperimentResult(
         fused_us=fused_us,
         fused_gbps=fused_gbps,
         two_stage_us=two_stage_us,
         two_stage_gbps=two_stage_gbps,
+        memcpy_us=memcpy_us,
+        memcpy_gbps=memcpy_gbps,
     )
 
 
@@ -176,8 +195,10 @@ def print_results(experiments: List[Experiment]):
         "input_shape",
         "fused_us",
         "2stage_us",
+        "memcpy_us",
         "fused_gbps",
         "2stage_gbps",
+        "memcpy_gbps",
         "fused_speedup",
     ]
     rows = []
@@ -188,8 +209,10 @@ def print_results(experiments: List[Experiment]):
                 str(experiment.config.input_shape),
                 round(experiment.result.fused_us, 3),
                 round(experiment.result.two_stage_us, 3),
+                round(experiment.result.memcpy_us, 3),
                 round(experiment.result.fused_gbps, 3),
                 round(experiment.result.two_stage_gbps, 3),
+                round(experiment.result.memcpy_gbps, 3),
                 f"{speedup}x",
             ]
         )

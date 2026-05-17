@@ -49,6 +49,8 @@ class ExperimentResult:
     # 2-step: silu_mul_fw + triton_to_mxfp8_dim0 + scale rearrange
     two_step_us: float
     two_step_gbps: float
+    memcpy_us: float
+    memcpy_gbps: float
 
 
 @dataclass(frozen=True)
@@ -89,6 +91,11 @@ def _two_step_silu_quant(
     )
     triton_mx_block_rearrange_input_sym_mem_buffer(h_scales, num_tokens, ref_scales_out)
     return h_e4m3
+
+
+def _memcpy(dst: torch.Tensor, src: torch.Tensor) -> torch.Tensor:
+    dst.copy_(src)
+    return dst
 
 
 def run_experiment(config: ExperimentConfig) -> ExperimentResult:
@@ -150,6 +157,14 @@ def run_experiment(config: ExperimentConfig) -> ExperimentResult:
         ref_scales_out,
     )
 
+    # ---- Same-shape memcpy benchmark ----
+    memcpy_src = torch.empty_like(h13_buffer)
+    memcpy_dst = torch.empty_like(h13_buffer)
+    _memcpy(memcpy_dst, memcpy_src)
+    memcpy_us = benchmark_cuda_function_in_microseconds(
+        _memcpy, memcpy_dst, memcpy_src
+    )
+
     # ---- Memory bandwidth calculation ----
     # Fused kernel:
     #   reads: h13 (M * 2*hidden_dim * 2B bf16)
@@ -166,12 +181,16 @@ def run_experiment(config: ExperimentConfig) -> ExperimentResult:
     intermediate_bytes = M * hidden_dim * 2 * 2  # write + read
     two_step_total_bytes = total_bytes + intermediate_bytes
     two_step_gbps = (two_step_total_bytes / 1e9) / (two_step_us / 1e6)
+    memcpy_bytes = h13_buffer.numel() * h13_buffer.element_size() * 2
+    memcpy_gbps = (memcpy_bytes / 1e9) / (memcpy_us / 1e6)
 
     return ExperimentResult(
         fused_us=fused_us,
         fused_gbps=fused_gbps,
         two_step_us=two_step_us,
         two_step_gbps=two_step_gbps,
+        memcpy_us=memcpy_us,
+        memcpy_gbps=memcpy_gbps,
     )
 
 
@@ -180,8 +199,10 @@ def print_results(experiments: List[Experiment]):
         "shape (M, hdim)",
         "fused_us",
         "2step_us",
+        "memcpy_us",
         "fused_gbps",
         "2step_gbps",
+        "memcpy_gbps",
         "fused_speedup",
     ]
     rows = []
@@ -193,8 +214,10 @@ def print_results(experiments: List[Experiment]):
                 f"({c.num_tokens}, {c.hidden_dim})",
                 round(r.fused_us, 3),
                 round(r.two_step_us, 3),
+                round(r.memcpy_us, 3),
                 round(r.fused_gbps, 1),
                 round(r.two_step_gbps, 1),
+                round(r.memcpy_gbps, 1),
                 f"{speedup}x",
             ]
         )

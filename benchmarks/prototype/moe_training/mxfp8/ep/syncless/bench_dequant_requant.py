@@ -43,6 +43,8 @@ class ExperimentResult:
     # 2-stage: dequant + requant
     two_stage_us: float
     two_stage_gbps: float
+    memcpy_us: float
+    memcpy_gbps: float
 
 
 @dataclass(frozen=True)
@@ -89,6 +91,11 @@ def _two_stage_dequant_requant(
         SCALE_BLOCK_SIZE,
     )
     return mxfp8_quantize_2d_32x1_cutedsl(out_buffer, SCALE_BLOCK_SIZE)
+
+
+def _memcpy(dst: torch.Tensor, src: torch.Tensor) -> torch.Tensor:
+    dst.copy_(src)
+    return dst
 
 
 def run_experiment(config: ExperimentConfig) -> ExperimentResult:
@@ -159,6 +166,14 @@ def run_experiment(config: ExperimentConfig) -> ExperimentResult:
         out_offset,
     )
 
+    # --- Same-shape memcpy benchmark ---
+    memcpy_src = torch.empty_like(input_tensor)
+    memcpy_dst = torch.empty_like(input_tensor)
+    _memcpy(memcpy_dst, memcpy_src)
+    memcpy_us = benchmark_cuda_function_in_microseconds(
+        _memcpy, memcpy_dst, memcpy_src
+    )
+
     # --- Memory bandwidth calculation (same logical I/O for both) ---
     # Reads: e4m3_data (M x dim, 1B) + e8m0_scales (M x dim//32, 1B)
     # Writes: out_data (dim x M, 1B) + out_scales (dim x M//32, 1B)
@@ -167,12 +182,16 @@ def run_experiment(config: ExperimentConfig) -> ExperimentResult:
     total_bytes = read_bytes + write_bytes
     fused_gbps = (total_bytes / 1e9) / (fused_us / 1e6)
     two_stage_gbps = (total_bytes / 1e9) / (two_stage_us / 1e6)
+    memcpy_bytes = input_tensor.numel() * input_tensor.element_size() * 2
+    memcpy_gbps = (memcpy_bytes / 1e9) / (memcpy_us / 1e6)
 
     return ExperimentResult(
         fused_us=fused_us,
         fused_gbps=fused_gbps,
         two_stage_us=two_stage_us,
         two_stage_gbps=two_stage_gbps,
+        memcpy_us=memcpy_us,
+        memcpy_gbps=memcpy_gbps,
     )
 
 
@@ -181,8 +200,10 @@ def print_results(experiments: List[Experiment]):
         "input_shape",
         "fused_us",
         "2stage_us",
+        "memcpy_us",
         "fused_gbps",
         "2stage_gbps",
+        "memcpy_gbps",
         "fused_speedup",
     ]
     rows = []
@@ -193,8 +214,10 @@ def print_results(experiments: List[Experiment]):
                 str(experiment.config.input_shape),
                 round(experiment.result.fused_us, 3),
                 round(experiment.result.two_stage_us, 3),
+                round(experiment.result.memcpy_us, 3),
                 round(experiment.result.fused_gbps, 3),
                 round(experiment.result.two_stage_gbps, 3),
+                round(experiment.result.memcpy_gbps, 3),
                 f"{speedup}x",
             ]
         )
