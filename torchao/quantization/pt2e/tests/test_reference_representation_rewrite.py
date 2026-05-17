@@ -33,61 +33,67 @@ class TestReferenceRepresentationRewrite(unittest.TestCase):
         torch.manual_seed(78)
 
     def test_reference_int8_rewrites_cast_zero_points_to_int32(self):
-        recorded_ops = []
         original_out_dtype = reference_rewrite.out_dtype
 
-        def _intercept_and_validate_kernel_inputs(op, dtype, *args):
-            if op in (torch.ops.aten.linear.default, torch.ops.aten.convolution.default):
-                recorded_ops.append(op)
-                activation, weight = args[:2]
-                self.assertEqual(activation.dtype, torch.int32)
-                self.assertEqual(weight.dtype, torch.int32)
-            return original_out_dtype(op, dtype, *args)
+        for weight_zero_point_dtype in (torch.int32, torch.int64):
+            with self.subTest(weight_zero_point_dtype=weight_zero_point_dtype):
+                recorded_ops = []
 
-        with patch.object(
-            reference_rewrite,
-            "out_dtype",
-            side_effect=_intercept_and_validate_kernel_inputs,
-        ):
-            reference_rewrite._reference_quantized_linear(
-                torch.randint(-128, 127, (2, 5), dtype=torch.int8),
-                torch.tensor(0.1),
-                torch.tensor([0], dtype=torch.int64),
-                -128,
-                127,
-                torch.randint(-128, 127, (5, 5), dtype=torch.int8),
-                torch.tensor(0.2),
-                torch.tensor([0], dtype=torch.int32),
-                -128,
-                127,
-                torch.randn(5),
-                torch.tensor(0.3),
-                torch.tensor([0], dtype=torch.int32),
-                -128,
-                127,
-            )
-            reference_rewrite._reference_quantized_conv2d(
-                torch.randint(-128, 127, (1, 3, 3, 3), dtype=torch.int8),
-                torch.tensor(0.1),
-                torch.tensor([0], dtype=torch.int64),
-                -128,
-                127,
-                torch.randint(-128, 127, (3, 3, 3, 3), dtype=torch.int8),
-                torch.tensor(0.2),
-                torch.tensor([0], dtype=torch.int32),
-                -128,
-                127,
-                torch.randn(3),
-                torch.tensor(0.3),
-                torch.tensor([0], dtype=torch.int32),
-                -128,
-                127,
-            )
+                def _intercept_and_validate_kernel_inputs(op, dtype, *args):
+                    if op in (
+                        torch.ops.aten.linear.default,
+                        torch.ops.aten.convolution.default,
+                    ):
+                        recorded_ops.append(op)
+                        activation, weight = args[:2]
+                        self.assertEqual(activation.dtype, torch.int32)
+                        self.assertEqual(weight.dtype, torch.int32)
+                    return original_out_dtype(op, dtype, *args)
 
-        self.assertEqual(
-            recorded_ops,
-            [torch.ops.aten.linear.default, torch.ops.aten.convolution.default],
-        )
+                with patch.object(
+                    reference_rewrite,
+                    "out_dtype",
+                    side_effect=_intercept_and_validate_kernel_inputs,
+                ):
+                    reference_rewrite._reference_quantized_linear(
+                        torch.randint(-128, 127, (2, 5), dtype=torch.int8),
+                        torch.tensor(0.1),
+                        torch.tensor([0], dtype=torch.int64),
+                        -128,
+                        127,
+                        torch.randint(-128, 127, (5, 5), dtype=torch.int8),
+                        torch.tensor(0.2),
+                        torch.tensor([0], dtype=weight_zero_point_dtype),
+                        -128,
+                        127,
+                        torch.randn(5),
+                        torch.tensor(0.3),
+                        torch.tensor([0], dtype=torch.int32),
+                        -128,
+                        127,
+                    )
+                    reference_rewrite._reference_quantized_conv2d(
+                        torch.randint(-128, 127, (1, 3, 3, 3), dtype=torch.int8),
+                        torch.tensor(0.1),
+                        torch.tensor([0], dtype=torch.int64),
+                        -128,
+                        127,
+                        torch.randint(-128, 127, (3, 3, 3, 3), dtype=torch.int8),
+                        torch.tensor(0.2),
+                        torch.tensor([0], dtype=weight_zero_point_dtype),
+                        -128,
+                        127,
+                        torch.randn(3),
+                        torch.tensor(0.3),
+                        torch.tensor([0], dtype=torch.int32),
+                        -128,
+                        127,
+                    )
+
+                self.assertEqual(
+                    recorded_ops,
+                    [torch.ops.aten.linear.default, torch.ops.aten.convolution.default],
+                )
 
     def _get_default_quantization_params(self):
         """Get default quantization parameters."""
