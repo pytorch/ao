@@ -13,10 +13,13 @@ import torch.nn as nn
 from torchao.quantization import Int8DynamicActivationIntxWeightConfig, quantize_
 from torchao.quantization.granularity import PerGroup
 from torchao.quantization.pt2e.reference_representation_rewrite import (
+    _reference_dynamic_quantized_linear,
+    _reference_quantized_linear,
     _qdq_dynamic_quantized_linear_4bit_groupwise,
     _reference_dynamic_quantized_linear_4bit_groupwise,
     reference_representation_rewrite,
 )
+from torchao.quantization.pt2e.export_utils import WrapperModule
 from torchao.utils import unwrap_tensor_subclass
 
 
@@ -106,6 +109,67 @@ class TestReferenceRepresentationRewrite(unittest.TestCase):
             atol=atol,
             rtol=rtol,
             msg=f"QDQ and reference results differ significantly{msg_suffix}",
+        )
+
+    def _get_linear_out_dtype_arg_dtypes(self, fn, example_inputs):
+        exported = torch.export.export(
+            WrapperModule(fn), example_inputs, strict=True
+        ).module()
+        for node in exported.graph.nodes:
+            if node.target == torch.ops.higher_order.out_dtype:
+                target = node.args[0]
+                if target == torch.ops.aten.linear.default:
+                    return (
+                        node.args[2].meta["val"].dtype,
+                        node.args[3].meta["val"].dtype,
+                    )
+        self.fail("Could not find aten.linear out_dtype node in exported graph")
+
+    def test_reference_quantized_linear_normalizes_zero_point_dtypes(self):
+        example_inputs = (
+            torch.randint(-128, 127, (2, 5), dtype=torch.int8),
+            torch.randn(1, dtype=torch.float),
+            torch.zeros(1, dtype=torch.int64),
+            torch.tensor([-128], dtype=torch.int64),
+            torch.tensor([127], dtype=torch.int64),
+            torch.randint(-128, 127, (5, 5), dtype=torch.int8),
+            torch.randn(1, dtype=torch.float),
+            torch.zeros(1, dtype=torch.int32),
+            torch.tensor([-127], dtype=torch.int32),
+            torch.tensor([127], dtype=torch.int32),
+            torch.randn(1, dtype=torch.float),
+            torch.randn(1, dtype=torch.float),
+            torch.zeros(1, dtype=torch.int32),
+            torch.tensor([-128], dtype=torch.int32),
+            torch.tensor([127], dtype=torch.int32),
+        )
+
+        self.assertEqual(
+            self._get_linear_out_dtype_arg_dtypes(
+                _reference_quantized_linear, example_inputs
+            ),
+            (torch.int16, torch.int16),
+        )
+
+    def test_reference_dynamic_quantized_linear_normalizes_zero_point_dtypes(self):
+        example_inputs = (
+            torch.randn((2, 5), dtype=torch.float),
+            -128,
+            127,
+            torch.finfo(torch.float32).eps,
+            torch.randint(-128, 127, (5, 5), dtype=torch.int8),
+            torch.randn(1, dtype=torch.float),
+            torch.zeros(1, dtype=torch.int32),
+            torch.tensor([-127], dtype=torch.int32),
+            torch.tensor([127], dtype=torch.int32),
+            torch.randn(1, dtype=torch.float),
+        )
+
+        self.assertEqual(
+            self._get_linear_out_dtype_arg_dtypes(
+                _reference_dynamic_quantized_linear, example_inputs
+            ),
+            (torch.int16, torch.int16),
         )
 
     def test_qdq_dynamic_quantized_linear_4bit_groupwise_basic(self):
