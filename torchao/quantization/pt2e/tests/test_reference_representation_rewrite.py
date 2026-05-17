@@ -36,15 +36,18 @@ class TestReferenceRepresentationRewrite(unittest.TestCase):
         recorded_ops = []
         original_out_dtype = reference_rewrite.out_dtype
 
-        def _assert_reference_kernel_inputs(op, dtype, *args):
+        def _intercept_and_validate_kernel_inputs(op, dtype, *args):
             if op in (torch.ops.aten.linear.default, torch.ops.aten.convolution.default):
                 recorded_ops.append(op)
-                self.assertEqual(args[0].dtype, torch.int32)
-                self.assertEqual(args[1].dtype, torch.int32)
+                activation, weight = args[:2]
+                self.assertEqual(activation.dtype, torch.int32)
+                self.assertEqual(weight.dtype, torch.int32)
             return original_out_dtype(op, dtype, *args)
 
         with patch.object(
-            reference_rewrite, "out_dtype", side_effect=_assert_reference_kernel_inputs
+            reference_rewrite,
+            "out_dtype",
+            side_effect=_intercept_and_validate_kernel_inputs,
         ):
             reference_rewrite._reference_quantized_linear(
                 torch.randint(-128, 127, (2, 5), dtype=torch.int8),
