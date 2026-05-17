@@ -111,7 +111,7 @@ class TestReferenceRepresentationRewrite(unittest.TestCase):
             msg=f"QDQ and reference results differ significantly{msg_suffix}",
         )
 
-    def _get_out_dtype_linear_operand_dtypes(self, fn, example_inputs):
+    def _get_linear_operand_dtypes(self, fn, example_inputs):
         exported = torch.export.export(
             WrapperModule(fn), example_inputs, strict=True
         ).module()
@@ -145,9 +145,7 @@ class TestReferenceRepresentationRewrite(unittest.TestCase):
         )
 
         self.assertEqual(
-            self._get_out_dtype_linear_operand_dtypes(
-                _reference_quantized_linear, example_inputs
-            ),
+            self._get_linear_operand_dtypes(_reference_quantized_linear, example_inputs),
             (torch.int16, torch.int16),
         )
 
@@ -166,7 +164,7 @@ class TestReferenceRepresentationRewrite(unittest.TestCase):
         )
 
         self.assertEqual(
-            self._get_out_dtype_linear_operand_dtypes(
+            self._get_linear_operand_dtypes(
                 _reference_dynamic_quantized_linear, example_inputs
             ),
             (torch.int16, torch.int16),
