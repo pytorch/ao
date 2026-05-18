@@ -242,6 +242,32 @@ def _collect_quant_dequant_pair_on_single_user_chain(start_node):
         cur = nxt
 
 
+_QPARAM_KWARG_KEYS = ("q_scale", "q_zp", "k_scale", "k_zp", "v_scale", "v_zp")
+
+
+def _find_node_with_qparam_kwargs_on_single_user_chain(start_node):
+    cur = start_node
+    while True:
+        users = list(cur.users)
+        if len(users) != 1:
+            return None
+        cur = users[0]
+        if all(key in cur.kwargs for key in _QPARAM_KWARG_KEYS):
+            return cur
+
+
+def _replace_node_qparam_kwargs(node, fused_output_scale, fused_output_zero_point):
+    new_kwargs = dict(node.kwargs)
+    for key in _QPARAM_KWARG_KEYS:
+        new_kwargs[key] = (
+            fused_output_scale
+            if key.endswith("scale")
+            else fused_output_zero_point
+        )
+    node.kwargs = new_kwargs
+
+
+
 def _concat_linear_int8_cpu(graph: torch.fx.Graph):
     """
     Concat Linear optimization pass for int8 on CPU
@@ -402,6 +428,21 @@ def _concat_linear_int8_cpu(graph: torch.fx.Graph):
                             quant_node, dequant_node = qdq_pair
                             dequant_node.replace_input_with(quant_node, quant_node.args[0])
                             delayed_erase_nodes.append(quant_node)
+
+                    if len(split_outputs) == 3:
+                        qparam_nodes = [
+                            _find_node_with_qparam_kwargs_on_single_user_chain(split_out)
+                            for split_out in split_outputs
+                        ]
+                        if (
+                            qparam_nodes[0] is not None
+                            and qparam_nodes[0] == qparam_nodes[1] == qparam_nodes[2]
+                        ):
+                            _replace_node_qparam_kwargs(
+                                qparam_nodes[0],
+                                fused_output_scale,
+                                fused_output_zero_point,
+                            )
 
                     for old_node in delayed_erase_nodes:
                         graph.erase_node(old_node)
