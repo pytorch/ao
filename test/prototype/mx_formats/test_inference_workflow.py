@@ -5,6 +5,7 @@
 # LICENSE file in the root directory of this source tree.
 
 import copy
+import unittest
 from contextlib import contextmanager
 
 import pytest
