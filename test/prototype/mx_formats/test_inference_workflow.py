@@ -5,7 +5,6 @@
 # LICENSE file in the root directory of this source tree.
 
 import copy
-import unittest
 from contextlib import contextmanager
 
 import pytest
@@ -468,8 +467,8 @@ def test_grouped_mm_nvfp4():
     assert y_sqnr > 15.0
 
 
-@unittest.skipIf(not torch.cuda.is_available(), "CUDA not available")
-@unittest.skipIf(not is_sm_at_least_100(), "Need sm100+")
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+@pytest.mark.skipif(not is_sm_at_least_100(), reason="Need sm100+")
 @pytest.mark.parametrize(
     "E,K,N,m_per_group",
     [
