@@ -128,8 +128,8 @@ class FakeQuantizedWeightWrapperBaseTensor(TorchAOBaseTensor):
     and a :class:`~torchao.quantization.qat.fake_quantize_config.FakeQuantizeConfigBase`
     that specifies the fake quantization recipe.
 
-    Subclasses must override :meth:`__torch_function__` to intercept
-    ``torch._grouped_mm`` and apply their precision-specific fake quantization.
+    Subclasses must override :meth:`__torch_function__` to intercept computation
+    ops and apply their precision-specific fake quantization.
 
     Not intended to be used directly.
     """
@@ -162,10 +162,6 @@ class FakeQuantizedWeightWrapperBaseTensor(TorchAOBaseTensor):
         weight_config: Optional[FakeQuantizeConfigBase] = None,
     ):
         self._data = tensor
-        if activation_config is not None:
-            raise ValueError(
-                f"activation_config is not supported in {type(self).__name__} yet."
-            )
         if weight_config is None:
             raise ValueError(
                 f"Must specify `weight_config` in {type(self).__name__} yet."
@@ -231,8 +227,12 @@ class FakeQuantizedWeightWrapperBaseTensor(TorchAOBaseTensor):
 
         # Wrap outputs back into the same subclass for the remaining preserved ops.
         # copy_ is handled above (returns the original wrapper for in-place semantics).
-        # All remaining ops take the wrapper as args[0], so args[0].activation_config and
-        # args[0].weight_config are safe.
+        # All current preserved ops are single-input (select, slice, view, transpose, etc.)
+        # and take the wrapper as args[0], so args[0]'s configs are safe.
+        # Forward-compatibility caveat: if multi-input ops like stack or cat are added to
+        # _ops_to_preserve_subclass, using only args[0]'s config would be wrong — other
+        # wrapped inputs may carry different configs. The re-wrap logic would need to handle
+        # that case.
         #
         # TODO: check the semantics of Tensors in the returned value to assign more suitable config.
         return pytree.tree_map_only(
@@ -295,15 +295,32 @@ class FakeQuantizedWeightWrapperBaseTensor(TorchAOBaseTensor):
 
 class Float8FakeQuantizedWeightWrapperTensor(FakeQuantizedWeightWrapperBaseTensor):
     """
-    Applies FP8 row-wise fake quantization to MoE expert weights during QAT.
+    Applies FP8 row-wise fake quantization during MoE QAT.
 
-    Intercepts ``torch._grouped_mm`` via :meth:`__torch_function__`, applies
-    per-row FP8 fake quantization (quantize → dequant in high precision with
-    STE gradient) to the 3D expert weights, and delegates to the standard
-    ``torch._grouped_mm``.
+    Intercepts computation ops via :meth:`__torch_function__`, applies per-row
+    FP8 fake quantization (quantize → dequant in high precision with STE
+    gradient) to the weights and optionally the activations, and delegates to
+    the standard op.
 
-    The weight config must be a :class:`~torchao.quantization.qat.fake_quantize_config.Float8FakeQuantizeConfig`.
+    Both ``weight_config`` and ``activation_config`` (if set) must be
+    :class:`~torchao.quantization.qat.fake_quantize_config.Float8FakeQuantizeConfig`.
     """
+
+    def __init__(
+        self,
+        tensor: torch.Tensor,
+        activation_config: Optional[FakeQuantizeConfigBase] = None,
+        weight_config: Optional[FakeQuantizeConfigBase] = None,
+    ):
+        if activation_config is not None and not isinstance(activation_config, Float8FakeQuantizeConfig):
+            raise ValueError(
+                f"Only `Float8FakeQuantizeConfig` is supported for `activation_config` in {type(self).__name__}."
+            )
+        if not isinstance(weight_config, Float8FakeQuantizeConfig):
+            raise ValueError(
+                f"Only `Float8FakeQuantizeConfig` is supported for `weight_config` in {type(self).__name__}."
+            )
+        super().__init__(tensor, activation_config=activation_config, weight_config=weight_config)
 
     @classmethod
     def __torch_function__(cls, func, types, args, kwargs=None):
@@ -346,8 +363,22 @@ class Float8FakeQuantizedWeightWrapperTensor(FakeQuantizedWeightWrapperBaseTenso
 
             assert not isinstance(A, cls), f"A should not be a {cls.__name__}"
 
-            assert isinstance(B, cls), f"B should be a {cls.__name__}"
+            assert isinstance(B, cls), (
+                f"Expected the wrapped weight at args[{'2' if func.__name__ == 'addmm' else '1'}], "
+                f"but got {type(B)}. This happens when config._experts_implementation=\"batched_mm\" "
+                f"puts the weight at args[0]. Use \"grouped_mm\" instead."
+            )
 
+            # Fake-quantize the activation if B.activation_config exists
+            if B.activation_config is not None:
+                assert not isinstance(A, TorchAOBaseTensor), \
+                    f"When an activation config is specified, the activation must not be a quantized tensor, got {type(A)}"
+                fq_A = cls.fake_quantize(A, B.activation_config)
+            else:
+                fq_A = A
+
+
+            # Fake-quantize the weight
             B_data = unwrap_weight(B)
 
             if B.weight_config is not None:
@@ -356,9 +387,9 @@ class Float8FakeQuantizedWeightWrapperTensor(FakeQuantizedWeightWrapperBaseTenso
                 fq_B_data = B_data
 
             if func.__name__ == "addmm":
-                new_args = (args[0],) + (A, fq_B_data) + args[3:]
+                new_args = (args[0],) + (fq_A, fq_B_data) + args[3:]
             else:
-                new_args = (A, fq_B_data) + args[2:]
+                new_args = (fq_A, fq_B_data) + args[2:]
 
         else:
             new_args = args

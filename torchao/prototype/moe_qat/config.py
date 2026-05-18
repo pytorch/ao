@@ -45,7 +45,7 @@ class MoEQATConfig(QATConfig):
     1. Prepare: wraps 3D expert weight parameters with ``FakeQuantizedWeightWrapperBaseTensor``
     2. Convert: unwraps ``FakeQuantizedWeightWrapperBaseTensor`` back to regular tensors
 
-    Currently only FP8 row-wise weight-only fake quantization is supported.
+    Currently only FP8 row-wise fake quantization is supported (weight and activation).
 
     Example usage::
 
@@ -62,8 +62,8 @@ class MoEQATConfig(QATConfig):
 
     Args:
         base_config: Base PTQ config (not yet supported in convert step).
-        activation_config: Fake quantize config for input activations
-            (not yet supported).
+        activation_config: Fake quantize config for input activations. Currently
+            only :class:`~torchao.quantization.qat.Float8FakeQuantizeConfig` is supported.
         weight_config: Fake quantize config for weights. Currently only
             :class:`~torchao.quantization.qat.Float8FakeQuantizeConfig` is supported.
 
@@ -88,11 +88,12 @@ class MoEQATConfig(QATConfig):
 
     def __post_init__(self):
         torch._C._log_api_usage_once("torchao.prototype.moe_qat.MoEQATConfig")
-        if self.activation_config is not None:
+        if self.activation_config is not None and not isinstance(
+            self.activation_config, Float8FakeQuantizeConfig
+        ):
             raise ValueError(
-                "`activation_config` is not supported in MoeQATConfig yet."
+                "Only `Float8FakeQuantizeConfig` is supported for `activation_config` in MoEQATConfig yet."
             )
-
         if self.weight_config is not None and not isinstance(
             self.weight_config, Float8FakeQuantizeConfig
         ):
