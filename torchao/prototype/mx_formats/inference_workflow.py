@@ -135,11 +135,14 @@ def _mx_inference_linear_transform(
     assert weight.dtype == torch.bfloat16, (
         f"Only supporting bf16 out dtype for now, got {weight.dtype}"
     )
+    # Swizzled scales are a CUDA SM100+ optimization; disable on XPU
+    use_swizzled = not weight.is_xpu
+
     act_quant_kwargs = QuantizeTensorToMXKwargs(
         elem_dtype=config.activation_dtype,
         block_size=config.block_size,
         kernel_preference=config.kernel_preference,
-        is_swizzled_scales=True,
+        is_swizzled_scales=use_swizzled,
         scaling_mode=config.scaling_mode,
     )
 
@@ -150,7 +153,7 @@ def _mx_inference_linear_transform(
         block_size=config.block_size,
         kernel_preference=config.kernel_preference,
         act_quant_kwargs=act_quant_kwargs,
-        is_swizzled_scales=True,
+        is_swizzled_scales=use_swizzled,
         scaling_mode=config.scaling_mode,
     )
 
