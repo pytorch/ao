@@ -776,7 +776,7 @@ def test_to_blocked_from_blocked_roundtrip(shape, use_triton_kernel: bool):
     )
 
 
-# @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 @pytest.mark.parametrize("transpose", [False, True])
 @pytest.mark.parametrize(
     "shape",
@@ -789,7 +789,7 @@ def test_scale_shape_matches_qdata(transpose, shape):
 
     block_size = 32
 
-    x_hp = torch.randn(*shape, device="xpu")
+    x_hp = torch.randn(*shape, device="cuda")
     x = MXTensor.to_mx(
         x_hp,
         torch.float8_e4m3fn,
