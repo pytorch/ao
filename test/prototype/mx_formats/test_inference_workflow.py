@@ -27,7 +27,6 @@ from torchao.utils import (
     get_current_accelerator_device,
     is_sm_at_least_89,
     is_sm_at_least_100,
-    torch_version_at_least,
 )
 
 torch.manual_seed(2)
