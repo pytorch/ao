@@ -1169,6 +1169,7 @@ class Float8DynamicActivationFloat8WeightConfig(AOBaseConfig):
     kernel_preference: KernelPreference = KernelPreference.AUTO
     set_inductor_config: bool = True
     version: int = 2
+    alg_id: int = 0
 
     def __post_init__(self):
         torch._C._log_api_usage_once(
@@ -1274,6 +1275,7 @@ def _float8_dynamic_activation_float8_weight_quantize_tensor(weight, config):
             float8_dtype=weight_dtype,
             granularity=weight_granularity,
             act_quant_kwargs=act_quant_kwargs,
+            alg_id=config.alg_id,
         )
         return quantized_weight
 
