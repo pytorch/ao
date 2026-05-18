@@ -12,14 +12,7 @@ TODO(future): make this run in CI
 
 import os
 
-import pytest
 import torch
-
-from torchao.utils import torch_version_at_least
-
-if not torch_version_at_least("2.7.0"):
-    pytest.skip("Unsupported PyTorch version", allow_module_level=True)
-
 from torch.distributed._tensor import DTensor, Shard, distribute_tensor
 from torch.distributed.device_mesh import DeviceMesh, init_device_mesh
 from tqdm import tqdm

@@ -31,10 +31,7 @@ from torchao.quantization.transform_module import (
     register_quantize_module_handler,
 )
 from torchao.quantization.utils import _module_extra_repr, _quantization_type
-from torchao.utils import (
-    is_sm_at_least_100,
-    torch_version_at_least,
-)
+from torchao.utils import is_sm_at_least_100
 
 
 class NVFP4ObservedLinear(torch.nn.Linear):
@@ -228,12 +225,6 @@ class NVFP4DynamicActivationNVFP4WeightConfig(AOBaseConfig):
     def __post_init__(self):
         if isinstance(self.step, str):
             self.step = QuantizationStep(self.step)
-        # Validate PyTorch version
-        if not torch_version_at_least("2.8.0"):
-            raise RuntimeError(
-                "NVFP4DynamicActivationNVFP4WeightConfig requires PyTorch 2.8 or later"
-            )
-
         if self.step is not None:
             # Static quantization implies use_dynamic_per_tensor_scale=False
             self.use_dynamic_per_tensor_scale = False
@@ -377,13 +368,6 @@ class NVFP4WeightOnlyConfig(AOBaseConfig):
     """
 
     use_dynamic_per_tensor_scale: bool = True
-
-    def __post_init__(self):
-        # Validate PyTorch version
-        if not torch_version_at_least("2.8.0"):
-            raise RuntimeError(
-                "NVFP4DynamicActivationNVFP4WeightConfig requires PyTorch 2.8 or later"
-            )
 
 
 @register_quantize_module_handler(NVFP4WeightOnlyConfig)

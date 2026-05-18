@@ -10,7 +10,7 @@ Prerequisites
 
 - `PyTorch 2 Export Post Training Quantization <https://docs.pytorch.org/ao/stable/tutorial_source/pt2e_quant_ptq.html>`_
 -  `TorchInductor and torch.compile concepts in PyTorch <https://pytorch.org/tutorials/intermediate/torch_compile_tutorial.html>`_
-- PyTorch 2.7 or later
+- PyTorch 2.9 or later
 
 Introduction
 --------------

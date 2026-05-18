@@ -15,9 +15,7 @@ from typing import Tuple
 import torch
 from torch.utils._triton import has_triton
 
-from torchao.utils import torch_version_at_least
-
-if torch_version_at_least("2.7.0") and has_triton():
+if has_triton():
     import triton
     import triton.language as tl
 
@@ -891,7 +889,7 @@ else:
         round_scales_to_power_of_2: bool = False,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         raise NotImplementedError(
-            "triton_fp8_per_group_rowwise_scales requires torch 2.7.0+ and triton installed"
+            "triton_fp8_per_group_rowwise_scales requires triton installed"
         )
 
     def triton_fp8_per_group_colwise_scales(
@@ -901,7 +899,7 @@ else:
         round_scales_to_power_of_2: bool = False,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         raise NotImplementedError(
-            "triton_fp8_per_group_colwise_scales requires torch 2.7.0+ and triton installed"
+            "triton_fp8_per_group_colwise_scales requires triton installed"
         )
 
     def triton_fp8_per_group_colwise_scales_dual(
@@ -912,5 +910,5 @@ else:
         round_scales_to_power_of_2: bool = False,
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         raise NotImplementedError(
-            "triton_fp8_per_group_colwise_scales_dual requires torch 2.7.0+ and triton installed"
+            "triton_fp8_per_group_colwise_scales_dual requires triton installed"
         )

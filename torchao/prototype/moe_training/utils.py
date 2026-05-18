@@ -1,7 +1,6 @@
 """Shared utilities for MoE training: FP8/MXFP8 quantization, group padding/unpadding, and scaled grouped matmul."""
 
 import random
-import warnings
 from typing import Optional, Tuple
 
 import torch
@@ -15,7 +14,6 @@ from torchao.prototype.moe_training.config import (
 )
 from torchao.prototype.mx_formats.mx_tensor import to_mx
 from torchao.quantization.quantize_.common import KernelPreference
-from torchao.utils import torch_version_at_least
 
 
 # --- float8 rowwise scaling ---
@@ -353,16 +351,7 @@ def generate_jagged_offs(E, M, multiple_of=32, dtype=torch.int32, device="cuda")
 
 
 def conditional_nostrict_trace(fn):
-    """
-    Applies @torch._dynamo.nonstrict_trace if exists, otherwise no-op.
-    """
-    if torch_version_at_least("2.7.0"):
-        return torch._dynamo.nonstrict_trace(fn)
-    warnings.warn(
-        f"torch._dynamo.nonstrict_trace is not available in torch version {torch.__version__}."
-        "please use torch 2.7.0+ for torch.compile support on mxfp8 expert parallel autograd functions."
-    )
-    return fn
+    return torch._dynamo.nonstrict_trace(fn)
 
 
 # dispatching helper for ScaledGroupedMMTensor

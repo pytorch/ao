@@ -10,9 +10,7 @@ from typing import Tuple
 import torch
 from torch.utils._triton import has_triton
 
-from torchao.utils import torch_version_at_least
-
-if torch_version_at_least("2.7.0") and has_triton():
+if has_triton():
     import triton
     import triton.language as tl
 
@@ -917,7 +915,7 @@ else:
         round_scales_to_power_of_2: bool = False,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         raise NotImplementedError(
-            "triton_fp8_rowwise_3d_transpose_rhs requires torch 2.7.0+ and triton installed"
+            "triton_fp8_rowwise_3d_transpose_rhs requires triton installed"
         )
 
     def triton_fp8_rowwise_3d_transpose_rhs_fused_reduction(
@@ -926,7 +924,7 @@ else:
         round_scales_to_power_of_2: bool = False,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         raise NotImplementedError(
-            "triton_fp8_rowwise_3d_transpose_rhs_fused_reduction requires torch 2.7.0+ and triton installed"
+            "triton_fp8_rowwise_3d_transpose_rhs_fused_reduction requires triton installed"
         )
 
     def triton_fp8_colwise_3d_scale_and_cast(
@@ -935,7 +933,7 @@ else:
         round_scales_to_power_of_2: bool = False,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         raise NotImplementedError(
-            "triton_fp8_colwise_3d_scale_and_cast requires torch 2.7.0+ and triton installed"
+            "triton_fp8_colwise_3d_scale_and_cast requires triton installed"
         )
 
     def triton_fp8_rowwise_2d_scale_and_cast(
@@ -944,5 +942,5 @@ else:
         round_scales_to_power_of_2: bool = False,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         raise NotImplementedError(
-            "triton_fp8_rowwise_2d_scale_and_cast requires torch 2.7.0+ and triton installed"
+            "triton_fp8_rowwise_2d_scale_and_cast requires triton installed"
         )

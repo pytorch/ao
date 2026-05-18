@@ -1,12 +1,8 @@
-import pytest
 import torch
 import torch.distributed as dist
 
 from torchao.prototype.mx_formats.mx_tensor import MXTensor
-from torchao.utils import is_sm_at_least_90, torch_version_at_least
-
-if not torch_version_at_least("2.7.0"):
-    pytest.skip("Unsupported PyTorch version", allow_module_level=True)
+from torchao.utils import is_sm_at_least_90
 
 
 def setup_distributed():

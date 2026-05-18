@@ -9,6 +9,7 @@ from typing import Optional
 import torch
 from torch import Tensor
 
+from ..distributed_utils import _is_dtensor
 from ..utils import use_deterministic_algorithms
 from .grouper import Grouper
 from .packed import PackedGrouperMixin
@@ -17,7 +18,19 @@ from .packed import PackedGrouperMixin
 class SVDGrouper(Grouper):
     """Apply SVD to regularize the singular values of a parameter tensor."""
 
+    # Set False to allow non-deterministic SVD (e.g. cuSOLVER's gesvdj) for
+    # speed; safe when only the reconstructed weight is consumed downstream.
+    deterministic: bool = True
+
     def __init__(self, p: Tensor, pack_dim: Optional[int] = None):
+        # SVD on a sharded DTensor would silently decompose only the local
+        # shard; require the caller to materialize the full tensor first.
+        if _is_dtensor(p):
+            raise TypeError(
+                f"{type(self).__name__} does not support DTensor inputs; "
+                "materialize the full tensor before constructing the grouper."
+            )
+
         self._p = p
         self.orig_shape = p.shape
 
@@ -30,18 +43,18 @@ class SVDGrouper(Grouper):
         if self._p.dtype in (torch.bfloat16, torch.float16):
             p = p.to(torch.float32)
 
-        with use_deterministic_algorithms():
+        with use_deterministic_algorithms(self.deterministic):
             (self.U, self.p, self.Vh) = torch.linalg.svd(p, full_matrices=False)
 
         self.in_dims = 0
 
     @torch.no_grad()
     def __exit__(self, exc_type, exc_val, exc_tb):
-        self._p.copy_(
-            torch.linalg.multi_dot([self.U, torch.diag(self.p), self.Vh])
-            .view(self.orig_shape)
-            .to(self._p.dtype)
-        )
+        # Reconstruct as (U * S) @ Vh, broadcasting S along U's column axis.
+        # This avoids materializing a [k, k] diagonal matrix and collapses the
+        # U @ diag(S) gemm into a cheap elementwise scale. copy_ also handles
+        # any dtype conversion, so the .to(...) cast can be skipped.
+        self._p.copy_(((self.U * self.p) @ self.Vh).view(self.orig_shape))
 
 
 class PackedSVDGrouper(PackedGrouperMixin, SVDGrouper):
@@ -59,4 +72,6 @@ class PackedSVDGrouper(PackedGrouperMixin, SVDGrouper):
 
     @torch.no_grad()
     def __exit__(self, exc_type, exc_val, exc_tb):
-        self._p.copy_(self.U @ torch.diag_embed(self.p) @ self.Vh)
+        # Broadcast S along U's column axis to avoid building a [npack, k, k]
+        # diagonal matrix.
+        self._p.copy_((self.U * self.p.unsqueeze(-2)) @ self.Vh)

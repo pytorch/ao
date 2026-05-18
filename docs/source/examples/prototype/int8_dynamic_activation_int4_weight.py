@@ -9,12 +9,6 @@ import torch
 from torchao.prototype.quantization.int4 import Int8DynamicActivationInt4WeightConfig
 from torchao.quantization import quantize_
 from torchao.quantization.quant_primitives import MappingType
-from torchao.utils import torch_version_at_least
-
-if not torch_version_at_least("2.8.0"):
-    print("This example requires PyTorch 2.8 or later")
-    exit()
-
 
 config = Int8DynamicActivationInt4WeightConfig(
     group_size=32,

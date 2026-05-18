@@ -36,7 +36,6 @@ from torchao.utils import (
     is_sm_at_least_89,
     is_sm_at_least_90,
     is_sm_at_least_100,
-    torch_version_at_least,
 )
 
 # Needed since changing args to function causes recompiles
@@ -181,7 +180,6 @@ class ToyLoRAModel(torch.nn.Module):
 
 
 # TODO: move tests in test_affine_quantized_float.py here after we migrated all implementations
-@unittest.skipIf(not torch_version_at_least("2.8.0"), "Need pytorch 2.8+")
 @unittest.skipIf(
     not torch.accelerator.is_available(), "skipping when gpu is not available"
 )

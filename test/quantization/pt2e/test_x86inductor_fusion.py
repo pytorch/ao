@@ -365,7 +365,6 @@ def _should_use_u8s8() -> bool:
     )
 
 
-@unittest.skipIf(not torch_version_at_least("2.8.0"), "Requires torch 2.8+")
 @unittest.skipIf(torch.version.hip is not None, "Not applicable to ROCm")
 class TestPatternMatcher(TestPatternMatcherBase):
     def _qconv2d_test_helper(self, device="cpu", mixed_bf16=False, is_fp8=False):
@@ -3020,7 +3019,6 @@ class TestPatternMatcher(TestPatternMatcherBase):
         "specialize_float": True,
     }
 )
-@unittest.skipIf(not torch_version_at_least("2.8.0"), "Requires torch 2.8+")
 @unittest.skipIf(torch.version.hip is not None, "Not applicable to ROCm")
 class TestDynamicPatternMatcher(TestPatternMatcherBase):
     def test_qconv2d_maxpool2d_linear_dynamic_cpu(self, include_ops=None):
@@ -3452,7 +3450,6 @@ class TestDynamicPatternMatcher(TestPatternMatcherBase):
             )
 
 
-@unittest.skipIf(not torch_version_at_least("2.8.0"), "Requires torch 2.8+")
 @unittest.skipIf(torch.version.hip is not None, "Not applicable to ROCm")
 class TestLowering(TestPatternMatcherBase):
     def test_lowering_quant_dequant_fp8(self):
@@ -3612,7 +3609,7 @@ def make_dynamic_cls(cls, xfail_prop="_expected_failure_dynamic"):
 
 RUN_CPU = HAS_CPU and not IS_MACOS and torch.version.hip is None
 
-if RUN_CPU and torch_version_at_least("2.8.0"):
+if RUN_CPU:
 
     class BaseTest(NamedTuple):
         name: str

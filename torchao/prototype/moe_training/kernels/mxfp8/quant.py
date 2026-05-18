@@ -22,7 +22,6 @@ from torchao.prototype.mx_formats.utils import to_blocked
 from torchao.utils import (
     ceil_div,
     is_cuda_version_at_least,
-    torch_version_at_least,
 )
 
 
@@ -473,7 +472,7 @@ def torch_unpad_token_groups(
     return unpadded_tokens
 
 
-if torch_version_at_least("2.7.0") and has_triton():
+if has_triton():
     import triton
     import triton.language as tl
     from torch.library import triton_op, wrap_triton
@@ -942,14 +941,14 @@ else:
         input_offsets: torch.Tensor,
     ) -> torch.Tensor:
         raise NotImplementedError(
-            "triton_mx_block_rearrange_2d_M_groups requires torch 2.7.0+ and triton installed"
+            "triton_mx_block_rearrange_2d_M_groups requires triton installed"
         )
 
     def triton_mx_block_rearrange_per_group_3d(
         scale_tensor: torch.Tensor,
     ) -> torch.Tensor:
         raise NotImplementedError(
-            "triton_mx_block_rearrange_per_group_3d requires torch 2.7.0+ and triton installed"
+            "triton_mx_block_rearrange_per_group_3d requires triton installed"
         )
 
     def triton_mx_block_rearrange_2d_K_groups(
@@ -957,7 +956,7 @@ else:
         input_offsets: torch.Tensor,
     ) -> torch.Tensor:
         raise NotImplementedError(
-            "triton_mx_block_rearrange_2d_K_groups requires torch 2.7.0+ and triton installed"
+            "triton_mx_block_rearrange_2d_K_groups requires triton installed"
         )
 
 
