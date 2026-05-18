@@ -9,7 +9,8 @@
 
 For each column of an ``(M, K)`` row-major tensor, derives one E8M0 scale
 per 32-element block of M and emits per-column FP8 E4M3FN data. Output is
-column-major to match the cutedsl version. FLOOR mode only.
+column-major to match the cutedsl version. Supports both FLOOR and RCEIL
+scaling modes (defaults to RCEIL).
 
 The M-direction quantization needs 32 elements that are stride-K apart in
 the row-major input (uncoalesced for per-lane gather), so we cooperatively
@@ -89,6 +90,7 @@ def _pick_layout(M: int, K: int, in_elem_bytes: int) -> Tuple[int, int]:
 if _flydsl_runtime_available():
     import flydsl.compiler as flyc
     import flydsl.expr as fx
+    from flydsl._mlir import ir
     from flydsl.compiler.kernel_function import CompilationContext
     from flydsl.expr import arith, buffer_ops, gpu, range_constexpr, vector
     from flydsl.expr.arith import ArithValue
@@ -96,12 +98,13 @@ if _flydsl_runtime_available():
     from flydsl.expr.vector import ReductionOp
     from flydsl.runtime.device import get_rocm_arch
     from flydsl.utils.smem_allocator import SmemAllocator, SmemPtr
-    from flydsl._mlir import ir
 
     from .flydsl_utils import (
         floor_scale_and_inv_scale,
         make_fp8_clamp_vectors,
-        quantize_pack_chunk_to_i32,
+        quantize_pack_chunk_to_i32_floor,
+        quantize_pack_chunk_to_i32_rceil,
+        rceil_scale_and_pos_scale,
     )
 
     @functools.cache
@@ -112,10 +115,7 @@ if _flydsl_runtime_available():
         K: int,
         m_blocks_per_wg: int,
     ):
-        if scaling_mode != "floor":
-            raise NotImplementedError(
-                f"Only scaling_mode='floor' is supported (got {scaling_mode!r})"
-            )
+        USE_RCEIL = scaling_mode == "rceil"
         if input_dtype_name == "torch.bfloat16":
             in_dtype = fx.BFloat16
         elif input_dtype_name == "torch.float32":
@@ -139,9 +139,9 @@ if _flydsl_runtime_available():
 
         @flyc.kernel(known_block_size=[block_threads, 1, 1])
         def quantize_2d_32x1_kernel(
-            x: fx.Tensor,        # (M, K) bf16/f32 row-major
-            q: fx.Tensor,        # 1D i32 view of (M, K) col-major fp8 (stride (1, M))
-            scales: fx.Tensor,   # (K, M // 32) uint8 E8M0
+            x: fx.Tensor,  # (M, K) bf16/f32 row-major
+            q: fx.Tensor,  # 1D i32 view of (M, K) col-major fp8 (stride (1, M))
+            scales: fx.Tensor,  # (K, M // 32) uint8 E8M0
         ):
             m_block = fx.block_idx.x
             k_block = fx.block_idx.y
@@ -171,15 +171,16 @@ if _flydsl_runtime_available():
             # shared LDS tile. dwordx2 reads (VEC bf16/lane = 8 B), 32
             # iters/lane → 4 waves × 32 rows = 128 rows total covered.
             for i in range_constexpr(0, BLOCK_SIZE):
-                g_off = (
-                    row_base + wave_row_off + fx.Int32(i)
-                ) * fx.Int32(K) + k_lane_base
+                g_off = (row_base + wave_row_off + fx.Int32(i)) * fx.Int32(
+                    K
+                ) + k_lane_base
                 vec_in = buffer_ops.buffer_load(
-                    x_rsrc, g_off, vec_width=VEC, dtype=in_dtype,
+                    x_rsrc,
+                    g_off,
+                    vec_width=VEC,
+                    dtype=in_dtype,
                 )
-                lds_row_idx = ArithValue(
-                    wave_row_off + fx.Int32(i)
-                ).index_cast(T.index)
+                lds_row_idx = ArithValue(wave_row_off + fx.Int32(i)).index_cast(T.index)
                 for j in range_constexpr(0, VEC):
                     elem = vector.extract(vec_in, static_position=[j])
                     lds_col_idx = ArithValue(
@@ -194,11 +195,11 @@ if _flydsl_runtime_available():
             # 4 disjoint 32 B fragments of the same 128 B HBM cache line
             # let the L2 controller coalesce into a single line fill →
             # no RMW.
-            f8_min_v, f8_max_v = make_fp8_clamp_vectors()
-            m_block_global = (
-                m_block * fx.Int32(m_blocks_per_wg) + wave_id
-            )
+            m_block_global = m_block * fx.Int32(m_blocks_per_wg) + wave_id
             m_row_global_base = row_base + wave_row_off
+
+            if not USE_RCEIL:
+                f8_min_v, f8_max_v = make_fp8_clamp_vectors()
 
             for k_local in range_constexpr(0, VEC):
                 lds_col_idx = ArithValue(
@@ -225,19 +226,26 @@ if _flydsl_runtime_available():
                         fx.math.absf(vec_f32).reduce(ReductionOp.MAX)
                     )
 
-                scale_u8, inv_scale = floor_scale_and_inv_scale(local_amax)
+                if USE_RCEIL:
+                    scale_u8, scale_arg = rceil_scale_and_pos_scale(local_amax)
+                else:
+                    scale_u8, scale_arg = floor_scale_and_inv_scale(local_amax)
 
                 col_i32_base = (
                     k_col_global * fx.Int32(M) + m_row_global_base
                 ) // fx.Int32(VEC)
                 for c in range_constexpr(0, CHUNKS_PER_BLOCK):
-                    out = quantize_pack_chunk_to_i32(
-                        chunks[c], inv_scale, f8_min_v, f8_max_v,
-                    )
+                    if USE_RCEIL:
+                        out = quantize_pack_chunk_to_i32_rceil(chunks[c], scale_arg)
+                    else:
+                        out = quantize_pack_chunk_to_i32_floor(
+                            chunks[c], scale_arg, f8_min_v, f8_max_v
+                        )
                     buffer_ops.buffer_store(out, q_rsrc, col_i32_base + fx.Int32(c))
 
                 buffer_ops.buffer_store(
-                    scale_u8, s_rsrc,
+                    scale_u8,
+                    s_rsrc,
                     k_col_global * fx.Int32(M // BLOCK_SIZE) + m_block_global,
                 )
 
@@ -268,6 +276,7 @@ if _flydsl_runtime_available():
         return launch_quantize
 
 else:
+
     def _compile_quantize_2d_32x1(*_args, **_kwargs):
         missing = _missing_flydsl_runtime_packages()
         raise ImportError(
@@ -278,7 +287,7 @@ else:
 def mxfp8_quantize_flydsl_2d_32x1(
     x: torch.Tensor,
     block_size: int = 32,
-    scaling_mode: str = "floor",
+    scaling_mode: str = "rceil",
     stage_count: int = 2,
     blocked_scale_output: bool = False,
     offs: Optional[torch.Tensor] = None,
@@ -297,13 +306,11 @@ def mxfp8_quantize_flydsl_2d_32x1(
     ``offs`` are not yet implemented and raise :class:`NotImplementedError`
     when set; the matching dispatcher in ``quant.py`` enforces the same
     contract one level up.
+
+    ``scaling_mode`` may be ``"rceil"`` (default, matches the cutedsl
+    counterpart and uses the gfx950 fused ``v_cvt_scalef32_pk_fp8_f32``) or
+    ``"floor"`` (explicit ±F8_MAX clamp + non-fused ``v_cvt_pk_fp8_f32``).
     """
-    if scaling_mode != "floor":
-        raise NotImplementedError(
-            "mxfp8_quantize_flydsl_2d_32x1: "
-            f"scaling_mode={scaling_mode!r} is not supported by the FlyDSL "
-            "baseline; only 'floor' is implemented."
-        )
     if blocked_scale_output:
         raise NotImplementedError(
             "mxfp8_quantize_flydsl_2d_32x1: blocked_scale_output=True is "
@@ -333,7 +340,11 @@ def mxfp8_quantize_flydsl_2d_32x1(
     scales_u8 = torch.empty((K, M // BLOCK_SIZE), device=x.device, dtype=torch.uint8)
 
     launch = _compile_quantize_2d_32x1(
-        str(x.dtype), scaling_mode, M, K, m_blocks_per_wg,
+        str(x.dtype),
+        scaling_mode,
+        M,
+        K,
+        m_blocks_per_wg,
     )
     # Mirrors `FLYDSL_3D_FORCE_WAVES`: env override for the AMDGPU
     # `waves_per_eu` codegen hint. The hint is read at MLIR-compile time,
@@ -348,9 +359,14 @@ def mxfp8_quantize_flydsl_2d_32x1(
     # Pass `x` raw (not via from_dlpack) so FlyDSL's bare-pointer fast path
     # avoids the per-call DLPack adapter overhead.
     with _wpeu_ctx:
-        launch(x, q_storage.view(torch.int32), scales_u8,
-               M // m_tile, K // _K_TILE,
-               stream=current_stream_fast(x.device))
+        launch(
+            x,
+            q_storage.view(torch.int32),
+            scales_u8,
+            M // m_tile,
+            K // _K_TILE,
+            stream=current_stream_fast(x.device),
+        )
     return (
         q_storage.as_strided((M, K), (1, M)),
         scales_u8.view(torch.float8_e8m0fnu),

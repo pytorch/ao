@@ -8,8 +8,9 @@
 ``cutedsl_quantize_2d_1x32.py``).
 
 For each row of an ``(M, K)`` tensor, derives one E8M0 scale per 32-element
-block of K and emits row-major FP8 E4M3FN data. Scale derivation is FLOOR
-mode only (RCEIL has no AMD hardware analog and is deferred).
+block of K and emits row-major FP8 E4M3FN data. Supports both ``"rceil"``
+(default, gfx950 fused cvt) and ``"floor"`` (explicit ±F8_MAX clamp + 2-op
+cvt) scale derivations, matching the cutedsl counterpart.
 
 Parallelization: 1 wave (= 64 lanes) per row; each lane owns one 32-element
 quant block. The wave loops over blocks-per-row in chunks of 64 (one per lane).
@@ -55,7 +56,9 @@ if _flydsl_runtime_available():
     from .flydsl_utils import (
         floor_scale_and_inv_scale,
         make_fp8_clamp_vectors,
-        quantize_pack_chunk_to_i32,
+        quantize_pack_chunk_to_i32_floor,
+        quantize_pack_chunk_to_i32_rceil,
+        rceil_scale_and_pos_scale,
     )
 
     @functools.cache
@@ -69,11 +72,7 @@ if _flydsl_runtime_available():
         K is part of the cache key so the inner ``range_constexpr`` loop bound
         (chunks per row) is a Python int captured in the kernel closure.
         """
-        if scaling_mode != "floor":
-            raise NotImplementedError(
-                "FlyDSL MXFP8 1x32 supports scaling_mode='floor' only "
-                f"(got {scaling_mode!r}); RCEIL is a planned follow-up."
-            )
+        USE_RCEIL = scaling_mode == "rceil"
         if input_dtype_name == "torch.bfloat16":
             in_dtype = fx.BFloat16
         elif input_dtype_name == "torch.float32":
@@ -86,9 +85,9 @@ if _flydsl_runtime_available():
 
         @flyc.kernel(known_block_size=[AMD_WAVE_SIZE, 1, 1])
         def quantize_2d_1x32_kernel(
-            x: fx.Tensor,        # (M, K) bf16/f32 row-major
-            q: fx.Tensor,        # (M, K) fp8_e4m3fn — addressed as i32 packed
-            scales: fx.Tensor,   # (M, K // 32) uint8 E8M0
+            x: fx.Tensor,  # (M, K) bf16/f32 row-major
+            q: fx.Tensor,  # (M, K) fp8_e4m3fn — addressed as i32 packed
+            scales: fx.Tensor,  # (M, K // 32) uint8 E8M0
         ):
             row = fx.block_idx.x
             tid = fx.thread_idx.x
@@ -97,7 +96,8 @@ if _flydsl_runtime_available():
             q_rsrc = buffer_ops.create_buffer_resource(q)
             s_rsrc = buffer_ops.create_buffer_resource(scales)
 
-            f8_min_v, f8_max_v = make_fp8_clamp_vectors()
+            if not USE_RCEIL:
+                f8_min_v, f8_max_v = make_fp8_clamp_vectors()
 
             for chunk_idx in range_constexpr(0, CHUNKS_PER_ROW):
                 block_in_row = chunk_idx * AMD_WAVE_SIZE + tid
@@ -108,26 +108,35 @@ if _flydsl_runtime_available():
                 local_amax = fx.Float32(0.0)
                 for c in range_constexpr(0, CHUNKS_PER_BLOCK):
                     off = elem_base + fx.Int32(c * VEC)
-                    vec_in = buffer_ops.buffer_load(x_rsrc, off, vec_width=VEC, dtype=in_dtype)
+                    vec_in = buffer_ops.buffer_load(
+                        x_rsrc, off, vec_width=VEC, dtype=in_dtype
+                    )
                     vec_f32 = vec_in.to(fx.Float32)
                     chunks.append(vec_f32)
                     local_amax = local_amax.maximumf(
                         fx.math.absf(vec_f32).reduce(ReductionOp.MAX)
                     )
 
-                scale_u8, inv_scale = floor_scale_and_inv_scale(local_amax)
+                if USE_RCEIL:
+                    scale_u8, scale_arg = rceil_scale_and_pos_scale(local_amax)
+                else:
+                    scale_u8, scale_arg = floor_scale_and_inv_scale(local_amax)
 
                 # Pass 2: quantize each retained chunk and write 32-bit packed FP8.
                 # Compiler typically fuses 8x i32 stores into 2x dwordx4.
                 for c in range_constexpr(0, CHUNKS_PER_BLOCK):
-                    out = quantize_pack_chunk_to_i32(
-                        chunks[c], inv_scale, f8_min_v, f8_max_v,
-                    )
+                    if USE_RCEIL:
+                        out = quantize_pack_chunk_to_i32_rceil(chunks[c], scale_arg)
+                    else:
+                        out = quantize_pack_chunk_to_i32_floor(
+                            chunks[c], scale_arg, f8_min_v, f8_max_v
+                        )
                     i32_off = (elem_base + fx.Int32(c * VEC)) // fx.Int32(VEC)
                     buffer_ops.buffer_store(out, q_rsrc, i32_off)
 
-                buffer_ops.buffer_store(scale_u8, s_rsrc,
-                                        row * fx.Int32(K_BLOCKS) + block_in_row)
+                buffer_ops.buffer_store(
+                    scale_u8, s_rsrc, row * fx.Int32(K_BLOCKS) + block_in_row
+                )
 
         @flyc.jit
         def launch_quantize(
@@ -146,6 +155,7 @@ if _flydsl_runtime_available():
         return launch_quantize
 
 else:
+
     def _compile_quantize_2d_1x32(*_args, **_kwargs):
         missing = _missing_flydsl_runtime_packages()
         raise ImportError(
@@ -156,7 +166,7 @@ else:
 def mxfp8_quantize_flydsl_2d_1x32(
     x: torch.Tensor,
     block_size: int = 32,
-    scaling_mode: str = "floor",
+    scaling_mode: str = "rceil",
     stage_count: int = 2,
     blocked_scale_output: bool = False,
     offs: Optional[torch.Tensor] = None,
@@ -171,13 +181,11 @@ def mxfp8_quantize_flydsl_2d_1x32(
     ``offs`` are not yet implemented and raise :class:`NotImplementedError`
     when set; the matching dispatcher in ``quant.py`` enforces the same
     contract one level up.
+
+    ``scaling_mode`` may be ``"rceil"`` (default, matches the cutedsl
+    counterpart and uses the gfx950 fused ``v_cvt_scalef32_pk_fp8_f32``) or
+    ``"floor"`` (explicit ±F8_MAX clamp + non-fused ``v_cvt_pk_fp8_f32``).
     """
-    if scaling_mode != "floor":
-        raise NotImplementedError(
-            "mxfp8_quantize_flydsl_2d_1x32: "
-            f"scaling_mode={scaling_mode!r} is not supported by the FlyDSL "
-            "baseline; only 'floor' is implemented (RCEIL is a planned follow-up)."
-        )
     if blocked_scale_output:
         raise NotImplementedError(
             "mxfp8_quantize_flydsl_2d_1x32: blocked_scale_output=True is "
@@ -215,6 +223,11 @@ def mxfp8_quantize_flydsl_2d_1x32(
     # Pass `x` raw (not via from_dlpack) so FlyDSL's bare-pointer fast path
     # avoids the per-call DLPack adapter overhead.
     with _wpeu_ctx:
-        launch(x, q_data.view(torch.int32), scales_u8, M,
-               stream=current_stream_fast(x.device))
+        launch(
+            x,
+            q_data.view(torch.int32),
+            scales_u8,
+            M,
+            stream=current_stream_fast(x.device),
+        )
     return q_data, scales_u8.view(torch.float8_e8m0fnu)

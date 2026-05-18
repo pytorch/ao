@@ -7,9 +7,9 @@
 
 """FlyDSL counterpart of ``bench_cutedsl_quantize_2d_1x32.py``.
 
-FlyDSL FLOOR-only baseline — RCEIL, ``blocked_scale_output``, and ``offs``
-are not yet implemented and would raise :class:`NotImplementedError`. The
-shape grid mirrors the cutedsl bench; the comparison baseline is
+Sweeps both FLOOR and RCEIL scaling modes (matches the cutedsl bench).
+``blocked_scale_output`` and ``offs`` are not yet implemented and would
+raise :class:`NotImplementedError`. The comparison baseline is
 ``triton_to_mxfp8_dim0`` (no scale rearrange, since FlyDSL does not emit
 the blocked layout).
 """
@@ -64,7 +64,7 @@ def get_configs() -> List[ExperimentConfig]:
         (32768, 2048),
         (131072, 2048),
     ]
-    scaling_modes = ["floor"]  # FlyDSL baseline is FLOOR-only.
+    scaling_modes = ["floor", "rceil"]
     configs = []
     for shape, scaling_mode in itertools.product(input_shapes, scaling_modes):
         configs.append(

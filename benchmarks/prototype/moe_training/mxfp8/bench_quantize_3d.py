@@ -172,17 +172,14 @@ def run_experiment(config: ExperimentConfig) -> ExperimentResult:
         data_cuda_3d, scales_cuda_3d = None, None
         time_cutedsl_3d_us = float("nan")
 
-    # bench 3d FlyDSL kernel — FLOOR-only on AMD; skip otherwise.
-    if (
-        _mxfp8_flydsl_kernels_available
-        and config.scaling_mode == ScaleCalculationMode.FLOOR
-    ):
+    # bench 3d FlyDSL kernel — supports both FLOOR and RCEIL on AMD.
+    if _mxfp8_flydsl_kernels_available:
         mxfp8_quantize_3d_flydsl(
             input_tensor,
             block_size=block_size,
             scale_block_n=block_size,
             scale_block_k=scale_block_k,
-            scaling_mode="floor",
+            scaling_mode=str(config.scaling_mode.value),
             blocked_scale_output=False,
         )
         time_flydsl_3d_us = benchmark_cuda_function_in_microseconds(
@@ -191,7 +188,7 @@ def run_experiment(config: ExperimentConfig) -> ExperimentResult:
             block_size=block_size,
             scale_block_n=block_size,
             scale_block_k=scale_block_k,
-            scaling_mode="floor",
+            scaling_mode=str(config.scaling_mode.value),
             blocked_scale_output=False,
         )
     else:

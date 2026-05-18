@@ -31,10 +31,8 @@ class MXFP8Dim1CastKernelChoice(Enum):
     CUDA = "cuda"
     TORCH = "torch"
     CUTEDSL = "cutedsl"
-    # AMD CDNA3+ counterpart of CUTEDSL via FlyDSL. FLOOR-mode scale only;
-    # all existing MXFP8TrainingRecipe entries force RCEIL today, so callers
-    # must construct an MXFP8TrainingOpConfig with scale_calculation_mode=FLOOR
-    # explicitly to actually exercise this backend until FlyDSL gains RCEIL.
+    # AMD CDNA3+ counterpart of CUTEDSL via FlyDSL. Supports both FLOOR and
+    # RCEIL scale modes; defaults to RCEIL (matches CUTEDSL).
     FLYDSL = "flydsl"
 
 

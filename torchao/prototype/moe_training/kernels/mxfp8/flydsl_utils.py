@@ -12,9 +12,10 @@ Counterpart of ``cute_utils.py``. Provides:
   cleanly even on hosts without FlyDSL installed.
 * Centralized MXFP8 layout constants used by every kernel.
 * Kernel-side helpers callable from inside an ``@flyc.kernel`` body — for the
-  parts every quant kernel needs to do the same way: deriving the FLOOR-mode
-  E8M0 scale, materializing the FP8 clamp limits, and quantize+pack of one
-  4-element chunk into an i32 via two ``v_cvt_pk_fp8_f32`` instructions.
+  parts every quant kernel needs to do the same way: deriving the FLOOR- or
+  RCEIL-mode E8M0 scale, materializing the FP8 clamp limits, and quantize+pack
+  of one 4-element chunk into an i32 (FLOOR uses two ``v_cvt_pk_fp8_f32``;
+  RCEIL uses the gfx950 fused ``v_cvt_scalef32_pk_fp8_f32``).
 
 Helpers must be imported at MODULE level in the kernel files (not inside the
 factory) so they look like Python globals to the AST rewriter rather than
@@ -25,7 +26,6 @@ pattern with ``cute_utils``.
 import importlib.util
 
 import torch
-
 
 # -----------------------------------------------------------------------------
 # Runtime detection
@@ -87,6 +87,12 @@ AMD_WAVE_SIZE = 64
 
 if _flydsl_runtime_available():
     import flydsl.expr as fx
+    from flydsl._mlir.dialects.arith import CmpIPredicate as _CmpIPredicate
+
+    # Fused scaled fp8 cvt is not re-exported through flydsl.expr.rocdl yet.
+    from flydsl._mlir.dialects.rocdl import (
+        cvt_scalef32_pk_fp8_f32 as _scaled_cvt_pk_fp8_f32,
+    )
     from flydsl.expr import arith, rocdl, vector
     from flydsl.expr.arith import ArithValue
     from flydsl.expr.typing import T
@@ -112,6 +118,52 @@ if _flydsl_runtime_available():
         except AttributeError:
             return fx.Stream(torch.cuda.current_stream(device).cuda_stream)
 
+    def rceil_scale_and_pos_scale(amax_f32):
+        """Derive RCEIL-mode E8M0 byte and matching f32 scale magnitude.
+
+        Matches TransformerEngine's ``ptx::float_to_e8m0(amax * (1/F8_MAX))``
+        and torchao's ``_to_mx_rceil`` for normal (non-denormal, non-NaN,
+        non-Inf) amax values:
+
+            descale     = amax / F8_MAX
+            biased_exp  = (descale_bits >> 23) & 0xFF
+            E8M0        = biased_exp + (mantissa > 0 ? 1 : 0)   # ceil(log2)
+            pos_scale   = bitcast(E8M0 << 23, f32)              # 2^(E8M0-127)
+
+        RCEIL guarantees ``amax / pos_scale ≤ F8_MAX`` exactly, so the gfx950
+        ``v_cvt_scalef32_pk_fp8_f32`` instruction (which saturates overflow to
+        NaN, not MAX) cannot produce NaN for finite inputs. Paired with
+        ``quantize_pack_chunk_to_i32_rceil`` to lower to the 1-op fused cvt.
+        FLOOR mode uses the 2-op ``cvt_pk_fp8_f32`` path with an explicit
+        ``±F8_MAX`` clamp instead — see ``quantize_pack_chunk_to_i32_floor``.
+
+        Special case: ``capped == 0`` (zero amax) → ``pos_scale_bits == 0`` →
+        bitcast to f32 = +0.0; division by zero is undefined, so we select
+        1.0 instead (matches TE's ``v_cndmask 1.0, v8, vcc`` pattern).
+
+        Returns:
+            Tuple ``(scale_biased_u8, pos_scale_f32)``.
+        """
+        inv_f8_max = fx.Float32(1.0 / F8_MAX)
+        val = ArithValue(amax_f32) * inv_f8_max
+        bits = ArithValue(val).bitcast(T.i32)
+        biased_exp = (bits.shrui(fx.Int32(23))) & fx.Int32(0xFF)
+        mantissa = bits & fx.Int32(0x7FFFFF)
+        has_mantissa = arith.cmpi(
+            _CmpIPredicate.ne, arith.unwrap(mantissa), arith.unwrap(fx.Int32(0))
+        )
+        inc_i32 = arith.extui(T.i32, has_mantissa)
+        biased_exp_rceil = arith.unwrap(ArithValue(biased_exp) + ArithValue(inc_i32))
+        capped = arith.minui(biased_exp_rceil, arith.unwrap(fx.Int32(0xFE)))
+        scale_u8 = arith.trunci(T.i8, capped)
+
+        pos_scale_bits = arith.shli(capped, arith.unwrap(fx.Int32(23)))
+        is_zero = arith.cmpi(_CmpIPredicate.eq, capped, arith.unwrap(fx.Int32(0)))
+        one_bits = arith.unwrap(fx.Int32(0x3F800000))
+        selected_bits = arith.select(is_zero, one_bits, pos_scale_bits)
+        pos_scale = ArithValue(selected_bits).bitcast(T.f32)
+        return scale_u8, pos_scale
+
     def floor_scale_and_inv_scale(amax_f32):
         """Derive the FLOOR-mode E8M0 byte and the matching inverse scale.
 
@@ -124,9 +176,11 @@ if _flydsl_runtime_available():
             scale_biased = scale_unb + 127                  # uint8 E8M0 byte
             inv_scale    = 2 ^ (-scale_unb)                 # f32
 
-        The compiler typically lowers ``scale_unb`` to ~3 ALU ops via constant
-        folding (``v_bfe_u32`` + ``v_max_u32`` + ``v_add_u16``), and lowers
-        ``inv_scale`` to a single ``v_ldexp_f32`` once it's used in a multiply.
+        Returns the *inverse* scale (``2^-scale_unb``) so the FLOOR pack path
+        (:func:`quantize_pack_chunk_to_i32_floor`) can multiply instead of
+        divide before the non-fused ``v_cvt_pk_fp8_f32``. The RCEIL helper
+        returns ``pos_scale`` instead because the fused
+        ``v_cvt_scalef32_pk_fp8_f32`` takes a divisor.
 
         Args:
             amax_f32: per-block absolute maximum, as an f32 ArithValue.
@@ -141,9 +195,11 @@ if _flydsl_runtime_available():
         scale_unb = arith.maxsi(
             arith.unwrap(scale_unb), arith.unwrap(fx.Int32(-E8M0_EXPONENT_BIAS))
         )
-        scale_unb = arith.minsi(scale_unb, arith.unwrap(fx.Int32(E8M0_EXPONENT_BIAS + 1)))
+        scale_unb = arith.minsi(
+            scale_unb, arith.unwrap(fx.Int32(E8M0_EXPONENT_BIAS + 1))
+        )
 
-        scale_biased = scale_unb + fx.Int32(E8M0_EXPONENT_BIAS)
+        scale_biased = ArithValue(scale_unb) + fx.Int32(E8M0_EXPONENT_BIAS)
         scale_u8 = arith.trunci(T.i8, arith.unwrap(scale_biased))
 
         neg_unb_f = arith.sitofp(T.f32, arith.unwrap(fx.Int32(0) - scale_unb))
@@ -164,20 +220,57 @@ if _flydsl_runtime_available():
         f8_max = vector.broadcast(f32x4, arith.unwrap(fx.Float32(F8_MAX)))
         return f8_min, f8_max
 
-    def quantize_pack_chunk_to_i32(chunk_f32, inv_scale, f8_min_vec, f8_max_vec):
-        """Quantize 4 f32 → 4 FP8 E4M3FN packed into one i32.
+    def quantize_pack_chunk_to_i32_rceil(chunk_f32, pos_scale):
+        """RCEIL mode: quantize 4 f32 → 4 FP8 E4M3FN packed into one i32.
 
-        Multiplies by ``inv_scale``, clamps to ``±F8_MAX`` (the FLOOR-mode
-        post-scale clamp), then issues two ``v_cvt_pk_fp8_f32`` instructions
-        to pack 4 results into a 32-bit register. The result can be written
-        with one ``buffer_store_dword`` (or fused into a wider store by the
-        scheduler).
+        Lowers to two ``v_cvt_scalef32_pk_fp8_f32`` instructions (gfx950 fused
+        scale + convert with built-in saturate-to-NaN). RCEIL guarantees
+        ``amax/scale ≤ F8_MAX`` so no NaN can fire; no explicit clamp needed.
 
         Args:
             chunk_f32: vec<4 x f32> input chunk.
-            inv_scale: scalar f32 inverse scale.
-            f8_min_vec, f8_max_vec: clamp constants from
-                :func:`make_fp8_clamp_vectors`.
+            pos_scale: scalar f32 = ``2^scale_unb`` (the divisor; the
+                instruction computes ``input / pos_scale``).
+
+        Returns:
+            i32 ArithValue with bytes ``[qv0, qv1, qv2, qv3]`` (low to high).
+        """
+        qv0 = vector.extract(chunk_f32, static_position=[0], dynamic_position=[])
+        qv1 = vector.extract(chunk_f32, static_position=[1], dynamic_position=[])
+        qv2 = vector.extract(chunk_f32, static_position=[2], dynamic_position=[])
+        qv3 = vector.extract(chunk_f32, static_position=[3], dynamic_position=[])
+        v2i16 = T.vec(2, T.i16)
+        zero_i16 = arith.unwrap(fx.Int16(0))
+        r = vector.from_elements(v2i16, [zero_i16, zero_i16])
+        r = _scaled_cvt_pk_fp8_f32(
+            res=v2i16,
+            old_vdst=r,
+            src0=qv0,
+            src1=qv1,
+            scale=arith.unwrap(pos_scale),
+            dst_lo_hi_sel=False,
+        )
+        r = _scaled_cvt_pk_fp8_f32(
+            res=v2i16,
+            old_vdst=r,
+            src0=qv2,
+            src1=qv3,
+            scale=arith.unwrap(pos_scale),
+            dst_lo_hi_sel=True,
+        )
+        r_v1i32 = vector.bitcast(T.vec(1, T.i32), r)
+        return vector.extract(r_v1i32, static_position=[0], dynamic_position=[])
+
+    def quantize_pack_chunk_to_i32_floor(
+        chunk_f32, inv_scale, f8_min_vec, f8_max_vec
+    ):
+        """FLOOR mode: quantize 4 f32 → 4 FP8 E4M3FN packed into one i32.
+
+        FLOOR's ``amax/scale ∈ [256, 512)`` lets the (448, 512) tail overflow
+        the FP8 range, so we clamp explicitly with ``±F8_MAX`` before two
+        ``v_cvt_pk_fp8_f32`` cvts. ``inv_scale`` comes from
+        :func:`floor_scale_and_inv_scale`; ``f8_min_vec`` / ``f8_max_vec``
+        from :func:`make_fp8_clamp_vectors`.
 
         Returns:
             i32 ArithValue with bytes ``[qv0, qv1, qv2, qv3]`` (low to high).
@@ -191,9 +284,9 @@ if _flydsl_runtime_available():
         qv3 = vector.extract(qv, static_position=[3], dynamic_position=[])
         out = arith.unwrap(fx.Int32(0))
         out = rocdl.cvt_pk_fp8_f32(
-            res=T.i32, src_a=qv0, src_b=qv1, old=out, word_sel=False,
+            res=T.i32, src_a=qv0, src_b=qv1, old=out, word_sel=False
         )
         out = rocdl.cvt_pk_fp8_f32(
-            res=T.i32, src_a=qv2, src_b=qv3, old=out, word_sel=True,
+            res=T.i32, src_a=qv2, src_b=qv3, old=out, word_sel=True
         )
         return out
