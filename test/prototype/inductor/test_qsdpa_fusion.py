@@ -394,7 +394,10 @@ class TestSDPAPatternRewriterTemplate(TestCase):
                 self._check_common(
                     convert_model, args1=inputs, check_train=False, atol=1.0
                 )
-
+                if enable_concat_linear_fusion:
+                    self.assertGreaterEqual(
+                        counters["inductor"]["int8_concat_linear_fusion"], 1
+                    )
     @skipIfRocm
     @unittest.skipIf(
         not torch_version_at_least("2.7.0"),
