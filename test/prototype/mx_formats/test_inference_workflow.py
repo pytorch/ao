@@ -529,7 +529,6 @@ def test_grouped_mm_mx_dynamic_activation(
     assert isinstance(model.weight, MXTensor)
 
     # FP4 has lower precision than FP8: use dtype-appropriate thresholds
-    # Aligned with test_mx_tensor (w) and test_mx_inference (y) thresholds
     is_fp4 = elem_dtype == torch.float4_e2m1fn_x2
     w_sqnr_threshold = 13.0 if is_fp4 else 18.0
     y_sqnr_threshold = 12.0 if is_fp4 else 15.0

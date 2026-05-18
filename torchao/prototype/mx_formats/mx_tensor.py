@@ -1102,7 +1102,7 @@ def mx_grouped_mm(func, types, args, kwargs):
     mat_a, mat_b = args[0], args[1]
     offs = args[2] if len(args) > 2 else kwargs.get("offs", None)
     assert isinstance(mat_b, MXTensor)
-    assert offs is not None, "offs is required for _grouped_mm"
+    assert offs is not None, "offs is required for MXTensor grouped_mm"
 
     act_quant_kwargs = mat_b.act_quant_kwargs
 
