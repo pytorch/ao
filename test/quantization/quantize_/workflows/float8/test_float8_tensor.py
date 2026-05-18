@@ -1617,7 +1617,7 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
             dtype=torch.int32,
         )
 
-        config = Float8WeightOnlyConfig(granularity=PerTensor())
+        config = Float8DynamicActivationFloat8WeightConfig(granularity=PerTensor())
         quantize_(
             model,
             config,
