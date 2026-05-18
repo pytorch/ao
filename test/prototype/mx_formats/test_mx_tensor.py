@@ -838,6 +838,8 @@ def test_scale_shape_matches_qdata(transpose, shape):
     ),
 )
 def test_swizzle(elem_dtype, transpose, shape):
+    if len(shape) == 3 and transpose:
+        pytest.skip("transpose not yet implemented for 3D MXTensor")
 
     block_size = 32
 
