@@ -1418,14 +1418,14 @@ def mxfp8_quantize_cuda_3d(
 
     Supported contracts:
     - standard expert layout: `(E, N, K)` with `K`-major input
-    - transposed expert view: `(E, K, N)` for the `32x1_t` path
+    - transposed expert view: `(E, K, N)` for the `*_t` paths
 
     `scale_block_dim1` applies to the tensor's middle dimension and
     `scale_block_dim2` applies to the trailing dimension of the chosen contract.
     Currently supported modes are:
     - `(32, 1)`: scales are shared across 32 values of the middle dimension
-    - `(32, 32)`: standard-layout path where scales are shared across 32 values
-      of the middle dimension and 32 values of the trailing dimension
+    - `(32, 32)`: scales are shared across 32 values of the middle dimension
+      and 32 values of the trailing dimension
 
     Returns quantized data in column-major-per-expert layout for the input's
     trailing two dimensions. Scales are returned either in logical form or in

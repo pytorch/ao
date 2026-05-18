@@ -57,7 +57,7 @@ torch._dynamo.config.cache_size_limit = 1000
 )
 @pytest.mark.parametrize("M,K,N", [(1024, 1024, 1024), (1024, 2048, 4096)])
 @pytest.mark.parametrize("num_experts", (1, 8, 16))
-@pytest.mark.parametrize("variant", ("32x1_n", "32x32_n", "32x1_t"))
+@pytest.mark.parametrize("variant", ("32x1_n", "32x32_n", "32x1_t", "32x32_t"))
 @pytest.mark.parametrize(
     "scale_mode", (ScaleCalculationMode.FLOOR, ScaleCalculationMode.RCEIL)
 )
@@ -66,12 +66,12 @@ def test_emulate_mxfp8_grouped_gemm_2d_3d(M, K, N, num_experts, variant, scale_m
     offs = generate_jagged_offs(num_experts, M)
     offs_ref = offs.clone()
 
-    if variant == "32x1_t":
+    if variant in ("32x1_t", "32x32_t"):
         # Forward-style grouped MM: input @ weight.transpose(-2, -1).
         input_act = torch.randn(M, K, dtype=torch.bfloat16, device="cuda")
         weight = torch.randn(num_experts, N, K, dtype=torch.bfloat16, device="cuda")
         mat2 = weight.transpose(-2, -1)
-        scale_block_dim2 = 1
+        scale_block_dim2 = 32 if variant == "32x32_t" else 1
     else:
         # Dgrad-style grouped MM: grad_out @ weight.
         input_act = torch.randn(M, N, dtype=torch.bfloat16, device="cuda")
@@ -129,7 +129,7 @@ def test_emulate_mxfp8_grouped_gemm_2d_3d(M, K, N, num_experts, variant, scale_m
 )
 @pytest.mark.parametrize("M,K,N", [(1024, 1024, 1024), (1024, 2048, 4096)])
 @pytest.mark.parametrize("num_experts", (1, 8, 16))
-@pytest.mark.parametrize("variant", ("32x1_n", "32x32_n", "32x1_t"))
+@pytest.mark.parametrize("variant", ("32x1_n", "32x32_n", "32x1_t", "32x32_t"))
 @pytest.mark.parametrize(
     "scale_mode", (ScaleCalculationMode.FLOOR, ScaleCalculationMode.RCEIL)
 )
@@ -138,12 +138,12 @@ def test_mxfp8_grouped_gemm_2d_3d(M, K, N, num_experts, variant, scale_mode):
     offs = generate_jagged_offs(num_experts, M)
     offs_ref = offs.clone()
 
-    if variant == "32x1_t":
+    if variant in ("32x1_t", "32x32_t"):
         # Forward-style grouped MM: input @ weight.transpose(-2, -1).
         input_act = torch.randn(M, K, dtype=torch.bfloat16, device="cuda")
         weight = torch.randn(num_experts, N, K, dtype=torch.bfloat16, device="cuda")
         mat2 = weight.transpose(-2, -1)
-        scale_block_dim2 = 1
+        scale_block_dim2 = 32 if variant == "32x32_t" else 1
     else:
         # Dgrad-style grouped MM: grad_out @ weight.
         input_act = torch.randn(M, N, dtype=torch.bfloat16, device="cuda")
