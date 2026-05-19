@@ -15,7 +15,9 @@ from tabulate import tabulate
 from tqdm import tqdm
 
 from benchmarks.utils import benchmark_cuda_function_in_microseconds
-from torchao.prototype.mx_formats.quantize_2d_triton import triton_quantize_2d_weight
+from torchao.prototype.moe_training.nvfp4_training.quantize_2d_triton import (
+    triton_quantize_2d_weight,
+)
 from torchao.utils import is_sm_at_least_100
 
 device = torch.device("cuda")

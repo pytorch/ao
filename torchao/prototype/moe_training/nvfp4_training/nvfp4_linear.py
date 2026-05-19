@@ -22,14 +22,16 @@ from typing import Optional
 import torch
 import torch.nn.functional as F
 
-from torchao.prototype.mx_formats.hadamard_amax_triton import triton_rht_amax
-from torchao.prototype.mx_formats.hadamard_quantize_row_col_triton import (
+from torchao.prototype.moe_training.nvfp4_training.hadamard_amax_triton import (
+    triton_rht_amax,
+)
+from torchao.prototype.moe_training.nvfp4_training.hadamard_quantize_row_col_triton import (
     triton_rht_quantize_row_col,
 )
-from torchao.prototype.mx_formats.nvfp4_tensor import per_tensor_amax_to_scale
-from torchao.prototype.mx_formats.quantize_2d_triton import (
+from torchao.prototype.moe_training.nvfp4_training.quantize_2d_triton import (
     triton_weight_quantize_2d,
 )
+from torchao.prototype.mx_formats.nvfp4_tensor import per_tensor_amax_to_scale
 from torchao.quantization.quantize_.common.kernel_preference import KernelPreference
 
 

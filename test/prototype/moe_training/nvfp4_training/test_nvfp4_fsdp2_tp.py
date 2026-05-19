@@ -8,7 +8,7 @@
 
 Run with:
     torchrun --standalone --nproc_per_node=4 -m pytest \
-        test/prototype/mx_formats/test_nvfp4_fsdp2_tp.py -q
+        test/prototype/moe_training/nvfp4_training/test_nvfp4_fsdp2_tp.py -q
 
 Requires SM100 (Blackwell) hardware and 4 GPUs.
 """
@@ -33,13 +33,15 @@ from torch.distributed.tensor import DTensor
 from torch.distributed.tensor.parallel import parallelize_module
 from torch.utils._triton import has_triton
 
-from torchao.prototype.mx_formats.hadamard_utils import prepare_for_cuda_graph
-from torchao.prototype.mx_formats.nvfp4_tensor_parallel import (
+from torchao.prototype.moe_training.nvfp4_training.hadamard_utils import (
+    prepare_for_cuda_graph,
+)
+from torchao.prototype.moe_training.nvfp4_training.nvfp4_tensor_parallel import (
     _TP_RHT_SIGN_VECTOR,
     NVFP4ColwiseParallel,
     NVFP4RowwiseParallel,
 )
-from torchao.prototype.mx_formats.nvfp4_training import NVFP4Linear
+from torchao.prototype.moe_training.nvfp4_training.nvfp4_training import NVFP4Linear
 from torchao.quantization.quantize_.common.kernel_preference import KernelPreference
 from torchao.utils import is_sm_at_least_100, torch_version_at_least
 
@@ -100,7 +102,7 @@ def setup_distributed() -> DeviceMesh:
     assert world_size == 4, (
         f"This test requires WORLD_SIZE=4, got {world_size}. "
         "Run with: torchrun --standalone --nproc_per_node=4 -m pytest "
-        "test/prototype/mx_formats/test_nvfp4_fsdp2_tp.py -q"
+        "test/prototype/moe_training/nvfp4_training/test_nvfp4_fsdp2_tp.py -q"
     )
 
     local_rank = int(os.environ["LOCAL_RANK"])

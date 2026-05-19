@@ -15,11 +15,15 @@ from tabulate import tabulate
 from tqdm import tqdm
 
 from benchmarks.utils import benchmark_cuda_function_in_microseconds
-from torchao.prototype.mx_formats.hadamard_amax_triton import triton_rht_amax
-from torchao.prototype.mx_formats.hadamard_quantize_row_col_triton import (
+from torchao.prototype.moe_training.nvfp4_training.hadamard_quantize_row_col_triton import (
     _hadamard_quantize_row_col_kernel,
 )
-from torchao.prototype.mx_formats.hadamard_utils import get_rht_matrix
+from torchao.prototype.moe_training.nvfp4_training.hadamard_amax_triton import (
+    triton_rht_amax,
+)
+from torchao.prototype.moe_training.nvfp4_training.hadamard_utils import (
+    get_rht_matrix,
+)
 from torchao.utils import is_sm_at_least_100
 
 device = torch.device("cuda")

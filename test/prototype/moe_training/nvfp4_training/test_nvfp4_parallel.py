@@ -7,7 +7,7 @@
 Tests for NVFP4 tensor-parallel linear (sequence-parallel TP).
 
 Run with:
-    torchrun --nproc_per_node=2 -m pytest test/prototype/mx_formats/test_nvfp4_parallel.py -s
+    torchrun --nproc_per_node=2 -m pytest test/prototype/moe_training/nvfp4_training/test_nvfp4_parallel.py -s
 
 Requires SM100 (Blackwell) hardware and 2 GPUs.
 """
@@ -24,8 +24,10 @@ from torch.distributed.tensor import DTensor, Replicate, Shard
 from torch.distributed.tensor.parallel import parallelize_module
 from torch.utils._triton import has_triton
 
-from torchao.prototype.mx_formats.hadamard_utils import prepare_for_cuda_graph
-from torchao.prototype.mx_formats.nvfp4_tensor_parallel import (
+from torchao.prototype.moe_training.nvfp4_training.hadamard_utils import (
+    prepare_for_cuda_graph,
+)
+from torchao.prototype.moe_training.nvfp4_training.nvfp4_tensor_parallel import (
     _TP_RHT_SIGN_VECTOR,
     NVFP4ColwiseParallel,
     NVFP4RowwiseParallel,
@@ -33,7 +35,7 @@ from torchao.prototype.mx_formats.nvfp4_tensor_parallel import (
     nvfp4_row_parallel_mm,
     swap_first_dims,
 )
-from torchao.prototype.mx_formats.nvfp4_training import NVFP4Linear
+from torchao.prototype.moe_training.nvfp4_training.nvfp4_training import NVFP4Linear
 from torchao.quantization.quantize_.common.kernel_preference import KernelPreference
 from torchao.quantization.utils import compute_error
 from torchao.utils import is_sm_at_least_100, torch_version_at_least
@@ -118,7 +120,7 @@ def distributed_env() -> DeviceMesh:
     if "RANK" not in os.environ or "WORLD_SIZE" not in os.environ:
         pytest.skip(
             "Run with: torchrun --nproc_per_node=2 -m pytest "
-            "test/prototype/mx_formats/test_nvfp4_parallel.py"
+            "test/prototype/moe_training/nvfp4_training/test_nvfp4_parallel.py"
         )
 
     rank = int(os.environ["RANK"])
@@ -127,7 +129,7 @@ def distributed_env() -> DeviceMesh:
     assert world_size == 2, (
         f"This test requires world_size=2, got world_size={world_size}. "
         "Run with: torchrun --nproc_per_node=2 -m pytest "
-        "test/prototype/mx_formats/test_nvfp4_parallel.py"
+        "test/prototype/moe_training/nvfp4_training/test_nvfp4_parallel.py"
     )
 
     torch.manual_seed(1)
@@ -205,7 +207,9 @@ def test_swap_first_dims(distributed_env: DeviceMesh):
 )
 def test_column_single_rank_equivalence(distributed_env: DeviceMesh):
     """Verify the TP autograd function matches the single-GPU NVFP4 path at world_size=1."""
-    from torchao.prototype.mx_formats.nvfp4_linear import nvfp4_mm_triton
+    from torchao.prototype.moe_training.nvfp4_training.nvfp4_linear import (
+        nvfp4_mm_triton,
+    )
 
     mesh = distributed_env
     device = mesh.device_type
@@ -246,7 +250,9 @@ def test_column_single_rank_equivalence(distributed_env: DeviceMesh):
 )
 def test_column_single_rank_backward_equivalence(distributed_env: DeviceMesh):
     """Verify column-parallel backward matches the single-GPU NVFP4 path at world_size=1."""
-    from torchao.prototype.mx_formats.nvfp4_linear import nvfp4_mm_triton
+    from torchao.prototype.moe_training.nvfp4_training.nvfp4_linear import (
+        nvfp4_mm_triton,
+    )
 
     mesh = distributed_env
     device = mesh.device_type
@@ -524,7 +530,9 @@ def test_column_parallelize_module(distributed_env: DeviceMesh):
 )
 def test_row_single_rank_equivalence(distributed_env: DeviceMesh):
     """Verify the row-parallel autograd function matches the single-GPU NVFP4 path at world_size=1."""
-    from torchao.prototype.mx_formats.nvfp4_linear import nvfp4_mm_triton
+    from torchao.prototype.moe_training.nvfp4_training.nvfp4_linear import (
+        nvfp4_mm_triton,
+    )
 
     mesh = distributed_env
     device = mesh.device_type
@@ -562,7 +570,9 @@ def test_row_single_rank_equivalence(distributed_env: DeviceMesh):
 )
 def test_row_single_rank_backward_equivalence(distributed_env: DeviceMesh):
     """Verify row-parallel backward matches the single-GPU NVFP4 path at world_size=1."""
-    from torchao.prototype.mx_formats.nvfp4_linear import nvfp4_mm_triton
+    from torchao.prototype.moe_training.nvfp4_training.nvfp4_linear import (
+        nvfp4_mm_triton,
+    )
 
     mesh = distributed_env
     device = mesh.device_type

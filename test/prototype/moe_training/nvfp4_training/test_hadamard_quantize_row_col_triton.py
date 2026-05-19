@@ -36,11 +36,13 @@ from torchao.prototype.mx_formats.utils import to_blocked
 from torchao.utils import is_sm_at_least_100, torch_version_at_least
 
 if has_triton() and is_sm_at_least_100() and torch_version_at_least("2.10.0"):
-    from torchao.prototype.mx_formats.hadamard_amax_triton import triton_rht_amax
-    from torchao.prototype.mx_formats.hadamard_quantize_row_col_triton import (
+    from torchao.prototype.moe_training.nvfp4_training.hadamard_amax_triton import (
+        triton_rht_amax,
+    )
+    from torchao.prototype.moe_training.nvfp4_training.hadamard_quantize_row_col_triton import (
         triton_rht_quantize_row_col,
     )
-    from torchao.prototype.mx_formats.hadamard_utils import (
+    from torchao.prototype.moe_training.nvfp4_training.hadamard_utils import (
         get_rht_matrix,
         prepare_for_cuda_graph,
     )

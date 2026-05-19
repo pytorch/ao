@@ -20,10 +20,12 @@ from torchao.prototype.mx_formats.nvfp4_tensor import (
 from torchao.utils import is_sm_at_least_100, torch_version_at_least
 
 if has_triton() and is_sm_at_least_100() and torch_version_at_least("2.10.0"):
-    from torchao.prototype.mx_formats.quantize_2d_triton import (
+    from torchao.prototype.moe_training.nvfp4_training.quantize_2d_triton import (
         triton_weight_quantize_2d,
     )
-from torchao.prototype.mx_formats.hadamard_utils import prepare_for_cuda_graph
+from torchao.prototype.moe_training.nvfp4_training.hadamard_utils import (
+    prepare_for_cuda_graph,
+)
 
 # BLOCK_M minimum is 128; N must be a multiple of BLOCK_N=256.
 _M_VALUES = [128, 256, 512, 1024]

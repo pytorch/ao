@@ -32,11 +32,15 @@ from torch.distributed.device_mesh import DeviceMesh
 from torch.distributed.tensor import DTensor
 from torch.distributed.tensor.parallel import ColwiseParallel, RowwiseParallel
 
-from torchao.prototype.mx_formats.hadamard_amax_triton import triton_rht_amax
-from torchao.prototype.mx_formats.hadamard_quantize_row_col_triton import (
+from torchao.prototype.moe_training.nvfp4_training.hadamard_amax_triton import (
+    triton_rht_amax,
+)
+from torchao.prototype.moe_training.nvfp4_training.hadamard_quantize_row_col_triton import (
     triton_rht_quantize_row_col,
 )
-from torchao.prototype.mx_formats.nvfp4_linear import _triton_weight_quantize_2d
+from torchao.prototype.moe_training.nvfp4_training.nvfp4_linear import (
+    _triton_weight_quantize_2d,
+)
 from torchao.prototype.mx_formats.nvfp4_tensor import per_tensor_amax_to_scale
 
 # Column-parallel wgrad gathers RHT-transformed x shards across ranks. All ranks
@@ -675,7 +679,9 @@ class NVFP4ColwiseParallel(ColwiseParallel):
         return DTensor.from_local(outputs, device_mesh, output_layouts, run_check=False)
 
     def _apply(self, module: nn.Module, device_mesh: DeviceMesh) -> nn.Module:
-        from torchao.prototype.mx_formats.nvfp4_training import NVFP4Linear
+        from torchao.prototype.moe_training.nvfp4_training.nvfp4_training import (
+            NVFP4Linear,
+        )
 
         if not isinstance(module, NVFP4Linear):
             raise ValueError(
@@ -722,7 +728,9 @@ class NVFP4RowwiseParallel(RowwiseParallel):
         return DTensor.from_local(outputs, device_mesh, output_layouts, run_check=False)
 
     def _apply(self, module: nn.Module, device_mesh: DeviceMesh) -> nn.Module:
-        from torchao.prototype.mx_formats.nvfp4_training import NVFP4Linear
+        from torchao.prototype.moe_training.nvfp4_training.nvfp4_training import (
+            NVFP4Linear,
+        )
 
         if not isinstance(module, NVFP4Linear):
             raise ValueError(

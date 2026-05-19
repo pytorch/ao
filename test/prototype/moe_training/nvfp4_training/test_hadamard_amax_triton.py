@@ -4,7 +4,7 @@ import pytest
 import torch
 from torch.utils._triton import has_triton
 
-from torchao.prototype.mx_formats.hadamard_utils import (
+from torchao.prototype.moe_training.nvfp4_training.hadamard_utils import (
     get_hadamard_matrix,
     get_rht_matrix,
     get_wgrad_sign_vector,
@@ -76,7 +76,9 @@ def test_get_rht_matrix_with_generated_sign_matches_sampled_signs():
 @torch.no_grad()
 def test_triton_rht_amax_vs_reference(M, N, sign_vector):
     """triton_rht_amax must match the reference RHT matmul amax exactly (bitwise)."""
-    from torchao.prototype.mx_formats.hadamard_amax_triton import triton_rht_amax
+    from torchao.prototype.moe_training.nvfp4_training.hadamard_amax_triton import (
+        triton_rht_amax,
+    )
 
     torch.manual_seed(42)
     A = torch.randn(M, N, dtype=torch.bfloat16, device="cuda")

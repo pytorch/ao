@@ -15,8 +15,12 @@ from tabulate import tabulate
 from tqdm import tqdm
 
 from benchmarks.utils import benchmark_cuda_function_in_microseconds
-from torchao.prototype.mx_formats.hadamard_amax_triton import _hadamard_amax_kernel
-from torchao.prototype.mx_formats.hadamard_utils import get_rht_matrix
+from torchao.prototype.moe_training.nvfp4_training.hadamard_amax_triton import (
+    _hadamard_amax_kernel,
+)
+from torchao.prototype.moe_training.nvfp4_training.hadamard_utils import (
+    get_rht_matrix,
+)
 
 device = torch.device("cuda")
 

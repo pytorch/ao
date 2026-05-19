@@ -12,7 +12,7 @@ NVFP4Linear module that performs NVFP4 quantized GEMMs
 in both forward and backward passes.
 
 Usage:
-    from torchao.prototype.mx_formats.nvfp4_training import NVFP4TrainingConfig
+    from torchao.prototype.moe_training.nvfp4_training.nvfp4_training import NVFP4TrainingConfig
     from torchao.quantization import quantize_
 
     quantize_(model, NVFP4TrainingConfig())
@@ -25,8 +25,10 @@ import torch
 import torch.nn as nn
 
 from torchao.core.config import AOBaseConfig
-from torchao.prototype.mx_formats.hadamard_utils import get_wgrad_sign_vector
-from torchao.prototype.mx_formats.nvfp4_linear import nvfp4_linear
+from torchao.prototype.moe_training.nvfp4_training.hadamard_utils import (
+    get_wgrad_sign_vector,
+)
+from torchao.prototype.moe_training.nvfp4_training.nvfp4_linear import nvfp4_linear
 from torchao.quantization.quantize_.common.kernel_preference import KernelPreference
 from torchao.quantization.transform_module import register_quantize_module_handler
 
@@ -148,7 +150,7 @@ class NVFP4Linear(nn.Linear):
             import torch.distributed as dist
             from torch.distributed.tensor import DTensor
 
-            from torchao.prototype.mx_formats.nvfp4_tensor_parallel import (
+            from torchao.prototype.moe_training.nvfp4_training.nvfp4_tensor_parallel import (
                 nvfp4_col_parallel_linear,
                 nvfp4_row_parallel_linear,
             )

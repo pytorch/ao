@@ -1,7 +1,7 @@
 # NVFP4 Training Benchmarks
 
 This directory contains benchmarking scripts for the NVFP4 training kernels
-under `torchao.prototype.mx_formats`.
+under `torchao.prototype.moe_training.nvfp4_training`.
 
 ## Hadamard Amax Benchmark
 

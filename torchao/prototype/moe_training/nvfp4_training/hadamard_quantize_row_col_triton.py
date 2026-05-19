@@ -15,7 +15,7 @@ if torch_version_at_least("2.10.0") and has_triton():
     import triton
     import triton.language as tl
 
-    from torchao.prototype.mx_formats.hadamard_utils import (
+    from torchao.prototype.moe_training.nvfp4_training.hadamard_utils import (
         _compute_pid,
         _nvfp4_quantize,
         _pack_fp4,
