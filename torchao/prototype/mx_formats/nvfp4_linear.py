@@ -163,12 +163,8 @@ class nvfp4_mm_triton(torch.autograd.Function):
         # Default CUDA RNG: torch.compile/reduce-overhead advances the default generator
         # between CUDA graph replays — same mechanism as dropout/randn in CUDA graphs.
         # Two independent calls give GEMM 2 and GEMM 3 different positions in the RNG stream.
-        offset_rowwise = torch.randint(
-            -(2**63), 2**63 - 1, (1,), dtype=torch.int64, device=dev
-        )
-        offset_colwise = torch.randint(
-            -(2**63), 2**63 - 1, (1,), dtype=torch.int64, device=dev
-        )
+        offset_rowwise = torch.randint(0, 2**32, (1,), dtype=torch.int64, device=dev)
+        offset_colwise = torch.randint(0, 2**32, (1,), dtype=torch.int64, device=dev)
 
         # Quantize grad_output for GEMM 2 (dgrad) -- rowwise + sr and GEMM 3 (wgrad) --
         # colwise rht + sr.

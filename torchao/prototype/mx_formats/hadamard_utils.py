@@ -206,15 +206,15 @@ if has_triton():
         """Pack scaled float32 values to FP4 with optional stochastic rounding.
 
         seed_ptr: pointer to int64 per-call seed (unused when STOCHASTIC_ROUNDING=False).
-        offset_base_ptr: pointer to int64 offset base; occupies low 32 bits of the Philox
-            counter (unused when STOCHASTIC_ROUNDING=False).
+        offset_base_ptr: pointer to int64 offset base; only the low 32 bits occupy the
+            low 32 bits of the Philox counter (unused when STOCHASTIC_ROUNDING=False).
         tile_id: persistent-grid tile index; used to form the globally unique element index
             that occupies the high 32 bits of the Philox counter.
         """
         scaled_pairs = scaled.reshape(BLOCK_N, BLOCK_M // 2, 2).split()
         if STOCHASTIC_ROUNDING:
             seed = tl.load(seed_ptr)
-            offset_base = tl.load(offset_base_ptr)
+            offset_base = tl.load(offset_base_ptr).to(tl.uint64) & 0xFFFFFFFF
             BLOCK_M_PACKED: tl.constexpr = BLOCK_M // 2
             local_n = tl.arange(0, BLOCK_N)[:, None]
             local_m = tl.arange(0, BLOCK_M_PACKED)[None, :]
@@ -222,7 +222,7 @@ if has_triton():
             linear_idx = tl.cast(tile_id, tl.int64) * (
                 BLOCK_N * BLOCK_M_PACKED
             ) + tl.cast(local_pos, tl.int64)
-            offset = (linear_idx << 32) | offset_base
+            offset = (linear_idx.to(tl.uint64) << 32) | offset_base
             rbits = tl.randint(seed, offset)
             return convert_8xfp32_to_4xfp4_packed_rs(scaled_pairs, rbits)
         else:

@@ -277,12 +277,8 @@ class nvfp4_col_parallel_mm(torch.autograd.Function):
         dev = grad_output.device
 
         # Independent SR offsets for the two backward quantizations
-        offset_row = torch.randint(
-            -(2**63), 2**63 - 1, (1,), dtype=torch.int64, device=dev
-        )
-        offset_col = torch.randint(
-            -(2**63), 2**63 - 1, (1,), dtype=torch.int64, device=dev
-        )
+        offset_row = torch.randint(0, 2**32, (1,), dtype=torch.int64, device=dev)
+        offset_col = torch.randint(0, 2**32, (1,), dtype=torch.int64, device=dev)
 
         # --- Quantize dy (no amax all-reduce; each rank has a different dy shard) ---
         dy_col_amax, dy_row_amax = triton_rht_amax(
@@ -521,12 +517,8 @@ class nvfp4_row_parallel_mm(torch.autograd.Function):
         dev = grad_output.device
 
         # Independent SR offsets for the two backward quantizations
-        offset_row = torch.randint(
-            -(2**63), 2**63 - 1, (1,), dtype=torch.int64, device=dev
-        )
-        offset_col = torch.randint(
-            -(2**63), 2**63 - 1, (1,), dtype=torch.int64, device=dev
-        )
+        offset_row = torch.randint(0, 2**32, (1,), dtype=torch.int64, device=dev)
+        offset_col = torch.randint(0, 2**32, (1,), dtype=torch.int64, device=dev)
 
         # --- Amax dy computation + global sync ---
         dy_col_amax, dy_row_amax = triton_rht_amax(
