@@ -9,9 +9,6 @@ from torch.distributed._tensor import DTensor
 from torch.distributed.device_mesh import DeviceMesh
 from torch.distributed.fsdp import MixedPrecisionPolicy
 
-from torchao.prototype.moe_qat.config import (
-    MoEQATConfig,
-)
 from torchao.prototype.moe_training.utils import (
     unwrap_weight,
 )
@@ -242,6 +239,7 @@ class FakeQuantizedWeightWrapperBaseTensor(TorchAOBaseTensor):
                 activation_config=args[0].activation_config,
                 weight_config=args[0].weight_config,
             ),
+            out,
         )
 
     def to_tensor(self) -> torch.Tensor:
@@ -422,6 +420,8 @@ def _(
     param: nn.Parameter,
     extra_args: Tuple[Any, ...] = (),
 ):
+    from torchao.prototype.moe_qat.config import MoEQATConfig
+
     config: MoEQATConfig = extra_args[0]
 
     assert isinstance(config, MoEQATConfig), "extra_args[0] must be a MoEQATConfig"
