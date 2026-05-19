@@ -300,7 +300,7 @@ class nvfp4_col_parallel_mm(torch.autograd.Function):
             col_seed_base=sr_seed,
             col_offset_base=offset_col,
             row_offset_base=offset_row,
-            row_seed_base=sr_seed,
+            row_seed_base=sr_seed ^ 1,
             col_global_amax=dy_col_amax,
             row_global_amax=dy_row_amax,
         )
@@ -552,7 +552,7 @@ class nvfp4_row_parallel_mm(torch.autograd.Function):
             col_seed_base=sr_seed,
             col_offset_base=offset_col,
             row_offset_base=offset_row,
-            row_seed_base=sr_seed,
+            row_seed_base=sr_seed ^ 1,
             col_global_amax=dy_col_amax,
             row_global_amax=dy_row_amax,
         )

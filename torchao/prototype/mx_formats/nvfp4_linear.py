@@ -177,7 +177,7 @@ class nvfp4_mm_triton(torch.autograd.Function):
             grad_output_2d,
             stochastic_rounding=True,
             col_seed_base=sr_seed,
-            row_seed_base=sr_seed,
+            row_seed_base=sr_seed ^ 1,
             col_offset_base=offset_colwise,
             row_offset_base=offset_rowwise,
             col_global_amax=dy_col_amax,
