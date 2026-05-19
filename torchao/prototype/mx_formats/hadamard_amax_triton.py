@@ -167,7 +167,8 @@ if torch_version_at_least("2.10.0") and has_triton():
         """Apply RHT to A and return global absolute maxima without materializing output.
 
         Args:
-            A: (M, N) bfloat16 tensor, row-major. M must be divisible by 16.
+            A: (M, N) bfloat16 tensor, row-major. M must be divisible by 16
+                and N must be divisible by 128.
             sign_vector: Sign vector for the RHT as a list of ints.
             hadamard_dimension: Dimension of the Hadamard matrix (default 16).
             scaling_type: int encoding of F.ScalingType. Only TensorWise is supported.
@@ -179,8 +180,8 @@ if torch_version_at_least("2.10.0") and has_triton():
 
         Raises:
             NotImplementedError: If hardware is pre-SM100.
-            ValueError: If A is not bfloat16, not 2-D, not contiguous, M % 16 != 0, or
-                scaling_type is not ScalingType.TensorWise.
+            ValueError: If A is not bfloat16, not 2-D, not contiguous, M % 16 != 0,
+                N % 128 != 0, or scaling_type is not ScalingType.TensorWise.
         """
         if torch.cuda.is_available() and not is_sm_at_least_100():
             raise NotImplementedError(
@@ -192,14 +193,16 @@ if torch_version_at_least("2.10.0") and has_triton():
             raise ValueError("Tensor A must be 2-D")
         if not A.is_contiguous():
             raise ValueError("A must be row-major (contiguous)")
-        if A.shape[0] % 16 != 0:
-            raise ValueError(f"M must be divisible by 16, got M={A.shape[0]}")
+        M, N = A.shape
+        if M % 16 != 0:
+            raise ValueError(f"M must be divisible by 16, got M={M}")
+        if N % 128 != 0:
+            raise ValueError(f"N must be divisible by 128, got N={N}")
         if scaling_type != int(F.ScalingType.TensorWise):
             raise ValueError(
                 f"scaling_type={scaling_type!r} is not supported; "
                 "only ScalingType.TensorWise is implemented."
             )
-        M, N = A.shape
 
         sv = tuple(sign_vector)
         if hasattr(triton, "set_allocator"):

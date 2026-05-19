@@ -33,9 +33,9 @@ _HARDCODED_SIGN_VECTOR = (
 
 # M=32 excluded: all BLOCK_M configs (64, 128) exceed M=32 → all autotune configs fail.
 _M_VALUES = [64, 96, 128, 160, 256, 512]
-# N=100 excluded: TMA TensorDescriptor requires stride % 16 bytes == 0;
-# for bf16 this means N % 8 == 0. N=100 (100*2=200 bytes, 200%16=8) fails.
-_N_VALUES = [128, 200, 256, 384, 512, 1024]
+# triton_rht_amax feeds triton_rht_quantize_row_col, whose swizzled scales
+# require N % 128 == 0.
+_N_VALUES = [128, 256, 384, 512, 1024]
 
 
 @torch.no_grad()
