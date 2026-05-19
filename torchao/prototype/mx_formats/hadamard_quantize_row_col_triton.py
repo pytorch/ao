@@ -193,7 +193,8 @@ if torch_version_at_least("2.10.0") and has_triton():
             rowwise_scale_inv, rowwise_scaled = _nvfp4_quantize(
                 a, rowwise_global_amax, BLOCK_M, BLOCK_N
             )
-            # Rowwise path always uses round-to-nearest (SR degrades fwd GEMM SQNR).
+            # Rowwise uses the caller-selected rounding mode: forward passes RTN,
+            # backward passes SR.
             rowwise_fp4x2 = _pack_fp4(
                 rowwise_scaled,
                 BLOCK_M,
@@ -255,7 +256,8 @@ if torch_version_at_least("2.10.0") and has_triton():
             row_global_amax: scalar float32 global amax of A. Caller must compute
                 via ``triton_rht_amax`` (and optionally all-reduce for TP) before passing in.
             sign_vector: Sign vector for the RHT as a list of ints.
-            stochastic_rounding: Use stochastic rounding for the columnwise FP4 path.
+            stochastic_rounding: Use stochastic rounding for both columnwise and
+                rowwise FP4 packing.
             hadamard_dimension: Dimension of the Hadamard matrix (default 16).
             scaling_type: int encoding of F.ScalingType. Only TensorWise is supported.
             col_seed_base: Pre-allocated int64 seed tensor for columnwise SR (size=(1,)). For
