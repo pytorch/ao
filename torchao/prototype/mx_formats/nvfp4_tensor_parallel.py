@@ -684,8 +684,6 @@ class NVFP4ColwiseParallel(ColwiseParallel):
         module.process_group = device_mesh.get_group()
         module.world_size = device_mesh.size()
         module.tensor_parallel_style = _TP_STYLE_COLWISE
-        if module.weight.device.type != "meta":
-            module._ensure_sr_seed(module.weight.device)
         return super()._apply(module, device_mesh)
 
 
@@ -733,6 +731,4 @@ class NVFP4RowwiseParallel(RowwiseParallel):
         module.process_group = device_mesh.get_group()
         module.world_size = device_mesh.size()
         module.tensor_parallel_style = _TP_STYLE_ROWWISE
-        if module.weight.device.type != "meta":
-            module._ensure_sr_seed(module.weight.device)
         return super()._apply(module, device_mesh)

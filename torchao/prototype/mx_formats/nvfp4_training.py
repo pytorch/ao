@@ -80,14 +80,10 @@ class NVFP4Linear(nn.Linear):
         self.process_group = process_group
         self.world_size = world_size
         self.tensor_parallel_style = "colwise"
-        self._sr_seed: Optional[torch.Tensor] = None
-
-    def _ensure_sr_seed(self, device: torch.device | str) -> torch.Tensor:
-        if self._sr_seed is None:
-            self._sr_seed = torch.randint(
-                -(2**63), 2**63 - 1, (1,), dtype=torch.int64, device=device
-            )
-        return self._sr_seed
+        self.register_buffer(
+            "_sr_seed",
+            torch.randint(-(2**63), 2**63 - 1, (1,), dtype=torch.int64, device=device),
+        )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         if (
@@ -105,7 +101,9 @@ class NVFP4Linear(nn.Linear):
             ws = self.world_size
             if ws is None:
                 ws = dist.get_world_size(self.process_group)
-            sr_seed = self._ensure_sr_seed(x.device)
+            sr_seed = self._sr_seed
+            if isinstance(sr_seed, DTensor):
+                sr_seed = sr_seed.to_local()
             w = self.weight
             if isinstance(w, DTensor):
                 w = w.to_local()
@@ -126,7 +124,11 @@ class NVFP4Linear(nn.Linear):
                 world_size=ws,
             )
         return nvfp4_linear(
-            x, self.weight, self.bias, kernel_preference=self.kernel_preference
+            x,
+            self.weight,
+            self.bias,
+            kernel_preference=self.kernel_preference,
+            sr_seed=self._sr_seed,
         )
 
     @classmethod
