@@ -235,7 +235,56 @@ def test_column_single_rank_equivalence(distributed_env: DeviceMesh):
         x.clone(), w.clone(), bias.clone(), sr_seed_tp, pg, 1
     )
 
-    torch.testing.assert_close(y_ref, y_tp, atol=1e-2, rtol=1e-2)
+    torch.testing.assert_close(y_ref, y_tp, atol=0, rtol=0)
+    dist.barrier()
+
+
+@pytest.mark.skipif(not has_triton(), reason="unsupported without triton")
+@pytest.mark.skipif(not is_sm_at_least_100(), reason="Requires SM100+")
+@pytest.mark.skipif(
+    not torch_version_at_least("2.10.0"), reason="torch.compile requires PyTorch 2.10+"
+)
+def test_column_single_rank_backward_equivalence(distributed_env: DeviceMesh):
+    """Verify column-parallel backward matches the single-GPU NVFP4 path at world_size=1."""
+    from torchao.prototype.mx_formats.nvfp4_linear import nvfp4_mm_triton
+
+    mesh = distributed_env
+    device = mesh.device_type
+    rank = dist.get_rank()
+    pg = dist.new_group([0])
+    M, K, N = 256, 256, 256
+    if rank != 0:
+        dist.barrier()
+        return
+
+    torch.manual_seed(71)
+    x = torch.randn(M, K, dtype=torch.bfloat16, device=device)
+    w = torch.randn(N, K, dtype=torch.bfloat16, device=device)
+    bias = torch.randn(N, dtype=torch.bfloat16, device=device)
+    dy = torch.randn(M, N, dtype=torch.bfloat16, device=device)
+    sr_seed = torch.randint(-(2**63), 2**63 - 1, (1,), dtype=torch.int64, device=device)
+
+    x_ref = x.clone().detach().requires_grad_(True)
+    w_ref = w.clone().detach().requires_grad_(True)
+    bias_ref = bias.clone().detach().requires_grad_(True)
+    y_ref = nvfp4_mm_triton.apply(
+        x_ref, w_ref, bias_ref, sr_seed.clone(), _TP_RHT_SIGN_VECTOR
+    )
+
+    x_tp = x.clone().detach().requires_grad_(True)
+    w_tp = w.clone().detach().requires_grad_(True)
+    bias_tp = bias.clone().detach().requires_grad_(True)
+    y_tp = nvfp4_col_parallel_mm.apply(x_tp, w_tp, bias_tp, sr_seed.clone(), pg, 1)
+
+    rng_state = torch.cuda.get_rng_state()
+    torch.cuda.set_rng_state(rng_state.clone())
+    y_ref.backward(dy)
+    torch.cuda.set_rng_state(rng_state.clone())
+    y_tp.backward(dy)
+
+    torch.testing.assert_close(x_ref.grad, x_tp.grad, atol=0, rtol=0)
+    torch.testing.assert_close(w_ref.grad, w_tp.grad, atol=0, rtol=0)
+    torch.testing.assert_close(bias_ref.grad, bias_tp.grad, atol=0, rtol=0)
     dist.barrier()
 
 
@@ -502,7 +551,56 @@ def test_row_single_rank_equivalence(distributed_env: DeviceMesh):
         x.clone(), w.clone(), bias.clone(), sr_seed_tp, pg, 1
     )
 
-    torch.testing.assert_close(y_ref, y_tp, atol=1e-2, rtol=1e-2)
+    torch.testing.assert_close(y_ref, y_tp, atol=0, rtol=0)
+    dist.barrier()
+
+
+@pytest.mark.skipif(not has_triton(), reason="unsupported without triton")
+@pytest.mark.skipif(not is_sm_at_least_100(), reason="Requires SM100+")
+@pytest.mark.skipif(
+    not torch_version_at_least("2.10.0"), reason="torch.compile requires PyTorch 2.10+"
+)
+def test_row_single_rank_backward_equivalence(distributed_env: DeviceMesh):
+    """Verify row-parallel backward matches the single-GPU NVFP4 path at world_size=1."""
+    from torchao.prototype.mx_formats.nvfp4_linear import nvfp4_mm_triton
+
+    mesh = distributed_env
+    device = mesh.device_type
+    rank = dist.get_rank()
+    pg = dist.new_group([0])
+    M, K, N = 256, 256, 256
+    if rank != 0:
+        dist.barrier()
+        return
+
+    torch.manual_seed(73)
+    x = torch.randn(M, K, dtype=torch.bfloat16, device=device)
+    w = torch.randn(N, K, dtype=torch.bfloat16, device=device)
+    bias = torch.randn(N, dtype=torch.bfloat16, device=device)
+    dy = torch.randn(M, N, dtype=torch.bfloat16, device=device)
+    sr_seed = torch.randint(-(2**63), 2**63 - 1, (1,), dtype=torch.int64, device=device)
+
+    x_ref = x.clone().detach().requires_grad_(True)
+    w_ref = w.clone().detach().requires_grad_(True)
+    bias_ref = bias.clone().detach().requires_grad_(True)
+    y_ref = nvfp4_mm_triton.apply(
+        x_ref, w_ref, bias_ref, sr_seed.clone(), _TP_RHT_SIGN_VECTOR
+    )
+
+    x_tp = x.clone().detach().requires_grad_(True)
+    w_tp = w.clone().detach().requires_grad_(True)
+    bias_tp = bias.clone().detach().requires_grad_(True)
+    y_tp = nvfp4_row_parallel_mm.apply(x_tp, w_tp, bias_tp, sr_seed.clone(), pg, 1)
+
+    rng_state = torch.cuda.get_rng_state()
+    torch.cuda.set_rng_state(rng_state.clone())
+    y_ref.backward(dy)
+    torch.cuda.set_rng_state(rng_state.clone())
+    y_tp.backward(dy)
+
+    torch.testing.assert_close(x_ref.grad, x_tp.grad, atol=0, rtol=0)
+    torch.testing.assert_close(w_ref.grad, w_tp.grad, atol=0, rtol=0)
+    torch.testing.assert_close(bias_ref.grad, bias_tp.grad, atol=0, rtol=0)
     dist.barrier()
 
 
