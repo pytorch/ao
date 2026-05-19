@@ -31,6 +31,24 @@ LLAMA_BATCH_SIZE = 1
 LLAMA_SEQ_LEN = 2048
 ROUNDING_MODES = ("rtne", "rs")
 ROUNDING_CHOICES = (*ROUNDING_MODES, "all")
+RHT_SIGN_VECTOR = (
+    1,
+    1,
+    1,
+    -1,
+    1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    1,
+    -1,
+    1,
+    -1,
+    -1,
+)
 
 
 @dataclass(frozen=True)
@@ -106,7 +124,7 @@ def run_experiment(
         return None
 
     try:
-        col_amax, row_amax = triton_rht_amax(x)
+        col_amax, row_amax = triton_rht_amax(x, sign_vector=list(RHT_SIGN_VECTOR))
     except NotImplementedError:
         return None
 
@@ -120,9 +138,7 @@ def run_experiment(
             )
         )
 
-    rht_matrix = get_rht_matrix(
-        sign_vector=None, device=x.device, hadamard_dimension=16
-    ).to(torch.bfloat16)
+    rht_matrix = get_rht_matrix(RHT_SIGN_VECTOR, x.device, torch.bfloat16, 16)
     colwise_C = torch.empty((n, m // 2), dtype=torch.uint8, device=x.device)
     colwise_sf = torch.empty(
         (n // 128, m // 64, 32, 16), dtype=torch.float8_e4m3fn, device=x.device

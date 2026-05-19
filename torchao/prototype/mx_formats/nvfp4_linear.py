@@ -78,7 +78,10 @@ class nvfp4_mm_triton(torch.autograd.Function):
         weight_hp: torch.Tensor,
         bias: Optional[torch.Tensor],
         sr_seed: torch.Tensor,
+        sign_vector: tuple[int, ...] | list[int],
     ):
+        sign_vector = tuple(sign_vector)
+        sign_vector_list = list(sign_vector)
         M = input_hp.shape[-2]
         K = input_hp.shape[-1]
         N = weight_hp.shape[0]
@@ -95,13 +98,14 @@ class nvfp4_mm_triton(torch.autograd.Function):
 
         # Compute columnwise and rowwise amaxes before quantization so callers
         # can all-reduce across TP ranks before passing them in.
-        x_col_amax, x_row_amax = triton_rht_amax(input_2d)
+        x_col_amax, x_row_amax = triton_rht_amax(input_2d, sign_vector=sign_vector_list)
 
         # RHT + columnwise + rowwise quantization of input in one fused kernel.
         # SR=False in forward — sr_seed value is not consumed here.
         x_col_codes, x_col_sf, x_row_codes, x_row_sf = triton_rht_quantize_row_col(
             input_2d,
             stochastic_rounding=False,
+            sign_vector=sign_vector_list,
             col_global_amax=x_col_amax,
             row_global_amax=x_row_amax,
         )
@@ -143,6 +147,7 @@ class nvfp4_mm_triton(torch.autograd.Function):
         )
         ctx.input_orig_shape = input_hp.shape
         ctx.has_bias = bias is not None
+        ctx.sign_vector = sign_vector
         return output
 
     @staticmethod
@@ -168,10 +173,14 @@ class nvfp4_mm_triton(torch.autograd.Function):
 
         # Quantize grad_output for GEMM 2 (dgrad) -- rowwise + sr and GEMM 3 (wgrad) --
         # colwise rht + sr.
-        dy_col_amax, dy_row_amax = triton_rht_amax(grad_output_2d)
+        sign_vector_list = list(ctx.sign_vector)
+        dy_col_amax, dy_row_amax = triton_rht_amax(
+            grad_output_2d, sign_vector=sign_vector_list
+        )
         dy_col_fp4, dy_col_sf, dy_row_fp4, dy_row_sf = triton_rht_quantize_row_col(
             grad_output_2d,
             stochastic_rounding=True,
+            sign_vector=sign_vector_list,
             col_seed_base=sr_seed,
             row_seed_base=sr_seed ^ 1,
             col_offset_base=offset_colwise,
@@ -222,14 +231,16 @@ class nvfp4_mm_triton(torch.autograd.Function):
             if ctx.has_bias
             else None
         )
-        # One extra None: sr_seed
-        return grad_input, grad_weight, grad_bias, None
+        # Extra Nones: sr_seed, sign_vector
+        return grad_input, grad_weight, grad_bias, None, None
 
 
 def nvfp4_linear(
     input_hp: torch.Tensor,
     weight_hp: torch.Tensor,
     bias: Optional[torch.Tensor] = None,
+    *,
+    sign_vector: tuple[int, ...] | list[int],
     kernel_preference: KernelPreference = KernelPreference.TRITON,
     sr_seed: Optional[torch.Tensor] = None,
 ) -> torch.Tensor:
@@ -242,6 +253,7 @@ def nvfp4_linear(
         input_hp: High precision input [..., in_features]
         weight_hp: High precision weight [out_features, in_features]
         bias: Optional bias [out_features]
+        sign_vector: RHT sign vector used for amax and quantization.
         kernel_preference: Backend for quantization. Only TRITON is supported.
         sr_seed: Fixed int64 seed tensor (size=(1,)) for SR Philox key. Allocated
             fresh if None. For reproducibility, pass a pre-allocated module buffer.
@@ -261,4 +273,5 @@ def nvfp4_linear(
         weight_hp,
         bias,
         sr_seed,
+        sign_vector,
     )

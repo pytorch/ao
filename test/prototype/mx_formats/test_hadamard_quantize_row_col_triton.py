@@ -79,7 +79,7 @@ _HARDCODED_SIGN_VECTOR = (
 def _rht_reference(A: torch.Tensor) -> torch.Tensor:
     """PyTorch reference RHT: returns (N, M) bfloat16."""
     M_A, N_A = A.shape
-    B = get_rht_matrix(sign_vector=_HARDCODED_SIGN_VECTOR, device=A.device)
+    B = get_rht_matrix(_HARDCODED_SIGN_VECTOR, A.device, torch.bfloat16, 16)
     return (A.t().reshape(-1, 16) @ B).reshape(N_A, M_A).to(torch.bfloat16)
 
 
@@ -165,7 +165,7 @@ def _quantize_row_col(
     col_codes, col_sf, row_codes, row_sf = triton_rht_quantize_row_col(
         A,
         stochastic_rounding=stochastic_rounding,
-        sign_vector=_HARDCODED_SIGN_VECTOR,
+        sign_vector=list(_HARDCODED_SIGN_VECTOR),
         col_global_amax=col_amax,
         row_global_amax=row_amax,
         **kwargs,
@@ -223,7 +223,9 @@ def _assert_near_zero_values_do_not_saturate(
 
 def _input_from_rht_target(target: torch.Tensor) -> torch.Tensor:
     N, M = target.shape
-    B = get_rht_matrix(sign_vector=_HARDCODED_SIGN_VECTOR, device=target.device).float()
+    B = get_rht_matrix(
+        _HARDCODED_SIGN_VECTOR, target.device, torch.bfloat16, 16
+    ).float()
     A_t = (target.reshape(N * M // 16, 16) @ B.t()).reshape(N, M)
     return A_t.t().contiguous().to(torch.bfloat16)
 
@@ -262,7 +264,7 @@ def test_triton_rht_quantize_rtne_scales_vs_reference(M, N):
     tri_col_codes, tri_col_sf, tri_row_codes, tri_row_sf = triton_rht_quantize_row_col(
         A,
         stochastic_rounding=False,
-        sign_vector=_HARDCODED_SIGN_VECTOR,
+        sign_vector=list(_HARDCODED_SIGN_VECTOR),
         col_global_amax=col_amax,
         row_global_amax=row_amax,
     )
@@ -302,7 +304,7 @@ def test_triton_rht_quantize_rtne_sqnr(M, N):
     tri_col_codes, tri_col_sf, tri_row_codes, tri_row_sf = triton_rht_quantize_row_col(
         A,
         stochastic_rounding=False,
-        sign_vector=_HARDCODED_SIGN_VECTOR,
+        sign_vector=list(_HARDCODED_SIGN_VECTOR),
         col_global_amax=col_amax,
         row_global_amax=row_amax,
     )
@@ -414,7 +416,7 @@ def test_triton_rht_quantize_rs_midpoint_distribution():
 
     # Build A such that RHT(A.T) has 1.25 at non-anchor positions and 6.0 at anchors.
     # Since B is orthogonal, A.T = target @ B^{-1} = target @ B.T.
-    B = get_rht_matrix(sign_vector=_HARDCODED_SIGN_VECTOR, device="cuda").float()
+    B = get_rht_matrix(_HARDCODED_SIGN_VECTOR, "cuda", torch.bfloat16, 16).float()
     target = torch.full((N_RHT, M_RHT), 1.25, dtype=torch.float32, device="cuda")
     target[:, ::16] = 6.0  # one anchor per 16-group along M
     A_t = (target.reshape(N_RHT * M_RHT // 16, 16) @ B.t()).reshape(N_RHT, M_RHT)
@@ -449,7 +451,7 @@ def test_triton_rht_quantize_rs_midpoint_distribution():
         col_codes, _, _, _ = triton_rht_quantize_row_col(
             A,
             stochastic_rounding=True,
-            sign_vector=_HARDCODED_SIGN_VECTOR,
+            sign_vector=list(_HARDCODED_SIGN_VECTOR),
             col_seed_base=_col_seed_buf,
             col_offset_base=_col_offset_buf,
             row_offset_base=_row_offset_buf,
@@ -491,7 +493,7 @@ def test_triton_rht_quantize_rs_midpoint_distribution():
         _, _, row_codes, _ = triton_rht_quantize_row_col(
             A_row,
             stochastic_rounding=True,
-            sign_vector=_HARDCODED_SIGN_VECTOR,
+            sign_vector=list(_HARDCODED_SIGN_VECTOR),
             col_seed_base=_col_seed_r,
             col_offset_base=_col_off_r,
             row_offset_base=_row_off_r,
@@ -564,7 +566,7 @@ def test_triton_rht_quantize_rs_at_most_one_fp4_step_from_rtne():
     col_rn, _, row_rn, _ = triton_rht_quantize_row_col(
         A,
         stochastic_rounding=False,
-        sign_vector=_HARDCODED_SIGN_VECTOR,
+        sign_vector=list(_HARDCODED_SIGN_VECTOR),
         col_global_amax=col_amax_rtne,
         row_global_amax=row_amax_rtne,
     )
@@ -595,7 +597,7 @@ def test_triton_rht_quantize_rs_at_most_one_fp4_step_from_rtne():
         col_rs, _, row_rs, _ = triton_rht_quantize_row_col(
             A,
             stochastic_rounding=True,
-            sign_vector=_HARDCODED_SIGN_VECTOR,
+            sign_vector=list(_HARDCODED_SIGN_VECTOR),
             col_seed_base=_col_seed_buf,
             col_offset_base=_col_offset_buf,
             row_offset_base=_row_offset_buf,
@@ -661,8 +663,8 @@ def test_triton_rht_quantize_row_col_cuda_graph_compile():
     shape = (128, 256)
     A = torch.randn(*shape, dtype=torch.bfloat16, device="cuda")
     prepare_for_cuda_graph(
-        A.device
-    )  # pre-allocate TMA scratch + SR bufs outside pool context
+        A.device, sign_vectors=(_HARDCODED_SIGN_VECTOR,)
+    )  # pre-allocate TMA scratch + RHT matrix outside pool context
 
     # Pre-allocate seed bufs OUTSIDE torch.compile so their addresses are stable.
     col_seed_buf = torch.randint(
@@ -679,10 +681,13 @@ def test_triton_rht_quantize_row_col_cuda_graph_compile():
         row_offset = torch.randint(
             -(2**63), 2**63 - 1, (1,), dtype=torch.int64, device=A.device
         )
-        col_amax, row_amax = triton_rht_amax(data)
+        col_amax, row_amax = triton_rht_amax(
+            data, sign_vector=list(_HARDCODED_SIGN_VECTOR)
+        )
         col_fp4, _, row_fp4, _ = triton_rht_quantize_row_col(
             data,
             stochastic_rounding=True,
+            sign_vector=list(_HARDCODED_SIGN_VECTOR),
             col_seed_base=col_seed_buf,
             col_offset_base=col_offset,
             row_offset_base=row_offset,
@@ -707,10 +712,13 @@ def test_triton_rht_quantize_row_col_cuda_graph_compile():
     )
 
     # SR IS applied: output should differ from round-to-nearest reference
-    rtne_col_amax, rtne_row_amax = triton_rht_amax(A)
+    rtne_col_amax, rtne_row_amax = triton_rht_amax(
+        A, sign_vector=list(_HARDCODED_SIGN_VECTOR)
+    )
     rtne_col_ref, _, rtne_row_ref, _ = triton_rht_quantize_row_col(
         A,
         stochastic_rounding=False,
+        sign_vector=list(_HARDCODED_SIGN_VECTOR),
         col_global_amax=rtne_col_amax,
         row_global_amax=rtne_row_amax,
     )

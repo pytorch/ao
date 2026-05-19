@@ -229,8 +229,8 @@ if torch_version_at_least("2.10.0") and has_triton():
         A: torch.Tensor,
         col_global_amax: torch.Tensor,
         row_global_amax: torch.Tensor,
+        sign_vector: List[int],
         stochastic_rounding: bool = False,
-        sign_vector: List[int] | None = None,
         hadamard_dimension: int = 16,
         scaling_type: int = int(F.ScalingType.TensorWise),
         col_seed_base: torch.Tensor | None = None,
@@ -254,9 +254,8 @@ if torch_version_at_least("2.10.0") and has_triton():
                 via ``triton_rht_amax`` (and optionally all-reduce for TP) before passing in.
             row_global_amax: scalar float32 global amax of A. Caller must compute
                 via ``triton_rht_amax`` (and optionally all-reduce for TP) before passing in.
+            sign_vector: Sign vector for the RHT as a list of ints.
             stochastic_rounding: Use stochastic rounding for the columnwise FP4 path.
-            sign_vector: Sign vector for the RHT as a list of ints. None (default) generates
-                a random cached sign vector via get_rht_matrix.
             hadamard_dimension: Dimension of the Hadamard matrix (default 16).
             scaling_type: int encoding of F.ScalingType. Only TensorWise is supported.
             col_seed_base: Pre-allocated int64 seed tensor for columnwise SR (size=(1,)). For
@@ -326,10 +325,10 @@ if torch_version_at_least("2.10.0") and has_triton():
             )
 
         # sign_vector is List[int] for custom_op compat; convert to tuple for get_rht_matrix
-        sv = tuple(sign_vector) if sign_vector else None
+        sv = tuple(sign_vector)
 
         if hasattr(triton, "set_allocator"):
-            _ws = prepare_for_cuda_graph(A.device)
+            _ws = prepare_for_cuda_graph(A.device, sign_vectors=(sv,))
             triton.set_allocator(lambda size, align, stream: _ws[: max(size, 1)])
 
         # Resolve SR seeds: use caller-provided seeds for correct CUDA-graph SR behavior;
@@ -364,9 +363,7 @@ if torch_version_at_least("2.10.0") and has_triton():
         NUM_SMS = torch.cuda.get_device_properties(A.device).multi_processor_count
         GROUP_SIZE_N: int = 8
 
-        B = get_rht_matrix(
-            sign_vector=sv, device=A.device, hadamard_dimension=hadamard_dimension
-        ).to(torch.bfloat16)
+        B = get_rht_matrix(sv, A.device, torch.bfloat16, hadamard_dimension)
 
         # Columnwise outputs
         colwise_C = torch.empty((N, M // 2), dtype=torch.uint8, device=A.device)
@@ -411,8 +408,8 @@ if torch_version_at_least("2.10.0") and has_triton():
         A,
         col_global_amax,
         row_global_amax,
+        sign_vector,
         stochastic_rounding=False,
-        sign_vector=None,
         hadamard_dimension=16,
         scaling_type=int(F.ScalingType.TensorWise),
         col_seed_base=None,
@@ -433,8 +430,8 @@ else:
         A: torch.Tensor,
         col_global_amax: torch.Tensor,
         row_global_amax: torch.Tensor,
+        sign_vector: list[int],
         stochastic_rounding: bool = False,
-        sign_vector: list[int] | None = None,
         hadamard_dimension: int = 16,
         scaling_type: int = _DEFAULT_SCALING_TYPE,
         col_seed_base: torch.Tensor | None = None,

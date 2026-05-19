@@ -1,10 +1,10 @@
 """
 Triton kernel for Randomized Hadamard Transform (RHT) with fused global amax reduction.
 
-Entry point: triton_rht_amax(A) returns a scalar float32 global absolute maximum of
-the post-RHT output without materializing the full (N, M) output tensor. Uses a
-persistent warp-specialized TMA kernel with per-CTA cumulative max and one atomic_max
-per CTA into a caller-provided scalar buffer.
+Entry point: triton_rht_amax(A, sign_vector) returns a scalar float32 global
+absolute maximum of the post-RHT output without materializing the full (N, M)
+output tensor. Uses a persistent warp-specialized TMA kernel with per-CTA
+cumulative max and one atomic_max per CTA into a caller-provided scalar buffer.
 """
 
 import torch
@@ -141,7 +141,7 @@ if torch_version_at_least("2.10.0") and has_triton():
     @torch.library.custom_op("torchao::triton_rht_amax", mutates_args=())
     def triton_rht_amax(
         A: torch.Tensor,
-        sign_vector: List[int] | None = None,
+        sign_vector: List[int],
         hadamard_dimension: int = 16,
         scaling_type: int = int(F.ScalingType.TensorWise),
     ) -> Tuple[torch.Tensor, torch.Tensor]:
@@ -149,7 +149,7 @@ if torch_version_at_least("2.10.0") and has_triton():
 
         Args:
             A: (M, N) bfloat16 tensor, row-major. M must be divisible by 16.
-            sign_vector: Optional sign vector for the RHT as a list of ints. If None, a random one is generated.
+            sign_vector: Sign vector for the RHT as a list of ints.
             hadamard_dimension: Dimension of the Hadamard matrix (default 16).
             scaling_type: int encoding of F.ScalingType. Only TensorWise is supported.
 
@@ -182,14 +182,14 @@ if torch_version_at_least("2.10.0") and has_triton():
             )
         M, N = A.shape
 
+        sv = tuple(sign_vector)
         if hasattr(triton, "set_allocator"):
-            _ws = prepare_for_cuda_graph(A.device)
+            _ws = prepare_for_cuda_graph(A.device, sign_vectors=(sv,))
             triton.set_allocator(lambda size, align, stream: _ws[: max(size, 1)])
 
         NUM_SMS = torch.cuda.get_device_properties(A.device).multi_processor_count
         GROUP_SIZE_N: int = 8  # L2 reuse grouping along M
 
-        sv = tuple(sign_vector) if sign_vector else None
         B = get_rht_matrix(sv, A.device, torch.bfloat16, hadamard_dimension)
         global_rht_amax = torch.zeros((), dtype=torch.float32, device=A.device)
         global_a_amax = torch.zeros((), dtype=torch.float32, device=A.device)
@@ -213,7 +213,7 @@ if torch_version_at_least("2.10.0") and has_triton():
     @triton_rht_amax.register_fake
     def _(
         A,
-        sign_vector=None,
+        sign_vector,
         hadamard_dimension=16,
         scaling_type=int(F.ScalingType.TensorWise),
     ):
@@ -225,7 +225,7 @@ else:
 
     def triton_rht_amax(
         A: torch.Tensor,
-        sign_vector: list[int] | None = None,
+        sign_vector: list[int],
         hadamard_dimension: int = 16,
         scaling_type: int = _DEFAULT_SCALING_TYPE,
     ) -> tuple[torch.Tensor, torch.Tensor]:

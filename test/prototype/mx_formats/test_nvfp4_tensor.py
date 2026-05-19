@@ -22,7 +22,7 @@ from torchao.prototype.mx_formats.nvfp4_tensor import (
 from torchao.prototype.mx_formats.utils import ceil_div
 from torchao.quantization.utils import compute_error
 from torchao.testing.utils import skip_if_rocm
-from torchao.utils import is_sm_at_least_100
+from torchao.utils import is_sm_at_least_100, torch_version_at_least
 
 torch.manual_seed(2)
 
@@ -730,6 +730,30 @@ def test_nvfp4_per_expert_scale():
     torch.testing.assert_close(xc_dq_ref, xc_dq, atol=0, rtol=0)
 
 
+def test_nvfp4_linear_rht_sign_vector_state_dict_roundtrip():
+    from torchao.prototype.mx_formats.nvfp4_training import NVFP4Linear
+    from torchao.quantization.quantize_.common.kernel_preference import KernelPreference
+
+    torch.manual_seed(123)
+    layer = NVFP4Linear(128, 128, bias=False, kernel_preference=KernelPreference.TRITON)
+    expected_sign_vector = layer.rht_sign_vector
+    state_dict = layer.state_dict()
+
+    torch.manual_seed(456)
+    loaded = NVFP4Linear(
+        128, 128, bias=False, kernel_preference=KernelPreference.TRITON
+    )
+    loaded.load_state_dict(state_dict)
+
+    assert loaded.rht_sign_vector == expected_sign_vector
+    torch.testing.assert_close(
+        loaded._rht_sign_vector.cpu(),
+        layer._rht_sign_vector.cpu(),
+        atol=0,
+        rtol=0,
+    )
+
+
 @pytest.mark.skipif(not has_triton(), reason="unsupported without triton")
 @pytest.mark.skipif(not is_sm_at_least_100(), reason="Requires SM100+")
 @pytest.mark.skipif(
@@ -743,13 +767,12 @@ def test_nvfp4_mm_triton_cuda_graph_compile():
     from torchao.quantization.quantize_.common.kernel_preference import KernelPreference
 
     M, K, N = 128, 256, 128
-    prepare_for_cuda_graph(torch.device("cuda"))
-
     layer = (
         NVFP4Linear(K, N, bias=False, kernel_preference=KernelPreference.TRITON)
         .cuda()
         .to(torch.bfloat16)
     )
+    prepare_for_cuda_graph(torch.device("cuda"), sign_vectors=(layer.rht_sign_vector,))
     x = torch.randn(M, K, dtype=torch.bfloat16, device="cuda", requires_grad=True)
 
     compiled_layer = torch.compile(layer, mode="reduce-overhead", fullgraph=True)
@@ -769,11 +792,16 @@ def test_nvfp4_mm_triton_cuda_graph_compile():
     sqnr = compute_error(ref, nvfp4_out)
     assert sqnr >= 15.0, f"Forward SQNR {sqnr:.2f} dB < 15 dB"
 
+    # Use a fixed non-constant upstream gradient. With .sum().backward(), grad_output
+    # is all ones, whose RHT quantization lands on exact values and can be
+    # deterministic even when stochastic rounding is enabled.
+    grad_out = torch.randn_like(r1)
+
     def one_step():
         x.grad = None
         layer.weight.grad = None
         with torch._dynamo.compiled_autograd._enable(compiled_bwd):
-            compiled_layer(x).sum().backward()
+            compiled_layer(x).backward(grad_out)
         return layer.weight.grad.detach().clone()
 
     for _ in range(3):

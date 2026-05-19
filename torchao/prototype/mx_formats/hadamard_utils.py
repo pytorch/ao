@@ -28,12 +28,10 @@ def _device_key(device) -> str:
 
 
 def _prewarm_rht_matrix(
-    sign_vector: tuple[int, ...] | None,
+    sign_vector: tuple[int, ...],
     device: torch.device,
 ) -> None:
-    # lru_cache keys distinguish positional/defaulted and keyword/defaulted calls.
     get_rht_matrix(sign_vector, device, torch.bfloat16, 16)
-    get_rht_matrix(sign_vector=sign_vector, device=device, hadamard_dimension=16)
 
 
 def prepare_for_cuda_graph(
@@ -50,8 +48,8 @@ def prepare_for_cuda_graph(
     and safely alias the TMA buffer.
 
     Also pre-warms get_rht_matrix (lru_cache) to prevent pool-allocation errors
-    during graph capture. Pass any explicit RHT sign vectors used by the graph
-    through sign_vectors so those cache entries are allocated before capture.
+    during graph capture. Pass any RHT sign vectors used by the graph through
+    sign_vectors so those cache entries are allocated before capture.
     """
     key = _device_key(device)
     if key not in _TMA_WORKSPACES:
@@ -61,7 +59,6 @@ def prepare_for_cuda_graph(
     # torch.device(key) ("cuda:N") because A.device always produces a fully
     # indexed device and lru_cache keys are compared by value.
     _dev = torch.device(key)
-    _prewarm_rht_matrix(None, _dev)
     for sign_vector in sign_vectors or ():
         _prewarm_rht_matrix(tuple(sign_vector), _dev)
     return _TMA_WORKSPACES[key]
@@ -114,21 +111,19 @@ def get_hadamard_matrix(
 
 @functools.lru_cache(maxsize=None)
 def get_rht_matrix(
-    sign_vector: tuple[int, ...] | None,
+    sign_vector: tuple[int, ...],
     device,
-    dtype: torch.dtype = torch.bfloat16,
-    hadamard_dimension: int = 16,
+    dtype: torch.dtype,
+    hadamard_dimension: int,
+    /,
 ) -> torch.Tensor:
-    """Construct an RHT matrix from an explicit sign vector or a generated sign vector."""
-    if sign_vector is None:
-        signs = get_wgrad_sign_vector(hadamard_dimension, device=device, dtype=dtype)
-    else:
-        if len(sign_vector) != hadamard_dimension:
-            raise ValueError(
-                f"Expected sign_vector length {hadamard_dimension}, "
-                f"got {len(sign_vector)}"
-            )
-        signs = torch.tensor(sign_vector, dtype=dtype, device=device)
+    """Construct an RHT matrix from an explicit sign vector. Avoid default arguments
+    and require positional arguments to ensure lru_cache keys are unambiguous."""
+    if len(sign_vector) != hadamard_dimension:
+        raise ValueError(
+            f"Expected sign_vector length {hadamard_dimension}, got {len(sign_vector)}"
+        )
+    signs = torch.tensor(sign_vector, dtype=dtype, device=device)
     sign_matrix = signs * torch.eye(hadamard_dimension, dtype=dtype, device=device)
     return sign_matrix @ get_hadamard_matrix(
         hadamard_dimension, device=device, dtype=dtype
