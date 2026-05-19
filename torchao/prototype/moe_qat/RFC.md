@@ -49,7 +49,7 @@ To provide a model-agnostic MoE QAT support, we choose to adopt a parameter-swap
 
    2. **Stateful**: `IntxFakeQuantizeConfig` only (range learning). We have not yet found a clean design for this case — trainable states must be visible to `model.parameters()` so the optimizer can find and update them, but tensor subclass attributes are not reachable through the module hierarchy. A possible approach: store `nn.Parameter` states on the wrapper, register them on the parent module, and deregister on unwrap. This requires custom code for `torch.compile`, checkpointing, and FSDP2 compatibility.
 
-   3. **Deferred**: slicing, indexing, and dimension-manipulation ops preserve the wrapper without applying fake quantization. Quantization is deferred until computation time, avoiding double quantization.
+   3. **Deferred**: slicing, indexing, and dimension-manipulation ops preserve the wrapper without applying fake quantization. Quantization is deferred until computation time, avoiding double quantization. With `torch._grouped_mm`, the activation is quantized once for the single grouped call. In a per-expert loop pattern, activation fake-quantization is repeated per expert — correct but a potential optimization target.
 
 3. **Parameter-level traversal with handler dispatch**: `quantize_` passes each module that matches `filter_fn` to the handler of `MoEQATConfig`. The handler walks the module's parameters (including sub-modules), filters them via `config.params_filter_fn`, and replaces each matching `nn.Parameter` using a handler selected from a registry. Handlers for different `FakeQuantizeConfig` types are registered in a dictionary via a decorator. This two-level traversal pattern is reusable for MoE training, QAT, and inference.
 
