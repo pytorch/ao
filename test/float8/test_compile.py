@@ -176,7 +176,7 @@ def test_aot_eager(
 @unittest.skipIf(not torch.accelerator.is_available(), "GPU not available")
 @unittest.skipIf(
     torch.cuda.is_available() and not is_sm_at_least_89(),
-    "CUDA with float8 support not available",
+    "CUDA capability >= 8.9 required for native float8 support",
 )
 def test_inductor_from_config_params(
     fullgraph,
@@ -270,7 +270,7 @@ class TestGraphBreaks(DynamoTestCase):
     @unittest.skipIf(not torch.accelerator.is_available(), "GPU not available")
     @unittest.skipIf(
         torch.cuda.is_available() and not is_sm_at_least_89(),
-        "CUDA with float8 support not available",
+        "CUDA capability >= 8.9 required for native float8 support",
     )
     def test_float8_graph_input(self):
         """Test that having Float8TrainingTensor object as a graph input"""
@@ -295,7 +295,7 @@ class TestGraphBreaks(DynamoTestCase):
     @unittest.skipIf(not torch.accelerator.is_available(), "GPU not available")
     @unittest.skipIf(
         torch.cuda.is_available() and not is_sm_at_least_89(),
-        "CUDA with float8 support not available",
+        "CUDA capability >= 8.9 required for native float8 support",
     )
     def test_float8_graph_output(self):
         """Test that having Float8TrainingTensor object as a graph output works"""

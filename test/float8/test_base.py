@@ -486,7 +486,7 @@ class TestFloat8Linear:
     @unittest.skipIf(not torch.accelerator.is_available(), "GPU not available")
     @unittest.skipIf(
         torch.cuda.is_available() and not is_sm_at_least_89(),
-        "CUDA with float8 support not available",
+        "CUDA capability >= 8.9 required for native float8 support",
     )
     def test_inference_mode(self):
         x = torch.randn(32, 32, device=_GPU_DEVICE)
@@ -498,7 +498,7 @@ class TestFloat8Linear:
     @unittest.skipIf(not torch.accelerator.is_available(), "GPU not available")
     @unittest.skipIf(
         torch.cuda.is_available() and not is_sm_at_least_89(),
-        "CUDA with float8 support not available",
+        "CUDA capability >= 8.9 required for native float8 support",
     )
     def test_quantize(self):
         x = torch.randn(32, 32, device=_GPU_DEVICE)
@@ -523,7 +523,7 @@ class TestScaledMM:
     @unittest.skipIf(not torch.accelerator.is_available(), "GPU not available")
     @unittest.skipIf(
         torch.cuda.is_available() and not is_sm_at_least_89(),
-        "CUDA with float8 support not available",
+        "CUDA capability >= 8.9 required for native float8 support",
     )
     def test_scaled_mm_vs_emulated(self, base_dtype, use_fast_accum):
         torch.manual_seed(42)
@@ -566,7 +566,7 @@ class TestScaledMM:
     @unittest.skipIf(not torch.accelerator.is_available(), "GPU not available")
     @unittest.skipIf(
         torch.cuda.is_available() and not is_sm_at_least_89(),
-        "CUDA with float8 support not available",
+        "CUDA capability >= 8.9 required for native float8 support",
     )
     def test_different_configs_error(self):
         x_fp32 = torch.randn(16, 16, device=_GPU_DEVICE)
@@ -609,7 +609,7 @@ class TestScaledMM:
     @unittest.skipIf(not torch.accelerator.is_available(), "GPU not available")
     @unittest.skipIf(
         torch.cuda.is_available() and not is_sm_at_least_89(),
-        "CUDA with float8 support not available",
+        "CUDA capability >= 8.9 required for native float8 support",
     )
     def test_pad_inner_dim(self, base_dtype, use_fast_accum):
         torch.manual_seed(42)
@@ -802,10 +802,13 @@ class TestFloat8LinearUtils(unittest.TestCase):
                 self.lin2 = nn.Linear(4 * dim, dim)
 
         model = nn.Sequential(MLP(3), nn.Linear(3, 3), MLP(3))
-        module_filter_fn = lambda mod, fqn: fqn not in [
-            "0.lin2",
-            "2.lin1",
-        ]
+        module_filter_fn = lambda mod, fqn: (
+            fqn
+            not in [
+                "0.lin2",
+                "2.lin1",
+            ]
+        )
         config = Float8LinearConfig(emulate=True)
         model = convert_to_float8_training(
             model,
