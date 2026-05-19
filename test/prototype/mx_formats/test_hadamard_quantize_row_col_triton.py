@@ -240,6 +240,22 @@ def _input_from_rht_target(target: torch.Tensor) -> torch.Tensor:
 @pytest.mark.skipif(
     not torch_version_at_least("2.10.0"), reason="torch.compile requires PyTorch 2.10+"
 )
+@torch.no_grad()
+def test_triton_rht_amax_propagates_nan():
+    A = torch.randn(128, 128, dtype=torch.bfloat16, device="cuda")
+    A[0, 0] = float("nan")
+
+    col_amax, row_amax = triton_rht_amax(A, sign_vector=list(_HARDCODED_SIGN_VECTOR))
+
+    assert torch.isnan(col_amax)
+    assert torch.isnan(row_amax)
+
+
+@pytest.mark.skipif(not has_triton(), reason="unsupported without triton")
+@pytest.mark.skipif(not is_sm_at_least_100(), reason="Requires SM100+")
+@pytest.mark.skipif(
+    not torch_version_at_least("2.10.0"), reason="torch.compile requires PyTorch 2.10+"
+)
 @pytest.mark.parametrize("N", _N_VALUES, ids=lambda n: f"N{n}")
 @pytest.mark.parametrize("M", _M_VALUES, ids=lambda m: f"M{m}")
 @torch.no_grad()

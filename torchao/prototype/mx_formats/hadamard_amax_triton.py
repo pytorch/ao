@@ -127,15 +127,34 @@ if torch_version_at_least("2.10.0") and has_triton():
             # Update cumulative max at tile level to avoid failing
             # TritonGPUAutomaticWarpSpecialization MLIR pass
             abs_a_t_rht = tl.abs(a_t_rht)
-            cumulative_rht_amax = tl.maximum(cumulative_rht_amax, abs_a_t_rht)
+            cumulative_rht_amax = tl.maximum(
+                cumulative_rht_amax,
+                abs_a_t_rht,
+                propagate_nan=tl.PropagateNan.ALL,
+            )
 
-            cumulative_a_amax = tl.maximum(cumulative_a_amax, tl.abs(a.to(tl.float32)))
+            abs_a = tl.abs(a.to(tl.float32))
+            cumulative_a_amax = tl.maximum(
+                cumulative_a_amax,
+                abs_a,
+                propagate_nan=tl.PropagateNan.ALL,
+            )
 
         # Get scalar max for this block and update global max with atomic max operation
         tile_rht_amax = tl.max(tl.max(cumulative_rht_amax, axis=1), axis=0)
+        tile_rht_has_nan = tl.max(
+            tl.max((cumulative_rht_amax != cumulative_rht_amax).to(tl.int32), axis=1),
+            axis=0,
+        )
+        tile_rht_amax = tl.where(tile_rht_has_nan != 0, float("nan"), tile_rht_amax)
         tl.atomic_max(global_rht_amax_ptr, tile_rht_amax.to(tl.float32))
 
         tile_a_amax = tl.max(tl.max(cumulative_a_amax, axis=1), axis=0)
+        tile_a_has_nan = tl.max(
+            tl.max((cumulative_a_amax != cumulative_a_amax).to(tl.int32), axis=1),
+            axis=0,
+        )
+        tile_a_amax = tl.where(tile_a_has_nan != 0, float("nan"), tile_a_amax)
         tl.atomic_max(global_a_amax_ptr, tile_a_amax.to(tl.float32))
 
     @torch.library.custom_op("torchao::triton_rht_amax", mutates_args=())
