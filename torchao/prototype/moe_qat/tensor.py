@@ -125,6 +125,9 @@ class FakeQuantizedWeightWrapperBaseTensor(TorchAOBaseTensor):
     and a :class:`~torchao.quantization.qat.fake_quantize_config.FakeQuantizeConfigBase`
     that specifies the fake quantization recipe.
 
+    Supports FSDP2 via :meth:`fsdp_pre_all_gather` and :meth:`fsdp_post_all_gather`,
+    which handle mixed-precision casting and wrapper reconstruction after all-gather.
+
     Subclasses must override :meth:`__torch_function__` to intercept computation
     ops and apply their precision-specific fake quantization.
 
@@ -161,7 +164,7 @@ class FakeQuantizedWeightWrapperBaseTensor(TorchAOBaseTensor):
         self._data = tensor
         if weight_config is None:
             raise ValueError(
-                f"Must specify `weight_config` in {type(self).__name__} yet."
+                f"Must specify `weight_config` in {type(self).__name__}."
             )
 
         self.activation_config = activation_config
@@ -266,6 +269,7 @@ class FakeQuantizedWeightWrapperBaseTensor(TorchAOBaseTensor):
             weight_config=tensor_attributes["weight_config"],
         )
 
+    # FSDP hooks based on torchao/prototype/moe_training/tensor.py:156
     def fsdp_pre_all_gather(
         self,
         mesh: DeviceMesh,
@@ -274,9 +278,10 @@ class FakeQuantizedWeightWrapperBaseTensor(TorchAOBaseTensor):
         module: nn.Module,
         mp_policy: MixedPrecisionPolicy,
     ):
-        raise NotImplementedError(
-            "fsdp_pre_all_gather of FakeQuantizedWeightWrapperBaseTensor has not been implemented yet."
-        )
+        # Cast to mixed precision dtype prior to all-gather
+        all_gather_inputs = (self._data.to(mp_policy.param_dtype),)
+        all_gather_metadata = ()
+        return all_gather_inputs, all_gather_metadata
 
     def fsdp_post_all_gather(
         self,
@@ -286,9 +291,53 @@ class FakeQuantizedWeightWrapperBaseTensor(TorchAOBaseTensor):
         *,
         out: Optional[torch.Tensor] = None,
     ):
-        raise NotImplementedError(
-            "fsdp_post_all_gather of FakeQuantizedWeightWrapperBaseTensor has not been implemented yet."
-        )
+        (data,) = all_gather_outputs
+
+        # For training step 0, out=None, create a new wrapper.
+        if out is None:
+            output = type(self)(
+                data,
+                activation_config=self.activation_config,
+                weight_config=self.weight_config,
+            )
+            inner_tensors = (data,)
+            return output, inner_tensors
+        else:
+            # For training step 1+, out=unsharded param. FSDP2 creates a shallow copy
+            # of the wrapper; we restore configs from self. out may be a bare subclass
+            # or wrapped in DTensor.
+            if isinstance(out, FakeQuantizedWeightWrapperBaseTensor):
+                out_data = out._data
+                out.activation_config = self.activation_config
+                out.weight_config = self.weight_config
+            elif isinstance(out, DTensor) and isinstance(
+                out._local_tensor, FakeQuantizedWeightWrapperBaseTensor
+            ):
+                out_data = out._local_tensor._data
+                out._local_tensor.activation_config = self.activation_config
+                out._local_tensor.weight_config = self.weight_config
+            else:
+                raise RuntimeError(
+                    f"expected out to be {type(self).__name__} or DTensor with local_tensor={type(self).__name__}, but got {type(out)}"
+                )
+
+            # If `data` (all gather outputs) is already in the mixed precision policy param_dtype,
+            # verify it has underlying storage as `out` (pre-allocated unsharded param),
+            # and then we can just return directly.
+            if data.dtype == param_dtype:
+                assert (
+                    data.untyped_storage().data_ptr()
+                    == out_data.untyped_storage().data_ptr()
+                )
+            else:
+                # Otherwise, verify that `out` (pre-allocated unsharded param) has the
+                # mixed precision policy param_dtype, then copy `data` to `out`.
+                assert out_data.dtype == param_dtype, f"{out_data.dtype} {param_dtype}"
+                out_data.copy_(data)
+
+            return
+
+
 
 
 class Float8FakeQuantizedWeightWrapperTensor(FakeQuantizedWeightWrapperBaseTensor):
@@ -367,7 +416,9 @@ class Float8FakeQuantizedWeightWrapperTensor(FakeQuantizedWeightWrapperBaseTenso
                 f"puts the weight at args[0]. Use \"grouped_mm\" instead."
             )
 
-            # Fake-quantize the activation if B.activation_config exists
+            # Fake-quantize the activation if B.activation_config exists.
+            # With torch._grouped_mm, activation is quantized once for the shared
+            # 3D weight. In a per-expert loop pattern, this repeats per expert.
             if B.activation_config is not None:
                 assert not isinstance(A, TorchAOBaseTensor), \
                     f"When an activation config is specified, the activation must not be a quantized tensor, got {type(A)}"
