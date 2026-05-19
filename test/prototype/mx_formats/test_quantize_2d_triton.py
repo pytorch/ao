@@ -28,6 +28,8 @@ from torchao.prototype.mx_formats.hadamard_utils import prepare_for_cuda_graph
 # BLOCK_M minimum is 128; N must be a multiple of BLOCK_N=256.
 _M_VALUES = [128, 256, 512, 1024]
 _N_VALUES = [256, 512, 1024, 2048]
+_FP8_E4M3_EPS = torch.finfo(torch.float8_e4m3fn).tiny
+_NEAR_ZERO = 1.0e-10
 
 
 # ---------------------------------------------------------------------------
@@ -40,13 +42,14 @@ def _weight_quantize_2d_reference_scales(A: torch.Tensor) -> torch.Tensor:
 
     Mirrors the two-level scaling in _nvfp4_2d_quantize:
       1. global encode scale from the tensor-wide amax.
-      2. per-block FP8 scale clamped to [-FP8_MAX, FP8_MAX].
+      2. per-block FP8 scale clamped to [FP8_EPS, FP8_MAX].
       3. Expand each per-block scale to cover 16 consecutive rows.
 
     Returns:
         (M, N//16) float8_e4m3fn — the same layout as the kernel's non-swizzled output.
     """
     FP8_MAX = 448.0
+    FP8_EPS = torch.finfo(torch.float8_e4m3fn).tiny
     FP4_MAX = 6.0
     M, N = A.shape
     x = A.float()
@@ -55,9 +58,16 @@ def _weight_quantize_2d_reference_scales(A: torch.Tensor) -> torch.Tensor:
     blocks = x.reshape(M // 16, 16, N // 16, 16)
     block_amax = blocks.abs().amax(dim=(1, 3))  # (M//16, N//16)
 
-    enc_g = (FP8_MAX * FP4_MAX / global_amax).clamp(max=torch.finfo(torch.float32).max)
+    is_global_amax_zero = global_amax == 0
+    safe_global_amax = torch.where(
+        is_global_amax_zero, torch.ones_like(global_amax), global_amax
+    )
+    enc_g = (FP8_MAX * FP4_MAX / safe_global_amax).clamp(
+        max=torch.finfo(torch.float32).max
+    )
+    enc_g = torch.where(is_global_amax_zero, torch.ones_like(enc_g), enc_g)
     pvscale = (block_amax / FP4_MAX) * enc_g
-    pvscale = pvscale.clamp(-FP8_MAX, FP8_MAX).to(torch.float8_e4m3fn)  # (M//16, N//16)
+    pvscale = pvscale.clamp(FP8_EPS, FP8_MAX).to(torch.float8_e4m3fn)  # (M//16, N//16)
 
     # Expand: each block-row scale repeated 16 times → (M, N//16)
     return pvscale.repeat_interleave(16, dim=0)
@@ -75,6 +85,73 @@ def _swizzle_py(scales_expanded: torch.Tensor, M: int, N: int) -> torch.Tensor:
         .reshape(M // 128, N // 64, 32, 16)
     )
     return swizzled.view(torch.float8_e4m3fn)
+
+
+def _dequantize(
+    codes: torch.Tensor,
+    scales: torch.Tensor,
+    global_amax: torch.Tensor,
+) -> torch.Tensor:
+    return (
+        NVFP4Tensor(
+            codes,
+            scales,
+            16,
+            torch.bfloat16,
+            per_tensor_scale=per_tensor_amax_to_scale(global_amax),
+            is_swizzled_scales=True,
+        )
+        .dequantize()
+        .float()
+    )
+
+
+def _unpack_fp4_magnitudes(codes: torch.Tensor) -> torch.Tensor:
+    lo = (codes & 0xF).long()
+    hi = (codes >> 4).long()
+    out = torch.empty(
+        codes.shape[0], codes.shape[1] * 2, dtype=torch.long, device=codes.device
+    )
+    out[:, ::2] = lo
+    out[:, 1::2] = hi
+    return out & 0x7
+
+
+def _assert_scales_finite_and_nonzero(scales: torch.Tensor) -> None:
+    scales_f32 = scales.to(torch.float32)
+    assert torch.isfinite(scales_f32).all(), "scale factors must be finite"
+    assert (scales_f32 >= _FP8_E4M3_EPS).all(), (
+        f"scale factors must be clamped to at least {_FP8_E4M3_EPS}"
+    )
+
+
+def _assert_zero_quantized(
+    codes: torch.Tensor,
+    scales: torch.Tensor,
+    dequantized: torch.Tensor,
+) -> None:
+    assert torch.count_nonzero(codes).item() == 0, "all-zero input must pack to zero"
+    scales_f32 = scales.to(torch.float32)
+    torch.testing.assert_close(
+        scales_f32,
+        torch.full_like(scales_f32, _FP8_E4M3_EPS),
+        atol=0,
+        rtol=0,
+    )
+    assert torch.isfinite(dequantized).all(), "dequantized zero input must be finite"
+    torch.testing.assert_close(
+        dequantized, torch.zeros_like(dequantized), atol=0, rtol=0
+    )
+
+
+def _assert_near_zero_values_do_not_saturate(
+    codes: torch.Tensor, near_zero_mask: torch.Tensor
+) -> None:
+    magnitudes = _unpack_fp4_magnitudes(codes)
+    near_zero_magnitudes = magnitudes[near_zero_mask]
+    assert (near_zero_magnitudes <= 1).all(), (
+        "near-zero values must not saturate to large FP4 magnitudes"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -171,6 +248,62 @@ def test_triton_weight_quantize_2d_sqnr(M, N):
 
     sqnr_t = compute_error(A.T.float(), dequant_t)
     assert sqnr_t >= 15.0, f"Colwise SQNR {sqnr_t:.2f} dB < 15.0 dB for M={M} N={N}"
+
+
+@pytest.mark.skipif(not has_triton(), reason="unsupported without triton")
+@pytest.mark.skipif(not is_sm_at_least_100(), reason="Requires SM100+")
+@pytest.mark.skipif(
+    not torch_version_at_least("2.10.0"), reason="torch.compile requires PyTorch 2.10+"
+)
+@pytest.mark.parametrize(
+    "input_kind",
+    [pytest.param("zeros", id="zeros"), pytest.param("near_zero", id="near_zero")],
+)
+@torch.no_grad()
+def test_triton_weight_quantize_2d_zero_and_near_zero_no_nan_or_saturation(
+    input_kind,
+):
+    M, N = 128, 256
+
+    if input_kind == "zeros":
+        A = torch.zeros(M, N, dtype=torch.bfloat16, device="cuda")
+    else:
+        A = torch.full((M, N), _NEAR_ZERO, dtype=torch.bfloat16, device="cuda")
+        A[0, 0] = 1.0
+
+    global_amax = A.float().abs().max()
+    row_codes, row_sf, col_codes, col_sf = triton_weight_quantize_2d(A, global_amax)
+
+    if input_kind == "zeros":
+        _assert_zero_quantized(
+            row_codes, row_sf, _dequantize(row_codes, row_sf, global_amax)
+        )
+        _assert_zero_quantized(
+            col_codes, col_sf, _dequantize(col_codes, col_sf, global_amax)
+        )
+        return
+
+    _assert_scales_finite_and_nonzero(row_sf)
+    row_dequant = _dequantize(row_codes, row_sf, global_amax)
+    assert torch.isfinite(row_dequant).all(), (
+        "rowwise dequantized values must be finite"
+    )
+    assert row_dequant.abs().max() <= 1.0
+
+    row_near_zero_mask = torch.ones(M, N, dtype=torch.bool, device="cuda")
+    row_near_zero_mask[0, 0] = False
+    _assert_near_zero_values_do_not_saturate(row_codes, row_near_zero_mask)
+
+    _assert_scales_finite_and_nonzero(col_sf)
+    col_dequant = _dequantize(col_codes, col_sf, global_amax)
+    assert torch.isfinite(col_dequant).all(), (
+        "colwise dequantized values must be finite"
+    )
+    assert col_dequant.abs().max() <= 1.0
+
+    col_near_zero_mask = torch.ones(N, M, dtype=torch.bool, device="cuda")
+    col_near_zero_mask[0, 0] = False
+    _assert_near_zero_values_do_not_saturate(col_codes, col_near_zero_mask)
 
 
 @pytest.mark.skipif(not has_triton(), reason="unsupported without triton")

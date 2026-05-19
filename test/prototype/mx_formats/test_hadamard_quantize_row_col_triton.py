@@ -49,6 +49,8 @@ if has_triton() and is_sm_at_least_100() and torch_version_at_least("2.10.0"):
 _M_VALUES = [128, 160, 256, 512]
 # N must be ≥ 128 (BLOCK_N fixed=128). N=100 excluded.
 _N_VALUES = [128, 200, 256, 384, 512, 1024]
+_FP8_E4M3_EPS = torch.finfo(torch.float8_e4m3fn).tiny
+_NEAR_ZERO = 1.0e-10
 _HARDCODED_SIGN_VECTOR = (
     1,
     1,
@@ -140,6 +142,92 @@ def _dequantize(
     )
 
 
+def _random_i64(device: torch.device) -> torch.Tensor:
+    return torch.randint(-(2**63), 2**63 - 1, (1,), dtype=torch.int64, device=device)
+
+
+def _sr_kwargs(device: torch.device) -> dict[str, torch.Tensor]:
+    return {
+        "col_seed_base": _random_i64(device),
+        "col_offset_base": _random_i64(device),
+        "row_offset_base": _random_i64(device),
+        "row_seed_base": _random_i64(device),
+    }
+
+
+def _quantize_row_col(
+    A: torch.Tensor, stochastic_rounding: bool
+) -> tuple[
+    torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor
+]:
+    col_amax, row_amax = triton_rht_amax(A, sign_vector=list(_HARDCODED_SIGN_VECTOR))
+    kwargs = _sr_kwargs(A.device) if stochastic_rounding else {}
+    col_codes, col_sf, row_codes, row_sf = triton_rht_quantize_row_col(
+        A,
+        stochastic_rounding=stochastic_rounding,
+        sign_vector=_HARDCODED_SIGN_VECTOR,
+        col_global_amax=col_amax,
+        row_global_amax=row_amax,
+        **kwargs,
+    )
+    return col_codes, col_sf, row_codes, row_sf, col_amax, row_amax
+
+
+def _unpack_fp4_magnitudes(codes: torch.Tensor) -> torch.Tensor:
+    lo = (codes & 0xF).long()
+    hi = (codes >> 4).long()
+    out = torch.empty(
+        codes.shape[0], codes.shape[1] * 2, dtype=torch.long, device=codes.device
+    )
+    out[:, ::2] = lo
+    out[:, 1::2] = hi
+    return out & 0x7
+
+
+def _assert_scales_finite_and_nonzero(scales: torch.Tensor) -> None:
+    scales_f32 = scales.to(torch.float32)
+    assert torch.isfinite(scales_f32).all(), "scale factors must be finite"
+    assert (scales_f32 >= _FP8_E4M3_EPS).all(), (
+        f"scale factors must be clamped to at least {_FP8_E4M3_EPS}"
+    )
+
+
+def _assert_zero_quantized(
+    codes: torch.Tensor,
+    scales: torch.Tensor,
+    dequantized: torch.Tensor,
+) -> None:
+    assert torch.count_nonzero(codes).item() == 0, "all-zero input must pack to zero"
+    scales_f32 = scales.to(torch.float32)
+    torch.testing.assert_close(
+        scales_f32,
+        torch.full_like(scales_f32, _FP8_E4M3_EPS),
+        atol=0,
+        rtol=0,
+    )
+    assert torch.isfinite(dequantized).all(), "dequantized zero input must be finite"
+    torch.testing.assert_close(
+        dequantized, torch.zeros_like(dequantized), atol=0, rtol=0
+    )
+
+
+def _assert_near_zero_values_do_not_saturate(
+    codes: torch.Tensor, near_zero_mask: torch.Tensor
+) -> None:
+    magnitudes = _unpack_fp4_magnitudes(codes)
+    near_zero_magnitudes = magnitudes[near_zero_mask]
+    assert (near_zero_magnitudes <= 1).all(), (
+        "near-zero values must not saturate to large FP4 magnitudes"
+    )
+
+
+def _input_from_rht_target(target: torch.Tensor) -> torch.Tensor:
+    N, M = target.shape
+    B = get_rht_matrix(sign_vector=_HARDCODED_SIGN_VECTOR, device=target.device).float()
+    A_t = (target.reshape(N * M // 16, 16) @ B.t()).reshape(N, M)
+    return A_t.t().contiguous().to(torch.bfloat16)
+
+
 # ---------------------------------------------------------------------------
 # Tests — RTNE (stochastic_rounding=False)
 # ---------------------------------------------------------------------------
@@ -229,6 +317,69 @@ def test_triton_rht_quantize_rtne_sqnr(M, N):
         A.float(), _dequantize(tri_row_codes, tri_row_sf, row_amax)
     )
     assert row_sqnr >= 20.0, f"Row SQNR {row_sqnr:.2f} dB < 20.0 dB for M={M} N={N}"
+
+
+@pytest.mark.skipif(not has_triton(), reason="unsupported without triton")
+@pytest.mark.skipif(not is_sm_at_least_100(), reason="Requires SM100+")
+@pytest.mark.skipif(
+    not torch_version_at_least("2.10.0"), reason="torch.compile requires PyTorch 2.10+"
+)
+@pytest.mark.parametrize(
+    "stochastic_rounding",
+    [pytest.param(False, id="rtne"), pytest.param(True, id="stochastic_rounding")],
+)
+@pytest.mark.parametrize(
+    "input_kind",
+    [pytest.param("zeros", id="zeros"), pytest.param("near_zero", id="near_zero")],
+)
+@torch.no_grad()
+def test_triton_rht_quantize_row_col_zero_and_near_zero_no_nan_or_saturation(
+    input_kind, stochastic_rounding
+):
+    M, N = 128, 128
+
+    if input_kind == "zeros":
+        A = torch.zeros(M, N, dtype=torch.bfloat16, device="cuda")
+        col_codes, col_sf, row_codes, row_sf, col_amax, row_amax = _quantize_row_col(
+            A, stochastic_rounding
+        )
+
+        _assert_zero_quantized(
+            col_codes, col_sf, _dequantize(col_codes, col_sf, col_amax)
+        )
+        _assert_zero_quantized(
+            row_codes, row_sf, _dequantize(row_codes, row_sf, row_amax)
+        )
+        return
+
+    A_row = torch.full((M, N), _NEAR_ZERO, dtype=torch.bfloat16, device="cuda")
+    A_row[0, 0] = 1.0
+    _, _, row_codes, row_sf, _, row_amax = _quantize_row_col(A_row, stochastic_rounding)
+    _assert_scales_finite_and_nonzero(row_sf)
+    row_dequant = _dequantize(row_codes, row_sf, row_amax)
+    assert torch.isfinite(row_dequant).all(), (
+        "rowwise dequantized values must be finite"
+    )
+    assert row_dequant.abs().max() <= 1.0
+
+    row_near_zero_mask = torch.ones(M, N, dtype=torch.bool, device="cuda")
+    row_near_zero_mask[0, 0] = False
+    _assert_near_zero_values_do_not_saturate(row_codes, row_near_zero_mask)
+
+    col_target = torch.full((N, M), _NEAR_ZERO, dtype=torch.float32, device="cuda")
+    col_target[0, 0] = 1.0
+    A_col = _input_from_rht_target(col_target)
+    col_codes, col_sf, _, _, col_amax, _ = _quantize_row_col(A_col, stochastic_rounding)
+    _assert_scales_finite_and_nonzero(col_sf)
+    col_dequant = _dequantize(col_codes, col_sf, col_amax)
+    assert torch.isfinite(col_dequant).all(), (
+        "colwise dequantized values must be finite"
+    )
+    assert col_dequant.abs().max() <= 1.0
+
+    col_near_zero_mask = torch.ones(N, M, dtype=torch.bool, device="cuda")
+    col_near_zero_mask[0, 0] = False
+    _assert_near_zero_values_do_not_saturate(col_codes, col_near_zero_mask)
 
 
 # ---------------------------------------------------------------------------

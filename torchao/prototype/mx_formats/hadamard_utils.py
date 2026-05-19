@@ -233,6 +233,7 @@ if has_triton():
         a_t_rht, global_amax, BLOCK_N: tl.constexpr, BLOCK_M: tl.constexpr
     ):
         """Compute per-vector FP8 scale factors and scaled FP32 values ready for FP4 packing."""
+        FP8_E4M3_EPS: tl.constexpr = torch.finfo(torch.float8_e4m3fn).tiny
         FP8_E4M3_MAX: tl.constexpr = 448.0
         FP4_E2M1_MAX: tl.constexpr = 6.0
         FP32_MAX: tl.constexpr = torch.finfo(torch.float32).max
@@ -248,7 +249,7 @@ if has_triton():
         global_decode_scale = 1.0 / global_encode_scale
 
         pvscale = (vec_max / FP4_E2M1_MAX) * global_encode_scale
-        pvscale = tl.clamp(pvscale, -FP8_E4M3_MAX, FP8_E4M3_MAX)
+        pvscale = tl.clamp(pvscale, FP8_E4M3_EPS, FP8_E4M3_MAX)
         pvscale_fp8 = pvscale.to(tl.float8e4nv)
         scale_inv = tl.reshape(pvscale_fp8, [BLOCK_N, BLOCK_M // 16])
 

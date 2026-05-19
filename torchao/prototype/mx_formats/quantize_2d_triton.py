@@ -55,6 +55,7 @@ if torch_version_at_least("2.10.0") and has_triton():
             scale_inv: (BLOCK_M // 16, BLOCK_N // 16) float8e4nv per-block decode scales.
             scaled:    (BLOCK_M, BLOCK_N) float32 values scaled and clamped to FP4 range.
         """
+        FP8_E4M3_EPS: tl.constexpr = torch.finfo(torch.float8_e4m3fn).tiny
         FP8_E4M3_MAX: tl.constexpr = 448.0
         FP4_E2M1_MAX: tl.constexpr = 6.0
         FP32_MAX: tl.constexpr = torch.finfo(torch.float32).max
@@ -76,7 +77,7 @@ if torch_version_at_least("2.10.0") and has_triton():
         global_decode_scale = 1.0 / global_encode_scale
 
         pvscale = (tile_max / FP4_E2M1_MAX) * global_encode_scale
-        pvscale = tl.clamp(pvscale, -FP8_E4M3_MAX, FP8_E4M3_MAX)
+        pvscale = tl.clamp(pvscale, FP8_E4M3_EPS, FP8_E4M3_MAX)
         pvscale_fp8 = pvscale.to(tl.float8e4nv)
         scale_inv = tl.reshape(pvscale_fp8, [BLOCK_M // 16, BLOCK_N // 16])
 
