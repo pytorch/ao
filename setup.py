@@ -793,7 +793,9 @@ def get_extensions():
 
     maybe_cpython_limited_api = []
     if not is_freethreaded():
-        maybe_cpython_limited_api += [f"-DPy_LIMITED_API={min_supported_cpython_hexcode}"]
+        maybe_cpython_limited_api += [
+            f"-DPy_LIMITED_API={min_supported_cpython_hexcode}"
+        ]
 
     extra_link_args = []
     extra_compile_args = {
@@ -1035,7 +1037,8 @@ def get_extensions():
                             "-DUSE_CUDA",
                             # define TORCH_TARGET_VERSION with min version 2.11 for ABI stable Float8_e8m0fnu
                             "-DTORCH_TARGET_VERSION=0x020b000000000000",
-                        ] + maybe_cpython_limited_api,
+                        ]
+                        + maybe_cpython_limited_api,
                         "nvcc": nvcc_args
                         + [
                             "-gencode=arch=compute_100,code=sm_100",
@@ -1157,5 +1160,7 @@ setup(
     long_description_content_type="text/markdown",
     url="https://github.com/pytorch/ao",
     cmdclass={"build_ext": TorchAOBuildExt, "build_py": TorchAOBuildPy},
-    options={"bdist_wheel": {"py_limited_api": "cp310"} if not is_freethreaded() else {}},
+    options={
+        "bdist_wheel": {"py_limited_api": "cp310"} if not is_freethreaded() else {}
+    },
 )
