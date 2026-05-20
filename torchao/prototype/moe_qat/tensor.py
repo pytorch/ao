@@ -382,26 +382,34 @@ class Float8FakeQuantizedWeightWrapperTensor(FakeQuantizedWeightWrapperBaseTenso
         torch.matmul          (A, B)                args[1]     —                   any shapes compatible with matmul broadcasting
         F.linear              (A, B [, bias])       args[1]     —                   A: [*,K], B: [N,K], bias: [N]
         torch.addmm           (bias, A, B)          args[2]     beta, alpha, out    bias: [N] or [M,N], A: [M,K], B: [K,N]
+        
+        Because we defer fake-quantization in the case of slicing, indexing, transposing,
+        and permuting the wrapper tensor, the following fake-quantization is fragile when
+        complicated transpositions and permutations are applied before real computations.
+        After a general sequence of transpositions and permutations, it is NOT guaranteed
+        that the fake-quantization is still carried out along the desired dimension.
+        
+        1. During prepare, the default or user-defined params_filter_fn may also wrap bias parameters
+           (1D or 2D) that appear in F.linear/linear/addmm. In either case, the fake-quantization of these
+           wrapped biases is always bypassed here: we only unpack the weight position (args[1] or args[2]
+           for addmm) for fake quantization. The bias passes through args[2:] (or args[0] for addmm) and
+           is unwrapped transparently by __torch_dispatch__ at add time.
+          
+        2. Known exception: HF's _batched_linear(is_transposed=False) calls
+           torch.bmm(wrapped_weight, plain_input), putting the wrapped weight at args[0]
+           instead of args[1]. The assertion below fails before reaching fake quant.
+           This path requires config._experts_implementation="batched_mm" with
+           is_transposed=False and is not triggered by default.
+
+        TODO: check how the following ops are used during a forward propagation in common
+              user cases and ensure the fake-quantization is carried out along the desired
+              dimension.
         """
 
         if kwargs is None:
             kwargs = {}
 
-        # Because we defer fake-quantization in the case of slicing, indexing, transposing,
-        # and permuting the wrapper tensor, the following fake-quantization is fragile when
-        # complicated transpositions and permutations are applied before real computations.
-        # After a general sequence of transpositions and permutations, it is NOT guaranteed
-        # that the fake-quantization is still carried out along the desired dimension.
-        #
-        # TODO: check how the following ops are used during a forward propagation in common
-        #       user cases and ensure the fake-quantization is carried out along the desired
-        #       dimension.
-        #
-        # Known exception: HF's _batched_linear(is_transposed=False) calls
-        # torch.bmm(wrapped_weight, plain_input), putting the wrapped weight at args[0]
-        # instead of args[1]. The assertion below fails before reaching fake quant.
-        # This path requires config._experts_implementation="batched_mm" with
-        # is_transposed=False and is not triggered by default.
+
         if func.__name__ in ("_grouped_mm", "bmm", "addmm", "linear", "mm", "matmul"):
             if func.__name__ == "addmm":
                 A, B = args[1], args[2]
