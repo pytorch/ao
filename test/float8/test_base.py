@@ -46,8 +46,8 @@ from torchao.testing.utils import skip_if_rocm
 from torchao.utils import (
     is_MI300,
     is_ROCM,
-    is_sm_at_least_89,
-    is_sm_at_least_90,
+    platform_supports_float8_tensorwise,
+    platform_supports_float8_axiswise,
 )
 
 random.seed(0)
@@ -232,7 +232,7 @@ class TestFloat8TrainingTensor:
         ],
     )
     @unittest.skipIf(not torch.cuda.is_available(), "CUDA not available")
-    @unittest.skipIf(not is_sm_at_least_90(), "Requires CUDA capability >= 9.0")
+    @unittest.skipIf(not platform_supports_float8_axiswise(), "Requires NVIDIA SM >= 9.0 or AMD arch >= CDNA3")
     def test_axiswise_gemm(self, a_shape, a_granularity, b_granularity):
         a = torch.randn(*a_shape, dtype=torch.bfloat16, device="cuda")
         b = torch.randn(64, 32, dtype=torch.bfloat16, device="cuda")
@@ -311,7 +311,7 @@ class TestFloat8Linear:
             torch.testing.assert_close(m_ref.bias.grad, m_fp8.bias.grad)
 
     @pytest.mark.parametrize(
-        "emulate", [True, False] if is_sm_at_least_89() else [True]
+        "emulate", [True, False] if platform_supports_float8_tensorwise() else [True]
     )
     @pytest.mark.parametrize("x_shape", [(16, 16), (2, 16, 16), (3, 2, 16, 16)])
     @pytest.mark.parametrize(
@@ -376,9 +376,9 @@ class TestFloat8Linear:
     )
     @unittest.skipIf(not torch.cuda.is_available(), "CUDA not available")
     @unittest.skipIf(
-        torch.cuda.is_available() and not is_sm_at_least_90(), "CUDA capability < 9.0"
+        not platform_supports_float8_axiswise(),
+        "Requires NVIDIA SM >= 9.0 or AMD arch >= CDNA3",
     )
-    @skip_if_rocm("ROCm enablement in progress")
     def test_linear_from_recipe(
         self,
         recipe_name,
@@ -396,7 +396,7 @@ class TestFloat8Linear:
         )
 
     @pytest.mark.parametrize(
-        "emulate", [True, False] if is_sm_at_least_89() else [True]
+        "emulate", [True, False] if platform_supports_float8_tensorwise() else [True]
     )
     @pytest.mark.parametrize(
         "linear_dtype", [torch.float16, torch.bfloat16, torch.float32]
@@ -454,7 +454,7 @@ class TestFloat8Linear:
         s = m.__repr__()
         assert "i:dyn_ten_e4m3,w:dyn_ten_e4m3,go:dyn_ten_e5m2" in s
 
-    @unittest.skipIf(not is_sm_at_least_89(), "CUDA 8.9 not available")
+    @unittest.skipIf(not platform_supports_float8_tensorwise(), "Requires NVIDIA SM >= 8.9 or AMD arch >= CDNA3")
     def test_inference_mode(self):
         x = torch.randn(32, 32, device="cuda")
         m = nn.Sequential(nn.Linear(32, 32)).cuda()
@@ -462,7 +462,7 @@ class TestFloat8Linear:
         with torch.inference_mode(mode=True):
             m(x)
 
-    @unittest.skipIf(not is_sm_at_least_89(), "CUDA arch 8.9 not available")
+    @unittest.skipIf(not platform_supports_float8_tensorwise(), "Requires NVIDIA SM >= 8.9 or AMD arch >= CDNA3")
     def test_quantize(self):
         x = torch.randn(32, 32, device="cuda")
         m = nn.Sequential(nn.Linear(32, 32)).cuda()
@@ -470,9 +470,17 @@ class TestFloat8Linear:
         assert isinstance(m[0], Float8Linear), "Module is not a Float8Linear"
         from torchao.quantization import Float8WeightOnlyConfig, quantize_
 
+        def is_legal_fp8_dtype(w):
+            if torch.version.hip:
+                if is_MI300():
+                    return w.dtype == torch.float8_e4m3fnuz
+                else:
+                    return w.dtype == torch.float8_e4m3fn
+            return w.dtype == torch.float8_e4m3fn
+
         quantize_(m, Float8WeightOnlyConfig())
-        assert m[0].weight.qdata.dtype == torch.float8_e4m3fn, (
-            "Post quantization dtype should be torch.float8_e4m3fn"
+        assert is_legal_fp8_dtype(m[0].weight.qdata), (
+            "Post quantization dtype should be torch.float8_e4m3fn/torch.float8_e4m3fnuz"
         )
         with torch.no_grad():
             m(x)
@@ -480,8 +488,8 @@ class TestFloat8Linear:
 
 class TestScaledMM:
     @unittest.skipIf(
-        not is_sm_at_least_89(),
-        "CUDA not available",
+        not platform_supports_float8_tensorwise(),
+        "Requires NVIDIA SM >= 8.9 or AMD arch >= CDNA3",
     )
     @pytest.mark.parametrize(
         "base_dtype", [torch.float16, torch.bfloat16, torch.float32]
@@ -525,7 +533,7 @@ class TestScaledMM:
             atol, rtol = 3e-3, 3e-3
         torch.testing.assert_close(out_scaled_mm, out_emulated, atol=atol, rtol=rtol)
 
-    @unittest.skipIf(not is_sm_at_least_89(), "CUDA not available")
+    @unittest.skipIf(not platform_supports_float8_tensorwise(), "Requires NVIDIA SM >= 8.9 or AMD arch >= CDNA3")
     def test_different_configs_error(self):
         x_fp32 = torch.randn(16, 16, device="cuda")
         x_scale = torch.tensor(1.0, device="cuda")
@@ -561,8 +569,8 @@ class TestScaledMM:
             a @ b
 
     @unittest.skipIf(
-        not is_sm_at_least_89(),
-        "CUDA not available",
+        not platform_supports_float8_tensorwise(),
+        "Requires NVIDIA SM >= 8.9 or AMD arch >= CDNA3",
     )
     @pytest.mark.parametrize(
         "base_dtype", [torch.float16, torch.bfloat16, torch.float32]
