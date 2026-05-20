@@ -184,11 +184,25 @@ class FakeQuantizedWeightWrapperBaseTensor(TorchAOBaseTensor):
         # plain tensors with no config. So check to ensure at least one operand
         # carries a config.
         weight_config = None
+        activation_config = None
 
+        # All wrapped tensors in a dispatch call come from the same prepare step,
+        # so each config must be uniform: either absent on all wrappers or identical
+        # across all wrappers.
         def unwrap(t: FakeQuantizedWeightWrapperBaseTensor):
-            nonlocal weight_config
-            if weight_config is None and t.weight_config is not None:
+            nonlocal weight_config, activation_config
+            if weight_config is None:
                 weight_config = t.weight_config
+            else:
+                assert t.weight_config == weight_config, (
+                    "All FakeQuantizedWeightWrapperBaseTensor instances must have the same weight_config"
+                )
+            if activation_config is None:
+                activation_config = t.activation_config
+            else:
+                assert t.activation_config == activation_config, (
+                    "All FakeQuantizedWeightWrapperBaseTensor instances must have the same activation_config"
+                )
             return t._data
 
         args_unwrapped, kwargs_unwrapped = pytree.tree_map_only(
@@ -204,14 +218,14 @@ class FakeQuantizedWeightWrapperBaseTensor(TorchAOBaseTensor):
         # choose to also detach _data. The config is shared since in the "detach" of torch.nn.Tensor,
         # most of metadata is also shared except the metadata related to autograd.
         #
-        # TODO: For now args[0].activation_config and args[0].weight_config are assumed immutable. If
-        #       the config contains trainable parameters, a newly-created config should be used. The
-        #       actual logic depends on the design of these quantization parameters in the future.
+        # TODO: Configs are assumed immutable. If configs gain trainable parameters,
+        #       a newly-created config should be used instead of sharing the reference.
+        #       The actual logic depends on the design of these quantization parameters in the future.
         if func == torch.ops.aten.detach.default:
             return cls(
                 args_unwrapped[0].detach(),
-                activation_config=args[0].activation_config,
-                weight_config=args[0].weight_config,
+                activation_config=activation_config,
+                weight_config=weight_config,
             )
 
         # Perform op
@@ -221,26 +235,23 @@ class FakeQuantizedWeightWrapperBaseTensor(TorchAOBaseTensor):
         if func not in _ops_to_preserve_subclass:
             return out
 
-        # Return the original wrapper to maintain in-place semantics
+        # Return the original wrapper to maintain in-place semantics.
+        # Unlike copy_ where the wrapper is both input and output, scatter_
+        # writes into pre-allocated output buffers that did not exist as
+        # wrappers before the call — so scatter_ falls through to the generic
+        # re-wrap path below to create new wrappers from the result tensors.
         if func == torch.ops.aten.copy_.default:
             return args[0]
 
         # Wrap outputs back into the same subclass for the remaining preserved ops.
-        # copy_ is handled above (returns the original wrapper for in-place semantics).
-        # All current preserved ops are single-input (select, slice, view, transpose, etc.)
-        # and take the wrapper as args[0], so args[0]'s configs are safe.
-        # Forward-compatibility caveat: if multi-input ops like stack or cat are added to
-        # _ops_to_preserve_subclass, using only args[0]'s config would be wrong — other
-        # wrapped inputs may carry different configs. The re-wrap logic would need to handle
-        # that case.
-        #
-        # TODO: check the semantics of Tensors in the returned value to assign more suitable config.
+        # Configs are captured during unwrapping (above), which handles both single-input
+        # ops (select, slice, view, etc.) and multi-input ops (scatter_) correctly.
         return pytree.tree_map_only(
             torch.Tensor,
             lambda x: cls(
                 x,
-                activation_config=args[0].activation_config,
-                weight_config=args[0].weight_config,
+                activation_config=activation_config,
+                weight_config=weight_config,
             ),
             out,
         )
