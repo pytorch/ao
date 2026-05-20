@@ -51,6 +51,8 @@ To provide a model-agnostic MoE QAT support, we choose to adopt a parameter-swap
 
    3. **Deferred**: slicing, indexing, and dimension-manipulation ops preserve the wrapper without applying fake quantization. Quantization is deferred until computation time, avoiding double quantization. With `torch._grouped_mm`, the activation is quantized once for the single grouped call. In a per-expert loop pattern, activation fake-quantization is repeated per expert — correct but a potential optimization target.
 
+   4. **Non-weight operands**: the parameter filter may also wrap bias parameters (1D or 2D) in `F.linear`/`torch.addmm`. Only the weight position is unpacked for fake quantization — wrapped biases pass through `args[...]` and are unwrapped transparently by `__torch_dispatch__` at computation time. No special handling needed.
+
 3. **Parameter-level traversal with handler dispatch**: `quantize_` passes each module that matches `filter_fn` to the handler of `MoEQATConfig`. The handler walks the module's parameters (including sub-modules), filters them via `config.params_filter_fn`, and replaces each matching `nn.Parameter` using a handler selected from a registry. Handlers for different `FakeQuantizeConfig` types are registered in a dictionary via a decorator. This two-level traversal pattern is reusable for MoE training, QAT, and inference.
 
 4. **PTQ in the convert step**: applying PTQ during convert is closer to MoE inference quantization. A related RFC for MoE inference quantization ([#4355](https://github.com/pytorch/ao/issues/4355)) is under discussion in TorchAO. We will reuse that infrastructure if available. If not, MoE PTQ will be implemented first and reused in MoE QAT.
