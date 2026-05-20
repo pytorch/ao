@@ -169,7 +169,6 @@ def run_experiment(config: ExperimentConfig) -> ExperimentResult:
             scaling_mode=str(config.scaling_mode.value),
         )
     else:
-        data_cuda_3d, scales_cuda_3d = None, None
         time_cutedsl_3d_us = float("nan")
 
     # bench 3d FlyDSL kernel — supports both FLOOR and RCEIL on AMD.

@@ -1013,20 +1013,30 @@ def test_flydsl_mx_dim1_2d_numerics(M, K, input_dtype, scaling_mode):
     torch.manual_seed(0)
     x = (torch.randn(M, K, dtype=input_dtype, device="cuda") * 30.0).contiguous()
 
-    q_fly, s_fly = mxfp8_quantize_2d_1x32_flydsl(x, block_size=32, scaling_mode=scaling_mode)
+    q_fly, s_fly = mxfp8_quantize_2d_1x32_flydsl(
+        x, block_size=32, scaling_mode=scaling_mode
+    )
 
     s_ref, q_ref = to_mx(
-        x, elem_dtype=torch.float8_e4m3fn,
-        block_size=32, scaling_mode=ScaleCalculationMode(scaling_mode),
+        x,
+        elem_dtype=torch.float8_e4m3fn,
+        block_size=32,
+        scaling_mode=ScaleCalculationMode(scaling_mode),
     )
     q_ref_fp8 = q_ref.to(torch.float8_e4m3fn).view(M, K)
     s_ref_u8 = s_ref.view(M, K // 32)
 
     torch.testing.assert_close(
-        q_fly.view(torch.uint8), q_ref_fp8.view(torch.uint8), rtol=0, atol=0,
+        q_fly.view(torch.uint8),
+        q_ref_fp8.view(torch.uint8),
+        rtol=0,
+        atol=0,
     )
     torch.testing.assert_close(
-        s_fly.view(torch.uint8), s_ref_u8.view(torch.uint8), rtol=0, atol=0,
+        s_fly.view(torch.uint8),
+        s_ref_u8.view(torch.uint8),
+        rtol=0,
+        atol=0,
     )
     assert q_fly.dtype == torch.float8_e4m3fn
     assert q_fly.stride() == (K, 1), "1x32 q_data must be row-major"
@@ -1050,22 +1060,32 @@ def test_flydsl_mx_dim0_2d_numerics(M, K, input_dtype, scaling_mode):
     torch.manual_seed(0)
     x = (torch.randn(M, K, dtype=input_dtype, device="cuda") * 30.0).contiguous()
 
-    q_fly, s_fly = mxfp8_quantize_2d_32x1_flydsl(x, block_size=32, scaling_mode=scaling_mode)
+    q_fly, s_fly = mxfp8_quantize_2d_32x1_flydsl(
+        x, block_size=32, scaling_mode=scaling_mode
+    )
 
     x_t = x.transpose(0, 1).contiguous()
     s_ref, q_ref = to_mx(
-        x_t, elem_dtype=torch.float8_e4m3fn,
-        block_size=32, scaling_mode=ScaleCalculationMode(scaling_mode),
+        x_t,
+        elem_dtype=torch.float8_e4m3fn,
+        block_size=32,
+        scaling_mode=ScaleCalculationMode(scaling_mode),
     )
     q_ref_fp8 = q_ref.to(torch.float8_e4m3fn).view(K, M)
     s_ref_u8 = s_ref.view(K, M // 32)
 
     fly_t = q_fly.transpose(0, 1).contiguous()
     torch.testing.assert_close(
-        fly_t.view(torch.uint8), q_ref_fp8.view(torch.uint8), rtol=0, atol=0,
+        fly_t.view(torch.uint8),
+        q_ref_fp8.view(torch.uint8),
+        rtol=0,
+        atol=0,
     )
     torch.testing.assert_close(
-        s_fly.view(torch.uint8), s_ref_u8.view(torch.uint8), rtol=0, atol=0,
+        s_fly.view(torch.uint8),
+        s_ref_u8.view(torch.uint8),
+        rtol=0,
+        atol=0,
     )
     assert q_fly.dtype == torch.float8_e4m3fn
     assert q_fly.stride() == (1, M), "32x1 q_data must be column-major"
@@ -1104,19 +1124,27 @@ def test_flydsl_mx_dim1_3d_numerics(E, N, K, input_dtype, scaling_mode):
 
     x_t = x.transpose(1, 2).contiguous()
     s_ref, q_ref = to_mx(
-        x_t, elem_dtype=torch.float8_e4m3fn,
-        block_size=32, scaling_mode=ScaleCalculationMode(scaling_mode),
+        x_t,
+        elem_dtype=torch.float8_e4m3fn,
+        block_size=32,
+        scaling_mode=ScaleCalculationMode(scaling_mode),
     )
     q_ref_fp8 = q_ref.to(torch.float8_e4m3fn).view(E, K, N)
     s_ref_u8 = s_ref.view(E, K, N // 32)
 
     fly_t = q_fly.transpose(1, 2).contiguous()
     torch.testing.assert_close(
-        fly_t.view(torch.uint8), q_ref_fp8.view(torch.uint8), rtol=0, atol=0,
+        fly_t.view(torch.uint8),
+        q_ref_fp8.view(torch.uint8),
+        rtol=0,
+        atol=0,
     )
     s_fly_t = s_fly.transpose(1, 2).contiguous()
     torch.testing.assert_close(
-        s_fly_t.view(torch.uint8), s_ref_u8.view(torch.uint8), rtol=0, atol=0,
+        s_fly_t.view(torch.uint8),
+        s_ref_u8.view(torch.uint8),
+        rtol=0,
+        atol=0,
     )
     assert q_fly.dtype == torch.float8_e4m3fn
     assert q_fly.stride() == (N * K, 1, N), "3D q_data must be per-expert col-major"
@@ -1193,9 +1221,7 @@ def test_amd_mx_3d_flydsl_numerics(
         if scale_block_k == 1:
             s_ref_logical = s_ref.transpose(-2, -1).contiguous()
         else:
-            s_ref_logical = s_ref.transpose(-2, -1).repeat_interleave(
-                block_size, dim=1
-            )
+            s_ref_logical = s_ref.transpose(-2, -1).repeat_interleave(block_size, dim=1)
         s_expected = torch_to_blocked_per_group_3d(s_ref_logical)
     else:
         s_expected = s_ref
@@ -1218,5 +1244,3 @@ def test_amd_mx_3d_flydsl_numerics(
     assert y.stride() == y_ref.stride(), "quantized tensor strides do not match"
     assert y.dtype == torch.float8_e4m3fn
     assert s.dtype == torch.float8_e8m0fnu
-
-

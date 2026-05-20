@@ -261,9 +261,7 @@ if _flydsl_runtime_available():
         r_v1i32 = vector.bitcast(T.vec(1, T.i32), r)
         return vector.extract(r_v1i32, static_position=[0], dynamic_position=[])
 
-    def quantize_pack_chunk_to_i32_floor(
-        chunk_f32, inv_scale, f8_min_vec, f8_max_vec
-    ):
+    def quantize_pack_chunk_to_i32_floor(chunk_f32, inv_scale, f8_min_vec, f8_max_vec):
         """FLOOR mode: quantize 4 f32 → 4 FP8 E4M3FN packed into one i32.
 
         FLOOR's ``amax/scale ∈ [256, 512)`` lets the (448, 512) tail overflow
