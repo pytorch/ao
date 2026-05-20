@@ -117,6 +117,8 @@ def _moe_qat_config_transform(
     """Prepare or convert parameter-level wrapping for MoEQATConfig"""
 
     if config.step == QATStep.PREPARE:
+        if config.weight_config is None:
+            raise ValueError("`weight_config` is required for the prepare step of MoEQATConfig.")
         params_handler = _MoE_QAT_PARAMETER_QUANTIZE_CONFIG_HANDLER[
             type(config.weight_config)
         ]
