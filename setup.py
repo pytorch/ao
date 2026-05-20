@@ -1027,6 +1027,7 @@ def get_extensions():
                     include_dirs=[
                         mxfp8_extension_dir,  # For mxfp8_quantize.cuh, mxfp8_extension.cpp, and mxfp8_cuda.cu
                     ],
+                    py_limited_api=not is_freethreaded(),
                     extra_compile_args={
                         "cxx": [
                             "-std=c++20",
