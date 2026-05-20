@@ -57,7 +57,13 @@ To provide a model-agnostic MoE QAT support, we choose to adopt a parameter-swap
 
 4. **PTQ in the convert step**: applying PTQ during convert is closer to MoE inference quantization. A related RFC for MoE inference quantization ([#4355](https://github.com/pytorch/ao/issues/4355)) is under discussion in TorchAO. We will reuse that infrastructure if available. If not, MoE PTQ will be implemented first and reused in MoE QAT.
 
-### Precision in the Forward Propagation
+### Subtleties
+
+#### Meta Weights during Preparation
+
+`nn.Parameter` on `meta` device has shape, dtype, and strides but no storage. The wrapper subclass is agnostic to storage — it can be constructed on a meta tensor — but real computation ops (`torch.mm`, fake quantize, etc.) require actual data. This means a prepare-on-meta → distribute → load_state_dict workflow works identically to dense QAT, without any special handling in our code.
+
+#### Precision in the Forward Propagation
 
 Dense QAT uses different forward-precision strategies for different configs, and we follow the same choices:
 
@@ -65,6 +71,8 @@ Dense QAT uses different forward-precision strategies for different configs, and
 - **MX, NVFP4**: real low-precision quantization and matmul in forward, dequantized high-precision matmul in backward. Clamp is bypassed in STE.
 
 MoE QAT reuses the same underlying quantization primitives and follows the same precision strategy per config type.
+
+
 
 ### Class Hierarchy
 
