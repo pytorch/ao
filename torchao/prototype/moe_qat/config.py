@@ -17,7 +17,9 @@ from torchao.quantization.qat import QATConfig, QATStep
 from torchao.quantization.qat.fake_quantize_config import (
     FakeQuantizeConfigBase,
     Float8FakeQuantizeConfig,
+    _infer_fake_quantize_configs,
 )
+from torchao.quantization.quant_api import Float8DynamicActivationFloat8WeightConfig
 from torchao.quantization.transform_module import register_quantize_module_handler
 
 
@@ -103,10 +105,17 @@ class MoEQATConfig(QATConfig):
 
         super().__post_init__()
 
-        if self.step == QATStep.CONVERT and self.base_config is not None:
-            raise NotImplementedError(
-                "Applying PTQ in the convert step is not implemented yet."
-            )
+        if self.step == QATStep.PREPARE:
+            if self.base_config is not None:
+                if not isinstance(self.base_config, Float8DynamicActivationFloat8WeightConfig):
+                    raise ValueError("Only `Float8DynamicActivationFloat8WeightConfig` is supported for `base_config` in MoEQATConfig yet.")
+                self.activation_config, self.weight_config = _infer_fake_quantize_configs(self.base_config)
+                self.base_config = None
+        elif self.step == QATStep.CONVERT:
+            if self.base_config is not None:
+                raise NotImplementedError(
+                    "Applying PTQ in the convert step is not implemented yet."
+                )
 
 
 @register_quantize_module_handler(MoEQATConfig)
