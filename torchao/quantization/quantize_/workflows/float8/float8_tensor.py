@@ -1024,7 +1024,10 @@ def _(func, types, args, kwargs):
 
 @implements(aten.split.Tensor)
 def _(func, types, args, kwargs):
-    tensor, split_size_or_sections, dim = args
+    # `dim` may arrive positionally or as a kwarg depending on the caller
+    # (e.g. `torch.chunk(t, n, dim=d)` keeps it in kwargs).
+    tensor, split_size_or_sections = args[0], args[1]
+    dim = args[2] if len(args) > 2 else kwargs.get("dim", 0)
     assert isinstance(split_size_or_sections, int), "unimplemented"
 
     # 2D case
