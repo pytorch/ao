@@ -43,7 +43,7 @@ if torch_version_at_least("2.10.0") and has_triton():
 
     @triton.jit
     def _nvfp4_2d_quantize(
-        a, global_amax, BLOCK_N: tl.constexpr, BLOCK_M: tl.constexpr
+        a, global_amax, BLOCK_M: tl.constexpr, BLOCK_N: tl.constexpr
     ):
         """Compute per-16×16-block FP8 scale factors and scaled FP32 values for FP4 packing.
 
@@ -168,7 +168,7 @@ if torch_version_at_least("2.10.0") and has_triton():
             a = a_desc.load([pid_m * BLOCK_M, pid_n * BLOCK_N])
 
             # Compute per-16×16-block scales and scaled values
-            scale_inv, scaled = _nvfp4_2d_quantize(a, global_amax, BLOCK_N, BLOCK_M)
+            scale_inv, scaled = _nvfp4_2d_quantize(a, global_amax, BLOCK_M, BLOCK_N)
 
             # Pack FP4 values into uint8 — non-transposed: (BLOCK_M, BLOCK_N//2, 2)
             scaled_pairs = scaled.reshape(BLOCK_M, BLOCK_N // 2, 2).split()
@@ -189,7 +189,7 @@ if torch_version_at_least("2.10.0") and has_triton():
             # Colwise path: quantize transposed tile (rowwise W.T) — always swizzled
             a_t = tl.trans(a)  # (BLOCK_N, BLOCK_M)
             t_scale_inv, t_scaled = _nvfp4_2d_quantize(
-                a_t, global_amax, BLOCK_M, BLOCK_N
+                a_t, global_amax, BLOCK_N, BLOCK_M
             )
 
             t_scaled_pairs = t_scaled.reshape(BLOCK_N, BLOCK_M // 2, 2).split()
