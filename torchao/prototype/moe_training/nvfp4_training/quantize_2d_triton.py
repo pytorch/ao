@@ -262,18 +262,22 @@ if torch_version_at_least("2.10.0") and has_triton():
         NUM_SMS = torch.cuda.get_device_properties(A.device).multi_processor_count
         GROUP_SIZE_N: int = 8
 
-        triton_quantize_2d_weight[(NUM_SMS,)](
-            A,
-            a_fp4,
-            a_sf,
-            a_t_fp4,
-            a_t_sf,
-            global_amax,
-            M,
-            N,
-            GROUP_SIZE_N=GROUP_SIZE_N,
-            NUM_SMS=NUM_SMS,
-        )
+        try:
+            triton_quantize_2d_weight[(NUM_SMS,)](
+                A,
+                a_fp4,
+                a_sf,
+                a_t_fp4,
+                a_t_sf,
+                global_amax,
+                M,
+                N,
+                GROUP_SIZE_N=GROUP_SIZE_N,
+                NUM_SMS=NUM_SMS,
+            )
+        finally:
+            if hasattr(triton, "set_allocator"):
+                triton.set_allocator(None)
         return a_fp4, a_sf, a_t_fp4, a_t_sf
 
     @triton_weight_quantize_2d.register_fake
