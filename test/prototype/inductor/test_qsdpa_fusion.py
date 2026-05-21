@@ -398,6 +398,7 @@ class TestSDPAPatternRewriterTemplate(TestCase):
                     self.assertGreaterEqual(
                         counters["inductor"]["int8_concat_linear_fusion"], 1
                     )
+
     @skipIfRocm
     @unittest.skipIf(
         not torch_version_at_least("2.7.0"),

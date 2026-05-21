@@ -9,7 +9,6 @@ import operator
 import torch
 from torch._dynamo.utils import counters
 
-
 QLINEAR_TARGETS = {
     torch.ops.onednn.qlinear_pointwise.default,
     torch.ops.onednn.qlinear_pointwise.tensor,
@@ -21,7 +20,8 @@ def _is_qlinear_target(target):
         return True
     return (
         callable(target)
-        and getattr(target, "__module__", "") == "torch._inductor.fx_passes.quantization"
+        and getattr(target, "__module__", "")
+        == "torch._inductor.fx_passes.quantization"
         and getattr(target, "__name__", "") == "qlinear"
     )
 
@@ -187,10 +187,13 @@ def _is_valid_concat_linear_int8_fusion(qlinear_nodes):
             and _get_node_arg(node, "x_zp", 2) == act_zp
             and _is_get_attr_node(_get_node_arg(node, "packed_weight", 3))
             and (
-                gemm_idx == 0
-                or _get_node_arg(node, "packed_weight", 3) != first_weight
+                gemm_idx == 0 or _get_node_arg(node, "packed_weight", 3) != first_weight
             )
-            and (((_get_node_arg(node, "b", 6) is not None)) if with_bias else ((_get_node_arg(node, "b", 6) is None)))
+            and (
+                (_get_node_arg(node, "b", 6) is not None)
+                if with_bias
+                else (_get_node_arg(node, "b", 6) is None)
+            )
             and _get_node_arg(node, "output_dtype", 9) == output_dtype
             and _get_node_arg(node, "postop_name", 10) == postop_name
             and _get_node_arg(node, "postop_args", 11) == postop_args
@@ -225,8 +228,7 @@ def _collect_quant_dequant_pair_on_single_user_chain(start_node):
         nxt = users[0]
         if (
             nxt.op == "call_function"
-            and nxt.target
-            == torch.ops.quantized_decomposed.quantize_per_tensor.default
+            and nxt.target == torch.ops.quantized_decomposed.quantize_per_tensor.default
         ):
             q_users = list(nxt.users)
             if len(q_users) != 1:
@@ -260,12 +262,9 @@ def _replace_node_qparam_kwargs(node, fused_output_scale, fused_output_zero_poin
     new_kwargs = dict(node.kwargs)
     for key in _QPARAM_KWARG_KEYS:
         new_kwargs[key] = (
-            fused_output_scale
-            if key.endswith("scale")
-            else fused_output_zero_point
+            fused_output_scale if key.endswith("scale") else fused_output_zero_point
         )
     node.kwargs = new_kwargs
-
 
 
 def _concat_linear_int8_cpu(graph: torch.fx.Graph):
@@ -297,7 +296,7 @@ def _concat_linear_int8_cpu(graph: torch.fx.Graph):
                 for u in act.users
                 if u.op == "call_function" and _is_qlinear_target(u.target)
             ][::-1]
-            
+
             if _is_valid_concat_linear_int8_fusion(qlinear_users):
                 counters["inductor"]["int8_concat_linear_fusion"] += 1
                 counters["inductor"]["int8_concat_linear_nodes"] += len(qlinear_users)
@@ -337,7 +336,10 @@ def _concat_linear_int8_cpu(graph: torch.fx.Graph):
                         concat_wgt_scales_node = _build_concat_arg(
                             graph,
                             gm,
-                            [_get_node_arg(user, "w_scale", 4) for user in qlinear_users],
+                            [
+                                _get_node_arg(user, "w_scale", 4)
+                                for user in qlinear_users
+                            ],
                             0,
                             f"{_get_node_arg(computation_node_0, 'packed_weight', 3).target}_scales_concat",
                         )
@@ -377,10 +379,18 @@ def _concat_linear_int8_cpu(graph: torch.fx.Graph):
                             b=concat_bias_node,
                             output_scale=fused_output_scale,
                             output_zero_point=fused_output_zero_point,
-                            output_dtype=_get_node_arg(qlinear_users[0], "output_dtype", 9),
-                            postop_name=_get_node_arg(qlinear_users[0], "postop_name", 10),
-                            postop_args=_get_node_arg(qlinear_users[0], "postop_args", 11),
-                            postop_algorithm=_get_node_arg(qlinear_users[0], "postop_algorithm", 12),
+                            output_dtype=_get_node_arg(
+                                qlinear_users[0], "output_dtype", 9
+                            ),
+                            postop_name=_get_node_arg(
+                                qlinear_users[0], "postop_name", 10
+                            ),
+                            postop_args=_get_node_arg(
+                                qlinear_users[0], "postop_args", 11
+                            ),
+                            postop_algorithm=_get_node_arg(
+                                qlinear_users[0], "postop_algorithm", 12
+                            ),
                         )
 
                     with graph.inserting_after(new_qlinear_node):
@@ -412,7 +422,9 @@ def _concat_linear_int8_cpu(graph: torch.fx.Graph):
                             delayed_erase_nodes.append(user)
 
                     for split_out in split_outputs:
-                        dequant_node = _collect_first_dequant_on_single_user_chain(split_out)
+                        dequant_node = _collect_first_dequant_on_single_user_chain(
+                            split_out
+                        )
                         if dequant_node is not None:
                             dequant_node.args = (
                                 dequant_node.args[0],
@@ -423,15 +435,21 @@ def _concat_linear_int8_cpu(graph: torch.fx.Graph):
                                 dequant_node.args[5],
                             )
 
-                        qdq_pair = _collect_quant_dequant_pair_on_single_user_chain(split_out)
+                        qdq_pair = _collect_quant_dequant_pair_on_single_user_chain(
+                            split_out
+                        )
                         if qdq_pair is not None:
                             quant_node, dequant_node = qdq_pair
-                            dequant_node.replace_input_with(quant_node, quant_node.args[0])
+                            dequant_node.replace_input_with(
+                                quant_node, quant_node.args[0]
+                            )
                             delayed_erase_nodes.append(quant_node)
 
                     if len(split_outputs) == 3:
                         qparam_nodes = [
-                            _find_node_with_qparam_kwargs_on_single_user_chain(split_out)
+                            _find_node_with_qparam_kwargs_on_single_user_chain(
+                                split_out
+                            )
                             for split_out in split_outputs
                         ]
                         if (
@@ -452,4 +470,5 @@ def _concat_linear_int8_cpu(graph: torch.fx.Graph):
 
 def register_int8_concat_linear_cpu_pass():
     from torch._inductor import config as inductor_config
+
     inductor_config.post_grad_custom_post_pass = _concat_linear_int8_cpu
