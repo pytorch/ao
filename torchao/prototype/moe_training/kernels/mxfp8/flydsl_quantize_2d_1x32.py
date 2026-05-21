@@ -43,6 +43,11 @@ if _flydsl_runtime_available():
 # AMD_WAVE_SIZE lanes × BLOCK_SIZE elements/block.
 _K_PER_CHUNK = AMD_WAVE_SIZE * BLOCK_SIZE  # 2048
 
+# Minimum K alignment required by MXFP8 itself (one E8M0 scale per
+# BLOCK_SIZE=32 elements). When K is not a multiple of _K_PER_CHUNK, the
+# kernel emits one extra masked "tail" chunk; full multiples skip it.
+_K_MIN_ALIGN = BLOCK_SIZE
+
 
 if _flydsl_runtime_available():
     import flydsl.compiler as flyc
@@ -81,7 +86,8 @@ if _flydsl_runtime_available():
             raise ValueError(f"Unsupported input dtype: {input_dtype_name}")
 
         K_BLOCKS = K // BLOCK_SIZE
-        CHUNKS_PER_ROW = K_BLOCKS // AMD_WAVE_SIZE
+        FULL_CHUNKS = K_BLOCKS // AMD_WAVE_SIZE
+        TAIL_BLOCKS = K_BLOCKS - FULL_CHUNKS * AMD_WAVE_SIZE  # 0..63
 
         @flyc.kernel(known_block_size=[AMD_WAVE_SIZE, 1, 1])
         def quantize_2d_1x32_kernel(
@@ -99,10 +105,7 @@ if _flydsl_runtime_available():
             if not USE_RCEIL:
                 f8_min_v, f8_max_v = make_fp8_clamp_vectors()
 
-            for chunk_idx in range_constexpr(0, CHUNKS_PER_ROW):
-                block_in_row = chunk_idx * AMD_WAVE_SIZE + tid
-                elem_base = row * fx.Int32(K) + block_in_row * BLOCK_SIZE
-
+            def _emit_block(elem_base, block_in_row):
                 # Pass 1: load 8 vec4 chunks of input, accumulate per-block amax.
                 chunks = []
                 local_amax = fx.Float32(0.0)
@@ -135,8 +138,25 @@ if _flydsl_runtime_available():
                     buffer_ops.buffer_store(out, q_rsrc, i32_off)
 
                 buffer_ops.buffer_store(
-                    scale_u8, s_rsrc, row * fx.Int32(K_BLOCKS) + block_in_row
+                    scale_u8, s_rsrc, row * fx.Int32(K_BLOCKS) + block_in_row,
                 )
+
+            # Full chunks: every lane owns a valid block — no per-lane guard.
+            for chunk_idx in range_constexpr(0, FULL_CHUNKS):
+                block_in_row = chunk_idx * AMD_WAVE_SIZE + tid
+                elem_base = row * fx.Int32(K) + block_in_row * BLOCK_SIZE
+                _emit_block(elem_base, block_in_row)
+
+            # Tail chunk: only lanes 0..TAIL_BLOCKS-1 own a valid block; rest
+            # must do no loads/stores. scf.if (per-lane runtime cond) is cheaper
+            # and safer than the buffer-mask offset trick, which would need
+            # tight descriptor bounds to suppress writes. Constexpr-gated so the
+            # K % _K_PER_CHUNK == 0 path emits zero extra code.
+            if TAIL_BLOCKS > 0:
+                block_in_row = fx.Int32(FULL_CHUNKS * AMD_WAVE_SIZE) + tid
+                elem_base = row * fx.Int32(K) + block_in_row * BLOCK_SIZE
+                if tid < fx.Int32(TAIL_BLOCKS):
+                    _emit_block(elem_base, block_in_row)
 
         @flyc.jit
         def launch_quantize(
@@ -204,7 +224,7 @@ def mxfp8_quantize_flydsl_2d_1x32(
     assert x.is_contiguous(), "Input tensor must be contiguous (row-major)"
     assert block_size == BLOCK_SIZE, f"Only block_size={BLOCK_SIZE} is supported"
     M, K = x.shape
-    assert K % _K_PER_CHUNK == 0, f"K must be a multiple of {_K_PER_CHUNK}"
+    assert K % _K_MIN_ALIGN == 0, f"K must be a multiple of {_K_MIN_ALIGN}"
 
     q_data = torch.empty((M, K), device=x.device, dtype=torch.float8_e4m3fn)
     scales_u8 = torch.empty((M, K // BLOCK_SIZE), device=x.device, dtype=torch.uint8)
