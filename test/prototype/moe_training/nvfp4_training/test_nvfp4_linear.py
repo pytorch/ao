@@ -38,6 +38,27 @@ def test_nvfp4_linear_rht_sign_vector_state_dict_roundtrip():
     )
 
 
+def test_nvfp4_linear_from_linear_preserves_rht_sign_vector():
+    sign_vector = tuple(1 if i % 2 == 0 else -1 for i in range(16))
+    layer = NVFP4Linear(
+        128,
+        128,
+        bias=False,
+        kernel_preference=KernelPreference.TRITON,
+        rht_sign_vector=sign_vector,
+    )
+
+    converted = NVFP4Linear.from_linear(layer)
+
+    assert converted.rht_sign_vector == sign_vector
+    torch.testing.assert_close(
+        converted._rht_sign_vector.cpu(),
+        layer._rht_sign_vector.cpu(),
+        atol=0,
+        rtol=0,
+    )
+
+
 @pytest.mark.skipif(not has_triton(), reason="unsupported without triton")
 @pytest.mark.skipif(not is_sm_at_least_100(), reason="Requires SM100+")
 @pytest.mark.skipif(

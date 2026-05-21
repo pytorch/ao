@@ -196,7 +196,10 @@ class NVFP4Linear(nn.Linear):
         kernel_preference: KernelPreference = KernelPreference.TRITON,
         process_group=None,
         world_size: Optional[int] = None,
+        rht_sign_vector: torch.Tensor | tuple[int, ...] | list[int] | None = None,
     ) -> "NVFP4Linear":
+        if rht_sign_vector is None:
+            rht_sign_vector = getattr(mod, "_rht_sign_vector", None)
         new = cls(
             mod.in_features,
             mod.out_features,
@@ -206,6 +209,7 @@ class NVFP4Linear(nn.Linear):
             world_size=world_size,
             device=mod.weight.device,
             dtype=mod.weight.dtype,
+            rht_sign_vector=rht_sign_vector,
         )
         # Copy weights (don't re-init)
         if mod.weight.device != torch.device("meta"):
