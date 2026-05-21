@@ -261,7 +261,7 @@ class FakeQuantizedWeightWrapperBaseTensor(TorchAOBaseTensor):
         return self._data
 
     def __repr__(self):
-        return f"FakeQuantizedWeightWrapperBaseTensor(data={self._data}, activation_config={self.activation_config}, weight_config={self.weight_config})"
+        return f"{type(self).__name__}(data={self._data}, activation_config={self.activation_config}, weight_config={self.weight_config})"
 
     def __tensor_flatten__(self):
         metadata = {
@@ -349,7 +349,26 @@ class FakeQuantizedWeightWrapperBaseTensor(TorchAOBaseTensor):
             return
 
 
+"""
+Functions intercepted by __torch_function__ for fake quantization:
 
+func                  args                  weight pos  keyword-only        shapes
+──────────────────────────────────────────────────────────────────────────────────────────
+torch._grouped_mm     (A, B)                args[1]     offs, out           A: [S,K], B: [E,K,N] or [E,N,K], offs: [E] int32
+torch.bmm             (A, B)                args[1]     out                 A: [S,1,K], B: [S,K,N]
+torch.mm              (A, B)                args[1]     out                 A: [M,K], B: [K,N]
+torch.matmul          (A, B)                args[1]     —                   any shapes compatible with matmul broadcasting
+F.linear              (A, B [, bias])       args[1]     —                   A: [*,K], B: [N,K], bias: [N]
+torch.addmm           (bias, A, B)          args[2]     beta, alpha, out    bias: [N] or [M,N], A: [M,K], B: [K,N]
+"""
+_func_to_prepend_fake_quantization = {
+    torch._grouped_mm,
+    torch.addmm,
+    torch.bmm,
+    torch.matmul,
+    torch.mm,
+    torch.nn.functional.linear,
+}
 
 class Float8FakeQuantizedWeightWrapperTensor(FakeQuantizedWeightWrapperBaseTensor):
     """
@@ -382,18 +401,7 @@ class Float8FakeQuantizedWeightWrapperTensor(FakeQuantizedWeightWrapperBaseTenso
 
     @classmethod
     def __torch_function__(cls, func, types, args, kwargs=None):
-        """
-        Functions intercepted by __torch_function__ for fake quantization:
-
-        func                  args                  weight pos  keyword-only        shapes
-        ──────────────────────────────────────────────────────────────────────────────────────────
-        torch._grouped_mm     (A, B)                args[1]     offs, out           A: [S,K], B: [E,K,N] or [E,N,K], offs: [E] int32
-        torch.bmm             (A, B)                args[1]     out                 A: [S,1,K], B: [S,K,N]
-        torch.mm              (A, B)                args[1]     out                 A: [M,K], B: [K,N]
-        torch.matmul          (A, B)                args[1]     —                   any shapes compatible with matmul broadcasting
-        F.linear              (A, B [, bias])       args[1]     —                   A: [*,K], B: [N,K], bias: [N]
-        torch.addmm           (bias, A, B)          args[2]     beta, alpha, out    bias: [N] or [M,N], A: [M,K], B: [K,N]
-        
+        """        
         Because we defer fake-quantization in the case of slicing, indexing, transposing,
         and permuting the wrapper tensor, the following fake-quantization is fragile when
         complicated transpositions and permutations are applied before real computations.
@@ -421,8 +429,8 @@ class Float8FakeQuantizedWeightWrapperTensor(FakeQuantizedWeightWrapperBaseTenso
             kwargs = {}
 
 
-        if func.__name__ in ("_grouped_mm", "bmm", "addmm", "linear", "mm", "matmul"):
-            if func.__name__ == "addmm":
+        if func in _func_to_prepend_fake_quantization:
+            if func is torch.addmm:
                 A, B = args[1], args[2]
             else:
                 A, B = args[0], args[1]
@@ -430,7 +438,7 @@ class Float8FakeQuantizedWeightWrapperTensor(FakeQuantizedWeightWrapperBaseTenso
             assert not isinstance(A, cls), f"A should not be a {cls.__name__}"
 
             assert isinstance(B, cls), (
-                f"Expected the wrapped weight at args[{'2' if func.__name__ == 'addmm' else '1'}], "
+                f"Expected the wrapped weight at args[{'2' if func is torch.addmm else '1'}], "
                 f"but got {type(B)}. This happens when config._experts_implementation=\"batched_mm\" "
                 f"puts the weight at args[0]. Use \"grouped_mm\" instead."
             )
@@ -454,7 +462,7 @@ class Float8FakeQuantizedWeightWrapperTensor(FakeQuantizedWeightWrapperBaseTenso
             else:
                 fq_B_data = B_data
 
-            if func.__name__ == "addmm":
+            if func is torch.addmm:
                 new_args = (args[0],) + (fq_A, fq_B_data) + args[3:]
             else:
                 new_args = (fq_A, fq_B_data) + args[2:]
@@ -477,7 +485,7 @@ class Float8FakeQuantizedWeightWrapperTensor(FakeQuantizedWeightWrapperBaseTenso
             config.dtype,
             hp_value_lb=config.hp_value_lb,
             hp_value_ub=config.hp_value_ub,
-        )
+        ).detach()
         q = _quantize_affine_float8(weight, scale, config.dtype)
         dq = _dequantize_affine_float8(q, scale, original_dtype)
         return dq
