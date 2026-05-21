@@ -332,7 +332,7 @@ class TestSDPAPatternRewriterTemplate(TestCase):
         "CPU" not in torch._C._dispatch_dump("torchao::qscaled_dot_product"),
         reason="cpp kernels not built",
     )
-    @config.patch({"freezing": True, "cpp.enable_concat_linear": True})
+    @config.patch({"freezing": True})
     def _test_int8_sdpa_rewriter(self):
         import torchao.quantization.pt2e.quantizer.x86_inductor_quantizer as xiq
         from torchao.prototype.inductor.fx_passes.int8_concat_linear_fusion_cpu import (
