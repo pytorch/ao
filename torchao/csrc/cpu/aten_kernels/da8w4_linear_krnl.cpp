@@ -2,10 +2,11 @@
 #include <ATen/cpu/vec/vec.h>
 #include <ATen/native/CPUBlas.h>
 #include <c10/util/Unroll.h>
+#include "utils.h"
 
 namespace torchao {
 
-namespace {
+namespace CPU_CAPABILITY {
 
 #define BLOCK_N 32
 
@@ -15,7 +16,7 @@ static bool cpublas_can_pack = false;
 static inline bool cpublas_could_pack() {
   // the could_pack check requires AMX support implicitly
   std::call_once(cpublas_once, []() {
-    cpublas_can_pack = at::native::cpublas::could_pack(at::kByte);
+    cpublas_can_pack = brgemm_enabled() && at::native::cpublas::could_pack(at::kByte);
   });
   return cpublas_can_pack;
 }
@@ -450,7 +451,7 @@ void _dequant_gemm_accum(
   // Compute GEMM int8 * int8 -> int32
   // dequant result to float by applying scales/qzeros
 #if defined(CPU_CAPABILITY_AVX512_VNNI)
-  if (M <= 4 && cpublas_can_pack) {
+  if (kHasAVX512VNNI && M <= 4 && cpublas_can_pack) {
     switch (M) {
       case 1:
         call_dequant_gemm_accum_small_M(1);
@@ -748,11 +749,6 @@ at::Tensor da8w4_linear_impl(
   return output;
 }
 
-} // anonymous namespace
-
-TORCH_LIBRARY_IMPL(torchao, CPU, m) {
-  m.impl("torchao::da8w4_linear_prepack_cpu", &da8w4_linear_prepack_impl);
-  m.impl("torchao::da8w4_linear_cpu", &da8w4_linear_impl);
-}
+} // CPU_CAPABILITY namespace
 
 } // namespace torchao
