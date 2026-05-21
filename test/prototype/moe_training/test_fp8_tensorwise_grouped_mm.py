@@ -161,9 +161,11 @@ def test_tensorwise_dual_layout_quantize_matches_atomic_amax_baseline(shape):
         tensor,
         config.float8_dtype,
     )
-    staged_row, staged_col, staged_inv_scale = triton_fp8_tensorwise_quantize_2d_dual_layout(
-        tensor,
-        config.float8_dtype,
+    staged_row, staged_col, staged_inv_scale = (
+        triton_fp8_tensorwise_quantize_2d_dual_layout(
+            tensor,
+            config.float8_dtype,
+        )
     )
 
     torch.cuda.synchronize()

@@ -113,9 +113,7 @@ if torch_version_at_least("2.7.0") and has_triton():
                 + n_offs[None, :] * stride_input_n
             )
             mask = k_mask[:, None] & n_mask[None, :]
-            vals = tl.load(input_ptr + input_offs, mask=mask, other=0.0).to(
-                tl.float32
-            )
+            vals = tl.load(input_ptr + input_offs, mask=mask, other=0.0).to(tl.float32)
 
             vals = tl.where(vals != vals, 0.0, vals)
             vals = tl.where(vals > INPUT_DTYPE_MAX, INPUT_DTYPE_MAX, vals)

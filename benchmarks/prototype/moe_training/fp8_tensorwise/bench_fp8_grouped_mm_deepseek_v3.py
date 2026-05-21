@@ -40,7 +40,6 @@ from torchao.prototype.moe_training.fp8_tensorwise_grouped_mm import (
     _to_fp8_tensorwise_then_scaled_grouped_mm,
 )
 
-
 DSV3_NUM_ROUTED_EXPERTS = 256
 DSV3_TOP_K = 8
 DSV3_HIDDEN_DIM = 7168

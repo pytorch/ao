@@ -29,7 +29,6 @@ from torch.utils._triton import has_triton
 
 from torchao.utils import torch_version_at_least
 
-
 if torch_version_at_least("2.7.0") and has_triton():
     import triton
     import triton.language as tl
@@ -248,9 +247,7 @@ if torch_version_at_least("2.7.0") and has_triton():
         x = tl.where(x > INPUT_DTYPE_MAX, INPUT_DTYPE_MAX, x)
         x = tl.where(x < -INPUT_DTYPE_MAX, -INPUT_DTYPE_MAX, x)
 
-        fp8_vals = tl.minimum(tl.maximum(x * scale, fp8_min), fp8_max).to(
-            OUTPUT_DTYPE
-        )
+        fp8_vals = tl.minimum(tl.maximum(x * scale, fp8_min), fp8_max).to(OUTPUT_DTYPE)
         tl.store(out_row_ptr + input_offsets, fp8_vals, mask=mask)
 
         if pid_k == 0:
@@ -333,7 +330,6 @@ if torch_version_at_least("2.7.0") and has_triton():
             "triton_fp8_tensorwise_quantize_2d_dual_layout requires a 2D contiguous input tensor"
         )
         M, K = tensor.shape
-        numel = M * K
 
         tl_output_dtype = FP8_DTYPE_MAP[output_dtype]
         fp8_max = torch.finfo(output_dtype).max
