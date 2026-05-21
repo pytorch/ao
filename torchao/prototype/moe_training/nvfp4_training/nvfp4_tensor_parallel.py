@@ -498,6 +498,8 @@ class nvfp4_row_parallel_mm(torch.autograd.Function):
         # TODO Perhaps there should be an option for fp32
         # accumulation.
         output = reduce_scatter_tensor(output_hat, "SUM", scatter_dim=0, group=tp_group)
+        if isinstance(output, AsyncCollectiveTensor):
+            output = output.wait()
 
         if bias is not None:
             output = output + bias
@@ -625,8 +627,10 @@ class nvfp4_row_parallel_mm(torch.autograd.Function):
 
         # dy[m/w, n] -> dy[m, n].sum(dim=0) for bias
         if ctx.has_bias:
-            grad_bias_local = grad_output.sum(dim=0, keepdim=True)
+            grad_bias_local = grad_output.sum(dim=0)
             grad_bias = all_reduce(grad_bias_local, "SUM", tp_group)
+            if isinstance(grad_bias, AsyncCollectiveTensor):
+                grad_bias = grad_bias.wait()
         else:
             grad_bias = None
 

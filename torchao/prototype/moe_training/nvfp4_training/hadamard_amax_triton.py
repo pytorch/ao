@@ -26,6 +26,7 @@ if torch_version_at_least("2.10.0") and has_triton():
 
     from torchao.prototype.moe_training.nvfp4_training.hadamard_utils import (
         _compute_pid,
+        _device_key,
         get_rht_matrix,
         prepare_for_cuda_graph,
     )
@@ -212,7 +213,9 @@ if torch_version_at_least("2.10.0") and has_triton():
         NUM_SMS = torch.cuda.get_device_properties(A.device).multi_processor_count
         GROUP_SIZE_N: int = 8  # L2 reuse grouping along M
 
-        B = get_rht_matrix(sv, A.device, torch.bfloat16, hadamard_dimension)
+        B = get_rht_matrix(
+            sv, _device_key(A.device), torch.bfloat16, hadamard_dimension
+        )
         global_rht_amax = torch.zeros((), dtype=torch.float32, device=A.device)
         global_a_amax = torch.zeros((), dtype=torch.float32, device=A.device)
 

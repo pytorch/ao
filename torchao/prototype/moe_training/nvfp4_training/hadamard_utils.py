@@ -31,7 +31,7 @@ def _prewarm_rht_matrix(
     sign_vector: tuple[int, ...],
     device: torch.device,
 ) -> None:
-    get_rht_matrix(sign_vector, device, torch.bfloat16, 16)
+    get_rht_matrix(sign_vector, _device_key(device), torch.bfloat16, 16)
 
 
 def prepare_for_cuda_graph(
@@ -55,12 +55,11 @@ def prepare_for_cuda_graph(
     if key not in _TMA_WORKSPACES:
         _TMA_WORKSPACES[key] = torch.empty(nbytes, dtype=torch.uint8, device=device)
     # Pre-warm every call because tests and callers may clear get_rht_matrix's
-    # cache after the workspace has already been initialized. Use
-    # torch.device(key) ("cuda:N") because A.device always produces a fully
-    # indexed device and lru_cache keys are compared by value.
-    _dev = torch.device(key)
+    # cache after the workspace has already been initialized. Use the same
+    # canonical device-key string as runtime callers so the lru_cache key
+    # matches.
     for sign_vector in sign_vectors or ():
-        _prewarm_rht_matrix(tuple(sign_vector), _dev)
+        _prewarm_rht_matrix(tuple(sign_vector), key)
     return _TMA_WORKSPACES[key]
 
 

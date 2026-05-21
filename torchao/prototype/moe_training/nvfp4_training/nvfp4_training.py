@@ -83,11 +83,20 @@ class NVFP4TrainingConfig(AOBaseConfig):
             When set with kernel_preference=TRITON, forward dispatches to
             the selected NVFP4 tensor-parallel path.
         world_size: TP world size.  Inferred from process_group if None.
+        rht_sign_vector: Optional {-1, 1} sign vector of length 16 for the
+            randomized Hadamard transform.  When None, each NVFP4Linear draws
+            its own random vector.  In multi-rank settings (FSDP) replicas will
+            therefore have different bases — harmless for convergence but
+            inconsistent across checkpoints.  Callers that require replica
+            consistency should broadcast a single vector before calling
+            quantize_() and pass it here.  The TP path always enforces
+            consistency via _replicate_rht_sign_vector regardless of this field.
     """
 
     kernel_preference: KernelPreference = KernelPreference.TRITON
     process_group: Optional[object] = field(default=None, compare=False)
     world_size: Optional[int] = None
+    rht_sign_vector: Optional[object] = field(default=None, compare=False)
 
 
 class NVFP4Linear(nn.Linear):
@@ -229,11 +238,14 @@ def _nvfp4_training_transform(
     parameter_name: Optional[str] = None,
 ) -> nn.Module:
     """Handler for quantize_(): replaces nn.Linear with NVFP4Linear."""
+    if isinstance(module, NVFP4Linear):
+        return module
     if isinstance(module, nn.Linear):
         return NVFP4Linear.from_linear(
             module,
             kernel_preference=config.kernel_preference,
             process_group=config.process_group,
             world_size=config.world_size,
+            rht_sign_vector=config.rht_sign_vector,
         )
     return module

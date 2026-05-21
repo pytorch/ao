@@ -15,11 +15,11 @@ from tabulate import tabulate
 from tqdm import tqdm
 
 from benchmarks.utils import benchmark_cuda_function_in_microseconds
-from torchao.prototype.moe_training.nvfp4_training.hadamard_quantize_row_col_triton import (
-    _hadamard_quantize_row_col_kernel,
-)
 from torchao.prototype.moe_training.nvfp4_training.hadamard_amax_triton import (
     triton_rht_amax,
+)
+from torchao.prototype.moe_training.nvfp4_training.hadamard_quantize_row_col_triton import (
+    _hadamard_quantize_row_col_kernel,
 )
 from torchao.prototype.moe_training.nvfp4_training.hadamard_utils import (
     get_rht_matrix,

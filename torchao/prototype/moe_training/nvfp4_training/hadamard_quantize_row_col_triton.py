@@ -17,6 +17,7 @@ if torch_version_at_least("2.10.0") and has_triton():
 
     from torchao.prototype.moe_training.nvfp4_training.hadamard_utils import (
         _compute_pid,
+        _device_key,
         _nvfp4_quantize,
         _pack_fp4,
         _store_scales_swizzle,
@@ -60,8 +61,8 @@ if torch_version_at_least("2.10.0") and has_triton():
         rowwise_sf_ptr,
         col_seed_base_ptr,
         col_offset_base_ptr,
-        row_offset_base_ptr,
         row_seed_base_ptr,
+        row_offset_base_ptr,
         M,
         N,
         BLOCK_M: tl.constexpr,
@@ -309,6 +310,11 @@ if torch_version_at_least("2.10.0") and has_triton():
             raise ValueError(
                 f"N must be divisible by 128 for swizzled scales, got N={N}"
             )
+        if scaling_type != int(F.ScalingType.TensorWise):
+            raise ValueError(
+                f"scaling_type={scaling_type!r} is not supported; "
+                "only ScalingType.TensorWise is implemented."
+            )
         if col_global_amax.numel() != 1:
             raise ValueError(
                 f"col_global_amax must contain a single element, got {col_global_amax.numel()}"
@@ -365,7 +371,9 @@ if torch_version_at_least("2.10.0") and has_triton():
         NUM_SMS = torch.cuda.get_device_properties(A.device).multi_processor_count
         GROUP_SIZE_N: int = 8
 
-        B = get_rht_matrix(sv, A.device, torch.bfloat16, hadamard_dimension)
+        B = get_rht_matrix(
+            sv, _device_key(A.device), torch.bfloat16, hadamard_dimension
+        )
 
         # Columnwise outputs
         colwise_C = torch.empty((N, M // 2), dtype=torch.uint8, device=A.device)
@@ -391,8 +399,8 @@ if torch_version_at_least("2.10.0") and has_triton():
                 rowwise_sf,
                 _col_seed,
                 _col_offset,
-                _row_offset,
                 _row_seed,
+                _row_offset,
                 M,
                 N,
                 GROUP_SIZE_N=GROUP_SIZE_N,
