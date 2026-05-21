@@ -13,6 +13,7 @@ import torch._dynamo as torchdynamo
 from torch.testing._internal.common_utils import IS_WINDOWS, TestCase, run_tests
 
 from torchao.quantization.pt2e.graph_utils import (
+    collect_producer_nodes,
     find_sequential_partitions,
     get_equivalent_types,
     update_equivalent_types_dict,
@@ -128,6 +129,37 @@ class TestGraphUtils(TestCase):
             [torch.nn.Conv2d, torch.nn.ReLU6],
         )
         self.assertEqual(len(fused_partitions), 1)
+
+    @unittest.skipIf(IS_WINDOWS, "torch.compile is not supported on Windows")
+    def test_collect_producer_nodes_no_placeholder(self):
+        class M(torch.nn.Module):
+            def __init__(self) -> None:
+                super().__init__()
+                self.register_buffer("weight", torch.ones(3))
+
+            def forward(self, x: torch.Tensor) -> torch.Tensor:
+                return x + self.weight
+
+        m = M().eval()
+        example_inputs = (torch.randn(3),)
+
+        m, guards = torchdynamo.export(  # noqa: F841
+            m,
+            *copy.deepcopy(example_inputs),
+            aten_graph=True,
+        )
+
+        graph = m.graph
+        add_nodes = [n for n in graph.nodes if n.op == "call_function" and "add" in str(n.target)]
+
+        # Check the add node, which should be None
+        result = collect_producer_nodes(add_nodes[0])
+        self.assertIsNone(result)
+
+        # Check the input weight, which should not be None
+        weight_node = add_nodes[0].args[1]
+        result = collect_producer_nodes(weight_node)
+        self.assertIsNotNone(result)
 
 
 if __name__ == "__main__":
