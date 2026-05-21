@@ -37,7 +37,6 @@ from torchao.prototype.moe_training.nvfp4_training.hadamard_utils import (
     prepare_for_cuda_graph,
 )
 from torchao.prototype.moe_training.nvfp4_training.nvfp4_tensor_parallel import (
-    _TP_RHT_SIGN_VECTOR,
     NVFP4ColwiseParallel,
     NVFP4RowwiseParallel,
 )
@@ -174,14 +173,17 @@ def _test_nvfp4_mlp_fsdp2_tp_smoke(
     device = mesh.device_type
     M, K, H = 512, 256, 512
 
-    if compile_model:
-        prepare_for_cuda_graph(
-            torch.device(device), sign_vectors=(_TP_RHT_SIGN_VECTOR,)
-        )
-
     model = NVFP4MLP(K, H, device=device, dtype=torch.bfloat16)
     model = _parallelize_nvfp4_mlp(model, tp_mesh)
     if compile_model:
+        prepare_for_cuda_graph(
+            torch.device(device),
+            sign_vectors=(
+                model.w1.rht_sign_vector,
+                model.w2.rht_sign_vector,
+                model.out_proj.rht_sign_vector,
+            ),
+        )
         model = torch.compile(model, mode="reduce-overhead")
     model = fully_shard(model, mesh=dp_mesh)
 

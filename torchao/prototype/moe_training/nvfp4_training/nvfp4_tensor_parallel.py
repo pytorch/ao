@@ -29,7 +29,7 @@ from torch.distributed._functional_collectives import (
     reduce_scatter_tensor,
 )
 from torch.distributed.device_mesh import DeviceMesh
-from torch.distributed.tensor import DTensor
+from torch.distributed.tensor import DTensor, Replicate, distribute_tensor
 from torch.distributed.tensor.parallel import ColwiseParallel, RowwiseParallel
 
 from torchao.prototype.moe_training.nvfp4_training.hadamard_amax_triton import (
@@ -43,29 +43,31 @@ from torchao.prototype.moe_training.nvfp4_training.nvfp4_linear import (
 )
 from torchao.prototype.mx_formats.nvfp4_tensor import per_tensor_amax_to_scale
 
-# Column-parallel wgrad gathers RHT-transformed x shards across ranks. All ranks
-# must use the same RHT basis so gathered x_col and local dy_col are compatible.
-_TP_RHT_SIGN_VECTOR = (
-    1,
-    1,
-    1,
-    -1,
-    1,
-    -1,
-    -1,
-    -1,
-    -1,
-    -1,
-    -1,
-    1,
-    -1,
-    1,
-    -1,
-    -1,
-)
-
 _TP_STYLE_COLWISE = "colwise"
 _TP_STYLE_ROWWISE = "rowwise"
+
+
+def _replicate_rht_sign_vector(
+    module: nn.Module,
+    device_mesh: DeviceMesh,
+    src_data_rank: Optional[int],
+) -> None:
+    if src_data_rank is None:
+        src_data_rank = 0
+    sign_vector = module._rht_sign_vector
+    if isinstance(sign_vector, DTensor):
+        sign_vector = sign_vector.redistribute(
+            device_mesh=device_mesh, placements=(Replicate(),)
+        )
+    else:
+        sign_vector = distribute_tensor(
+            sign_vector,
+            device_mesh,
+            [Replicate()],
+            src_data_rank=src_data_rank,
+        )
+    module.register_buffer("_rht_sign_vector", sign_vector, persistent=True)
+    module._refresh_rht_sign_vector_tuple()
 
 
 def swap_first_dims(x: torch.Tensor, world_size: int) -> torch.Tensor:
@@ -184,7 +186,10 @@ class nvfp4_col_parallel_mm(torch.autograd.Function):
         sr_seed: torch.Tensor,
         tp_group,
         world_size: int,
+        sign_vector: tuple[int, ...] | list[int],
     ) -> torch.Tensor:
+        sign_vector = tuple(int(v) for v in sign_vector)
+        sign_vector_list = list(sign_vector)
         M_local = x.shape[0]
 
         if x.dtype != torch.bfloat16:
@@ -193,7 +198,7 @@ class nvfp4_col_parallel_mm(torch.autograd.Function):
             w = w.to(torch.bfloat16)
 
         # --- Amax computation + global sync ---
-        col_amax, row_amax = triton_rht_amax(x, sign_vector=list(_TP_RHT_SIGN_VECTOR))
+        col_amax, row_amax = triton_rht_amax(x, sign_vector=sign_vector_list)
         col_amax = all_reduce(col_amax, "MAX", tp_group)
         row_amax = all_reduce(row_amax, "MAX", tp_group)
         if isinstance(col_amax, AsyncCollectiveTensor):
@@ -210,7 +215,7 @@ class nvfp4_col_parallel_mm(torch.autograd.Function):
         ) = triton_rht_quantize_row_col(
             x,
             stochastic_rounding=False,
-            sign_vector=list(_TP_RHT_SIGN_VECTOR),
+            sign_vector=sign_vector_list,
             col_global_amax=col_amax,
             row_global_amax=row_amax,
         )
@@ -261,6 +266,7 @@ class nvfp4_col_parallel_mm(torch.autograd.Function):
         ctx.world_size = world_size
         ctx.has_bias = bias is not None
         ctx.local_M = M_local
+        ctx.sign_vector = sign_vector
         return output
 
     @staticmethod
@@ -276,6 +282,7 @@ class nvfp4_col_parallel_mm(torch.autograd.Function):
         ) = ctx.saved_tensors
         tp_group = ctx.tp_group
         world_size = ctx.world_size
+        sign_vector_list = list(ctx.sign_vector)
 
         grad_output = grad_output.contiguous()
         dev = grad_output.device
@@ -286,7 +293,7 @@ class nvfp4_col_parallel_mm(torch.autograd.Function):
 
         # --- Quantize dy (no amax all-reduce; each rank has a different dy shard) ---
         dy_col_amax, dy_row_amax = triton_rht_amax(
-            grad_output, sign_vector=list(_TP_RHT_SIGN_VECTOR)
+            grad_output, sign_vector=sign_vector_list
         )
         (
             qdy_col_codes,
@@ -296,7 +303,7 @@ class nvfp4_col_parallel_mm(torch.autograd.Function):
         ) = triton_rht_quantize_row_col(
             grad_output,
             stochastic_rounding=True,
-            sign_vector=list(_TP_RHT_SIGN_VECTOR),
+            sign_vector=sign_vector_list,
             col_seed_base=sr_seed,
             col_offset_base=offset_col,
             row_offset_base=offset_row,
@@ -361,8 +368,8 @@ class nvfp4_col_parallel_mm(torch.autograd.Function):
         )
 
         grad_bias = grad_output.sum(dim=0) if ctx.has_bias else None
-        # Nones for: bias, sr_seed, tp_group, world_size
-        return dx, dw, grad_bias, None, None, None
+        # Nones for: bias, sr_seed, tp_group, world_size, sign_vector
+        return dx, dw, grad_bias, None, None, None, None
 
 
 def nvfp4_col_parallel_linear(
@@ -372,6 +379,8 @@ def nvfp4_col_parallel_linear(
     sr_seed: Optional[torch.Tensor] = None,
     tp_group=None,
     world_size: Optional[int] = None,
+    *,
+    sign_vector: tuple[int, ...] | list[int],
 ) -> torch.Tensor:
     """Convenience wrapper around nvfp4_col_parallel_mm.
 
@@ -382,6 +391,8 @@ def nvfp4_col_parallel_linear(
         sr_seed: Fixed int64 seed tensor (size=(1,)) for SR Philox key.
         tp_group: ProcessGroup for TP collectives.
         world_size: TP world size (inferred from group if None).
+        sign_vector: RHT sign vector used for amax and quantization. Must
+            match across TP ranks.
     """
     if tp_group is None:
         raise ValueError("tp_group is required for nvfp4_col_parallel_linear")
@@ -391,7 +402,9 @@ def nvfp4_col_parallel_linear(
         sr_seed = torch.randint(
             -(2**63), 2**63 - 1, (1,), dtype=torch.int64, device=x.device
         )
-    return nvfp4_col_parallel_mm.apply(x, w, bias, sr_seed, tp_group, world_size)
+    return nvfp4_col_parallel_mm.apply(
+        x, w, bias, sr_seed, tp_group, world_size, sign_vector
+    )
 
 
 @torch._dynamo.allow_in_graph
@@ -420,7 +433,10 @@ class nvfp4_row_parallel_mm(torch.autograd.Function):
         sr_seed: torch.Tensor,
         tp_group,
         world_size: int,
+        sign_vector: tuple[int, ...] | list[int],
     ) -> torch.Tensor:
+        sign_vector = tuple(int(v) for v in sign_vector)
+        sign_vector_list = list(sign_vector)
         M_local = x.shape[0]
 
         if x.dtype != torch.bfloat16:
@@ -435,7 +451,7 @@ class nvfp4_row_parallel_mm(torch.autograd.Function):
         # amax. The true output is accumulated in bf16 using reduce-scatter. For the
         # all-gather gemm pattern, each rank get entire tensor, so it must be quantized
         # with global amax using all-reduce.
-        col_amax, row_amax = triton_rht_amax(x, sign_vector=list(_TP_RHT_SIGN_VECTOR))
+        col_amax, row_amax = triton_rht_amax(x, sign_vector=sign_vector_list)
 
         # --- Quantize x with local amax ---
         (
@@ -446,7 +462,7 @@ class nvfp4_row_parallel_mm(torch.autograd.Function):
         ) = triton_rht_quantize_row_col(
             x,
             stochastic_rounding=False,
-            sign_vector=list(_TP_RHT_SIGN_VECTOR),
+            sign_vector=sign_vector_list,
             col_global_amax=col_amax,
             row_global_amax=row_amax,
         )
@@ -501,6 +517,7 @@ class nvfp4_row_parallel_mm(torch.autograd.Function):
         ctx.world_size = world_size
         ctx.has_bias = bias is not None
         ctx.local_M = M_local
+        ctx.sign_vector = sign_vector
         return output
 
     @staticmethod
@@ -516,6 +533,7 @@ class nvfp4_row_parallel_mm(torch.autograd.Function):
         ) = ctx.saved_tensors
         tp_group = ctx.tp_group
         world_size = ctx.world_size
+        sign_vector_list = list(ctx.sign_vector)
 
         grad_output = grad_output.contiguous()
         dev = grad_output.device
@@ -526,7 +544,7 @@ class nvfp4_row_parallel_mm(torch.autograd.Function):
 
         # --- Amax dy computation + global sync ---
         dy_col_amax, dy_row_amax = triton_rht_amax(
-            grad_output, sign_vector=list(_TP_RHT_SIGN_VECTOR)
+            grad_output, sign_vector=sign_vector_list
         )
         dy_col_amax = all_reduce(dy_col_amax, "MAX", tp_group)
         dy_row_amax = all_reduce(dy_row_amax, "MAX", tp_group)
@@ -544,7 +562,7 @@ class nvfp4_row_parallel_mm(torch.autograd.Function):
         ) = triton_rht_quantize_row_col(
             grad_output,
             stochastic_rounding=True,
-            sign_vector=list(_TP_RHT_SIGN_VECTOR),
+            sign_vector=sign_vector_list,
             col_seed_base=sr_seed,
             col_offset_base=offset_col,
             row_offset_base=offset_row,
@@ -612,8 +630,8 @@ class nvfp4_row_parallel_mm(torch.autograd.Function):
         else:
             grad_bias = None
 
-        # Nones for: bias, sr_seed, tp_group, world_size
-        return dx, dw, grad_bias, None, None, None
+        # Nones for: bias, sr_seed, tp_group, world_size, sign_vector
+        return dx, dw, grad_bias, None, None, None, None
 
 
 def nvfp4_row_parallel_linear(
@@ -623,6 +641,8 @@ def nvfp4_row_parallel_linear(
     sr_seed: Optional[torch.Tensor] = None,
     tp_group=None,
     world_size: Optional[int] = None,
+    *,
+    sign_vector: tuple[int, ...] | list[int],
 ) -> torch.Tensor:
     """Convenience wrapper around nvfp4_row_parallel_mm.
 
@@ -633,6 +653,8 @@ def nvfp4_row_parallel_linear(
         sr_seed: Fixed int64 seed tensor (size=(1,)) for SR Philox key.
         tp_group: ProcessGroup for TP collectives.
         world_size: TP world size (inferred from group if None).
+        sign_vector: RHT sign vector used for amax and quantization. Must
+            match across TP ranks.
     """
     if tp_group is None:
         raise ValueError("tp_group is required for nvfp4_row_parallel_linear")
@@ -642,7 +664,9 @@ def nvfp4_row_parallel_linear(
         sr_seed = torch.randint(
             -(2**63), 2**63 - 1, (1,), dtype=torch.int64, device=x.device
         )
-    return nvfp4_row_parallel_mm.apply(x, w, bias, sr_seed, tp_group, world_size)
+    return nvfp4_row_parallel_mm.apply(
+        x, w, bias, sr_seed, tp_group, world_size, sign_vector
+    )
 
 
 class NVFP4ColwiseParallel(ColwiseParallel):
@@ -690,6 +714,7 @@ class NVFP4ColwiseParallel(ColwiseParallel):
         module.process_group = device_mesh.get_group()
         module.world_size = device_mesh.size()
         module.tensor_parallel_style = _TP_STYLE_COLWISE
+        _replicate_rht_sign_vector(module, device_mesh, self.src_data_rank)
         return super()._apply(module, device_mesh)
 
 
@@ -739,4 +764,5 @@ class NVFP4RowwiseParallel(RowwiseParallel):
         module.process_group = device_mesh.get_group()
         module.world_size = device_mesh.size()
         module.tensor_parallel_style = _TP_STYLE_ROWWISE
+        _replicate_rht_sign_vector(module, device_mesh, self.src_data_rank)
         return super()._apply(module, device_mesh)

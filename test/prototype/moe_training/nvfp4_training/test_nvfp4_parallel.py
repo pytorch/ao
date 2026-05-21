@@ -28,7 +28,6 @@ from torchao.prototype.moe_training.nvfp4_training.hadamard_utils import (
     prepare_for_cuda_graph,
 )
 from torchao.prototype.moe_training.nvfp4_training.nvfp4_tensor_parallel import (
-    _TP_RHT_SIGN_VECTOR,
     NVFP4ColwiseParallel,
     NVFP4RowwiseParallel,
     nvfp4_col_parallel_mm,
@@ -45,6 +44,26 @@ if not torch.cuda.is_available():
 
 if not is_sm_at_least_100():
     pytest.skip("Requires SM100+ hardware", allow_module_level=True)
+
+_CUSTOM_RHT_SIGN_VECTOR = (
+    1,
+    -1,
+    1,
+    -1,
+    -1,
+    1,
+    -1,
+    1,
+    1,
+    1,
+    -1,
+    -1,
+    1,
+    -1,
+    -1,
+    1,
+)
+_OTHER_RHT_SIGN_VECTOR = tuple(-v for v in _CUSTOM_RHT_SIGN_VECTOR)
 
 
 class NVFP4MLP(nn.Module):
@@ -229,14 +248,14 @@ def test_column_single_rank_equivalence(distributed_env: DeviceMesh):
     # Single-GPU reference
     sr_seed_ref = sr_seed.clone()
     y_ref = nvfp4_mm_triton.apply(
-        x.clone(), w.clone(), bias.clone(), sr_seed_ref, _TP_RHT_SIGN_VECTOR
+        x.clone(), w.clone(), bias.clone(), sr_seed_ref, _CUSTOM_RHT_SIGN_VECTOR
     )
 
     # Column-parallel with world_size=1 (no actual distributed calls needed,
     # but we use a trivial group with just rank 0)
     sr_seed_tp = sr_seed.clone()
     y_tp = nvfp4_col_parallel_mm.apply(
-        x.clone(), w.clone(), bias.clone(), sr_seed_tp, pg, 1
+        x.clone(), w.clone(), bias.clone(), sr_seed_tp, pg, 1, _CUSTOM_RHT_SIGN_VECTOR
     )
 
     torch.testing.assert_close(y_ref, y_tp, atol=0, rtol=0)
@@ -274,13 +293,15 @@ def test_column_single_rank_backward_equivalence(distributed_env: DeviceMesh):
     w_ref = w.clone().detach().requires_grad_(True)
     bias_ref = bias.clone().detach().requires_grad_(True)
     y_ref = nvfp4_mm_triton.apply(
-        x_ref, w_ref, bias_ref, sr_seed.clone(), _TP_RHT_SIGN_VECTOR
+        x_ref, w_ref, bias_ref, sr_seed.clone(), _CUSTOM_RHT_SIGN_VECTOR
     )
 
     x_tp = x.clone().detach().requires_grad_(True)
     w_tp = w.clone().detach().requires_grad_(True)
     bias_tp = bias.clone().detach().requires_grad_(True)
-    y_tp = nvfp4_col_parallel_mm.apply(x_tp, w_tp, bias_tp, sr_seed.clone(), pg, 1)
+    y_tp = nvfp4_col_parallel_mm.apply(
+        x_tp, w_tp, bias_tp, sr_seed.clone(), pg, 1, _CUSTOM_RHT_SIGN_VECTOR
+    )
 
     rng_state = torch.cuda.get_rng_state()
     torch.cuda.set_rng_state(rng_state.clone())
@@ -323,7 +344,13 @@ def test_column_forward(distributed_env: DeviceMesh):
     sr_seed = torch.randint(-(2**63), 2**63 - 1, (1,), dtype=torch.int64, device=device)
 
     y = nvfp4_col_parallel_mm.apply(
-        x_local, w_local, bias_local, sr_seed, tp_group, world_size
+        x_local,
+        w_local,
+        bias_local,
+        sr_seed,
+        tp_group,
+        world_size,
+        _CUSTOM_RHT_SIGN_VECTOR,
     )
 
     assert y.shape == (
@@ -386,7 +413,13 @@ def test_column_backward(distributed_env: DeviceMesh):
     sr_seed = torch.randint(-(2**63), 2**63 - 1, (1,), dtype=torch.int64, device=device)
 
     y = nvfp4_col_parallel_mm.apply(
-        x_local, w_local, bias_local, sr_seed, tp_group, world_size
+        x_local,
+        w_local,
+        bias_local,
+        sr_seed,
+        tp_group,
+        world_size,
+        _CUSTOM_RHT_SIGN_VECTOR,
     )
     y.backward(dy_local)
 
@@ -447,6 +480,7 @@ def test_column_parallelize_module(distributed_env: DeviceMesh):
     assert M % world_size == 0 and N % world_size == 0
     M_per_rank = M // world_size
     N_per_rank = N // world_size
+    rank_sign_vector = _CUSTOM_RHT_SIGN_VECTOR if rank == 0 else _OTHER_RHT_SIGN_VECTOR
 
     torch.manual_seed(29)
     module = NVFP4Linear(
@@ -456,11 +490,15 @@ def test_column_parallelize_module(distributed_env: DeviceMesh):
         kernel_preference=KernelPreference.TRITON,
         device=device,
         dtype=torch.bfloat16,
+        rht_sign_vector=rank_sign_vector,
     )
     w_full = module.weight.detach().clone()
     bias_full = module.bias.detach().clone()
     module = parallelize_module(module, mesh, NVFP4ColwiseParallel())
 
+    assert module.rht_sign_vector == _CUSTOM_RHT_SIGN_VECTOR
+    assert isinstance(module._rht_sign_vector, DTensor)
+    assert module._rht_sign_vector.placements == (Replicate(),)
     assert module.process_group is not None
     assert module.world_size == world_size
     assert module.tensor_parallel_style == "colwise"
@@ -551,12 +589,12 @@ def test_row_single_rank_equivalence(distributed_env: DeviceMesh):
 
     sr_seed_ref = sr_seed.clone()
     y_ref = nvfp4_mm_triton.apply(
-        x.clone(), w.clone(), bias.clone(), sr_seed_ref, _TP_RHT_SIGN_VECTOR
+        x.clone(), w.clone(), bias.clone(), sr_seed_ref, _CUSTOM_RHT_SIGN_VECTOR
     )
 
     sr_seed_tp = sr_seed.clone()
     y_tp = nvfp4_row_parallel_mm.apply(
-        x.clone(), w.clone(), bias.clone(), sr_seed_tp, pg, 1
+        x.clone(), w.clone(), bias.clone(), sr_seed_tp, pg, 1, _CUSTOM_RHT_SIGN_VECTOR
     )
 
     torch.testing.assert_close(y_ref, y_tp, atol=0, rtol=0)
@@ -594,13 +632,15 @@ def test_row_single_rank_backward_equivalence(distributed_env: DeviceMesh):
     w_ref = w.clone().detach().requires_grad_(True)
     bias_ref = bias.clone().detach().requires_grad_(True)
     y_ref = nvfp4_mm_triton.apply(
-        x_ref, w_ref, bias_ref, sr_seed.clone(), _TP_RHT_SIGN_VECTOR
+        x_ref, w_ref, bias_ref, sr_seed.clone(), _CUSTOM_RHT_SIGN_VECTOR
     )
 
     x_tp = x.clone().detach().requires_grad_(True)
     w_tp = w.clone().detach().requires_grad_(True)
     bias_tp = bias.clone().detach().requires_grad_(True)
-    y_tp = nvfp4_row_parallel_mm.apply(x_tp, w_tp, bias_tp, sr_seed.clone(), pg, 1)
+    y_tp = nvfp4_row_parallel_mm.apply(
+        x_tp, w_tp, bias_tp, sr_seed.clone(), pg, 1, _CUSTOM_RHT_SIGN_VECTOR
+    )
 
     rng_state = torch.cuda.get_rng_state()
     torch.cuda.set_rng_state(rng_state.clone())
@@ -642,7 +682,13 @@ def test_row_forward(distributed_env: DeviceMesh):
     sr_seed = torch.randint(-(2**63), 2**63 - 1, (1,), dtype=torch.int64, device=device)
 
     y = nvfp4_row_parallel_mm.apply(
-        x_local, w_local, bias, sr_seed, tp_group, world_size
+        x_local,
+        w_local,
+        bias,
+        sr_seed,
+        tp_group,
+        world_size,
+        _CUSTOM_RHT_SIGN_VECTOR,
     )
 
     assert y.shape == (
@@ -699,7 +745,13 @@ def test_row_backward(distributed_env: DeviceMesh):
     sr_seed = torch.randint(-(2**63), 2**63 - 1, (1,), dtype=torch.int64, device=device)
 
     y = nvfp4_row_parallel_mm.apply(
-        x_local, w_local, bias, sr_seed, tp_group, world_size
+        x_local,
+        w_local,
+        bias,
+        sr_seed,
+        tp_group,
+        world_size,
+        _CUSTOM_RHT_SIGN_VECTOR,
     )
     y.backward(dy_local)
 
@@ -763,6 +815,7 @@ def test_row_parallelize_module(distributed_env: DeviceMesh):
     assert M % world_size == 0 and K % world_size == 0
     M_per_rank = M // world_size
     K_per_rank = K // world_size
+    rank_sign_vector = _CUSTOM_RHT_SIGN_VECTOR if rank == 0 else _OTHER_RHT_SIGN_VECTOR
 
     torch.manual_seed(31)
     module = NVFP4Linear(
@@ -772,11 +825,15 @@ def test_row_parallelize_module(distributed_env: DeviceMesh):
         kernel_preference=KernelPreference.TRITON,
         device=device,
         dtype=torch.bfloat16,
+        rht_sign_vector=rank_sign_vector,
     )
     w_full = module.weight.detach().clone()
     bias_full = module.bias.detach().clone()
     module = parallelize_module(module, mesh, NVFP4RowwiseParallel())
 
+    assert module.rht_sign_vector == _CUSTOM_RHT_SIGN_VECTOR
+    assert isinstance(module._rht_sign_vector, DTensor)
+    assert module._rht_sign_vector.placements == (Replicate(),)
     assert module.process_group is not None
     assert module.world_size == world_size
     assert module.tensor_parallel_style == "rowwise"
@@ -933,10 +990,17 @@ def test_mlp_colwise_rowwise_parallelize_module_cuda_graph_compile(
     assert M % world_size == 0
     M_per_rank = M // world_size
 
-    prepare_for_cuda_graph(torch.device(device), sign_vectors=(_TP_RHT_SIGN_VECTOR,))
     torch.manual_seed(41)
     model = NVFP4MLP(K, H, device=device, dtype=torch.bfloat16)
     model = _parallelize_nvfp4_mlp(model, mesh)
+    prepare_for_cuda_graph(
+        torch.device(device),
+        sign_vectors=(
+            model.w1.rht_sign_vector,
+            model.w2.rht_sign_vector,
+            model.out_proj.rht_sign_vector,
+        ),
+    )
     compiled_model = torch.compile(model, mode="reduce-overhead", fullgraph=True)
     compiled_bwd = torch.compile(fullgraph=True, mode="reduce-overhead")
 

@@ -21,6 +21,8 @@ def test_nvfp4_linear_rht_sign_vector_state_dict_roundtrip():
     torch.manual_seed(123)
     layer = NVFP4Linear(128, 128, bias=False, kernel_preference=KernelPreference.TRITON)
     expected_sign_vector = layer.rht_sign_vector
+    assert len(expected_sign_vector) == 16
+    assert set(expected_sign_vector) <= {-1, 1}
     state_dict = layer.state_dict()
 
     torch.manual_seed(456)

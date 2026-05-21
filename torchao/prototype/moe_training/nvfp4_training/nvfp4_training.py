@@ -53,7 +53,7 @@ def _make_rht_sign_vector(
     if isinstance(sign_vector, torch.Tensor):
         if sign_vector.numel() != 16:
             raise ValueError(
-                f"Expected rht_sign_vector length 16, got {sign_vector.numel()}"
+                f"rht_sign_vector must have 16 elements, got {sign_vector.numel()}"
             )
         kwargs = {"dtype": torch.int8}
         if device is not None:
@@ -61,7 +61,9 @@ def _make_rht_sign_vector(
         return sign_vector.detach().to(**kwargs).clone()
 
     if len(sign_vector) != 16:
-        raise ValueError(f"Expected rht_sign_vector length 16, got {len(sign_vector)}")
+        raise ValueError(
+            f"rht_sign_vector must have 16 elements, got {len(sign_vector)}"
+        )
     return torch.tensor(sign_vector, dtype=torch.int8, device=device)
 
 
@@ -179,6 +181,7 @@ class NVFP4Linear(nn.Linear):
                 sr_seed=sr_seed,
                 tp_group=self.process_group,
                 world_size=ws,
+                sign_vector=self.rht_sign_vector,
             )
         return nvfp4_linear(
             x,
