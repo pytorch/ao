@@ -27,7 +27,9 @@ class TestSemiStructuredSparse(common_utils.TestCase):
             self.skipTest("Need cuSPARSELt or hipSPARSELt")
         # TODO failing after rocm 7.2 upgrade, investigate and fix later
         if torch.version.hip is not None:
-            self.skipTest("TODO failing after rocm 7.2 upgrade, investigate and fix later")
+            self.skipTest(
+                "TODO failing after rocm 7.2 upgrade, investigate and fix later"
+            )
         input = torch.rand((128, 128)).half().cuda()
         model = (
             nn.Sequential(
