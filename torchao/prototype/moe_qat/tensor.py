@@ -443,10 +443,11 @@ class Float8FakeQuantizedWeightWrapperTensor(FakeQuantizedWeightWrapperBaseTenso
                 f"puts the weight at args[0]. Use \"grouped_mm\" instead."
             )
 
-            # Fake-quantize the activation if B.activation_config exists.
-            # With torch._grouped_mm, activation is quantized once for the shared
-            # 3D weight. In a per-expert loop pattern, this repeats per expert.
-            if B.activation_config is not None:
+            # Fake-quantize the activation if B.activation_config exists. With torch._grouped_mm, activation
+            # is quantized once for the shared 3D weight. In a per-expert loop pattern, this repeats per expert.
+            # Activation fake quantization is skipped if the activation is empty. This is a possible case when
+            # a loop over experts instead of grouped_mm is used and some experts don't receive any tokens.
+            if B.activation_config is not None and A.numel() > 0:
                 assert not isinstance(A, TorchAOBaseTensor), \
                     f"When an activation config is specified, the activation must not be a quantized tensor, got {type(A)}"
                 fq_A = cls.fake_quantize(A, B.activation_config)
