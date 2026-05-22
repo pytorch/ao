@@ -1844,9 +1844,7 @@ extern "C"
 {%- endif %}
 
   // Data ptrs
-  const scalar_t* q_data = query;
-  const scalar_t* k_data = key;
-  const scalar_t* v_data = value;
+  {{template.codegen_qkv_ptr(kernel)}}
   scalar_t* out_data = output;
 
   int64_t qk_reduce_strideL = qSplitSize * rndkvSplitSize;

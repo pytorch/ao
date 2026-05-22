@@ -401,11 +401,16 @@ class TestSDPAPatternRewriterTemplate(TestCase):
     )
     @config.patch({"freezing": True})
     def _test_fp8_sdpa_rewriter(self):
+        from torchao.prototype.inductor.fx_passes.fp8_concat_linear_fusion_cpu import (
+            register_fp8_concat_linear_cpu_pass,
+        )
         import torchao.quantization.pt2e.quantizer.x86_inductor_quantizer as xiq  # noqa: F401
 
         # pattern is different for bs=1
         torch.manual_seed(1234)
-        for dtype, bs in itertools.product([torch.float32, torch.bfloat16], [56, 1]):
+        for enable_concat_linear_fusion, dtype, bs in itertools.product(
+            [False, True], [torch.float32, torch.bfloat16], [56, 1]
+        ):
             seqlen, numhead, headsize = 197, 16, 64
             mod = MHAModule(
                 input_dim=headsize * numhead,
@@ -425,14 +430,23 @@ class TestSDPAPatternRewriterTemplate(TestCase):
                 torch.amp.autocast(
                     self.device, enabled=enable_autocast, dtype=torch.bfloat16
                 ),
-                config.patch(post_grad_custom_pre_pass=custom_pass),
+                config.patch(
+                    post_grad_custom_pre_pass=custom_pass,
+                    post_grad_custom_post_pass=None,
+                ),
             ):
                 _qsdpa_init()
+                if enable_concat_linear_fusion:
+                    register_fp8_concat_linear_cpu_pass()
                 convert_model = fp8_convert_(mod)
 
                 self._check_common(
                     convert_model, args1=inputs, check_train=False, atol=1.0
                 )
+                if enable_concat_linear_fusion:
+                    self.assertGreaterEqual(
+                        counters["inductor"]["fp8_concat_linear_fusion"], 1
+                    )
 
 
 if HAS_CPU:
