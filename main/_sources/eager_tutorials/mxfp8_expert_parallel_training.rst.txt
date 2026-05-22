@@ -50,7 +50,7 @@ Prerequisites
 ^^^^^^^^^^^^^
 
 1. (Recommended) Create a new virtual environment with conda or venv.
-2. `Install PyTorch <https://pytorch.org/get-started/locally/>`__ 2.10 or nightly build with CUDA 12.8+ support.
+2. `Install PyTorch <https://pytorch.org/get-started/locally/>`__ 2.11 or nightly build with CUDA 12.8+ support.
 3. `Install torchao <https://github.com/pytorch/ao/tree/main?tab=readme-ov-file#installation>`__ nightly build (required for CUDA 12.8+ support).
 4. `Install torchtitan <https://github.com/pytorch/torchtitan/tree/main?tab=readme-ov-file#installation>`__, including the "downloading a tokenizer" step.
 
