@@ -150,7 +150,9 @@ class TestGraphUtils(TestCase):
         )
 
         graph = m.graph
-        add_nodes = [n for n in graph.nodes if n.op == "call_function" and "add" in str(n.target)]
+        add_nodes = [
+            n for n in graph.nodes if n.op == "call_function" and "add" in str(n.target)
+        ]
 
         # Check the add node, which should be None
         result = collect_producer_nodes(add_nodes[0])
