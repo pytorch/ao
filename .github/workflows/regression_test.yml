@@ -59,16 +59,16 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - name: CUDA 2.11
+          - name: CUDA 2.12
             runs-on: linux.g5.12xlarge.nvidia.gpu
-            torch-spec: 'torch==2.11.0 torchvision==0.26.0 --index-url https://download.pytorch.org/whl/cu126'
+            torch-spec: 'torch==2.12.0 torchvision==0.27.0 --index-url https://download.pytorch.org/whl/cu126'
             gpu-arch-type: "cuda"
             gpu-arch-version: "12.6"
             dev-requirements-overrides: ""
 
-          - name: CPU 2.11
+          - name: CPU 2.12
             runs-on: linux.4xlarge
-            torch-spec: 'torch==2.11.0 torchvision==0.26.0 --index-url https://download.pytorch.org/whl/cpu'
+            torch-spec: 'torch==2.12.0 torchvision==0.27.0 --index-url https://download.pytorch.org/whl/cpu'
             gpu-arch-type: "cpu"
             gpu-arch-version: ""
             dev-requirements-overrides: ""
