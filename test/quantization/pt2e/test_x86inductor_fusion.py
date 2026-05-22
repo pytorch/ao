@@ -115,9 +115,6 @@ quantization_inplace_add_fn_list = [
     lambda x, y: x.add_(y),
 ]
 
-skipIfNoFloat8Support = unittest.skipIf(
-    not torch_version_at_least("2.9.0"), "Float8 requires torch 2.9+"
-)
 skipIfNoQConvFp8Support = unittest.skipIf(
     not torch_version_at_least("2.10.0.dev"), "QConv fp8 requires torch 2.10+"
 )
@@ -1664,7 +1661,6 @@ class TestPatternMatcher(TestPatternMatcherBase):
 
     @skipIfNoDynamoSupport
     @skipIfNoONEDNN
-    @skipIfNoFloat8Support
     @unittest.skipIf(
         torch_version_at_least("2.13.0.dev"), "Skip due to torch nightly issue"
     )
@@ -1725,7 +1721,6 @@ class TestPatternMatcher(TestPatternMatcherBase):
     @skipIfNoDynamoSupport
     @skipIfNoONEDNNBF16
     @skipIfNoONEDNN
-    @skipIfNoFloat8Support
     @unittest.skipIf(
         torch_version_at_least("2.13.0.dev"), "Skip due to torch nightly issue"
     )
@@ -1749,7 +1744,6 @@ class TestPatternMatcher(TestPatternMatcherBase):
 
     @skipIfNoDynamoSupport
     @skipIfNoONEDNN
-    @skipIfNoFloat8Support
     @unittest.skipIf(
         torch_version_at_least("2.13.0.dev"), "Skip due to torch nightly issue"
     )
@@ -1775,7 +1769,6 @@ class TestPatternMatcher(TestPatternMatcherBase):
     @skipIfNoDynamoSupport
     @skipIfNoONEDNNBF16
     @skipIfNoONEDNN
-    @skipIfNoFloat8Support
     @unittest.skipIf(
         torch_version_at_least("2.13.0.dev"), "Skip due to torch nightly issue"
     )
@@ -1816,7 +1809,6 @@ class TestPatternMatcher(TestPatternMatcherBase):
 
     @skipIfNoDynamoSupport
     @skipIfNoONEDNN
-    @skipIfNoFloat8Support
     @unittest.skipIf(
         torch_version_at_least("2.13.0.dev"), "Skip due to torch nightly issue"
     )
@@ -1876,7 +1868,6 @@ class TestPatternMatcher(TestPatternMatcherBase):
     @skipIfNoDynamoSupport
     @skipIfNoONEDNNBF16
     @skipIfNoONEDNN
-    @skipIfNoFloat8Support
     @unittest.skipIf(
         torch_version_at_least("2.13.0.dev"), "Skip due to torch nightly issue"
     )
@@ -1964,7 +1955,6 @@ class TestPatternMatcher(TestPatternMatcherBase):
 
     @skipIfNoDynamoSupport
     @skipIfNoONEDNN
-    @skipIfNoFloat8Support
     @unittest.skipIf(
         torch_version_at_least("2.13.0.dev"), "Skip due to torch nightly issue"
     )
@@ -1986,7 +1976,6 @@ class TestPatternMatcher(TestPatternMatcherBase):
     @skipIfNoDynamoSupport
     @skipIfNoONEDNNBF16
     @skipIfNoONEDNN
-    @skipIfNoFloat8Support
     @unittest.skipIf(
         torch_version_at_least("2.13.0.dev"), "Skip due to torch nightly issue"
     )
@@ -2008,7 +1997,6 @@ class TestPatternMatcher(TestPatternMatcherBase):
 
     @skipIfNoDynamoSupport
     @skipIfNoONEDNN
-    @skipIfNoFloat8Support
     @unittest.skipIf(
         torch_version_at_least("2.13.0.dev"), "Skip due to torch nightly issue"
     )
@@ -2030,7 +2018,6 @@ class TestPatternMatcher(TestPatternMatcherBase):
     @skipIfNoDynamoSupport
     @skipIfNoONEDNNBF16
     @skipIfNoONEDNN
-    @skipIfNoFloat8Support
     @unittest.skipIf(
         torch_version_at_least("2.13.0.dev"), "Skip due to torch nightly issue"
     )
@@ -2053,7 +2040,6 @@ class TestPatternMatcher(TestPatternMatcherBase):
 
     @skipIfNoDynamoSupport
     @skipIfNoONEDNN
-    @skipIfNoFloat8Support
     @unittest.skipIf(
         torch_version_at_least("2.13.0.dev"), "Skip due to torch nightly issue"
     )
@@ -2079,7 +2065,6 @@ class TestPatternMatcher(TestPatternMatcherBase):
     @skipIfNoDynamoSupport
     @skipIfNoONEDNNBF16
     @skipIfNoONEDNN
-    @skipIfNoFloat8Support
     @unittest.skipIf(
         torch_version_at_least("2.13.0.dev"), "Skip due to torch nightly issue"
     )
@@ -2280,7 +2265,6 @@ class TestPatternMatcher(TestPatternMatcherBase):
     @skipIfNoDynamoSupport
     @skipIfNoONEDNNBF16
     @skipIfNoONEDNN
-    @skipIfNoFloat8Support
     @unittest.skipIf(
         torch_version_at_least("2.13.0.dev"), "Skip due to torch nightly issue"
     )
@@ -2367,7 +2351,6 @@ class TestPatternMatcher(TestPatternMatcherBase):
 
     @skipIfNoDynamoSupport
     @skipIfNoONEDNN
-    @skipIfNoFloat8Support
     @unittest.skipIf(
         torch_version_at_least("2.13.0.dev"), "Skip due to torch nightly issue"
     )
@@ -2410,7 +2393,6 @@ class TestPatternMatcher(TestPatternMatcherBase):
     @skipIfNoDynamoSupport
     @skipIfNoONEDNNBF16
     @skipIfNoONEDNN
-    @skipIfNoFloat8Support
     @unittest.skipIf(
         torch_version_at_least("2.13.0.dev"), "Skip due to torch nightly issue"
     )
@@ -2451,7 +2433,6 @@ class TestPatternMatcher(TestPatternMatcherBase):
 
     @skipIfNoDynamoSupport
     @skipIfNoONEDNN
-    @skipIfNoFloat8Support
     @unittest.skipIf(
         torch_version_at_least("2.13.0.dev"), "Skip due to torch nightly issue"
     )
@@ -2496,7 +2477,6 @@ class TestPatternMatcher(TestPatternMatcherBase):
     @skipIfNoDynamoSupport
     @skipIfNoONEDNNBF16
     @skipIfNoONEDNN
-    @skipIfNoFloat8Support
     @unittest.skipIf(
         torch_version_at_least("2.13.0.dev"), "Skip due to torch nightly issue"
     )
@@ -2583,7 +2563,6 @@ class TestPatternMatcher(TestPatternMatcherBase):
 
     @skipIfNoDynamoSupport
     @skipIfNoONEDNN
-    @skipIfNoFloat8Support
     @unittest.skipIf(
         torch_version_at_least("2.13.0.dev"), "Skip due to torch nightly issue"
     )
@@ -3258,7 +3237,6 @@ class TestDynamicPatternMatcher(TestPatternMatcherBase):
 
     @skipIfNoDynamoSupport
     @skipIfNoONEDNN
-    @skipIfNoFloat8Support
     @unittest.skipIf(torch.xpu.is_available(), "Doesn't work with XPU")
     @unittest.skipIf(
         torch_version_at_least("2.13.0.dev"), "Skip due to torch nightly issue"
@@ -3371,7 +3349,6 @@ class TestDynamicPatternMatcher(TestPatternMatcherBase):
 
     @skipIfNoDynamoSupport
     @skipIfNoONEDNN
-    @skipIfNoFloat8Support
     @unittest.skipIf(
         "CPU" not in torch._C._dispatch_dump("torchao::_scaled_embedding_bag"),
         reason="cpp kernels not built",
@@ -3384,7 +3361,6 @@ class TestDynamicPatternMatcher(TestPatternMatcherBase):
 
     @skipIfNoDynamoSupport
     @skipIfNoONEDNN
-    @skipIfNoFloat8Support
     @unittest.skipIf(
         "CPU" not in torch._C._dispatch_dump("torchao::_scaled_embedding_bag"),
         reason="cpp kernels not built",
@@ -3394,7 +3370,6 @@ class TestDynamicPatternMatcher(TestPatternMatcherBase):
 
     @skipIfNoDynamoSupport
     @skipIfNoONEDNN
-    @skipIfNoFloat8Support
     @unittest.skipIf(
         "CPU" not in torch._C._dispatch_dump("torchao::_scaled_embedding_bag"),
         reason="cpp kernels not built",
@@ -3404,7 +3379,6 @@ class TestDynamicPatternMatcher(TestPatternMatcherBase):
 
     @skipIfNoDynamoSupport
     @skipIfNoONEDNN
-    @skipIfNoFloat8Support
     @unittest.skipIf(
         "CPU" not in torch._C._dispatch_dump("torchao::_scaled_embedding_bag"),
         reason="cpp kernels not built",
@@ -3414,7 +3388,6 @@ class TestDynamicPatternMatcher(TestPatternMatcherBase):
 
     @skipIfNoDynamoSupport
     @skipIfNoONEDNN
-    @skipIfNoFloat8Support
     @unittest.skipIf(
         "CPU" not in torch._C._dispatch_dump("torchao::_scaled_embedding_bag"),
         reason="cpp kernels not built",
@@ -3462,7 +3435,6 @@ class TestDynamicPatternMatcher(TestPatternMatcherBase):
 
     @skipIfNoDynamoSupport
     @skipIfNoONEDNN
-    @skipIfNoFloat8Support
     @unittest.skipIf(
         "CPU" not in torch._C._dispatch_dump("torchao::_scaled_embedding_bag"),
         reason="cpp kernels not built",
