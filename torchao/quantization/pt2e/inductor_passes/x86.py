@@ -3456,6 +3456,8 @@ def _register_concat_dq_q_pattern():
 
 @functools.lru_cache(None)
 def _register_quantization_weight_pack_pass():
+    if not torch.backends.mkldnn.is_available():
+        return
     # Step 1: Dequant promotion for int8-mixed-fp32/bf16
     _register_dequant_promotion()
 
