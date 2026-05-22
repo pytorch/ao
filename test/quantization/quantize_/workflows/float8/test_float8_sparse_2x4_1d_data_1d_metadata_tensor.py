@@ -27,20 +27,13 @@ from torchao.quantization.quantize_.workflows import (
 )
 from torchao.quantization.utils import compute_error
 from torchao.sparsity import apply_fake_sparsity
-from torchao.utils import (
-    is_ROCM,
-    torch_version_at_least,
-)
+from torchao.utils import is_ROCM
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
 )
 
 
-@unittest.skipIf(
-    not torch_version_at_least("2.10.0"),
-    "Need torch >= 2.10.0",
-)
 class TestFloat8Sparse2x4_1DData1DMetadataTensor(common_utils.TestCase):
     def setUp(self):
         if not is_ROCM():
