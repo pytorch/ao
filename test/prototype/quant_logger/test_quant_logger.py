@@ -51,7 +51,7 @@ class ModelWithLoop(nn.Module):
         return x3
 
 
-@unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
+@unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
 @unittest.skipIf(not torch_version_at_least("2.10.0"), "Need pytorch 2.10+")
 class TestQuantLogger(unittest.TestCase):
     def setUp(self):
