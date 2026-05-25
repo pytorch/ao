@@ -38,13 +38,6 @@ def moe_model(device, use_grouped_mm):
     return model.to(device)
 
 
-@pytest.fixture
-def weight_config():
-    from torchao.quantization.qat.fake_quantize_config import Float8FakeQuantizeConfig
-    from torchao.quantization.granularity import PerRow
-    return Float8FakeQuantizeConfig(dtype=torch.float8_e4m3fn, granularity=PerRow())
-
-
 def _expert_weight_filter(param, fqn):
     """A `params_filter_fn` for MoEQATConfig: wraps only 3D expert weight parameters,
     skipping 2D parameters (e.g., gate, router, bias)."""
@@ -53,5 +46,5 @@ def _expert_weight_filter(param, fqn):
 
 def _moe_input(model, batch=2, seq=8):
     """Create input tensor whose last dim matches the model's dim."""
-    dim = model.experts.w1.shape[-1]
-    return torch.randn(batch, seq, dim, device=model.experts.w1.device)
+    dim = model.experts.gate_proj.shape[-1]
+    return torch.randn(batch, seq, dim, device=model.experts.gate_proj.device)
