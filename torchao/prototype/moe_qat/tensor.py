@@ -173,7 +173,13 @@ class FakeQuantizedWeightWrapperBaseTensor(TorchAOBaseTensor):
     @classmethod
     def __torch_function__(cls, func, types, args, kwargs=None):
         raise NotImplementedError(
-            f"{cls.__name__} is not intended to be used directly, please override this method in a tensor subclass for your intended derived dtype."
+            f"{cls.__name__} is not intended to be used directly, please override `__torch_function__` in a tensor subclass for your intended derived dtype."
+        )
+
+    @classmethod
+    def _fake_quantize(cls, weight: torch.Tensor, config: FakeQuantizeConfigBase) -> torch.Tensor:
+        raise NotImplementedError(
+            f"{cls.__name__} is not intended to be used directly, please override `_fake_quantize` in a tensor subclass for your intended derived dtype."
         )
 
     @classmethod
@@ -450,7 +456,7 @@ class Float8FakeQuantizedWeightWrapperTensor(FakeQuantizedWeightWrapperBaseTenso
             if B.activation_config is not None and A.numel() > 0:
                 assert not isinstance(A, TorchAOBaseTensor), \
                     f"When an activation config is specified, the activation must not be a quantized tensor, got {type(A)}"
-                fq_A = cls.fake_quantize(A, B.activation_config)
+                fq_A = cls._fake_quantize(A, B.activation_config)
             else:
                 fq_A = A
 
@@ -459,7 +465,7 @@ class Float8FakeQuantizedWeightWrapperTensor(FakeQuantizedWeightWrapperBaseTenso
             B_data = unwrap_weight(B)
 
             if B.weight_config is not None:
-                fq_B_data = cls.fake_quantize(B_data, B.weight_config)
+                fq_B_data = cls._fake_quantize(B_data, B.weight_config)
             else:
                 fq_B_data = B_data
 
@@ -474,9 +480,9 @@ class Float8FakeQuantizedWeightWrapperTensor(FakeQuantizedWeightWrapperBaseTenso
         with torch._C.DisableTorchFunctionSubclass():
             return func(*new_args, **kwargs)
 
-    @staticmethod
-    def fake_quantize(
-        weight: torch.Tensor, config: Float8FakeQuantizeConfig
+    @classmethod
+    def _fake_quantize(
+        cls, weight: torch.Tensor, config: Float8FakeQuantizeConfig
     ) -> torch.Tensor:
         original_dtype = weight.dtype
         block_size = get_block_size(weight.shape, config.granularity)
