@@ -572,16 +572,24 @@ def test_wrapper_fake_quantize(wrapper_cls, weight_config, device):
     (lambda a, w: torch.mm(a, w),                         (16, 1024),     (1024, 2048),     (16, 2048),                             {}),
     (lambda a, w: torch.bmm(a, w),                        (4, 16, 1024),  (4, 1024, 2048),  (4, 16, 2048),                          {}),
     (lambda a, w: F.linear(a, w),                      (16, 1024),     (2048, 1024),     (16, 2048),                             {}),
-    (lambda a, w, *, bias=None: F.linear(a, w, bias),  (16, 1024),     (2048, 1024),     (16, 2048),     {"bias": torch.randn(2048)}),
+    (lambda a, w, *, bias=None: F.linear(a, w, bias),  (16, 1024),     (2048, 1024),     (16, 2048),     {"bias_shape": (2048,)}),
     (lambda a, w: torch.matmul(a, w),                  (16, 1024),     (1024, 2048),     (16, 2048),                             {}),
-    (lambda a, w, *, bias: torch.addmm(bias, a, w),    (16, 1024),     (1024, 2048),     (16, 2048),     {"bias": torch.randn(2048)}),
+    (lambda a, w, *, bias: torch.addmm(bias, a, w),    (16, 1024),     (1024, 2048),     (16, 2048),     {"bias_shape": (2048,)}),
 ])
 @pytest.mark.parametrize("device", target_devices)
 def test_op_fake_quantize(wrapper_cls, weight_config, act_config, sqnr_threshold, call_fn, A_shape, w_shape, out_shape, kwargs, device):
     """__torch_function__ fake-quantizes weight/activation and produces good SQNR."""
     A = torch.randn(*A_shape, requires_grad=True, device=device)
     w = torch.randn(*w_shape, device=device)
-    kwargs = {k: v.to(device) if torch.is_tensor(v) else v for k, v in kwargs.items()}
+    
+    resolved = {}
+    for k, v in kwargs.items():
+        if k.endswith("_shape"):
+            resolved[k[:-len("_shape")]] = torch.randn(*v, device=device)
+        else:
+            resolved[k] = v
+    kwargs = resolved
+    
     wrapper = wrapper_cls(w, activation_config=act_config, weight_config=weight_config)
     param = torch.nn.Parameter(wrapper)
 
