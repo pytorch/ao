@@ -182,48 +182,48 @@ def test_meta_weights(wrapper_cls, weight_config):
     (Float8FakeQuantizedWeightWrapperTensor, Float8FakeQuantizeConfig(), None),
     (Float8FakeQuantizedWeightWrapperTensor, Float8FakeQuantizeConfig(), Float8FakeQuantizeConfig()),
 ])
-@pytest.mark.parametrize("weight, op_func", [
+@pytest.mark.parametrize("weight_shape, op_func", [
     # select / slice
-    (torch.randn(4, 64, 128), lambda x: x[0]),
-    (torch.randn(4, 64, 128), lambda x: x[0:2]),
-    (torch.randn(4, 64, 128), lambda x: x[1:]),
-    (torch.randn(4, 64, 128), lambda x: x[:3]),
-    (torch.randn(4, 64, 128), lambda x: x[::2]),
-    (torch.randn(4, 64, 128), lambda x: x[:, 0]),
+    ((4, 64, 128), lambda x: x[0]),
+    ((4, 64, 128), lambda x: x[0:2]),
+    ((4, 64, 128), lambda x: x[1:]),
+    ((4, 64, 128), lambda x: x[:3]),
+    ((4, 64, 128), lambda x: x[::2]),
+    ((4, 64, 128), lambda x: x[:, 0]),
     # index
-    (torch.randn(4, 64, 128), lambda x: x[torch.tensor([0, 2])]),
-    (torch.randn(4, 64, 128), lambda x: x[torch.tensor([True, False, True, False])]),
+    ((4, 64, 128), lambda x: x[torch.tensor([0, 2])]),
+    ((4, 64, 128), lambda x: x[torch.tensor([True, False, True, False])]),
     # unsqueeze
-    (torch.randn(4, 64, 128), lambda x: x.unsqueeze(0)),
+    ((4, 64, 128), lambda x: x.unsqueeze(0)),
     # new_zeros
-    (torch.randn(4, 64, 128), lambda x: x.new_zeros(2, 64, 128)),
+    ((4, 64, 128), lambda x: x.new_zeros(2, 64, 128)),
     # as_strided
-    (torch.randn(4, 64, 128), lambda x: x.as_strided((2, 64, 128), (16384, 128, 1))),
+    ((4, 64, 128), lambda x: x.as_strided((2, 64, 128), (16384, 128, 1))),
     # transpose
-    (torch.randn(4, 64, 128), lambda x: x.transpose(0, 1)),
+    ((4, 64, 128), lambda x: x.transpose(0, 1)),
     # detach
-    (torch.randn(4, 64, 128), lambda x: x.detach()),
+    ((4, 64, 128), lambda x: x.detach()),
     # clone
-    (torch.randn(4, 64, 128), lambda x: x.clone()),
+    ((4, 64, 128), lambda x: x.clone()),
     # view
-    (torch.randn(4, 64, 128), lambda x: x.view(4, 2, 32, 128)),
+    ((4, 64, 128), lambda x: x.view(4, 2, 32, 128)),
     # permute
-    (torch.randn(4, 64, 128), lambda x: x.permute(1, 0, 2)),
+    ((4, 64, 128), lambda x: x.permute(1, 0, 2)),
     # _to_copy
-    (torch.randn(4, 64, 128), lambda x: x.to(dtype=torch.float16)),
+    ((4, 64, 128), lambda x: x.to(dtype=torch.float16)),
     # squeeze.dim — needs singleton dim
-    (torch.randn(1, 64, 128), lambda x: x.squeeze(0)),
+    ((1, 64, 128), lambda x: x.squeeze(0)),
     # squeeze (no dim) — needs singleton dim
-    (torch.randn(4, 1, 128), lambda x: x.squeeze()),
+    ((4, 1, 128), lambda x: x.squeeze()),
     # t — needs 2D shape
-    (torch.randn(64, 128), lambda x: x.t()),
+    ((64, 128), lambda x: x.t()),
     # split — returns tuple
-    (torch.randn(8, 64, 128), lambda x: torch.split(x, 2)),
+    ((8, 64, 128), lambda x: torch.split(x, 2)),
     # _pin_memory — requires CUDA, skipped on CPU
-    (torch.randn(4, 64, 128), lambda x: x.pin_memory()),
+    ((4, 64, 128), lambda x: x.pin_memory()),
 ])
 @pytest.mark.parametrize("device", target_devices)
-def test_wrapper_preserves_subclass(wrapper_cls, weight_config, act_config, weight, op_func, device):
+def test_wrapper_preserves_subclass(wrapper_cls, weight_config, act_config, weight_shape, op_func, device):
     """All ops in _ops_to_preserve_subclass return the wrapper subclass.
 
     _unsafe_index.Tensor has no public API to trigger it directly.
@@ -236,7 +236,8 @@ def test_wrapper_preserves_subclass(wrapper_cls, weight_config, act_config, weig
         assert result.activation_config is act_config
         assert torch.equal(result._data, ref_result)
 
-    wrapper = wrapper_cls(weight.to(device), activation_config=act_config, weight_config=weight_config)
+    weight = torch.randn(*weight_shape, device=device)
+    wrapper = wrapper_cls(weight, activation_config=act_config, weight_config=weight_config)
 
     with torch._C.DisableTorchFunctionSubclass():
         try:
