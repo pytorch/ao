@@ -168,6 +168,81 @@ def test_meta_weights(wrapper_cls, weight_config):
 # =========================================================================
 # __torch_dispatch__
 # =========================================================================
+@pytest.mark.parametrize("wrapper_cls, weight_config, act_config", [
+    (FakeQuantizedWeightWrapperBaseTensor, Float8FakeQuantizeConfig(), None),
+    (FakeQuantizedWeightWrapperBaseTensor, Float8FakeQuantizeConfig(), Float8FakeQuantizeConfig()),
+    (Float8FakeQuantizedWeightWrapperTensor, Float8FakeQuantizeConfig(), None),
+    (Float8FakeQuantizedWeightWrapperTensor, Float8FakeQuantizeConfig(), Float8FakeQuantizeConfig()),
+])
+@pytest.mark.parametrize("weight, op_func", [
+    # select / slice
+    (torch.randn(4, 64, 128), lambda x: x[0]),
+    (torch.randn(4, 64, 128), lambda x: x[0:2]),
+    (torch.randn(4, 64, 128), lambda x: x[1:]),
+    (torch.randn(4, 64, 128), lambda x: x[:3]),
+    (torch.randn(4, 64, 128), lambda x: x[::2]),
+    (torch.randn(4, 64, 128), lambda x: x[:, 0]),
+    # index
+    (torch.randn(4, 64, 128), lambda x: x[torch.tensor([0, 2])]),
+    (torch.randn(4, 64, 128), lambda x: x[torch.tensor([True, False, True, False])]),
+    # unsqueeze
+    (torch.randn(4, 64, 128), lambda x: x.unsqueeze(0)),
+    # new_zeros
+    (torch.randn(4, 64, 128), lambda x: x.new_zeros(2, 64, 128)),
+    # as_strided
+    (torch.randn(4, 64, 128), lambda x: x.as_strided((2, 64, 128), (16384, 128, 1))),
+    # transpose
+    (torch.randn(4, 64, 128), lambda x: x.transpose(0, 1)),
+    # detach
+    (torch.randn(4, 64, 128), lambda x: x.detach()),
+    # clone
+    (torch.randn(4, 64, 128), lambda x: x.clone()),
+    # view
+    (torch.randn(4, 64, 128), lambda x: x.view(4, 2, 32, 128)),
+    # permute
+    (torch.randn(4, 64, 128), lambda x: x.permute(1, 0, 2)),
+    # _to_copy
+    (torch.randn(4, 64, 128), lambda x: x.to(dtype=torch.float16)),
+    # squeeze.dim — needs singleton dim
+    (torch.randn(1, 64, 128), lambda x: x.squeeze(0)),
+    # squeeze (no dim) — needs singleton dim
+    (torch.randn(4, 1, 128), lambda x: x.squeeze()),
+    # t — needs 2D shape
+    (torch.randn(64, 128), lambda x: x.t()),
+    # split — returns tuple
+    (torch.randn(8, 64, 128), lambda x: torch.split(x, 2)),
+    # _pin_memory — requires CUDA, skipped on CPU
+    (torch.randn(4, 64, 128), lambda x: x.pin_memory()),
+])
+def test_wrapper_preserves_subclass(wrapper_cls, weight_config, act_config, weight, op_func):
+    """All ops in _ops_to_preserve_subclass return the wrapper subclass.
+
+    _unsafe_index.Tensor has no public API to trigger it directly.
+    c10d.scatter_.default requires distributed runtime — tested in test_fsdp2.py.
+    copy_ is tested separately in test_wrapper_dispatch_copy_ because it is an in-place op.
+    """
+    def apply_assertions(result, ref_result):
+        assert isinstance(result, wrapper_cls)
+        assert result.weight_config is weight_config
+        assert result.activation_config is act_config
+        assert torch.equal(result._data, ref_result)
+
+    wrapper = wrapper_cls(weight, activation_config=act_config, weight_config=weight_config)
+
+    with torch._C.DisableTorchFunctionSubclass():
+        try:
+            result = op_func(wrapper)
+            ref_result = op_func(wrapper._data)
+        except RuntimeError as e:
+            if "Cannot access accelerator device" in str(e):
+                pytest.skip("pin_memory requires CUDA")
+            raise
+
+        if isinstance(result, tuple):
+            for r, ref in zip(result, ref_result):
+                apply_assertions(r, ref)
+        else:
+            apply_assertions(result, ref_result)
 
 
 @pytest.mark.parametrize("wrapper_cls, weight_config, act_config", [
@@ -176,181 +251,12 @@ def test_meta_weights(wrapper_cls, weight_config):
     (Float8FakeQuantizedWeightWrapperTensor, Float8FakeQuantizeConfig(), None),
     (Float8FakeQuantizedWeightWrapperTensor, Float8FakeQuantizeConfig(), Float8FakeQuantizeConfig()),
 ])
-def test_wrapper_preserves_subclass(wrapper_cls, weight_config, act_config):
-    """All ops in _ops_to_preserve_subclass return the wrapper subclass.
-
-    _unsafe_index.Tensor has no public API to trigger it directly.
-    c10d.scatter_.default requires distributed runtime — tested in test_fsdp2.py.
-    """
+def test_wrapper_dispatch_copy_(wrapper_cls, weight_config, act_config):
+    """copy_ via __torch_dispatch__ returns self and updates _data in-place."""
     w = torch.randn(4, 64, 128)
     wrapper = wrapper_cls(w, activation_config=act_config, weight_config=weight_config)
 
     with torch._C.DisableTorchFunctionSubclass():
-        # select
-        result = wrapper[0]
-        assert isinstance(result, wrapper_cls)
-        assert result.weight_config is weight_config
-        assert result.activation_config is act_config
-        assert torch.equal(result._data, wrapper._data[0])
-
-        # slice
-        result = wrapper[0:2]
-        assert isinstance(result, wrapper_cls)
-        assert result.weight_config is weight_config
-        assert result.activation_config is act_config
-        assert torch.equal(result._data, wrapper._data[0:2])
-
-        result = wrapper[1:]
-        assert isinstance(result, wrapper_cls)
-        assert result.weight_config is weight_config
-        assert result.activation_config is act_config
-        assert torch.equal(result._data, wrapper._data[1:])
-
-        result = wrapper[:3]
-        assert isinstance(result, wrapper_cls)
-        assert result.weight_config is weight_config
-        assert result.activation_config is act_config
-        assert torch.equal(result._data, wrapper._data[:3])
-
-        result = wrapper[::2]
-        assert isinstance(result, wrapper_cls)
-        assert result.weight_config is weight_config
-        assert result.activation_config is act_config
-        assert torch.equal(result._data, wrapper._data[::2])
-
-        # unsqueeze
-        result = wrapper.unsqueeze(0)
-        assert isinstance(result, wrapper_cls)
-        assert result.weight_config is weight_config
-        assert result.activation_config is act_config
-        assert torch.equal(result._data, wrapper._data.unsqueeze(0))
-
-        # new_zeros
-        result = wrapper.new_zeros(2, 64, 128)
-        assert isinstance(result, wrapper_cls)
-        assert result.weight_config is weight_config
-        assert result.activation_config is act_config
-        assert torch.equal(result._data, wrapper._data.new_zeros(2, 64, 128))
-
-        # as_strided
-        result = wrapper.as_strided((2, 64, 128), (16384, 128, 1))
-        assert isinstance(result, wrapper_cls)
-        assert result.weight_config is weight_config
-        assert result.activation_config is act_config
-        assert torch.equal(result._data, wrapper._data.as_strided((2, 64, 128), (16384, 128, 1)))
-
-        # split
-        parts = torch.split(wrapper, 2)
-        ref_parts = torch.split(wrapper._data, 2)
-        for p, ref in zip(parts, ref_parts):
-            assert isinstance(p, wrapper_cls)
-            assert p.weight_config is weight_config
-            assert p.activation_config is act_config
-            assert torch.equal(p._data, ref)
-
-        # transpose
-        result = wrapper.transpose(0, 1)
-        assert isinstance(result, wrapper_cls)
-        assert result.weight_config is weight_config
-        assert result.activation_config is act_config
-        assert torch.equal(result._data, wrapper._data.transpose(0, 1))
-
-        # squeeze.dim
-        w_sq = torch.randn(1, 64, 128)
-        wrapper_sq = wrapper_cls(w_sq, activation_config=act_config, weight_config=weight_config)
-        result = wrapper_sq.squeeze(0)
-        assert isinstance(result, wrapper_cls)
-        assert result.weight_config is weight_config
-        assert result.activation_config is act_config
-        assert torch.equal(result._data, wrapper_sq._data.squeeze(0))
-
-        # squeeze (no dim)
-        w_sq2 = torch.randn(4, 1, 128)
-        wrapper_sq2 = wrapper_cls(w_sq2, activation_config=act_config, weight_config=weight_config)
-        result = wrapper_sq2.squeeze()
-        assert isinstance(result, wrapper_cls)
-        assert result.weight_config is weight_config
-        assert result.activation_config is act_config
-        assert torch.equal(result._data, wrapper_sq2._data.squeeze())
-
-        # _to_copy
-        result = wrapper.to(dtype=torch.float16)
-        assert isinstance(result, wrapper_cls)
-        assert result.weight_config is weight_config
-        assert result.activation_config is act_config
-        assert torch.equal(result._data, wrapper._data.to(dtype=torch.float16))
-
-        # _pin_memory
-        try:
-            result = wrapper.pin_memory()
-            assert isinstance(result, wrapper_cls)
-            assert result.weight_config is weight_config
-            assert result.activation_config is act_config
-            assert torch.equal(result._data, wrapper._data.pin_memory())
-        except RuntimeError:
-            pass  # not supported on this platform
-
-        # select (dim=1)
-        result = wrapper[:, 0]
-        assert isinstance(result, wrapper_cls)
-        assert result.weight_config is weight_config
-        assert result.activation_config is act_config
-        assert torch.equal(result._data, wrapper._data[:, 0])
-
-        # index
-        ids = torch.tensor([0, 2])
-        result = wrapper[ids]
-        assert isinstance(result, wrapper_cls)
-        assert result.weight_config is weight_config
-        assert result.activation_config is act_config
-        assert torch.equal(result._data, wrapper._data[ids])
-
-        # index (boolean)
-        mask = torch.tensor([True, False, True, False])
-        result = wrapper[mask]
-        assert isinstance(result, wrapper_cls)
-        assert result.weight_config is weight_config
-        assert result.activation_config is act_config
-        assert torch.equal(result._data, wrapper._data[mask])
-
-        # detach
-        result = wrapper.detach()
-        assert isinstance(result, wrapper_cls)
-        assert result.weight_config is weight_config
-        assert result.activation_config is act_config
-        assert torch.equal(result._data, wrapper._data.detach())
-
-        # clone
-        result = wrapper.clone()
-        assert isinstance(result, wrapper_cls)
-        assert result.weight_config is weight_config
-        assert result.activation_config is act_config
-        assert torch.equal(result._data, wrapper._data.clone())
-
-        # view
-        result = wrapper.view(4, 2, 32, 128)
-        assert isinstance(result, wrapper_cls)
-        assert result.weight_config is weight_config
-        assert result.activation_config is act_config
-        assert torch.equal(result._data, wrapper._data.view(4, 2, 32, 128))
-
-        # permute
-        result = wrapper.permute(1, 0, 2)
-        assert isinstance(result, wrapper_cls)
-        assert result.weight_config is weight_config
-        assert result.activation_config is act_config
-        assert torch.equal(result._data, wrapper._data.permute(1, 0, 2))
-
-        # t
-        w_t = torch.randn(64, 128)
-        wrapper_t = wrapper_cls(w_t, activation_config=act_config, weight_config=weight_config)
-        result = wrapper_t.t()
-        assert isinstance(result, wrapper_cls)
-        assert result.weight_config is weight_config
-        assert result.activation_config is act_config
-        assert torch.equal(result._data, wrapper_t._data.t())
-
-        # copy_ (in-place — last)
         w2 = torch.randn(4, 64, 128)
         wrapper2 = wrapper_cls(w2, activation_config=act_config, weight_config=weight_config)
         result = wrapper.copy_(wrapper2)
