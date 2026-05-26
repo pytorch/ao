@@ -539,6 +539,49 @@ def test_wrapper_fake_quantize(wrapper_cls, weight_config):
     (Float8FakeQuantizedWeightWrapperTensor, Float8FakeQuantizeConfig(), None, 30),
     (Float8FakeQuantizedWeightWrapperTensor, Float8FakeQuantizeConfig(), Float8FakeQuantizeConfig(), 27),
 ])
+@pytest.mark.parametrize("call_fn, A_shape, w_shape, out_shape, kwargs", [
+    # A_shape: (tokens, in_features) or (batch, tokens, in_features)
+    # w_shape: (in_features, out_features), linear weight is (out_features, in_features)
+    # kwargs: extra keyword arguments passed to call_fn
+    # out_shape: (tokens, out_features) or (batch, tokens, out_features)
+    (lambda a, w: torch.mm(a, w),                         (16, 1024),     (1024, 2048),     (16, 2048),                             {}),
+    (lambda a, w: torch.bmm(a, w),                        (4, 16, 1024),  (4, 1024, 2048),  (4, 16, 2048),                          {}),
+    (lambda a, w: F.linear(a, w),                      (16, 1024),     (2048, 1024),     (16, 2048),                             {}),
+    (lambda a, w, *, bias=None: F.linear(a, w, bias),  (16, 1024),     (2048, 1024),     (16, 2048),     {"bias": torch.randn(2048)}),
+    (lambda a, w: torch.matmul(a, w),                  (16, 1024),     (1024, 2048),     (16, 2048),                             {}),
+    (lambda a, w, *, bias: torch.addmm(bias, a, w),    (16, 1024),     (1024, 2048),     (16, 2048),     {"bias": torch.randn(2048)}),
+])
+def test_op_fake_quantize(wrapper_cls, weight_config, act_config, sqnr_threshold, call_fn, A_shape, w_shape, out_shape, kwargs):
+    """__torch_function__ fake-quantizes weight/activation and produces good SQNR."""
+    A = torch.randn(*A_shape, requires_grad=True)
+    w = torch.randn(*w_shape)
+    wrapper = wrapper_cls(w, activation_config=act_config, weight_config=weight_config)
+    param = torch.nn.Parameter(wrapper)
+
+    A_ref = A.clone().detach().requires_grad_(True)
+    w_ref = w.clone().detach().requires_grad_(True)
+
+    ref_out = call_fn(A_ref, w_ref, **kwargs)
+    out = call_fn(A, param, **kwargs)
+
+    assert out.shape == out_shape
+
+    sqnr = compute_error(out, ref_out)
+    assert sqnr != float("inf"), "SQNR should be finite (fake quant was applied)"
+    assert sqnr > sqnr_threshold, f"Forward SQNR too low ({sqnr:.1f} dB)"
+
+    ref_out.sum().backward()
+    out.sum().backward()
+    assert A.grad is not None
+    assert compute_error(A.grad, A_ref.grad) > sqnr_threshold, f"Input grad SQNR too low ({compute_error(A.grad, A_ref.grad):.1f} dB)"
+    assert param.grad is not None
+    assert compute_error(param.grad, w_ref.grad) > sqnr_threshold, f"Weight grad SQNR too low ({compute_error(param.grad, w_ref.grad):.1f} dB)"
+
+
+@pytest.mark.parametrize("wrapper_cls, weight_config, act_config, sqnr_threshold", [
+    (Float8FakeQuantizedWeightWrapperTensor, Float8FakeQuantizeConfig(), None, 30),
+    (Float8FakeQuantizedWeightWrapperTensor, Float8FakeQuantizeConfig(), Float8FakeQuantizeConfig(), 27),
+])
 def test_op_mm(wrapper_cls, weight_config, act_config, sqnr_threshold):
     M, K, N = 16, 1024, 2048  # tokens, in_features, out_features
 
@@ -688,3 +731,38 @@ def test_op_addmm(wrapper_cls, weight_config, act_config, sqnr_threshold):
     assert compute_error(A.grad, A_ref.grad) > sqnr_threshold, f"Input grad SQNR too low ({compute_error(A.grad, A_ref.grad):.1f} dB)"
     assert param.grad is not None
     assert compute_error(param.grad, w_ref.grad) > sqnr_threshold, f"Weight grad SQNR too low ({compute_error(param.grad, w_ref.grad):.1f} dB)"
+
+@pytest.mark.parametrize("wrapper_cls, weight_config, act_config, sqnr_threshold", [
+    (Float8FakeQuantizedWeightWrapperTensor, Float8FakeQuantizeConfig(), None, 20),
+    (Float8FakeQuantizedWeightWrapperTensor, Float8FakeQuantizeConfig(), Float8FakeQuantizeConfig(), 20),
+])
+def test_op_grouped_mm(wrapper_cls, weight_config, act_config, sqnr_threshold):
+    if not torch.cuda.is_available():
+        pytest.skip("grouped_mm CPU backward corrupts subsequent forward calls")
+
+    S, E, K, N = 16, 4, 1024, 2048  # total_tokens, experts, in_features, out_features
+
+    A = torch.randn(S, K, requires_grad=True)
+    w = torch.randn(E, K, N)
+    wrapper = wrapper_cls(w, activation_config=act_config, weight_config=weight_config)
+    param = torch.nn.Parameter(wrapper)
+
+    offs = torch.tensor([4, 4, 4, 4], dtype=torch.int32)
+    A_ref = A.clone().detach().requires_grad_(True)
+    w_ref = w.clone().detach().requires_grad_(True)
+    ref_out = torch._grouped_mm(A_ref, w_ref, offs=offs)
+    out = torch._grouped_mm(A, param, offs=offs)
+    assert out.shape == (S, N)
+
+    sqnr = compute_error(out, ref_out)
+    assert sqnr != float("inf"), "SQNR should be finite (fake quant was applied)"
+    assert sqnr > sqnr_threshold, f"Forward SQNR too low ({sqnr:.1f} dB)"
+
+    ref_out.backward(torch.ones_like(ref_out))
+    out.backward(torch.ones_like(out))
+    assert A.grad is not None
+    assert compute_error(A.grad, A_ref.grad) > sqnr_threshold, f"Input grad SQNR too low ({compute_error(A.grad, A_ref.grad):.1f} dB)"
+    assert param.grad is not None
+    assert compute_error(param.grad, w_ref.grad) > sqnr_threshold, f"Weight grad SQNR too low ({compute_error(param.grad, w_ref.grad):.1f} dB)"
+
+
