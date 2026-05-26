@@ -449,39 +449,37 @@ def test_wrapper_torch_function_B_not_wrapper(wrapper_cls, weight_config, func, 
 @pytest.mark.parametrize("wrapper_cls, weight_config, act_config", [
     (Float8FakeQuantizedWeightWrapperTensor, Float8FakeQuantizeConfig(), Float8FakeQuantizeConfig()),
 ])
-def test_wrapper_torch_function_activation_quantized_tensor(wrapper_cls, weight_config, act_config, device):
+@pytest.mark.parametrize("A_shape, w_shape, call_fn, kwargs", [
+    ((16, 64),     (64, 128),     lambda a, w: torch.mm(a, w),      {}),
+    ((16, 64),     (64, 128),     lambda a, w: torch.matmul(a, w),  {}),
+    ((16, 64),     (64, 128),     lambda a, w, *, bias: torch.addmm(bias, a, w),  {"bias_shape": (128,)}),
+    ((1, 16, 64),  (1, 64, 128),  lambda a, w: torch.bmm(a, w),     {}),
+    ((16, 64),     (128, 64),     lambda a, w: F.linear(a, w),      {}),
+    ((8, 1024),    (4, 1024, 2048), lambda a, w: torch._grouped_mm(a, w),  {}),
+])
+def test_wrapper_torch_function_activation_quantized_tensor(wrapper_cls, weight_config, act_config, A_shape, w_shape, call_fn, kwargs, device):
     """__torch_function__ asserts activation is not a TorchAOBaseTensor when act_config is set."""
-    # A minimal TorchAOBaseTensor that is NOT a Float8FakeQuantizedWeightWrapperTensor
     class DummyTensor(TorchAOBaseTensor):
         @classmethod
         def __torch_function__(cls, func, types, args, kwargs=None):
-            if func in (torch.mm, torch.bmm, torch.addmm, torch.matmul, F.linear):
+            if func in (torch.mm, torch.bmm, torch.addmm, torch.matmul, torch._grouped_mm, F.linear):
                 return NotImplemented
             with torch._C.DisableTorchFunctionSubclass():
                 return func(*args, **(kwargs or {}))
 
-    A = torch.randn(16, 64, device=device).as_subclass(DummyTensor)
-    B = wrapper_cls(torch.randn(64, 128, device=device), activation_config=act_config, weight_config=weight_config)
+    A = torch.randn(*A_shape, device=device).as_subclass(DummyTensor)
+    B = wrapper_cls(torch.randn(*w_shape, device=device), activation_config=act_config, weight_config=weight_config)
     expected_match = r"^When an activation config is specified, the activation must not be a quantized tensor, got " + re.escape(str(type(A))) + "$"
 
-    with pytest.raises(AssertionError, match=expected_match):
-        torch.mm(A, B)
-    with pytest.raises(AssertionError, match=expected_match):
-        torch.matmul(A, B)
-    with pytest.raises(AssertionError, match=expected_match):
-        torch.addmm(torch.randn(128, device=device), A, B)
+    resolved = {}
+    for k, v in kwargs.items():
+        if k.endswith("_shape"):
+            resolved[k[:-len("_shape")]] = torch.randn(*v, device=device)
+        else:
+            resolved[k] = v
 
-    # bmm requires 3D inputs
-    A = torch.randn(1, 16, 64, device=device).as_subclass(DummyTensor)
-    B = wrapper_cls(torch.randn(1, 64, 128, device=device), activation_config=act_config, weight_config=weight_config)
     with pytest.raises(AssertionError, match=expected_match):
-        torch.bmm(A, B)
-
-    # F.linear weight is (out_features, in_features)
-    A = torch.randn(16, 64, device=device).as_subclass(DummyTensor)
-    B = wrapper_cls(torch.randn(128, 64, device=device), activation_config=act_config, weight_config=weight_config)
-    with pytest.raises(AssertionError, match=expected_match):
-        F.linear(A, B)
+        call_fn(A, B, **resolved)
 
 
 @pytest.mark.parametrize("device", target_devices)
