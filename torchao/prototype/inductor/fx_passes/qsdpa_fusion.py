@@ -47,6 +47,13 @@ def _register_qsdpa_pattern(pattern, custom_pass_dict):
         pattern, extra_check=_is_valid_qsdpa_pattern(), pass_dict=custom_pass_dict
     )
     def qsdpa(match: Match, *args, **kwargs):
+        def get_scale(name):
+            value = kwargs[name]
+            if isinstance(value, (float, int)):
+                return float(value)
+            assert match.kwargs[name].target == aten.full.default
+            return match.kwargs[name].args[1]
+
         query = kwargs["query"]
         key = kwargs["key"]
         value = kwargs["value"]
@@ -54,30 +61,22 @@ def _register_qsdpa_pattern(pattern, custom_pass_dict):
         if scale is None:
             scale = kwargs["scale"] if "scale" in kwargs else None
         attn_mask = kwargs["attn_mask"] if "attn_mask" in kwargs else None
+        q_scale = get_scale("q_scale")
+        k_scale = get_scale("k_scale")
+        v_scale = get_scale("v_scale")
+        a_scale = get_scale("a_scale")
+        o_scale = get_scale("o_scale")
         q_zp = 0
         k_zp = 0
         v_zp = 0
         a_zp = 0
         o_zp = 0
         if query.dtype == torch.uint8:
-            q_scale = kwargs["q_scale"]
             q_zp = kwargs["q_zp"]
-            k_scale = kwargs["k_scale"]
             k_zp = kwargs["k_zp"]
-            v_scale = kwargs["v_scale"]
             v_zp = kwargs["v_zp"]
-            a_scale = kwargs["a_scale"]
             a_zp = kwargs["a_zp"]
-            o_scale = kwargs["o_scale"]
             o_zp = kwargs["o_zp"]
-        else:
-            assert match.kwargs["q_scale"].target == aten.full.default
-            q_scale = match.kwargs["q_scale"].args[1]
-            k_scale = match.kwargs["k_scale"].args[1]
-            v_scale = match.kwargs["v_scale"].args[1]
-            a_scale = match.kwargs["a_scale"].args[1]
-            o_scale = match.kwargs["o_scale"].args[1]
-
         counters["inductor"]["qsdpa_fuse_attention"] += 1
         counters["inductor"]["qsdpa_nodes"] += len(match.nodes)
 

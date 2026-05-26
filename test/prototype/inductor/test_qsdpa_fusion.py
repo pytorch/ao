@@ -22,6 +22,7 @@ from torchao.prototype.inductor.fx_passes.qsdpa_fusion import (
     custom_pass,
 )
 from torchao.testing.pt2e.utils import qdq_fp8
+from torchao.utils import torch_version_at_least
 
 
 def fp8_convert_(model):
@@ -129,17 +130,17 @@ class FP8QDQLinear(torch.nn.Module):
 class FP8QDQSDPA(torch.nn.Module):
     def __init__(self):
         super().__init__()
-        self.q_out_scale = 1.5
-        self.k_out_scale = 1.5
-        self.attn_weights_scale = 1.5
-        self.v_out_scale = 1.5
-        self.attn_out_scale = 1.5
-        self.qk_out_scale = 1.5
+        self.q_out_scale = 2.8
+        self.k_out_scale = 3.8
+        self.attn_weights_scale = 4.0
+        self.v_out_scale = 8.5
+        self.attn_out_scale = 6.8
+        self.qk_out_scale = 1.75
 
     def forward(self, q, k, v, mask):
-        key = self.transpose_for_scores(q)
-        value = self.transpose_for_scores(k)
-        query = self.transpose_for_scores(v)
+        query = self.transpose_for_scores(q)
+        key = self.transpose_for_scores(k)
+        value = self.transpose_for_scores(v)
 
         # Take the dot product between "query" and "key" to get the raw attention scores.
         query_qdq = qdq_fp8(query, self.q_out_scale)
@@ -243,6 +244,23 @@ class MHAModule(torch.nn.Module):
         context_layer = self.attn_mod(q, k, v, mask)
         return self.dense(context_layer)
 
+    def init_affine_weights_(self, specs):
+        params = {
+            "q_proj_weight": self.q_proj.weight,
+            "k_proj_weight": self.k_proj.weight,
+            "v_proj_weight": self.v_proj.weight,
+            "dense_weight": self.dense.weight,
+            "dense_bias": self.dense.bias,
+        }
+        with torch.no_grad():
+            for param_name, scale, bias in specs:
+                param = params[param_name]
+                param.copy_(torch.randn_like(param).mul(scale).add(bias))
+
+
+def _affine_randn(shape, *, device, dtype, scale, bias):
+    return torch.randn(shape, device=device, dtype=dtype).mul(scale).add(bias)
+
 
 class TestSDPAPatternRewriterTemplate(TestCase):
     def _clone_inputs(self, inputs):
@@ -330,8 +348,8 @@ class TestSDPAPatternRewriterTemplate(TestCase):
     @config.patch({"freezing": True})
     def _test_int8_sdpa_rewriter(self):
         import torchao.quantization.pt2e.quantizer.x86_inductor_quantizer as xiq
-        from torchao.prototype.inductor.fx_passes.int8_concat_linear_fusion_cpu import (
-            register_int8_concat_linear_cpu_pass,
+        from torchao.prototype.inductor.fx_passes.quantized_concat_linear_fusion_cpu import (
+            register_quantized_concat_linear_cpu_pass,
         )
         from torchao.quantization.pt2e.quantize_pt2e import convert_pt2e, prepare_pt2e
         from torchao.quantization.pt2e.quantizer.x86_inductor_quantizer import (
@@ -353,11 +371,30 @@ class TestSDPAPatternRewriterTemplate(TestCase):
                 num_attention_heads=numhead,
                 attention_head_size=headsize,
             ).eval()
+            mod.init_affine_weights_(
+                [
+                    ("q_proj_weight", 0.0360, 0.0000),
+                    ("k_proj_weight", 0.0320, 0.0000),
+                    ("v_proj_weight", 0.1200, 0.0240),
+                    ("dense_weight", 0.0600, 0.0000),
+                    ("dense_bias", 0.6000, 3.0000),
+                ],
+            )
             inputs = (
-                torch.randn(
-                    (bs, seqlen, headsize * numhead), device=self.device, dtype=dtype
+                _affine_randn(
+                    (bs, seqlen, headsize * numhead),
+                    device=self.device,
+                    dtype=dtype,
+                    scale=0.900,
+                    bias=0.000,
                 ),
-                torch.randn((bs, 1, 1, seqlen), device=self.device)
+                _affine_randn(
+                    (bs, 1, 1, seqlen),
+                    device=self.device,
+                    dtype=torch.float32,
+                    scale=0.350,
+                    bias=-0.100,
+                )
                 if has_mask
                 else None,
             )
@@ -374,7 +411,7 @@ class TestSDPAPatternRewriterTemplate(TestCase):
             ):
                 _qsdpa_init()
                 if enable_concat_linear_fusion:
-                    register_int8_concat_linear_cpu_pass()
+                    register_quantized_concat_linear_cpu_pass()
                 quantizer = X86InductorQuantizer()
                 quantizer.set_global(xiq.get_default_x86_inductor_quantization_config())
                 quantizer.set_function_type_qconfig(
@@ -387,11 +424,11 @@ class TestSDPAPatternRewriterTemplate(TestCase):
                 torchao.quantization.pt2e.move_exported_model_to_eval(convert_model)
 
                 self._check_common(
-                    convert_model, args1=inputs, check_train=False, atol=1.0
+                    convert_model, args1=inputs, check_train=False, atol=0.5
                 )
                 if enable_concat_linear_fusion:
                     self.assertGreaterEqual(
-                        counters["inductor"]["int8_concat_linear_fusion"], 1
+                        counters["inductor"]["quantized_concat_linear_fusion"], 1
                     )
 
     @skipIfRocm
@@ -401,8 +438,8 @@ class TestSDPAPatternRewriterTemplate(TestCase):
     )
     @config.patch({"freezing": True})
     def _test_fp8_sdpa_rewriter(self):
-        from torchao.prototype.inductor.fx_passes.fp8_concat_linear_fusion_cpu import (
-            register_fp8_concat_linear_cpu_pass,
+        from torchao.prototype.inductor.fx_passes.quantized_concat_linear_fusion_cpu import (
+            register_quantized_concat_linear_cpu_pass,
         )
         import torchao.quantization.pt2e.quantizer.x86_inductor_quantizer as xiq  # noqa: F401
 
@@ -418,9 +455,22 @@ class TestSDPAPatternRewriterTemplate(TestCase):
                 num_attention_heads=numhead,
                 attention_head_size=headsize,
             ).eval()
+            mod.init_affine_weights_(
+                [
+                    ("q_proj_weight", 0.0360, 0.0000),
+                    ("k_proj_weight", 0.0320, 0.0000),
+                    ("v_proj_weight", 0.1800, 0.0360),
+                    ("dense_weight", 0.0900, 0.0000),
+                    ("dense_bias", 0.8000, 5.5000),
+                ],
+            )
             inputs = (
-                torch.randn(
-                    (bs, seqlen, headsize * numhead), device=self.device, dtype=dtype
+                _affine_randn(
+                    (bs, seqlen, headsize * numhead),
+                    device=self.device,
+                    dtype=dtype,
+                    scale=1.200,
+                    bias=0.000,
                 ),
                 None,
             )
@@ -437,15 +487,15 @@ class TestSDPAPatternRewriterTemplate(TestCase):
             ):
                 _qsdpa_init()
                 if enable_concat_linear_fusion:
-                    register_fp8_concat_linear_cpu_pass()
+                    register_quantized_concat_linear_cpu_pass()
                 convert_model = fp8_convert_(mod)
 
                 self._check_common(
-                    convert_model, args1=inputs, check_train=False, atol=1.0
+                    convert_model, args1=inputs, check_train=False, atol=0.5
                 )
                 if enable_concat_linear_fusion:
                     self.assertGreaterEqual(
-                        counters["inductor"]["fp8_concat_linear_fusion"], 1
+                        counters["inductor"]["quantized_concat_linear_fusion"], 1
                     )
 
 
