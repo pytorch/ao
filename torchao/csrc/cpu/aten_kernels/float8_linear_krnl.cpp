@@ -22,7 +22,11 @@ namespace CPU_CAPABILITY {
 static std::once_flag cpublas_flag;
 static bool cpublas_can_pack = false;
 
-#define USING_FP8_BRGEMM (defined(CPUBLAS_BRGEMM_F8F8F32) && defined(CPU_CAPABILITY_AVX10_2))
+#if defined(CPUBLAS_BRGEMM_F8F8F32) && defined(CPU_CAPABILITY_AVX10_2)
+#define USING_FP8_BRGEMM 1
+#else
+#define USING_FP8_BRGEMM 0
+#endif
 
 static inline bool cpublas_could_pack() {
   std::call_once(cpublas_flag, []() {
