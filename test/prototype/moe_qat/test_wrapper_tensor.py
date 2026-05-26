@@ -517,23 +517,20 @@ def test_activation_qat_empty_input(wrapper_cls, weight_config, act_config, devi
 @pytest.mark.parametrize("wrapper_cls, weight_config", [
     (Float8FakeQuantizedWeightWrapperTensor, Float8FakeQuantizeConfig()),
 ])
-def test_bias_bypass(wrapper_cls, weight_config, device):
-    """Wrapped bias in addmm / F.linear is unconditionally bypassed."""
-    w_addmm_wrapped = wrapper_cls(torch.randn(64, 128, device=device), weight_config=weight_config)
-    A = torch.randn(16, 64, device=device)
+@pytest.mark.parametrize("call_fn, A_shape, w_shape, bias_shape", [
+    (lambda a, w, b: torch.addmm(b, a, w), (16, 64), (64, 128), (128,)),
+    (lambda a, w, b: F.linear(a, w, b),    (16, 64), (128, 64), (128,)),
+])
+def test_bias_bypass(wrapper_cls, weight_config, call_fn, A_shape, w_shape, bias_shape, device):
+    """Wrapped bias is unconditionally bypassed in __torch_function__."""
+    A = torch.randn(*A_shape, device=device)
+    w_wrapped = wrapper_cls(torch.randn(*w_shape, device=device), weight_config=weight_config)
 
-    bias = torch.randn(128, device=device)
+    bias = torch.randn(*bias_shape, device=device)
     bias_wrapped = wrapper_cls(bias, weight_config=weight_config)
-    out_wrapped = torch.addmm(bias_wrapped, A, w_addmm_wrapped)
-    out_ref = torch.addmm(bias, A, w_addmm_wrapped)
-    assert torch.equal(out_wrapped, out_ref), "addmm bias should not be fake-quantized"
-
-    w_linear_wrapped = wrapper_cls(torch.randn(128, 64, device=device), weight_config=weight_config)
-    bias2 = torch.randn(128, device=device)
-    bias2_wrapped = wrapper_cls(bias2, weight_config=weight_config)
-    out_wrapped2 = F.linear(A, w_linear_wrapped, bias2_wrapped)
-    out_ref2 = F.linear(A, w_linear_wrapped, bias2)
-    assert torch.equal(out_wrapped2, out_ref2), "linear bias should not be fake-quantized"
+    out_wrapped = call_fn(A, w_wrapped, bias_wrapped)
+    out_ref = call_fn(A, w_wrapped, bias)
+    assert torch.equal(out_wrapped, out_ref), "bias should not be fake-quantized"
 
 
 
