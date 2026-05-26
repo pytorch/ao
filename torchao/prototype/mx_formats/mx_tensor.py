@@ -1097,8 +1097,7 @@ def mx_wait_tensor(func, types, args, kwargs):
 
 @implements([aten._grouped_mm.default])
 def mx_grouped_mm(func, types, args, kwargs):
-    """Handles torch._grouped_mm when weight (mat_b) is an MXTensor.
-    """
+    """Handles torch._grouped_mm when weight (mat_b) is an MXTensor."""
     mat_a, mat_b = args[0], args[1]
     offs = args[2] if len(args) > 2 else kwargs.get("offs", None)
     assert isinstance(mat_b, MXTensor)

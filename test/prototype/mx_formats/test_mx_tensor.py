@@ -786,7 +786,6 @@ def test_to_blocked_from_blocked_roundtrip(shape, use_triton_kernel: bool):
     ),
 )
 def test_scale_shape_matches_qdata(transpose, shape):
-
     block_size = 32
 
     x_hp = torch.randn(*shape, device="cuda")
