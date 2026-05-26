@@ -240,8 +240,10 @@ def test_emulate_mxfp8_grouped_gemm_2d_2d(M, N, num_experts):
 @skip_if_rocm("ROCm not supported")
 @pytest.mark.parametrize("M,K,N", [(32768, 5120, 8192), (16640, 7168, 2048)])
 @pytest.mark.parametrize("num_experts", (1, 8))
-@pytest.mark.parametrize("wgrad_with_hp", (True, False))
-@pytest.mark.parametrize("use_compile", (False, True))
+@pytest.mark.parametrize(
+    "wgrad_with_hp", (True, False), ids=("wgrad_with_hp=True", "wgrad_with_hp=False")
+)
+@pytest.mark.parametrize("use_compile", (False, True), ids=("eager", "compile"))
 @pytest.mark.parametrize(
     "kernel_preference", (KernelPreference.AUTO, KernelPreference.EMULATED)
 )
@@ -538,10 +540,11 @@ def test_mxfp8_grouped_gemm_bias_forward(kernel_preference, M, K, N, num_experts
         pad_token_groups_for_grouped_mm=False,
     )
 
-    # The difference should be exactly the bias (broadcast along dim0)
-    diff = out_with_bias - out_no_bias
-    expected_bias = bias.unsqueeze(0).expand_as(diff)
-    torch.testing.assert_close(diff, expected_bias, rtol=0, atol=0)
+    # The biased output should match applying the same bf16 bias add to the
+    # unbiased output. Checking (out_with_bias - out_no_bias) exactly is not
+    # stable in bf16 because the subtraction rounds again.
+    expected_out = out_no_bias + bias.to(out_no_bias.dtype)
+    torch.testing.assert_close(out_with_bias, expected_out, rtol=0, atol=0)
 
 
 @skip_if_rocm("ROCm not supported")
