@@ -6,6 +6,10 @@ from torch import nn
 
 from .reference_moe import MoE, MoEArgs
 
+target_devices = ["cpu"]
+if torch.cuda.is_available():
+    target_devices.append("cuda")
+
 
 @pytest.fixture(autouse=True)
 def _set_seed():
