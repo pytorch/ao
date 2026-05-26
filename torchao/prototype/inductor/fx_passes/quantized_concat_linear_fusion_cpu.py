@@ -57,7 +57,9 @@ def _build_concat_arg(graph, gm, args, base_name):
         resolved_value = _resolve_arg_value(arg, gm)
         assert isinstance(resolved_value, torch.Tensor)
         input_nodes.append(
-            _create_constant_tensor_node(graph, gm, f"{base_name}_{idx}", resolved_value)
+            _create_constant_tensor_node(
+                graph, gm, f"{base_name}_{idx}", resolved_value
+            )
         )
 
     return graph.create_node(
@@ -436,9 +438,15 @@ def _concat_linear_quantized_cpu(graph: torch.fx.Graph):
                         "b": concat_bias_node,
                         "output_scale": fused_output_scale,
                         "output_zero_point": fused_output_zero_point,
-                        "output_dtype": _get_node_arg(qlinear_users[0], "output_dtype", 9),
-                        "postop_name": _get_node_arg(qlinear_users[0], "postop_name", 10),
-                        "postop_args": _get_node_arg(qlinear_users[0], "postop_args", 11),
+                        "output_dtype": _get_node_arg(
+                            qlinear_users[0], "output_dtype", 9
+                        ),
+                        "postop_name": _get_node_arg(
+                            qlinear_users[0], "postop_name", 10
+                        ),
+                        "postop_args": _get_node_arg(
+                            qlinear_users[0], "postop_args", 11
+                        ),
                         "postop_algorithm": _get_node_arg(
                             qlinear_users[0], "postop_algorithm", 12
                         ),

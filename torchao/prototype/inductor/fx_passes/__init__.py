@@ -1,6 +1,8 @@
 from .da8w4_concat_linear_fusion_cpu import register_da8w4_concat_linear_cpu_pass
-from .quantized_concat_linear_fusion_cpu import register_quantized_concat_linear_cpu_pass
 from .qsdpa_fusion import _qsdpa_init
+from .quantized_concat_linear_fusion_cpu import (
+    register_quantized_concat_linear_cpu_pass,
+)
 
 __all__ = [
     "_qsdpa_init",

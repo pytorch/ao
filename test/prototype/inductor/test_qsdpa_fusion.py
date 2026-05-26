@@ -22,7 +22,6 @@ from torchao.prototype.inductor.fx_passes.qsdpa_fusion import (
     custom_pass,
 )
 from torchao.testing.pt2e.utils import qdq_fp8
-from torchao.utils import torch_version_at_least
 
 
 def fp8_convert_(model):
@@ -438,10 +437,10 @@ class TestSDPAPatternRewriterTemplate(TestCase):
     )
     @config.patch({"freezing": True})
     def _test_fp8_sdpa_rewriter(self):
+        import torchao.quantization.pt2e.quantizer.x86_inductor_quantizer as xiq  # noqa: F401
         from torchao.prototype.inductor.fx_passes.quantized_concat_linear_fusion_cpu import (
             register_quantized_concat_linear_cpu_pass,
         )
-        import torchao.quantization.pt2e.quantizer.x86_inductor_quantizer as xiq  # noqa: F401
 
         # pattern is different for bs=1
         torch.manual_seed(1234)
