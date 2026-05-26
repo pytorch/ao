@@ -15,39 +15,19 @@ from tabulate import tabulate
 from tqdm import tqdm
 
 from benchmarks.utils import benchmark_cuda_function_in_microseconds
-from torchao.prototype.moe_training.nvfp4_training.hadamard_amax_triton import (
-    _hadamard_amax_kernel,
+from torchao.prototype.moe_training.nvfp4_training.quantize_2d_triton import (
+    triton_quantize_2d_weight,
 )
-from torchao.prototype.moe_training.nvfp4_training.hadamard_utils import (
-    get_rht_matrix,
-)
+from torchao.utils import is_sm_at_least_100
 
 device = torch.device("cuda")
 
 M_SHAPES = [128, 256, 1024, 8192]
-N_SHAPES = [128, 256, 512, 1024, 2048, 4096, 8192, 16384, 32768]
-BENCH_OUTPUT_BUFFER_COUNT = 1_000_000
+# N must be a multiple of BLOCK_N=256
+N_SHAPES = [256, 512, 1024, 2048, 4096, 8192, 16384, 32768]
 
 LLAMA_BATCH_SIZE = 1
 LLAMA_SEQ_LEN = 2048
-RHT_SIGN_VECTOR = (
-    1,
-    1,
-    1,
-    -1,
-    1,
-    -1,
-    -1,
-    -1,
-    -1,
-    -1,
-    -1,
-    1,
-    -1,
-    1,
-    -1,
-    -1,
-)
 
 
 @dataclass(frozen=True)
@@ -87,8 +67,14 @@ def get_representative_model_configs() -> List[ExperimentConfig]:
     ]
 
 
-def run_experiment(config: ExperimentConfig) -> ExperimentResult:
-    x = torch.randn(config.m, config.n, dtype=torch.bfloat16, device=device)
+def run_experiment(config: ExperimentConfig) -> ExperimentResult | None:
+    m, n = config.m, config.n
+    x = torch.randn(m, n, dtype=torch.bfloat16, device=device)
+
+    if torch.cuda.is_available() and not is_sm_at_least_100():
+        return None
+
+    global_amax = x.float().abs().max()
 
     # tl.make_tensor_descriptor requires a Triton allocator for per-CTA scratch
     # space. Set it outside the timed region so the benchmark measures the
@@ -100,38 +86,36 @@ def run_experiment(config: ExperimentConfig) -> ExperimentResult:
             )
         )
 
-    rht_matrix = get_rht_matrix(RHT_SIGN_VECTOR, x.device, torch.bfloat16, 16)
-    global_rht_amaxes = torch.zeros(
-        BENCH_OUTPUT_BUFFER_COUNT, dtype=torch.float32, device=x.device
+    a_fp4 = torch.empty((m, n // 2), dtype=torch.uint8, device=x.device)
+    a_sf = torch.empty(
+        (m // 128, n // 64, 32, 16), dtype=torch.float8_e4m3fn, device=x.device
     )
-    global_a_amaxes = torch.zeros_like(global_rht_amaxes)
+    a_t_fp4 = torch.empty((n, m // 2), dtype=torch.uint8, device=x.device)
+    a_t_sf = torch.empty(
+        (n // 128, m // 64, 32, 16), dtype=torch.float8_e4m3fn, device=x.device
+    )
     num_sms = torch.cuda.get_device_properties(x.device).multi_processor_count
-    next_output_idx = 0
 
     def run_kernel():
-        nonlocal next_output_idx
-        if next_output_idx >= BENCH_OUTPUT_BUFFER_COUNT:
-            raise RuntimeError(
-                "Exhausted pre-zeroed output buffers; increase "
-                "BENCH_OUTPUT_BUFFER_COUNT."
-            )
-        output_idx = next_output_idx
-        next_output_idx += 1
-        _hadamard_amax_kernel[(num_sms,)](
+        triton_quantize_2d_weight[(num_sms,)](
             x,
-            rht_matrix,
-            global_rht_amaxes[output_idx],
-            global_a_amaxes[output_idx],
-            config.m,
-            config.n,
+            a_fp4,
+            a_sf,
+            a_t_fp4,
+            a_t_sf,
+            global_amax,
+            m,
+            n,
             GROUP_SIZE_N=8,
             NUM_SMS=num_sms,
         )
 
     time_us = benchmark_cuda_function_in_microseconds(run_kernel)
 
-    read_bytes = x.numel() * (torch.finfo(torch.bfloat16).bits // 8)
-    gbps = (read_bytes / 1e9) / (time_us / 1e6)
+    read_bytes = m * n * 2  # bf16 input
+    write_fp4 = 2 * m * (n // 2)  # rowwise and colwise packed FP4 outputs
+    write_scales = 2 * m * (n // 16)  # rowwise and colwise FP8 scale factors
+    gbps = ((read_bytes + write_fp4 + write_scales) / 1e9) / (time_us / 1e6)
 
     return ExperimentResult(time_us=time_us, gbps=gbps)
 
@@ -174,7 +158,8 @@ def main():
     results = []
     for config in tqdm(configs):
         result = run_experiment(config)
-        results.append(Experiment(config=config, result=result))
+        if result is not None:
+            results.append(Experiment(config=config, result=result))
     print_results(results)
 
 
