@@ -173,7 +173,7 @@
   fbq('track', 'PageView');
 </script>
 <script>
-  document.documentElement.setAttribute('data-version', 'main (0.18.0+git8bbe1a5 )');
+  document.documentElement.setAttribute('data-version', 'main (0.18.0+gitc81eb79 )');
 </script>
 <noscript>
   <img height="1" width="1" src="https://www.facebook.com/tr?id=243028289693773&ev=PageView&noscript=1" />
@@ -1562,6 +1562,15 @@ Intended use cases are:
 <dd><p>Use torch native quantize and quantized mm kernels</p>
 </dd></dl>
 
+<dl class="py attribute">
+<dt class="sig sig-object py" id="torchao.quantization.quantize_.common.KernelPreference.TRITON">
+<span class="sig-name descname"><span class="pre">TRITON</span></span><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">'triton'</span></em><a class="headerlink" href="#torchao.quantization.quantize_.common.KernelPreference.TRITON" title="Link to this definition">#</a></dt>
+<dd><p>Use pure-triton RHT + stochastic rounding kernels already in TorchAO.
+Full NVFP4 training recipe: RHT on forward activations,
+stochastic rounding + RHT on backward gradients.
+Requires bfloat16 input; M, K, N all divisible by 128.</p>
+</dd></dl>
+
 </dd></dl>
 
 </section>
@@ -1688,6 +1697,7 @@ Intended use cases are:
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#torchao.quantization.quantize_.common.KernelPreference.EMULATED"><code class="docutils literal notranslate"><span class="pre">KernelPreference.EMULATED</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#torchao.quantization.quantize_.common.KernelPreference.MSLK"><code class="docutils literal notranslate"><span class="pre">KernelPreference.MSLK</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#torchao.quantization.quantize_.common.KernelPreference.TORCH"><code class="docutils literal notranslate"><span class="pre">KernelPreference.TORCH</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#torchao.quantization.quantize_.common.KernelPreference.TRITON"><code class="docutils literal notranslate"><span class="pre">KernelPreference.TRITON</span></code></a></li>
 </ul>
 </li>
 </ul>
@@ -1915,7 +1925,7 @@ Intended use cases are:
        "headline": "KernelPreference",
        "description": "PyTorch Documentation. Explore PyTorch, an open-source machine learning library that accelerates the path from research prototyping to production deployment.",
        "url": "/api_reference/generated/torchao.quantization.quantize_.common.KernelPreference.html",
-       "articleBody": "KernelPreference# class torchao.quantization.quantize_.common.KernelPreference(value, names=None, *, module=None, qualname=None, type=None, start=1, boundary=None)[source][source]# Enum for specifying the groups of kernels that\u2019s used for quantization, matrix multiplication or other compute ops for quantized tensor Examples of how options affects the selected kernels can be found in tensor subclass implementations under torchao/quantization/quantize_/workflows AUTO = \u0027auto\u0027# Use the most efficient quantize and mm kernels chosen for user based on hardware and library availabilities and versions etc. EMULATED = \u0027emulated\u0027# Emulates gemm_lowp(A, B) with gemm_fp32(A.dequantize(), B.dequantize()). Intended use cases are: 1. Running CI for product logic on hardware which does not support the actual lowp gemm. Debugging kernel numerics issues. MSLK = \u0027mslk\u0027# Use quantize and quantized mm kernels from mslk library, requires mslk library TORCH = \u0027torch\u0027# Use torch native quantize and quantized mm kernels",
+       "articleBody": "KernelPreference# class torchao.quantization.quantize_.common.KernelPreference(value, names=None, *, module=None, qualname=None, type=None, start=1, boundary=None)[source][source]# Enum for specifying the groups of kernels that\u2019s used for quantization, matrix multiplication or other compute ops for quantized tensor Examples of how options affects the selected kernels can be found in tensor subclass implementations under torchao/quantization/quantize_/workflows AUTO = \u0027auto\u0027# Use the most efficient quantize and mm kernels chosen for user based on hardware and library availabilities and versions etc. EMULATED = \u0027emulated\u0027# Emulates gemm_lowp(A, B) with gemm_fp32(A.dequantize(), B.dequantize()). Intended use cases are: 1. Running CI for product logic on hardware which does not support the actual lowp gemm. Debugging kernel numerics issues. MSLK = \u0027mslk\u0027# Use quantize and quantized mm kernels from mslk library, requires mslk library TORCH = \u0027torch\u0027# Use torch native quantize and quantized mm kernels TRITON = \u0027triton\u0027# Use pure-triton RHT + stochastic rounding kernels already in TorchAO. Full NVFP4 training recipe: RHT on forward activations, stochastic rounding + RHT on backward gradients. Requires bfloat16 input; M, K, N all divisible by 128.",
        "author": {
          "@type": "Organization",
          "name": "PyTorch Contributors",
