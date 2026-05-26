@@ -215,11 +215,11 @@ def fp8_sparse_mm(
         alpha=alpha,
         out_dtype=torch.float32,
         alg_id=alg_id,
+        transpose_result=True,
     )
-    result = result.t()
     if to_pad:
         result = result.narrow(0, 0, batch)
-    return result.contiguous()
+    return result
 
 
 @fp8_sparse_mm.register_fake
