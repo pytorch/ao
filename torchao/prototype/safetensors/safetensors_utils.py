@@ -22,6 +22,7 @@ from torchao.quantization import (
     MappingType,
 )
 from torchao.quantization.quantize_.common import KernelPreference
+from torchao.prototype.quantization.int4 import Int4OpaqueTensor
 from torchao.quantization.quantize_.workflows import (
     QuantizeTensorToFloat8Kwargs,
     QuantizeTensorToInt8Kwargs,
@@ -46,6 +47,7 @@ ALLOWED_CLASSES = {
     "ScaleCalculationMode": ScaleCalculationMode,
     "NVFP4Tensor": NVFP4Tensor,
     "QuantizeTensorToNVFP4Kwargs": QuantizeTensorToNVFP4Kwargs,
+    "Int4OpaqueTensor": Int4OpaqueTensor,
 }
 
 ALLOWED_TENSORS_SUBCLASSES = [
@@ -57,6 +59,7 @@ ALLOWED_TENSORS_SUBCLASSES = [
     "Int4PlainInt32Tensor",
     "MXTensor",
     "NVFP4Tensor",
+    "Int4OpaqueTensor",
 ]
 
 __all__ = [
