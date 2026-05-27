@@ -330,6 +330,9 @@ class TestSDPAPatternRewriterTemplate(TestCase):
     @config.patch({"freezing": True})
     def _test_int8_sdpa_rewriter(self):
         import torchao.quantization.pt2e.quantizer.x86_inductor_quantizer as xiq
+        from torchao.prototype.inductor.fx_passes.int8_concat_linear_fusion_cpu import (
+            register_int8_concat_linear_cpu_pass,
+        )
         from torchao.quantization.pt2e.quantize_pt2e import convert_pt2e, prepare_pt2e
         from torchao.quantization.pt2e.quantizer.x86_inductor_quantizer import (
             X86InductorQuantizer,
@@ -337,10 +340,13 @@ class TestSDPAPatternRewriterTemplate(TestCase):
 
         # pattern is different for bs=1
         torch.manual_seed(1234)
-        for dtype, has_mask, bs in itertools.product(
-            [torch.float32, torch.bfloat16], [True, False], [56, 1]
+        for enable_concat_linear_fusion, dtype, has_mask, bs in itertools.product(
+            [False, True],
+            [torch.float32, torch.bfloat16],
+            [True, False],
+            [56, 1],
         ):
-            seqlen, numhead, headsize = 197, 16, 64
+            seqlen, numhead, headsize = 100, 12, 64
             mod = MHAModule(
                 input_dim=headsize * numhead,
                 has_mask=has_mask,
@@ -361,9 +367,14 @@ class TestSDPAPatternRewriterTemplate(TestCase):
                 torch.amp.autocast(
                     self.device, enabled=enable_autocast, dtype=torch.bfloat16
                 ),
-                config.patch(post_grad_custom_pre_pass=custom_pass),
+                config.patch(
+                    post_grad_custom_pre_pass=custom_pass,
+                    post_grad_custom_post_pass=None,
+                ),
             ):
                 _qsdpa_init()
+                if enable_concat_linear_fusion:
+                    register_int8_concat_linear_cpu_pass()
                 quantizer = X86InductorQuantizer()
                 quantizer.set_global(xiq.get_default_x86_inductor_quantization_config())
                 quantizer.set_function_type_qconfig(
@@ -378,6 +389,10 @@ class TestSDPAPatternRewriterTemplate(TestCase):
                 self._check_common(
                     convert_model, args1=inputs, check_train=False, atol=1.0
                 )
+                if enable_concat_linear_fusion:
+                    self.assertGreaterEqual(
+                        counters["inductor"]["int8_concat_linear_fusion"], 1
+                    )
 
     @skipIfRocm
     @unittest.skipIf(
