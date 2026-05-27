@@ -511,12 +511,12 @@ class TestFloat8Linear:
             m(x)
 
 
-@unittest.skipIf(not torch.accelerator.is_available(), "GPU not available")
-@unittest.skipIf(
-    torch.cuda.is_available() and not is_sm_at_least_89(),
-    "CUDA capability >= 8.9 required for native float8 support",
-)
 class TestScaledMM:
+    @unittest.skipIf(not torch.accelerator.is_available(), "GPU not available")
+    @unittest.skipIf(
+        torch.cuda.is_available() and not is_sm_at_least_89(),
+        "CUDA not available",
+    )
     @pytest.mark.parametrize(
         "base_dtype", [torch.float16, torch.bfloat16, torch.float32]
     )
@@ -560,6 +560,10 @@ class TestScaledMM:
             atol, rtol = 3e-3, 3e-3
         torch.testing.assert_close(out_scaled_mm, out_emulated, atol=atol, rtol=rtol)
 
+    @unittest.skipIf(not torch.accelerator.is_available(), "GPU not available")
+    @unittest.skipIf(
+        torch.cuda.is_available() and not is_sm_at_least_89(), "CUDA not available"
+    )
     def test_different_configs_error(self):
         device = torch.accelerator.current_accelerator()
         x_fp32 = torch.randn(16, 16, device=device)
@@ -595,6 +599,11 @@ class TestScaledMM:
         ):
             a @ b
 
+    @unittest.skipIf(not torch.accelerator.is_available(), "GPU not available")
+    @unittest.skipIf(
+        torch.cuda.is_available() and not is_sm_at_least_89(),
+        "CUDA not available",
+    )
     @pytest.mark.parametrize(
         "base_dtype", [torch.float16, torch.bfloat16, torch.float32]
     )
