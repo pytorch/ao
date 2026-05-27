@@ -166,7 +166,7 @@ class TestFloat8NumericsIntegrationTest:
         scaling_type_weight: ScalingType,
         scaling_type_grad_output: ScalingType,
     ):
-        device = str(torch.accelerator.current_accelerator())
+        device = torch.accelerator.current_accelerator()
         config = get_test_float8_linear_config(
             scaling_type_input,
             scaling_type_weight,
@@ -192,7 +192,7 @@ class TestFloat8NumericsIntegrationTest:
         self,
         recipe_name: str,
     ):
-        device = str(torch.accelerator.current_accelerator())
+        device = torch.accelerator.current_accelerator()
         config = Float8LinearConfig.from_recipe_name(recipe_name)
         self._test_impl(config, device)
 

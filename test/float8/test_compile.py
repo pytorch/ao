@@ -85,7 +85,10 @@ def _test_compile_base(
     "scaling_type_grad_output",
     [ScalingType.DYNAMIC],
 )
-@pytest.mark.parametrize("emulate", [True, False])
+@pytest.mark.parametrize(
+    "emulate",
+    [False, True] if is_sm_at_least_89() or torch.xpu.is_available() else [True],
+)
 @pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float32])
 @unittest.skipIf(not torch.accelerator.is_available(), "GPU not available")
 def test_eager_only(
@@ -96,10 +99,7 @@ def test_eager_only(
     scaling_type_grad_output: ScalingType,
     dtype: torch.dtype,
 ):
-    device = str(torch.accelerator.current_accelerator())
-    if not emulate and device == "cuda" and not is_sm_at_least_89():
-        pytest.skip("CUDA capability >= 8.9 required for native float8 support")
-
+    device = torch.accelerator.current_accelerator()
     torch._dynamo.reset()
     config = get_test_float8_linear_config(
         scaling_type_input,
@@ -117,7 +117,10 @@ def test_eager_only(
 
 
 @pytest.mark.parametrize("fullgraph", [True])
-@pytest.mark.parametrize("emulate", [False, True])
+@pytest.mark.parametrize(
+    "emulate",
+    [False, True] if is_sm_at_least_89() or torch.xpu.is_available() else [True],
+)
 @pytest.mark.parametrize("scaling_type_input", [ScalingType.DYNAMIC])
 @pytest.mark.parametrize(
     "scaling_type_weight",
@@ -137,10 +140,7 @@ def test_aot_eager(
     scaling_type_grad_output: ScalingType,
     dtype: torch.dtype,
 ):
-    device = str(torch.accelerator.current_accelerator())
-    if not emulate and device == "cuda" and not is_sm_at_least_89():
-        pytest.skip("CUDA capability >= 8.9 required for native float8 support")
-
+    device = torch.accelerator.current_accelerator()
     torch._dynamo.reset()
     config = get_test_float8_linear_config(
         scaling_type_input,
@@ -182,7 +182,7 @@ def test_inductor_from_config_params(
     scaling_type_grad_output: ScalingType,
     dtype: torch.dtype,
 ):
-    device = str(torch.accelerator.current_accelerator())
+    device = torch.accelerator.current_accelerator()
     torch._dynamo.reset()
     config = get_test_float8_linear_config(
         scaling_type_input,
@@ -216,7 +216,7 @@ def test_inductor_from_config_params(
     "CUDA with capability 9.0 or greater not available",
 )
 def test_inductor_from_recipe(recipe_name):
-    device = str(torch.accelerator.current_accelerator())
+    device = torch.accelerator.current_accelerator()
     torch._dynamo.reset()
     config = Float8LinearConfig.from_recipe_name(recipe_name)
     fullgraph = True
@@ -248,6 +248,7 @@ class TestGraphBreaks(DynamoTestCase):
                 return x_hp
             return x_fp8
 
+    # TODO(future): figure out why the test below fails on CUDA capability 8.9
     @unittest.skipIf(not torch.accelerator.is_available(), "GPU not available")
     @unittest.skipIf(
         torch.cuda.is_available() and not is_sm_at_least_90(),
@@ -255,7 +256,7 @@ class TestGraphBreaks(DynamoTestCase):
     )
     def test_float8_with_graph_break_in_the_middle(self):
         """Test that having Float8TrainingTensor object at the boundary of a subgraph"""
-        device = str(torch.accelerator.current_accelerator())
+        device = torch.accelerator.current_accelerator()
         cnts = CompileCounterWithBackend("inductor")
         mod = self.MockLinear(graph_break=True).to(device)
         compiled_mod = copy.deepcopy(mod)
@@ -273,7 +274,7 @@ class TestGraphBreaks(DynamoTestCase):
     )
     def test_float8_graph_input(self):
         """Test that having Float8TrainingTensor object as a graph input"""
-        device = str(torch.accelerator.current_accelerator())
+        device = torch.accelerator.current_accelerator()
 
         def to_float(x):
             return x.to_original_precision()
@@ -299,7 +300,7 @@ class TestGraphBreaks(DynamoTestCase):
     )
     def test_float8_graph_output(self):
         """Test that having Float8TrainingTensor object as a graph output works"""
-        device = str(torch.accelerator.current_accelerator())
+        device = torch.accelerator.current_accelerator()
         cnts = CompileCounterWithBackend("inductor")
         mod = self.MockLinear(graph_break=False).to(device)
         compiled_mod = torch.compile(mod, backend=cnts)
@@ -365,7 +366,7 @@ class capture_stderr(list):
 def test_dynamic_scale_numeric_parity(
     dtype: torch.dtype, round_scales_to_power_of_2: bool
 ):
-    device = str(torch.accelerator.current_accelerator())
+    device = torch.accelerator.current_accelerator()
     scaling_type_weight = ScalingType.DYNAMIC
     torch.manual_seed(42)
     hp_tensor1 = torch.randn(16, 16, device=device, dtype=dtype)
