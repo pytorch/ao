@@ -409,28 +409,22 @@ class Float8FakeQuantizedWeightWrapperTensor(FakeQuantizedWeightWrapperBaseTenso
 
     @classmethod
     def __torch_function__(cls, func, types, args, kwargs=None):
-        """        
+        """
         Because we defer fake-quantization in the case of slicing, indexing, transposing,
         and permuting the wrapper tensor, the following fake-quantization is fragile when
         complicated transpositions and permutations are applied before real computations.
         After a general sequence of transpositions and permutations, it is NOT guaranteed
         that the fake-quantization is still carried out along the desired dimension.
-        
-        1. During prepare, the default or user-defined params_filter_fn may also wrap bias parameters
-           (1D or 2D) that appear in F.linear/linear/addmm. In either case, the fake-quantization of these
-           wrapped biases is always bypassed here: we only unpack the weight position (args[1] or args[2]
-           for addmm) for fake quantization. The bias passes through args[2:] (or args[0] for addmm) and
-           is unwrapped transparently by __torch_dispatch__ at add time.
-          
-        2. Known exception: HF's _batched_linear(is_transposed=False) calls
-           torch.bmm(wrapped_weight, plain_input), putting the wrapped weight at args[0]
-           instead of args[1]. The assertion below fails before reaching fake quant.
-           This path requires config._experts_implementation="batched_mm" with
-           is_transposed=False and is not triggered by default.
 
-        TODO: check how the following ops are used during a forward propagation in common
-              user cases and ensure the fake-quantization is carried out along the desired
-              dimension.
+        1. During prepare, the default or user-defined params_filter_fn may also wrap bias
+           parameters (1D or 2D) that appear in F.linear/linear/addmm. In either case, the
+           fake-quantization of these wrapped biases is always bypassed here: we only unpack
+           the weight position for fake quantization. The bias passes through other positions
+           and is unwrapped transparently by __torch_dispatch__ at add time.
+
+        2. For torch.bmm, the wrapped weight may be at args[1] (is_transposed=True) or
+           args[0] (is_transposed=False, as in HF's _batched_linear). We detect the
+           position at runtime and correctly select the contracted dimension.
         """
 
         if kwargs is None:
