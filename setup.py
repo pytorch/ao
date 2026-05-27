@@ -12,6 +12,7 @@ import re
 import shutil
 import subprocess
 import sys
+import sysconfig
 import time
 from datetime import datetime
 from pathlib import Path
@@ -752,6 +753,10 @@ class CMakeExtension(Extension):
         self.cmake_args = cmake_args
 
 
+def is_freethreaded():
+    return bool(sysconfig.get_config_var("Py_GIL_DISABLED"))
+
+
 def get_extensions():
     # Skip building C++ extensions if USE_CPP is set to "0"
     if use_cpp == "0":
@@ -790,10 +795,15 @@ def get_extensions():
     if use_rocm and detect_hipify_v2():
         maybe_hipify_v2_flag = ["-DHIPIFY_V2"]
 
+    maybe_cpython_limited_api = []
+    if not is_freethreaded():
+        maybe_cpython_limited_api += [
+            f"-DPy_LIMITED_API={min_supported_cpython_hexcode}"
+        ]
+
     extra_link_args = []
     extra_compile_args = {
-        "cxx": [f"-DPy_LIMITED_API={min_supported_cpython_hexcode}"]
-        + maybe_hipify_v2_flag,
+        "cxx": maybe_cpython_limited_api + maybe_hipify_v2_flag,
         "nvcc": nvcc_args if use_cuda else rocm_args + maybe_hipify_v2_flag,
     }
 
@@ -993,7 +1003,7 @@ def get_extensions():
             extension(
                 "torchao._C",
                 sources,
-                py_limited_api=True,
+                py_limited_api=not is_freethreaded(),
                 extra_compile_args=extra_compile_args,
                 extra_link_args=extra_link_args,
             )
@@ -1019,15 +1029,16 @@ def get_extensions():
                     include_dirs=[
                         mxfp8_extension_dir,  # For mxfp8_quantize.cuh, mxfp8_extension.cpp, and mxfp8_cuda.cu
                     ],
+                    py_limited_api=not is_freethreaded(),
                     extra_compile_args={
                         "cxx": [
-                            f"-DPy_LIMITED_API={min_supported_cpython_hexcode}",
                             "-std=c++20",
                             "-O3",
                             "-DUSE_CUDA",
                             # define TORCH_TARGET_VERSION with min version 2.11 for ABI stable Float8_e8m0fnu
                             "-DTORCH_TARGET_VERSION=0x020b000000000000",
-                        ],
+                        ]
+                        + maybe_cpython_limited_api,
                         "nvcc": nvcc_args
                         + [
                             "-gencode=arch=compute_100,code=sm_100",
@@ -1066,7 +1077,7 @@ def get_extensions():
             extension(
                 "torchao._C_cutlass_90a",
                 cutlass_90a_sources,
-                py_limited_api=True,
+                py_limited_api=not is_freethreaded(),
                 extra_compile_args=cutlass_90a_extra_compile_args,
                 extra_link_args=extra_link_args,
             )
@@ -1147,5 +1158,7 @@ setup(
     long_description_content_type="text/markdown",
     url="https://github.com/pytorch/ao",
     cmdclass={"build_ext": TorchAOBuildExt, "build_py": TorchAOBuildPy},
-    options={"bdist_wheel": {"py_limited_api": "cp310"}},
+    options={
+        "bdist_wheel": {"py_limited_api": "cp310"} if not is_freethreaded() else {}
+    },
 )
