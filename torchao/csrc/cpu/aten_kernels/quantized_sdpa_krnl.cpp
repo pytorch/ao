@@ -35,7 +35,11 @@ static std::once_flag cpublas_once;
 static bool cpublas_can_pack_int8 = false;
 static bool cpublas_can_pack_fp8 = false;
 
-#define USING_FP8_BRGEMM (defined(CPUBLAS_BRGEMM_F8F8F32) && defined(CPU_CAPABILITY_AVX10_2))
+#if defined(CPUBLAS_BRGEMM_F8F8F32) && defined(CPU_CAPABILITY_AVX10_2)
+#define USING_FP8_BRGEMM 1
+#else
+#define USING_FP8_BRGEMM 0
+#endif
 
 static inline bool cpublas_could_pack(at::ScalarType dtype) {
   // the could_pack check requires AMX support implicitly
