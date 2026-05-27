@@ -537,13 +537,14 @@ def test_bias_bypass(wrapper_cls, weight_config, call_fn, A_shape, w_shape, bias
 
 
 @pytest.mark.parametrize("device", target_devices)
+@pytest.mark.parametrize("granularity", [PerRow(dim=-1), PerRow(dim=-2)])
 @pytest.mark.parametrize("wrapper_cls, weight_config", [
     (Float8FakeQuantizedWeightWrapperTensor, Float8FakeQuantizeConfig()),
 ])
-def test_wrapper_fake_quantize(wrapper_cls, weight_config, device):
+def test_wrapper_fake_quantize(wrapper_cls, weight_config, granularity, device):
     """_fake_quantize applies FP8 fake quantization and returns a plain tensor."""
     w = torch.randn(1024, 2048, device=device)
-    result = wrapper_cls._fake_quantize(w, weight_config)
+    result = wrapper_cls._fake_quantize(w, weight_config, granularity)
     assert type(result) is torch.Tensor
     assert result.shape == w.shape
     assert result.dtype == w.dtype
