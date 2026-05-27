@@ -63,7 +63,7 @@ def get_configs() -> List[ExperimentConfig]:
         (32, 8192, 5120),
     ]
     round_modes = [ScaleCalculationMode.FLOOR, ScaleCalculationMode.RCEIL]
-    variants = ["32x1_t", "32x1_n", "32x32_n"]
+    variants = ["32x1_n", "32x1_t", "32x32_n", "32x32_t"]
     configs = []
     for shape, scaling_mode, variant in itertools.product(
         input_shapes, round_modes, variants
@@ -89,10 +89,9 @@ def run_experiment(config: ExperimentConfig) -> ExperimentResult:
     )
 
     def get_quant_input(x: torch.Tensor) -> torch.Tensor:
-        # The "32x1_t" benchmark row is the reviewer-requested
-        # contract: feed (E, K, N) K-major expert weights directly into the
-        # existing 3D 32x1 kernel.
-        if variant == "32x1_t":
+        # The "*_t" benchmark rows feed (E, K, N) K-major expert weights
+        # directly into the transposed-input 3D kernel contracts.
+        if variant in ("32x1_t", "32x32_t"):
             return x.transpose(-2, -1)
         return x
 
@@ -106,6 +105,31 @@ def run_experiment(config: ExperimentConfig) -> ExperimentResult:
                 scaling_mode=config.scaling_mode,
             )
             return y_ref.transpose(-2, -1), s_ref.transpose(-2, -1)
+
+        if variant == "32x32_t":
+            E, N, K = x.shape
+            x_tiles = (
+                x.view(E, N // block_size, block_size, K // block_size, block_size)
+                .permute(0, 1, 3, 2, 4)
+                .contiguous()
+                .view(E, N // block_size, K // block_size, block_size * block_size)
+            )
+            s_ref, y_tiles_ref = to_mx(
+                x_tiles,
+                elem_dtype=torch.float8_e4m3fn,
+                block_size=block_size * block_size,
+                scaling_mode=config.scaling_mode,
+            )
+            y_ref = (
+                y_tiles_ref.view(
+                    E, N // block_size, K // block_size, block_size, block_size
+                )
+                .permute(0, 1, 3, 2, 4)
+                .contiguous()
+                .view(E, N, K)
+                .transpose(-2, -1)
+            )
+            return y_ref, s_ref.squeeze(-1).transpose(-2, -1)
 
         if variant == "32x1_n":
             s_ref, y_ref = to_mx(
