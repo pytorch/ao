@@ -138,7 +138,9 @@ if _flydsl_runtime_available():
                     buffer_ops.buffer_store(out, q_rsrc, i32_off)
 
                 buffer_ops.buffer_store(
-                    scale_u8, s_rsrc, row * fx.Int32(K_BLOCKS) + block_in_row,
+                    scale_u8,
+                    s_rsrc,
+                    row * fx.Int32(K_BLOCKS) + block_in_row,
                 )
 
             # Full chunks: every lane owns a valid block — no per-lane guard.
