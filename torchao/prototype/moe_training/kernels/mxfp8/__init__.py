@@ -1,3 +1,7 @@
+from torchao.prototype.moe_training.kernels.mxfp8.cutedsl_grad_quantize import (
+    cutedsl_mxfp8_quantize_dim0_dim1_single_read,  # noqa: F401
+    cutedsl_mxfp8_quantize_dim0_dim1_streams,  # noqa: F401
+)
 from torchao.prototype.moe_training.kernels.mxfp8.quant import (
     _mxfp8_cuda_kernels_available,  # noqa: F401
     fused_pad_token_groups_cuda,  # noqa: F401
@@ -14,4 +18,11 @@ from torchao.prototype.moe_training.kernels.mxfp8.quant import (
     triton_mx_block_rearrange_2d_K_groups,  # noqa: F401
     triton_mx_block_rearrange_2d_M_groups,  # noqa: F401
     triton_mx_block_rearrange_per_group_3d,  # noqa: F401
+)
+from torchao.prototype.moe_training.kernels.mxfp8.triton_dispatch_quantize import (
+    triton_mxfp8_dispatch_and_quantize,  # noqa: F401
+    triton_mxfp8_pad_and_quantize,  # noqa: F401
+)
+from torchao.prototype.moe_training.kernels.mxfp8.triton_grad_quantize import (
+    triton_mxfp8_quantize_dim0_dim1,  # noqa: F401
 )
