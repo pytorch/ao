@@ -1525,7 +1525,7 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
     @torch.no_grad()
     def test_fp8_grouped_mm_dynamic_act_weight(self, E, K, N, m_per_group):
         """Test Float8DynamicActivationFloat8WeightConfig with grouped_mm dispatch."""
-        device = get_current_accelerator_device()
+        device = torch.accelerator.current_accelerator()
         dtype = torch.bfloat16
         total_m = sum(m_per_group)
 
@@ -1565,7 +1565,7 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
     @torch.no_grad()
     def test_fp8_grouped_mm_weight_only(self, E, K, N):
         """Test Float8WeightOnlyConfig with grouped_mm dispatch (weight-only dequant path)."""
-        device = get_current_accelerator_device()
+        device = torch.accelerator.current_accelerator()
         dtype = torch.bfloat16
         m_per_group = [32, 64, 16, 48]
         total_m = sum(m_per_group)
@@ -1603,7 +1603,7 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
     @torch.no_grad()
     def test_fp8_grouped_mm_non_rowwise_raises(self, E, K, N):
         """Test that _grouped_mm with non-PerRow granularity raises NotImplementedError."""
-        device = get_current_accelerator_device()
+        device = torch.accelerator.current_accelerator()
         dtype = torch.bfloat16
         m_per_group = [32, 64, 16, 48]
         total_m = sum(m_per_group)
