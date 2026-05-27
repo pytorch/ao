@@ -558,7 +558,7 @@ def test_3d_transpose(elem_dtype, dims):
     """
     E, M, K = 4, 128, 256
     block_size = 32
-    device = torch.accelerator.current_accelerator().type
+    device = torch.accelerator.current_accelerator()
     tensor_hp = torch.randn(E, M, K, device=device, dtype=torch.bfloat16)
     tensor_mx = MXTensor.to_mx(
         tensor_hp,

@@ -24,7 +24,6 @@ from torchao.quantization.quantize_.common import KernelPreference
 from torchao.quantization.utils import compute_error
 from torchao.testing.utils import TorchAOIntegrationTestCase, skip_if_rocm
 from torchao.utils import (
-    get_current_accelerator_device,
     is_sm_at_least_89,
     is_sm_at_least_100,
 )
@@ -496,7 +495,7 @@ def test_grouped_mm_mx_dynamic_activation(
     E, K, N, m_per_group, kernel_preference, scaling_mode, elem_dtype
 ):
     """Test MXDynamicActivationMXWeightConfig with grouped_mm dispatch."""
-    device = get_current_accelerator_device()
+    device = torch.accelerator.current_accelerator()
     dtype = torch.bfloat16
     total_m = sum(m_per_group)
 
