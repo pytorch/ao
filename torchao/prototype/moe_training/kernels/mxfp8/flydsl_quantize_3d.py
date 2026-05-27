@@ -63,7 +63,7 @@ if _flydsl_runtime_available():
     import flydsl.expr as fx
     from flydsl._mlir import ir
     from flydsl.compiler.kernel_function import CompilationContext
-    from flydsl.expr import arith, buffer_ops, gpu, range_constexpr, vector
+    from flydsl.expr import arith, buffer_ops, const_expr, gpu, range_constexpr, vector
     from flydsl.expr.arith import ArithValue
     from flydsl.expr.typing import T
     from flydsl.expr.vector import ReductionOp
@@ -196,7 +196,7 @@ if _flydsl_runtime_available():
             # FLOOR-mode clamp vecs: built once per kernel invocation so the
             # ±F8_MAX constants live in a stable VGPR pair rather than being
             # re-materialized per chunk. RCEIL ignores these.
-            if not USE_RCEIL:
+            if const_expr(not USE_RCEIL):
                 f8_min_v, f8_max_v = make_fp8_clamp_vectors()
 
             def _load_chunks_and_amax(k_local: int):
@@ -214,7 +214,7 @@ if _flydsl_runtime_available():
                             wave_lds_row_off + fx.Int32(c * VEC + j)
                         ).index_cast(T.index)
                         elems.append(lds_full.load([row_lds_idx, lds_col_idx]))
-                    if input_dtype_name == "torch.bfloat16":
+                    if const_expr(input_dtype_name == "torch.bfloat16"):
                         vec_bf = vector.from_elements(T.vec(VEC, T.bf16), elems)
                         vec_f32 = arith.extf(T.vec(VEC, T.f32), vec_bf)
                     else:
@@ -237,7 +237,7 @@ if _flydsl_runtime_available():
                     expert_out_byte_off + k_col_global * fx.Int32(N) + row_base
                 ) // fx.Int32(VEC)
                 for c in range_constexpr(0, CHUNKS_PER_BLOCK):
-                    if USE_RCEIL:
+                    if const_expr(USE_RCEIL):
                         out = quantize_pack_chunk_to_i32_rceil(
                             chunks_local[c], scale_arg
                         )
@@ -252,7 +252,7 @@ if _flydsl_runtime_available():
                         cache_modifier=data_store_cache_modifier,
                     )
 
-                if blocked_scale_output:
+                if const_expr(blocked_scale_output):
                     # Logical (k_row=k_col_global, n_block) → flat per-expert
                     # offset in the to_blocked() layout. For (32,32) all
                     # 8 lanes × VEC k_local in one K-block hold the same
@@ -279,7 +279,7 @@ if _flydsl_runtime_available():
                     # (k_col_global // 32) — benign race, same value.
                     scale_k_idx = (
                         k_col_global
-                        if scale_block_k == 1
+                        if const_expr(scale_block_k == 1)
                         else k_col_global // fx.Int32(BLOCK_SIZE)
                     )
                     buffer_ops.buffer_store(
@@ -290,7 +290,7 @@ if _flydsl_runtime_available():
                         + scale_k_idx,
                     )
 
-            if scale_block_k == BLOCK_SIZE:
+            if const_expr(scale_block_k == BLOCK_SIZE):
                 # (32, 32) mode: one MX block of K = 32 K-positions =
                 # 8 lanes × VEC k_local. Fold per-k_local amax in-lane in a
                 # single loop (avoids a Python list of symbolic values, which
@@ -310,7 +310,7 @@ if _flydsl_runtime_available():
                     peer = block_amax.shuffle_xor(fx.Int32(sh), width8)
                     block_amax = block_amax.maximumf(peer)
 
-                if USE_RCEIL:
+                if const_expr(USE_RCEIL):
                     scale_u8, scale_arg = rceil_scale_and_pos_scale(block_amax)
                 else:
                     scale_u8, scale_arg = floor_scale_and_inv_scale(block_amax)
@@ -322,7 +322,7 @@ if _flydsl_runtime_available():
                 # Single-pass per k_local — same register profile as 32x1.
                 for k_local in range_constexpr(0, VEC):
                     chunks_local, amax_local = _load_chunks_and_amax(k_local)
-                    if USE_RCEIL:
+                    if const_expr(USE_RCEIL):
                         scale_u8, scale_arg = rceil_scale_and_pos_scale(amax_local)
                     else:
                         scale_u8, scale_arg = floor_scale_and_inv_scale(amax_local)

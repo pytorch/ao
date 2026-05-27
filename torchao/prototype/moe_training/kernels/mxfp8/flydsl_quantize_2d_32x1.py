@@ -92,7 +92,7 @@ if _flydsl_runtime_available():
     import flydsl.expr as fx
     from flydsl._mlir import ir
     from flydsl.compiler.kernel_function import CompilationContext
-    from flydsl.expr import arith, buffer_ops, gpu, range_constexpr, vector
+    from flydsl.expr import arith, buffer_ops, const_expr, gpu, range_constexpr, vector
     from flydsl.expr.arith import ArithValue
     from flydsl.expr.typing import T
     from flydsl.expr.vector import ReductionOp
@@ -198,7 +198,7 @@ if _flydsl_runtime_available():
             m_block_global = m_block * fx.Int32(m_blocks_per_wg) + wave_id
             m_row_global_base = row_base + wave_row_off
 
-            if not USE_RCEIL:
+            if const_expr(not USE_RCEIL):
                 f8_min_v, f8_max_v = make_fp8_clamp_vectors()
 
             for k_local in range_constexpr(0, VEC):
@@ -216,7 +216,7 @@ if _flydsl_runtime_available():
                             wave_row_off + fx.Int32(c * VEC + j)
                         ).index_cast(T.index)
                         elems.append(lds_full.load([row_lds_idx, lds_col_idx]))
-                    if input_dtype_name == "torch.bfloat16":
+                    if const_expr(input_dtype_name == "torch.bfloat16"):
                         vec_in = vector.from_elements(T.vec(VEC, T.bf16), elems)
                         vec_f32 = arith.extf(T.vec(VEC, T.f32), vec_in)
                     else:
@@ -226,7 +226,7 @@ if _flydsl_runtime_available():
                         fx.math.absf(vec_f32).reduce(ReductionOp.MAX)
                     )
 
-                if USE_RCEIL:
+                if const_expr(USE_RCEIL):
                     scale_u8, scale_arg = rceil_scale_and_pos_scale(local_amax)
                 else:
                     scale_u8, scale_arg = floor_scale_and_inv_scale(local_amax)
@@ -235,7 +235,7 @@ if _flydsl_runtime_available():
                     k_col_global * fx.Int32(M) + m_row_global_base
                 ) // fx.Int32(VEC)
                 for c in range_constexpr(0, CHUNKS_PER_BLOCK):
-                    if USE_RCEIL:
+                    if const_expr(USE_RCEIL):
                         out = quantize_pack_chunk_to_i32_rceil(chunks[c], scale_arg)
                     else:
                         out = quantize_pack_chunk_to_i32_floor(
