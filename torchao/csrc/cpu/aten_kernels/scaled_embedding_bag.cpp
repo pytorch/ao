@@ -45,7 +45,7 @@
 
 namespace torchao {
 
-namespace CPU_CAPABILITY {
+namespace {
 
 #if defined(CPU_CAPABILITY_AVX512)
 using CHUNK =
@@ -196,7 +196,7 @@ inline void _scaled_embedding_bag_krnl(
   // from a 40M-row table; DRAM latency ~100 ns means we must keep enough
   // in-flight requests to hide latency.
   constexpr int64_t PREFETCH_DIST = 8;
-  if (emb_dim % 128 == 0) {
+  if (kHasAVX512 && emb_dim % 128 == 0) {
     constexpr int64_t block_dim = 128;
     const int64_t num_blocks = emb_dim / block_dim;
     __m512 scale_v = _mm512_set1_ps(scale);
@@ -359,6 +359,10 @@ at::Tensor _scaled_embedding_bag_impl(
   return output;
 }
 
-} // CPU_CAPABILITY namespace
+} // anonymous namespace
+
+TORCH_LIBRARY_IMPL(torchao, CPU, m) {
+  m.impl("torchao::_scaled_embedding_bag", &_scaled_embedding_bag_impl);
+}
 
 } // namespace torchao

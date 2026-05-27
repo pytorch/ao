@@ -25,37 +25,10 @@
 #include <iostream>
 #include <fstream>
 #include <string>
-#include "utils.h"
 
 namespace torchao {
 
-namespace CPU_CAPABILITY {
-
-static std::once_flag cpublas_once;
-static bool cpublas_can_pack_int8 = false;
-static bool cpublas_can_pack_fp8 = false;
-
-#if defined(CPUBLAS_BRGEMM_F8F8F32) && defined(CPU_CAPABILITY_AVX10_2)
-#define USING_FP8_BRGEMM 1
-#else
-#define USING_FP8_BRGEMM 0
-#endif
-
-static inline bool cpublas_could_pack(at::ScalarType dtype) {
-  // the could_pack check requires AMX support implicitly
-  std::call_once(cpublas_once, []() {
-    cpublas_can_pack_int8 = brgemm_enabled() && at::native::cpublas::could_pack(at::kByte);
-#if USING_FP8_BRGEMM
-    cpublas_can_pack_fp8 = brgemm_enabled() && at::native::cpublas::could_pack(at::kFloat8_e4m3fn) && kHasAVX10_2;
-#endif
-  });
-  if (dtype == at::kByte) {
-    return cpublas_can_pack_int8;
-  } else if (dtype == at::kFloat8_e4m3fn) {
-    return cpublas_can_pack_fp8;
-  }
-  return false;
-}
+namespace {
 
 inline c10::SymFloat calculate_scale(
     const at::Tensor& query,
@@ -1805,7 +1778,7 @@ int8_sdpa_fused_kernel_impl(
   at::native::cpublas::brgemm_release();
 }
 
-#if USING_FP8_BRGEMM
+#if defined(CPUBLAS_BRGEMM_F8F8F32)
 // FP8 - kernel with f8f8f8 GEMM
 template <typename scalar_t, typename mask_t,
           int64_t q_split_size, int64_t kv_split_size>
@@ -2152,7 +2125,7 @@ fp8_sdpa_fused_kernel_impl(
     at::native::cpublas::brgemm_release();
   });
 }
-#endif // USING_FP8_BRGEMM
+#endif // CPUBLAS_BRGEMM_F8F8F32
 
 template <typename scalar_t, typename mask_t, int64_t q_split_size, int64_t kv_split_size>
 inline typename std::enable_if_t<std::is_same_v<scalar_t, unsigned char>, void>
@@ -2349,7 +2322,7 @@ void int8_sdpa_fused_kernel(
   }
 }
 
-#if USING_FP8_BRGEMM
+#if defined(CPUBLAS_BRGEMM_F8F8F32)
 void fp8_sdpa_fused_kernel(
     const at::Tensor& output,
     const at::Tensor& query,
@@ -2426,7 +2399,7 @@ void fp8_sdpa_fused_kernel(
     });
   }
 }
-#endif // USING_FP8_BRGEMM
+#endif // CPUBLAS_BRGEMM_F8F8F32
 #endif // CPU_CAPABILITY_AVX512
 
 at::Tensor int8_sdpa_math_kernel(
@@ -2553,7 +2526,7 @@ at::Tensor _qscaled_dot_product_cpu(
   }
   if (dtype == at::ScalarType::Byte) {
 #ifdef CPU_CAPABILITY_AVX512
-      if (cpublas_could_pack(dtype)) {
+      if (at::native::cpublas::could_pack(dtype)) {
           int64_t batch_size = query.size(0);
           int64_t num_head = query.size(1);
           int64_t q_seq_len = query.size(2);
@@ -2580,8 +2553,9 @@ at::Tensor _qscaled_dot_product_cpu(
       }
 #endif // CPU_CAPABILITY_AVX512
   } else if (dtype == at::ScalarType::Float8_e4m3fn) {
-#if USING_FP8_BRGEMM
-      if (cpublas_could_pack(dtype)) {
+#if defined(CPUBLAS_BRGEMM_F8F8F32) && defined(CPU_CAPABILITY_AVX512)
+// CPUBLAS_BRGEMM_F8F8F32 is defined if FP8 BRGEMM is supported in PyTorch CPUBlas.
+      if (at::native::cpublas::could_pack(dtype)) {
           int64_t batch_size = query.size(0);
           int64_t num_head = query.size(1);
           int64_t q_seq_len = query.size(2);
@@ -2594,21 +2568,26 @@ at::Tensor _qscaled_dot_product_cpu(
               o_scale);
           return output.transpose(1, 2);
       } else {
-#endif // USING_FP8_BRGEMM
+#endif // CPU_CAPABILITY_AVX512 && CPUBLAS_BRGEMM_F8F8F32
           return fp8_sdpa_math_kernel(query, key, value,
               dropout_p, is_causal, attn_mask, scale,
               q_scale, k_scale,
               v_scale, a_scale,
               o_scale).transpose(1, 2).contiguous().transpose(1, 2);
-#if USING_FP8_BRGEMM
+#if defined(CPUBLAS_BRGEMM_F8F8F32) && defined(CPU_CAPABILITY_AVX512)
       }
-#endif // USING_FP8_BRGEMM
+#endif // CPU_CAPABILITY_AVX512 && CPUBLAS_BRGEMM_F8F8F32
   } else {
     TORCH_CHECK(false, "_qscaled_dot_product_cpu: Unsupported data type ", dtype);
   }
 }
 
 
-} // CPU_CAPABILITY namespace
+} // anonymous namespace
 
+TORCH_LIBRARY_IMPL(torchao, CPU, m) {
+  m.impl("torchao::qscaled_dot_product", &_qscaled_dot_product_cpu);
+}
+
+// } // at::native
 } // namespace torchao
