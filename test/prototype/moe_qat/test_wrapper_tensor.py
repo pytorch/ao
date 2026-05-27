@@ -432,16 +432,13 @@ def test_wrapper_torch_function_A_is_wrapper(wrapper_cls, weight_config, func, d
 @pytest.mark.parametrize("wrapper_cls, weight_config", [
     (Float8FakeQuantizedWeightWrapperTensor, Float8FakeQuantizeConfig()),
 ])
-@pytest.mark.parametrize("func, weight_pos", [
-    (torch.addmm, 2),
-    (F.linear, 1),
-])
-def test_wrapper_torch_function_B_not_wrapper(wrapper_cls, weight_config, func, weight_pos, device):
+@pytest.mark.parametrize("func", [torch.addmm, F.linear])
+def test_wrapper_torch_function_B_not_wrapper(wrapper_cls, weight_config, func, device):
     """__torch_function__ asserts B is a wrapped weight."""
     bias = wrapper_cls(torch.randn(128, device=device), weight_config=weight_config)
     A = torch.randn(16, 64, device=device)
     B = torch.randn(64, 128, device=device)
-    with pytest.raises(AssertionError, match=rf"^Expected the wrapped weight at args\[{weight_pos}\], but got "):
+    with pytest.raises(AssertionError, match=rf"^B should be a {wrapper_cls.__name__}$"):
         func(bias, A, B) if func is torch.addmm else func(A, B, bias)
 
 
@@ -802,3 +799,135 @@ def test_op_grouped_mm(wrapper_cls, weight_config, act_config, sqnr_threshold, d
     assert compute_error(param.grad, w_ref.grad) > sqnr_threshold, f"Weight grad SQNR too low ({compute_error(param.grad, w_ref.grad):.1f} dB)"
 
 
+@pytest.mark.parametrize("device", target_devices)
+def test_op_grouped_mm_no_activation_fake_quantization(device):
+    """grouped_mm with weight-only fake quantization. Run individually on CPU —
+    the grouped_mm CPU backward corrupts state for subsequent fake-quantized calls."""
+    S, E, K, N = 16, 4, 1024, 2048  # total_tokens, experts, in_features, out_features
+
+    A = torch.randn(S, K, requires_grad=True, device=device)
+    w = torch.randn(E, K, N, device=device)
+    wrapper = Float8FakeQuantizedWeightWrapperTensor(w, weight_config=Float8FakeQuantizeConfig())
+    param = torch.nn.Parameter(wrapper)
+
+    offs = torch.tensor([4, 4, 4, 4], dtype=torch.int32)
+    A_ref = A.clone().detach().requires_grad_(True)
+    w_ref = w.clone().detach().requires_grad_(True)
+    ref_out = torch._grouped_mm(A_ref, w_ref, offs=offs)
+    out = torch._grouped_mm(A, param, offs=offs)
+    assert out.shape == (S, N)
+
+    sqnr = compute_error(out, ref_out)
+    assert sqnr != float("inf"), "SQNR should be finite (fake quant was applied)"
+    assert sqnr > 20, f"Forward SQNR too low ({sqnr:.1f} dB)"
+
+    ref_out.backward(torch.ones_like(ref_out))
+    out.backward(torch.ones_like(out))
+    assert A.grad is not None
+    assert compute_error(A.grad, A_ref.grad) > 20, f"Input grad SQNR too low ({compute_error(A.grad, A_ref.grad):.1f} dB)"
+    assert param.grad is not None
+    assert compute_error(param.grad, w_ref.grad) > 20, f"Weight grad SQNR too low ({compute_error(param.grad, w_ref.grad):.1f} dB)"
+
+
+@pytest.mark.parametrize("device", target_devices)
+def test_op_grouped_mm_activation_fake_quantization(device):
+    """grouped_mm with weight+activation fake quantization. Run individually on CPU —
+    the grouped_mm CPU backward corrupts state for subsequent fake-quantized calls."""
+    S, E, K, N = 16, 4, 1024, 2048  # total_tokens, experts, in_features, out_features
+
+    A = torch.randn(S, K, requires_grad=True, device=device)
+    w = torch.randn(E, K, N, device=device)
+    wrapper = Float8FakeQuantizedWeightWrapperTensor(
+        w,
+        activation_config=Float8FakeQuantizeConfig(),
+        weight_config=Float8FakeQuantizeConfig(),
+    )
+    param = torch.nn.Parameter(wrapper)
+
+    offs = torch.tensor([4, 4, 4, 4], dtype=torch.int32)
+    A_ref = A.clone().detach().requires_grad_(True)
+    w_ref = w.clone().detach().requires_grad_(True)
+    ref_out = torch._grouped_mm(A_ref, w_ref, offs=offs)
+    out = torch._grouped_mm(A, param, offs=offs)
+    assert out.shape == (S, N)
+
+    sqnr = compute_error(out, ref_out)
+    assert sqnr != float("inf"), "SQNR should be finite (fake quant was applied)"
+    assert sqnr > 20, f"Forward SQNR too low ({sqnr:.1f} dB)"
+
+    ref_out.backward(torch.ones_like(ref_out))
+    out.backward(torch.ones_like(out))
+    assert A.grad is not None
+    assert compute_error(A.grad, A_ref.grad) > 20, f"Input grad SQNR too low ({compute_error(A.grad, A_ref.grad):.1f} dB)"
+    assert param.grad is not None
+    assert compute_error(param.grad, w_ref.grad) > 20, f"Weight grad SQNR too low ({compute_error(param.grad, w_ref.grad):.1f} dB)"
+
+
+
+@pytest.mark.parametrize("device", target_devices)
+@pytest.mark.parametrize("dtype", [torch.float32, ])
+@pytest.mark.parametrize("wrapper_cls, weight_config, act_config", [
+    (Float8FakeQuantizedWeightWrapperTensor, Float8FakeQuantizeConfig(), None),
+    (Float8FakeQuantizedWeightWrapperTensor, Float8FakeQuantizeConfig(), Float8FakeQuantizeConfig()),
+])
+@pytest.mark.parametrize("call_fn, A_shape, w_shape, kwargs", [
+    # torch.mm: weight [K, N] at args[1], contracted dim=-2
+    (lambda a, w: torch.mm(a, w),             (16, 64),    (64, 128),     {}),
+    # torch.matmul: same as mm
+    (lambda a, w: torch.matmul(a, w),         (16, 64),    (64, 128),     {}),
+    # torch.bmm: weight [B, K, N] at args[1], contracted dim=-2
+    (lambda a, w: torch.bmm(a, w),            (4, 16, 64), (4, 64, 128),  {}),
+    # F.linear: weight [N, K] at args[1], contracted dim=-1
+    (lambda a, w: F.linear(a, w),             (16, 64),    (128, 64),     {}),
+    # torch.addmm: weight [K, N] at args[2], contracted dim=-2
+    (lambda a, w, *, bias: torch.addmm(bias, a, w), (16, 64), (64, 128), {"bias_shape": (128,)}),
+    # torch._grouped_mm: weight [E, K, N] at args[1], S=16 tokens, E=4 experts
+    (lambda a, w, *, offs: torch._grouped_mm(a, w, offs=offs), (16, 1024), (4, 1024, 2048), {"offs": torch.tensor([4, 4, 4, 4], dtype=torch.int32)}),
+])
+def test_compatibility_with_torch_compile(wrapper_cls, weight_config, act_config, call_fn, A_shape, w_shape, kwargs, dtype, device):
+    """torch.compile through a Python wrapper should match eager.
+
+    Wraps the op in a plain Python function before compiling. This is the
+    correct usage pattern: ``torch.compile(forward_pass)`` forces Dynamo to
+    trace through the Python call, which triggers ``__torch_function__``
+    dispatch on tensor subclasses.
+
+    Compiling a built-in C-extension directly may bypass
+    ``__torch_function__``, producing a false sense of correctness.
+    """
+    def prepare_arguments():
+        A = torch.randn(*A_shape, dtype=dtype, device=device)
+        w = torch.randn(*w_shape, dtype=dtype, device=device)
+        wrapper = wrapper_cls(w, activation_config=act_config, weight_config=weight_config)
+        
+        resolved = {}
+        for k, v in kwargs.items():
+            if k.endswith("_shape"):
+                resolved[k[:-len("_shape")]] = torch.randn(*v, dtype=dtype, device=device)
+            elif isinstance(v, torch.Tensor):
+                resolved[k] = v.to(device=device)
+            else:
+                resolved[k] = v
+        
+        return A, wrapper, resolved
+
+    def forward_pass(activation, weight, kwargs):
+        return call_fn(activation, weight, **kwargs)
+
+    torch._dynamo.reset()
+    compiled = torch.compile(forward_pass, fullgraph=True)
+
+    def run_test():
+        activation, weight, resolved_kwargs = prepare_arguments()
+        eager_out = forward_pass(activation, weight, resolved_kwargs)
+        out = compiled(activation, weight, resolved_kwargs)
+        assert out.shape == eager_out.shape
+        assert torch.allclose(out, eager_out), "Compiled output should match eager output"
+
+    # 1. Warm up the compiler with the initial shape (creates the first graph)
+    run_test()
+
+    # 2. Enter the stance to block subsequent recompilations
+    with torch.compiler.set_stance("fail_on_recompile"):
+        for _ in range(5):
+            run_test()
