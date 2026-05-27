@@ -101,7 +101,6 @@ from torchao.utils import (
     is_MI300,
     is_MI350,
     is_sm_at_least_89,
-    torch_version_at_least,
 )
 
 # TODO: put this in a common test utils file
@@ -2582,7 +2581,6 @@ class TestQAT(TestCase):
         # Check that weights have been updated
         self.assertFalse(torch.allclose(mx_model[0].weight, initial_weight))
 
-    @unittest.skipIf(not torch_version_at_least("2.10.0"), "Need pytorch 2.10+")
     @unittest.skipIf(not _CUDA_IS_AVAILABLE, "skipping when cuda is not available")
     @unittest.skipIf(not is_sm_at_least_89(), "Need sm89+")
     @parametrize(

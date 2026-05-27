@@ -41,5 +41,12 @@ class KernelPreference(str, Enum):
     2. Debugging kernel numerics issues.
     """
 
+    TRITON = "triton"
+    """Use pure-triton RHT + stochastic rounding kernels already in TorchAO.
+    Full NVFP4 training recipe: RHT on forward activations,
+    stochastic rounding + RHT on backward gradients.
+    Requires bfloat16 input; M, K, N all divisible by 128.
+    """
+
 
 torch.serialization.add_safe_globals([KernelPreference])

@@ -36,9 +36,7 @@ from torchao.utils import is_sm_at_least_100, torch_version_at_least
 if torch_version_at_least("2.12.0.dev0"):
     from torch._higher_order_ops.inline_asm_elementwise import inline_asm_elementwise
 
-# ScalingType and SwizzleType are only available in PyTorch 2.10+
-if torch_version_at_least("2.10.0"):
-    from torch.nn.functional import ScalingType, SwizzleType
+from torch.nn.functional import ScalingType, SwizzleType
 
 from torchao.prototype.mx_formats.config import (
     MXFP8Dim0CastKernelChoice,
@@ -811,10 +809,6 @@ def _addmm_mx_dispatch(
         else:
             assert a.elem_dtype == torch.float4_e2m1fn_x2
             assert b.elem_dtype == torch.float4_e2m1fn_x2
-            if not torch_version_at_least("2.10.0"):
-                raise RuntimeError(
-                    "MXFP4 matmul requires PyTorch 2.10.0 or later for F.scaled_mm support"
-                )
             # FP4 operations using F.scaled_mm
             res = F.scaled_mm(
                 a.qdata.view(torch.float4_e2m1fn_x2),

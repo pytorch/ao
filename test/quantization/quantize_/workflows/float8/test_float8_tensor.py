@@ -186,6 +186,7 @@ class ToyLoRAModel(torch.nn.Module):
 @unittest.skipIf(torch.cuda.is_available() and not is_sm_at_least_89(), "Need sm89+")
 class TestFloat8Tensor(TorchAOIntegrationTestCase):
     def setUp(self):
+        super().setUp()
         _DEVICE = get_current_accelerator_device()
         self.GPU_DEVICES = [_DEVICE] if torch.accelerator.is_available() else []
         torch.set_grad_enabled(False)
@@ -1435,6 +1436,21 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
         x = torch.randn(16, 5120, 16384, device=device, dtype=torch.bfloat16)
         x_fp8 = Float8Tensor.from_hp(x)
         self._test_chunk_similar_to_vllm_llama4(x_fp8, dim)
+
+    @common_utils.parametrize("dim", [-2, -1])
+    def test_chunk_via_torch_chunk_with_dim_kwarg(self, dim):
+        # Complements `test_chunk`: that test uses `Tensor.chunk`, which
+        # lands in `aten.split.Tensor` with `dim` in `args`; this one uses
+        # the free function `torch.chunk(t, n, dim=dim)`, which leaves
+        # `dim` in `kwargs` (the path FSDP2's `_chunk_with_empty` takes).
+        device = get_current_accelerator_device()
+        x = torch.randn(16, 5120, 16384, device=device, dtype=torch.bfloat16)
+        x_fp8 = Float8Tensor.from_hp(x)
+        chunks = torch.chunk(x_fp8, 2, dim=dim)
+        recombined = torch.cat(chunks, dim=dim)
+        torch.testing.assert_close(
+            x_fp8.dequantize(), recombined.dequantize(), atol=0, rtol=0
+        )
 
     @common_utils.parametrize(
         "config",

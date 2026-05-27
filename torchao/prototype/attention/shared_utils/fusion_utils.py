@@ -16,6 +16,7 @@ from typing import Optional, Tuple
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from torch._inductor.custom_graph_pass import CustomGraphPass, get_hash_for_files
 from torch.fx import Graph, Node
 
 logger = logging.getLogger(__name__)
@@ -1110,3 +1111,21 @@ def rope_sdpa_fusion_pass(
 
     if fused_count > 0:
         graph.eliminate_dead_code()
+
+
+class RopeSDPAFusionPass(CustomGraphPass):
+    def __init__(self, rope_sdpa_op, fp8_sdpa_op, backend_name: str = "FP8"):
+        self.rope_sdpa_op = rope_sdpa_op
+        self.fp8_sdpa_op = fp8_sdpa_op
+        self.backend_name = backend_name
+
+    def __call__(self, graph: Graph) -> None:
+        rope_sdpa_fusion_pass(
+            graph,
+            rope_sdpa_op=self.rope_sdpa_op,
+            fp8_sdpa_op=self.fp8_sdpa_op,
+            backend_name=self.backend_name,
+        )
+
+    def uuid(self) -> bytes:
+        return get_hash_for_files((__file__,))
