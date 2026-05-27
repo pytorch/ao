@@ -144,11 +144,16 @@ class TestFloat8TrainingTensor:
 
             fp8_a_transposed = fp8_a.transpose(0, 1)
             fp8_b_t = fp8_b.t()
+            expected_axiswise_dim = (
+                None if axiswise_dim is None else (-1 if axiswise_dim == 0 else 0)
+            )
 
             torch.testing.assert_close(
                 (fp8_a_transposed._data, fp8_a_transposed._scale),
                 (fp8_b_t._data, fp8_b_t._scale),
             )
+            assert fp8_a_transposed._axiswise_dim == expected_axiswise_dim
+            assert fp8_b_t._axiswise_dim == expected_axiswise_dim
 
     @pytest.mark.parametrize("shape", [(8, 16), (4, 8, 16), (2, 4, 8, 16)])
     @pytest.mark.parametrize("axiswise_dim", [0, -1])
