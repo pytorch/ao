@@ -572,38 +572,73 @@ def test_wrapper_fake_quantize(wrapper_cls, weight_config, granularity, device):
 @pytest.mark.parametrize("device", target_devices)
 def test_op_fake_quantize(wrapper_cls, weight_config, act_config, sqnr_threshold, call_fn, A_shape, w_shape, out_shape, kwargs, device):
     """__torch_function__ fake-quantizes weight/activation and produces good SQNR."""
-    A = torch.randn(*A_shape, requires_grad=True, device=device)
-    w = torch.randn(*w_shape, device=device)
     
+    activation_tensor = torch.randn(*A_shape, device=device)
+    weight_tensor = torch.randn(*w_shape, device=device)
+
+    # Prepare the wrapper tensor 
+    activation = torch.nn.Parameter(activation_tensor.clone())
+    weight = torch.nn.Parameter(wrapper_cls(
+        weight_tensor.clone(),
+        activation_config=act_config,
+        weight_config=weight_config,
+    ))
+
     resolved = {}
     for k, v in kwargs.items():
         if k.endswith("_shape"):
-            resolved[k[:-len("_shape")]] = torch.randn(*v, device=device)
+            resolved[k[:-len("_shape")]] = torch.nn.Parameter(torch.randn(*v, device=device))
         else:
             resolved[k] = v
-    kwargs = resolved
+
+    # Prepare the reference
+    ref_activation = torch.nn.Parameter(activation_tensor.clone())
+    ref_weight = torch.nn.Parameter(weight_tensor.clone())
     
-    wrapper = wrapper_cls(w, activation_config=act_config, weight_config=weight_config)
-    param = torch.nn.Parameter(wrapper)
+    # No graph exists yet. So we do not need .detach().requires_grad_() after .clone()
+    ref_resolved = {k : v.clone() if isinstance(v, torch.Tensor) else v for k, v in resolved.items()}
 
-    A_ref = A.clone().detach().requires_grad_(True)
-    w_ref = w.clone().detach().requires_grad_(True)
 
-    ref_out = call_fn(A_ref, w_ref, **kwargs)
-    out = call_fn(A, param, **kwargs)
+    # Run the function call
+    learning_rate = 1 # set learning rate to 1 to ensure noises in new weights are not suppressed or amplified
+
+    optimizer = torch.optim.SGD([weight], lr=learning_rate)
+    out = call_fn(activation, weight, **resolved)
+    
+    ref_optimizer = torch.optim.SGD([ref_weight], lr=learning_rate)
+    ref_out = call_fn(ref_activation, ref_weight, **ref_resolved)
+
 
     assert out.shape == out_shape
+    assert out.shape == ref_out.shape
 
     sqnr = compute_error(out, ref_out)
     assert sqnr != float("inf"), "SQNR should be finite (fake quant was applied)"
     assert sqnr > sqnr_threshold, f"Forward SQNR too low ({sqnr:.1f} dB)"
 
-    ref_out.sum().backward()
     out.sum().backward()
-    assert A.grad is not None
-    assert compute_error(A.grad, A_ref.grad) > sqnr_threshold, f"Input grad SQNR too low ({compute_error(A.grad, A_ref.grad):.1f} dB)"
-    assert param.grad is not None
-    assert compute_error(param.grad, w_ref.grad) > sqnr_threshold, f"Weight grad SQNR too low ({compute_error(param.grad, w_ref.grad):.1f} dB)"
+    ref_out.sum().backward()
+    
+    assert activation.grad is not None
+    activation_grad_sqnr = compute_error(activation.grad, ref_activation.grad)
+    assert activation_grad_sqnr != float("inf"), "SQNR should be finite (fake quant was applied)"
+    assert activation_grad_sqnr > sqnr_threshold, f"Input grad SQNR too low ({activation_grad_sqnr:.1f} dB)"
+    
+    assert weight.grad is not None
+    weight_grad_sqnr = compute_error(weight.grad, ref_weight.grad)
+    assert weight_grad_sqnr != float("inf"), "SQNR should be finite (fake quant was applied)"
+    assert weight_grad_sqnr > sqnr_threshold, f"Weight grad SQNR too low ({weight_grad_sqnr:.1f} dB)"
+
+    # Update weights
+    optimizer.step()
+    ref_optimizer.step()
+
+    assert not torch.equal(weight_tensor, weight), "weight should be updated"
+    assert not torch.equal(weight_tensor, ref_weight), "ref_weight is not updated. But in test_op_fake_quantize"
+    new_weight_sqnr = compute_error(weight, ref_weight)
+    assert new_weight_sqnr != float("inf"), "SQNR should be finite (fake quant was applied)"
+    assert new_weight_sqnr > sqnr_threshold, f"New weight SQNR too low ({new_weight_sqnr:.1f} dB)"
+
 
 
 @pytest.mark.parametrize("device", target_devices)
