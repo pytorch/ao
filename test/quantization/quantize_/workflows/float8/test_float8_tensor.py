@@ -95,6 +95,19 @@ class ToyConvModel(torch.nn.Module):
         return self.conv(x)
 
 
+class GroupedMMModel(torch.nn.Module):
+    """A toy model whose only op in forward is torch._grouped_mm."""
+
+    def __init__(self, E, K, N, device, dtype=torch.bfloat16):
+        super().__init__()
+        self.weight = torch.nn.Parameter(
+            torch.randn(E, N, K, device=device, dtype=dtype)
+        )
+
+    def forward(self, x, offs):
+        return torch._grouped_mm(x, self.weight.transpose(-2, -1), offs=offs)
+
+
 class ToyTwoConvModel(torch.nn.Module):
     def __init__(
         self,
@@ -1499,6 +1512,124 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
             output = linear(input_tensor)
             self.assertEqual(output.shape, (16, 48))
             self.assertEqual(output.dtype, torch.bfloat16)
+
+    @unittest.skipIf(not torch.cuda.is_available(), "CUDA not available")
+    @unittest.skipIf(not is_sm_at_least_90(), "Need sm90+")
+    @common_utils.parametrize(
+        "E,K,N,m_per_group",
+        [
+            (4, 128, 256, [32, 64, 16, 48]),
+            (8, 256, 512, [16, 16, 16, 16, 16, 16, 16, 16]),
+        ],
+    )
+    @torch.no_grad()
+    def test_fp8_grouped_mm_dynamic_act_weight(self, E, K, N, m_per_group):
+        """Test Float8DynamicActivationFloat8WeightConfig with grouped_mm dispatch."""
+        device = torch.accelerator.current_accelerator()
+        dtype = torch.bfloat16
+        total_m = sum(m_per_group)
+
+        model_ref = GroupedMMModel(E, K, N, device=device, dtype=dtype)
+        model = copy.deepcopy(model_ref)
+
+        x = torch.randn(total_m, K, device=device, dtype=dtype)
+        offs = torch.tensor(
+            [sum(m_per_group[: i + 1]) for i in range(E)],
+            device=device,
+            dtype=torch.int32,
+        )
+
+        y_ref = model_ref(x, offs)
+
+        config = Float8DynamicActivationFloat8WeightConfig(granularity=PerRow())
+        quantize_(
+            model,
+            config,
+            filter_fn=lambda mod, fqn: (
+                isinstance(mod, GroupedMMModel) and hasattr(mod, "weight")
+            ),
+        )
+
+        self.assertIsInstance(model.weight, Float8Tensor)
+
+        w_sqnr = compute_error(model_ref.weight, model.weight.dequantize())
+        self.assertGreater(w_sqnr, 25.0, f"Weight SQNR too low: {w_sqnr:.2f}")
+
+        y = model(x, offs)
+        y_sqnr = compute_error(y_ref, y)
+        self.assertGreater(y_sqnr, 20.0, f"Output SQNR too low: {y_sqnr:.2f}")
+
+    @unittest.skipIf(not torch.cuda.is_available(), "CUDA not available")
+    @unittest.skipIf(not is_sm_at_least_90(), "Need sm90+")
+    @common_utils.parametrize("E,K,N", [(4, 128, 256)])
+    @torch.no_grad()
+    def test_fp8_grouped_mm_weight_only(self, E, K, N):
+        """Test Float8WeightOnlyConfig with grouped_mm dispatch (weight-only dequant path)."""
+        device = torch.accelerator.current_accelerator()
+        dtype = torch.bfloat16
+        m_per_group = [32, 64, 16, 48]
+        total_m = sum(m_per_group)
+
+        model_ref = GroupedMMModel(E, K, N, device=device, dtype=dtype)
+        model = copy.deepcopy(model_ref)
+
+        x = torch.randn(total_m, K, device=device, dtype=dtype)
+        offs = torch.tensor(
+            [sum(m_per_group[: i + 1]) for i in range(E)],
+            device=device,
+            dtype=torch.int32,
+        )
+
+        y_ref = model_ref(x, offs)
+
+        config = Float8WeightOnlyConfig(granularity=PerRow())
+        quantize_(
+            model,
+            config,
+            filter_fn=lambda mod, fqn: (
+                isinstance(mod, GroupedMMModel) and hasattr(mod, "weight")
+            ),
+        )
+
+        self.assertIsInstance(model.weight, Float8Tensor)
+
+        y = model(x, offs)
+        y_sqnr = compute_error(y_ref, y)
+        self.assertGreater(y_sqnr, 25.0, f"Output SQNR too low: {y_sqnr:.2f}")
+
+    @unittest.skipIf(not torch.cuda.is_available(), "CUDA not available")
+    @unittest.skipIf(not is_sm_at_least_90(), "Need sm90+")
+    @common_utils.parametrize("E,K,N", [(4, 128, 256)])
+    @torch.no_grad()
+    def test_fp8_grouped_mm_non_rowwise_raises(self, E, K, N):
+        """Test that _grouped_mm with non-PerRow granularity raises NotImplementedError."""
+        device = torch.accelerator.current_accelerator()
+        dtype = torch.bfloat16
+        m_per_group = [32, 64, 16, 48]
+        total_m = sum(m_per_group)
+
+        model = GroupedMMModel(E, K, N, device=device, dtype=dtype)
+
+        x = torch.randn(total_m, K, device=device, dtype=dtype)
+        offs = torch.tensor(
+            [sum(m_per_group[: i + 1]) for i in range(E)],
+            device=device,
+            dtype=torch.int32,
+        )
+
+        config = Float8DynamicActivationFloat8WeightConfig(granularity=PerTensor())
+        quantize_(
+            model,
+            config,
+            filter_fn=lambda mod, fqn: (
+                isinstance(mod, GroupedMMModel) and hasattr(mod, "weight")
+            ),
+        )
+
+        self.assertIsInstance(model.weight, Float8Tensor)
+
+        with self.assertRaises(NotImplementedError):
+            model(x, offs)
 
 
 common_utils.instantiate_parametrized_tests(TestFloat8Tensor)

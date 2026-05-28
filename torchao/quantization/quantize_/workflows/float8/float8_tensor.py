@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from typing import List, Optional
 
 import torch
+from torch.nn.functional import ScalingType, scaled_grouped_mm
 from torch.utils._python_dispatch import return_and_correct_aliasing
 
 from torchao.float8.inference import (
@@ -1092,6 +1093,47 @@ def _(func, types, args, kwargs):
 
 
 Float8Tensor.__module__ = "torchao.quantization"
+
+
+@implements([aten._grouped_mm.default])
+def float8_grouped_mm(func, types, args, kwargs):
+    """Handles torch._grouped_mm when weight (mat_b) is a Float8Tensor.
+    Only PerRow granularity is supported; non-PerRow raises NotImplementedError.
+    """
+    mat_a, mat_b = args[0], args[1]
+    offs = args[2] if len(args) > 2 else kwargs.get("offs", None)
+    assert isinstance(mat_b, Float8Tensor)
+    assert offs is not None, "offs is required for _grouped_mm"
+
+    is_b_transposed = mat_b.qdata.stride(-2) < mat_b.qdata.stride(-1)
+    assert is_b_transposed, "unsupported"
+
+    output_dtype = mat_a.dtype
+    act_quant_kwargs = mat_b.act_quant_kwargs
+
+    if act_quant_kwargs is None:
+        return torch._grouped_mm(mat_a, mat_b.dequantize(), offs=offs)
+
+    # Only PerRow granularity is supported for scaled path
+    if not isinstance(act_quant_kwargs.granularity, PerRow):
+        raise NotImplementedError(
+            f"_grouped_mm only supports PerRow granularity, "
+            f"got {act_quant_kwargs.granularity}"
+        )
+
+    mat_a_q = _choose_quant_func_and_quantize_tensor(mat_a, act_quant_kwargs)
+    b_scale = mat_b.scale.transpose(-2, -1)
+    return scaled_grouped_mm(
+        mat_a_q.qdata,
+        mat_b.qdata,
+        scale_a=mat_a_q.scale.squeeze(-1),
+        scale_recipe_a=ScalingType.RowWise,
+        scale_b=b_scale.squeeze(-1),
+        scale_recipe_b=ScalingType.RowWise,
+        offs=offs,
+        output_dtype=output_dtype,
+    )
+
 
 # Allow a model with Float8Tensor weights to be loaded with `weights_only=True`
 torch.serialization.add_safe_globals([Float8Tensor, QuantizeTensorToFloat8Kwargs])
