@@ -285,7 +285,7 @@ def test_wrapper_dispatch_copy_(wrapper_cls, weight_config, act_config, device):
     (
         Float8FakeQuantizedWeightWrapperTensor,
         Float8FakeQuantizeConfig(),
-        Float8FakeQuantizeConfig(dtype=torch.float8_e4m3fn, granularity=PerTensor())
+        Float8FakeQuantizeConfig(dtype=torch.float8_e5m2, granularity=PerRow(dim=-1))
     ),
 ])
 def test_wrapper_dispatch_weight_config_mismatch(wrapper_cls, weight_config, bad_weight_config, device):
