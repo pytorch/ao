@@ -309,7 +309,7 @@ def test_mxfp8_grouped_mm_with_bias(recipe, use_bias):
     M, K, N, num_experts = 4096, 1024, 2048, 8
     A = torch.randn(M, K, dtype=torch.bfloat16, device="cuda", requires_grad=True)
     B = torch.randn(
-        num_experts, K, N, dtype=torch.bfloat16, device="cuda", requires_grad=True
+        num_experts, N, K, dtype=torch.bfloat16, device="cuda", requires_grad=True
     )
     bias = (
         torch.randn(N, dtype=torch.bfloat16, device="cuda", requires_grad=True)
@@ -322,7 +322,9 @@ def test_mxfp8_grouped_mm_with_bias(recipe, use_bias):
     A_ref = A.clone().detach().requires_grad_(True)
     B_ref = B.clone().detach().requires_grad_(True)
     bias_ref = bias.clone().detach().requires_grad_(True) if bias is not None else None
-    ref_out = torch._grouped_mm(A_ref, B_ref, offs=offs, out_dtype=torch.bfloat16)
+    ref_out = torch._grouped_mm(
+        A_ref, B_ref.transpose(-2, -1), offs=offs, out_dtype=torch.bfloat16
+    )
     if bias_ref is not None:
         ref_out = ref_out + bias_ref
 
@@ -331,7 +333,7 @@ def test_mxfp8_grouped_mm_with_bias(recipe, use_bias):
     kwargs = {"offs": offs}
     if bias is not None:
         kwargs["bias"] = bias
-    out = torch._grouped_mm(A, B_mxfp8, **kwargs)
+    out = torch._grouped_mm(A, B_mxfp8.transpose(-2, -1), **kwargs)
 
     # Forward SQNR
     sqnr_fwd = compute_error(ref_out, out)
