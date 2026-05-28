@@ -43,12 +43,12 @@ def _test_compile_base(
     fullgraph: bool,
     config: Float8LinearConfig,
     dtype: torch.dtype,
-    device: str,
 ):
     random.seed(0)
     torch.manual_seed(0)
     x_shape = (16, 16)
     linear_dtype = torch.bfloat16
+    device = torch.accelerator.current_accelerator()
 
     x = torch.randn(*x_shape, device=device, dtype=linear_dtype).requires_grad_()
     x_ref = copy.deepcopy(x)
@@ -99,7 +99,6 @@ def test_eager_only(
     scaling_type_grad_output: ScalingType,
     dtype: torch.dtype,
 ):
-    device = torch.accelerator.current_accelerator()
     torch._dynamo.reset()
     config = get_test_float8_linear_config(
         scaling_type_input,
@@ -112,7 +111,6 @@ def test_eager_only(
         fullgraph,
         config,
         dtype,
-        device,
     )
 
 
@@ -140,7 +138,6 @@ def test_aot_eager(
     scaling_type_grad_output: ScalingType,
     dtype: torch.dtype,
 ):
-    device = torch.accelerator.current_accelerator()
     torch._dynamo.reset()
     config = get_test_float8_linear_config(
         scaling_type_input,
@@ -153,7 +150,6 @@ def test_aot_eager(
         fullgraph,
         config,
         dtype,
-        device,
     )
 
 
@@ -182,7 +178,6 @@ def test_inductor_from_config_params(
     scaling_type_grad_output: ScalingType,
     dtype: torch.dtype,
 ):
-    device = torch.accelerator.current_accelerator()
     torch._dynamo.reset()
     config = get_test_float8_linear_config(
         scaling_type_input,
@@ -195,7 +190,6 @@ def test_inductor_from_config_params(
         fullgraph,
         config,
         dtype,
-        device,
     )
 
 
@@ -216,7 +210,6 @@ def test_inductor_from_config_params(
     "CUDA with capability 9.0 or greater not available",
 )
 def test_inductor_from_recipe(recipe_name):
-    device = torch.accelerator.current_accelerator()
     torch._dynamo.reset()
     config = Float8LinearConfig.from_recipe_name(recipe_name)
     fullgraph = True
@@ -226,7 +219,6 @@ def test_inductor_from_recipe(recipe_name):
         fullgraph,
         config,
         dtype,
-        device,
     )
 
 
