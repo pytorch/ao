@@ -18,9 +18,16 @@ stage a ``(32, K_TILE)`` tile through LDS using coalesced row-major loads,
 then each lane reads its K-columns out of LDS.
 
 Parallelization:
-  Grid:  ``(M // 32, K // (waves_per_block * K_TILE))`` workgroups
+  Grid:  ``(M // 32, ceil(K / (waves_per_block * K_TILE)))`` workgroups
   Block: ``waves_per_block * 64`` lanes; each lane owns ``VEC`` contiguous
   K-columns of the tile (``K_TILE = 64 * VEC = 256``).
+
+K alignment: requires only ``K % BLOCK_SIZE == 0`` (the MXFP8-intrinsic
+minimum). When K is not a multiple of ``K_TILE``, one extra "tail" WG is
+launched in which only the first ``(K % K_TILE) / VEC`` lanes do work;
+the rest are gated off with a per-lane scf.if (mirrors the 1x32 pattern
+at flydsl_quantize_2d_1x32.py:152). Compile-time gated so full-tile
+shapes (e.g. K=5120) emit identical code to before.
 """
 
 from __future__ import annotations
@@ -70,8 +77,11 @@ def _pick_layout(M: int, K: int, in_elem_bytes: int) -> Tuple[int, int]:
     M is divisible by ``BLOCK_SIZE * stack`` and the WG-level LDS fits in
     the per-CU budget.
     """
-    if K % _K_TILE != 0:
-        raise AssertionError(f"K ({K}) must be divisible by {_K_TILE}")
+    if K % BLOCK_SIZE != 0:
+        raise AssertionError(
+            f"K ({K}) must be divisible by BLOCK_SIZE ({BLOCK_SIZE}); "
+            f"K_TILE alignment ({_K_TILE}) is handled via per-lane tail guard."
+        )
     for stack in (4, 2, 1):
         if stack > _MAX_M_BLOCKS_PER_WG:
             continue
@@ -123,6 +133,15 @@ if _flydsl_runtime_available():
         else:
             raise ValueError(f"Unsupported input dtype: {input_dtype_name}")
 
+        # Tail handling: K need not divide K_TILE. The last WG (k_block ==
+        # FULL_K_TILES) processes the remaining K cols with only the first
+        # TAIL_LANES lanes active. K % BLOCK_SIZE == 0 plus VEC | BLOCK_SIZE
+        # guarantees TAIL_LANES is whole-lane.
+        FULL_K_TILES = K // _K_TILE
+        TAIL_K_COLS = K - FULL_K_TILES * _K_TILE
+        TAIL_LANES = TAIL_K_COLS // VEC
+        HAS_TAIL = TAIL_LANES > 0
+
         # One wave per stacked MX block.
         waves_per_block = m_blocks_per_wg
         m_tile = BLOCK_SIZE * m_blocks_per_wg
@@ -166,88 +185,110 @@ if _flydsl_runtime_available():
             row_base = m_block * fx.Int32(m_tile)
             wave_row_off = wave_id * fx.Int32(BLOCK_SIZE)
             k_lane_base = k_block * fx.Int32(_K_TILE) + lane_id * fx.Int32(VEC)
-
-            # PHASE 1 — each wave loads its own 32-row strip into the
-            # shared LDS tile. dwordx2 reads (VEC bf16/lane = 8 B), 32
-            # iters/lane → 4 waves × 32 rows = 128 rows total covered.
-            for i in range_constexpr(0, BLOCK_SIZE):
-                g_off = (row_base + wave_row_off + fx.Int32(i)) * fx.Int32(
-                    K
-                ) + k_lane_base
-                vec_in = buffer_ops.buffer_load(
-                    x_rsrc,
-                    g_off,
-                    vec_width=VEC,
-                    dtype=in_dtype,
-                )
-                lds_row_idx = ArithValue(wave_row_off + fx.Int32(i)).index_cast(T.index)
-                for j in range_constexpr(0, VEC):
-                    elem = vector.extract(vec_in, static_position=[j])
-                    lds_col_idx = ArithValue(
-                        lane_id * fx.Int32(VEC) + fx.Int32(j)
-                    ).index_cast(T.index)
-                    lds_full.store(elem, [lds_row_idx, lds_col_idx])
-
-            gpu.barrier()
-
-            # PHASES 2/3/4 — each wave processes its own 32-row strip
-            # (one MX block per column). 4 waves writing concurrently to
-            # 4 disjoint 32 B fragments of the same 128 B HBM cache line
-            # let the L2 controller coalesce into a single line fill →
-            # no RMW.
             m_block_global = m_block * fx.Int32(m_blocks_per_wg) + wave_id
             m_row_global_base = row_base + wave_row_off
 
             if const_expr(not USE_RCEIL):
                 f8_min_v, f8_max_v = make_fp8_clamp_vectors()
 
-            for k_local in range_constexpr(0, VEC):
-                lds_col_idx = ArithValue(
-                    lane_id * fx.Int32(VEC) + fx.Int32(k_local)
-                ).index_cast(T.index)
-                k_col_global = k_lane_base + fx.Int32(k_local)
-
-                chunks = []
-                local_amax = fx.Float32(0.0)
-                for c in range_constexpr(0, CHUNKS_PER_BLOCK):
-                    elems = []
+            def _phase1():
+                # PHASE 1 — each wave loads its own 32-row strip into the
+                # shared LDS tile. dwordx2 reads (VEC bf16/lane = 8 B), 32
+                # iters/lane → 4 waves × 32 rows = 128 rows total covered.
+                for i in range_constexpr(0, BLOCK_SIZE):
+                    g_off = (row_base + wave_row_off + fx.Int32(i)) * fx.Int32(
+                        K
+                    ) + k_lane_base
+                    vec_in = buffer_ops.buffer_load(
+                        x_rsrc,
+                        g_off,
+                        vec_width=VEC,
+                        dtype=in_dtype,
+                    )
+                    lds_row_idx = ArithValue(wave_row_off + fx.Int32(i)).index_cast(
+                        T.index
+                    )
                     for j in range_constexpr(0, VEC):
-                        row_lds_idx = ArithValue(
-                            wave_row_off + fx.Int32(c * VEC + j)
+                        elem = vector.extract(vec_in, static_position=[j])
+                        lds_col_idx = ArithValue(
+                            lane_id * fx.Int32(VEC) + fx.Int32(j)
                         ).index_cast(T.index)
-                        elems.append(lds_full.load([row_lds_idx, lds_col_idx]))
-                    if const_expr(input_dtype_name == "torch.bfloat16"):
-                        vec_in = vector.from_elements(T.vec(VEC, T.bf16), elems)
-                        vec_f32 = arith.extf(T.vec(VEC, T.f32), vec_in)
+                        lds_full.store(elem, [lds_row_idx, lds_col_idx])
+
+            def _phase234():
+                # PHASES 2/3/4 — each wave processes its own 32-row strip
+                # (one MX block per column). 4 waves writing concurrently to
+                # 4 disjoint 32 B fragments of the same 128 B HBM cache line
+                # let the L2 controller coalesce into a single line fill →
+                # no RMW.
+                for k_local in range_constexpr(0, VEC):
+                    lds_col_idx = ArithValue(
+                        lane_id * fx.Int32(VEC) + fx.Int32(k_local)
+                    ).index_cast(T.index)
+                    k_col_global = k_lane_base + fx.Int32(k_local)
+
+                    chunks = []
+                    local_amax = fx.Float32(0.0)
+                    for c in range_constexpr(0, CHUNKS_PER_BLOCK):
+                        elems = []
+                        for j in range_constexpr(0, VEC):
+                            row_lds_idx = ArithValue(
+                                wave_row_off + fx.Int32(c * VEC + j)
+                            ).index_cast(T.index)
+                            elems.append(lds_full.load([row_lds_idx, lds_col_idx]))
+                        if const_expr(input_dtype_name == "torch.bfloat16"):
+                            vec_in = vector.from_elements(T.vec(VEC, T.bf16), elems)
+                            vec_f32 = arith.extf(T.vec(VEC, T.f32), vec_in)
+                        else:
+                            vec_f32 = vector.from_elements(T.vec(VEC, T.f32), elems)
+                        chunks.append(vec_f32)
+                        local_amax = local_amax.maximumf(
+                            fx.math.absf(vec_f32).reduce(ReductionOp.MAX)
+                        )
+
+                    if const_expr(USE_RCEIL):
+                        scale_u8, scale_arg = rceil_scale_and_pos_scale(local_amax)
                     else:
-                        vec_f32 = vector.from_elements(T.vec(VEC, T.f32), elems)
-                    chunks.append(vec_f32)
-                    local_amax = local_amax.maximumf(
-                        fx.math.absf(vec_f32).reduce(ReductionOp.MAX)
+                        scale_u8, scale_arg = floor_scale_and_inv_scale(local_amax)
+
+                    col_i32_base = (
+                        k_col_global * fx.Int32(M) + m_row_global_base
+                    ) // fx.Int32(VEC)
+                    for c in range_constexpr(0, CHUNKS_PER_BLOCK):
+                        if const_expr(USE_RCEIL):
+                            out = quantize_pack_chunk_to_i32_rceil(chunks[c], scale_arg)
+                        else:
+                            out = quantize_pack_chunk_to_i32_floor(
+                                chunks[c], scale_arg, f8_min_v, f8_max_v
+                            )
+                        buffer_ops.buffer_store(out, q_rsrc, col_i32_base + fx.Int32(c))
+
+                    buffer_ops.buffer_store(
+                        scale_u8,
+                        s_rsrc,
+                        k_col_global * fx.Int32(M // BLOCK_SIZE) + m_block_global,
                     )
 
-                if const_expr(USE_RCEIL):
-                    scale_u8, scale_arg = rceil_scale_and_pos_scale(local_amax)
+            # Top-level WG-uniform branch keeps the full-tile fast path
+            # guard-free; only the tail WG carries per-lane scf.if cost.
+            # Barrier sits inside each branch — safe because k_block is
+            # uniform across the WG (all threads see the same value).
+            if const_expr(HAS_TAIL):
+                if k_block < fx.Int32(FULL_K_TILES):
+                    _phase1()
+                    gpu.barrier()
+                    _phase234()
                 else:
-                    scale_u8, scale_arg = floor_scale_and_inv_scale(local_amax)
-
-                col_i32_base = (
-                    k_col_global * fx.Int32(M) + m_row_global_base
-                ) // fx.Int32(VEC)
-                for c in range_constexpr(0, CHUNKS_PER_BLOCK):
-                    if const_expr(USE_RCEIL):
-                        out = quantize_pack_chunk_to_i32_rceil(chunks[c], scale_arg)
-                    else:
-                        out = quantize_pack_chunk_to_i32_floor(
-                            chunks[c], scale_arg, f8_min_v, f8_max_v
-                        )
-                    buffer_ops.buffer_store(out, q_rsrc, col_i32_base + fx.Int32(c))
-
-                buffer_ops.buffer_store(
-                    scale_u8,
-                    s_rsrc,
-                    k_col_global * fx.Int32(M // BLOCK_SIZE) + m_block_global,
-                )
+                    is_lane_active = lane_id < fx.Int32(TAIL_LANES)
+                    if is_lane_active:
+                        _phase1()
+                    gpu.barrier()
+                    if is_lane_active:
+                        _phase234()
+            else:
+                _phase1()
+                gpu.barrier()
+                _phase234()
 
         @flyc.jit
         def launch_quantize(
@@ -299,7 +340,10 @@ def mxfp8_quantize_flydsl_2d_32x1(
 
     Shape requirements: ``M % 32 == 0`` (the kernel is a 32-row block layout
     by design — see :func:`_pick_layout`, which raises :class:`AssertionError`
-    on misaligned ``M``) and ``K % 256 == 0`` (the K-tile width).
+    on misaligned ``M``) and ``K % 32 == 0`` (the MXFP8-intrinsic minimum;
+    K need not divide the 256-wide K-tile — the kernel emits one extra
+    tail WG with a per-lane guard for ``K % 256 != 0`` shapes like DSV3
+    ``hidden_dim=1408``).
 
     ``stage_count`` is accepted for API parity with the cutedsl wrapper
     (TMA pipeline depth) and ignored on AMD. ``blocked_scale_output`` and
@@ -364,7 +408,7 @@ def mxfp8_quantize_flydsl_2d_32x1(
             q_storage.view(torch.int32),
             scales_u8,
             M // m_tile,
-            K // _K_TILE,
+            (K + _K_TILE - 1) // _K_TILE,
             stream=current_stream_fast(x.device),
         )
     return (

@@ -14,10 +14,16 @@ new piece is an extra grid dimension (``block_idx.z``) and a constant
 ``expert * N * K`` offset added to every input/output address.
 
 Parallelization:
-  Grid:  ``(N // 32, K // (waves_per_block * K_TILE), E)`` workgroups
+  Grid:  ``(N // 32, ceil(K / (waves_per_block * K_TILE)), E)`` workgroups
   Block: ``waves_per_block * 64`` lanes; each lane owns ``VEC`` contiguous
   K-columns of the tile (``K_TILE = 64 * VEC = 256``). Phase 1 issues
   ``buffer_load_dwordx2`` (8 B/lane = 512 B/wave-inst, perfect coalescing).
+
+K alignment: requires only ``K % BLOCK_SIZE == 0`` (the MXFP8-intrinsic
+minimum). When K is not a multiple of ``K_TILE``, ``waves_per_block`` is
+forced to 1 so the tail WG is a single wave with the first
+``(K % K_TILE) / VEC`` lanes active (mirrors the 32x1 tail pattern).
+Compile-time gated so full-tile shapes emit identical code to before.
 """
 
 from __future__ import annotations
@@ -51,7 +57,15 @@ _MAX_WAVES_PER_BLOCK = 4
 
 @functools.cache
 def _pick_waves_per_block(K: int) -> int:
-    """Largest power-of-two ≤ _MAX_WAVES_PER_BLOCK that divides K into K-tiles."""
+    """Largest power-of-two ≤ _MAX_WAVES_PER_BLOCK that divides K into K-tiles.
+
+    Returns ``1`` whenever K is not a multiple of ``_K_TILE`` — the tail WG
+    must be a single wave (multi-wave WGs with a wave-spanning tail would
+    require wave-level inactive-wave handling, not implemented). Caller is
+    expected to enforce ``K % BLOCK_SIZE == 0``.
+    """
+    if K % _K_TILE != 0:
+        return 1
     for waves in (_MAX_WAVES_PER_BLOCK, 2, 1):
         if K % (waves * _K_TILE) == 0:
             return waves
@@ -117,6 +131,21 @@ if _flydsl_runtime_available():
         SCALES_K_DIM = K if scale_block_k == 1 else K // BLOCK_SIZE
         SCALES_PER_EXPERT = (N // BLOCK_SIZE) * SCALES_K_DIM
 
+        # Tail handling: K need not divide K_TILE. When a tail exists the
+        # caller has forced waves_per_block=1 (see _pick_waves_per_block),
+        # so the tail WG is a single wave with the first TAIL_LANES lanes
+        # active. K % BLOCK_SIZE == 0 plus VEC | BLOCK_SIZE guarantees
+        # TAIL_LANES is whole-lane.
+        FULL_K_TILES = K // _K_TILE
+        TAIL_K_COLS = K - FULL_K_TILES * _K_TILE
+        TAIL_LANES = TAIL_K_COLS // VEC
+        HAS_TAIL = TAIL_LANES > 0
+        if HAS_TAIL and waves_per_block != 1:
+            raise AssertionError(
+                f"K tail handling requires waves_per_block=1; got "
+                f"{waves_per_block} for K={K} (K % {_K_TILE} = {TAIL_K_COLS})"
+            )
+
         # tcgen05-style blocked layout: each per-expert scale matrix is the
         # logical (K, N // 32) view padded to (PSR, PSC) and re-tiled by
         # to_blocked() into 128x4 super-tiles, each laid out as 4 stacked
@@ -165,25 +194,41 @@ if _flydsl_runtime_available():
             # PHASE 1 — cooperative LDS load: each lane reads VEC contiguous
             # bf16 and explodes them into VEC adjacent LDS columns.
             wave_lds_row_off = wave_id * fx.Int32(BLOCK_SIZE)
-            for i in range_constexpr(0, BLOCK_SIZE):
-                g_off = (
-                    expert_in_off + (row_base + fx.Int32(i)) * fx.Int32(K) + k_lane_base
-                )
-                vec_in = buffer_ops.buffer_load(
-                    x_rsrc,
-                    g_off,
-                    vec_width=VEC,
-                    dtype=in_dtype,
-                )
-                lds_row_idx = ArithValue(wave_lds_row_off + fx.Int32(i)).index_cast(
-                    T.index
-                )
-                for j in range_constexpr(0, VEC):
-                    elem = vector.extract(vec_in, static_position=[j])
-                    lds_col_idx = ArithValue(
-                        lane_id * fx.Int32(VEC) + fx.Int32(j)
-                    ).index_cast(T.index)
-                    lds_full.store(elem, [lds_row_idx, lds_col_idx])
+
+            def _phase1():
+                for i in range_constexpr(0, BLOCK_SIZE):
+                    g_off = (
+                        expert_in_off
+                        + (row_base + fx.Int32(i)) * fx.Int32(K)
+                        + k_lane_base
+                    )
+                    vec_in = buffer_ops.buffer_load(
+                        x_rsrc,
+                        g_off,
+                        vec_width=VEC,
+                        dtype=in_dtype,
+                    )
+                    lds_row_idx = ArithValue(wave_lds_row_off + fx.Int32(i)).index_cast(
+                        T.index
+                    )
+                    for j in range_constexpr(0, VEC):
+                        elem = vector.extract(vec_in, static_position=[j])
+                        lds_col_idx = ArithValue(
+                            lane_id * fx.Int32(VEC) + fx.Int32(j)
+                        ).index_cast(T.index)
+                        lds_full.store(elem, [lds_row_idx, lds_col_idx])
+
+            # Tail handling — see module docstring. is_full_wg is uniform
+            # across the WG so the barrier sitting in each branch is safe.
+            if const_expr(HAS_TAIL):
+                if k_block < fx.Int32(FULL_K_TILES):
+                    _phase1()
+                else:
+                    is_lane_active = lane_id < fx.Int32(TAIL_LANES)
+                    if is_lane_active:
+                        _phase1()
+            else:
+                _phase1()
 
             gpu.barrier()
 
@@ -290,43 +335,70 @@ if _flydsl_runtime_available():
                         + scale_k_idx,
                     )
 
-            if const_expr(scale_block_k == BLOCK_SIZE):
-                # (32, 32) mode: one MX block of K = 32 K-positions =
-                # 8 lanes × VEC k_local. Fold per-k_local amax in-lane in a
-                # single loop (avoids a Python list of symbolic values, which
-                # @flyc.kernel's AST rewriter would mis-handle since `for x
-                # in range(...)` becomes range_constexpr). Re-read chunks in
-                # the second pass to keep at most CHUNKS_PER_BLOCK live.
-                block_amax = fx.Float32(0.0)
-                for k_local in range_constexpr(0, VEC):
-                    _, amax_local = _load_chunks_and_amax(k_local)
-                    block_amax = block_amax.maximumf(amax_local)
+            def _phase234(store_fn):
+                """Phase 2/3/4 body parameterised over the per-k_local store.
 
-                # 8 lanes per K-block (lane_id*VEC..lane_id*VEC+VEC-1 with
-                # VEC k_local covers 32 K positions). width=8 keeps each
-                # group of 8 lanes independent.
-                width8 = fx.Int32(8)
-                for sh in (4, 2, 1):
-                    peer = block_amax.shuffle_xor(fx.Int32(sh), width8)
-                    block_amax = block_amax.maximumf(peer)
+                ``store_fn(k_local, chunks_local, scale_u8, scale_arg)`` is
+                either ``_store_klocal`` (full WG) or a per-lane-gated
+                wrapper (tail WG). Load/amax/shuffle run unguarded so
+                cross-lane reductions stay lockstep; only stores diverge.
+                ``TAIL_K_COLS % BLOCK_SIZE == 0`` guarantees ``TAIL_LANES``
+                is a multiple of 8, so each width=8 shuffle group is
+                wholly active or wholly inactive — inactive groups produce
+                garbage scales that never get stored.
+                """
+                if const_expr(scale_block_k == BLOCK_SIZE):
+                    # (32, 32) mode: one MX block of K = 32 K-positions =
+                    # 8 lanes × VEC k_local. Fold per-k_local amax in-lane
+                    # in a single loop (avoids a Python list of symbolic
+                    # values, which @flyc.kernel's AST rewriter would
+                    # mis-handle since `for x in range(...)` becomes
+                    # range_constexpr). Re-read chunks in the second pass
+                    # to keep at most CHUNKS_PER_BLOCK live.
+                    block_amax = fx.Float32(0.0)
+                    for k_local in range_constexpr(0, VEC):
+                        _, amax_local = _load_chunks_and_amax(k_local)
+                        block_amax = block_amax.maximumf(amax_local)
 
-                if const_expr(USE_RCEIL):
-                    scale_u8, scale_arg = rceil_scale_and_pos_scale(block_amax)
-                else:
-                    scale_u8, scale_arg = floor_scale_and_inv_scale(block_amax)
-                for k_local in range_constexpr(0, VEC):
-                    chunks_local, _ = _load_chunks_and_amax(k_local)
-                    _store_klocal(k_local, chunks_local, scale_u8, scale_arg)
-            else:
-                # (32, 1) mode: each (lane, k_local) gets its own scale.
-                # Single-pass per k_local — same register profile as 32x1.
-                for k_local in range_constexpr(0, VEC):
-                    chunks_local, amax_local = _load_chunks_and_amax(k_local)
+                    # 8 lanes per K-block (lane_id*VEC..lane_id*VEC+VEC-1
+                    # with VEC k_local covers 32 K positions). width=8
+                    # keeps each group of 8 lanes independent.
+                    width8 = fx.Int32(8)
+                    for sh in (4, 2, 1):
+                        peer = block_amax.shuffle_xor(fx.Int32(sh), width8)
+                        block_amax = block_amax.maximumf(peer)
+
                     if const_expr(USE_RCEIL):
-                        scale_u8, scale_arg = rceil_scale_and_pos_scale(amax_local)
+                        scale_u8, scale_arg = rceil_scale_and_pos_scale(block_amax)
                     else:
-                        scale_u8, scale_arg = floor_scale_and_inv_scale(amax_local)
-                    _store_klocal(k_local, chunks_local, scale_u8, scale_arg)
+                        scale_u8, scale_arg = floor_scale_and_inv_scale(block_amax)
+                    for k_local in range_constexpr(0, VEC):
+                        chunks_local, _ = _load_chunks_and_amax(k_local)
+                        store_fn(k_local, chunks_local, scale_u8, scale_arg)
+                else:
+                    # (32, 1) mode: each (lane, k_local) gets its own scale.
+                    # Single-pass per k_local — same register profile as 32x1.
+                    for k_local in range_constexpr(0, VEC):
+                        chunks_local, amax_local = _load_chunks_and_amax(k_local)
+                        if const_expr(USE_RCEIL):
+                            scale_u8, scale_arg = rceil_scale_and_pos_scale(amax_local)
+                        else:
+                            scale_u8, scale_arg = floor_scale_and_inv_scale(amax_local)
+                        store_fn(k_local, chunks_local, scale_u8, scale_arg)
+
+            if const_expr(HAS_TAIL):
+                if k_block < fx.Int32(FULL_K_TILES):
+                    _phase234(_store_klocal)
+                else:
+                    is_lane_active = lane_id < fx.Int32(TAIL_LANES)
+
+                    def _gated_store(k_local, chunks_local, scale_u8, scale_arg):
+                        if is_lane_active:
+                            _store_klocal(k_local, chunks_local, scale_u8, scale_arg)
+
+                    _phase234(_gated_store)
+            else:
+                _phase234(_store_klocal)
 
         @flyc.jit
         def launch_quantize(
@@ -409,7 +481,10 @@ def mxfp8_quantize_flydsl_3d(
     )
     E, N, K = x.shape
     assert N % BLOCK_SIZE == 0, "N must be divisible by block_size"
-    assert K % _K_TILE == 0, f"K must be divisible by {_K_TILE}"
+    assert K % BLOCK_SIZE == 0, (
+        f"K ({K}) must be divisible by BLOCK_SIZE ({BLOCK_SIZE}); "
+        f"K_TILE alignment ({_K_TILE}) is handled via per-lane tail guard."
+    )
 
     # ------------------------------------------------------------------
     # FLYDSL_3D_* env vars below are diagnostic-only knobs for follow-up
@@ -428,10 +503,19 @@ def mxfp8_quantize_flydsl_3d(
         assert waves_per_block in (1, 2, 4), (
             f"FLYDSL_3D_FORCE_WAVES must be 1, 2, or 4 (got {_force})"
         )
-        assert K % (waves_per_block * _K_TILE) == 0, (
-            f"FLYDSL_3D_FORCE_WAVES={_force} requires K ({K}) divisible by "
-            f"{waves_per_block * _K_TILE}"
-        )
+        # Tail handling only supports single-wave WGs (multi-wave tails
+        # would need wave-level inactive-wave gating). When the override
+        # asks for waves > 1, require K to divide evenly.
+        if waves_per_block != 1:
+            assert K % (waves_per_block * _K_TILE) == 0, (
+                f"FLYDSL_3D_FORCE_WAVES={_force} requires K ({K}) divisible "
+                f"by {waves_per_block * _K_TILE} (tail path is waves=1 only)"
+            )
+        else:
+            assert K % _K_TILE == 0 or K % _K_TILE % VEC == 0, (
+                f"FLYDSL_3D_FORCE_WAVES=1 requires K tail ({K % _K_TILE}) "
+                f"divisible by VEC ({VEC})"
+            )
     else:
         waves_per_block = _pick_waves_per_block(K)
     k_per_block = waves_per_block * _K_TILE
@@ -493,7 +577,7 @@ def mxfp8_quantize_flydsl_3d(
             q_storage.view(torch.int32),
             scales_u8,
             n_blocks_n,
-            K // k_per_block,
+            (K + k_per_block - 1) // k_per_block,
             E,
             stream=current_stream_fast(x.device),
         )
