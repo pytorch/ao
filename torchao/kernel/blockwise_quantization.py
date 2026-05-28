@@ -139,24 +139,12 @@ def _lazy_init_triton():
 
     @triton.jit
     def _fp8_blockwise_act_quant_kernel_impl(
-        x_ptr, y_ptr, s_ptr, BLOCK_SIZE: tl.constexpr
+        x_ptr, y_ptr, s_ptr, BLOCK_SIZE: tl.constexpr, FP8_MAX: tl.constexpr
     ):
-        """
-        Quantizes the input tensor `x_ptr` and stores the result in `y_ptr` and the scaling factor in `s_ptr`.
-
-        Args:
-            x_ptr (triton.Pointer): Pointer to the input tensor.
-            y_ptr (triton.Pointer): Pointer to the output tensor where quantized values will be stored.
-            s_ptr (triton.Pointer): Pointer to the output tensor where scaling factors will be stored.
-            BLOCK_SIZE (tl.constexpr): The size of the block to be processed by each program instance.
-
-        Returns:
-            None
-        """
         pid = tl.program_id(axis=0)
         offs = pid * BLOCK_SIZE + tl.arange(0, BLOCK_SIZE)
         x = tl.load(x_ptr + offs).to(tl.float32)
-        s = tl.max(tl.abs(x)) / 448.0
+        s = tl.max(tl.abs(x)) / FP8_MAX
         y = x / s
         y = y.to(y_ptr.dtype.element_ty)
         tl.store(y_ptr + offs, y)
@@ -166,19 +154,8 @@ def _lazy_init_triton():
 
     @triton.jit
     def _fp8_blockwise_weight_quant_kernel_impl(
-        x_ptr, y_ptr, s_ptr, M, N, BLOCK_SIZE: tl.constexpr
+        x_ptr, y_ptr, s_ptr, M, N, BLOCK_SIZE: tl.constexpr, FP8_MAX: tl.constexpr
     ):
-        """
-        Quantizes the input tensor `x_ptr` and stores the result in `y_ptr` and the scaling factors in `s_ptr`.
-
-        Args:
-            x_ptr (tl.pointer): Pointer to the input tensor.
-            y_ptr (tl.pointer): Pointer to the output tensor where quantized values will be stored.
-            s_ptr (tl.pointer): Pointer to the output tensor where scaling factors will be stored.
-            M (int): Number of rows in the weight matrix.
-            N (int): Number of columns in the weight matrix.
-            BLOCK_SIZE (tl.constexpr): The size of the block to be processed by each program instance.
-        """
         pid_m = tl.program_id(axis=0)
         pid_n = tl.program_id(axis=1)
         n = tl.cdiv(N, BLOCK_SIZE)
@@ -187,7 +164,7 @@ def _lazy_init_triton():
         offs = offs_m[:, None] * N + offs_n[None, :]
         mask = (offs_m[:, None] < M) & (offs_n[None, :] < N)
         x = tl.load(x_ptr + offs, mask=mask).to(tl.float32)
-        s = tl.max(tl.abs(x)) / 448.0
+        s = tl.max(tl.abs(x)) / FP8_MAX
         y = x / s
         y = y.to(y_ptr.dtype.element_ty)
         tl.store(y_ptr + offs, y, mask=mask)
@@ -268,14 +245,14 @@ def fp8_blockwise_act_quant(
     assert x.size(-1) % block_size == 0, (
         f"Last dimension size must be divisible by block_size (block_size={block_size})"
     )
-    assert dtype in [
-        torch.float8_e4m3fn,
-        torch.float8_e5m2,
-    ], "dtype must be torch.float8_e4m3fn or torch.float8_e5m2"
+    assert dtype.is_floating_point, f"dtype must be a float8 type, got {dtype}"
+    fp8_max = torch.finfo(dtype).max
     y = torch.empty_like(x, dtype=dtype)
     s = x.new_empty(*x.size()[:-1], x.size(-1) // block_size, dtype=torch.float32)
     grid = lambda meta: (triton.cdiv(x.numel(), meta["BLOCK_SIZE"]),)
-    _fp8_blockwise_act_quant_kernel[grid](x, y, s, BLOCK_SIZE=block_size)
+    _fp8_blockwise_act_quant_kernel[grid](
+        x, y, s, BLOCK_SIZE=block_size, FP8_MAX=fp8_max
+    )
     return y, s
 
 
@@ -306,10 +283,8 @@ def fp8_blockwise_weight_quant(
     assert x.size(0) % block_size == 0 and x.size(1) % block_size == 0, (
         f"Both dimensions of x must be divisible by block_size (block_size={block_size})"
     )
-    assert dtype in [
-        torch.float8_e4m3fn,
-        torch.float8_e5m2,
-    ], "dtype must be torch.float8_e4m3fn or torch.float8_e5m2"
+    assert dtype.is_floating_point, f"dtype must be a float8 type, got {dtype}"
+    fp8_max = torch.finfo(dtype).max
     M, N = x.size()
     y = torch.empty_like(x, dtype=dtype)
     s = x.new_empty(M // block_size, N // block_size, dtype=torch.float32)
@@ -317,7 +292,9 @@ def fp8_blockwise_weight_quant(
         triton.cdiv(M, meta["BLOCK_SIZE"]),
         triton.cdiv(N, meta["BLOCK_SIZE"]),
     )
-    _fp8_blockwise_weight_quant_kernel[grid](x, y, s, M, N, BLOCK_SIZE=block_size)
+    _fp8_blockwise_weight_quant_kernel[grid](
+        x, y, s, M, N, BLOCK_SIZE=block_size, FP8_MAX=fp8_max
+    )
     return y, s
 
 
