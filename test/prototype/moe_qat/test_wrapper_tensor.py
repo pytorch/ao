@@ -634,7 +634,7 @@ def test_op_fake_quantize(wrapper_cls, weight_config, act_config, sqnr_threshold
     ref_optimizer.step()
 
     assert not torch.equal(weight_tensor, weight), "weight should be updated"
-    assert not torch.equal(weight_tensor, ref_weight), "ref_weight is not updated. But in test_op_fake_quantize"
+    assert not torch.equal(weight_tensor, ref_weight), "ref_weight is not updated. Bug in test_op_fake_quantize"
     new_weight_sqnr = compute_error(weight, ref_weight)
     assert new_weight_sqnr != float("inf"), "SQNR should be finite (fake quant was applied)"
     assert new_weight_sqnr > sqnr_threshold, f"New weight SQNR too low ({new_weight_sqnr:.1f} dB)"
