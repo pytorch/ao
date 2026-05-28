@@ -13,11 +13,16 @@ QLINEAR_TARGETS = {
     torch.ops.onednn.qlinear_pointwise.default,
     torch.ops.onednn.qlinear_pointwise.tensor,
 }
+# OP schemas:
+# qlinear_pointwise(Tensor qx, float x_scale, int x_zero_point, Tensor qw, Tensor w_scale, Tensor w_zero_point, Tensor? bias, float output_scale, int output_zero_point, ScalarType? output_dtype, str post_op_name, Scalar?[] post_op_args, str post_op_algorithm) -> Tensor
+# qlinear_pointwise.tensor(Tensor qx, Tensor x_scale, Tensor x_zero_point, Tensor qw, Tensor w_scale, Tensor w_zero_point, Tensor? bias, float output_scale, int output_zero_point, ScalarType? output_dtype, str post_op_name, Scalar?[] post_op_args, str post_op_algorithm) -> Tensor
 
 
 def _is_qlinear_target(target):
+    # oneDNN qlinear C++ wrapper overloads.
     if target in QLINEAR_TARGETS:
         return True
+    # Inductor's Python qlinear wrapper.
     return (
         callable(target)
         and getattr(target, "__module__", "")
