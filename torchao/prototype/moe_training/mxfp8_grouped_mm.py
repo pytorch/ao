@@ -452,7 +452,7 @@ def _compute_wgrad(
             wgrad_with_hp,
         )
     else:
-        return __compute_wgrad_sm100(
+        return _compute_wgrad_sm100(
             grad_output,
             input_act,
             group_end_offsets,
@@ -709,7 +709,7 @@ def _compute_dgrad_emulated(
     return grad_input
 
 
-def __compute_wgrad_sm100(
+def _compute_wgrad_sm100(
     grad_output: torch.Tensor,
     input_act: torch.Tensor,
     group_end_offsets: torch.Tensor,
