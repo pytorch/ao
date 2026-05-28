@@ -4,80 +4,28 @@
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
 
-# TODO: migrate off Layout, see https://github.com/pytorch/ao/pull/4245
-
 """
-Following is a example for a simple dtype implemented with tensor subclass
+Following is an example for a simple dtype implemented with tensor subclass
 it shows
     * the basic structure of a new dtype tensor subclass (__new__, __init__, __tensor_flatten__, __tensor_unflatten__)
     * two types of dispatch that people can overwrite (__torch_function__, __torch_dispatch__)
-    * how to abstract away packing format with layout
     * how the tensor subclass composes with torch.compile to get speedup
 """
 
-from dataclasses import dataclass
-from typing import Optional, Tuple
+from typing import Optional
 
 import torch
 from torch.utils._python_dispatch import return_and_correct_aliasing
 
-from torchao.dtypes.utils import (
-    Layout,
-)
 from torchao.quantization import (
     MappingType,
     choose_qparams_affine,
     dequantize_affine,
     quantize_affine,
 )
-from torchao.utils import (
-    TorchAOBaseTensor,
-    fill_defaults,
-)
+from torchao.utils import TorchAOBaseTensor
 
 aten = torch.ops.aten
-
-
-@dataclass(frozen=True)
-class PlainLayout(Layout):
-    """Layout that stores data in plain (uncompressed) format."""
-
-    pass
-
-
-###############################
-# Base Tensor Impl Subclass #
-###############################
-class MyDTypeTensorImpl(torch.Tensor):
-    """
-    Base class for the tensor impl for `MyDTypeTensor`
-    """
-
-    # get the original unpacked Tensors
-    def get_plain(self) -> Tuple[torch.Tensor, torch.Tensor]:
-        return self.int_data, self.scale
-
-    def get_layout(self) -> Layout:
-        return self._layout
-
-    @classmethod
-    def from_plain(
-        cls,
-        int_data: torch.Tensor,
-        scale: torch.Tensor,
-        _layout: Layout,
-    ):
-        """Construct a tensor impl from plain tensors and a _layout, which main contain
-        extra metadata for packing etc.
-        """
-        pass
-
-    def __repr__(self):
-        int_data, scale = self.get_plain()
-        _layout = self.get_layout()
-        return f"{self.__class__.__name__}(int_data={int_data}, scale={scale}, _layout={_layout})"
-
-    __torch_function__ = torch._C._disabled_torch_function_impl
 
 
 ##############################
@@ -86,8 +34,18 @@ class MyDTypeTensorImpl(torch.Tensor):
 
 
 class MyDTypeTensor(TorchAOBaseTensor):
-    """Inheriting from `TorchAOBaseTensor` gives us some helper functions, please see docs
-    for :class:`~torchao.utils.TorchAOBaseTensor` for more details
+    """A simple int16 quantized tensor subclass.
+
+    Stores the quantized integer data and per-row scale directly. The
+    ``transposed`` flag is a metadata bit used to support a logical
+    transpose without materializing a transposed copy of the data; the
+    transpose is applied lazily inside ``dequantize``. This is useful
+    for tensor parallelism, where we want a transposed view of the
+    weight without paying the cost of a real transpose.
+
+    Inheriting from ``TorchAOBaseTensor`` provides the ``implements`` and
+    ``implements_torch_function`` helpers used below; see
+    :class:`~torchao.utils.TorchAOBaseTensor` for more details.
     """
 
     """We need to define __new__ for constructing a new tensor subclass instance and __init__ for initialize
@@ -98,28 +56,32 @@ class MyDTypeTensor(TorchAOBaseTensor):
     @staticmethod
     def __new__(
         cls,
-        tensor_impl: MyDTypeTensorImpl,
-        shape: torch.Size,
+        int_data: torch.Tensor,
+        scale: torch.Tensor,
+        transposed: bool = False,
         dtype: Optional[torch.dtype] = None,
         requires_grad: bool = False,
     ):
-        kwargs = {}
-        kwargs["device"] = tensor_impl.device
-        kwargs["layout"] = (
-            kwargs.get("layout") if kwargs.get("layout", False) else tensor_impl.layout
-        )
-        kwargs["dtype"] = dtype
-        kwargs["requires_grad"] = requires_grad
+        shape = int_data.shape[::-1] if transposed else int_data.shape
+        kwargs = {
+            "device": int_data.device,
+            "layout": int_data.layout,
+            "dtype": dtype,
+            "requires_grad": requires_grad,
+        }
         return torch.Tensor._make_wrapper_subclass(cls, shape, **kwargs)  # type: ignore[attr-defined]
 
     def __init__(
         self,
-        tensor_impl: MyDTypeTensorImpl,
-        shape: torch.Size,
+        int_data: torch.Tensor,
+        scale: torch.Tensor,
+        transposed: bool = False,
         dtype: Optional[torch.dtype] = None,
         requires_grad: bool = False,
     ):
-        self.tensor_impl = tensor_impl
+        self.int_data = int_data
+        self.scale = scale
+        self.transposed = transposed
 
     """__tensor_flatten__ and __tensor_unflatten__ are used to desugar the tensor into native Tensors/attributes and
     reconstruct the tensor subclass instance from the desugared tensor and attributes, these are required to define
@@ -128,26 +90,27 @@ class MyDTypeTensor(TorchAOBaseTensor):
 
     def __tensor_flatten__(self):
         """
-        Given the class, returns the fields of the class as two lists
-        The first one contains any tensor fields such as int_data and scale as keys to a dictionary
-        The second one contains all other non tensor type fields as values of a list
+        Given an instance, returns the names of its tensor fields and a list of
+        non-tensor attributes needed to reconstruct it.
         """
-        return ["tensor_impl"], [self.shape, self.dtype, self.requires_grad]
+        return ["int_data", "scale"], [self.transposed, self.dtype, self.requires_grad]
 
     @classmethod
     def __tensor_unflatten__(
         cls, tensor_data_dict, tensor_attributes, outer_size, outer_stride
     ):
         """
-        Given the flattened data from above, returns a class instance
-        tensor_data_dict contains the tensor fields of the class as a dictionary
-        tensor_attributes contains all other non tensor type fields
+        Given the flattened data above, returns a class instance.
+        ``tensor_data_dict`` maps tensor field name to ``Tensor``;
+        ``tensor_attributes`` is the list of non-tensor attributes.
         """
-        tensor_impl = tensor_data_dict["tensor_impl"]
-        shape, dtype, requires_grad = tensor_attributes
+        int_data = tensor_data_dict["int_data"]
+        scale = tensor_data_dict["scale"]
+        transposed, dtype, requires_grad = tensor_attributes
         return cls(
-            tensor_impl,
-            shape if outer_size is None else outer_size,
+            int_data,
+            scale,
+            transposed=transposed,
             dtype=dtype,
             requires_grad=requires_grad,
         )
@@ -156,11 +119,7 @@ class MyDTypeTensor(TorchAOBaseTensor):
     """
 
     @classmethod
-    def from_float(
-        cls,
-        input_float: torch.Tensor,
-        _layout: Layout = PlainLayout(),
-    ):
+    def from_float(cls, input_float: torch.Tensor):
         mapping_type = MappingType.SYMMETRIC
         block_size = (1, input_float.shape[-1])
         dtype = torch.int16
@@ -168,30 +127,22 @@ class MyDTypeTensor(TorchAOBaseTensor):
             input_float, mapping_type, block_size, dtype
         )
         int_data = quantize_affine(input_float, block_size, scale, zero_point, dtype)
-        tensor_impl_ctr = get_tensor_impl_constructor(type(_layout))
-        tensor_impl = tensor_impl_ctr(int_data, scale, _layout)
-        return cls(tensor_impl, input_float.shape)
-
-    """[Optional] We can overwrite layout property of the Tensor to represent different packing formats
-    """
-
-    @property
-    def _layout(self) -> Layout:
-        return self.tensor_impl._layout
+        return cls(int_data, scale)
 
     def dequantize(self, output_dtype=None):
         """We can define a dequantize method to convert the quantized tensor to a floating point tensor"""
         if output_dtype is None:
             output_dtype = torch.get_default_dtype()
-        int_data, scale = self.tensor_impl.get_plain()
-        transposed = False
-        block_size = (1, int_data.shape[-1])
-        if hasattr(self.tensor_impl, "transposed") and self.tensor_impl.transposed:
-            transposed = True
+        block_size = (1, self.int_data.shape[-1])
         res = dequantize_affine(
-            int_data, block_size, scale, None, int_data.dtype, output_dtype=output_dtype
+            self.int_data,
+            block_size,
+            self.scale,
+            None,
+            self.int_data.dtype,
+            output_dtype=output_dtype,
         )
-        if transposed:
+        if self.transposed:
             res = res.t()
         return res
 
@@ -203,13 +154,14 @@ class MyDTypeTensor(TorchAOBaseTensor):
 
     def _apply_fn_to_data(self, fn):
         """
-        Used for implementing aten ops by applying them only to the relevant tensor atributes
-        In this case we only want to call things like to() or view() on the tensor impl
+        Used for implementing aten ops by applying them only to the relevant tensor attributes.
         """
         return self.__class__(
-            fn(self.tensor_impl),
-            self.shape,
-            self.dtype,
+            fn(self.int_data),
+            fn(self.scale),
+            transposed=self.transposed,
+            dtype=self.dtype,
+            requires_grad=self.requires_grad,
         )
 
     """There are two entry points that we can modify the behavior of a pytorch op: torch_function and torch_dispatch:
@@ -222,151 +174,6 @@ class MyDTypeTensor(TorchAOBaseTensor):
 
     We have some helper functions that can dispatch to the functions registered with MyDTypeTensor.implements, but if the default implementation does not work for your use case, please feel free to customize it
     """
-
-
-######################################################
-# Layout and TensorImpl Subclass Registration #
-######################################################
-
-register_layout = MyDTypeTensor.register_layout
-get_tensor_impl_constructor = MyDTypeTensor.get_tensor_impl_constructor
-
-
-@register_layout(PlainLayout)
-class PlainMyDTypeTensorImpl(MyDTypeTensorImpl):
-    def __new__(
-        cls,
-        int_data: torch.Tensor,
-        scale: torch.Tensor,
-        transposed: bool,
-        _layout: Layout,
-    ):
-        kwargs = {}
-        kwargs["device"] = int_data.device
-        kwargs["layout"] = (
-            kwargs.get("layout") if kwargs.get("layout", False) else int_data.layout
-        )
-        kwargs["dtype"] = int_data.dtype
-        kwargs["requires_grad"] = False
-        shape = int_data.shape
-        return torch.Tensor._make_wrapper_subclass(cls, shape, **kwargs)  # type: ignore[attr-defined]
-
-    def __init__(
-        self,
-        int_data: torch.Tensor,
-        scale: torch.Tensor,
-        transposed: bool,
-        _layout: Layout,
-    ):
-        self.int_data = int_data
-        self.scale = scale
-        self.transposed = transposed
-        self._layout = _layout
-
-    def __tensor_flatten__(self):
-        return ["int_data", "scale"], [self.transposed, self._layout]
-
-    @classmethod
-    def __tensor_unflatten__(
-        cls, tensor_data_dict, tensor_attributes, outer_size, outer_stride
-    ):
-        int_data, scale = tensor_data_dict["int_data"], tensor_data_dict["scale"]
-        (
-            transposed,
-            _layout,
-        ) = tensor_attributes
-        return cls(int_data, scale, transposed, _layout)
-
-    @classmethod
-    def from_plain(
-        cls,
-        int_data: torch.Tensor,
-        scale: torch.Tensor,
-        _layout: Layout,
-    ):
-        """Construct a tensor impl from plain tensors and a _layout, which main contain
-        extra metadata for packing etc.
-        """
-        assert isinstance(_layout, PlainLayout)
-        return cls(int_data, scale, False, _layout)
-
-    def _apply_fn_to_data(self, fn):
-        return self.__class__(
-            fn(self.int_data),
-            fn(self.scale),
-            self.transposed,
-            self._layout,
-        )
-
-    @classmethod
-    def __torch_dispatch__(cls, func, types, args, kwargs):
-        kwargs = {} if kwargs is None else kwargs
-
-        if func is aten.detach.default:
-            return return_and_correct_aliasing(
-                func, args, kwargs, args[0]._apply_fn_to_data(torch.detach)
-            )
-
-        # Tensor parallel support START
-        elif func in [aten._to_copy.default, aten.clone.default]:
-            return return_and_correct_aliasing(
-                func, args, kwargs, args[0]._apply_fn_to_data(torch.clone)
-            )
-        elif func is aten.split.Tensor:
-            int_data_list = func(args[0].int_data, *args[1:], **kwargs)
-            scale_list = func(args[0].scale, *args[1:], **kwargs)
-            out = [
-                PlainMyDTypeTensorImpl(
-                    int_data, scale, args[0].transposed, args[0]._layout
-                )
-                for int_data, scale in zip(int_data_list, scale_list)
-            ]
-            return out
-        elif func is aten.empty_like.default:
-            int_data_empty_like = func(args[0].int_data, *args[1:], **kwargs)
-            return PlainMyDTypeTensorImpl(
-                int_data_empty_like, args[0].scale, args[0].transposed, args[0]._layout
-            )
-        elif func is aten.slice.Tensor:
-            self, dim, start, end, step = fill_defaults(args, 5, [0, None, None, 1])
-            if dim == 0:
-                return return_and_correct_aliasing(
-                    func,
-                    args,
-                    kwargs,
-                    args[0]._apply_fn_to_data(
-                        lambda x: aten.slice.Tensor(x, dim, start, end, step)
-                    ),
-                )
-            elif dim == 1:
-                return PlainMyDTypeTensorImpl(
-                    aten.slice.Tensor(self.int_data, dim, start, end, step),
-                    self.scale.view(-1),
-                    self.transposed,
-                    self._layout,
-                )
-            else:
-                raise NotImplementedError(
-                    f"PlainMyDTypeTensorImpl dispatch: attempting to run {func}, with dim={dim}, that is not supported"
-                )
-        elif func is aten.t.default:
-            return return_and_correct_aliasing(
-                func,
-                args,
-                kwargs,
-                PlainMyDTypeTensorImpl(
-                    args[0].int_data,
-                    args[0].scale,
-                    not args[0].transposed,
-                    args[0]._layout,
-                ),
-            )
-
-        # Tensor parallel support END
-
-        raise NotImplementedError(
-            f"PlainMyDTypeTensorImpl dispatch: attempting to run {func}, this is not supported"
-        )
 
 
 #####################################################
