@@ -481,7 +481,8 @@ class TestFloat8Linear:
 
     @unittest.skipIf(not torch.accelerator.is_available(), "GPU not available")
     @unittest.skipIf(
-        torch.cuda.is_available() and not is_sm_at_least_89(),
+        torch.cuda.is_available()
+        and not is_sm_at_least_89(),  # torch.cuda.is_available() condition is needed for non-CUDA devices
         "CUDA capability >= 8.9 required for native float8 support",
     )
     def test_inference_mode(self):

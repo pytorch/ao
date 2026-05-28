@@ -79,7 +79,8 @@ class FeedForward(nn.Module):
 
 
 class TestFloat8NumericsIntegrationTest:
-    def _test_impl(self, config: Float8LinearConfig, device: str) -> None:
+    def _test_impl(self, config: Float8LinearConfig) -> None:
+        device = torch.accelerator.current_accelerator()
         data_dtype = torch.bfloat16
         # LLaMa 3 70B shapes
         model_ref = (
@@ -166,14 +167,13 @@ class TestFloat8NumericsIntegrationTest:
         scaling_type_weight: ScalingType,
         scaling_type_grad_output: ScalingType,
     ):
-        device = torch.accelerator.current_accelerator()
         config = get_test_float8_linear_config(
             scaling_type_input,
             scaling_type_weight,
             scaling_type_grad_output,
             emulate=False,
         )
-        self._test_impl(config, device)
+        self._test_impl(config)
 
     @pytest.mark.parametrize(
         "recipe_name",
@@ -192,9 +192,8 @@ class TestFloat8NumericsIntegrationTest:
         self,
         recipe_name: str,
     ):
-        device = torch.accelerator.current_accelerator()
         config = Float8LinearConfig.from_recipe_name(recipe_name)
-        self._test_impl(config, device)
+        self._test_impl(config)
 
 
 if __name__ == "__main__":
