@@ -900,6 +900,7 @@ def test_op_grouped_mm_activation_fake_quantization(device):
 
 
 
+@pytest.mark.parametrize("fullgraph", [False, True])
 @pytest.mark.parametrize("device", target_devices)
 @pytest.mark.parametrize("dtype", [torch.float32, ])
 @pytest.mark.parametrize("wrapper_cls, weight_config, act_config", [
@@ -920,7 +921,7 @@ def test_op_grouped_mm_activation_fake_quantization(device):
     # torch._grouped_mm: weight [E, K, N] at args[1], S=16 tokens, E=4 experts
     (lambda a, w, *, offs: torch._grouped_mm(a, w, offs=offs), (16, 1024), (4, 1024, 2048), {"offs": torch.tensor([4, 4, 4, 4], dtype=torch.int32)}),
 ])
-def test_compatibility_with_torch_compile(wrapper_cls, weight_config, act_config, call_fn, A_shape, w_shape, kwargs, dtype, device):
+def test_compatibility_with_torch_compile(wrapper_cls, weight_config, act_config, call_fn, A_shape, w_shape, kwargs, dtype, device, fullgraph):
     """torch.compile through a Python wrapper should match eager.
 
     Wraps the op in a plain Python function before compiling. This is the
@@ -951,7 +952,7 @@ def test_compatibility_with_torch_compile(wrapper_cls, weight_config, act_config
         return call_fn(activation, weight, **kwargs)
 
     torch._dynamo.reset()
-    compiled = torch.compile(forward_pass, fullgraph=True)
+    compiled = torch.compile(forward_pass, fullgraph=fullgraph)
 
     def run_test():
         activation, weight, resolved_kwargs = prepare_arguments()
