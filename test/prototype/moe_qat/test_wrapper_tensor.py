@@ -50,17 +50,21 @@ def test_wrapper_init_stores_attrs(wrapper_cls, weight_config, act_config, devic
 
 
 @pytest.mark.parametrize("device", target_devices)
-@pytest.mark.parametrize("wrapper_cls, expected_match", [
-    (Float8FakeQuantizedWeightWrapperTensor, r"^Only `Float8FakeQuantizeConfig` is supported for `weight_config` in Float8FakeQuantizedWeightWrapperTensor\.$"),
+@pytest.mark.parametrize("wrapper_cls, weight_config, expected_match", [
+    (Float8FakeQuantizedWeightWrapperTensor, None, r"^Only `Float8FakeQuantizeConfig` is supported for `weight_config` in Float8FakeQuantizedWeightWrapperTensor\.$"),
+    (Float8FakeQuantizedWeightWrapperTensor, Float8FakeQuantizeConfig(dtype=torch.float8_e4m3fn, granularity=PerRow(dim=-2)), r"^Only the row-wise granularity is supported\.$"),
+    (Float8FakeQuantizedWeightWrapperTensor, Float8FakeQuantizeConfig(dtype=torch.float8_e4m3fn, granularity=PerTensor()), r"^Only the row-wise granularity is supported\.$"),
 ])
-def test_wrapper_init_rejects_invalid_weight_config(wrapper_cls, expected_match, device):
-    """Wrapper subclass rejects non-matching weight_config type."""
-    class DummyConfig(FakeQuantizeConfigBase):
-        pass
+def test_wrapper_init_rejects_invalid_weight_config(wrapper_cls, weight_config, expected_match, device):
+    """Wrapper subclass rejects non-matching weight_config type or granularity."""
+    if weight_config is None:
+        class DummyConfig(FakeQuantizeConfigBase):
+            pass
+        weight_config = DummyConfig()
 
     w = torch.randn(64, 128, device=device)
     with pytest.raises(ValueError, match=expected_match):
-        wrapper_cls(w, weight_config=DummyConfig())
+        wrapper_cls(w, weight_config=weight_config)
 
 
 @pytest.mark.parametrize("device", target_devices)
