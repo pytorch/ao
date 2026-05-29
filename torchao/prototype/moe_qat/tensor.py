@@ -1,3 +1,4 @@
+import copy
 import functools
 import dataclasses
 from typing import Any, Callable, Dict, Optional, Tuple, Type
@@ -262,6 +263,13 @@ class FakeQuantizedWeightWrapperBaseTensor(TorchAOBaseTensor):
                 weight_config=weight_config,
             ),
             out,
+        )
+
+    def __deepcopy__(self, memo):
+        return type(self)(
+            self._data.clone(),
+            activation_config=copy.deepcopy(self.activation_config),
+            weight_config=copy.deepcopy(self.weight_config)
         )
 
     def to_tensor(self) -> torch.Tensor:
