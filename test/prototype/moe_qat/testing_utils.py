@@ -42,6 +42,21 @@ def moe_model(device, use_grouped_mm):
     return model.to(device)
 
 
+def create_moe_model(device):
+    dim, hidden_dim = 1024, 2048
+    args = MoEArgs(
+        num_experts=8,
+        num_shared_experts=2,
+        use_grouped_mm=(device == "cuda"),
+        load_balance_coeff=None,
+    )
+    model = MoE(args, dim=dim, hidden_dim=hidden_dim)
+    with torch.no_grad():
+        for param in model.parameters():
+            nn.init.trunc_normal_(param, std=0.5)
+    return model.to(device)
+
+
 def _expert_weight_filter(param, fqn):
     """A `params_filter_fn` for MoEQATConfig: wraps only 3D expert weight parameters,
     skipping 2D parameters (e.g., gate, router, bias)."""
