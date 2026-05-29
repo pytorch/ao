@@ -266,11 +266,18 @@ class FakeQuantizedWeightWrapperBaseTensor(TorchAOBaseTensor):
         )
 
     def __deepcopy__(self, memo):
-        return type(self)(
+        result = type(self)(
             self._data.clone(),
             activation_config=copy.deepcopy(self.activation_config),
             weight_config=copy.deepcopy(self.weight_config)
         )
+
+        # self.requires_grad triggers __torch_function__ of self, use `DisableTorchFunctionSubclass`
+        # to avoid the NotImplementedError error if FakeQuantizedWeightWrapperBaseTensor is used.
+        with torch._C.DisableTorchFunctionSubclass():
+            result.requires_grad = self.requires_grad
+        
+        return result
 
     def to_tensor(self) -> torch.Tensor:
         """Return the underlying raw tensor, unwrapping the subclass."""
@@ -444,64 +451,66 @@ class Float8FakeQuantizedWeightWrapperTensor(FakeQuantizedWeightWrapperBaseTenso
         
         if func in (torch._grouped_mm, torch.matmul, torch.mm):
             # weight at args[1], contracted dim=-2
-            _need_fake_quantization = True
-            a_pos, b_pos = 0, 1
-            granularity=PerRow(dim=-2)
+            return cls._fake_quantize_then_compute(0, 1, PerRow(dim=-2), cls, func, types, args, kwargs)
+        
         elif func is torch.nn.functional.linear:
             # weight at args[1], contracted dim=-1
-            _need_fake_quantization = True
-            a_pos, b_pos = 0, 1
-            granularity=PerRow(dim=-1)
+            return cls._fake_quantize_then_compute(0, 1, PerRow(dim=-1), cls, func, types, args, kwargs)
+        
         elif func is torch.bmm:
-            _need_fake_quantization = True
             if isinstance(args[1], cls):
                 # weight at args[1], shape [B, K, N], contracted dim=-2
-                a_pos, b_pos = 0, 1
-                granularity = PerRow(dim=-2)
+                return cls._fake_quantize_then_compute(0, 1, PerRow(dim=-2), cls, func, types, args, kwargs)
+        
             else:
                 # weight at args[0], shape [B, N, K], contracted dim=-1
-                a_pos, b_pos = 1, 0
-                granularity = PerRow(dim=-1)
+                return cls._fake_quantize_then_compute(1, 0, PerRow(dim=-1), cls, func, types, args, kwargs)
+        
         elif func is torch.addmm:
             # weight at args[2], contracted dim=-2
-            _need_fake_quantization = True
-            a_pos, b_pos = 1, 2
-            granularity = PerRow(dim=-2)
+            return cls._fake_quantize_then_compute(1, 2, PerRow(dim=-2), cls, func, types, args, kwargs)
+        
         else:
-            _need_fake_quantization = False
+            with torch._C.DisableTorchFunctionSubclass():
+                return func(*args, **kwargs)
 
-        if _need_fake_quantization:
-            A, B = args[a_pos], args[b_pos]
 
-            assert not isinstance(A, cls), f"A should not be a {cls.__name__}"
-            assert isinstance(B, cls), f"B should be a {cls.__name__}"
+    @staticmethod
+    def _fake_quantize_then_compute(
+        a_pos: int,
+        b_pos: int,
+        granularity: Granularity, 
+        cls, func, types, args, kwargs
+    ):
+        A, B = args[a_pos], args[b_pos]
 
-            # Fake-quantize the activation if B.activation_config exists. With torch._grouped_mm, activation
-            # is quantized once for the shared 3D weight. In a per-expert loop pattern, this repeats per expert.
-            # Activation fake quantization is skipped if the activation is empty. This is a possible case when
-            # a loop over experts instead of grouped_mm is used and some experts don't receive any tokens.
-            if B.activation_config is not None and A.numel() > 0:
-                assert not isinstance(A, TorchAOBaseTensor), \
-                    f"When an activation config is specified, the activation must not be a quantized tensor, got {type(A)}"
-                fq_A = cls._fake_quantize(A, B.activation_config, PerRow(dim=-1)) # always quantize the last dimension of activations
-            else:
-                fq_A = A
+        assert not isinstance(A, cls), f"A should not be a {cls.__name__}"
+        assert isinstance(B, cls), f"B should be a {cls.__name__}"
 
-            # Fake-quantize the weight
-            B_data = unwrap_weight(B)
-            if B.weight_config is not None:
-                fq_B_data = cls._fake_quantize(B_data, B.weight_config, granularity)
-            else:
-                fq_B_data = B_data
-
-            new_args = list(args)
-            new_args[a_pos] = fq_A
-            new_args[b_pos] = fq_B_data
+        # Fake-quantize the activation if B.activation_config exists. With torch._grouped_mm, activation
+        # is quantized once for the shared 3D weight. In a per-expert loop pattern, this repeats per expert.
+        # Activation fake quantization is skipped if the activation is empty. This is a possible case when
+        # a loop over experts instead of grouped_mm is used and some experts don't receive any tokens.
+        if B.activation_config is not None and A.numel() > 0:
+            assert not isinstance(A, TorchAOBaseTensor), \
+                f"When an activation config is specified, the activation must not be a quantized tensor, got {type(A)}"
+            fq_A = cls._fake_quantize(A, B.activation_config, PerRow(dim=-1)) # always quantize the last dimension of activations
         else:
-            new_args = args
+            fq_A = A
+
+        # Fake-quantize the weight
+        B_data = unwrap_weight(B)
+        if B.weight_config is not None:
+            fq_B_data = cls._fake_quantize(B_data, B.weight_config, granularity)
+        else:
+            fq_B_data = B_data
+
+        args = list(args)
+        args[a_pos] = fq_A
+        args[b_pos] = fq_B_data
 
         with torch._C.DisableTorchFunctionSubclass():
-            return func(*new_args, **kwargs)
+            return func(*args, **kwargs)
 
     @classmethod
     def _fake_quantize(
