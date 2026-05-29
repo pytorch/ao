@@ -51,6 +51,7 @@ _CUTEDSL_CONFIGS = {
     "bf16_32x1_n": (4, 32, 128, 4),
     "bf16_32x1_t": (4, 32, 128, 4),
     "bf16_32x32_n": (4, 32, 128, 4),
+    "bf16_32x32_t": (4, 32, 128, 4),
     "fallback": (6, 32, 128, 2),
 }
 
@@ -62,7 +63,7 @@ def _select_cutedsl_config(
 ) -> Tuple[str, Tuple[int, int, int, int]]:
     if input_dtype_name == "torch.bfloat16":
         if scale_block_dim2 == 32:
-            config_name = "bf16_32x32_n"
+            config_name = "bf16_32x32_t" if input_transposed else "bf16_32x32_n"
         elif input_transposed:
             config_name = "bf16_32x1_t"
         else:
@@ -222,7 +223,7 @@ def _compile_mxfp8_quantize_3d_cutedsl(
         ):
             scale_u8 = cutlass.Uint8(scale_biased)
             if cutlass.const_expr(BLOCKED_SCALE_OUTPUT):
-                # Match the 32x1 blocked output contract for dgrad:
+                # Match the 32x1 blocked output contract:
                 # grouped GEMM consumes a logical (K, N//32) scale
                 # matrix before tcgen05 blocking. For 32x32, each
                 # lane writes the warp-reduced scale to one K row in
@@ -273,11 +274,11 @@ def _compile_mxfp8_quantize_3d_cutedsl(
             if cutlass.const_expr(SCALE_DIM_K_VALUE == 32):
                 # For 32x32 scaling, the blocked path materializes the
                 # grouped-GEMM layout, so all 32 lanes write the same
-                # warp-reduced scale to replicate it across the 32
-                # rows of the N-block. The unblocked path keeps the
-                # compact row-major logical scale tensor, so only lane
-                # 0 writes the single non-replicated scale for that
-                # 32x32 block.
+                # warp-reduced scale across the 32 logical scale rows
+                # covered by the tile's trailing dimension. The
+                # unblocked path keeps the compact row-major logical
+                # scale tensor, so only lane 0 writes the single
+                # non-replicated scale for that 32x32 block.
                 if cutlass.const_expr(BLOCKED_SCALE_OUTPUT):
                     self._store_scale_32x32(
                         scales_expert,
@@ -883,12 +884,11 @@ def mxfp8_quantize_cutedsl_3d(
     n_blocks = N // scale_block_dim1
     k_scale_elems = K if scale_block_dim2 == 1 else K // block_size
     if kernel_blocked_scale_output:
-        if scale_block_dim2 == 1:
-            padded_scale_rows = ceil_div(K, 128) * 128
-            padded_scale_cols = ceil_div(n_blocks, 4) * 4
-        else:
-            padded_scale_rows = ceil_div(N, 128) * 128
-            padded_scale_cols = ceil_div(k_scale_elems, 4) * 4
+        # Blocked scales are emitted in the grouped-GEMM RHS layout:
+        # logical (K, N//32), then tcgen05 blocked. For 32x32, the
+        # single scale per 32x32 tile is replicated across 32 K rows.
+        padded_scale_rows = ceil_div(K, 128) * 128
+        padded_scale_cols = ceil_div(n_blocks, 4) * 4
         scales_u8 = torch.empty(
             (E, padded_scale_rows * padded_scale_cols),
             device=x.device,
