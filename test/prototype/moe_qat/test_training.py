@@ -12,7 +12,7 @@ from torchao.quantization.granularity import PerRow, PerTensor
 from torchao.quantization.quant_api import quantize_
 
 from .reference_moe import MoE
-from .testing_utils import _moe_input, _expert_weight_filter, _set_seed, create_moe_model, target_devices, device, moe_model, use_grouped_mm
+from .testing_utils import _moe_input, _expert_weight_filter, _set_seed, create_moe_model, target_devices
 from torchao.float8.float8_utils import compute_error
 
 
@@ -157,25 +157,96 @@ def test_moe_qat(device, dtype, learning_rate, weight_config, act_config, sqnr_t
         pass
 
 
+@pytest.mark.parametrize("device", target_devices)
+@pytest.mark.parametrize("dtype", [torch.float32])
+@pytest.mark.parametrize("fullgraph", [False, True])
+def test_torch_compile_model(device, dtype, fullgraph):
+    """torch.compile on the full QAT model should match eager output."""
+    eager_model = create_moe_model(device)
+    compiled_model = copy.deepcopy(eager_model)
 
-
-def test_torch_compile_model(moe_model, device):
-    """torch.compile on the full MoE model should match eager output."""
     quantize_(
-        moe_model,
+        eager_model,
         MoEQATConfig(
-            weight_config=Float8FakeQuantizeConfig(dtype=torch.float8_e4m3fn, granularity=PerRow()),
+            weight_config=Float8FakeQuantizeConfig(),
             step="prepare",
             params_filter_fn=_expert_weight_filter,
         ),
-        filter_fn=lambda m, fqn: isinstance(m, MoE),
+        filter_fn=lambda m, fqn: isinstance(m, MoE)
     )
-    x = _moe_input(moe_model)
 
-    with torch.no_grad():
-        eager_out = moe_model(x)
-        compiled_out = torch.compile(moe_model, fullgraph=True)(x)
-
-    assert torch.allclose(compiled_out, eager_out, atol=1e-3, rtol=1e-2), (
-        "Compiled model output should match eager"
+    quantize_(
+        compiled_model,
+        MoEQATConfig(
+            weight_config=Float8FakeQuantizeConfig(),
+            step="prepare",
+            params_filter_fn=_expert_weight_filter,
+        ),
+        filter_fn=lambda m, fqn: isinstance(m, MoE)
     )
+    compiled_model = torch.compile(compiled_model, fullgraph=fullgraph)
+
+    learning_rate = 0.00001
+    eager_optimizer = torch.optim.SGD(eager_model.parameters(), lr=learning_rate)
+    compiled_optimizer = torch.optim.SGD(compiled_model.parameters(), lr=learning_rate)
+
+    for i in range(5):
+        print(f"step {i}")
+
+        # Generate input randomly
+        eager_x = _moe_input(eager_model).requires_grad_(True)
+        compiled_x = eager_x.clone().detach().requires_grad_()
+
+        # Propagate forward
+        eager_out = eager_model(eager_x)
+        compiled_out = compiled_model(compiled_x)
+
+        out_sqnr = compute_error(compiled_out, eager_out)
+        print(f"  output SQNR: {out_sqnr:.1f} dB")
+        assert out_sqnr > 30, f"Compiled vs eager output SQNR too low ({out_sqnr:.1f} dB)"
+
+        # Set up target
+        target = torch.ones_like(eager_out)
+
+        # Compute loss and propagate backward
+        eager_loss = F.mse_loss(eager_out, target)
+        eager_loss.backward()
+
+        compiled_loss = F.mse_loss(compiled_out, target)
+        compiled_loss.backward()
+
+        loss_rel_diff = abs(eager_loss.item() - compiled_loss.item()) / eager_loss.item()
+        print(f"  qat_loss: {eager_loss.item():.4f}, compiled_loss: {compiled_loss.item():.4f}, rel_diff: {loss_rel_diff:.8f}")
+        assert loss_rel_diff < 1e-6, f"Compiled vs eager loss should align (rel diff: {loss_rel_diff:.4f})"
+
+        # Check gradients
+        x_grad_sqnr = compute_error(eager_x.grad, compiled_x.grad)
+        print(f"  input grad SQNR: {x_grad_sqnr:.1f} dB")
+        assert x_grad_sqnr > 94, f"Compiled vs eager x.grad SQNR too low ({x_grad_sqnr:.1f} dB)"
+
+        for (eager_name, eager_param), (compiled_name, compiled_param) in zip(
+            eager_model.named_parameters(), compiled_model.named_parameters(),
+        ):
+            if eager_param.requires_grad:
+                sqnr = compute_error(eager_param.grad, compiled_param.grad)
+                print(f"  {eager_name}.grad SQNR: {sqnr:.1f} dB")
+                assert sqnr > 65, \
+                    f"Compiled vs eager {eager_name}.grad SQNR too low ({sqnr:.1f} dB)"
+            else:
+                assert compiled_param.requires_grad is False, f"Compiled {compiled_name} should not require gradients"
+
+        # Update weights
+        eager_optimizer.step()
+        compiled_optimizer.step()
+
+        # Check weights
+        for (eager_name, eager_param), (compiled_name, compiled_param) in zip(
+            eager_model.named_parameters(), compiled_model.named_parameters(),
+        ):
+            sqnr = compute_error(compiled_param, eager_param)
+            print(f"  {eager_name} weight SQNR: {sqnr:.1f} dB")
+            assert sqnr > 108, \
+                f"Compiled vs eager {eager_name} weight SQNR too low ({sqnr:.1f} dB)"
+        
+        eager_optimizer.zero_grad()
+        compiled_optimizer.zero_grad()
