@@ -3,6 +3,7 @@ import copy
 import pytest
 import torch
 import torch.nn.functional as F
+from torch.distributed.fsdp import MixedPrecisionPolicy
 
 from torchao.float8.float8_utils import compute_error
 from torchao.prototype.moe_qat import MoEQATConfig
@@ -1041,3 +1042,131 @@ def test_compatibility_with_torch_compile(wrapper_cls, weight_config, act_config
     with torch.compiler.set_stance("fail_on_recompile"):
         for _ in range(5):
             run_test()
+
+
+# =========================================================================
+# FSDP hook unit tests
+# =========================================================================
+
+
+@pytest.mark.parametrize("wrapper_cls, weight_config, act_config", [
+    (FakeQuantizedWeightWrapperBaseTensor, Float8FakeQuantizeConfig(), None),
+    (FakeQuantizedWeightWrapperBaseTensor, Float8FakeQuantizeConfig(), Float8FakeQuantizeConfig()),
+    (Float8FakeQuantizedWeightWrapperTensor, Float8FakeQuantizeConfig(), None),
+    (Float8FakeQuantizedWeightWrapperTensor, Float8FakeQuantizeConfig(), Float8FakeQuantizeConfig()),
+])
+@pytest.mark.parametrize("tensor_dtype", [
+    torch.float32, torch.bfloat16,
+])
+@pytest.mark.parametrize("param_dtype", [
+    torch.float32, torch.bfloat16,
+])
+def test_fsdp_pre_all_gather(wrapper_cls, weight_config, act_config, tensor_dtype, param_dtype):
+    """fsdp_pre_all_gather casts _data to mp_policy.param_dtype and returns it."""
+    w = torch.randn(64, 128, dtype=tensor_dtype)
+    wrapper = wrapper_cls(w, activation_config=act_config, weight_config=weight_config)
+    mp_policy = MixedPrecisionPolicy(param_dtype=param_dtype)
+
+    all_gather_inputs, metadata = wrapper.fsdp_pre_all_gather(
+        None, None, None, None, mp_policy
+    )
+    (data,) = all_gather_inputs
+    assert metadata == ()
+    assert data.dtype == param_dtype
+    assert data.shape == w.shape
+    assert torch.equal(data, w.to(param_dtype))
+
+
+@pytest.mark.parametrize("wrapper_cls, weight_config, act_config", [
+    (FakeQuantizedWeightWrapperBaseTensor, Float8FakeQuantizeConfig(), None),
+    (FakeQuantizedWeightWrapperBaseTensor, Float8FakeQuantizeConfig(), Float8FakeQuantizeConfig()),
+    (Float8FakeQuantizedWeightWrapperTensor, Float8FakeQuantizeConfig(), None),
+    (Float8FakeQuantizedWeightWrapperTensor, Float8FakeQuantizeConfig(), Float8FakeQuantizeConfig()),
+])
+def test_fsdp_post_all_gather_first_step(wrapper_cls, weight_config, act_config):
+    """fsdp_post_all_gather with out=None creates a new wrapper with preserved configs."""
+    w = torch.randn(64, 128)
+    wrapper = wrapper_cls(w, activation_config=act_config, weight_config=weight_config)
+    gathered = torch.randn(4, 64, 128)
+
+    result, inner_tensors = wrapper.fsdp_post_all_gather(
+        (gathered,), None, torch.float32, out=None
+    )
+    assert type(result) is wrapper_cls
+    assert result.weight_config is weight_config
+    assert result.activation_config is act_config
+
+
+@pytest.mark.parametrize("wrapper_cls, weight_config, act_config", [
+    (FakeQuantizedWeightWrapperBaseTensor, Float8FakeQuantizeConfig(), None),
+    (FakeQuantizedWeightWrapperBaseTensor, Float8FakeQuantizeConfig(), Float8FakeQuantizeConfig()),
+    (Float8FakeQuantizedWeightWrapperTensor, Float8FakeQuantizeConfig(), None),
+    (Float8FakeQuantizedWeightWrapperTensor, Float8FakeQuantizeConfig(), Float8FakeQuantizeConfig()),
+])
+@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16])
+def test_fsdp_post_all_gather_existing_out_same_dtype(wrapper_cls, weight_config, act_config, dtype):
+    """out is bare wrapper, same dtype: configs restored, storage pointer verified."""
+    w = torch.randn(4, 64, 128)
+    wrapper = wrapper_cls(w, activation_config=act_config, weight_config=weight_config)
+
+    out = wrapper_cls(torch.randn(4, 64, 128, dtype=dtype), weight_config=weight_config)
+    out.activation_config = None
+    out.weight_config = None
+
+    data = out._data
+    wrapper.fsdp_post_all_gather(
+        (data,), None, dtype, out=out
+    )
+    assert out._data is data  # storage-sharing: same pointer reused
+    assert out.weight_config is weight_config
+    assert out.activation_config is act_config
+
+
+@pytest.mark.parametrize("in_dtype, out_dtype", [
+    (torch.bfloat16, torch.float32),
+    (torch.float32, torch.bfloat16),
+])
+@pytest.mark.parametrize("wrapper_cls, weight_config, act_config", [
+    (FakeQuantizedWeightWrapperBaseTensor, Float8FakeQuantizeConfig(), None),
+    (FakeQuantizedWeightWrapperBaseTensor, Float8FakeQuantizeConfig(), Float8FakeQuantizeConfig()),
+    (Float8FakeQuantizedWeightWrapperTensor, Float8FakeQuantizeConfig(), None),
+    (Float8FakeQuantizedWeightWrapperTensor, Float8FakeQuantizeConfig(), Float8FakeQuantizeConfig()),
+])
+def test_fsdp_post_all_gather_existing_out_cross_dtype(wrapper_cls, weight_config, act_config, in_dtype, out_dtype):
+    """out is bare wrapper, different dtype: configs restored, out_data.copy_(data)."""
+    w = torch.randn(4, 64, 128)
+    wrapper = wrapper_cls(w, activation_config=act_config, weight_config=weight_config)
+
+    out = wrapper_cls(torch.randn(4, 64, 128, dtype=out_dtype), weight_config=weight_config)
+    out.activation_config = None
+    out.weight_config = None
+
+    data = torch.randn(4, 64, 128, dtype=in_dtype)
+    wrapper.fsdp_post_all_gather(
+        (data,), None, out_dtype, out=out
+    )
+    assert out.weight_config is weight_config
+    assert out.activation_config is act_config
+    assert torch.equal(out._data, data.to(out_dtype))
+
+
+@pytest.mark.parametrize("wrapper_cls, weight_config, act_config", [
+    (FakeQuantizedWeightWrapperBaseTensor, Float8FakeQuantizeConfig(), None),
+    (FakeQuantizedWeightWrapperBaseTensor, Float8FakeQuantizeConfig(), Float8FakeQuantizeConfig()),
+    (Float8FakeQuantizedWeightWrapperTensor, Float8FakeQuantizeConfig(), None),
+    (Float8FakeQuantizedWeightWrapperTensor, Float8FakeQuantizeConfig(), Float8FakeQuantizeConfig()),
+])
+def test_fsdp_post_all_gather_existing_out_wrong_type(wrapper_cls, weight_config, act_config):
+    """out with wrong type raises RuntimeError."""
+    w = torch.randn(4, 64, 128)
+    wrapper = wrapper_cls(w, activation_config=act_config, weight_config=weight_config)
+
+    expected_msg = (
+        f"expected out to be {wrapper_cls.__name__} or "
+        f"DTensor with local_tensor={wrapper_cls.__name__}, "
+        f"but got {type(torch.randn(1))}"
+    )
+    with pytest.raises(RuntimeError, match=re.escape(expected_msg)):
+        wrapper.fsdp_post_all_gather(
+            (w,), None, torch.float32, out=torch.randn(4, 64, 128)
+        )
