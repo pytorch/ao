@@ -978,7 +978,7 @@ def test_compatibility_with_torch_compile(wrapper_cls, weight_config, act_config
     """torch.compile through a Python wrapper should match eager.
 
     Wraps the op in a plain Python function before compiling. This is the
-    correct usage pattern: ``torch.compile(forward_pass)`` forces Dynamo to
+    correct usage pattern: ``torch.compile(eager_forward)`` forces Dynamo to
     trace through the Python call, which triggers ``__torch_function__``
     dispatch on tensor subclasses.
 
@@ -986,14 +986,14 @@ def test_compatibility_with_torch_compile(wrapper_cls, weight_config, act_config
     ``__torch_function__``, producing a false sense of correctness.
     """
     def prepare_arguments():
-        A = torch.randn(*A_shape, dtype=dtype, device=device)
-        w = torch.randn(*w_shape, dtype=dtype, device=device)
+        A = torch.randn(*A_shape, dtype=dtype, device=device).requires_grad_(True)
+        w = torch.randn(*w_shape, dtype=dtype, device=device).requires_grad_(True)
         wrapper = wrapper_cls(w, activation_config=act_config, weight_config=weight_config)
         
         resolved = {}
         for k, v in kwargs.items():
             if k.endswith("_shape"):
-                resolved[k[:-len("_shape")]] = torch.randn(*v, dtype=dtype, device=device)
+                resolved[k[:-len("_shape")]] = torch.randn(*v, dtype=dtype, device=device).requires_grad_(True)
             elif isinstance(v, torch.Tensor):
                 resolved[k] = v.to(device=device)
             else:
@@ -1001,18 +1001,38 @@ def test_compatibility_with_torch_compile(wrapper_cls, weight_config, act_config
         
         return A, wrapper, resolved
 
-    def forward_pass(activation, weight, kwargs):
+    def eager_forward(activation, weight, kwargs):
         return call_fn(activation, weight, **kwargs)
 
     torch._dynamo.reset()
-    compiled = torch.compile(forward_pass, fullgraph=fullgraph)
+    compiled_forward = torch.compile(eager_forward, fullgraph=fullgraph)
 
     def run_test():
-        activation, weight, resolved_kwargs = prepare_arguments()
-        eager_out = forward_pass(activation, weight, resolved_kwargs)
-        out = compiled(activation, weight, resolved_kwargs)
-        assert out.shape == eager_out.shape
-        assert torch.allclose(out, eager_out), "Compiled output should match eager output"
+        eager_activation, eager_weight, eager_kwargs = prepare_arguments()
+        compiled_activation = eager_activation.clone().detach().requires_grad_(True)
+        compiled_weight = eager_weight.clone().detach().requires_grad_(True)
+        compiled_kwargs = {
+            k: copy.deepcopy(v) if not isinstance(v, torch.Tensor) else (
+                v.clone().detach().requires_grad_(True) if v.requires_grad else v.clone().detach()
+            )
+            for k, v in eager_kwargs.items()
+        }
+
+        eager_out = eager_forward(eager_activation, eager_weight, eager_kwargs)
+        compiled_out = compiled_forward(compiled_activation, compiled_weight, compiled_kwargs)
+        assert eager_out.shape == compiled_out.shape
+        assert torch.allclose(compiled_out, eager_out), "Compiled output should match eager output"
+
+        eager_out.sum().backward()
+        compiled_out.sum().backward()
+
+        assert eager_activation.grad is not None
+        assert torch.allclose(eager_activation.grad, compiled_activation.grad), \
+            "Compiled activation grad should match eager activation grad"
+
+        assert eager_weight.grad is not None
+        assert torch.allclose(eager_weight.grad, compiled_weight.grad), \
+            "Compiled weight grad should match eager weight grad"
 
     # 1. Warm up the compiler with the initial shape (creates the first graph)
     run_test()
