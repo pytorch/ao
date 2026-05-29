@@ -4,8 +4,6 @@
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
 
-# TODO: migrate off Layout, see https://github.com/pytorch/ao/pull/4245
-
 """
 This is an example for a tensor subclass representing a simple dtype
 that can be used in training.
@@ -18,11 +16,12 @@ needed to ensure proper gradient updates during training:
   3. Handle special ops used by the optimizer (e.g. aten.add, aten.add_)
 """
 
+from typing import Tuple
+
 import torch
-from my_dtype_tensor_subclass import MyDTypeTensor, MyDTypeTensorImpl, PlainLayout
+from my_dtype_tensor_subclass import MyDTypeTensor
 from torch.utils._python_dispatch import return_and_correct_aliasing
 
-from torchao.dtypes.utils import Layout
 from torchao.quantization import (
     MappingType,
     choose_qparams_affine,
@@ -46,8 +45,7 @@ class MyTrainableDTypeTensor(MyDTypeTensor):
     def _quantize(
         cls,
         input_float: torch.Tensor,
-        _layout: Layout,
-    ) -> MyDTypeTensorImpl:
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
         """
         Convert from a floating point tensor (fp32/fp16/bf16) to the desired dtype.
         """
@@ -58,14 +56,12 @@ class MyTrainableDTypeTensor(MyDTypeTensor):
             input_float, mapping_type, block_size, dtype
         )
         int_data = quantize_affine(input_float, block_size, scale, zero_point, dtype)
-        tensor_impl_ctr = cls.get_tensor_impl_constructor(type(_layout))
-        return tensor_impl_ctr(int_data, scale, _layout)
+        return int_data, scale
 
     @classmethod
     def from_float(
         cls,
         input_float: torch.Tensor,
-        _layout: Layout = PlainLayout(),
     ) -> "MyTrainableDTypeTensor":
         """
         Main entry point for creating a `MyTrainableDTypeTensor`.
@@ -73,7 +69,7 @@ class MyTrainableDTypeTensor(MyDTypeTensor):
         This instantiates the tensor subclass in a differentiable constructor
         to ensure gradients are passed to the tensor subclass properly during training.
         """
-        return _ToMyTrainableDTypeTensor.apply(input_float, _layout)
+        return _ToMyTrainableDTypeTensor.apply(input_float)
 
 
 class _ToMyTrainableDTypeTensor(torch.autograd.Function):
@@ -85,18 +81,18 @@ class _ToMyTrainableDTypeTensor(torch.autograd.Function):
     def forward(
         ctx: torch.autograd.function.FunctionCtx,
         input_float: torch.Tensor,
-        _layout: Layout,
     ) -> "MyTrainableDTypeTensor":
-        tensor_impl = MyTrainableDTypeTensor._quantize(input_float, _layout)
+        int_data, scale = MyTrainableDTypeTensor._quantize(input_float)
         return MyTrainableDTypeTensor(
-            tensor_impl,
-            input_float.shape,
+            int_data,
+            scale,
+            dtype=input_float.dtype,
             requires_grad=True,
         )
 
     @staticmethod
     def backward(ctx, gy):
-        return gy, None
+        return gy
 
 
 to_my_trainable_dtype = MyTrainableDTypeTensor.from_float
@@ -158,17 +154,15 @@ def _(func, types, args, kwargs):
     """
     assert len(args) == 2
     assert isinstance(args[0], MyTrainableDTypeTensor)
-    assert args[0].tensor_impl.int_data.dtype == torch.int8
+    assert args[0].int_data.dtype == torch.int8
     float0 = args[0].dequantize()
     float1 = (
         args[1].dequantize() if isinstance(args[1], MyTrainableDTypeTensor) else args[1]
     )
     new_value = torch.add(float0, float1, **kwargs)
-    new_tensor_impl = MyTrainableDTypeTensor._quantize(
-        new_value,
-        args[0].tensor_impl.get_layout(),
-    )
-    args[0].tensor_impl = new_tensor_impl
+    new_int_data, new_scale = MyTrainableDTypeTensor._quantize(new_value)
+    args[0].int_data = new_int_data
+    args[0].scale = new_scale
     return return_and_correct_aliasing(func, args, kwargs, args[0])
 
 
@@ -217,7 +211,7 @@ def main():
         loss = loss_fn(output, target)
         loss.backward()
         if VERBOSE:
-            weight = m.linear.weight.tensor_impl.int_data.flatten()[:3]
+            weight = m.linear.weight.int_data.flatten()[:3]
             weight_grad = m.linear.weight.grad.flatten()[:3]
             print(
                 " * step %s: weight grad = %s, weight value = %s"
