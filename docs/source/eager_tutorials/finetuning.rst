@@ -76,9 +76,11 @@ Then load a model and apply a QAT scheme during LoRA fine-tuning:
   from unsloth import FastLanguageModel
 
   model, tokenizer = FastLanguageModel.from_pretrained(
-      model_name = "unsloth/Llama-3.2-3B-Instruct",
-      max_seq_length = 2048,
-      load_in_16bit = True,
+      "unsloth/Llama-3.2-3B-Instruct",
+      max_seq_len = 2048,
+      dtype = torch.bfloat16,
+      load_in_4bit = False,
+      full_finetuning = False,
   )
   model = FastLanguageModel.get_peft_model(
       model,
