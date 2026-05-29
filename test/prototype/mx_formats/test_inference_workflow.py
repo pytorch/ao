@@ -496,6 +496,7 @@ def test_grouped_mm_mx_dynamic_activation(
 ):
     """Test MXDynamicActivationMXWeightConfig with grouped_mm dispatch."""
     device = torch.accelerator.current_accelerator()
+    use_swizzled = device.type == "cuda"
     dtype = torch.bfloat16
     total_m = sum(m_per_group)
 
@@ -516,6 +517,7 @@ def test_grouped_mm_mx_dynamic_activation(
         weight_dtype=elem_dtype,
         kernel_preference=kernel_preference,
         scaling_mode=scaling_mode,
+        is_swizzled_scales=use_swizzled,
     )
     quantize_(
         model,

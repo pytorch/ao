@@ -913,7 +913,7 @@ def mx_transpose(func, types, args, kwargs):
         old.act_quant_kwargs,
         old.is_swizzled_scales,
     )
-    return new
+    return return_and_correct_aliasing(func, args, kwargs, new)
 
 
 @implements([aten.sum.dim_IntList])
@@ -1095,9 +1095,54 @@ def mx_wait_tensor(func, types, args, kwargs):
     )
 
 
+def _per_group_to_blocked(raw_scale, offs):
+    """Apply to_blocked per-group for CUDA's blocked scale layout.
+
+    CUDA's mslk kernel expects per-group blocked scales where each group's
+    scale region is independently padded to 128-row tiles and swizzled.
+    The kernel internally computes per-group scale offsets from the data offs.
+
+    Args:
+        raw_scale: Unswizzled 2D scale tensor (M, K/bs) from to_mx().
+        offs: Group end offsets (int32), shape (E,).
+
+    Returns:
+        Blocked 2D scale tensor (sum(round_up(group_Mi, 128)), round_up(K/bs, 4))
+        with per-group to_blocked applied.
+    """
+    zero = torch.zeros(1, dtype=offs.dtype, device=offs.device)
+    group_sizes = torch.diff(offs, prepend=zero)
+    K_bs = raw_scale.shape[1]
+    n_col_blocks = math.ceil(K_bs / 4)
+
+    blocked_groups = []
+    group_sizes_list = group_sizes.tolist()
+    scale_chunks = raw_scale.split(group_sizes_list, dim=0)
+
+    for chunk in scale_chunks:
+        group_M = chunk.shape[0]
+        n_row_blocks = math.ceil(group_M / 128)
+        blocked_flat = to_blocked(chunk)
+        # to_blocked output is (32*n_row_blocks * 16*n_col_blocks) elements.
+        # CUDA expects shape (128*n_row_blocks, 4*n_col_blocks): same byte count
+        # per tile (32*16 = 128*4 = 512), just different 2D interpretation.
+        # The kernel reads using swizzle pattern from flat memory, so reshape is safe.
+        blocked_2d = blocked_flat.view(128 * n_row_blocks, 4 * n_col_blocks)
+        blocked_groups.append(blocked_2d)
+
+    return torch.cat(blocked_groups, dim=0)
+
+
 @implements([aten._grouped_mm.default])
 def mx_grouped_mm(func, types, args, kwargs):
-    """Handles torch._grouped_mm when weight (mat_b) is an MXTensor."""
+    """Handles torch._grouped_mm when weight (mat_b) is an MXTensor.
+
+    Supports both CUDA (swizzled/blocked scales) and XPU (raw scales):
+    - CUDA path (is_swizzled_scales=True): quantizes activation without swizzle,
+      then applies per-group to_blocked so each group has its own 128-row tiles.
+      This matches the pattern in moe_training/mxfp8_grouped_mm.py.
+    - XPU path (is_swizzled_scales=False): whole-tensor to_mx with raw scales.
+    """
     mat_a, mat_b = args[0], args[1]
     offs = args[2] if len(args) > 2 else kwargs.get("offs", None)
     assert isinstance(mat_b, MXTensor)
@@ -1113,43 +1158,77 @@ def mx_grouped_mm(func, types, args, kwargs):
     if k.kernel_preference == KernelPreference.EMULATED:
         return torch._grouped_mm(mat_a, mat_b.dequantize(mat_b.orig_dtype), offs=offs)
 
-    mat_a_mx = MXTensor.to_mx(
-        mat_a,
-        k.elem_dtype,
-        k.block_size,
-        k.scaling_mode,
-        k.kernel_preference,
-        is_swizzled_scales=k.is_swizzled_scales,
-    )
-
     assert mat_b.qdata.stride(-2) < mat_b.qdata.stride(-1), (
         "_grouped_mm requires weight.transpose(-2, -1)"
     )
 
     is_fp4 = mat_b.elem_dtype == torch.float4_e2m1fn_x2
 
-    if is_fp4:
-        a_qdata = mat_a_mx.qdata.view(torch.float4_e2m1fn_x2)
-        b_qdata = mat_b.qdata.view(torch.float4_e2m1fn_x2)
+    if k.is_swizzled_scales:
+        # CUDA path: per-group activation blocking
+        # 1. Quantize activation WITHOUT swizzle to get raw (M, K/bs) scales
+        mat_a_mx = MXTensor.to_mx(
+            mat_a,
+            k.elem_dtype,
+            k.block_size,
+            k.scaling_mode,
+            k.kernel_preference,
+            is_swizzled_scales=False,
+        )
+        a_qdata = (
+            mat_a_mx.qdata.view(torch.float4_e2m1fn_x2)
+            if is_fp4
+            else mat_a_mx.qdata
+        )
+
+        # 2. Per-group blocking of activation scales
+        a_scale = _per_group_to_blocked(mat_a_mx.scale, offs)
+
+        # 3. Weight scale: transpose back and flatten for CUDA 2D format
+        b_scale = mat_b.scale.transpose(-2, -1).flatten(1)
+        b_qdata = (
+            mat_b.qdata.view(torch.float4_e2m1fn_x2) if is_fp4 else mat_b.qdata
+        )
+
+        return scaled_grouped_mm(
+            a_qdata,
+            b_qdata,
+            scale_a=a_scale.view(torch.float8_e8m0fnu),
+            scale_recipe_a=ScalingType.BlockWise1x32,
+            scale_b=b_scale.view(torch.float8_e8m0fnu),
+            scale_recipe_b=ScalingType.BlockWise1x32,
+            swizzle_a=SwizzleType.SWIZZLE_32_4_4,
+            swizzle_b=SwizzleType.SWIZZLE_32_4_4,
+            offs=offs,
+            output_dtype=mat_a.dtype,
+        )
     else:
-        a_qdata = mat_a_mx.qdata
-        b_qdata = mat_b.qdata
+        # XPU path: whole-tensor quantization with raw scales (unchanged)
+        mat_a_mx = MXTensor.to_mx(
+            mat_a,
+            k.elem_dtype,
+            k.block_size,
+            k.scaling_mode,
+            k.kernel_preference,
+            is_swizzled_scales=False,
+        )
+        a_qdata = (
+            mat_a_mx.qdata.view(torch.float4_e2m1fn_x2)
+            if is_fp4
+            else mat_a_mx.qdata
+        )
+        b_qdata = (
+            mat_b.qdata.view(torch.float4_e2m1fn_x2) if is_fp4 else mat_b.qdata
+        )
+        b_scale = mat_b.scale.contiguous()
 
-    use_swizzled = mat_a_mx.is_swizzled_scales or mat_b.is_swizzled_scales
-
-    a_scale = mat_a_mx.scale
-    b_scale = mat_b.scale.contiguous()
-    swizzle = SwizzleType.SWIZZLE_32_4_4 if use_swizzled else None
-
-    return scaled_grouped_mm(
-        a_qdata,
-        b_qdata,
-        scale_a=a_scale.view(torch.float8_e8m0fnu),
-        scale_recipe_a=ScalingType.BlockWise1x32,
-        scale_b=b_scale.view(torch.float8_e8m0fnu),
-        scale_recipe_b=ScalingType.BlockWise1x32,
-        swizzle_a=swizzle,
-        swizzle_b=swizzle,
-        offs=offs,
-        output_dtype=mat_a.dtype,
-    )
+        return scaled_grouped_mm(
+            a_qdata,
+            b_qdata,
+            scale_a=mat_a_mx.scale.view(torch.float8_e8m0fnu),
+            scale_recipe_a=ScalingType.BlockWise1x32,
+            scale_b=b_scale.view(torch.float8_e8m0fnu),
+            scale_recipe_b=ScalingType.BlockWise1x32,
+            offs=offs,
+            output_dtype=mat_a.dtype,
+        )
