@@ -14,6 +14,7 @@ if torch.cuda.is_available():
 @pytest.fixture(autouse=True)
 def _set_seed():
     torch.manual_seed(42)
+    torch.cuda.manual_seed_all(42)
 
 
 @pytest.fixture
