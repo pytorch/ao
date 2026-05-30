@@ -1077,22 +1077,28 @@ def test_fsdp_pre_all_gather(wrapper_cls, weight_config, act_config, tensor_dtyp
     assert torch.equal(data, w.to(param_dtype))
 
 
+@pytest.mark.parametrize("device", ["meta"] + target_devices)
+@pytest.mark.parametrize("out_device", target_devices)
 @pytest.mark.parametrize("wrapper_cls, weight_config, act_config", [
     (FakeQuantizedWeightWrapperBaseTensor, Float8FakeQuantizeConfig(), None),
     (FakeQuantizedWeightWrapperBaseTensor, Float8FakeQuantizeConfig(), Float8FakeQuantizeConfig()),
     (Float8FakeQuantizedWeightWrapperTensor, Float8FakeQuantizeConfig(), None),
     (Float8FakeQuantizedWeightWrapperTensor, Float8FakeQuantizeConfig(), Float8FakeQuantizeConfig()),
 ])
-def test_fsdp_post_all_gather_first_step(wrapper_cls, weight_config, act_config):
+def test_fsdp_post_all_gather_first_step(wrapper_cls, weight_config, act_config, device, out_device):
     """fsdp_post_all_gather with out=None creates a new wrapper with preserved configs."""
-    w = torch.randn(64, 128)
+    w = torch.empty(64, 128, device=device)
     wrapper = wrapper_cls(w, activation_config=act_config, weight_config=weight_config)
-    gathered = torch.randn(4, 64, 128)
+    gathered = torch.empty(4, 64, 128, device=out_device)
 
     result, inner_tensors = wrapper.fsdp_post_all_gather(
         (gathered,), None, torch.float32, out=None
     )
     assert type(result) is wrapper_cls
+    assert result._data is gathered
+    assert isinstance(inner_tensors, tuple)
+    assert len(inner_tensors) == 1
+    assert inner_tensors[0] is gathered
     assert result.weight_config is weight_config
     assert result.activation_config is act_config
 
