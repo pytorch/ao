@@ -1,8 +1,11 @@
+import os
 import re
 import copy
 import pytest
 import torch
 import torch.nn.functional as F
+from torch.distributed._tensor import DTensor, Shard
+from torch.distributed.device_mesh import DeviceMesh
 from torch.distributed.fsdp import MixedPrecisionPolicy
 
 from torchao.float8.float8_utils import compute_error
@@ -1136,6 +1139,44 @@ def test_fsdp_post_all_gather_existing_out_same_dtype(wrapper_cls, weight_config
         )
 
 
+@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16])
+@pytest.mark.parametrize("wrapper_cls, weight_config, act_config", [
+    (Float8FakeQuantizedWeightWrapperTensor, Float8FakeQuantizeConfig(), None),
+    (Float8FakeQuantizedWeightWrapperTensor, Float8FakeQuantizeConfig(), Float8FakeQuantizeConfig()),
+])
+def test_fsdp_post_all_gather_existing_out_same_dtype_dtensor(wrapper_cls, weight_config, act_config, dtype):
+    """out is DTensor with wrapped local_tensor — configs restored on local_tensor."""
+    os.environ.update({"MASTER_ADDR": "localhost", "MASTER_PORT": "12355", "RANK": "0", "WORLD_SIZE": "1"})
+
+
+    w = torch.empty(2, 32, 64, device="meta")
+    wrapper = wrapper_cls(w, activation_config=act_config, weight_config=weight_config)
+
+    mesh = DeviceMesh("cpu", torch.arange(1))
+    out_data = torch.randn(4, 64, 128, dtype=dtype)
+    out_local = wrapper_cls(out_data, weight_config=weight_config)
+    out = DTensor.from_local(out_local, mesh, [Shard(0)])
+    out._local_tensor.activation_config = None
+    out._local_tensor.weight_config = None
+
+    data = out._local_tensor._data
+    result = wrapper.fsdp_post_all_gather(
+        (data,), None, dtype, out=out
+    )
+
+    assert result is None
+    assert out._local_tensor._data is data
+    assert out._local_tensor.weight_config is weight_config
+    assert out._local_tensor.activation_config is act_config
+
+    # If data has the same dtype but different storage, the assertion should fire
+    storage_mismatch = data.clone()
+    with pytest.raises(AssertionError):
+        wrapper.fsdp_post_all_gather(
+            (storage_mismatch,), None, dtype, out=out
+        )
+
+
 @pytest.mark.parametrize("in_dtype, out_dtype", [
     (torch.bfloat16, torch.float32),
     (torch.float32, torch.bfloat16),
@@ -1166,6 +1207,53 @@ def test_fsdp_post_all_gather_existing_out_cross_dtype(wrapper_cls, weight_confi
     assert out.weight_config is weight_config
     assert out.activation_config is act_config
     assert torch.equal(out._data, data.to(out_dtype))
+
+    # If param_dtype doesn't match out_data.dtype, the assertion should fire
+    bad_param_dtype = torch.float64
+    expected_msg = (
+        f"^`out`\\(dtype={out_dtype}\\) dose not match "
+        f"the mixed precision policy param_dtype {bad_param_dtype}$"
+    )
+    with pytest.raises(AssertionError, match=expected_msg):
+        wrapper.fsdp_post_all_gather(
+            (data,), None, bad_param_dtype, out=out
+        )
+
+
+@pytest.mark.parametrize("in_dtype, out_dtype", [
+    (torch.bfloat16, torch.float32),
+    (torch.float32, torch.bfloat16),
+])
+@pytest.mark.parametrize("wrapper_cls, weight_config, act_config", [
+    (Float8FakeQuantizedWeightWrapperTensor, Float8FakeQuantizeConfig(), None),
+    (Float8FakeQuantizedWeightWrapperTensor, Float8FakeQuantizeConfig(), Float8FakeQuantizeConfig()),
+])
+def test_fsdp_post_all_gather_existing_out_cross_dtype_dtensor(wrapper_cls, weight_config, act_config, in_dtype, out_dtype):
+    """out is DTensor with wrapped local_tensor, cross-dtype: configs restored, copy_ applied."""
+    os.environ.update({"MASTER_ADDR": "localhost", "MASTER_PORT": "12355", "RANK": "0", "WORLD_SIZE": "1"})
+
+
+    w = torch.empty(2, 32, 64, device="meta")
+    wrapper = wrapper_cls(w, activation_config=act_config, weight_config=weight_config)
+
+    mesh = DeviceMesh("cpu", torch.arange(1))
+    out_data = torch.randn(4, 64, 128, dtype=out_dtype)
+    out_local = wrapper_cls(out_data, weight_config=weight_config)
+    out = DTensor.from_local(out_local, mesh, [Shard(0)])
+    out._local_tensor.activation_config = None
+    out._local_tensor.weight_config = None
+
+    data = torch.randn(4, 64, 128, dtype=in_dtype)
+    out_local_tensor_data_before = out._local_tensor._data
+    result = wrapper.fsdp_post_all_gather(
+        (data,), None, out_dtype, out=out
+    )
+
+    assert result is None
+    assert out._local_tensor._data is out_local_tensor_data_before  # in-place copy_: same object
+    assert out._local_tensor.weight_config is weight_config
+    assert out._local_tensor.activation_config is act_config
+    assert torch.equal(out._local_tensor._data, data.to(out_dtype))
 
     # If param_dtype doesn't match out_data.dtype, the assertion should fire
     bad_param_dtype = torch.float64
