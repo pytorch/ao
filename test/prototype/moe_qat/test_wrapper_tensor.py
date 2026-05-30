@@ -1112,7 +1112,7 @@ def test_fsdp_post_all_gather_first_step(wrapper_cls, weight_config, act_config,
 @pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16])
 def test_fsdp_post_all_gather_existing_out_same_dtype(wrapper_cls, weight_config, act_config, dtype):
     """out is bare wrapper, same dtype: configs restored, storage pointer verified."""
-    w = torch.randn(4, 64, 128)
+    w = torch.empty(2, 32, 64, device="meta")  # different shape/device — must not be used
     wrapper = wrapper_cls(w, activation_config=act_config, weight_config=weight_config)
 
     out = wrapper_cls(torch.randn(4, 64, 128, dtype=dtype), weight_config=weight_config)
@@ -1120,12 +1120,20 @@ def test_fsdp_post_all_gather_existing_out_same_dtype(wrapper_cls, weight_config
     out.weight_config = None
 
     data = out._data
-    wrapper.fsdp_post_all_gather(
+    result = wrapper.fsdp_post_all_gather(
         (data,), None, dtype, out=out
     )
+    assert result is None
     assert out._data is data  # storage-sharing: same pointer reused
     assert out.weight_config is weight_config
     assert out.activation_config is act_config
+
+    # If data has the same dtype but different storage, the assertion should fire
+    storage_mismatch = data.clone()
+    with pytest.raises(AssertionError):
+        wrapper.fsdp_post_all_gather(
+            (storage_mismatch,), None, dtype, out=out
+        )
 
 
 @pytest.mark.parametrize("in_dtype, out_dtype", [
