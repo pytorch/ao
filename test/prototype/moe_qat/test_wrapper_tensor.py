@@ -1148,7 +1148,7 @@ def test_fsdp_post_all_gather_existing_out_same_dtype(wrapper_cls, weight_config
 ])
 def test_fsdp_post_all_gather_existing_out_cross_dtype(wrapper_cls, weight_config, act_config, in_dtype, out_dtype):
     """out is bare wrapper, different dtype: configs restored, out_data.copy_(data)."""
-    w = torch.randn(4, 64, 128)
+    w = torch.empty(2, 32, 64, device="meta")  # different shape/device — must not be used
     wrapper = wrapper_cls(w, activation_config=act_config, weight_config=weight_config)
 
     out = wrapper_cls(torch.randn(4, 64, 128, dtype=out_dtype), weight_config=weight_config)
@@ -1156,12 +1156,27 @@ def test_fsdp_post_all_gather_existing_out_cross_dtype(wrapper_cls, weight_confi
     out.weight_config = None
 
     data = torch.randn(4, 64, 128, dtype=in_dtype)
-    wrapper.fsdp_post_all_gather(
+    out_data_before = out._data
+    result = wrapper.fsdp_post_all_gather(
         (data,), None, out_dtype, out=out
     )
+
+    assert result is None
+    assert out._data is out_data_before  # in-place copy_: same object
     assert out.weight_config is weight_config
     assert out.activation_config is act_config
     assert torch.equal(out._data, data.to(out_dtype))
+
+    # If param_dtype doesn't match out_data.dtype, the assertion should fire
+    bad_param_dtype = torch.float64
+    expected_msg = (
+        f"^`out`\\(dtype={out_dtype}\\) dose not match "
+        f"the mixed precision policy param_dtype {bad_param_dtype}$"
+    )
+    with pytest.raises(AssertionError, match=expected_msg):
+        wrapper.fsdp_post_all_gather(
+            (data,), None, bad_param_dtype, out=out
+        )
 
 
 @pytest.mark.parametrize("wrapper_cls, weight_config, act_config", [
@@ -1175,12 +1190,13 @@ def test_fsdp_post_all_gather_existing_out_wrong_type(wrapper_cls, weight_config
     w = torch.randn(4, 64, 128)
     wrapper = wrapper_cls(w, activation_config=act_config, weight_config=weight_config)
 
+    out_type = re.escape(str(type(torch.randn(1))))
     expected_msg = (
-        f"expected out to be {wrapper_cls.__name__} or "
-        f"DTensor with local_tensor={wrapper_cls.__name__}, "
-        f"but got {type(torch.randn(1))}"
+        f"^expected out to be {re.escape(wrapper_cls.__name__)} or "
+        f"DTensor with local_tensor={re.escape(wrapper_cls.__name__)}, "
+        f"but got {out_type}$"
     )
-    with pytest.raises(RuntimeError, match=re.escape(expected_msg)):
+    with pytest.raises(RuntimeError, match=expected_msg):
         wrapper.fsdp_post_all_gather(
             (w,), None, torch.float32, out=torch.randn(4, 64, 128)
         )
