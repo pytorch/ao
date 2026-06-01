@@ -527,6 +527,10 @@ class Float8FakeQuantizedWeightWrapperTensor(FakeQuantizedWeightWrapperBaseTenso
             hp_value_lb=config.hp_value_lb,
             hp_value_ub=config.hp_value_ub,
         ).detach()
+        # Clamp scale to a minimum epsilon. An all-zero row (e.g., from padding,
+        # ReLU zeroing, or dropout) produces max(|row|) = 0 → scale = 0, which would
+        # cause division by zero → NaN. Clamping prevents this.
+        scale = torch.clamp_min(scale, torch.finfo(original_dtype).eps)
         q = _quantize_affine_float8(weight, scale, config.dtype)
         dq = _dequantize_affine_float8(q, scale, original_dtype)
         return dq
