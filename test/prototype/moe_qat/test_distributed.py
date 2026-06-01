@@ -27,7 +27,7 @@ from torchao.quantization.granularity import PerRow
 from torchao.quantization.quant_api import quantize_
 
 from .reference_moe import MoE, MoEArgs
-from .testing_utils import _expert_weight_filter, create_moe_model
+from .testing_utils import _expert_weight_filter, create_moe_model, target_devices
 from .reference_parallel_styles import ExpertParallel, ExpertTensorParallel, NoParallel, TensorParallel
 
 def _get_device():
@@ -76,6 +76,15 @@ def distributed_env():
     torch.distributed.destroy_process_group()
 
 
+@pytest.fixture(scope="module", params=target_devices)
+def fixed_model_and_input(request):
+    """Create a fixed MoE model and input once per device, so all strategies use identical starting conditions."""
+    device = torch.device(request.param)
+    model = create_moe_model(device)
+    x = torch.randn(8, 64, model.experts.gate_proj.shape[-1], device=device)
+    return model, x
+
+
 class ParallelStrategy:
     """Enum-like class for parallelization strategies."""
 
@@ -94,12 +103,12 @@ class ParallelStrategy:
     ParallelStrategy.FSDP_TP,
 ])
 @pytest.mark.parametrize("wrapper_cls,weight_config,activation_config, min_sqnr", [
-    (Float8FakeQuantizedWeightWrapperTensor, Float8FakeQuantizeConfig(), None,                       {"out": 28, "input_grad": 31, "param_grad": 22}),
-    (Float8FakeQuantizedWeightWrapperTensor, Float8FakeQuantizeConfig(), Float8FakeQuantizeConfig(), {"out": 25, "input_grad": 25, "param_grad": 16}),
+    (Float8FakeQuantizedWeightWrapperTensor, Float8FakeQuantizeConfig(), None,                       {"out": 30, "input_grad": 31, "param_grad": 22}),
+    (Float8FakeQuantizedWeightWrapperTensor, Float8FakeQuantizeConfig(), Float8FakeQuantizeConfig(), {"out": 28, "input_grad": 25, "param_grad": 16}),
 ])
-def test_moe_qat_parallel(parallel_strategy, wrapper_cls, weight_config, activation_config, min_sqnr, distributed_env):
+def test_moe_qat_parallel(parallel_strategy, wrapper_cls, weight_config, activation_config, min_sqnr, distributed_env, fixed_model_and_input):
 
-    device = _get_device()
+    base_model, base_x = fixed_model_and_input
 
     tp_mesh = distributed_env["tp_mesh"]
     ep_mesh = distributed_env["ep_mesh"]
@@ -108,8 +117,8 @@ def test_moe_qat_parallel(parallel_strategy, wrapper_cls, weight_config, activat
     dp_tp_mesh = distributed_env["dp_tp_mesh"]
 
     # Reference model (no fake quantization)
-    ref_model = create_moe_model(device)
-    model = copy.deepcopy(ref_model)
+    ref_model = copy.deepcopy(base_model)
+    model = copy.deepcopy(base_model)
     dim = model.experts.gate_proj.shape[-1]
 
     # Apply QAT to test model
@@ -124,6 +133,7 @@ def test_moe_qat_parallel(parallel_strategy, wrapper_cls, weight_config, activat
     # Verify starting params are identical
     for ref_param, model_param in zip(ref_model.parameters(), model.parameters()):
         if isinstance(model_param.data, FakeQuantizedWeightWrapperBaseTensor):
+            assert isinstance(model_param.data, wrapper_cls)
             assert torch.equal(ref_param, model_param.data.to_tensor())
         else:
             assert torch.equal(ref_param, model_param)
@@ -136,8 +146,9 @@ def test_moe_qat_parallel(parallel_strategy, wrapper_cls, weight_config, activat
         apply_moe_ep_tp(model, tp_mesh=None, ep_mesh=ep_mesh, ep_tp_mesh=None)
         apply_moe_ep_tp(ref_model, tp_mesh=None, ep_mesh=ep_mesh, ep_tp_mesh=None)
     elif parallel_strategy == ParallelStrategy.EXPERT_TENSOR_PARALLEL:
-        apply_moe_ep_tp(model, tp_mesh=tp_mesh, ep_mesh=ep_mesh, ep_tp_mesh=ep_tp_mesh)
-        apply_moe_ep_tp(ref_model, tp_mesh=tp_mesh, ep_mesh=ep_mesh, ep_tp_mesh=ep_tp_mesh)
+        tp_submesh = ep_tp_mesh["tp"]
+        apply_moe_ep_tp(model, tp_mesh=tp_submesh, ep_mesh=ep_mesh, ep_tp_mesh=ep_tp_mesh)
+        apply_moe_ep_tp(ref_model, tp_mesh=tp_submesh, ep_mesh=ep_mesh, ep_tp_mesh=ep_tp_mesh)
     elif parallel_strategy == ParallelStrategy.FSDP:
         # FSDP only - use 1D dp mesh
         fsdp_config = {"mesh": dp_mesh}
@@ -168,9 +179,8 @@ def test_moe_qat_parallel(parallel_strategy, wrapper_cls, weight_config, activat
             )
 
     # Inputs
-    batch, seq = 8, 64
-    ref_x = torch.randn(batch, seq, dim, device=device, requires_grad=True)
-    x = ref_x.detach().clone().requires_grad_(True)
+    ref_x = base_x.clone().detach().requires_grad_(True)
+    x = ref_x.clone().detach().requires_grad_(True)
 
     # Forward
     ref_out = ref_model(ref_x)
