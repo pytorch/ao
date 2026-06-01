@@ -11,7 +11,14 @@ on:
 
 jobs:
   benchmark:
-    runs-on: linux.aws.h100
+    runs-on: mt-l-x86iamx-22-225-h100
+    permissions:
+      id-token: write
+      contents: read
+    # OSDC (ARC): run inside a CUDA container; --gpus all exposes the H100.
+    container:
+      image: pytorch/almalinux-builder:cuda13.0
+      options: --gpus all
     strategy:
       matrix:
         torch-spec:
@@ -23,6 +30,12 @@ jobs:
         uses: pytorch/test-infra/.github/actions/setup-miniconda@main
         with:
           python-version: "3.10"
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@67fbcbb121271f7775d2e7715933280b06314838 # v1.7.0
+        with:
+          role-to-assume: arn:aws:iam::308535385114:role/gha_workflow_upload-benchmark-results
+          aws-region: us-east-1
 
       - name: Run benchmark
         shell: bash
@@ -37,7 +50,11 @@ jobs:
           ${CONDA_RUN} bash -c 'echo $PYTHONPATH'
 
           # Install dependencies
-          ${CONDA_RUN} pip install ${{ matrix.torch-spec }}
+          # Pre-install torch's pure-python deps from the in-cluster pypi-cache for speed.
+          ${CONDA_RUN} pip install filelock typing-extensions "setuptools<82" sympy networkx jinja2 fsspec numpy pillow
+          # Clear PIP_EXTRA_INDEX_URL (the runner's default cpu /whl/cpu/) so it can't supply a
+          # +cpu torch; the torch-spec's --index-url makes the literal nightly cu126 index the only source.
+          PIP_EXTRA_INDEX_URL= ${CONDA_RUN} pip install ${{ matrix.torch-spec }}
           ${CONDA_RUN} pip install -r dev-requirements.txt
           ${CONDA_RUN} pip install . --no-build-isolation
 
