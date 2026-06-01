@@ -38,6 +38,10 @@ if torch_version_at_least("2.12.0.dev0"):
 
 from torch.nn.functional import ScalingType, SwizzleType, scaled_grouped_mm
 
+from torchao.prototype.moe_training.kernels.mxfp8 import (
+    torch_to_blocked_2d_M_groups,
+    triton_mx_block_rearrange_2d_M_groups,
+)
 from torchao.prototype.mx_formats.config import (
     MXFP8Dim0CastKernelChoice,
     ScaleCalculationMode,
@@ -1095,31 +1099,7 @@ def mx_wait_tensor(func, types, args, kwargs):
     )
 
 
-def _per_group_to_blocked_fallback(raw_scale, offs):
-    """Fallback: Apply to_blocked per-group using a Python loop.
-
-    Used when the fused Triton kernel is not available.
-    """
-    zero = torch.zeros(1, dtype=offs.dtype, device=offs.device)
-    group_sizes = torch.diff(offs, prepend=zero)
-    K_bs = raw_scale.shape[1]
-    n_col_blocks = math.ceil(K_bs / 4)
-
-    blocked_groups = []
-    group_sizes_list = group_sizes.tolist()
-    scale_chunks = raw_scale.split(group_sizes_list, dim=0)
-
-    for chunk in scale_chunks:
-        group_M = chunk.shape[0]
-        n_row_blocks = math.ceil(group_M / 128)
-        blocked_flat = to_blocked(chunk)
-        blocked_2d = blocked_flat.view(128 * n_row_blocks, 4 * n_col_blocks)
-        blocked_groups.append(blocked_2d)
-
-    return torch.cat(blocked_groups, dim=0)
-
-
-def _per_group_to_blocked(raw_scale, offs):
+def _per_group_to_blocked(raw_scale, offs, block_size):
     """Apply to_blocked per-group for CUDA's blocked scale layout.
     Args:
         raw_scale: Unswizzled 2D scale tensor (M, K/bs) from to_mx().
@@ -1130,18 +1110,16 @@ def _per_group_to_blocked(raw_scale, offs):
         Shape: (padded_rows, round_up(K/bs, 4)) where padded_rows >= M.
     """
     try:
-        from torchao.prototype.moe_training.kernels.mxfp8 import (
-            triton_mx_block_rearrange_2d_M_groups,
-        )
-
         if not raw_scale.is_cuda:
-            return _per_group_to_blocked_fallback(raw_scale, offs)
+            blocked_scale, _ = torch_to_blocked_2d_M_groups(raw_scale, offs, block_size)
+            return blocked_scale
 
         return triton_mx_block_rearrange_2d_M_groups(
             raw_scale.view(torch.uint8), offs
         ).view(raw_scale.dtype)
     except (ImportError, NotImplementedError):
-        return _per_group_to_blocked_fallback(raw_scale, offs)
+        blocked_scale, _ = torch_to_blocked_2d_M_groups(raw_scale, offs, block_size)
+        return blocked_scale
 
 
 @implements([aten._grouped_mm.default])
@@ -1180,7 +1158,7 @@ def mx_grouped_mm(func, types, args, kwargs):
     a_qdata = mat_a_mx.qdata.view(torch.float4_e2m1fn_x2) if is_fp4 else mat_a_mx.qdata
     if k.is_swizzled_scales:
         # 2. Per-group blocking of activation scales
-        a_scale = _per_group_to_blocked(mat_a_mx.scale, offs)
+        a_scale = _per_group_to_blocked(mat_a_mx.scale, offs, k.block_size)
 
         # 3. Weight scale: transpose back and flatten for CUDA 2D format
         b_scale = mat_b.scale.transpose(-2, -1).flatten(1)
