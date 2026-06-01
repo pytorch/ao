@@ -18,14 +18,14 @@ jobs:
       matrix:
         include:
           - name: H100
-            runs-on: linux.aws.h100
+            runs-on: mt-l-x86iamx-22-225-h100
             torch-spec: '--pre torch torchvision torchaudio mslk --index-url https://download.pytorch.org/whl/nightly/cu126'
             gpu-arch-type: "cuda"
             gpu-arch-version: "12.4"
     permissions:
       id-token: write
       contents: read
-    uses: pytorch/test-infra/.github/workflows/linux_job_v2.yml@main
+    uses: pytorch/test-infra/.github/workflows/linux_job_v3.yml@main
     with:
       timeout: 90
       runner: ${{ matrix.runs-on }}
@@ -38,7 +38,11 @@ jobs:
         export PATH=/opt/rh/devtoolset-10/root/usr/bin/:$PATH
         python -m pip install --upgrade pip
         pip install uv
-        pip install ${{ matrix.torch-spec }}
+        # Pre-install torch/vision's pure-python deps from the in-cluster pypi-cache for speed.
+        pip install filelock typing-extensions "setuptools<82" sympy networkx jinja2 fsspec numpy pillow
+        # Clear PIP_EXTRA_INDEX_URL (the runner's default cpu /whl/cpu/) so it can't supply a
+        # +cpu torch; the torch-spec's --index-url makes the literal nightly cu126 index the only source.
+        PIP_EXTRA_INDEX_URL= pip install ${{ matrix.torch-spec }}
         uv pip install -r dev-requirements.txt
         pip install . --no-build-isolation
         HF_MODEL_ID=${{ github.event.inputs.hf_model_id }}
