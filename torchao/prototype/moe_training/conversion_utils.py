@@ -10,6 +10,7 @@ import torch
 from torch import nn
 
 from torchao.prototype.moe_training.config import (
+    Float8BlockwiseTrainingOpConfig,
     Float8TrainingOpConfig,
     MXFP8TrainingOpConfig,
     TrainingOpBaseConfig,
@@ -41,7 +42,7 @@ def _get_tensor_cls_for_config(
         )
 
         return MXFP8TrainingWeightWrapperTensor
-    elif isinstance(config, Float8TrainingOpConfig):
+    elif isinstance(config, (Float8TrainingOpConfig, Float8BlockwiseTrainingOpConfig)):
         return Float8TrainingWeightWrapperTensor
     else:
         raise ValueError(f"Unsupported config type: {type(config)}")
