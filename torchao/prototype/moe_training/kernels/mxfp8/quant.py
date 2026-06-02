@@ -1424,14 +1424,14 @@ def mxfp8_quantize_cuda_3d(
 
     Supported contracts:
     - standard expert layout: `(E, N, K)` with `K`-major input
-    - transposed expert view: `(E, K, N)` for the `32x1_t` path
+    - transposed expert view: `(E, K, N)` for the `*_t` paths
 
     `scale_block_dim1` applies to the tensor's middle dimension and
     `scale_block_dim2` applies to the trailing dimension of the chosen contract.
     Currently supported modes are:
     - `(32, 1)`: scales are shared across 32 values of the middle dimension
-    - `(32, 32)`: standard-layout path where scales are shared across 32 values
-      of the middle dimension and 32 values of the trailing dimension
+    - `(32, 32)`: scales are shared across 32 values of the middle dimension
+      and 32 values of the trailing dimension
 
     Returns quantized data in column-major-per-expert layout for the input's
     trailing two dimensions. Scales are returned either in logical form or in
@@ -1638,20 +1638,20 @@ def _check_flydsl_unsupported_params(
 def _check_flydsl_3d_unsupported_params(
     opname: str,
     *,
-    scale_block_n: int = 32,
-    scale_block_k: int = 1,
+    scale_block_dim1: int = 32,
+    scale_block_dim2: int = 1,
 ) -> None:
     """3D-specific validator. The 3D kernel implements both 32x1 and 32x32
     scale tiling and the tcgen05 blocked scale output, so it diverges from
     the 2D ``_check_flydsl_unsupported_params``.
     """
-    if scale_block_n != 32:
+    if scale_block_dim1 != 32:
         raise NotImplementedError(
-            f"{opname}: scale_block_n must be 32 (got {scale_block_n})."
+            f"{opname}: scale_block_dim1 must be 32 (got {scale_block_dim1})."
         )
-    if scale_block_k not in (1, 32):
+    if scale_block_dim2 not in (1, 32):
         raise NotImplementedError(
-            f"{opname}: scale_block_k must be 1 or 32 (got {scale_block_k})."
+            f"{opname}: scale_block_dim2 must be 1 or 32 (got {scale_block_dim2})."
         )
 
 
@@ -1664,8 +1664,8 @@ def _check_flydsl_3d_unsupported_params(
 def _mxfp8_quantize_3d_flydsl_custom_op(
     x: torch.Tensor,
     block_size: int = 32,
-    scale_block_n: int = 32,
-    scale_block_k: int = 1,
+    scale_block_dim1: int = 32,
+    scale_block_dim2: int = 1,
     scaling_mode: str = "rceil",
     stage_count: int = 2,
     blocked_scale_output: bool = False,
@@ -1676,14 +1676,14 @@ def _mxfp8_quantize_3d_flydsl_custom_op(
 
     _check_flydsl_3d_unsupported_params(
         "mxfp8_quantize_3d_flydsl",
-        scale_block_n=scale_block_n,
-        scale_block_k=scale_block_k,
+        scale_block_dim1=scale_block_dim1,
+        scale_block_dim2=scale_block_dim2,
     )
     del stage_count  # AMD has no TMA pipeline; ignored for API parity.
     return mxfp8_quantize_flydsl_3d(
         x,
         block_size=block_size,
-        scale_block_k=scale_block_k,
+        scale_block_k=scale_block_dim2,
         scaling_mode=scaling_mode,
         blocked_scale_output=blocked_scale_output,
     )
@@ -1693,16 +1693,16 @@ def _mxfp8_quantize_3d_flydsl_custom_op(
 def _fake_mxfp8_quantize_3d_flydsl_custom_op(
     x: torch.Tensor,
     block_size: int = 32,
-    scale_block_n: int = 32,
-    scale_block_k: int = 1,
+    scale_block_dim1: int = 32,
+    scale_block_dim2: int = 1,
     scaling_mode: str = "rceil",
     stage_count: int = 2,
     blocked_scale_output: bool = False,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     assert x.ndim == 3, "input tensor must be 3D"
     assert block_size == 32, "Only block_size=32 is supported"
-    assert scale_block_n == 32, "scale_block_n must be 32"
-    assert scale_block_k in (1, 32), "scale_block_k must be 1 or 32"
+    assert scale_block_dim1 == 32, "scale_block_dim1 must be 32"
+    assert scale_block_dim2 in (1, 32), "scale_block_dim2 must be 1 or 32"
     e, n, k = x.shape
     q_data = torch.empty_strided(
         (e, n, k),
@@ -1710,7 +1710,7 @@ def _fake_mxfp8_quantize_3d_flydsl_custom_op(
         device=x.device,
         dtype=torch.float8_e4m3fn,
     )
-    n_blocks = n // scale_block_n
+    n_blocks = n // scale_block_dim1
     if blocked_scale_output:
         padded_scale_rows = ceil_div(k, 128) * 128
         padded_scale_cols = ceil_div(n_blocks, 4) * 4
@@ -1720,7 +1720,7 @@ def _fake_mxfp8_quantize_3d_flydsl_custom_op(
         )
     else:
         scales = x.new_empty(
-            (e, n_blocks, k if scale_block_k == 1 else k // block_size),
+            (e, n_blocks, k if scale_block_dim2 == 1 else k // block_size),
             dtype=torch.float8_e8m0fnu,
         )
     return q_data, scales
@@ -1825,8 +1825,8 @@ def _fake_mxfp8_quantize_2d_32x1_flydsl_custom_op(
 def mxfp8_quantize_3d_flydsl(
     x: torch.Tensor,
     block_size: int = 32,
-    scale_block_n: Literal[32] = 32,
-    scale_block_k: Literal[1, 32] = 1,
+    scale_block_dim1: Literal[32] = 32,
+    scale_block_dim2: Literal[1, 32] = 1,
     scaling_mode: str = "rceil",
     stage_count: int = 2,
     blocked_scale_output: bool = False,
@@ -1841,8 +1841,8 @@ def mxfp8_quantize_3d_flydsl(
     return _mxfp8_quantize_3d_flydsl_custom_op(
         x,
         block_size=block_size,
-        scale_block_n=scale_block_n,
-        scale_block_k=scale_block_k,
+        scale_block_dim1=scale_block_dim1,
+        scale_block_dim2=scale_block_dim2,
         scaling_mode=scaling_mode,
         stage_count=stage_count,
         blocked_scale_output=blocked_scale_output,

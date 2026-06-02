@@ -69,6 +69,7 @@ class Float8Sparse2x4_1DData1DMetadataTensor(TorchAOBaseTensor):
         "original_shape",
         "act_quant_kwargs",
         "dtype",
+        "alg_id",
     ]
 
     def __new__(
@@ -79,6 +80,7 @@ class Float8Sparse2x4_1DData1DMetadataTensor(TorchAOBaseTensor):
         original_shape: Optional[Tuple[int, int]] = None,
         act_quant_kwargs: Optional[QuantizeTensorToFloat8Kwargs] = None,
         dtype: Optional[torch.dtype] = None,
+        alg_id: int = 0,
     ):
         assert original_shape is not None, "original_shape must be specified"
         kwargs = {}
@@ -95,6 +97,7 @@ class Float8Sparse2x4_1DData1DMetadataTensor(TorchAOBaseTensor):
         original_shape: Optional[Tuple[int, int]] = None,
         act_quant_kwargs: Optional[QuantizeTensorToFloat8Kwargs] = None,
         dtype: Optional[torch.dtype] = None,
+        alg_id: int = 0,
     ):
         super().__init__()
         self.qdata_and_metadata = qdata_and_metadata
@@ -102,6 +105,7 @@ class Float8Sparse2x4_1DData1DMetadataTensor(TorchAOBaseTensor):
         self.block_size = block_size
         self.original_shape = original_shape
         self.act_quant_kwargs = act_quant_kwargs
+        self.alg_id = alg_id
 
     def __repr__(self):
         return (
@@ -139,6 +143,7 @@ class Float8Sparse2x4_1DData1DMetadataTensor(TorchAOBaseTensor):
         hp_value_lb: Optional[float] = None,
         hp_value_ub: Optional[float] = None,
         act_quant_kwargs: Optional[QuantizeTensorToFloat8Kwargs] = None,
+        alg_id: int = 0,
     ):
         assert is_ROCM(), (
             "SPARSE_1D_DATA_1D_METADATA packing format is only supported on ROCm (hipSPARSELt)"
@@ -174,6 +179,7 @@ class Float8Sparse2x4_1DData1DMetadataTensor(TorchAOBaseTensor):
             original_shape=original_shape,
             act_quant_kwargs=act_quant_kwargs,
             dtype=hp_dtype,
+            alg_id=alg_id,
         )
 
 
@@ -191,6 +197,7 @@ def fp8_sparse_mm(
     alpha: torch.Tensor,
     out_features: int,
     min_size: int,
+    alg_id: int = 0,
 ) -> torch.Tensor:
     """Padded sparse matmul for hipSPARSELt with per-tensor FP8 scaling.
 
@@ -207,11 +214,12 @@ def fp8_sparse_mm(
         bias=bias,
         alpha=alpha,
         out_dtype=torch.float32,
+        alg_id=alg_id,
+        transpose_result=True,
     )
-    result = result.t()
     if to_pad:
         result = result.narrow(0, 0, batch)
-    return result.contiguous()
+    return result
 
 
 @fp8_sparse_mm.register_fake
@@ -222,6 +230,7 @@ def _fp8_sparse_mm_fake(
     alpha: torch.Tensor,
     out_features: int,
     min_size: int,
+    alg_id: int = 0,
 ) -> torch.Tensor:
     batch = dense.shape[0]
     return torch.empty(
@@ -281,6 +290,7 @@ def _(func, types, args, kwargs):
         weight_tensor.original_shape[0],
         # dense_min_rows == dense_min_cols == 16 for float8_e4m3fn
         constraints.dense_min_rows,
+        alg_id=weight_tensor.alg_id,
     )
 
     out_dtype = input_tensor.dtype

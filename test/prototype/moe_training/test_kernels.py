@@ -398,7 +398,7 @@ def test_triton_mx_block_rearrange_2d_K_groups(
 )
 @pytest.mark.parametrize(
     "variant",
-    ("32x1_n", "32x32_n", "32x1_t"),
+    ("32x1_n", "32x32_n", "32x1_t", "32x32_t"),
 )
 def test_cuda_mx_3d_cutedsl_numerics(E, N, K, input_dtype, scaling_mode, variant):
     if not _mxfp8_cutedsl_kernels_available:
@@ -408,7 +408,7 @@ def test_cuda_mx_3d_cutedsl_numerics(E, N, K, input_dtype, scaling_mode, variant
         "floor" if scaling_mode == ScaleCalculationMode.FLOOR else "rceil"
     )
     block_size = 32
-    scale_block_dim2 = 32 if variant == "32x32_n" else 1
+    scale_block_dim2 = 32 if variant in ("32x32_n", "32x32_t") else 1
 
     # Use disinct incrementing values from 0 to E*M*K-1 to make debugging easier.
     x = (
@@ -418,21 +418,46 @@ def test_cuda_mx_3d_cutedsl_numerics(E, N, K, input_dtype, scaling_mode, variant
     )
     x_t = x.transpose(-2, -1)
 
-    if variant == "32x1_t":
-        s_ref, y_ref = to_mx(
-            x.contiguous(),
-            elem_dtype=torch.float8_e4m3fn,
-            block_size=block_size,
-            scaling_mode=scaling_mode,
-        )
-        y_ref = y_ref.transpose(-2, -1)
-        s_ref = s_ref.transpose(-2, -1)
+    if variant in ("32x1_t", "32x32_t"):
+        if scale_block_dim2 == 1:
+            s_ref, y_ref = to_mx(
+                x.contiguous(),
+                elem_dtype=torch.float8_e4m3fn,
+                block_size=block_size,
+                scaling_mode=scaling_mode,
+            )
+            y_ref = y_ref.transpose(-2, -1)
+            s_ref = s_ref.transpose(-2, -1)
+        else:
+            x_tiles = (
+                x.view(E, N // block_size, block_size, K // block_size, block_size)
+                .permute(0, 1, 3, 2, 4)
+                .contiguous()
+                .view(E, N // block_size, K // block_size, block_size * block_size)
+            )
+            s_ref, y_tiles_ref = to_mx(
+                x_tiles,
+                elem_dtype=torch.float8_e4m3fn,
+                block_size=block_size * block_size,
+                scaling_mode=scaling_mode,
+            )
+            s_ref = s_ref.squeeze(-1)
+            y_ref = (
+                y_tiles_ref.view(
+                    E, N // block_size, K // block_size, block_size, block_size
+                )
+                .permute(0, 1, 3, 2, 4)
+                .contiguous()
+                .view(E, N, K)
+                .transpose(-2, -1)
+            )
+            s_ref = s_ref.transpose(-2, -1)
 
         y_unblocked, s_unblocked = mxfp8_quantize_cuda_3d(
             x_t,
             block_size=block_size,
             scale_block_dim1=block_size,
-            scale_block_dim2=1,
+            scale_block_dim2=scale_block_dim2,
             scaling_mode=scaling_mode_str,
             blocked_scale_output=False,
         )
@@ -446,23 +471,27 @@ def test_cuda_mx_3d_cutedsl_numerics(E, N, K, input_dtype, scaling_mode, variant
             x_t,
             block_size=block_size,
             scale_block_dim1=block_size,
-            scale_block_dim2=1,
+            scale_block_dim2=scale_block_dim2,
             scaling_mode=scaling_mode_str,
             blocked_scale_output=True,
         )
         s_rows, s_cols = x_t.shape[-1], x_t.shape[-2] // block_size
-        s_logical = (
-            torch.stack(
-                [
-                    from_blocked(s[e], s_rows, s_cols).view(torch.uint8)
-                    for e in range(E)
-                ],
-                dim=0,
+        s_blocked_full = torch.stack(
+            [from_blocked(s[e], s_rows, s_cols).view(torch.uint8) for e in range(E)],
+            dim=0,
+        ).view(torch.float8_e8m0fnu)
+        if scale_block_dim2 == 32:
+            s_ref_replicated = s_ref.transpose(-2, -1).repeat_interleave(
+                block_size, dim=1
             )
-            .view(torch.float8_e8m0fnu)
-            .transpose(-2, -1)
-            .to(s_ref.dtype)
-        )
+            torch.testing.assert_close(
+                s_blocked_full.to(s_ref.dtype), s_ref_replicated, rtol=0, atol=0
+            )
+            s_logical = (
+                s_blocked_full[:, ::block_size, :].transpose(-2, -1).to(s_ref.dtype)
+            )
+        else:
+            s_logical = s_blocked_full.transpose(-2, -1).to(s_ref.dtype)
         torch.testing.assert_close(s_logical, s_ref, rtol=0, atol=0)
         torch.testing.assert_close(y, y_ref, rtol=0, atol=0)
         assert y.stride() == y_ref.stride(), (
@@ -1229,8 +1258,8 @@ def test_amd_mx_3d_flydsl_numerics(
     y, s = mxfp8_quantize_3d_flydsl(
         x,
         block_size=block_size,
-        scale_block_n=block_size,
-        scale_block_k=scale_block_k,
+        scale_block_dim1=block_size,
+        scale_block_dim2=scale_block_k,
         scaling_mode=scaling_mode,
         blocked_scale_output=blocked_scale_output,
     )

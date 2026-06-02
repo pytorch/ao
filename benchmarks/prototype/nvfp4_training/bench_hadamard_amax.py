@@ -15,8 +15,12 @@ from tabulate import tabulate
 from tqdm import tqdm
 
 from benchmarks.utils import benchmark_cuda_function_in_microseconds
-from torchao.prototype.mx_formats.hadamard_amax_triton import _hadamard_amax_kernel
-from torchao.prototype.mx_formats.hadamard_utils import get_rht_matrix
+from torchao.prototype.moe_training.nvfp4_training.hadamard_amax_triton import (
+    _hadamard_amax_kernel,
+)
+from torchao.prototype.moe_training.nvfp4_training.hadamard_utils import (
+    get_rht_matrix,
+)
 
 device = torch.device("cuda")
 
@@ -26,6 +30,24 @@ BENCH_OUTPUT_BUFFER_COUNT = 1_000_000
 
 LLAMA_BATCH_SIZE = 1
 LLAMA_SEQ_LEN = 2048
+RHT_SIGN_VECTOR = (
+    1,
+    1,
+    1,
+    -1,
+    1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    1,
+    -1,
+    1,
+    -1,
+    -1,
+)
 
 
 @dataclass(frozen=True)
@@ -78,9 +100,7 @@ def run_experiment(config: ExperimentConfig) -> ExperimentResult:
             )
         )
 
-    rht_matrix = get_rht_matrix(
-        sign_vector=None, device=x.device, hadamard_dimension=16
-    ).to(torch.bfloat16)
+    rht_matrix = get_rht_matrix(RHT_SIGN_VECTOR, x.device, torch.bfloat16, 16)
     global_rht_amaxes = torch.zeros(
         BENCH_OUTPUT_BUFFER_COUNT, dtype=torch.float32, device=x.device
     )

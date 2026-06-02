@@ -57,8 +57,7 @@ def _embedding_byte(
 def _(func, types, args, kwargs):
     indices = args[0]
     weight = args[1]
-    tensor_impl = weight.tensor_impl
-    int_data, scale = tensor_impl.get_plain()
+    int_data, scale = weight.int_data, weight.scale
     block_size = (1, int_data.shape[-1])
     return torch.ops.torchao.embedding_byte(int_data, block_size, scale, indices)
 

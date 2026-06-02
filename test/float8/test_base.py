@@ -14,6 +14,7 @@ import torch
 import torch.nn as nn
 
 from torchao.float8.config import (
+    CastConfig,
     Float8LinearConfig,
     Float8LinearRecipeName,
     ScalingGranularity,
@@ -144,11 +145,16 @@ class TestFloat8TrainingTensor:
 
             fp8_a_transposed = fp8_a.transpose(0, 1)
             fp8_b_t = fp8_b.t()
+            expected_axiswise_dim = (
+                None if axiswise_dim is None else (-1 if axiswise_dim == 0 else 0)
+            )
 
             torch.testing.assert_close(
                 (fp8_a_transposed._data, fp8_a_transposed._scale),
                 (fp8_b_t._data, fp8_b_t._scale),
             )
+            assert fp8_a_transposed._axiswise_dim == expected_axiswise_dim
+            assert fp8_b_t._axiswise_dim == expected_axiswise_dim
 
     @pytest.mark.parametrize("shape", [(8, 16), (4, 8, 16), (2, 4, 8, 16)])
     @pytest.mark.parametrize("axiswise_dim", [0, -1])
@@ -453,6 +459,16 @@ class TestFloat8Linear:
         )
         s = m.__repr__()
         assert "i:dyn_ten_e4m3,w:dyn_ten_e4m3,go:dyn_ten_e5m2" in s
+
+    def test_mixed_precision_operands_raise(self):
+        with pytest.raises(
+            AssertionError,
+            match="incompatible operand precision for output",
+        ):
+            Float8LinearConfig(
+                cast_config_input=CastConfig(scaling_type=ScalingType.DISABLED),
+                cast_config_weight=CastConfig(scaling_type=ScalingType.DYNAMIC),
+            )
 
     @unittest.skipIf(not is_sm_at_least_89(), "CUDA 8.9 not available")
     def test_inference_mode(self):

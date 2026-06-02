@@ -25,6 +25,7 @@ __all__ = [
     "get_equivalent_types",
     "update_equivalent_types_dict",
     "bfs_trace_with_node_process",
+    "collect_producer_nodes",
 ]
 
 _EQUIVALENT_TYPES: list[set] = [
@@ -188,3 +189,22 @@ def bfs_trace_with_node_process(
             for _, submodule, _ in _get_control_flow_submodules(current_graph_module)
         ]
         queue.extend(control_flow_submodules)
+
+
+def collect_producer_nodes(node: Node) -> list[Node] | None:
+    """Trace a node's producer chain until input or getattr is reached."""
+    nodes = [node]
+    frontier = [node]
+    while frontier:
+        node = frontier.pop()
+        all_args = list(node.args) + list(node.kwargs.values())
+        for arg in all_args:
+            if not isinstance(arg, Node):
+                continue
+            if arg.op == "placeholder":
+                # hit input, can't fold in this case
+                return None
+            nodes.append(arg)
+            if not (arg.op == "call_function" and arg.target is getattr):
+                frontier.append(arg)
+    return nodes

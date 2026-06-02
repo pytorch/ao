@@ -360,6 +360,7 @@ def _quantize_then_scaled_grouped_mm(
     B_t: torch.Tensor,
     config: TrainingOpBaseConfig,
     offs: Optional[torch.Tensor] = None,
+    bias: Optional[torch.Tensor] = None,
 ) -> torch.Tensor:
     """
     This function performs dynamic quantization with the given config
@@ -389,15 +390,20 @@ def _quantize_then_scaled_grouped_mm(
             pad_token_groups_for_grouped_mm=config.pad_token_groups_for_grouped_mm,
         )
     elif isinstance(config, MXFP8TrainingOpConfig):
+        kwargs = {
+            "out_dtype": config.out_dtype,
+            "kernel_preference": config.kernel_preference,
+            "wgrad_with_hp": config.wgrad_with_hp,
+            "scale_calculation_mode": config.scale_calculation_mode,
+            "pad_token_groups_for_grouped_mm": config.pad_token_groups_for_grouped_mm,
+        }
+        if bias is not None:
+            kwargs["bias"] = bias
         return _to_mxfp8_then_scaled_grouped_mm(
             A,
             B_t,
             offs,
-            out_dtype=config.out_dtype,
-            kernel_preference=config.kernel_preference,
-            wgrad_with_hp=config.wgrad_with_hp,
-            scale_calculation_mode=config.scale_calculation_mode,
-            pad_token_groups_for_grouped_mm=config.pad_token_groups_for_grouped_mm,
+            **kwargs,
         )
     else:
         raise ValueError(f"Unsupported config type: {type(config)}")

@@ -6,6 +6,7 @@
 
 # mypy: allow-untyped-defs
 import itertools
+import sys
 import typing
 from dataclasses import dataclass
 from typing import Callable, NamedTuple, Optional
@@ -62,9 +63,10 @@ class QuantizationConfig:
 
 # Use Annotated because list[Callable].__module__ is read-only.
 OperatorPatternType = typing.Annotated[list[Callable], None]
-OperatorPatternType.__module__ = (
-    "torchao.quantization.pt2e.quantizer.xnnpack_quantizer_utils"
-)
+if sys.version_info < (3, 14):
+    OperatorPatternType.__module__ = (
+        "torchao.quantization.pt2e.quantizer.xnnpack_quantizer_utils"
+    )
 
 AnnotatorType = Callable[
     [

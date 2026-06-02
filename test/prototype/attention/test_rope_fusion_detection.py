@@ -13,7 +13,6 @@ RoPE pattern in the FX graph, independent of any GPU kernel or hardware.
 import contextlib
 import io
 import unittest
-from functools import partial
 
 import torch
 import torch._inductor.config as inductor_config
@@ -22,7 +21,7 @@ import torch.nn as nn
 from torchao.prototype.attention.shared_utils.custom_ops import (
     register_fp8_attention_ops,
 )
-from torchao.prototype.attention.shared_utils.fusion_utils import rope_sdpa_fusion_pass
+from torchao.prototype.attention.shared_utils.fusion_utils import RopeSDPAFusionPass
 
 
 # Register test-only custom ops with dummy implementations.
@@ -119,8 +118,7 @@ class TestRoPEFusionDetection(unittest.TestCase):
 
     def _run_fusion_pass(self, model, *args):
         """Compile model with fusion pass, return captured stdout."""
-        inductor_config.pre_grad_custom_pass = partial(
-            rope_sdpa_fusion_pass,
+        inductor_config.pre_grad_custom_pass = RopeSDPAFusionPass(
             rope_sdpa_op=_ops.rope_sdpa_op,
             fp8_sdpa_op=_ops.fp8_sdpa_op,
             backend_name="TEST",

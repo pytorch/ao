@@ -51,39 +51,13 @@ _SM100_KERNELS_AVAILABLE = (
 )
 
 
-def _validate_grouped_mm_input_act(
-    input_act: torch.Tensor,
-    block_size: int,
-) -> None:
-    if not isinstance(input_act, MXTensor):
-        return
-
-    assert input_act.elem_dtype == torch.float8_e4m3fn, (
-        f"Expected MXTensor with elem_dtype float8_e4m3fn, but got {input_act.elem_dtype}"
-    )
-    assert input_act.block_size == block_size, (
-        f"Expected MXTensor block_size={block_size}, but got {input_act.block_size}"
-    )
-    assert not input_act.is_swizzled_scales, (
-        "MXTensor input scales must be unswizzled for grouped GEMM"
-    )
-    assert input_act.qdata.ndim == 2, "MXTensor input_act data must be 2D"
-    assert input_act.scale.ndim == 2, "MXTensor input_act scale must be 2D"
-    assert input_act.scale.shape == (
-        input_act.shape[0],
-        input_act.shape[1] // block_size,
-    ), (
-        "MXTensor input scales must be rowwise with shape "
-        f"({input_act.shape[0]}, {input_act.shape[1] // block_size})"
-    )
-
-
 # Aliases for convenience/clarity
 @conditional_nostrict_trace
 def _to_mxfp8_then_scaled_grouped_mm(
     A: torch.Tensor,
     B_t: torch.Tensor,
     offs: Optional[torch.Tensor] = None,
+    bias: Optional[torch.Tensor] = None,
     out_dtype: Optional[torch.dtype] = torch.bfloat16,
     kernel_preference: KernelPreference = KernelPreference.AUTO,
     wgrad_with_hp: bool = False,
@@ -115,7 +89,7 @@ def _to_mxfp8_then_scaled_grouped_mm(
     # block_size is always 32 for MXFP8
     block_size = 32
     _validate_grouped_mm_input_act(A, block_size)
-    return _MXFP8GroupedMM.apply(
+    output = _MXFP8GroupedMM.apply(
         A,
         B_t,
         offs,
@@ -125,6 +99,13 @@ def _to_mxfp8_then_scaled_grouped_mm(
         scale_calculation_mode,
         pad_token_groups_for_grouped_mm,
     )
+
+    # add bias outside the autograd function so that autograd
+    # handles the bias gradient automatically.
+    if bias is not None:
+        output = output + bias.to(output.dtype)
+
+    return output
 
 
 class _MXFP8GroupedMM(torch.autograd.Function):
@@ -471,7 +452,7 @@ def _compute_wgrad(
             wgrad_with_hp,
         )
     else:
-        return __compute_wgrad_sm100(
+        return _compute_wgrad_sm100(
             grad_output,
             input_act,
             group_end_offsets,
@@ -728,7 +709,7 @@ def _compute_dgrad_emulated(
     return grad_input
 
 
-def __compute_wgrad_sm100(
+def _compute_wgrad_sm100(
     grad_output: torch.Tensor,
     input_act: torch.Tensor,
     group_end_offsets: torch.Tensor,
@@ -1078,3 +1059,30 @@ def _emulated_mxfp8_scaled_grouped_mm_2d_2d(
 
 def round_up(x, y):
     return ((x + y - 1) // y) * y
+
+
+def _validate_grouped_mm_input_act(
+    input_act: torch.Tensor,
+    block_size: int,
+) -> None:
+    if not isinstance(input_act, MXTensor):
+        return
+
+    assert input_act.elem_dtype == torch.float8_e4m3fn, (
+        f"Expected MXTensor with elem_dtype float8_e4m3fn, but got {input_act.elem_dtype}"
+    )
+    assert input_act.block_size == block_size, (
+        f"Expected MXTensor block_size={block_size}, but got {input_act.block_size}"
+    )
+    assert not input_act.is_swizzled_scales, (
+        "MXTensor input scales must be unswizzled for grouped GEMM"
+    )
+    assert input_act.qdata.ndim == 2, "MXTensor input_act data must be 2D"
+    assert input_act.scale.ndim == 2, "MXTensor input_act scale must be 2D"
+    assert input_act.scale.shape == (
+        input_act.shape[0],
+        input_act.shape[1] // block_size,
+    ), (
+        "MXTensor input scales must be rowwise with shape "
+        f"({input_act.shape[0]}, {input_act.shape[1] // block_size})"
+    )

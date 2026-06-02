@@ -1,5 +1,6 @@
 # mypy: allow-untyped-defs
 
+import sys
 from typing import Callable, Optional, Union
 
 import torch
@@ -91,12 +92,14 @@ for _f in [
 
 # ensure __module__ is set correctly for public APIs
 ObserverOrFakeQuantize = Union[ObserverBase, FakeQuantizeBase]
-ObserverOrFakeQuantize.__module__ = "torchao.quantization.pt2e"
+if sys.version_info < (3, 14):
+    ObserverOrFakeQuantize.__module__ = "torchao.quantization.pt2e"
 
 ObserverOrFakeQuantizeConstructor = Union[
     PartialWrapper, type[ObserverBase], type[FakeQuantizeBase]
 ]
-ObserverOrFakeQuantizeConstructor.__module__ = "torchao.quantization.pt2e"
+if sys.version_info < (3, 14):
+    ObserverOrFakeQuantizeConstructor.__module__ = "torchao.quantization.pt2e"
 
 
 __all__ = [

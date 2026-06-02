@@ -38,7 +38,7 @@ torch._dynamo.config.cache_size_limit = 1000
 class ExperimentConfig:
     input_shape: tuple[int]
     scaling_mode: ScaleCalculationMode
-    scale_block_k: int
+    variant: str
 
 
 @dataclass(frozen=True)
@@ -72,16 +72,16 @@ def get_configs() -> List[ExperimentConfig]:
         (32, 8192, 5120),
     ]
     round_modes = [ScaleCalculationMode.FLOOR, ScaleCalculationMode.RCEIL]
-    scale_block_ks = [1, 32]
+    variants = ["32x1_n", "32x1_t", "32x32_n", "32x32_t"]
     configs = []
-    for shape, scaling_mode, scale_block_k in itertools.product(
-        input_shapes, round_modes, scale_block_ks
+    for shape, scaling_mode, variant in itertools.product(
+        input_shapes, round_modes, variants
     ):
         configs.append(
             ExperimentConfig(
                 input_shape=shape,
                 scaling_mode=scaling_mode,
-                scale_block_k=scale_block_k,
+                variant=variant,
             )
         )
     return configs
@@ -89,7 +89,7 @@ def get_configs() -> List[ExperimentConfig]:
 
 def run_experiment(config: ExperimentConfig) -> ExperimentResult:
     block_size = 32
-    scale_block_k = config.scale_block_k
+    variant = config.variant
     input_shape = config.input_shape
     input_tensor = torch.randn(
         *input_shape,
@@ -97,16 +97,59 @@ def run_experiment(config: ExperimentConfig) -> ExperimentResult:
         device=device,
     )
 
+    def get_quant_input(x: torch.Tensor) -> torch.Tensor:
+        # The "*_t" benchmark rows feed (E, K, N) K-major expert weights
+        # directly into the transposed-input 3D kernel contracts.
+        if variant in ("32x1_t", "32x32_t"):
+            return x.transpose(-2, -1)
+        return x
+
     def using_to_mx(x: torch.Tensor) -> torch.Tensor:
-        if scale_block_k == 1:
+        if variant == "32x1_t":
+            x_t = x.transpose(-2, -1)
+            s_ref, y_ref = to_mx(
+                x_t.transpose(-2, -1).contiguous(),
+                elem_dtype=torch.float8_e4m3fn,
+                block_size=block_size,
+                scaling_mode=config.scaling_mode,
+            )
+            return y_ref.transpose(-2, -1), s_ref.transpose(-2, -1)
+
+        if variant == "32x32_t":
+            E, N, K = x.shape
+            x_tiles = (
+                x.view(E, N // block_size, block_size, K // block_size, block_size)
+                .permute(0, 1, 3, 2, 4)
+                .contiguous()
+                .view(E, N // block_size, K // block_size, block_size * block_size)
+            )
+            s_ref, y_tiles_ref = to_mx(
+                x_tiles,
+                elem_dtype=torch.float8_e4m3fn,
+                block_size=block_size * block_size,
+                scaling_mode=config.scaling_mode,
+            )
+            y_ref = (
+                y_tiles_ref.view(
+                    E, N // block_size, K // block_size, block_size, block_size
+                )
+                .permute(0, 1, 3, 2, 4)
+                .contiguous()
+                .view(E, N, K)
+                .transpose(-2, -1)
+            )
+            return y_ref, s_ref.squeeze(-1).transpose(-2, -1)
+
+        if variant == "32x1_n":
             s_ref, y_ref = to_mx(
                 x.transpose(-2, -1).contiguous(),
                 elem_dtype=torch.float8_e4m3fn,
                 block_size=block_size,
+                scaling_mode=config.scaling_mode,
             )
             return y_ref.transpose(-2, -1), s_ref.transpose(-2, -1)
 
-        assert scale_block_k == 32
+        assert variant == "32x32_n"
         E, N, K = x.shape
         x_tiles = (
             x.view(E, N // block_size, block_size, K // block_size, block_size)
@@ -118,6 +161,7 @@ def run_experiment(config: ExperimentConfig) -> ExperimentResult:
             x_tiles,
             elem_dtype=torch.float8_e4m3fn,
             block_size=block_size * block_size,
+            scaling_mode=config.scaling_mode,
         )
         y_ref = (
             y_tiles_ref.view(
@@ -138,8 +182,8 @@ def run_experiment(config: ExperimentConfig) -> ExperimentResult:
         input_tensor,
     )
 
-    # bench 2d dim1 kernel then transforming to col major — CUDA cuTeDSL only.
-    if scale_block_k == 1 and _mxfp8_cuda_kernels_available:
+    if variant == "32x1_n" and _mxfp8_cuda_kernels_available:
+        # bench 2d dim1 kernel then transforming to col major — CUDA cuTeDSL only.
         using_cuda_2d_c = torch.compile(_to_mxfp8_dim1_3d)
         using_cuda_2d_c(input_tensor)
         time_cuda_2d_us = benchmark_cuda_function_in_microseconds(
@@ -151,42 +195,49 @@ def run_experiment(config: ExperimentConfig) -> ExperimentResult:
     else:
         time_cuda_2d_us = float("nan")
 
+    quant_input = get_quant_input(input_tensor)
+    scale_block_dim1 = block_size
+    scale_block_dim2 = 1 if variant in ("32x1_t", "32x1_n") else block_size
+
     # bench 3d CuTeDSL kernel — CUDA only (SM 10.0+).
     if _mxfp8_cuda_kernels_available:
-        data_cuda_3d, scales_cuda_3d = mxfp8_quantize_cuda_3d(
-            input_tensor,
+        mxfp8_quantize_cuda_3d(
+            quant_input,
             block_size=block_size,
-            scale_block_n=block_size,
-            scale_block_k=scale_block_k,
+            scale_block_dim1=scale_block_dim1,
+            scale_block_dim2=scale_block_dim2,
             scaling_mode=str(config.scaling_mode.value),
         )
         time_cutedsl_3d_us = benchmark_cuda_function_in_microseconds(
             mxfp8_quantize_cuda_3d,
-            input_tensor,
+            quant_input,
             block_size=block_size,
-            scale_block_n=block_size,
-            scale_block_k=scale_block_k,
+            scale_block_dim1=scale_block_dim1,
+            scale_block_dim2=scale_block_dim2,
             scaling_mode=str(config.scaling_mode.value),
         )
     else:
         time_cutedsl_3d_us = float("nan")
 
-    # bench 3d FlyDSL kernel — supports both FLOOR and RCEIL on AMD.
+    # bench 3d FlyDSL kernel — AMD (CDNA3+) only; supports FLOOR and RCEIL.
+    # Same interface as mxfp8_quantize_cuda_3d. FlyDSL requires a contiguous
+    # row-major input, so the transposed "*_t" rows are made contiguous first.
     if _mxfp8_flydsl_kernels_available:
+        flydsl_input = quant_input.contiguous()
         mxfp8_quantize_3d_flydsl(
-            input_tensor,
+            flydsl_input,
             block_size=block_size,
-            scale_block_n=block_size,
-            scale_block_k=scale_block_k,
+            scale_block_dim1=scale_block_dim1,
+            scale_block_dim2=scale_block_dim2,
             scaling_mode=str(config.scaling_mode.value),
             blocked_scale_output=False,
         )
         time_flydsl_3d_us = benchmark_cuda_function_in_microseconds(
             mxfp8_quantize_3d_flydsl,
-            input_tensor,
+            flydsl_input,
             block_size=block_size,
-            scale_block_n=block_size,
-            scale_block_k=scale_block_k,
+            scale_block_dim1=scale_block_dim1,
+            scale_block_dim2=scale_block_dim2,
             scaling_mode=str(config.scaling_mode.value),
             blocked_scale_output=False,
         )
@@ -198,7 +249,7 @@ def run_experiment(config: ExperimentConfig) -> ExperimentResult:
     bytes_per_output_el = torch.finfo(torch.float8_e4m3fn).bits / 8
     bytes_per_scale_el = torch.finfo(torch.float8_e8m0fnu).bits / 8
 
-    read_bytes = input_tensor.numel() * bytes_per_input_el
+    read_bytes = quant_input.numel() * bytes_per_input_el
     # Use to_mx outputs as the byte-count reference (always available); the
     # cuda_3d outputs may be None on AMD where the cuTeDSL kernel is unavailable.
     write_bytes = (
@@ -228,7 +279,7 @@ def print_results(experiments: List[Experiment]):
     headers = [
         "input_shape",
         "scaling_mode",
-        "scale_block_k",
+        "variant",
         "cuda_2d_us",
         "cutedsl_3d_us",
         "flydsl_3d_us",
@@ -244,7 +295,7 @@ def print_results(experiments: List[Experiment]):
             [
                 str(experiment.config.input_shape),
                 str(experiment.config.scaling_mode),
-                str(experiment.config.scale_block_k),
+                experiment.config.variant,
                 experiment.result.cuda_2d_us,
                 experiment.result.cutedsl_3d_us,
                 experiment.result.flydsl_3d_us,
