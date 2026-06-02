@@ -186,13 +186,6 @@ def test_moe_qat_parallel(parallel_strategy, wrapper_cls, weight_config, activat
     ref_out = ref_model(ref_x)
     out = model(x)
 
-    # Validate output
-    assert torch.isfinite(ref_out).all(), "Reference output has non-finite values"
-    assert torch.isfinite(out).all(), "Output has non-finite values"
-    out_sqnr = compute_error(out, ref_out)
-    print(f"  output SQNR: {out_sqnr.item():.1f} dB")
-    assert out_sqnr.item() >= min_sqnr["out"], f"Output SQNR must be >= {min_sqnr['out']} dB, got {out_sqnr.item():.1f} dB"
-
     # Compute loss
     labels = torch.ones_like(ref_out)
     ref_loss = F.mse_loss(ref_out, labels)
@@ -201,6 +194,13 @@ def test_moe_qat_parallel(parallel_strategy, wrapper_cls, weight_config, activat
     # Backward
     ref_loss.backward()
     out_loss.backward()
+
+    # Validate output
+    assert torch.isfinite(ref_out).all(), "Reference output has non-finite values"
+    assert torch.isfinite(out).all(), "Output has non-finite values"
+    out_sqnr = compute_error(out, ref_out)
+    print(f"  output SQNR: {out_sqnr.item():.1f} dB")
+    assert out_sqnr.item() >= min_sqnr["out"], f"Output SQNR must be >= {min_sqnr['out']} dB, got {out_sqnr.item():.1f} dB"
 
     # Validate input gradient
     assert torch.isfinite(ref_x.grad).all(), "Reference input grad has non-finite values"
