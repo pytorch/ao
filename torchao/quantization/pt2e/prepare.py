@@ -25,6 +25,7 @@ from torchao.quantization.pt2e import (
     ObserverOrFakeQuantize,
 )
 from torchao.quantization.pt2e.fake_quantize import FixedQParamsFakeQuantize
+from torchao.quantization.pt2e.graph_utils import collect_producer_nodes
 from torchao.quantization.pt2e.observer import (
     FixedQParamsObserver,
     PartialWrapper,
@@ -416,6 +417,34 @@ def _get_obs_or_fq_map(
     return obs_or_fq_map
 
 
+def _is_mutable_buffer_arg(
+    model: torch.nn.Module,
+    node: Node,
+    arg: Node,
+) -> bool:
+    """Return whether arg is a mutating op destination backed by a module buffer."""
+    if (
+        node.op != "call_function"
+        or not hasattr(node.target, "_schema")
+        or len(node.args) == 0
+        or node.args[0] is not arg
+    ):
+        return False
+
+    if "copy_" not in str(node.target) and "put_" not in str(node.target):
+        return False
+
+    producer_nodes = collect_producer_nodes(arg)
+    if producer_nodes is None:
+        return False
+
+    named_buffers = dict(model.named_buffers(remove_duplicate=False))
+    return any(
+        producer.op == "get_attr" and str(producer.target) in named_buffers
+        for producer in producer_nodes
+    )
+
+
 def _maybe_insert_input_observer_for_arg_or_kwarg(
     node: Union[Node, Any],
     arg: Argument,
@@ -465,6 +494,10 @@ def _maybe_insert_input_observer_for_arg_or_kwarg(
     input_edge = (original_arg, node)
     if input_edge not in obs_or_fq_map:
         return new_arg
+
+    if _is_mutable_buffer_arg(model, node, original_arg):
+        return new_arg
+
     # input_edge needs to be observed
     input_edge_obs_or_fq = obs_or_fq_map[input_edge]
     if input_edge_obs_or_fq is None:
