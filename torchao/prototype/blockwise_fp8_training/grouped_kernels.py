@@ -91,6 +91,10 @@ def triton_fp8_blockwise_weight_quant_grouped_transposed_rhs(
         dtype=torch.float32,
         device=weight_t.device,
     )
+    # NOTE: intentionally done per expert for first pass functionality
+    # we use a known correct dennse quantization kernel
+    # this will be replaced with a native grouped quant kernel without
+    # changing the MoE frontend
     for expert_idx in range(E):
         expert_weight = weight_t[expert_idx].transpose(-2, -1).contiguous()
         q, scale = triton_fp8_blockwise_weight_quant_transposed_rhs(
@@ -161,6 +165,10 @@ def triton_fp8_blockwise_weight_quant_grouped_rhs(
         dtype=torch.float32,
         device=weight_t.device,
     )
+    # NOTE: intentionally done per expert for first pass functionality
+    # we use a known correct dennse quantization kernel
+    # this will be replaced with a native grouped quant kernel without
+    # changing the MoE frontend
     for expert_idx in range(E):
         expert_weight = weight_t[expert_idx].transpose(-2, -1).contiguous()
         q, scale = triton_fp8_blockwise_weight_quant_rhs(
@@ -194,7 +202,7 @@ def _(
     )
     return q_out, scale_out
 
-
+# NOTE: only for emulated backend, we can remove once we have native scaled grouped gemm
 def _expand_blockwise_scale(
     q_data: torch.Tensor,
     scale: torch.Tensor,
@@ -220,7 +228,8 @@ def _expand_blockwise_scale(
         f"Could not infer 1x128 scale orientation for q_data={q_data.shape}, scale={scale.shape}"
     )
 
-
+# NOTE: only for emulated backend, we can remove once we have native scaled grouped gemm
+# for correctness not performance
 def _emulated_blockwise_scaled_grouped_mm(
     a: torch.Tensor,
     b: torch.Tensor,
@@ -256,6 +265,7 @@ def blockwise_scaled_grouped_mm(
     assert _is_column_major(b), "blockwise_scaled_grouped_mm expected column-major B"
     assert offs is not None and offs.dtype == torch.int32, "offs must be int32"
     b_s = _prepare_grouped_rhs_scale(b_s, scale_recipe_b)
+    # this flag is here when if/when we can use pytorch scaled grouped mm with blockwuise
     if use_native_grouped_gemm:
         return F.scaled_grouped_mm(
             a,
