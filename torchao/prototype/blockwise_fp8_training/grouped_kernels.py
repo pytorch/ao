@@ -202,6 +202,7 @@ def _(
     )
     return q_out, scale_out
 
+
 # NOTE: only for emulated backend, we can remove once we have native scaled grouped gemm
 def _expand_blockwise_scale(
     q_data: torch.Tensor,
@@ -227,6 +228,7 @@ def _expand_blockwise_scale(
     raise AssertionError(
         f"Could not infer 1x128 scale orientation for q_data={q_data.shape}, scale={scale.shape}"
     )
+
 
 # NOTE: only for emulated backend, we can remove once we have native scaled grouped gemm
 # for correctness not performance
