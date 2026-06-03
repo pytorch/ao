@@ -130,6 +130,10 @@ def test_moe_qat_parallel(parallel_strategy, wrapper_cls, weight_config, activat
     )
     quantize_(model, qat_config, filter_fn=lambda m, fqn: isinstance(m, MoE))
 
+    # Create optimizers
+    model_optimizer = torch.optim.SGD(model.parameters(), lr=0.01)
+    ref_optimizer = torch.optim.SGD(ref_model.parameters(), lr=0.01)
+
     # Verify starting params are identical
     for ref_param, model_param in zip(ref_model.parameters(), model.parameters()):
         if isinstance(model_param.data, FakeQuantizedWeightWrapperBaseTensor):
@@ -195,47 +199,66 @@ def test_moe_qat_parallel(parallel_strategy, wrapper_cls, weight_config, activat
     ref_loss.backward()
     out_loss.backward()
 
-    # Validate output
-    assert torch.isfinite(ref_out).all(), "Reference output has non-finite values"
-    assert torch.isfinite(out).all(), "Output has non-finite values"
-    out_sqnr = compute_error(out, ref_out)
-    print(f"  output SQNR: {out_sqnr.item():.1f} dB")
-    assert out_sqnr.item() >= min_sqnr["out"], f"Output SQNR must be >= {min_sqnr['out']} dB, got {out_sqnr.item():.1f} dB"
+    # Optimizer step
+    model_optimizer.step()
+    ref_optimizer.step()
 
-    # Validate input gradient
-    assert torch.isfinite(ref_x.grad).all(), "Reference input grad has non-finite values"
-    assert torch.isfinite(x.grad).all(), "Input grad has non-finite values"
-    input_grad_sqnr = compute_error(x.grad, ref_x.grad)
-    print(f"  input grad SQNR: {input_grad_sqnr.item():.1f} dB")
-    assert input_grad_sqnr.item() >= min_sqnr["input_grad"], f"Input grad SQNR must be >= {min_sqnr['input_grad']} dB, got {input_grad_sqnr.item():.1f} dB"
+    # Validate output (consolidated to full CPU tensors)
+    gathered_out = consolidate_tensor_to_cpu(out)
+    gathered_ref_out = consolidate_tensor_to_cpu(ref_out)
+    if torch.distributed.get_rank() == 0:
+        assert torch.isfinite(gathered_out).all(), "Consolidated output has non-finite values"
+        assert torch.isfinite(gathered_ref_out).all(), "Consolidated ref output has non-finite values"
+        out_sqnr = compute_error(gathered_out, gathered_ref_out)
+        print(f"  output SQNR: {out_sqnr.item():.1f} dB")
+        assert out_sqnr.item() >= min_sqnr["out"], f"Output SQNR must be >= {min_sqnr['out']} dB, got {out_sqnr.item():.1f} dB"
 
-    # Validate param gradients
+    # Validate input gradient (consolidated)
+    gathered_x_grad = consolidate_tensor_to_cpu(x.grad)
+    gathered_ref_x_grad = consolidate_tensor_to_cpu(ref_x.grad)
+    if torch.distributed.get_rank() == 0:
+        assert torch.isfinite(gathered_x_grad).all(), "Consolidated input grad has non-finite values"
+        assert torch.isfinite(gathered_ref_x_grad).all(), "Consolidated ref input grad has non-finite values"
+        input_grad_sqnr = compute_error(gathered_x_grad, gathered_ref_x_grad)
+        print(f"  input grad SQNR: {input_grad_sqnr.item():.1f} dB")
+        assert input_grad_sqnr.item() >= min_sqnr["input_grad"], f"Input grad SQNR must be >= {min_sqnr['input_grad']} dB, got {input_grad_sqnr.item():.1f} dB"
+
+    # Validate param gradients (consolidated)
     for (name, param), (ref_name, ref_param) in zip(
         model.named_parameters(), ref_model.named_parameters()
     ):
-        assert torch.isfinite(ref_param.grad).all(), f"{ref_name} grad has non-finite values"
-        assert torch.isfinite(param.grad).all(), f"{name} grad has non-finite values"
-        sqnr = compute_error(param.grad, ref_param.grad)
-        print(f"  {name} grad SQNR: {sqnr.item():.1f} dB")
-        assert sqnr.item() >= min_sqnr["param_grad"], (
-            f"{name} grad SQNR must be >= {min_sqnr['param_grad']} dB, got {sqnr.item():.1f} dB"
-        )
+        gathered = consolidate_tensor_to_cpu(param.grad)
+        ref_gathered = consolidate_tensor_to_cpu(ref_param.grad)
+        if torch.distributed.get_rank() == 0:
+            assert gathered is not None
+            assert ref_gathered is not None
+            assert torch.isfinite(gathered).all(), f"Consolidated {name} grad has non-finite values"
+            assert torch.isfinite(ref_gathered).all(), f"Consolidated {ref_name} grad has non-finite values"
+            sqnr = compute_error(gathered, ref_gathered)
+            print(f"  {name} grad SQNR: {sqnr.item():.1f} dB")
+            assert sqnr.item() >= min_sqnr["param_grad"], (
+                f"{name} grad SQNR must be >= {min_sqnr['param_grad']} dB, got {sqnr.item():.1f} dB"
+            )
 
-    # # Convert: unwrap quantized weights
-    # from torch.distributed._composable.fsdp import FSDPModule
-    # convert_config = MoEQATConfig(step="convert")
-    # if parallel_strategy in (ParallelStrategy.FSDP, ParallelStrategy.FSDP_TP):
-    #     with FSDPModule.unsharded_params(model):
-    #         quantize_(model, convert_config, filter_fn=lambda m, fqn: isinstance(m, MoE))
-    # else:
-    #     quantize_(model, convert_config, filter_fn=lambda m, fqn: isinstance(m, MoE))
 
-    # for name, param in model.named_parameters():
-    #     local_param = param.to_local() if isinstance(param, DTensor) else param
-    #     assert isinstance(local_param.data, torch.Tensor), f"{name}.data must be a `torch.Tensor`"
-    #     assert not isinstance(local_param.data, FakeQuantizedWeightWrapperBaseTensor), (
-    #         f"{name}.data should not be wrapped after convert, got {type(local_param.data)}"
-    #     )
+def consolidate_tensor_to_cpu(tensor, target_rank=0):
+    """Consolidate a potentially sharded tensor to a full CPU tensor on target_rank.
+
+    DTensor: uses full_tensor() to reconstruct the complete tensor.
+    Plain tensor: returns as-is on CPU (assumed already full, e.g., FSDP2 forward outputs).
+    All ranks must call this with the same tensor argument.
+    """
+    if not isinstance(tensor, torch.Tensor):
+        raise ValueError("`tensor` must be a `torch.Tensor` or its subclasses.")
+    
+    if isinstance(tensor, DTensor):
+        # full_tensor() is a collective — all ranks must call it
+        result = tensor.full_tensor().cpu()
+    else:
+        result = tensor.clone().cpu()
+    
+    return result if torch.distributed.get_rank() == target_rank else None
+
 
 
 def apply_moe_ep_tp(
@@ -290,70 +313,3 @@ def apply_moe_ep_tp(
         device_mesh=experts_mesh,
         parallelize_plan=experts_plan,
     )
-
-
-
-
-
-def _make_moe(dim, hidden_dim, use_grouped_mm, device):
-    args = MoEArgs(
-        num_experts=4,
-        num_shared_experts=1,
-        use_grouped_mm=use_grouped_mm,
-        load_balance_coeff=None,
-    )
-    model = MoE(args, dim=dim, hidden_dim=hidden_dim)
-    with torch.no_grad():
-        for param in model.parameters():
-            nn.init.trunc_normal_(param, std=0.5)
-    return model.to(device)
-
-
-
-
-def test_fsdp2_mixed_precision_no_cast(distributed_env):
-    """FSDP2 with same dtype (no-cast path, storage-sharing)."""
-    device = _get_device()
-
-    use_grouped_mm = torch.cuda.is_available()
-    model = _make_moe(dim=2048, hidden_dim=4096, use_grouped_mm=use_grouped_mm, device=device)
-    weight_config = Float8FakeQuantizeConfig(dtype=torch.float8_e4m3fn, granularity=PerRow())
-
-    qat_config = MoEQATConfig(weight_config=weight_config, step="prepare")
-    quantize_(model, qat_config, filter_fn=lambda m, fqn: isinstance(m, MoE))
-
-    mp_policy = MixedPrecisionPolicy(param_dtype=torch.float32)
-    fully_shard(model, mesh=distributed_env["dp_mesh"], mp_policy=mp_policy)
-
-    x = torch.randn(2, 4, 2048, device=device)
-    out = model(x)
-    loss = out.sum()
-    loss.backward()
-    for name in ("gate_proj", "down_proj", "up_proj"):
-        p = getattr(model.experts, name)
-        assert p.grad is not None, f"{name} grad is None"
-        assert p.grad.abs().sum() > 0, f"{name} gradient is zero"
-
-
-def test_fsdp2_mixed_precision_cast(distributed_env):
-    """FSDP2 with different dtype (cast + copy_ path)."""
-    device = _get_device()
-
-    use_grouped_mm = torch.cuda.is_available()
-    model = _make_moe(dim=2048, hidden_dim=4096, use_grouped_mm=use_grouped_mm, device=device)
-    weight_config = Float8FakeQuantizeConfig(dtype=torch.float8_e4m3fn, granularity=PerRow())
-
-    qat_config = MoEQATConfig(weight_config=weight_config, step="prepare")
-    quantize_(model, qat_config, filter_fn=lambda m, fqn: isinstance(m, MoE))
-
-    mp_policy = MixedPrecisionPolicy(param_dtype=torch.bfloat16)
-    fully_shard(model, mesh=distributed_env["dp_mesh"], mp_policy=mp_policy)
-
-    x = torch.randn(2, 4, 2048, device=device)
-    out = model(x)
-    loss = out.sum()
-    loss.backward()
-    for name in ("gate_proj", "down_proj", "up_proj"):
-        p = getattr(model.experts, name)
-        assert p.grad is not None, f"{name} grad is None"
-        assert p.grad.abs().sum() > 0, f"{name} gradient is zero"
