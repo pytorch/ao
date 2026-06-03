@@ -99,8 +99,11 @@ class ParallelStrategy:
 ])
 def test_moe_qat_parallel(parallel_strategy, wrapper_cls, weight_config, activation_config, min_sqnr, use_compile, distributed_env, fixed_model_and_input):
 
-    if use_compile and parallel_strategy == ParallelStrategy.EXPERT_TENSOR_PARALLEL:
-        pytest.skip("torch.compile does not support device_mesh._get_submesh")
+    if use_compile:
+        if parallel_strategy == ParallelStrategy.EXPERT_TENSOR_PARALLEL:
+            pytest.skip("torch.compile does not support device_mesh._get_submesh")
+        if activation_config is not None:
+            pytest.skip("Currently activation fake-quant with DTensor is not compatible with torch.compile")
 
     base_model, base_x = fixed_model_and_input
 
