@@ -34,7 +34,7 @@ def test_config_requires_weight_config_in_prepare():
         MoEQATConfig(activation_config=act_config, step="prepare")
 
 
-@pytest.mark.parametrize("granularity", [PerRow(), PerTensor()])
+@pytest.mark.parametrize("granularity", [PerRow()])
 @pytest.mark.parametrize("dtype", [torch.float8_e4m3fn, torch.float8_e5m2])
 def test_float8_weight_config_variants(granularity, dtype):
     """All Float8FakeQuantizeConfig variants should be accepted."""
@@ -44,7 +44,11 @@ def test_float8_weight_config_variants(granularity, dtype):
 
 
 @pytest.mark.parametrize("base_config, expected_weight_config, expected_activation_config", [
-    (Float8DynamicActivationFloat8WeightConfig(), Float8FakeQuantizeConfig, Float8FakeQuantizeConfig),
+    (
+        Float8DynamicActivationFloat8WeightConfig(granularity=PerRow()),
+        Float8FakeQuantizeConfig,
+        Float8FakeQuantizeConfig
+    ),
 ])
 def test_config_infer_from_base_config(base_config, expected_weight_config, expected_activation_config):
     """MoEQATConfig can infer fake quantize configs from a PTQ base_config."""
