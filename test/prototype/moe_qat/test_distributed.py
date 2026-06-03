@@ -119,7 +119,6 @@ def test_moe_qat_parallel(parallel_strategy, wrapper_cls, weight_config, activat
     # Reference model (no fake quantization)
     ref_model = copy.deepcopy(base_model)
     model = copy.deepcopy(base_model)
-    dim = model.experts.gate_proj.shape[-1]
 
     # Apply QAT to test model
     qat_config = MoEQATConfig(
