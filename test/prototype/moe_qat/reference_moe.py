@@ -1,3 +1,6 @@
+# Copied from test/prototype/moe_training/reference_moe.py
+# Tweaked a bit to allow it to also run on CPU.
+
 # Copyright (c) Meta Platforms, Inc. and affiliates.
 # All rights reserved.
 #
