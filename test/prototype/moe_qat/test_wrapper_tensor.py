@@ -899,6 +899,9 @@ def test_op_grouped_mm(wrapper_cls, weight_config, act_config, sqnr_threshold, d
 def test_op_grouped_mm_no_activation_fake_quantization(device):
     """grouped_mm with weight-only fake quantization. Run individually on CPU —
     the grouped_mm CPU backward corrupts state for subsequent fake-quantized calls."""
+    if device == "cpu":
+        pytest.skip("grouped_mm is not fully supported on CPU yet.")
+
     S, E, K, N = 16, 4, 1024, 2048  # total_tokens, experts, in_features, out_features
 
     A = torch.randn(S, K, requires_grad=True, device=device)
@@ -929,6 +932,9 @@ def test_op_grouped_mm_no_activation_fake_quantization(device):
 def test_op_grouped_mm_activation_fake_quantization(device):
     """grouped_mm with weight+activation fake quantization. Run individually on CPU —
     the grouped_mm CPU backward corrupts state for subsequent fake-quantized calls."""
+    if device == "cpu":
+        pytest.skip("grouped_mm is not fully supported on CPU yet.")
+
     S, E, K, N = 16, 4, 1024, 2048  # total_tokens, experts, in_features, out_features
 
     A = torch.randn(S, K, requires_grad=True, device=device)
@@ -967,31 +973,25 @@ def test_op_grouped_mm_activation_fake_quantization(device):
     (Float8FakeQuantizedWeightWrapperTensor, Float8FakeQuantizeConfig(), None),
     (Float8FakeQuantizedWeightWrapperTensor, Float8FakeQuantizeConfig(), Float8FakeQuantizeConfig()),
 ])
-@pytest.mark.parametrize("call_fn, A_shape, w_shape, kwargs", [
+@pytest.mark.parametrize("call_fn, A_shape, w_shape, kwargs, is_grouped_mm", [
     # torch.mm: weight stored as [N, K], transposed at call site
-    (lambda a, w: torch.mm(a, w.T),             (16, 64),    (128, 64),     {}),
+    (lambda a, w: torch.mm(a, w.T),             (16, 64),    (128, 64),     {},                                 False),
     # torch.matmul: same as mm
-    (lambda a, w: torch.matmul(a, w.T),         (16, 64),    (128, 64),     {}),
+    (lambda a, w: torch.matmul(a, w.T),         (16, 64),    (128, 64),     {},                                 False),
     # torch.bmm: weight stored as [B, N, K], transposed at call site
-    (lambda a, w: torch.bmm(a, w.transpose(-2, -1)), (4, 16, 64), (4, 128, 64),  {}),
+    (lambda a, w: torch.bmm(a, w.transpose(-2, -1)), (4, 16, 64), (4, 128, 64),  {},                           False),
     # F.linear: weight [N, K] at args[1], contracted dim=-1 (no transpose needed)
-    (lambda a, w: F.linear(a, w),               (16, 64),    (128, 64),     {}),
+    (lambda a, w: F.linear(a, w),               (16, 64),    (128, 64),     {},                                 False),
     # torch.addmm: weight stored as [N, K], transposed at call site
-    (lambda a, w, *, bias: torch.addmm(bias, a, w.T), (16, 64), (128, 64), {"bias_shape": (128,)}),
+    (lambda a, w, *, bias: torch.addmm(bias, a, w.T), (16, 64), (128, 64), {"bias_shape": (128,)},              False),
     # torch._grouped_mm: weight stored as [E, N, K], transposed at call site
-    (lambda a, w, *, offs: torch._grouped_mm(a, w.transpose(-2, -1), offs=offs), (16, 1024), (4, 2048, 1024), {"offs": torch.tensor([4, 4, 4, 4], dtype=torch.int32)}),
+    (lambda a, w, *, offs: torch._grouped_mm(a, w.transpose(-2, -1), offs=offs), (16, 1024), (4, 2048, 1024), {"offs": torch.tensor([4, 4, 4, 4], dtype=torch.int32)}, True),
 ])
-def test_compatibility_with_torch_compile(wrapper_cls, weight_config, act_config, call_fn, A_shape, w_shape, kwargs, dtype, device, fullgraph):
-    """torch.compile through a Python wrapper should match eager.
-
-    Wraps the op in a plain Python function before compiling. This is the
-    correct usage pattern: ``torch.compile(eager_forward)`` forces Dynamo to
-    trace through the Python call, which triggers ``__torch_function__``
-    dispatch on tensor subclasses.
-
-    Compiling a built-in C-extension directly may bypass
-    ``__torch_function__``, producing a false sense of correctness.
-    """
+def test_compatibility_with_torch_compile(wrapper_cls, weight_config, act_config, call_fn, A_shape, w_shape, kwargs, is_grouped_mm, dtype, device, fullgraph):
+    """torch.compile through a Python wrapper should match eager."""
+    if device == "cpu" and is_grouped_mm:
+        pytest.skip("grouped_mm is not fully supported on CPU yet.")
+    
     def prepare_arguments():
         A = torch.randn(*A_shape, dtype=dtype, device=device).requires_grad_(True)
         w = torch.randn(*w_shape, dtype=dtype, device=device).requires_grad_(True)
