@@ -366,7 +366,7 @@ class FakeQuantizedWeightWrapperBaseTensor(TorchAOBaseTensor):
             else:
                 # Otherwise, verify that `out` (pre-allocated unsharded param) has the
                 # mixed precision policy param_dtype, then copy `data` to `out`.
-                assert out_data.dtype == param_dtype, f"`out`(dtype={out_data.dtype}) dose not match the mixed precision policy param_dtype {param_dtype}"
+                assert out_data.dtype == param_dtype, f"`out`(dtype={out_data.dtype}) does not match the mixed precision policy param_dtype {param_dtype}"
                 out_data.copy_(data)
 
             return
