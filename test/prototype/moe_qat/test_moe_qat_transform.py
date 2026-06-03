@@ -183,7 +183,7 @@ def test_convert_unwraps(moe_model, weight_config, wrapper_cls):
 
 
 @pytest.mark.parametrize("base_config, wrapper_cls", [
-    (Float8DynamicActivationFloat8WeightConfig(), Float8FakeQuantizedWeightWrapperTensor),
+    (Float8DynamicActivationFloat8WeightConfig(granularity=PerRow()), Float8FakeQuantizedWeightWrapperTensor),
 ])
 def test_config_prepare_with_base_config(moe_model, base_config, wrapper_cls):
     """Model can be prepared using base_config instead of explicit weight_config."""
