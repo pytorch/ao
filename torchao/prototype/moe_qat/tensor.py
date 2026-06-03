@@ -516,8 +516,9 @@ class Float8FakeQuantizedWeightWrapperTensor(FakeQuantizedWeightWrapperBaseTenso
     def _fake_quantize(
         cls, weight: torch.Tensor,
         config: Float8FakeQuantizeConfig,
-        granularity: Granularity,
+        granularity: PerRow,
     ) -> torch.Tensor:
+        assert weight.stride(granularity.dim) == 1, "Fake-quantized dim should be contiguous."
         original_dtype = weight.dtype
         block_size = get_block_size(weight.shape, granularity)
         scale = _choose_scale_float8(
