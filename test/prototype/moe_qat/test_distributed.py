@@ -209,7 +209,6 @@ def test_moe_qat_parallel(parallel_strategy, wrapper_cls, weight_config, activat
         assert torch.isfinite(gathered_out).all(), "Consolidated output has non-finite values"
         assert torch.isfinite(gathered_ref_out).all(), "Consolidated ref output has non-finite values"
         out_sqnr = compute_error(gathered_out, gathered_ref_out)
-        print(f"  output SQNR: {out_sqnr.item():.1f} dB")
         assert out_sqnr.item() >= min_sqnr["out"], f"Output SQNR must be >= {min_sqnr['out']} dB, got {out_sqnr.item():.1f} dB"
 
     # Validate input gradient (consolidated)
@@ -219,7 +218,6 @@ def test_moe_qat_parallel(parallel_strategy, wrapper_cls, weight_config, activat
         assert torch.isfinite(gathered_x_grad).all(), "Consolidated input grad has non-finite values"
         assert torch.isfinite(gathered_ref_x_grad).all(), "Consolidated ref input grad has non-finite values"
         input_grad_sqnr = compute_error(gathered_x_grad, gathered_ref_x_grad)
-        print(f"  input grad SQNR: {input_grad_sqnr.item():.1f} dB")
         assert input_grad_sqnr.item() >= min_sqnr["input_grad"], f"Input grad SQNR must be >= {min_sqnr['input_grad']} dB, got {input_grad_sqnr.item():.1f} dB"
 
     # Validate param gradients (consolidated)
@@ -234,7 +232,6 @@ def test_moe_qat_parallel(parallel_strategy, wrapper_cls, weight_config, activat
             assert torch.isfinite(gathered).all(), f"Consolidated {name} grad has non-finite values"
             assert torch.isfinite(ref_gathered).all(), f"Consolidated {ref_name} grad has non-finite values"
             sqnr = compute_error(gathered, ref_gathered)
-            print(f"  {name} grad SQNR: {sqnr.item():.1f} dB")
             assert sqnr.item() >= min_sqnr["param_grad"], (
                 f"{name} grad SQNR must be >= {min_sqnr['param_grad']} dB, got {sqnr.item():.1f} dB"
             )
