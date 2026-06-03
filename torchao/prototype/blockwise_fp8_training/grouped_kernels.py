@@ -55,6 +55,17 @@ def _prepare_grouped_rhs_scale(
     return _prepare_grouped_128x128_scale(scale)
 
 
+def _to_scaling_type_enum(scale_recipe: int):
+    scale_recipe_value = _scaling_type_value(scale_recipe)
+    for scaling_type in (
+        BLOCKWISE_1X128_SCALING_TYPE,
+        BLOCKWISE_128X128_SCALING_TYPE,
+    ):
+        if scale_recipe_value == _scaling_type_value(scaling_type):
+            return scaling_type
+    raise ValueError(f"Unsupported blockwise scaling recipe: {scale_recipe}")
+
+
 @torch.library.custom_op(
     "torchao::triton_fp8_blockwise_weight_quant_grouped_transposed_rhs",
     mutates_args=(),
@@ -92,7 +103,7 @@ def triton_fp8_blockwise_weight_quant_grouped_transposed_rhs(
         device=weight_t.device,
     )
     # NOTE: intentionally done per expert for first pass functionality
-    # we use a known correct dennse quantization kernel
+    # we use a known correct dense quantization kernel
     # this will be replaced with a native grouped quant kernel without
     # changing the MoE frontend
     for expert_idx in range(E):
@@ -166,7 +177,7 @@ def triton_fp8_blockwise_weight_quant_grouped_rhs(
         device=weight_t.device,
     )
     # NOTE: intentionally done per expert for first pass functionality
-    # we use a known correct dennse quantization kernel
+    # we use a known correct dense quantization kernel
     # this will be replaced with a native grouped quant kernel without
     # changing the MoE frontend
     for expert_idx in range(E):
@@ -267,15 +278,15 @@ def blockwise_scaled_grouped_mm(
     assert _is_column_major(b), "blockwise_scaled_grouped_mm expected column-major B"
     assert offs is not None and offs.dtype == torch.int32, "offs must be int32"
     b_s = _prepare_grouped_rhs_scale(b_s, scale_recipe_b)
-    # this flag is here when if/when we can use pytorch scaled grouped mm with blockwuise
+    # this flag is here for when we can use pytorch scaled grouped mm with blockwise
     if use_native_grouped_gemm:
         return F.scaled_grouped_mm(
             a,
             b,
             a_s,
-            scale_recipe_a,
+            _to_scaling_type_enum(scale_recipe_a),
             b_s,
-            scale_recipe_b,
+            _to_scaling_type_enum(scale_recipe_b),
             offs=offs,
             output_dtype=out_dtype,
         )
