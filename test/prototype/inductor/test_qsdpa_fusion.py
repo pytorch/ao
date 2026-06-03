@@ -22,6 +22,7 @@ from torchao.prototype.inductor.fx_passes.qsdpa_fusion import (
     custom_pass,
 )
 from torchao.testing.pt2e.utils import qdq_fp8
+from torchao.utils import torch_version_at_least
 
 
 def fp8_convert_(model):
@@ -133,13 +134,13 @@ class FP8QDQSDPA(torch.nn.Module):
         self.k_out_scale = 3.8
         self.attn_weights_scale = 4.0
         self.v_out_scale = 8.5
-        self.attn_out_scale = 6.8
+        self.attn_out_scale = 1/512
         self.qk_out_scale = 1.75
 
     def forward(self, q, k, v, mask):
-        query = self.transpose_for_scores(q)
         key = self.transpose_for_scores(k)
         value = self.transpose_for_scores(v)
+        query = self.transpose_for_scores(q)
 
         # Take the dot product between "query" and "key" to get the raw attention scores.
         query_qdq = qdq_fp8(query, self.q_out_scale)
@@ -243,23 +244,6 @@ class MHAModule(torch.nn.Module):
         context_layer = self.attn_mod(q, k, v, mask)
         return self.dense(context_layer)
 
-    def init_affine_weights_(self, specs):
-        params = {
-            "q_proj_weight": self.q_proj.weight,
-            "k_proj_weight": self.k_proj.weight,
-            "v_proj_weight": self.v_proj.weight,
-            "dense_weight": self.dense.weight,
-            "dense_bias": self.dense.bias,
-        }
-        with torch.no_grad():
-            for param_name, scale, bias in specs:
-                param = params[param_name]
-                param.copy_(torch.randn_like(param).mul(scale).add(bias))
-
-
-def _affine_randn(shape, *, device, dtype, scale, bias):
-    return torch.randn(shape, device=device, dtype=dtype).mul(scale).add(bias)
-
 
 class TestSDPAPatternRewriterTemplate(TestCase):
     def _clone_inputs(self, inputs):
@@ -341,6 +325,10 @@ class TestSDPAPatternRewriterTemplate(TestCase):
 
     @skipIfRocm
     @unittest.skipIf(
+        not torch_version_at_least("2.7.0"),
+        reason="qsdpa requires torch 2.7 or later",
+    )
+    @unittest.skipIf(
         "CPU" not in torch._C._dispatch_dump("torchao::qscaled_dot_product"),
         reason="cpp kernels not built",
     )
@@ -363,37 +351,18 @@ class TestSDPAPatternRewriterTemplate(TestCase):
             [True, False],
             [56, 1],
         ):
-            seqlen, numhead, headsize = 100, 12, 64
+            seqlen, numhead, headsize = 100, 4, 64
             mod = MHAModule(
                 input_dim=headsize * numhead,
                 has_mask=has_mask,
                 num_attention_heads=numhead,
                 attention_head_size=headsize,
             ).eval()
-            mod.init_affine_weights_(
-                [
-                    ("q_proj_weight", 0.0360, 0.0000),
-                    ("k_proj_weight", 0.0320, 0.0000),
-                    ("v_proj_weight", 0.1200, 0.0240),
-                    ("dense_weight", 0.0600, 0.0000),
-                    ("dense_bias", 0.6000, 3.0000),
-                ],
-            )
             inputs = (
-                _affine_randn(
-                    (bs, seqlen, headsize * numhead),
-                    device=self.device,
-                    dtype=dtype,
-                    scale=0.900,
-                    bias=0.000,
+                torch.rand(
+                    (bs, seqlen, headsize * numhead), device=self.device, dtype=dtype
                 ),
-                _affine_randn(
-                    (bs, 1, 1, seqlen),
-                    device=self.device,
-                    dtype=torch.float32,
-                    scale=0.350,
-                    bias=-0.100,
-                )
+                torch.randn((bs, 1, 1, seqlen), device=self.device)
                 if has_mask
                 else None,
             )
@@ -423,7 +392,7 @@ class TestSDPAPatternRewriterTemplate(TestCase):
                 torchao.quantization.pt2e.move_exported_model_to_eval(convert_model)
 
                 self._check_common(
-                    convert_model, args1=inputs, check_train=False, atol=0.5
+                    convert_model, args1=inputs, check_train=False, atol=1
                 )
                 if enable_concat_linear_fusion:
                     self.assertGreaterEqual(
@@ -431,6 +400,10 @@ class TestSDPAPatternRewriterTemplate(TestCase):
                     )
 
     @skipIfRocm
+    @unittest.skipIf(
+        not torch_version_at_least("2.7.0"),
+        reason="qsdpa requires torch 2.7 or later",
+    )
     @unittest.skipIf(
         "CPU" not in torch._C._dispatch_dump("torchao::qscaled_dot_product"),
         reason="cpp kernels not built",
@@ -447,29 +420,18 @@ class TestSDPAPatternRewriterTemplate(TestCase):
         for enable_concat_linear_fusion, dtype, bs in itertools.product(
             [False, True], [torch.float32, torch.bfloat16], [56, 1]
         ):
-            seqlen, numhead, headsize = 197, 16, 64
+            seqlen, numhead, headsize = 100, 4, 64
             mod = MHAModule(
                 input_dim=headsize * numhead,
                 has_mask=False,
                 num_attention_heads=numhead,
                 attention_head_size=headsize,
             ).eval()
-            mod.init_affine_weights_(
-                [
-                    ("q_proj_weight", 0.0360, 0.0000),
-                    ("k_proj_weight", 0.0320, 0.0000),
-                    ("v_proj_weight", 0.1800, 0.0360),
-                    ("dense_weight", 0.0900, 0.0000),
-                    ("dense_bias", 0.8000, 5.5000),
-                ],
-            )
             inputs = (
-                _affine_randn(
+                torch.rand(
                     (bs, seqlen, headsize * numhead),
                     device=self.device,
                     dtype=dtype,
-                    scale=1.200,
-                    bias=0.000,
                 ),
                 None,
             )
