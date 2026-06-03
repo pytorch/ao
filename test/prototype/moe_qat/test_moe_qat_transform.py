@@ -108,7 +108,8 @@ def test_replace_params_recursive():
 ])
 def test_prepare_wraps_expert_weights(device, weight_config, wrapper_cls):
     """Prepare wraps expert weights with the configured tensor subclass."""
-    moe_model = create_moe_model(device, use_grouped_mm=(device == "cuda"))
+    # use_grouped_mm only affects the forward computation path — no forward run here.
+    moe_model = create_moe_model(device, use_grouped_mm=True)
     qat_config = MoEQATConfig(
         weight_config=weight_config,
         step="prepare",
@@ -129,7 +130,8 @@ def test_prepare_wraps_expert_weights(device, weight_config, wrapper_cls):
 ])
 def test_prepare_skips_non_expert_params(device, weight_config, wrapper_cls):
     """params_filter_fn excluding 2D params skips router.gate.weight."""
-    moe_model = create_moe_model(device, use_grouped_mm=(device == "cuda"))
+    # use_grouped_mm only affects the forward computation path — no forward run here.
+    moe_model = create_moe_model(device, use_grouped_mm=True)
     qat_config = MoEQATConfig(
         weight_config=weight_config,
         step="prepare",
@@ -155,7 +157,10 @@ def test_prepare_skips_non_expert_params(device, weight_config, wrapper_cls):
 ])
 def test_convert_unwraps(device, weight_config, wrapper_cls):
     """Convert unwraps all parameters and restores original weight values."""
-    moe_model = create_moe_model(device, use_grouped_mm=(device == "cuda"))
+
+    # use_grouped_mm only affects the forward computation path, which is
+    # never triggered here — only prepare/convert lifecycle is tested.
+    moe_model = create_moe_model(device, use_grouped_mm=True)
     model = copy.deepcopy(moe_model)
 
     qat_config = MoEQATConfig(
@@ -194,7 +199,9 @@ def test_convert_unwraps(device, weight_config, wrapper_cls):
 ])
 def test_config_prepare_with_base_config(device, base_config, wrapper_cls):
     """Model can be prepared using base_config instead of explicit weight_config."""
-    moe_model = create_moe_model(device, use_grouped_mm=(device == "cuda"))
+
+    # use_grouped_mm only affects the forward computation path — no forward run here.
+    moe_model = create_moe_model(device, use_grouped_mm=True)
     qat_config = MoEQATConfig(
         base_config=base_config,
         step="prepare",
@@ -230,7 +237,9 @@ def test_is_expert_filter():
 ])
 def test_is_expert_integration(device, weight_config, wrapper_cls):
     """_is_expert as filter_fn: only expert submodules are transformed, router skipped."""
-    moe_model = create_moe_model(device, use_grouped_mm=(device == "cuda"))
+    
+    # use_grouped_mm only affects the forward computation path — no forward run here.
+    moe_model = create_moe_model(device, use_grouped_mm=True)
     qat_config = MoEQATConfig(
         weight_config=weight_config,
         step="prepare",
@@ -262,7 +271,9 @@ def test_is_parameter_filter():
 ])
 def test_is_parameter_integration(device, weight_config, wrapper_cls):
     """Default filter (_is_parameter) wraps all parameters including 2D gate."""
-    moe_model = create_moe_model(device, use_grouped_mm=(device == "cuda"))
+
+    # use_grouped_mm only affects the forward computation path — no forward run here.
+    moe_model = create_moe_model(device, use_grouped_mm=True)
     qat_config = MoEQATConfig(weight_config=weight_config, step="prepare")
     quantize_(moe_model, qat_config, filter_fn=lambda m, fqn: isinstance(m, MoE))
 
@@ -273,13 +284,14 @@ def test_is_parameter_integration(device, weight_config, wrapper_cls):
     assert wrapped_count == 7, f"Expected 7 wrapped params, got {wrapped_count}"
 
 
+@pytest.mark.parametrize("device", target_devices)
 @pytest.mark.parametrize("weight_config, wrapper_cls", [
     (Float8FakeQuantizeConfig(), Float8FakeQuantizedWeightWrapperTensor)
 ])
-def test_is_parameter_with_wrapped_data_filter(weight_config, wrapper_cls):
+def test_is_parameter_with_wrapped_data_filter(device, weight_config, wrapper_cls):
     """_is_parameter_with_wrapped_data returns True only for wrapped nn.Parameters."""
 
-    w = torch.randn(64, 128)
+    w = torch.randn(64, 128, device=device)
     wrapped = wrapper_cls(w, weight_config=weight_config)
     wrapped_param = torch.nn.Parameter(wrapped)
     plain_param = torch.nn.Parameter(w)
@@ -296,7 +308,9 @@ def test_is_parameter_with_wrapped_data_filter(weight_config, wrapper_cls):
 @pytest.mark.parametrize("device", target_devices)
 def test_is_parameter_with_wrapped_data_integration(device, weight_config, wrapper_cls):
     """_is_parameter_with_wrapped_data as params_filter_fn: prepare then convert unwraps all."""
-    moe_model = create_moe_model(device, use_grouped_mm=(device == "cuda"))
+    
+    # use_grouped_mm only affects the forward computation path — no forward run here.
+    moe_model = create_moe_model(device, use_grouped_mm=True)
     qat_config = MoEQATConfig(
         weight_config=weight_config,
         step="prepare",
