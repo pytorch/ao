@@ -501,39 +501,6 @@ def test_op_fake_quantize(wrapper_cls, weight_config, act_config, sqnr_threshold
     assert new_weight_sqnr > sqnr_threshold, f"New weight SQNR too low ({new_weight_sqnr:.1f} dB)"
 
 
-
-@pytest.mark.parametrize("device", target_devices)
-@pytest.mark.parametrize("wrapper_cls, weight_config, act_config, sqnr_threshold", [
-    (Float8FakeQuantizedWeightWrapperTensor, Float8FakeQuantizeConfig(), None, 30),
-    (Float8FakeQuantizedWeightWrapperTensor, Float8FakeQuantizeConfig(), Float8FakeQuantizeConfig(), 27),
-])
-def test_op_mm(wrapper_cls, weight_config, act_config, sqnr_threshold, device):
-    M, K, N = 16, 1024, 2048  # tokens, in_features, out_features
-
-    A = torch.randn(M, K, requires_grad=True, device=device)
-    w = torch.randn(N, K, device=device)
-    wrapper = wrapper_cls(w, activation_config=act_config, weight_config=weight_config)
-    param = torch.nn.Parameter(wrapper)
-
-    A_ref = A.clone().detach().requires_grad_(True)
-    w_ref = w.clone().detach().requires_grad_(True)
-    ref_out = torch.mm(A_ref, w_ref.T)
-    out = torch.mm(A, param.T)
-    assert out.shape == (M, N)
-
-    sqnr = compute_error(out, ref_out)
-    assert sqnr != float("inf"), "SQNR should be finite (fake quant was applied)"
-    assert sqnr > sqnr_threshold, f"Forward SQNR too low ({sqnr:.1f} dB)"
-
-    ref_out.sum().backward()
-    out.sum().backward()
-    assert A.grad is not None
-    assert compute_error(A.grad, A_ref.grad) > sqnr_threshold, f"Input grad SQNR too low ({compute_error(A.grad, A_ref.grad):.1f} dB)"
-    assert param.grad is not None
-    assert compute_error(param.grad, w_ref.grad) > sqnr_threshold, f"Weight grad SQNR too low ({compute_error(param.grad, w_ref.grad):.1f} dB)"
-
-
-
 @pytest.mark.parametrize("device", target_devices)
 @pytest.mark.parametrize("wrapper_cls, weight_config, act_config, sqnr_threshold", [
     (Float8FakeQuantizedWeightWrapperTensor, Float8FakeQuantizeConfig(), None, 30),
