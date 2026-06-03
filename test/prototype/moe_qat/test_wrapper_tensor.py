@@ -99,7 +99,7 @@ def test_wrapper_init_rejects_invalid_activation_config(wrapper_cls, expected_ma
 ])
 def test_wrapper_deepcopy(wrapper_cls, weight_config, act_config, device):
     """deepcopy creates an independent wrapper with independent _data."""
-    w = torch.randn(64, 128, device=device)
+    w = torch.randn(128, 64, device=device)
     wrapper = wrapper_cls(w, activation_config=act_config, weight_config=weight_config)
 
     wrapper_copy = copy.deepcopy(wrapper)
@@ -127,10 +127,10 @@ def test_wrapper_deepcopy(wrapper_cls, weight_config, act_config, device):
                 r"please override `__torch_function__` in a tensor subclass for your intended derived dtype\."
             )
         ):
-            torch.mm(activation, wrapper_copy)
+            torch.mm(activation, wrapper_copy.T)
     else:
-        out = torch.mm(activation, wrapper)
-        out_copy = torch.mm(activation, wrapper_copy)
+        out = torch.mm(activation, wrapper.T)
+        out_copy = torch.mm(activation, wrapper_copy.T)
         assert torch.equal(out, out_copy), "The cloned tensor should yield identical results."
 
 
@@ -504,12 +504,12 @@ def test_wrapper_torch_function_B_not_wrapper(wrapper_cls, weight_config, func, 
     (Float8FakeQuantizedWeightWrapperTensor, Float8FakeQuantizeConfig(), Float8FakeQuantizeConfig()),
 ])
 @pytest.mark.parametrize("A_shape, w_shape, call_fn, kwargs", [
-    ((16, 64),     (64, 128),     lambda a, w: torch.mm(a, w),      {}),
-    ((16, 64),     (64, 128),     lambda a, w: torch.matmul(a, w),  {}),
-    ((16, 64),     (64, 128),     lambda a, w, *, bias: torch.addmm(bias, a, w),  {"bias_shape": (128,)}),
-    ((1, 16, 64),  (1, 64, 128),  lambda a, w: torch.bmm(a, w),     {}),
+    ((16, 64),     (128, 64),     lambda a, w: torch.mm(a, w.T),      {}),
+    ((16, 64),     (128, 64),     lambda a, w: torch.matmul(a, w.T),  {}),
+    ((16, 64),     (128, 64),     lambda a, w, *, bias: torch.addmm(bias, a, w.T),  {"bias_shape": (128,)}),
+    ((1, 16, 64),  (1, 128, 64),  lambda a, w: torch.bmm(a, w.transpose(-2, -1)),     {}),
     ((16, 64),     (128, 64),     lambda a, w: F.linear(a, w),      {}),
-    ((8, 1024),    (4, 1024, 2048), lambda a, w: torch._grouped_mm(a, w),  {}),
+    ((8, 1024),    (4, 2048, 1024), lambda a, w: torch._grouped_mm(a, w.transpose(-2, -1)),  {}),
 ])
 def test_wrapper_torch_function_activation_quantized_tensor(wrapper_cls, weight_config, act_config, A_shape, w_shape, call_fn, kwargs, device):
     """__torch_function__ asserts activation is not a TorchAOBaseTensor when act_config is set."""
@@ -558,11 +558,11 @@ def test_wrapper_torch_function_non_fake_quant_op(wrapper_cls, weight_config, de
 ])
 def test_activation_qat_empty_input(wrapper_cls, weight_config, act_config, device):
     """Activation fake quant is skipped for empty tensors (expert with 0 tokens)."""
-    w = torch.randn(64, 128, device=device)
+    w = torch.randn(128, 64, device=device)
     wrapper = wrapper_cls(w, activation_config=act_config, weight_config=weight_config)
     param = torch.nn.Parameter(wrapper)
     A = torch.randn(0, 64, device=device)
-    out = torch.mm(A, param)
+    out = torch.mm(A, param.T)
     assert out.shape == (0, 128), "Output should be empty when input is empty"
     assert out.numel() == 0
 
@@ -572,7 +572,7 @@ def test_activation_qat_empty_input(wrapper_cls, weight_config, act_config, devi
     (Float8FakeQuantizedWeightWrapperTensor, Float8FakeQuantizeConfig()),
 ])
 @pytest.mark.parametrize("call_fn, A_shape, w_shape, bias_shape", [
-    (lambda a, w, b: torch.addmm(b, a, w), (16, 64), (64, 128), (128,)),
+    (lambda a, w, b: torch.addmm(b, a, w.T), (16, 64), (128, 64), (128,)),
     (lambda a, w, b: F.linear(a, w, b),    (16, 64), (128, 64), (128,)),
 ])
 def test_bias_bypass(wrapper_cls, weight_config, call_fn, A_shape, w_shape, bias_shape, device):
@@ -600,7 +600,10 @@ def test_bias_bypass(wrapper_cls, weight_config, call_fn, A_shape, w_shape, bias
 ])
 def test_wrapper_fake_quantize(wrapper_cls, weight_config, granularity, device):
     """_fake_quantize applies FP8 fake quantization and returns a plain tensor."""
-    w = torch.randn(1024, 2048, device=device)
+    if granularity.dim in (-2, 0):
+        w = torch.randn(2048, 1024, device=device).T  # F-contiguous for PerRow(dim=-2)
+    else:
+        w = torch.randn(1024, 2048, device=device)  # C-contiguous for PerRow(dim=-1)
     result = wrapper_cls._fake_quantize(w, weight_config, granularity)
     assert type(result) is torch.Tensor
     assert result.shape == w.shape
@@ -619,12 +622,12 @@ def test_wrapper_fake_quantize(wrapper_cls, weight_config, granularity, device):
     # w_shape: (in_features, out_features), linear weight is (out_features, in_features)
     # kwargs: extra keyword arguments passed to call_fn
     # out_shape: (tokens, out_features) or (batch, tokens, out_features)
-    (lambda a, w: torch.mm(a, w),                         (16, 1024),     (1024, 2048),     (16, 2048),                             {}),
-    (lambda a, w: torch.bmm(a, w),                        (4, 16, 1024),  (4, 1024, 2048),  (4, 16, 2048),                          {}),
-    (lambda a, w: F.linear(a, w),                      (16, 1024),     (2048, 1024),     (16, 2048),                             {}),
-    (lambda a, w, *, bias=None: F.linear(a, w, bias),  (16, 1024),     (2048, 1024),     (16, 2048),     {"bias_shape": (2048,)}),
-    (lambda a, w: torch.matmul(a, w),                  (16, 1024),     (1024, 2048),     (16, 2048),                             {}),
-    (lambda a, w, *, bias: torch.addmm(bias, a, w),    (16, 1024),     (1024, 2048),     (16, 2048),     {"bias_shape": (2048,)}),
+    (lambda a, w: torch.mm(a, w.T),                         (16, 1024),     (2048, 1024),     (16, 2048),                             {}),
+    (lambda a, w: torch.bmm(a, w.transpose(-2, -1)),        (4, 16, 1024),  (4, 2048, 1024),  (4, 16, 2048),                          {}),
+    (lambda a, w: F.linear(a, w),                         (16, 1024),     (2048, 1024),     (16, 2048),                             {}),
+    (lambda a, w, *, bias=None: F.linear(a, w, bias),     (16, 1024),     (2048, 1024),     (16, 2048),     {"bias_shape": (2048,)}),
+    (lambda a, w: torch.matmul(a, w.T),                   (16, 1024),     (2048, 1024),     (16, 2048),                             {}),
+    (lambda a, w, *, bias: torch.addmm(bias, a, w.T),     (16, 1024),     (2048, 1024),     (16, 2048),     {"bias_shape": (2048,)}),
 ])
 @pytest.mark.parametrize("device", target_devices)
 def test_op_fake_quantize(wrapper_cls, weight_config, act_config, sqnr_threshold, call_fn, A_shape, w_shape, out_shape, kwargs, device):
@@ -707,20 +710,20 @@ def test_op_mm(wrapper_cls, weight_config, act_config, sqnr_threshold, device):
     M, K, N = 16, 1024, 2048  # tokens, in_features, out_features
 
     A = torch.randn(M, K, requires_grad=True, device=device)
-    w = torch.randn(K, N, device=device)
+    w = torch.randn(N, K, device=device)
     wrapper = wrapper_cls(w, activation_config=act_config, weight_config=weight_config)
     param = torch.nn.Parameter(wrapper)
 
     A_ref = A.clone().detach().requires_grad_(True)
     w_ref = w.clone().detach().requires_grad_(True)
-    ref_out = torch.mm(A_ref, w_ref)
-    out = torch.mm(A, param)
+    ref_out = torch.mm(A_ref, w_ref.T)
+    out = torch.mm(A, param.T)
     assert out.shape == (M, N)
 
     sqnr = compute_error(out, ref_out)
     assert sqnr != float("inf"), "SQNR should be finite (fake quant was applied)"
     assert sqnr > sqnr_threshold, f"Forward SQNR too low ({sqnr:.1f} dB)"
-    
+
     ref_out.sum().backward()
     out.sum().backward()
     assert A.grad is not None
@@ -739,14 +742,14 @@ def test_op_bmm(wrapper_cls, weight_config, act_config, sqnr_threshold, device):
     B, M, K, N = 4, 16, 1024, 2048  # batch, tokens, in_features, out_features
 
     A = torch.randn(B, M, K, requires_grad=True, device=device)
-    w = torch.randn(B, K, N, device=device)
+    w = torch.randn(B, N, K, device=device)
     wrapper = wrapper_cls(w, activation_config=act_config, weight_config=weight_config)
     param = torch.nn.Parameter(wrapper)
 
     A_ref = A.clone().detach().requires_grad_(True)
     w_ref = w.clone().detach().requires_grad_(True)
-    ref_out = torch.bmm(A_ref, w_ref)
-    out = torch.bmm(A, param)
+    ref_out = torch.bmm(A_ref, w_ref.transpose(-2, -1))
+    out = torch.bmm(A, param.transpose(-2, -1))
     assert out.shape == (B, M, N)
 
     sqnr = compute_error(out, ref_out)
@@ -803,14 +806,14 @@ def test_op_matmul(wrapper_cls, weight_config, act_config, sqnr_threshold, devic
     M, K, N = 16, 1024, 2048  # tokens, in_features, out_features
 
     A = torch.randn(M, K, requires_grad=True, device=device)
-    w = torch.randn(K, N, device=device)
+    w = torch.randn(N, K, device=device)
     wrapper = wrapper_cls(w, activation_config=act_config, weight_config=weight_config)
     param = torch.nn.Parameter(wrapper)
 
     A_ref = A.clone().detach().requires_grad_(True)
     w_ref = w.clone().detach().requires_grad_(True)
-    ref_out = torch.matmul(A_ref, w_ref)
-    out = torch.matmul(A, param)
+    ref_out = torch.matmul(A_ref, w_ref.T)
+    out = torch.matmul(A, param.T)
     assert out.shape == (M, N)
 
     sqnr = compute_error(out, ref_out)
@@ -835,15 +838,15 @@ def test_op_addmm(wrapper_cls, weight_config, act_config, sqnr_threshold, device
     M, K, N = 16, 1024, 2048  # tokens, in_features, out_features
 
     A = torch.randn(M, K, requires_grad=True, device=device)
-    w = torch.randn(K, N, device=device)
+    w = torch.randn(N, K, device=device)
     wrapper = wrapper_cls(w, activation_config=act_config, weight_config=weight_config)
     param = torch.nn.Parameter(wrapper)
 
     bias = torch.randn(N, device=device)
     A_ref = A.clone().detach().requires_grad_(True)
     w_ref = w.clone().detach().requires_grad_(True)
-    ref_out = torch.addmm(bias, A_ref, w_ref)
-    out = torch.addmm(bias, A, param)
+    ref_out = torch.addmm(bias, A_ref, w_ref.T)
+    out = torch.addmm(bias, A, param.T)
     assert out.shape == (M, N)
 
     sqnr = compute_error(out, ref_out)
@@ -869,15 +872,15 @@ def test_op_grouped_mm(wrapper_cls, weight_config, act_config, sqnr_threshold, d
     S, E, K, N = 16, 4, 1024, 2048  # total_tokens, experts, in_features, out_features
 
     A = torch.randn(S, K, requires_grad=True, device=device)
-    w = torch.randn(E, K, N, device=device)
+    w = torch.randn(E, N, K, device=device)
     wrapper = wrapper_cls(w, activation_config=act_config, weight_config=weight_config)
     param = torch.nn.Parameter(wrapper)
 
     offs = torch.tensor([4, 4, 4, 4], dtype=torch.int32)
     A_ref = A.clone().detach().requires_grad_(True)
     w_ref = w.clone().detach().requires_grad_(True)
-    ref_out = torch._grouped_mm(A_ref, w_ref, offs=offs)
-    out = torch._grouped_mm(A, param, offs=offs)
+    ref_out = torch._grouped_mm(A_ref, w_ref.transpose(-2, -1), offs=offs)
+    out = torch._grouped_mm(A, param.transpose(-2, -1), offs=offs)
     assert out.shape == (S, N)
 
     sqnr = compute_error(out, ref_out)
@@ -899,15 +902,15 @@ def test_op_grouped_mm_no_activation_fake_quantization(device):
     S, E, K, N = 16, 4, 1024, 2048  # total_tokens, experts, in_features, out_features
 
     A = torch.randn(S, K, requires_grad=True, device=device)
-    w = torch.randn(E, K, N, device=device)
+    w = torch.randn(E, N, K, device=device)
     wrapper = Float8FakeQuantizedWeightWrapperTensor(w, weight_config=Float8FakeQuantizeConfig())
     param = torch.nn.Parameter(wrapper)
 
     offs = torch.tensor([4, 4, 4, 4], dtype=torch.int32)
     A_ref = A.clone().detach().requires_grad_(True)
     w_ref = w.clone().detach().requires_grad_(True)
-    ref_out = torch._grouped_mm(A_ref, w_ref, offs=offs)
-    out = torch._grouped_mm(A, param, offs=offs)
+    ref_out = torch._grouped_mm(A_ref, w_ref.transpose(-2, -1), offs=offs)
+    out = torch._grouped_mm(A, param.transpose(-2, -1), offs=offs)
     assert out.shape == (S, N)
 
     sqnr = compute_error(out, ref_out)
@@ -929,7 +932,7 @@ def test_op_grouped_mm_activation_fake_quantization(device):
     S, E, K, N = 16, 4, 1024, 2048  # total_tokens, experts, in_features, out_features
 
     A = torch.randn(S, K, requires_grad=True, device=device)
-    w = torch.randn(E, K, N, device=device)
+    w = torch.randn(E, N, K, device=device)
     wrapper = Float8FakeQuantizedWeightWrapperTensor(
         w,
         activation_config=Float8FakeQuantizeConfig(),
@@ -940,8 +943,8 @@ def test_op_grouped_mm_activation_fake_quantization(device):
     offs = torch.tensor([4, 4, 4, 4], dtype=torch.int32)
     A_ref = A.clone().detach().requires_grad_(True)
     w_ref = w.clone().detach().requires_grad_(True)
-    ref_out = torch._grouped_mm(A_ref, w_ref, offs=offs)
-    out = torch._grouped_mm(A, param, offs=offs)
+    ref_out = torch._grouped_mm(A_ref, w_ref.transpose(-2, -1), offs=offs)
+    out = torch._grouped_mm(A, param.transpose(-2, -1), offs=offs)
     assert out.shape == (S, N)
 
     sqnr = compute_error(out, ref_out)
@@ -965,18 +968,18 @@ def test_op_grouped_mm_activation_fake_quantization(device):
     (Float8FakeQuantizedWeightWrapperTensor, Float8FakeQuantizeConfig(), Float8FakeQuantizeConfig()),
 ])
 @pytest.mark.parametrize("call_fn, A_shape, w_shape, kwargs", [
-    # torch.mm: weight [K, N] at args[1], contracted dim=-2
-    (lambda a, w: torch.mm(a, w),             (16, 64),    (64, 128),     {}),
+    # torch.mm: weight stored as [N, K], transposed at call site
+    (lambda a, w: torch.mm(a, w.T),             (16, 64),    (128, 64),     {}),
     # torch.matmul: same as mm
-    (lambda a, w: torch.matmul(a, w),         (16, 64),    (64, 128),     {}),
-    # torch.bmm: weight [B, K, N] at args[1], contracted dim=-2
-    (lambda a, w: torch.bmm(a, w),            (4, 16, 64), (4, 64, 128),  {}),
-    # F.linear: weight [N, K] at args[1], contracted dim=-1
-    (lambda a, w: F.linear(a, w),             (16, 64),    (128, 64),     {}),
-    # torch.addmm: weight [K, N] at args[2], contracted dim=-2
-    (lambda a, w, *, bias: torch.addmm(bias, a, w), (16, 64), (64, 128), {"bias_shape": (128,)}),
-    # torch._grouped_mm: weight [E, K, N] at args[1], S=16 tokens, E=4 experts
-    (lambda a, w, *, offs: torch._grouped_mm(a, w, offs=offs), (16, 1024), (4, 1024, 2048), {"offs": torch.tensor([4, 4, 4, 4], dtype=torch.int32)}),
+    (lambda a, w: torch.matmul(a, w.T),         (16, 64),    (128, 64),     {}),
+    # torch.bmm: weight stored as [B, N, K], transposed at call site
+    (lambda a, w: torch.bmm(a, w.transpose(-2, -1)), (4, 16, 64), (4, 128, 64),  {}),
+    # F.linear: weight [N, K] at args[1], contracted dim=-1 (no transpose needed)
+    (lambda a, w: F.linear(a, w),               (16, 64),    (128, 64),     {}),
+    # torch.addmm: weight stored as [N, K], transposed at call site
+    (lambda a, w, *, bias: torch.addmm(bias, a, w.T), (16, 64), (128, 64), {"bias_shape": (128,)}),
+    # torch._grouped_mm: weight stored as [E, N, K], transposed at call site
+    (lambda a, w, *, offs: torch._grouped_mm(a, w.transpose(-2, -1), offs=offs), (16, 1024), (4, 2048, 1024), {"offs": torch.tensor([4, 4, 4, 4], dtype=torch.int32)}),
 ])
 def test_compatibility_with_torch_compile(wrapper_cls, weight_config, act_config, call_fn, A_shape, w_shape, kwargs, dtype, device, fullgraph):
     """torch.compile through a Python wrapper should match eager.
