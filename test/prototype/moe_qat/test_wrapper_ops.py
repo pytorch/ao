@@ -396,10 +396,10 @@ def test_bias_bypass(wrapper_cls, weight_config, call_fn, A_shape, w_shape, bias
 
 @pytest.mark.parametrize("device", target_devices)
 @pytest.mark.parametrize("granularity", [PerRow(dim=-1), PerRow(dim=-2)])
-@pytest.mark.parametrize("wrapper_cls, weight_config", [
-    (Float8FakeQuantizedWeightWrapperTensor, Float8FakeQuantizeConfig()),
+@pytest.mark.parametrize("wrapper_cls, weight_config, sqnr_threshold", [
+    (Float8FakeQuantizedWeightWrapperTensor, Float8FakeQuantizeConfig(), 30),
 ])
-def test_wrapper_fake_quantize(wrapper_cls, weight_config, granularity, device):
+def test_wrapper_fake_quantize(wrapper_cls, weight_config, granularity, sqnr_threshold, device):
     """_fake_quantize applies FP8 fake quantization and returns a plain tensor."""
     if granularity.dim in (-2, 0):
         w = torch.randn(2048, 1024, device=device).T  # F-contiguous for PerRow(dim=-2)
@@ -411,7 +411,7 @@ def test_wrapper_fake_quantize(wrapper_cls, weight_config, granularity, device):
     assert result.dtype == w.dtype
     sqnr = compute_error(result, w)
     assert sqnr != float("inf"), "SQNR should be finite (fake quant was applied)"
-    assert sqnr > 30, f"SQNR too low ({sqnr:.1f} dB)"
+    assert sqnr > sqnr_threshold, f"SQNR too low ({sqnr:.1f} dB)"
 
 
 @pytest.mark.parametrize("wrapper_cls, weight_config, act_config, sqnr_threshold", [
