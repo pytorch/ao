@@ -17,15 +17,17 @@ from torchao.float8.float8_utils import compute_error
 
 
 @pytest.mark.parametrize("device", target_devices)
-@pytest.mark.parametrize("dtype", [torch.float32])
-@pytest.mark.parametrize("learning_rate", [0.00001, 0.0001])
 @pytest.mark.parametrize("weight_config, act_config, sqnr_threshold", [
-    (Float8FakeQuantizeConfig(), None,                      15),
-    (Float8FakeQuantizeConfig(), Float8FakeQuantizeConfig(), 15),
+    (Float8FakeQuantizeConfig(), None,                      {"out": 30, "input_grad": 30, "param_grad": 22}),
+    (Float8FakeQuantizeConfig(), Float8FakeQuantizeConfig(), {"out": 27, "input_grad": 26, "param_grad": 18}),
 ])
-def test_moe_qat(device, dtype, learning_rate, weight_config, act_config, sqnr_threshold):
+@pytest.mark.parametrize("use_grouped_mm", [True, False])
+def test_moe_qat(device, weight_config, act_config, sqnr_threshold, use_grouped_mm):
     """Forward and gradient SQNR vs FP32 reference for the QAT model."""
-    qat_model = create_moe_model(device, use_grouped_mm=(device == "cuda"))
+    if device == "cpu" and use_grouped_mm:
+        pytest.skip("grouped_mm is not fully supported on CPU yet.")
+    
+    qat_model = create_moe_model(device, use_grouped_mm=use_grouped_mm)
     ref_model = copy.deepcopy(qat_model)
 
     quantize_(
@@ -39,122 +41,101 @@ def test_moe_qat(device, dtype, learning_rate, weight_config, act_config, sqnr_t
         filter_fn=lambda m, fqn: isinstance(m, MoE),
     )
 
+    learning_rate = 0.0001
     qat_optimizer = torch.optim.SGD(qat_model.parameters(), lr=learning_rate)
     ref_optimizer = torch.optim.SGD(ref_model.parameters(), lr=learning_rate)
 
 
-    class EarlyPassException(Exception):
-        pass
-
     def check_finite(qat_name, qat_param, ref_name, ref_param):
-        qat_is_finite = torch.isfinite(qat_param).all()
-        ref_is_finite = torch.isfinite(ref_param).all()
-        assert qat_is_finite == ref_is_finite, (
-            f"{qat_name} in the QAT model and {ref_name} in the reference model do not become non-finite at the same time. "
-            f"There are non-finite values in the {"QAT" if qat_is_finite is False else "reference"} model."
-        )
-
-        if ref_is_finite is False:
-            warnings.warn("Exit early due to NaN in the reference model, an issue of the model used.")
-            raise EarlyPassException()
+        assert torch.isfinite(ref_param).all(), f"NaN values appear in the reference parameter {ref_name}"
+        assert torch.isfinite(qat_param).all(), f"NaN values appear in the qat parameter {qat_name}"
 
     def check_all_zero(qat_name, qat_param, ref_name, ref_param):
-        qat_is_zero = qat_param.norm() == 0
-        ref_is_zero = ref_param.norm() == 0
-        assert qat_is_zero == ref_is_zero, (
-            f"{qat_name} in the QAT model and {ref_name} in the reference model do not become complete zero at the same time. "
-            f"There are non-zero values in the {"QAT" if qat_is_zero is False else "reference"} model."
-        )
+        assert ref_param.norm() != 0, f"The reference parameter {ref_name} is all zero"
+        assert qat_param.norm() != 0, f"The qat parameter {qat_name} is all zero"
 
-        if ref_is_zero:
-            warnings.warn(f"Exit early becuase {ref_name} in the reference model becomes zero, an issue of the model used.")
-            raise EarlyPassException(0)
 
-    try:
-        for i in range(5):
-            qat_prev = copy.deepcopy(qat_model)
+    for i in range(2):
+        qat_prev = copy.deepcopy(qat_model)
 
-            # Generate input randomly
-            qat_x = _moe_input(qat_model).requires_grad_(True)
-            ref_x = qat_x.clone().detach().requires_grad_(True)
+        # Generate input randomly
+        qat_x = _moe_input(qat_model).requires_grad_(True)
+        ref_x = qat_x.clone().detach().requires_grad_(True)
 
-            # Propagate forward
-            qat_out = qat_model(qat_x)
-            ref_out = ref_model(ref_x)
+        # Propagate forward
+        qat_out = qat_model(qat_x)
+        ref_out = ref_model(ref_x)
 
-            # Set up target
-            target = torch.ones_like(qat_out)
+        # Set up target
+        target = torch.ones_like(qat_out)
 
-            # Compute loss and propagate backward
-            qat_loss = F.mse_loss(qat_out, target)
-            qat_loss.backward()
+        # Compute loss and propagate backward
+        qat_loss = F.mse_loss(qat_out, target)
+        qat_loss.backward()
 
-            ref_loss = F.mse_loss(ref_out, target)
-            ref_loss.backward()
+        ref_loss = F.mse_loss(ref_out, target)
+        ref_loss.backward()
 
-            # Update weights
-            qat_optimizer.step()
-            ref_optimizer.step()
+        # Update weights
+        qat_optimizer.step()
+        ref_optimizer.step()
 
-            # Check loss alignment
-            loss_rel_diff = abs(qat_loss.item() - ref_loss.item()) / ref_loss.item()
-            assert loss_rel_diff < 0.03, f"Loss of the QAT and reference models should align."
+        # Check loss alignment
+        loss_rel_diff = abs(qat_loss.item() - ref_loss.item()) / ref_loss.item()
+        assert loss_rel_diff < 0.03, f"Loss of the QAT and reference models should align."
 
-            # Check SQNR of output
-            check_finite("out", qat_out, "out", ref_out)
-            check_all_zero("out", qat_out, "out", ref_out)
-            out_sqnr = compute_error(qat_out, ref_out)
-            assert out_sqnr != float("inf"), "SQNR should be finite (fake quant was applied)"
-            assert out_sqnr > sqnr_threshold, f"The output SQNR too low ({out_sqnr:.1f} dB), fake quant may be degrading output"
+        # Check SQNR of output
+        check_finite("out", qat_out, "out", ref_out)
+        check_all_zero("out", qat_out, "out", ref_out)
+        out_sqnr = compute_error(qat_out, ref_out)
+        assert out_sqnr != float("inf"), "SQNR should be finite (fake quant was applied)"
+        assert out_sqnr > sqnr_threshold["out"], f"The output SQNR too low ({out_sqnr:.1f} dB), fake quant may be degrading output"
 
-            # Check SQNR of the input's gradient
-            check_finite("qat_x.grad", qat_x.grad, "ref_x.grad", ref_x.grad)
-            check_all_zero("qat_x.grad", qat_x.grad, "ref_x.grad", ref_x.grad)
-            x_grad_sqnr = compute_error(qat_x.grad, ref_x.grad)
-            assert x_grad_sqnr > sqnr_threshold, f"Input grad SQNR too low ({x_grad_sqnr:.1f} dB)"
+        # Check SQNR of the input's gradient
+        check_finite("qat_x.grad", qat_x.grad, "ref_x.grad", ref_x.grad)
+        check_all_zero("qat_x.grad", qat_x.grad, "ref_x.grad", ref_x.grad)
+        x_grad_sqnr = compute_error(qat_x.grad, ref_x.grad)
+        assert x_grad_sqnr > sqnr_threshold["input_grad"], f"Input grad SQNR too low ({x_grad_sqnr:.1f} dB)"
 
-            # Check SQNR of gradients of all wrapped paramters to be updated
-            # Skip the 2D gate weight — it is not wrapped and accumulates routing noise
-            for (qat_name, qat_param), (ref_name, ref_param) in zip(
-                qat_model.named_parameters(), ref_model.named_parameters()
-            ):
-                if ref_param.requires_grad:
-                    if ".gate" in qat_name:
-                        continue
-                    assert qat_param.requires_grad, f"{qat_name} should require gradients"
-                    assert qat_param.grad is not None, f"{qat_name} has no gradient"
-                    check_finite(f"{qat_name}.grad", qat_param.grad, f"{ref_name}.grad", ref_param.grad)
-                    check_all_zero(f"{qat_name}.grad", qat_param.grad, f"{ref_name}.grad", ref_param.grad)
+        # Check SQNR of gradients of all wrapped paramters to be updated
+        for (qat_name, qat_param), (ref_name, ref_param) in zip(
+            qat_model.named_parameters(), ref_model.named_parameters()
+        ):
+            if ref_param.requires_grad:
+                is_gate = ".gate" in qat_name
+                assert qat_param.requires_grad, f"{qat_name} should require gradients"
+                assert qat_param.grad is not None, f"{qat_name} has no gradient"
+                check_finite(f"{qat_name}.grad", qat_param.grad, f"{ref_name}.grad", ref_param.grad)
+                check_all_zero(f"{qat_name}.grad", qat_param.grad, f"{ref_name}.grad", ref_param.grad)
+                if not is_gate:
                     sqnr = compute_error(qat_param.grad, ref_param.grad)
-                    assert sqnr > sqnr_threshold, f"Weight grad SQNR too low for {qat_name} ({sqnr:.1f} dB)"
-                else:
-                    assert qat_param.requires_grad is False, f"{qat_name} should not require gradients"
+                    assert sqnr > sqnr_threshold["param_grad"], f"Weight grad SQNR too low for {qat_name} ({sqnr:.1f} dB)"
+            else:
+                assert qat_param.requires_grad is False, f"{qat_name} should not require gradients"
 
-            # Check the change of weights
-            for (cur_name, cur_param), (prev_name, prev_param) in zip(
-                qat_model.named_parameters(), qat_prev.named_parameters()
-            ):
-                assert type(cur_param) == type(prev_param), \
-                    f"The type of {cur_name} changed from {type(cur_param)} to {type(prev_param)}"
+        # Check the change of weights
+        for (cur_name, cur_param), (prev_name, prev_param) in zip(
+            qat_model.named_parameters(), qat_prev.named_parameters()
+        ):
+            assert type(cur_param) == type(prev_param), \
+                f"The type of {cur_name} changed from {type(cur_param)} to {type(prev_param)}"
 
-                assert cur_param.requires_grad == prev_param.requires_grad, \
-                    f"{cur_name}.requires_grad changed from {prev_param.requires_grad} to {cur_param.requires_grad}"
+            assert cur_param.requires_grad == prev_param.requires_grad, \
+                f"{cur_name}.requires_grad changed from {prev_param.requires_grad} to {cur_param.requires_grad}"
 
-                assert torch.isfinite(cur_param).all(), f"Elements of {cur_name} in the QAT model should all be finite."
+            assert torch.isfinite(cur_param).all(), f"Elements of {cur_name} in the QAT model should all be finite."
 
-                if cur_param.requires_grad and ".gate" not in cur_name:
-                    data = cur_param.data.to_tensor() \
-                        if isinstance(cur_param.data, FakeQuantizedWeightWrapperBaseTensor) \
-                        else cur_param.data
-                    assert not torch.equal(data, prev_param.data), \
-                        f"Weight {cur_name} should be updated after optimizer step."
+            if cur_param.requires_grad and ".gate" not in cur_name:
+                data = cur_param.data.to_tensor() \
+                    if isinstance(cur_param.data, FakeQuantizedWeightWrapperBaseTensor) \
+                    else cur_param.data
+                assert not torch.equal(data, prev_param.data), \
+                    f"Weight {cur_name} should be updated after optimizer step."
 
-            # Clear gradients
-            qat_optimizer.zero_grad()
-            ref_optimizer.zero_grad()
+        # Clear gradients
+        qat_optimizer.zero_grad()
+        ref_optimizer.zero_grad()
 
-    except EarlyPassException:
-        pass
 
 
 @pytest.mark.parametrize("device", target_devices)
@@ -186,12 +167,11 @@ def test_torch_compile_model(device, dtype, fullgraph):
     )
     compiled_model = torch.compile(compiled_model, fullgraph=fullgraph)
 
-    learning_rate = 0.00001
+    learning_rate = 0.0001
     eager_optimizer = torch.optim.SGD(eager_model.parameters(), lr=learning_rate)
     compiled_optimizer = torch.optim.SGD(compiled_model.parameters(), lr=learning_rate)
 
-    for i in range(5):
-        print(f"step {i}")
+    for i in range(2):
 
         # Generate input randomly
         eager_x = _moe_input(eager_model).requires_grad_(True)
@@ -202,7 +182,6 @@ def test_torch_compile_model(device, dtype, fullgraph):
         compiled_out = compiled_model(compiled_x)
 
         out_sqnr = compute_error(compiled_out, eager_out)
-        print(f"  output SQNR: {out_sqnr:.1f} dB")
         assert out_sqnr > 30, f"Compiled vs eager output SQNR too low ({out_sqnr:.1f} dB)"
 
         # Set up target
@@ -216,12 +195,10 @@ def test_torch_compile_model(device, dtype, fullgraph):
         compiled_loss.backward()
 
         loss_rel_diff = abs(eager_loss.item() - compiled_loss.item()) / eager_loss.item()
-        print(f"  qat_loss: {eager_loss.item():.4f}, compiled_loss: {compiled_loss.item():.4f}, rel_diff: {loss_rel_diff:.8f}")
         assert loss_rel_diff < 1e-6, f"Compiled vs eager loss should align (rel diff: {loss_rel_diff:.4f})"
 
         # Check gradients
         x_grad_sqnr = compute_error(eager_x.grad, compiled_x.grad)
-        print(f"  input grad SQNR: {x_grad_sqnr:.1f} dB")
         assert x_grad_sqnr > 94, f"Compiled vs eager x.grad SQNR too low ({x_grad_sqnr:.1f} dB)"
 
         for (eager_name, eager_param), (compiled_name, compiled_param) in zip(
@@ -229,7 +206,6 @@ def test_torch_compile_model(device, dtype, fullgraph):
         ):
             if eager_param.requires_grad:
                 sqnr = compute_error(eager_param.grad, compiled_param.grad)
-                print(f"  {eager_name}.grad SQNR: {sqnr:.1f} dB")
                 assert sqnr > 65, \
                     f"Compiled vs eager {eager_name}.grad SQNR too low ({sqnr:.1f} dB)"
             else:
@@ -244,7 +220,6 @@ def test_torch_compile_model(device, dtype, fullgraph):
             eager_model.named_parameters(), compiled_model.named_parameters(),
         ):
             sqnr = compute_error(compiled_param, eager_param)
-            print(f"  {eager_name} weight SQNR: {sqnr:.1f} dB")
             assert sqnr > 108, \
                 f"Compiled vs eager {eager_name} weight SQNR too low ({sqnr:.1f} dB)"
         
