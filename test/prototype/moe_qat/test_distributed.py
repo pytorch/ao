@@ -30,15 +30,8 @@ from .reference_moe import MoE, MoEArgs
 from .testing_utils import _expert_weight_filter, create_moe_model, target_devices
 from .reference_parallel_styles import ExpertParallel, ExpertTensorParallel, NoParallel, TensorParallel
 
-def _get_device():
-    if torch.cuda.is_available():
-        return torch.device(f"cuda:{torch.cuda.current_device()}")
-    return torch.device("cpu")
-
-
-@pytest.fixture(scope="module")
-def distributed_env():
-    rank = int(os.environ["RANK"])
+@pytest.fixture(scope="module", params=target_devices)
+def distributed_env(request):
     world_size = int(os.environ["WORLD_SIZE"])
 
     assert world_size == 4, (
@@ -47,11 +40,7 @@ def distributed_env():
     )
 
     torch.manual_seed(42)
-    torch.cuda.manual_seed_all(42)
-
-    device = _get_device()
-    if device.type == "cuda":
-        torch.cuda.set_device(rank)
+    device_type = request.param
 
     # Create meshes for different parallelization strategies:
     # - tp_mesh: 1D mesh for tensor parallel only
@@ -59,11 +48,11 @@ def distributed_env():
     # - dp_mesh: 1D mesh for FSDP only
     # - ep_tp_mesh: 2D mesh for combined EP and TP
     # - dp_tp_mesh: 2D mesh for combined FSDP and TP
-    tp_mesh = init_device_mesh(device.type, (world_size,), mesh_dim_names=("tp",))
-    ep_mesh = init_device_mesh(device.type, (world_size,), mesh_dim_names=("ep",))
-    dp_mesh = init_device_mesh(device.type, (world_size,), mesh_dim_names=("dp",))
-    ep_tp_mesh = init_device_mesh(device.type, (2, 2), mesh_dim_names=("ep", "tp"))
-    dp_tp_mesh = init_device_mesh(device.type, (2, 2), mesh_dim_names=("dp", "tp"))
+    tp_mesh = init_device_mesh(device_type, (world_size,), mesh_dim_names=("tp",))
+    ep_mesh = init_device_mesh(device_type, (world_size,), mesh_dim_names=("ep",))
+    dp_mesh = init_device_mesh(device_type, (world_size,), mesh_dim_names=("dp",))
+    ep_tp_mesh = init_device_mesh(device_type, (2, 2), mesh_dim_names=("ep", "tp"))
+    dp_tp_mesh = init_device_mesh(device_type, (2, 2), mesh_dim_names=("dp", "tp"))
 
     yield {
         "tp_mesh": tp_mesh,
@@ -71,15 +60,16 @@ def distributed_env():
         "dp_mesh": dp_mesh,
         "ep_tp_mesh": ep_tp_mesh,
         "dp_tp_mesh": dp_tp_mesh,
+        "device_type": device_type,
     }
 
     torch.distributed.destroy_process_group()
 
 
-@pytest.fixture(scope="module", params=target_devices)
-def fixed_model_and_input(request):
+@pytest.fixture(scope="module")
+def fixed_model_and_input(distributed_env):
     """Create a fixed MoE model and input once per device, so all strategies use identical starting conditions."""
-    device = torch.device(request.param)
+    device = torch.device(distributed_env["device_type"])
     model = create_moe_model(device, use_grouped_mm=(device.type == "cuda"))
     x = torch.randn(8, 64, model.experts.gate_proj.shape[-1], device=device)
     return model, x
@@ -95,6 +85,7 @@ class ParallelStrategy:
     FSDP_TP = "fsdp_tp"
 
 
+@pytest.mark.parametrize("use_compile", [False, True])
 @pytest.mark.parametrize("parallel_strategy", [
     ParallelStrategy.FSDP,
     ParallelStrategy.EXPERT_PARALLEL,
@@ -106,7 +97,10 @@ class ParallelStrategy:
     (Float8FakeQuantizedWeightWrapperTensor, Float8FakeQuantizeConfig(), None,                       {"out": 30, "input_grad": 31, "param_grad": 22}),
     (Float8FakeQuantizedWeightWrapperTensor, Float8FakeQuantizeConfig(), Float8FakeQuantizeConfig(), {"out": 28, "input_grad": 25, "param_grad": 16}),
 ])
-def test_moe_qat_parallel(parallel_strategy, wrapper_cls, weight_config, activation_config, min_sqnr, distributed_env, fixed_model_and_input):
+def test_moe_qat_parallel(parallel_strategy, wrapper_cls, weight_config, activation_config, min_sqnr, use_compile, distributed_env, fixed_model_and_input):
+
+    if use_compile and parallel_strategy == ParallelStrategy.EXPERT_TENSOR_PARALLEL:
+        pytest.skip("torch.compile does not support device_mesh._get_submesh")
 
     base_model, base_x = fixed_model_and_input
 
@@ -142,17 +136,36 @@ def test_moe_qat_parallel(parallel_strategy, wrapper_cls, weight_config, activat
             assert torch.equal(ref_param, model_param)
 
     # Apply parallelization based on strategy
+    # Strategy      Compilation Order           Rationale
+    # FSDP          Compile -> FSDP             Compiling after FSDP breaks tracing due to sharded dynamic weights.
+    # EP            EP -> Compile               Compiling must trace the dynamic All-to-All routing kernels.
+    # TP            TP -> Compile               Compiling must target the modified weight shapes and layouts.
+    # EP + TP       EP + TP -> Compile          Both structurally alter the layers; compile the final local graph.
+    # FSDP + TP     TP -> Compile -> FSDP       Standard "Sandwich Strategy".
     if parallel_strategy == ParallelStrategy.TENSOR_PARALLEL:
         apply_moe_ep_tp(model, tp_mesh=tp_mesh, ep_mesh=None, ep_tp_mesh=None)
         apply_moe_ep_tp(ref_model, tp_mesh=tp_mesh, ep_mesh=None, ep_tp_mesh=None)
+        if use_compile:
+            model = torch.compile(model)
+            ref_model = torch.compile(ref_model)
     elif parallel_strategy == ParallelStrategy.EXPERT_PARALLEL:
         apply_moe_ep_tp(model, tp_mesh=None, ep_mesh=ep_mesh, ep_tp_mesh=None)
         apply_moe_ep_tp(ref_model, tp_mesh=None, ep_mesh=ep_mesh, ep_tp_mesh=None)
+        if use_compile:
+            model = torch.compile(model)
+            ref_model = torch.compile(ref_model)
     elif parallel_strategy == ParallelStrategy.EXPERT_TENSOR_PARALLEL:
         tp_submesh = ep_tp_mesh["tp"]
         apply_moe_ep_tp(model, tp_mesh=tp_submesh, ep_mesh=ep_mesh, ep_tp_mesh=ep_tp_mesh)
         apply_moe_ep_tp(ref_model, tp_mesh=tp_submesh, ep_mesh=ep_mesh, ep_tp_mesh=ep_tp_mesh)
+        if use_compile:
+            model = torch.compile(model)
+            ref_model = torch.compile(ref_model)
     elif parallel_strategy == ParallelStrategy.FSDP:
+        if use_compile:
+            model = torch.compile(model)
+            ref_model = torch.compile(ref_model)
+        
         # FSDP only - use 1D dp mesh
         fsdp_config = {"mesh": dp_mesh}
         fully_shard(model, **fsdp_config)
@@ -165,6 +178,10 @@ def test_moe_qat_parallel(parallel_strategy, wrapper_cls, weight_config, activat
         # First apply TP
         apply_moe_ep_tp(model, tp_mesh=tp_submesh, ep_mesh=None, ep_tp_mesh=None)
         apply_moe_ep_tp(ref_model, tp_mesh=tp_submesh, ep_mesh=None, ep_tp_mesh=None)
+
+        if use_compile:
+            model = torch.compile(model)
+            ref_model = torch.compile(ref_model)
 
         # Then apply FSDP
         fsdp_config = {"mesh": dp_submesh}
