@@ -17,7 +17,7 @@ from torchao.quantization.quant_api import quantize_
 from torchao.utils import TorchAOBaseTensor
 
 from .reference_moe import MoE
-from .testing_utils import _expert_weight_filter, _set_seed, device, moe_model, target_devices, use_grouped_mm
+from .testing_utils import _expert_weight_filter, _set_seed, target_devices
 
 
 # =========================================================================

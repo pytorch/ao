@@ -80,7 +80,7 @@ def distributed_env():
 def fixed_model_and_input(request):
     """Create a fixed MoE model and input once per device, so all strategies use identical starting conditions."""
     device = torch.device(request.param)
-    model = create_moe_model(device)
+    model = create_moe_model(device, use_grouped_mm=(device.type == "cuda"))
     x = torch.randn(8, 64, model.experts.gate_proj.shape[-1], device=device)
     return model, x
 

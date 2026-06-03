@@ -17,38 +17,12 @@ def _set_seed():
     torch.cuda.manual_seed_all(42)
 
 
-@pytest.fixture
-def device():
-    return torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-
-@pytest.fixture
-def use_grouped_mm():
-    return torch.cuda.is_available()
-
-
-@pytest.fixture
-def moe_model(device, use_grouped_mm):
-    dim, hidden_dim = 512, 1024
-    args = MoEArgs(
-        num_experts=8,
-        num_shared_experts=0,
-        use_grouped_mm=use_grouped_mm,
-        load_balance_coeff=None,
-    )
-    model = MoE(args, dim=dim, hidden_dim=hidden_dim)
-    with torch.no_grad():
-        for param in model.parameters():
-            nn.init.trunc_normal_(param, std=0.5)
-    return model.to(device)
-
-
-def create_moe_model(device):
+def create_moe_model(device, use_grouped_mm):
     dim, hidden_dim = 1024, 2048
     args = MoEArgs(
         num_experts=8,
         num_shared_experts=2,
-        use_grouped_mm=(device == "cuda"),
+        use_grouped_mm=use_grouped_mm,
         load_balance_coeff=None,
     )
     model = MoE(args, dim=dim, hidden_dim=hidden_dim)

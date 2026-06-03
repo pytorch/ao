@@ -15,7 +15,7 @@ from torchao.quantization.granularity import PerRow, PerTensor
 from torchao.quantization.quant_api import Float8DynamicActivationFloat8WeightConfig, quantize_
 
 from .reference_moe import MoE
-from .testing_utils import _moe_input, _expert_weight_filter, _set_seed, device, moe_model, use_grouped_mm
+from .testing_utils import _moe_input, _expert_weight_filter, _set_seed, create_moe_model, target_devices
 
 from torchao.prototype.moe_qat.config import _is_expert
 from torchao.prototype.moe_qat.quantize import (
@@ -102,11 +102,13 @@ def test_replace_params_recursive():
 # Prepare / convert lifecycle
 # =========================================================================
 
+@pytest.mark.parametrize("device", target_devices)
 @pytest.mark.parametrize("weight_config, wrapper_cls", [
     (Float8FakeQuantizeConfig(), Float8FakeQuantizedWeightWrapperTensor),
 ])
-def test_prepare_wraps_expert_weights(moe_model, weight_config, wrapper_cls):
+def test_prepare_wraps_expert_weights(device, weight_config, wrapper_cls):
     """Prepare wraps expert weights with the configured tensor subclass."""
+    moe_model = create_moe_model(device, use_grouped_mm=(device == "cuda"))
     qat_config = MoEQATConfig(
         weight_config=weight_config,
         step="prepare",
@@ -121,11 +123,13 @@ def test_prepare_wraps_expert_weights(moe_model, weight_config, wrapper_cls):
     assert wrapped_count == 3, f"Expected 3 wrapped params, got {wrapped_count}"
 
 
+@pytest.mark.parametrize("device", target_devices)
 @pytest.mark.parametrize("weight_config, wrapper_cls", [
     (Float8FakeQuantizeConfig(), Float8FakeQuantizedWeightWrapperTensor),
 ])
-def test_prepare_skips_non_expert_params(moe_model, weight_config, wrapper_cls):
+def test_prepare_skips_non_expert_params(device, weight_config, wrapper_cls):
     """params_filter_fn excluding 2D params skips router.gate.weight."""
+    moe_model = create_moe_model(device, use_grouped_mm=(device == "cuda"))
     qat_config = MoEQATConfig(
         weight_config=weight_config,
         step="prepare",
@@ -145,11 +149,13 @@ def test_prepare_skips_non_expert_params(moe_model, weight_config, wrapper_cls):
     ), "router.gate.weight should not be wrapped"
 
 
+@pytest.mark.parametrize("device", target_devices)
 @pytest.mark.parametrize("weight_config, wrapper_cls", [
     (Float8FakeQuantizeConfig(), Float8FakeQuantizedWeightWrapperTensor),
 ])
-def test_convert_unwraps(moe_model, weight_config, wrapper_cls):
+def test_convert_unwraps(device, weight_config, wrapper_cls):
     """Convert unwraps all parameters and restores original weight values."""
+    moe_model = create_moe_model(device, use_grouped_mm=(device == "cuda"))
     model = copy.deepcopy(moe_model)
 
     qat_config = MoEQATConfig(
@@ -182,11 +188,13 @@ def test_convert_unwraps(moe_model, weight_config, wrapper_cls):
 
 
 
+@pytest.mark.parametrize("device", target_devices)
 @pytest.mark.parametrize("base_config, wrapper_cls", [
     (Float8DynamicActivationFloat8WeightConfig(granularity=PerRow()), Float8FakeQuantizedWeightWrapperTensor),
 ])
-def test_config_prepare_with_base_config(moe_model, base_config, wrapper_cls):
+def test_config_prepare_with_base_config(device, base_config, wrapper_cls):
     """Model can be prepared using base_config instead of explicit weight_config."""
+    moe_model = create_moe_model(device, use_grouped_mm=(device == "cuda"))
     qat_config = MoEQATConfig(
         base_config=base_config,
         step="prepare",
@@ -216,11 +224,13 @@ def test_is_expert_filter():
     assert not _is_expert(DummyModule(), "model.layers.0.attention")
 
 
+@pytest.mark.parametrize("device", target_devices)
 @pytest.mark.parametrize("weight_config, wrapper_cls", [
     (Float8FakeQuantizeConfig(), Float8FakeQuantizedWeightWrapperTensor),
 ])
-def test_is_expert_integration(moe_model, weight_config, wrapper_cls):
+def test_is_expert_integration(device, weight_config, wrapper_cls):
     """_is_expert as filter_fn: only expert submodules are transformed, router skipped."""
+    moe_model = create_moe_model(device, use_grouped_mm=(device == "cuda"))
     qat_config = MoEQATConfig(
         weight_config=weight_config,
         step="prepare",
@@ -246,11 +256,13 @@ def test_is_parameter_filter():
     assert _is_parameter(None, "any.fqn") is False
 
 
+@pytest.mark.parametrize("device", target_devices)
 @pytest.mark.parametrize("weight_config, wrapper_cls", [
     (Float8FakeQuantizeConfig(), Float8FakeQuantizedWeightWrapperTensor),
 ])
-def test_is_parameter_integration(moe_model, weight_config, wrapper_cls):
+def test_is_parameter_integration(device, weight_config, wrapper_cls):
     """Default filter (_is_parameter) wraps all parameters including 2D gate."""
+    moe_model = create_moe_model(device, use_grouped_mm=(device == "cuda"))
     qat_config = MoEQATConfig(weight_config=weight_config, step="prepare")
     quantize_(moe_model, qat_config, filter_fn=lambda m, fqn: isinstance(m, MoE))
 
@@ -258,7 +270,7 @@ def test_is_parameter_integration(moe_model, weight_config, wrapper_cls):
     for name, param in moe_model.named_parameters():
         if isinstance(param.data, wrapper_cls):
             wrapped_count += 1
-    assert wrapped_count == 4, f"Expected 4 wrapped params, got {wrapped_count}"
+    assert wrapped_count == 7, f"Expected 7 wrapped params, got {wrapped_count}"
 
 
 @pytest.mark.parametrize("weight_config, wrapper_cls", [
@@ -281,8 +293,10 @@ def test_is_parameter_with_wrapped_data_filter(weight_config, wrapper_cls):
 @pytest.mark.parametrize("weight_config, wrapper_cls", [
     (Float8FakeQuantizeConfig(), Float8FakeQuantizedWeightWrapperTensor),
 ])
-def test_is_parameter_with_wrapped_data_integration(moe_model, weight_config, wrapper_cls):
+@pytest.mark.parametrize("device", target_devices)
+def test_is_parameter_with_wrapped_data_integration(device, weight_config, wrapper_cls):
     """_is_parameter_with_wrapped_data as params_filter_fn: prepare then convert unwraps all."""
+    moe_model = create_moe_model(device, use_grouped_mm=(device == "cuda"))
     qat_config = MoEQATConfig(
         weight_config=weight_config,
         step="prepare",

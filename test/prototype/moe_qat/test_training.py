@@ -25,7 +25,7 @@ from torchao.float8.float8_utils import compute_error
 ])
 def test_moe_qat(device, dtype, learning_rate, weight_config, act_config, sqnr_threshold):
     """Forward and gradient SQNR vs FP32 reference for the QAT model."""
-    qat_model = create_moe_model(device)
+    qat_model = create_moe_model(device, use_grouped_mm=(device == "cuda"))
     ref_model = copy.deepcopy(qat_model)
 
     quantize_(
@@ -162,7 +162,7 @@ def test_moe_qat(device, dtype, learning_rate, weight_config, act_config, sqnr_t
 @pytest.mark.parametrize("fullgraph", [False, True])
 def test_torch_compile_model(device, dtype, fullgraph):
     """torch.compile on the full QAT model should match eager output."""
-    eager_model = create_moe_model(device)
+    eager_model = create_moe_model(device, use_grouped_mm=(device == "cuda"))
     compiled_model = copy.deepcopy(eager_model)
 
     quantize_(
