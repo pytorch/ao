@@ -539,7 +539,6 @@ def test_op_grouped_mm(wrapper_cls, weight_config, act_config, sqnr_threshold, d
 
 @pytest.mark.parametrize("fullgraph", [False, True])
 @pytest.mark.parametrize("device", target_devices)
-@pytest.mark.parametrize("dtype", [torch.float32, ])
 @pytest.mark.parametrize("wrapper_cls, weight_config, act_config", [
     (Float8FakeQuantizedWeightWrapperTensor, Float8FakeQuantizeConfig(), None),
     (Float8FakeQuantizedWeightWrapperTensor, Float8FakeQuantizeConfig(), Float8FakeQuantizeConfig()),
@@ -560,20 +559,20 @@ def test_op_grouped_mm(wrapper_cls, weight_config, act_config, sqnr_threshold, d
         "offs": torch.tensor([4, 4, 4, 4], dtype=torch.int32), "_skip_cpu": True
     }),
 ])
-def test_compatibility_with_torch_compile(wrapper_cls, weight_config, act_config, call_fn, A_shape, w_shape, kwargs, dtype, device, fullgraph):
+def test_compatibility_with_torch_compile(wrapper_cls, weight_config, act_config, call_fn, A_shape, w_shape, kwargs, device, fullgraph):
     """torch.compile through a Python wrapper should match eager."""
     if device == "cpu" and kwargs.get("_skip_cpu", False):
         pytest.skip("grouped_mm is not fully supported on CPU yet.")
-    
+
     def prepare_arguments():
-        A = torch.randn(*A_shape, dtype=dtype, device=device).requires_grad_(True)
-        w = torch.randn(*w_shape, dtype=dtype, device=device).requires_grad_(True)
+        A = torch.randn(*A_shape, device=device).requires_grad_(True)
+        w = torch.randn(*w_shape, device=device).requires_grad_(True)
         wrapper = wrapper_cls(w, activation_config=act_config, weight_config=weight_config)
         
         resolved = {}
         for k, v in kwargs.items():
             if k.endswith("_shape"):
-                resolved[k[:-len("_shape")]] = torch.randn(*v, dtype=dtype, device=device).requires_grad_(True)
+                resolved[k[:-len("_shape")]] = torch.randn(*v, device=device).requires_grad_(True)
             elif isinstance(v, torch.Tensor):
                 resolved[k] = v.to(device=device)
             else:
