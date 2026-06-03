@@ -277,6 +277,7 @@ def consolidate_tensor_to_cpu(tensor, target_rank=0):
 
 
 
+# Copied from test/prototype/moe_training/test_distributed.py
 def apply_moe_ep_tp(
     model: nn.Module,
     tp_mesh: DeviceMesh | None,
