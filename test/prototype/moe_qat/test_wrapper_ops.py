@@ -544,23 +544,25 @@ def test_op_grouped_mm(wrapper_cls, weight_config, act_config, sqnr_threshold, d
     (Float8FakeQuantizedWeightWrapperTensor, Float8FakeQuantizeConfig(), None),
     (Float8FakeQuantizedWeightWrapperTensor, Float8FakeQuantizeConfig(), Float8FakeQuantizeConfig()),
 ])
-@pytest.mark.parametrize("call_fn, A_shape, w_shape, kwargs, is_grouped_mm", [
+@pytest.mark.parametrize("call_fn, A_shape, w_shape, kwargs", [
     # torch.mm: weight stored as [N, K], transposed at call site
-    (lambda a, w: torch.mm(a, w.T),             (16, 64),    (128, 64),     {},                                 False),
+    (lambda a, w: torch.mm(a, w.T),             (16, 64),    (128, 64),     {}),
     # torch.matmul: same as mm
-    (lambda a, w: torch.matmul(a, w.T),         (16, 64),    (128, 64),     {},                                 False),
+    (lambda a, w: torch.matmul(a, w.T),         (16, 64),    (128, 64),     {}),
     # torch.bmm: weight stored as [B, N, K], transposed at call site
-    (lambda a, w: torch.bmm(a, w.transpose(-2, -1)), (4, 16, 64), (4, 128, 64),  {},                           False),
+    (lambda a, w: torch.bmm(a, w.transpose(-2, -1)), (4, 16, 64), (4, 128, 64),  {}),
     # F.linear: weight [N, K] at args[1], contracted dim=-1 (no transpose needed)
-    (lambda a, w: F.linear(a, w),               (16, 64),    (128, 64),     {},                                 False),
+    (lambda a, w: F.linear(a, w),               (16, 64),    (128, 64),     {}),
     # torch.addmm: weight stored as [N, K], transposed at call site
-    (lambda a, w, *, bias: torch.addmm(bias, a, w.T), (16, 64), (128, 64), {"bias_shape": (128,)},              False),
+    (lambda a, w, *, bias: torch.addmm(bias, a, w.T), (16, 64), (128, 64), {"bias_shape": (128,)}),
     # torch._grouped_mm: weight stored as [E, N, K], transposed at call site
-    (lambda a, w, *, offs: torch._grouped_mm(a, w.transpose(-2, -1), offs=offs), (16, 1024), (4, 2048, 1024), {"offs": torch.tensor([4, 4, 4, 4], dtype=torch.int32)}, True),
+    (lambda a, w, *, offs: torch._grouped_mm(a, w.transpose(-2, -1), offs=offs), (16, 1024), (4, 2048, 1024), {
+        "offs": torch.tensor([4, 4, 4, 4], dtype=torch.int32), "_skip_cpu": True
+    }),
 ])
-def test_compatibility_with_torch_compile(wrapper_cls, weight_config, act_config, call_fn, A_shape, w_shape, kwargs, is_grouped_mm, dtype, device, fullgraph):
+def test_compatibility_with_torch_compile(wrapper_cls, weight_config, act_config, call_fn, A_shape, w_shape, kwargs, dtype, device, fullgraph):
     """torch.compile through a Python wrapper should match eager."""
-    if device == "cpu" and is_grouped_mm:
+    if device == "cpu" and kwargs.get("_skip_cpu", False):
         pytest.skip("grouped_mm is not fully supported on CPU yet.")
     
     def prepare_arguments():
