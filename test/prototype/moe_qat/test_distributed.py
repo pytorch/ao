@@ -1,4 +1,4 @@
-"""Distributed tests for MoE QAT parallelism. Run with: torchrun --nproc_per_node=2 -m pytest test/prototype/moe_qat/test_distributed.py"""
+"""Distributed tests for MoE QAT parallelism. Run with: torchrun --nproc_per_node=4 -m pytest test/prototype/moe_qat/test_distributed.py"""
 
 import copy
 import os

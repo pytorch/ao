@@ -508,6 +508,7 @@ def test_op_fake_quantize(wrapper_cls, weight_config, act_config, sqnr_threshold
     (Float8FakeQuantizedWeightWrapperTensor, Float8FakeQuantizeConfig(), Float8FakeQuantizeConfig(), 20),
 ])
 def test_op_grouped_mm(wrapper_cls, weight_config, act_config, sqnr_threshold, device):
+    """grouped_mm with fake-quantized weight produces good forward+backward SQNR. GPU-only."""
     if device != "cuda":
         pytest.skip("grouped_mm CPU backward corrupts subsequent forward calls")
 

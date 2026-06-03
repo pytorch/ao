@@ -185,6 +185,7 @@ def test_wrapper_to_tensor(wrapper_cls, weight_config, device):
     (Float8FakeQuantizedWeightWrapperTensor, Float8FakeQuantizeConfig()),
 ])
 def test_wrapper_repr(wrapper_cls, weight_config, device):
+    """__repr__ includes class name, data, configs."""
     w = torch.randn(64, 128, device=device)
     wrapper = wrapper_cls(w, weight_config=weight_config)
     expected = f"{wrapper_cls.__name__}(data={w}, activation_config=None, weight_config={weight_config})"
@@ -416,7 +417,7 @@ def test_fsdp_post_all_gather_existing_out_cross_dtype(wrapper_cls, weight_confi
     # If param_dtype doesn't match out_data.dtype, the assertion should fire
     bad_param_dtype = torch.float64
     expected_msg = (
-        f"^`out`\\(dtype={out_dtype}\\) dose not match "
+        f"^`out`\\(dtype={out_dtype}\\) does not match "
         f"the mixed precision policy param_dtype {bad_param_dtype}$"
     )
     with pytest.raises(AssertionError, match=expected_msg):
@@ -463,7 +464,7 @@ def test_fsdp_post_all_gather_existing_out_cross_dtype_dtensor(wrapper_cls, weig
     # If param_dtype doesn't match out_data.dtype, the assertion should fire
     bad_param_dtype = torch.float64
     expected_msg = (
-        f"^`out`\\(dtype={out_dtype}\\) dose not match "
+        f"^`out`\\(dtype={out_dtype}\\) does not match "
         f"the mixed precision policy param_dtype {bad_param_dtype}$"
     )
     with pytest.raises(AssertionError, match=expected_msg):

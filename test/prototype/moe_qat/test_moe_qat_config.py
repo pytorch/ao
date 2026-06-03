@@ -9,11 +9,12 @@ from torchao.quantization import Float8DynamicActivationFloat8WeightConfig
 from torchao.quantization.qat import IntxFakeQuantizeConfig
 
 
-# -------------------------------------------------------------------------
+# =========================================================================
 # Test configs in the prepare step
-# -------------------------------------------------------------------------
+# =========================================================================
 
 def test_config_step_validation():
+    """step must be 'prepare' or 'convert'."""
     weight_config = Float8FakeQuantizeConfig(dtype=torch.float8_e4m3fn, granularity=PerRow())
     MoEQATConfig(weight_config=weight_config, step="prepare")
     MoEQATConfig(step="convert")
@@ -22,7 +23,7 @@ def test_config_step_validation():
 
 
 def test_config_requires_weight_config():
-    """This behaviour is inherited from QATConfig"""
+    """prepare step requires weight_config, activation_config, or base_config."""
     with pytest.raises(ValueError, match=r"^Must specify `base_config`, `activation_config`, or `weight_config` in the prepare step$"):
         MoEQATConfig(step="prepare")
 
@@ -81,11 +82,12 @@ def test_config_rejects_invalid_base_config_in_prepare_step():
         MoEQATConfig(base_config=base_config, step="prepare")
 
 
-# -------------------------------------------------------------------------
+# =========================================================================
 # Test configs in the convert step
-# -------------------------------------------------------------------------
+# =========================================================================
 
 def test_config_rejects_base_config_in_convert():
+    """base_config is not supported in the convert step."""
     weight_config = Float8FakeQuantizeConfig(dtype=torch.float8_e4m3fn, granularity=PerRow())
     MoEQATConfig(weight_config=weight_config, step="prepare")
     base_config = Float8DynamicActivationFloat8WeightConfig()
@@ -94,21 +96,23 @@ def test_config_rejects_base_config_in_convert():
 
 
 def test_config_rejects_weight_config_in_convert():
+    """weight_config cannot be specified in the convert step."""
     weight_config = Float8FakeQuantizeConfig(dtype=torch.float8_e4m3fn, granularity=PerRow())
     with pytest.raises(ValueError, match=r"^Cannot specify `weight_config` or `activation_config` in the convert step$"):
         MoEQATConfig(weight_config=weight_config, step="convert")
 
 
 def test_config_rejects_activation_config_in_convert():
+    """activation_config cannot be specified in the convert step."""
     act_config = Float8FakeQuantizeConfig(dtype=torch.float8_e4m3fn, granularity=PerRow())
     with pytest.raises(ValueError, match=r"^Cannot specify `weight_config` or `activation_config` in the convert step$"):
         MoEQATConfig(activation_config=act_config, step="convert")
 
 
 
-# -------------------------------------------------------------------------
+# =========================================================================
 # Test params_filter_fn
-# -------------------------------------------------------------------------
+# =========================================================================
 
 def test_config_default_params_filter_fn():
     """Default params_filter_fn is _is_parameter (wraps all parameters)."""

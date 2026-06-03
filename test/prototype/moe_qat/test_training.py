@@ -97,7 +97,7 @@ def test_moe_qat(device, weight_config, act_config, sqnr_threshold, use_grouped_
         x_grad_sqnr = compute_error(qat_x.grad, ref_x.grad)
         assert x_grad_sqnr > sqnr_threshold["input_grad"], f"Input grad SQNR too low ({x_grad_sqnr:.1f} dB)"
 
-        # Check SQNR of gradients of all wrapped paramters to be updated
+        # Check SQNR of gradients of all wrapped parameters to be updated
         for (qat_name, qat_param), (ref_name, ref_param) in zip(
             qat_model.named_parameters(), ref_model.named_parameters()
         ):
