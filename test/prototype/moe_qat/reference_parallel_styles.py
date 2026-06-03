@@ -1,3 +1,5 @@
+# Copied from test/prototype/moe_training
+
 # Copyright (c) Meta Platforms, Inc. and affiliates.
 # All rights reserved.
 #
