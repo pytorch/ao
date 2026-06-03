@@ -57,8 +57,8 @@ def _replace_params_with_custom_fn_if_matches_filter(
             extra_args=extra_args,
         )
         if new_child is not child and new_child is not None:
-            # _replace_params_with_custom_fn_if_matches_filter modify child in-place,
-            # so this branch normally is never executed.
+            # _replace_params_with_custom_fn_if_matches_filter mutates child in-place and returns it. 
+            # This branch is a safety net in case a future implementation returns a new module instead.
             setattr(module, child_name, new_child)
 
     for param_name, param in module.named_parameters(recurse=False):

@@ -46,15 +46,20 @@ def register_MoE_QAT_quantize_parameter_handler(
 ):
     """
     Decorator to register a handler for a specific :class:`FakeQuantizeConfigBase`
-    type. The handler takes an ``nn.Parameter`` and a :class:`MoEQATConfig` and
-    returns the transformed ``nn.Parameter``.
+    type. The handler receives ``(module, param_fqn, param, extra_args)`` where
+    ``extra_args[0]`` is the :class:`MoEQATConfig`, and returns the transformed
+    ``nn.Parameter``.
 
     Example usage::
 
         @register_MoE_QAT_quantize_parameter_handler(Float8FakeQuantizeConfig)
         def _float8_parameter_handler(
-            param: nn.Parameter, config: MoEQATConfig
+            module: nn.Module,
+            param_fqn: str,
+            param: nn.Parameter,
+            extra_args: Tuple[Any, ...] = (),
         ) -> nn.Parameter:
+            config: MoEQATConfig = extra_args[0]
             ...
     """
 
@@ -71,12 +76,12 @@ ATen ops that should preserve the wrapper subclass identity. When any of these
 ops is called on a FakeQuantizedWeightWrapperBaseTensor, the output is re-wrapped
 in the same subclass with the operated-on ``_data``.
 
-Design: deferred fake quantization. Slicing or indexing a wrapped weight returns
-a new wrapper with the sliced ``_data`` — no fake quantization is applied at
+Design: deferred fake-quantization. Slicing or indexing a wrapped weight returns
+a new wrapper with the sliced ``_data`` — no fake-quantization is applied at
 this point. Fake quantization is deferred until computation time, when
 ``__torch_function__`` intercepts computation ops (``torch.mm``, ``torch.bmm``,
-``torch._grouped_mm``, etc.) and applies fake quantization just before the op.
-This avoids double fake quantization.
+``torch._grouped_mm``, etc.) and applies fake-quantization just before the op.
+This avoids double fake-quantization.
 
 Indexing patterns on a 3D weight tensor and their ATen ops (all preserved):
 
@@ -91,7 +96,7 @@ Indexing patterns on a 3D weight tensor and their ATen ops (all preserved):
   w[None]               → aten.unsqueeze.default
 
 Dimension-manipulation ops follow the same deferred design — they return a new
-wrapper with the reshaped ``_data``, no fake quantization applied:
+wrapper with the reshaped ``_data``, no fake-quantization applied:
   permute, squeeze, view, as_strided, transpose, t, split
 """
 _ops_to_preserve_subclass = {
@@ -121,18 +126,18 @@ _ops_to_preserve_subclass = {
 
 class FakeQuantizedWeightWrapperBaseTensor(TorchAOBaseTensor):
     """
-    Base class for wrapper tensor subclasses that apply fake quantization to
+    Base class for wrapper tensor subclasses that apply fake-quantization to
     MoE expert weights during QAT.
 
     Wraps a 3D weight tensor ``_data`` of shape ``[num_experts, in_features, out_features]``
     and a :class:`~torchao.quantization.qat.fake_quantize_config.FakeQuantizeConfigBase`
-    that specifies the fake quantization recipe.
+    that specifies the fake-quantization recipe.
 
     Supports FSDP2 via :meth:`fsdp_pre_all_gather` and :meth:`fsdp_post_all_gather`,
     which handle mixed-precision casting and wrapper reconstruction after all-gather.
 
     Subclasses must override :meth:`__torch_function__` to intercept computation
-    ops and apply their precision-specific fake quantization.
+    ops and apply their precision-specific fake-quantization.
 
     Not intended to be used directly.
     """
@@ -355,7 +360,7 @@ class FakeQuantizedWeightWrapperBaseTensor(TorchAOBaseTensor):
                     f"expected out to be {type(self).__name__} or DTensor with local_tensor={type(self).__name__}, but got {type(out)}"
                 )
 
-            # If `data` (all gather outputs) is already in the mixed precision policy param_dtype,
+            # If `data` (all-gather outputs) is already in the mixed precision policy param_dtype,
             # verify it has underlying storage as `out` (pre-allocated unsharded param),
             # and then we can just return directly.
             if data.dtype == param_dtype:
@@ -373,7 +378,7 @@ class FakeQuantizedWeightWrapperBaseTensor(TorchAOBaseTensor):
 
 
 """
-Functions intercepted by __torch_function__ for fake quantization:
+Functions intercepted by __torch_function__ for fake-quantization:
 
 func                  args                  weight pos  keyword-only        shapes
 ──────────────────────────────────────────────────────────────────────────────────────────
@@ -395,10 +400,10 @@ _func_to_prepend_fake_quantization = {
 
 class Float8FakeQuantizedWeightWrapperTensor(FakeQuantizedWeightWrapperBaseTensor):
     """
-    Applies FP8 row-wise fake quantization during MoE QAT.
+    Applies FP8 row-wise fake-quantization during MoE QAT.
 
     Intercepts computation ops via :meth:`__torch_function__`, applies per-row
-    FP8 fake quantization (quantize → dequant in high precision with STE
+    FP8 fake-quantization (quantize → dequantize in high precision with STE
     gradient) to the weights and optionally the activations, and delegates to
     the standard op.
 
@@ -438,7 +443,7 @@ class Float8FakeQuantizedWeightWrapperTensor(FakeQuantizedWeightWrapperBaseTenso
         1. During prepare, the default or user-defined params_filter_fn may also wrap bias
            parameters (1D or 2D) that appear in F.linear/linear/addmm. In either case, the
            fake-quantization of these wrapped biases is always bypassed here: we only unpack
-           the weight position for fake quantization. The bias passes through other positions
+           the weight position for fake-quantization. The bias passes through other positions
            and is unwrapped transparently by __torch_dispatch__ at add time.
 
         2. For torch.bmm, the wrapped weight may be at args[1] (is_transposed=True) or
@@ -489,7 +494,7 @@ class Float8FakeQuantizedWeightWrapperTensor(FakeQuantizedWeightWrapperBaseTenso
 
         # Fake-quantize the activation if B.activation_config exists. With torch._grouped_mm, activation
         # is quantized once for the shared 3D weight. In a per-expert loop pattern, this repeats per expert.
-        # Activation fake quantization is skipped if the activation is empty. This is a possible case when
+        # Activation fake-quantization is skipped if the activation is empty. This is a possible case when
         # a loop over experts instead of grouped_mm is used and some experts don't receive any tokens.
         if B.activation_config is not None and A.numel() > 0:
             assert not isinstance(A, TorchAOBaseTensor), \
