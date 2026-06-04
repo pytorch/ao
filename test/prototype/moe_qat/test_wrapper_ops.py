@@ -562,8 +562,12 @@ def test_op_grouped_mm(wrapper_cls, weight_config, act_config, sqnr_threshold, d
 ])
 def test_compatibility_with_torch_compile(wrapper_cls, weight_config, act_config, call_fn, A_shape, w_shape, kwargs, device, fullgraph):
     """torch.compile through a Python wrapper should match eager."""
-    if device == "cpu" and kwargs.get("_skip_cpu", False):
-        pytest.skip("grouped_mm is not fully supported on CPU yet.")
+    if kwargs.get("_skip_cpu", False):
+        if device == "cpu":
+            pytest.skip("grouped_mm is not fully supported on CPU yet.")
+        else:
+            kwargs = copy.deepcopy(kwargs)
+            kwargs.pop("_skip_cpu")
 
     def prepare_arguments():
         A = torch.randn(*A_shape, device=device).requires_grad_(True)
