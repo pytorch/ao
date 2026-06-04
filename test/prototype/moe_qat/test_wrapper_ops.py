@@ -273,21 +273,6 @@ def test_wrapper_torch_function_not_implemented(func, args, device):
         func(*args)
 
 
-@pytest.mark.parametrize("device", target_devices)
-def test_wrapper_fake_quantize_not_implemented(device):
-    """FakeQuantizedWeightWrapperBaseTensor._fake_quantize raises NotImplementedError."""
-    w = torch.randn(64, 128, device=device)
-    with pytest.raises(
-        NotImplementedError,
-        match=(
-            r"^FakeQuantizedWeightWrapperBaseTensor is not intended to be used directly, "
-            r"please override `_fake_quantize` in a tensor subclass for "
-            r"your intended derived dtype\.$"
-        ),
-    ):
-        FakeQuantizedWeightWrapperBaseTensor._fake_quantize(w, Float8FakeQuantizeConfig())
-
-
 @pytest.mark.parametrize("wrapper_cls, weight_config", [
     (Float8FakeQuantizedWeightWrapperTensor, Float8FakeQuantizeConfig()),
 ])

@@ -185,12 +185,6 @@ class FakeQuantizedWeightWrapperBaseTensor(TorchAOBaseTensor):
         )
 
     @classmethod
-    def _fake_quantize(cls, weight: torch.Tensor, config: FakeQuantizeConfigBase) -> torch.Tensor:
-        raise NotImplementedError(
-            f"{cls.__name__} is not intended to be used directly, please override `_fake_quantize` in a tensor subclass for your intended derived dtype."
-        )
-
-    @classmethod
     def __torch_dispatch__(cls, func, types, args, kwargs=None):
         # In MoE training (TrainingWeightWrapperBaseTensor), all operands are
         # assumed to be wrapped and share the same quantization config. In QAT,
