@@ -315,26 +315,20 @@ def run_eval_bf16(
     limit: int | None = None,
     batch_size: int = 4,
 ) -> dict:
-    """Evaluate using HuggingFace backend (bf16 inference)."""
+    """Evaluate using vLLM backend in bf16 (no quantization)."""
     if isinstance(eval_tasks, str):
         eval_tasks = [eval_tasks]
-    from lm_eval.models.huggingface import HFLM
-    from transformers import AutoModelForCausalLM, AutoTokenizer
-
-    model = AutoModelForCausalLM.from_pretrained(
-        model_path,
-        torch_dtype=torch.bfloat16,
-        device_map="auto",
-    )
-    tokenizer = AutoTokenizer.from_pretrained(model_path)
-    if tokenizer.pad_token is None:
-        tokenizer.pad_token = tokenizer.eos_token
-
-    lm = HFLM(pretrained=model, tokenizer=tokenizer, batch_size=batch_size)
     return simple_evaluate(
-        model=lm,
+        model="vllm",
+        model_args={
+            "pretrained": model_path,
+            "dtype": "bfloat16",
+            "gpu_memory_utilization": 0.65,
+            "max_model_len": 2048,
+        },
         tasks=eval_tasks,
         num_fewshot=0,
+        batch_size=batch_size,
         limit=limit,
         log_samples=False,
     )

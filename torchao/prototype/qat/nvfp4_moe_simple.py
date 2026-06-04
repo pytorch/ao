@@ -331,3 +331,60 @@ def remove_simple_fp4_moe_qat(model: nn.Module) -> nn.Module:
                 )
                 setattr(module, param_name, new_param)
     return model
+
+
+# ---------------------------------------------------------------------------
+# Torchtitan integration (sets fake_quant_fn on GroupedExperts modules)
+# ---------------------------------------------------------------------------
+
+
+def _fp4_fake_quantize_ste(x: torch.Tensor) -> torch.Tensor:
+    """FP4 block-scale fake quantize with STE for use in torchtitan's
+    GroupedExperts.fake_quant_fn. Applies quant-dequant to the detached
+    tensor and uses straight-through estimator for the backward pass."""
+    dq = _fp4_quant_dequant(x.detach())
+    return x + (dq - x).detach()
+
+
+def apply_simple_fp4_moe_qat_torchtitan(model: nn.Module) -> nn.Module:
+    """Enable FP4 fake quantization on torchtitan GroupedExperts modules.
+
+    Sets ``fake_quant_fn`` on each module that has both a ``num_experts``
+    attribute and a ``fake_quant_fn`` attribute (torchtitan's GroupedExperts).
+    This injects FP4 block-scale fake quantization on both weights and
+    activations inside ``_experts_forward``, compatible with FSDP2/DTensor.
+
+    Args:
+        model: A torchtitan model with GroupedExperts modules.
+
+    Returns:
+        The same model, modified in-place.
+    """
+    count = 0
+    for module in model.modules():
+        if hasattr(module, "num_experts") and hasattr(module, "fake_quant_fn"):
+            module.fake_quant_fn = _fp4_fake_quantize_ste
+            count += 1
+            logger.info(
+                "Enabled FP4 fake quantization on %s (num_experts=%d)",
+                type(module).__name__,
+                module.num_experts,
+            )
+    logger.info("Applied FP4 QAT to %d GroupedExperts modules", count)
+    return model
+
+
+def remove_simple_fp4_moe_qat_torchtitan(model: nn.Module) -> nn.Module:
+    """Remove FP4 fake quantization from torchtitan GroupedExperts modules.
+
+    Args:
+        model: A model previously modified by
+            :func:`apply_simple_fp4_moe_qat_torchtitan`.
+
+    Returns:
+        The same model, modified in-place.
+    """
+    for module in model.modules():
+        if hasattr(module, "fake_quant_fn") and module.fake_quant_fn is not None:
+            module.fake_quant_fn = None
+    return model
