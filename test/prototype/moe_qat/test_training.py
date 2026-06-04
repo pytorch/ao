@@ -56,6 +56,10 @@ def test_moe_qat(device, weight_config, act_config, sqnr_threshold, use_grouped_
 
 
     for i in range(2):
+        # Clear gradients
+        qat_optimizer.zero_grad()
+        ref_optimizer.zero_grad()
+        
         qat_prev = copy.deepcopy(qat_model)
 
         # Generate input randomly
@@ -131,10 +135,6 @@ def test_moe_qat(device, weight_config, act_config, sqnr_threshold, use_grouped_
                     else cur_param.data
                 assert not torch.equal(data, prev_param.data), \
                     f"Weight {cur_name} should be updated after optimizer step."
-
-        # Clear gradients
-        qat_optimizer.zero_grad()
-        ref_optimizer.zero_grad()
 
 
 
