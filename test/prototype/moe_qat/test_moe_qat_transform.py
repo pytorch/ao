@@ -110,6 +110,8 @@ def test_prepare_wraps_expert_weights(device, weight_config, wrapper_cls):
     """Prepare wraps expert weights with the configured tensor subclass."""
     # use_grouped_mm only affects the forward computation path — no forward run here.
     moe_model = create_moe_model(device, use_grouped_mm=True)
+    orig_values = {name: param.data.clone() for name, param in moe_model.named_parameters()}
+
     qat_config = MoEQATConfig(
         weight_config=weight_config,
         step="prepare",
@@ -121,6 +123,13 @@ def test_prepare_wraps_expert_weights(device, weight_config, wrapper_cls):
     for name, param in moe_model.named_parameters():
         if isinstance(param.data, wrapper_cls):
             wrapped_count += 1
+            assert torch.equal(param.data.to_tensor(), orig_values[name]), (
+                f"Values of {name} should match after being wrapped in the prepare step."
+            )
+        else:
+            assert torch.equal(param.data, orig_values[name]), (
+                f"values of {name} should not be changed after the prepare step."
+            )
     assert wrapped_count == 3, f"Expected 3 wrapped params, got {wrapped_count}"
 
 
