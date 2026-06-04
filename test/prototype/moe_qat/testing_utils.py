@@ -11,12 +11,6 @@ if torch.cuda.is_available():
     target_devices.append("cuda")
 
 
-@pytest.fixture(autouse=True)
-def _set_seed():
-    torch.manual_seed(42)
-    torch.cuda.manual_seed_all(42)
-
-
 def create_moe_model(device, use_grouped_mm):
     dim, hidden_dim = 1024, 2048
     args = MoEArgs(

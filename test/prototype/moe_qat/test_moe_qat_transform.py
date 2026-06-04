@@ -15,7 +15,7 @@ from torchao.quantization.granularity import PerRow, PerTensor
 from torchao.quantization.quant_api import Float8DynamicActivationFloat8WeightConfig, quantize_
 
 from .reference_moe import MoE
-from .testing_utils import _moe_input, _expert_weight_filter, _set_seed, create_moe_model, target_devices
+from .testing_utils import _moe_input, _expert_weight_filter, create_moe_model, target_devices
 
 from torchao.prototype.moe_qat.config import _is_expert
 from torchao.prototype.moe_qat.quantize import (
