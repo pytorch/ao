@@ -339,13 +339,6 @@ def test_fsdp_post_all_gather_existing_out_same_dtype(wrapper_cls, weight_config
         )
 
 
-@pytest.fixture
-def mock_distributed_env(monkeypatch):
-    monkeypatch.setenv("MASTER_ADDR", "localhost")
-    monkeypatch.setenv("MASTER_PORT", "12355")
-    monkeypatch.setenv("RANK", "0")
-    monkeypatch.setenv("WORLD_SIZE", "1")
-
 
 @pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16])
 @pytest.mark.parametrize("wrapper_cls, weight_config, act_config", [
