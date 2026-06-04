@@ -66,16 +66,15 @@ from .testing_utils import _expert_weight_filter, target_devices
     ((64, 128), lambda x: x.t()),
     # split — returns tuple
     ((8, 64, 128), lambda x: torch.split(x, 2)),
-    # _pin_memory — requires CUDA, skipped on CPU
-    ((4, 64, 128), lambda x: x.pin_memory()),
 ])
 @pytest.mark.parametrize("device", target_devices)
 def test_wrapper_preserves_subclass(wrapper_cls, weight_config, act_config, weight_shape, op_func, device):
     """All ops in _ops_to_preserve_subclass return the wrapper subclass.
 
     _unsafe_index.Tensor has no public API to trigger it directly.
-    c10d.scatter_.default requires distributed runtime — tested in test_fsdp2.py.
+    c10d.scatter_.default requires distributed runtime — tested in test_distributed.py.
     copy_ is tested separately in test_wrapper_dispatch_copy_ because it is an in-place op.
+    pin_memory is tested separately in test_pin_memory_preserves_subclass (CUDA is needed).
     """
     def apply_assertions(result, ref_result):
         assert isinstance(result, wrapper_cls)
@@ -87,19 +86,39 @@ def test_wrapper_preserves_subclass(wrapper_cls, weight_config, act_config, weig
     wrapper = wrapper_cls(weight, activation_config=act_config, weight_config=weight_config)
 
     with torch._C.DisableTorchFunctionSubclass():
-        try:
-            result = op_func(wrapper)
-            ref_result = op_func(wrapper._data)
-        except RuntimeError as e:
-            if "Cannot access accelerator device" in str(e) and device != "cuda":
-                pytest.skip("pin_memory requires CUDA")
-            raise
+        result = op_func(wrapper)
+        ref_result = op_func(wrapper._data)
 
         if isinstance(result, tuple):
             for r, ref in zip(result, ref_result):
                 apply_assertions(r, ref)
         else:
             apply_assertions(result, ref_result)
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="pin_memory needs CUDA.")
+@pytest.mark.parametrize("wrapper_cls, weight_config, act_config", [
+    (FakeQuantizedWeightWrapperBaseTensor, Float8FakeQuantizeConfig(), None),
+    (FakeQuantizedWeightWrapperBaseTensor, Float8FakeQuantizeConfig(), Float8FakeQuantizeConfig()),
+    (Float8FakeQuantizedWeightWrapperTensor, Float8FakeQuantizeConfig(), None),
+    (Float8FakeQuantizedWeightWrapperTensor, Float8FakeQuantizeConfig(), Float8FakeQuantizeConfig()),
+])
+def test_pin_memory_preserves_subclass(wrapper_cls, weight_config, act_config):
+    """pin_memory preserves the wrapper subclass. CUDA needed."""
+
+    weight = torch.randn(4, 64, 128, device="cpu")
+    wrapper = wrapper_cls(weight, activation_config=act_config, weight_config=weight_config)
+
+    with torch._C.DisableTorchFunctionSubclass():
+        result = wrapper.pin_memory()
+        ref = wrapper._data.pin_memory()
+
+    assert ref.is_pinned(), "The ref tensor should be pinned."
+    assert result.is_pinned(), "The resulting wrapper tensor should be pinned."
+    assert isinstance(result, wrapper_cls), "The wrapper class should be preserved after being pinned."
+    assert result.weight_config is weight_config
+    assert result.activation_config is act_config
+    assert torch.equal(result._data, ref)
 
 
 @pytest.mark.parametrize("device", target_devices)
