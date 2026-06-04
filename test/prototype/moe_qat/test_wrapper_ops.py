@@ -555,7 +555,8 @@ def test_op_grouped_mm(wrapper_cls, weight_config, act_config, sqnr_threshold, d
     (lambda a, w: F.linear(a, w),               (16, 64),    (128, 64),     {}),
     # torch.addmm: weight stored as [N, K], transposed at call site
     (lambda a, w, *, bias: torch.addmm(bias, a, w.T), (16, 64), (128, 64), {"bias_shape": (128,)}),
-    # torch._grouped_mm: weight stored as [E, N, K], transposed at call site
+    # torch._grouped_mm: weight stored as [E, N, K], transposed at call site.
+    # NOTE: _skip_cpu sentinel must be removed if grouped_mm CPU support improves.
     (lambda a, w, *, offs: torch._grouped_mm(a, w.transpose(-2, -1), offs=offs), (16, 1024), (4, 2048, 1024), {
         "offs": torch.tensor([4, 4, 4, 4], dtype=torch.int32), "_skip_cpu": True
     }),
