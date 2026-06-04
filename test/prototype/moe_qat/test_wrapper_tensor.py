@@ -139,20 +139,14 @@ def test_wrapper_deepcopy(wrapper_cls, weight_config, act_config, device):
     if act_config is not None:
         assert wrapper_copy.activation_config is not wrapper.activation_config
     
-    activation = torch.nn.Parameter(torch.randn(16, 64, device=device))
+    activation = torch.randn(16, 64, device=device)
+    out = torch.mm(activation, wrapper.T)
+    out_copy = torch.mm(activation, wrapper_copy.T)
+    assert torch.equal(out, out_copy), "The cloned tensor should yield identical results."
     if wrapper_cls is FakeQuantizedWeightWrapperBaseTensor:
-        with pytest.raises(
-            NotImplementedError,
-            match=(
-                r"FakeQuantizedWeightWrapperBaseTensor is not intended to be used directly, "
-                r"please override `__torch_function__` in a tensor subclass for your intended derived dtype\."
-            )
-        ):
-            torch.mm(activation, wrapper_copy.T)
-    else:
-        out = torch.mm(activation, wrapper.T)
-        out_copy = torch.mm(activation, wrapper_copy.T)
-        assert torch.equal(out, out_copy), "The cloned tensor should yield identical results."
+        # Base class passes through without fake quantization.
+        ref = torch.mm(activation, wrapper._data.T)
+        assert torch.equal(out, ref), "Base class __torch_function__ should pass through without fake quantization."
 
 
 # =========================================================================

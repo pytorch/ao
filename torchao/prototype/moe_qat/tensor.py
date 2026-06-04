@@ -136,8 +136,10 @@ class FakeQuantizedWeightWrapperBaseTensor(TorchAOBaseTensor):
     Supports FSDP2 via :meth:`fsdp_pre_all_gather` and :meth:`fsdp_post_all_gather`,
     which handle mixed-precision casting and wrapper reconstruction after all-gather.
 
-    Subclasses must override :meth:`__torch_function__` to intercept computation
-    ops and apply their precision-specific fake-quantization.
+    Subclasses may override :meth:`__torch_function__` to intercept computation
+    ops and apply their precision-specific fake-quantization. The base class
+    uses :func:`torch._C._disabled_torch_function_impl` and passes through
+    without fake quantization.
 
     Not intended to be used directly.
     """
@@ -178,11 +180,7 @@ class FakeQuantizedWeightWrapperBaseTensor(TorchAOBaseTensor):
         self.activation_config = activation_config
         self.weight_config = weight_config
 
-    @classmethod
-    def __torch_function__(cls, func, types, args, kwargs=None):
-        raise NotImplementedError(
-            f"{cls.__name__} is not intended to be used directly, please override `__torch_function__` in a tensor subclass for your intended derived dtype."
-        )
+    __torch_function__ = torch._C._disabled_torch_function_impl
 
     @classmethod
     def __torch_dispatch__(cls, func, types, args, kwargs=None):

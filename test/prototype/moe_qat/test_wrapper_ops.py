@@ -257,20 +257,15 @@ def test_wrapper_dispatch_detach(wrapper_cls, weight_config, act_config, device)
     (torch.mm, (torch.randn(16, 64), None)),
     (torch.addmm, (torch.randn(128), torch.randn(16, 64), None)),
 ])
-def test_wrapper_torch_function_not_implemented(func, args, device):
-    """FakeQuantizedWeightWrapperBaseTensor.__torch_function__ raises NotImplementedError."""
+def test_wrapper_torch_function_disabled(func, args, device):
+    """FakeQuantizedWeightWrapperBaseTensor.__torch_function__ passes through without fake quant."""
     w = torch.randn(64, 128, device=device)
     wrapper = FakeQuantizedWeightWrapperBaseTensor(w, weight_config=Float8FakeQuantizeConfig())
-    args = tuple(wrapper if a is None else a for a in args)
-    with pytest.raises(
-        NotImplementedError,
-        match=(
-            r"^FakeQuantizedWeightWrapperBaseTensor is not intended to be used directly, "
-            r"please override `__torch_function__` in a tensor subclass for "
-            r"your intended derived dtype\.$"
-        ),
-    ):
-        func(*args)
+    test_args = tuple(wrapper if a is None else a for a in args)
+    ref_args = tuple(w if a is None else a for a in args)
+    result = func(*test_args)
+    ref_result = func(*ref_args)
+    assert torch.equal(result, ref_result), "Base class should pass through without fake quantization"
 
 
 @pytest.mark.parametrize("wrapper_cls, weight_config", [
