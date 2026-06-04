@@ -107,18 +107,18 @@ def test_pin_memory_preserves_subclass(wrapper_cls, weight_config, act_config):
     """pin_memory preserves the wrapper subclass. CUDA needed."""
 
     weight = torch.randn(4, 64, 128, device="cpu")
-    wrapper = wrapper_cls(weight, activation_config=act_config, weight_config=weight_config)
+    wrapper = wrapper_cls(weight.clone(), activation_config=act_config, weight_config=weight_config)
 
     with torch._C.DisableTorchFunctionSubclass():
-        result = wrapper.pin_memory()
-        ref = wrapper._data.pin_memory()
+        pinned_wrapper = wrapper.pin_memory()
+        pinned_weight = weight.pin_memory()
 
-    assert ref.is_pinned(), "The ref tensor should be pinned."
-    assert result.is_pinned(), "The resulting wrapper tensor should be pinned."
-    assert isinstance(result, wrapper_cls), "The wrapper class should be preserved after being pinned."
-    assert result.weight_config is weight_config
-    assert result.activation_config is act_config
-    assert torch.equal(result._data, ref)
+    assert pinned_weight.is_pinned(), "The reference weight tensor should be pinned."
+    assert pinned_wrapper.is_pinned(), "The resulting wrapper tensor should be pinned."
+    assert isinstance(pinned_wrapper, wrapper_cls), "The wrapper class should be preserved after being pinned."
+    assert pinned_wrapper.weight_config is weight_config
+    assert pinned_wrapper.activation_config is act_config
+    assert torch.equal(pinned_wrapper, pinned_weight)
 
 
 @pytest.mark.parametrize("device", target_devices)
