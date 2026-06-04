@@ -345,15 +345,21 @@ def test_fsdp_post_all_gather_existing_out_same_dtype(wrapper_cls, weight_config
         )
 
 
+@pytest.fixture
+def mock_distributed_env(monkeypatch):
+    monkeypatch.setenv("MASTER_ADDR", "localhost")
+    monkeypatch.setenv("MASTER_PORT", "12355")
+    monkeypatch.setenv("RANK", "0")
+    monkeypatch.setenv("WORLD_SIZE", "1")
+
+
 @pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16])
 @pytest.mark.parametrize("wrapper_cls, weight_config, act_config", [
     (Float8FakeQuantizedWeightWrapperTensor, Float8FakeQuantizeConfig(), None),
     (Float8FakeQuantizedWeightWrapperTensor, Float8FakeQuantizeConfig(), Float8FakeQuantizeConfig()),
 ])
-def test_fsdp_post_all_gather_existing_out_same_dtype_dtensor(wrapper_cls, weight_config, act_config, dtype):
+def test_fsdp_post_all_gather_existing_out_same_dtype_dtensor(wrapper_cls, weight_config, act_config, dtype, mock_distributed_env):
     """out is DTensor with wrapped local_tensor — configs restored on local_tensor."""
-    os.environ.update({"MASTER_ADDR": "localhost", "MASTER_PORT": "12355", "RANK": "0", "WORLD_SIZE": "1"})
-
 
     w = torch.empty(2, 32, 64, device="meta")
     wrapper = wrapper_cls(w, activation_config=act_config, weight_config=weight_config)
@@ -434,10 +440,8 @@ def test_fsdp_post_all_gather_existing_out_cross_dtype(wrapper_cls, weight_confi
     (Float8FakeQuantizedWeightWrapperTensor, Float8FakeQuantizeConfig(), None),
     (Float8FakeQuantizedWeightWrapperTensor, Float8FakeQuantizeConfig(), Float8FakeQuantizeConfig()),
 ])
-def test_fsdp_post_all_gather_existing_out_cross_dtype_dtensor(wrapper_cls, weight_config, act_config, in_dtype, out_dtype):
+def test_fsdp_post_all_gather_existing_out_cross_dtype_dtensor(wrapper_cls, weight_config, act_config, in_dtype, out_dtype, mock_distributed_env):
     """out is DTensor with wrapped local_tensor, cross-dtype: configs restored, copy_ applied."""
-    os.environ.update({"MASTER_ADDR": "localhost", "MASTER_PORT": "12355", "RANK": "0", "WORLD_SIZE": "1"})
-
 
     w = torch.empty(2, 32, 64, device="meta")
     wrapper = wrapper_cls(w, activation_config=act_config, weight_config=weight_config)
