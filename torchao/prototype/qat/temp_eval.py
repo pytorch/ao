@@ -59,9 +59,35 @@ TASKS = {
         "calib_text_key": "question",
         "default_checkpoint": "./qwen3-30b-a3b-arc-challenge-sft",
     },
+    "hendrycks_math500": {
+        "eval_task": "hendrycks_math500",
+        "calib_dataset": ("hendrycks/competition_math", None, "train"),
+        "calib_text_key": "problem",
+        "default_checkpoint": "./qwen3-30b-a3b-gsm8k-sft",
+    },
+    "minerva_math": {
+        "eval_task": "minerva_math500",
+        "calib_dataset": ("DigitalLearningGmbH/MATH-lighteval", None, "train"),
+        "calib_text_key": "problem",
+        "default_checkpoint": "./qwen3-30b-a3b-gsm8k-sft",
+    },
+    "aime25": {
+        "eval_task": "aime25",
+        "calib_dataset": ("openai/gsm8k", "main", "train"),
+        "calib_text_key": "question",
+        "default_checkpoint": "./qwen3-30b-a3b-gsm8k-sft",
+        "max_model_len": 40960,
+    },
+    "aime26": {
+        "eval_task": "aime26",
+        "calib_dataset": ("openai/gsm8k", "main", "train"),
+        "calib_text_key": "question",
+        "default_checkpoint": "./qwen3-30b-a3b-gsm8k-sft",
+        "max_model_len": 40960,
+        "include_path": "/data/users/andrewor/torchtitan/eval_tasks",
+    },
 }
 
-EVAL_SUITE = ["arc_challenge", "arc_easy", "winogrande", "boolq"]
 
 
 def _unfuse_experts_model(model: torch.nn.Module) -> None:
@@ -288,10 +314,15 @@ def run_eval_nvfp4(
     eval_tasks: str | list[str],
     limit: int | None = None,
     batch_size: int = 4,
+    max_model_len: int = 8192,
+    task_manager=None,
 ) -> dict:
     """Evaluate using vllm with the NVFP4 trtllm kernel (modelopt_fp4)."""
     if isinstance(eval_tasks, str):
         eval_tasks = [eval_tasks]
+    kwargs = {}
+    if task_manager is not None:
+        kwargs["task_manager"] = task_manager
     return simple_evaluate(
         model="vllm",
         model_args={
@@ -299,13 +330,16 @@ def run_eval_nvfp4(
             "quantization": "modelopt_fp4",
             "dtype": "bfloat16",
             "gpu_memory_utilization": 0.65,
-            "max_model_len": 2048,
+            "max_model_len": max_model_len,
+            "max_gen_toks": 4096,
         },
+        apply_chat_template=True,
         tasks=eval_tasks,
         num_fewshot=0,
         batch_size=batch_size,
         limit=limit,
         log_samples=False,
+        **kwargs,
     )
 
 
@@ -314,23 +348,31 @@ def run_eval_bf16(
     eval_tasks: str | list[str],
     limit: int | None = None,
     batch_size: int = 4,
+    max_model_len: int = 8192,
+    task_manager=None,
 ) -> dict:
     """Evaluate using vLLM backend in bf16 (no quantization)."""
     if isinstance(eval_tasks, str):
         eval_tasks = [eval_tasks]
+    kwargs = {}
+    if task_manager is not None:
+        kwargs["task_manager"] = task_manager
     return simple_evaluate(
         model="vllm",
         model_args={
             "pretrained": model_path,
             "dtype": "bfloat16",
             "gpu_memory_utilization": 0.65,
-            "max_model_len": 2048,
+            "max_model_len": max_model_len,
+            "max_gen_toks": 4096,
         },
+        apply_chat_template=True,
         tasks=eval_tasks,
         num_fewshot=0,
         batch_size=batch_size,
         limit=limit,
         log_samples=False,
+        **kwargs,
     )
 
 
@@ -349,8 +391,8 @@ if __name__ == "__main__":
         "--task",
         type=str,
         default="arc_challenge",
-        choices=list(TASKS.keys()) + ["suite"],
-        help=f"Eval task (default: arc_challenge). 'suite' runs {EVAL_SUITE}.",
+        choices=list(TASKS.keys()),
+        help="Eval task (default: arc_challenge).",
     )
     parser.add_argument(
         "--checkpoint",
@@ -377,33 +419,43 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
 
-    tasks_to_run = EVAL_SUITE if args.task == "suite" else [args.task]
-    model_path = args.checkpoint or TASKS[tasks_to_run[0]]["default_checkpoint"]
+    task = args.task
+    task_cfg = TASKS[task]
+    eval_task = task_cfg["eval_task"]
+    model_path = args.checkpoint or task_cfg["default_checkpoint"]
+    max_model_len = task_cfg.get("max_model_len", 8192)
+    include_path = task_cfg.get("include_path")
 
     n = f"{args.limit} examples" if args.limit else "all examples"
-    eval_task_names = [TASKS[t]["eval_task"] for t in tasks_to_run]
+
+    task_manager = None
+    if include_path:
+        from lm_eval.tasks import TaskManager
+        task_manager = TaskManager(include_path=include_path)
 
     if args.bf16:
         label = f"checkpoint: {model_path} (bf16)"
-        print(f"Evaluating {model_path} on {eval_task_names} ({n}, bf16)")
+        print(f"Evaluating {model_path} on {eval_task} ({n}, bf16)")
         results = run_eval_bf16(
             model_path,
-            eval_task_names,
+            eval_task,
             limit=args.limit,
             batch_size=args.batch_size,
+            max_model_len=max_model_len,
+            task_manager=task_manager,
         )
     else:
-        nvfp4_dir = model_path.rstrip("/") + "-nvfp4"
-        calib_task = tasks_to_run[0]
-        nvfp4_dir = quantize_to_nvfp4(model_path, nvfp4_dir, task_name=calib_task)
+        nvfp4_dir = model_path.rstrip("/") + f"-nvfp4-{task}"
+        nvfp4_dir = quantize_to_nvfp4(model_path, nvfp4_dir, task_name=task)
         label = f"checkpoint: {nvfp4_dir} (nvfp4 kernel)"
-        print(f"Evaluating {nvfp4_dir} on {eval_task_names} ({n}, nvfp4)")
+        print(f"Evaluating {nvfp4_dir} on {eval_task} ({n}, nvfp4)")
         results = run_eval_nvfp4(
             nvfp4_dir,
-            eval_task_names,
+            eval_task,
             limit=args.limit,
             batch_size=args.batch_size,
+            max_model_len=max_model_len,
+            task_manager=task_manager,
         )
 
-    for eval_task in eval_task_names:
-        print_results(results, eval_task, label)
+    print_results(results, eval_task, label)
