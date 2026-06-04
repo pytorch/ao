@@ -7,7 +7,6 @@
 from typing import Tuple
 
 import torch
-import torch.nn.functional as F
 
 from torchao.float8.config import e4m3_dtype
 from torchao.prototype.blockwise_fp8_training.kernels import (
@@ -53,17 +52,6 @@ def _prepare_grouped_rhs_scale(
     ):
         return scale
     return _prepare_grouped_128x128_scale(scale)
-
-
-def _to_scaling_type_enum(scale_recipe: int):
-    scale_recipe_value = _scaling_type_value(scale_recipe)
-    for scaling_type in (
-        BLOCKWISE_1X128_SCALING_TYPE,
-        BLOCKWISE_128X128_SCALING_TYPE,
-    ):
-        if scale_recipe_value == _scaling_type_value(scaling_type):
-            return scaling_type
-    raise ValueError(f"Unsupported blockwise scaling recipe: {scale_recipe}")
 
 
 @torch.library.custom_op(
@@ -272,24 +260,12 @@ def blockwise_scaled_grouped_mm(
     offs: torch.Tensor,
     out_dtype: torch.dtype,
     block_size: int = 128,
-    use_native_grouped_gemm: bool = False,
 ) -> torch.Tensor:
     assert _is_row_major(a), "blockwise_scaled_grouped_mm expected row-major A"
     assert _is_column_major(b), "blockwise_scaled_grouped_mm expected column-major B"
     assert offs is not None and offs.dtype == torch.int32, "offs must be int32"
     b_s = _prepare_grouped_rhs_scale(b_s, scale_recipe_b)
-    # this flag is here for when we can use pytorch scaled grouped mm with blockwise
-    if use_native_grouped_gemm:
-        return F.scaled_grouped_mm(
-            a,
-            b,
-            a_s,
-            _to_scaling_type_enum(scale_recipe_a),
-            b_s,
-            _to_scaling_type_enum(scale_recipe_b),
-            offs=offs,
-            output_dtype=out_dtype,
-        )
+    # TODO(future): hook up F.scaled_grouped_mm once it supports float blockwise.
     return _emulated_blockwise_scaled_grouped_mm(
         a,
         b,
@@ -314,7 +290,6 @@ def _(
     offs: torch.Tensor,
     out_dtype: torch.dtype,
     block_size: int = 128,
-    use_native_grouped_gemm: bool = False,
 ) -> torch.Tensor:
     if b.ndim == 3:
         return a.new_empty((a.shape[0], b.shape[-1]), dtype=out_dtype)

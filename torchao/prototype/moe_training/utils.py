@@ -8,7 +8,6 @@ import torch
 from torchao.float8.config import ScalingGranularity
 from torchao.float8.float8_utils import tensor_to_scale, to_fp8_saturated
 from torchao.prototype.moe_training.config import (
-    Float8BlockwiseTrainingOpConfig,
     Float8TrainingOpConfig,
     MXFP8TrainingOpConfig,
     TrainingOpBaseConfig,
@@ -375,24 +374,12 @@ def _quantize_then_scaled_grouped_mm(
         config (TrainingOpBaseConfig): Configuration for quantization recipe, etc
     """
     from torchao.prototype.moe_training import (
-        _to_fp8_blockwise_then_scaled_grouped_mm,
         _to_fp8_rowwise_then_scaled_grouped_mm,
         _to_mxfp8_then_scaled_grouped_mm,
     )
 
     # Dispatch based on derived dtype
-    if isinstance(config, Float8BlockwiseTrainingOpConfig):
-        return _to_fp8_blockwise_then_scaled_grouped_mm(
-            A,
-            B_t,
-            offs,
-            out_dtype=config.out_dtype,
-            float8_dtype=config.float8_dtype,
-            block_size=config.block_size,
-            pad_token_groups_for_grouped_mm=config.pad_token_groups_for_grouped_mm,
-            use_native_grouped_gemm=config.use_native_grouped_gemm,
-        )
-    elif isinstance(config, Float8TrainingOpConfig):
+    if isinstance(config, Float8TrainingOpConfig):
         return _to_fp8_rowwise_then_scaled_grouped_mm(
             A,
             B_t,
@@ -519,16 +506,7 @@ def unwrap_weight(wrapper_tensor):
 def _to_fp8_then_scaled_mm(input, weight, config):
     """Helper to perform FP8 linear via matmul_with_hp_or_float8_args."""
     from torchao.float8.float8_linear import matmul_with_hp_or_float8_args
-    from torchao.prototype.blockwise_fp8_training.linear import fp8_blockwise_mm
 
-    if isinstance(config, Float8BlockwiseTrainingOpConfig):
-        return fp8_blockwise_mm.apply(
-            input,
-            weight,
-            config.block_size,
-            config.out_dtype,
-            config.use_triton_linear,
-        )
     return matmul_with_hp_or_float8_args.apply(
         input, weight.t(), config._linear_mm_config, config._float8_linear_config
     )

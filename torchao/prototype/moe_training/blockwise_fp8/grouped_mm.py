@@ -40,7 +40,6 @@ def _to_fp8_blockwise_then_scaled_grouped_mm(
     float8_dtype: torch.dtype = e4m3_dtype,
     block_size: int = 128,
     pad_token_groups_for_grouped_mm: bool = True,
-    use_native_grouped_gemm: bool = False,
 ) -> torch.Tensor:
     """
     Differentiable FP8 blockwise grouped matrix multiplication.
@@ -57,7 +56,6 @@ def _to_fp8_blockwise_then_scaled_grouped_mm(
         float8_dtype,
         block_size,
         pad_token_groups_for_grouped_mm,
-        use_native_grouped_gemm,
     )
 
 
@@ -72,7 +70,6 @@ class _Float8BlockwiseGroupedMM(torch.autograd.Function):
         float8_dtype: torch.dtype = e4m3_dtype,
         block_size: int = 128,
         pad_token_groups_for_grouped_mm: bool = True,
-        use_native_grouped_gemm: bool = False,
     ) -> torch.Tensor:
         assert A.ndim == 2, "A must be 2D"
         assert B_t.ndim == 3, "B_t must be 3D"
@@ -118,7 +115,6 @@ class _Float8BlockwiseGroupedMM(torch.autograd.Function):
             padded_group_end_offsets,
             out_dtype,
             block_size,
-            use_native_grouped_gemm,
         )
         if pad_token_groups_for_grouped_mm:
             out = unpad_token_groups(
@@ -140,7 +136,6 @@ class _Float8BlockwiseGroupedMM(torch.autograd.Function):
         ctx.float8_dtype = float8_dtype
         ctx.block_size = block_size
         ctx.pad_token_groups_for_grouped_mm = pad_token_groups_for_grouped_mm
-        ctx.use_native_grouped_gemm = use_native_grouped_gemm
         ctx.num_tokens = num_tokens
         return out
 
@@ -157,7 +152,6 @@ class _Float8BlockwiseGroupedMM(torch.autograd.Function):
         float8_dtype = ctx.float8_dtype
         block_size = ctx.block_size
         pad_token_groups_for_grouped_mm = ctx.pad_token_groups_for_grouped_mm
-        use_native_grouped_gemm = ctx.use_native_grouped_gemm
         num_tokens = ctx.num_tokens
 
         if pad_token_groups_for_grouped_mm:
@@ -189,7 +183,6 @@ class _Float8BlockwiseGroupedMM(torch.autograd.Function):
             padded_group_end_offsets,
             out_dtype,
             block_size,
-            use_native_grouped_gemm,
         )
         if pad_token_groups_for_grouped_mm:
             grad_A = unpad_token_groups(
@@ -222,12 +215,10 @@ class _Float8BlockwiseGroupedMM(torch.autograd.Function):
             padded_group_end_offsets,
             out_dtype,
             block_size,
-            use_native_grouped_gemm,
         )
         return (
             grad_A,
             grad_B.transpose(-2, -1),
-            None,
             None,
             None,
             None,

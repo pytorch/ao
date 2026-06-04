@@ -24,7 +24,6 @@ class Float8TrainingRecipe(Enum):
     """FP8 recipes for grouped matrix multiplication."""
 
     FP8_ROWWISE = "fp8_rowwise"
-    FP8_BLOCKWISE = "fp8_blockwise"
 
 
 class MXFP8TrainingRecipe(Enum):
@@ -135,73 +134,6 @@ class Float8TrainingOpConfig(TrainingOpBaseConfig):
         )
 
 
-@register_as_pytree_constant
-@dataclass
-class Float8BlockwiseTrainingOpConfig(TrainingOpBaseConfig):
-    """
-    Configuration for FP8 blockwise grouped matrix multiplication.
-    """
-
-    # Float8 dtype for the FP8 grouped GEMMs.
-    float8_dtype: torch.dtype = (
-        torch.float8_e4m3fnuz if is_MI300() else torch.float8_e4m3fn
-    )
-    # Output dtype for the FP8 grouped GEMMs.
-    out_dtype: Optional[torch.dtype] = torch.bfloat16
-
-    # Block size for 1x128, 128x1, and 128x128 scaling.
-    block_size: int = 128
-
-    # Whether to pad token group sizes to multiples of block_size.
-    pad_token_groups_for_grouped_mm: bool = True
-
-    # Use the native scaled_grouped_mm blockwise recipe path. This is disabled
-    # by default because current H100 builds expose the API but do not select a
-    # blockwise grouped GEMM implementation.
-    use_native_grouped_gemm: bool = False
-
-    # Use the dense Triton blockwise GEMM for linear/mm/matmul dispatch.
-    use_triton_linear: bool = False
-
-    def __post_init__(self):
-        assert self.block_size == 128, "Only block_size=128 is supported"
-
-    @classmethod
-    def from_recipe(
-        cls,
-        recipe: Float8TrainingRecipe,
-    ) -> "Float8BlockwiseTrainingOpConfig":
-        """Factory method to create a Float8BlockwiseTrainingOpConfig from a Float8TrainingRecipe."""
-        if recipe == Float8TrainingRecipe.FP8_BLOCKWISE:
-            return cls()
-        raise ValueError(f"Unsupported FP8 blockwise recipe: {recipe}")
-
-    def __eq__(self, other):
-        if isinstance(other, Float8BlockwiseTrainingOpConfig):
-            return (
-                self.float8_dtype == other.float8_dtype
-                and self.out_dtype == other.out_dtype
-                and self.block_size == other.block_size
-                and self.pad_token_groups_for_grouped_mm
-                == other.pad_token_groups_for_grouped_mm
-                and self.use_native_grouped_gemm == other.use_native_grouped_gemm
-                and self.use_triton_linear == other.use_triton_linear
-            )
-        return NotImplemented
-
-    def __hash__(self):
-        return hash(
-            (
-                self.float8_dtype,
-                self.out_dtype,
-                self.block_size,
-                self.pad_token_groups_for_grouped_mm,
-                self.use_native_grouped_gemm,
-                self.use_triton_linear,
-            )
-        )
-
-
 # register as pytree constant so we can use dynamo nonstrict trace in torchao.prototype.moe_training.ep
 @register_as_pytree_constant
 @dataclass
@@ -296,7 +228,6 @@ class MXFP8TrainingOpConfig(TrainingOpBaseConfig):
 
 
 @register_quantize_module_handler(MXFP8TrainingOpConfig)
-@register_quantize_module_handler(Float8BlockwiseTrainingOpConfig)
 @register_quantize_module_handler(Float8TrainingOpConfig)
 def _moe_training_transform(
     module: nn.Module,
