@@ -519,7 +519,7 @@ def test_op_grouped_mm(wrapper_cls, weight_config, act_config, sqnr_threshold, d
     wrapper = wrapper_cls(w, activation_config=act_config, weight_config=weight_config)
     param = torch.nn.Parameter(wrapper)
 
-    offs = torch.tensor([4, 4, 4, 4], dtype=torch.int32)
+    offs = torch.tensor([4, 4, 4, 4], dtype=torch.int32, device=device)
     A_ref = A.clone().detach().requires_grad_(True)
     w_ref = w.clone().detach().requires_grad_(True)
     ref_out = torch._grouped_mm(A_ref, w_ref.transpose(-2, -1), offs=offs)
