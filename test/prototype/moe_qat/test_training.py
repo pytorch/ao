@@ -150,6 +150,8 @@ def test_torch_compile_model(device, fullgraph, weight_config, act_config, sqnr_
 
     if device == "cpu" and use_grouped_mm:
         pytest.skip("grouped_mm is not fully supported on CPU yet.")
+    if fullgraph and not use_grouped_mm and act_config is not None:
+        pytest.skip("fullgraph cannot trace per-expert for-loop with activation fake-quantization")
 
     eager_model = create_moe_model(device, use_grouped_mm=use_grouped_mm)
     compiled_model = copy.deepcopy(eager_model)

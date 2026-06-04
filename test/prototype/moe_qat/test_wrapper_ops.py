@@ -584,7 +584,6 @@ def test_compatibility_with_torch_compile(wrapper_cls, weight_config, act_config
     def eager_forward(activation, weight, kwargs):
         return call_fn(activation, weight, **kwargs)
 
-    torch._dynamo.reset()
     compiled_forward = torch.compile(eager_forward, fullgraph=fullgraph)
 
     def run_test():
