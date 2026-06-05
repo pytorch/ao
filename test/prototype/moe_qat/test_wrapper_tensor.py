@@ -26,17 +26,16 @@ from .testing_utils import _expert_weight_filter, target_devices
 
 
 @pytest.mark.parametrize("device", target_devices)
-@pytest.mark.parametrize("wrapper_cls, expected_match", [
-    (
-        Float8FakeQuantizedWeightWrapperTensor,
-        r"^Only `Float8FakeQuantizeConfig` is supported for `weight_config` in Float8FakeQuantizedWeightWrapperTensor\.$"
-    ),
+@pytest.mark.parametrize("wrapper_cls", [
+    FakeQuantizedWeightWrapperBaseTensor,
+    Float8FakeQuantizedWeightWrapperTensor,
 ])
-def test_wrapper_init_requires_weight_config(wrapper_cls, expected_match, device):
-    """__init__ raises ValueError when weight_config is None."""
+def test_wrapper_init_accepts_none_weight_config(wrapper_cls, device):
+    """Both wrapper classes accept weight_config=None."""
     w = torch.randn(64, 128, device=device)
-    with pytest.raises(ValueError, match=expected_match):
-        wrapper_cls(w, weight_config=None)
+    wrapper = wrapper_cls(w, weight_config=None)
+    assert wrapper.weight_config is None
+    assert torch.equal(wrapper._data, w)
 
 
 @pytest.mark.parametrize("device", target_devices)

@@ -404,14 +404,15 @@ class Float8FakeQuantizedWeightWrapperTensor(FakeQuantizedWeightWrapperBaseTenso
             raise ValueError(
                 f"Only `Float8FakeQuantizeConfig` is supported for `activation_config` in {type(self).__name__}."
             )
-        if not isinstance(weight_config, Float8FakeQuantizeConfig):
-            raise ValueError(
-                f"Only `Float8FakeQuantizeConfig` is supported for `weight_config` in {type(self).__name__}."
-            )
-        elif weight_config.granularity != PerRow(dim=-1):
-            raise ValueError(
-                f"Only the row-wise granularity is supported."
-            )
+        if weight_config is not None:
+            if not isinstance(weight_config, Float8FakeQuantizeConfig):
+                raise ValueError(
+                    f"Only `Float8FakeQuantizeConfig` is supported for `weight_config` in {type(self).__name__}."
+                )
+            elif weight_config.granularity != PerRow(dim=-1):
+                raise ValueError(
+                    f"Only the row-wise granularity is supported."
+                )
         super().__init__(tensor, activation_config=activation_config, weight_config=weight_config)
 
     @classmethod
