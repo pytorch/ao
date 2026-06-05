@@ -254,18 +254,38 @@ def test_wrapper_dispatch_detach(wrapper_cls, weight_config, act_config, device)
 # =========================================================================
 
 @pytest.mark.parametrize("device", target_devices)
-@pytest.mark.parametrize("func, args", [
-    (torch.mm, (torch.randn(16, 64), None)),
-    (torch.addmm, (torch.randn(128), torch.randn(16, 64), None)),
+@pytest.mark.parametrize("call_fn, A_shape, w_shape, kwargs", [
+    (lambda a, w: torch.mm(a, w.T), (16, 64), (128, 64), {}),
+    (lambda a, w: torch.matmul(a, w.T), (16, 64), (128, 64), {}),
+    (lambda a, w: torch.bmm(a, w.transpose(-2, -1)), (4, 16, 64), (4, 128, 64), {}),
+    (lambda a, w: F.linear(a, w), (16, 64), (128, 64), {}),
+    (lambda a, w, *, bias: torch.addmm(bias, a, w.T), (16, 64), (128, 64), {"bias_shape": (128,)}),
+    (lambda a, w, *, offs: torch._grouped_mm(a, w.transpose(-2, -1), offs=offs), (16, 1024), (4, 2048, 1024), {"offs": torch.tensor([4, 4, 4, 4], dtype=torch.int32), "_skip_cpu": True}),
 ])
-def test_wrapper_torch_function_disabled(func, args, device):
+def test_wrapper_torch_function_disabled(call_fn, A_shape, w_shape, kwargs, device):
     """FakeQuantizedWeightWrapperBaseTensor.__torch_function__ passes through without fake quant."""
-    w = torch.randn(64, 128, device=device)
+    if kwargs.get("_skip_cpu", False):
+        if device == "cpu":
+            pytest.skip("grouped_mm is not fully supported on CPU yet.")
+        else:
+            kwargs = copy.deepcopy(kwargs)
+            kwargs.pop("_skip_cpu")        
+    
+    w = torch.randn(*w_shape, device=device)
     wrapper = FakeQuantizedWeightWrapperBaseTensor(w, weight_config=Float8FakeQuantizeConfig())
-    test_args = tuple(wrapper if a is None else a for a in args)
-    ref_args = tuple(w if a is None else a for a in args)
-    result = func(*test_args)
-    ref_result = func(*ref_args)
+
+    A = torch.randn(*A_shape, device=device)
+    resolved = {}
+    for k, v in kwargs.items():
+        if k.endswith("_shape"):
+            resolved[k[:-len("_shape")]] = torch.randn(*v, device=device)
+        elif isinstance(v, torch.Tensor):
+            resolved[k] = v.to(device)
+        else:
+            resolved[k] = v
+
+    result = call_fn(A, wrapper, **resolved)
+    ref_result = call_fn(A, w, **resolved)
     assert torch.equal(result, ref_result), "Base class should pass through without fake quantization"
 
 
