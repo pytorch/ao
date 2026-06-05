@@ -193,23 +193,6 @@ def test_wrapper_dispatch_activation_config_mismatch(wrapper_cls, weight_config,
 
 
 @pytest.mark.parametrize("device", target_devices)
-@pytest.mark.parametrize("wrapper_cls", [
-    FakeQuantizedWeightWrapperBaseTensor,
-    Float8FakeQuantizedWeightWrapperTensor,
-])
-@pytest.mark.parametrize("func", [
-    torch.ops.aten.view.default,
-    torch.ops.aten.add.Tensor,
-])
-def test_wrapper_dispatch_no_wrapped_args(wrapper_cls, func, device):
-    """Dispatch without any wrapped tensor raises AssertionError."""
-    w = torch.randn(4, 64, 128, device=device)
-    expected = f"^__torch_dispatch__ called on {func.__name__} without any FakeQuantizedWeightWrapperBaseTensor arguments$"
-    with pytest.raises(AssertionError, match=expected):
-        wrapper_cls.__torch_dispatch__(func, (wrapper_cls,), (w,))
-
-
-@pytest.mark.parametrize("device", target_devices)
 @pytest.mark.parametrize("wrapper_cls, weight_config", [
     (FakeQuantizedWeightWrapperBaseTensor, Float8FakeQuantizeConfig()),
     (Float8FakeQuantizedWeightWrapperTensor, Float8FakeQuantizeConfig()),

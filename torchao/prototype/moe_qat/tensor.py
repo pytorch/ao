@@ -172,11 +172,6 @@ class FakeQuantizedWeightWrapperBaseTensor(TorchAOBaseTensor):
         weight_config: Optional[FakeQuantizeConfigBase] = None,
     ):
         self._data = tensor
-        if weight_config is None:
-            raise ValueError(
-                f"Must specify `weight_config` in {type(self).__name__}."
-            )
-
         self.activation_config = activation_config
         self.weight_config = weight_config
 
@@ -213,10 +208,6 @@ class FakeQuantizedWeightWrapperBaseTensor(TorchAOBaseTensor):
 
         args_unwrapped, kwargs_unwrapped = pytree.tree_map_only(
             FakeQuantizedWeightWrapperBaseTensor, unwrap, (args, kwargs or {})
-        )
-
-        assert weight_config is not None, (
-            f"__torch_dispatch__ called on {func.__name__} without any FakeQuantizedWeightWrapperBaseTensor arguments"
         )
 
         # The treatment below for "detach" is different from that of TrainingWeightWrapperBaseTensor.

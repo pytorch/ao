@@ -28,11 +28,7 @@ from .testing_utils import _expert_weight_filter, target_devices
 @pytest.mark.parametrize("device", target_devices)
 @pytest.mark.parametrize("wrapper_cls, expected_match", [
     (
-        FakeQuantizedWeightWrapperBaseTensor,
-        r"^Must specify `weight_config` in FakeQuantizedWeightWrapperBaseTensor\.$"
-    ),
-    (
-        Float8FakeQuantizedWeightWrapperTensor, 
+        Float8FakeQuantizedWeightWrapperTensor,
         r"^Only `Float8FakeQuantizeConfig` is supported for `weight_config` in Float8FakeQuantizedWeightWrapperTensor\.$"
     ),
 ])
