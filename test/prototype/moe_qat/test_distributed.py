@@ -337,3 +337,30 @@ def apply_moe_ep_tp(
         device_mesh=experts_mesh,
         parallelize_plan=experts_plan,
     )
+
+
+
+@pytest.mark.parametrize("wrapper_cls,weight_config,activation_config", [
+    (FakeQuantizedWeightWrapperBaseTensor, Float8FakeQuantizeConfig(), None),
+    (FakeQuantizedWeightWrapperBaseTensor, Float8FakeQuantizeConfig(), Float8FakeQuantizeConfig()),
+    (Float8FakeQuantizedWeightWrapperTensor, Float8FakeQuantizeConfig(), None),
+    (Float8FakeQuantizedWeightWrapperTensor, Float8FakeQuantizeConfig(), Float8FakeQuantizeConfig()),
+])
+def test_scatter_preserves_subclass(wrapper_cls, weight_config, activation_config, distributed_env):
+    """c10d.scatter_.default preserves the wrapper subclass on the local shard."""
+    rank = torch.distributed.get_rank()
+    device = distributed_env["device_type"]
+    shape = (4, 64, 128)
+    if rank == 0:
+        weight = torch.randn(*shape, device=device)
+        wrapper = wrapper_cls(weight.clone(), activation_config=activation_config, weight_config=weight_config)
+    else:
+        weight = torch.zeros(*shape, device=device)
+        wrapper = wrapper_cls(weight.clone(), activation_config=activation_config, weight_config=weight_config)
+
+    mesh = distributed_env["tp_mesh"]
+    dt = distribute_tensor(wrapper, mesh, [Shard(0)])
+
+    assert isinstance(dt._local_tensor, wrapper_cls), "Wrapper subclass should be preserved"
+    torch.distributed.broadcast(weight, src=0)
+    assert torch.equal(dt._local_tensor.to_tensor(), weight.chunk(mesh.size(), dim=0)[rank])
