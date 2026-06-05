@@ -40,6 +40,8 @@ from .testing_utils import _expert_weight_filter, target_devices
     # index
     ((4, 64, 128), lambda x: x[torch.tensor([0, 2])]),
     ((4, 64, 128), lambda x: x[torch.tensor([True, False, True, False])]),
+    # _unsafe_index — internal ATen op triggered by advanced indexing
+    ((4, 64, 128), lambda x: torch.ops.aten._unsafe_index.Tensor(x, [torch.tensor([0, 2])])),
     # unsqueeze
     ((4, 64, 128), lambda x: x.unsqueeze(0)),
     # new_zeros
@@ -71,7 +73,6 @@ from .testing_utils import _expert_weight_filter, target_devices
 def test_wrapper_preserves_subclass(wrapper_cls, weight_config, act_config, weight_shape, op_func, device):
     """All ops in _ops_to_preserve_subclass return the wrapper subclass.
 
-    _unsafe_index.Tensor has no public API to trigger it directly.
     c10d.scatter_.default requires distributed runtime — tested in test_distributed.py.
     copy_ is tested separately in test_wrapper_dispatch_copy_ because it is an in-place op.
     pin_memory is tested separately in test_pin_memory_preserves_subclass (CUDA is needed).
