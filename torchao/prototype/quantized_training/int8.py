@@ -278,6 +278,31 @@ def _(func, types, args, kwargs):
     return out
 
 
+# Inverse of aten.split.Tensor above. Needed for distributed training, where
+# wrapping a model with DDP / `accelerator.prepare()` concatenates parameters.
+# With row-wise quantization each row carries its own scale, so concatenating
+# along dim 0 (the row dim) just concatenates int_data and scale and needs no
+# dequantization. Concatenating along dim 1 would mix columns governed by
+# different per-row scales, which cannot be represented as a single
+# Int8QTLinearWeight, so we only support dim 0 (mirroring split).
+@implements(aten.cat.default)
+def _(func, types, args, kwargs):
+    tensors = args[0]
+    dim = args[1] if len(args) > 1 else kwargs.get("dim", 0)
+    if dim < 0:
+        dim += 2  # int_data is always 2D
+    if dim != 0:
+        raise NotImplementedError("Int8QTLinearWeight only supports cat at dim=0")
+    if not all(isinstance(t, Int8QuantizedTrainingLinearWeight) for t in tensors):
+        raise NotImplementedError(
+            "Int8QTLinearWeight.cat only supports a list of Int8QTLinearWeight"
+        )
+
+    int_data = func([t.int_data for t in tensors], dim)
+    scale = func([t.scale for t in tensors], 0)
+    return Int8QuantizedTrainingLinearWeight(int_data, scale)
+
+
 @implements(aten.new_zeros.default)
 def _(func, types, args, kwargs):
     size = args[1]

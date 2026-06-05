@@ -98,6 +98,37 @@ class TestQuantizedTraining(TestCase):
         if bias:
             torch.testing.assert_close(linear_fp32.bias.grad, linear_int8.bias.grad)
 
+    @parametrize("device", _DEVICES)
+    def test_int8_weight_only_cat(self, device):
+        from torchao.prototype.quantized_training.int8 import (
+            Int8QuantizedTrainingLinearWeight,
+        )
+
+        w1 = Int8QuantizedTrainingLinearWeight.from_float(
+            torch.randn(4, 8, device=device)
+        )
+        w2 = Int8QuantizedTrainingLinearWeight.from_float(
+            torch.randn(6, 8, device=device)
+        )
+
+        out = torch.cat([w1, w2], dim=0)
+        self.assertIsInstance(out, Int8QuantizedTrainingLinearWeight)
+        self.assertEqual(out.shape, (10, 8))
+        # row-wise scales are preserved, so the cat is exact (no requantization)
+        torch.testing.assert_close(
+            out.dequantize(),
+            torch.cat([w1.dequantize(), w2.dequantize()], dim=0),
+        )
+
+        # negative dim resolves to the row dim
+        torch.testing.assert_close(
+            torch.cat([w1, w2], dim=-2).dequantize(), out.dequantize()
+        )
+
+        # cat along the feature dim is not representable with per-row scales
+        with self.assertRaises(NotImplementedError):
+            torch.cat([w1, w1], dim=1)
+
     @parametrize("leading_dims", [(), (2,), (2, 4)])
     @parametrize("bias", [False, True])
     @parametrize("device", _DEVICES)
