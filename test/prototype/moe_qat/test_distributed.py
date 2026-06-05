@@ -10,7 +10,7 @@ from torch.distributed._composable.fsdp import fully_shard
 from torch.distributed._tensor import DTensor
 from torch.distributed.device_mesh import DeviceMesh, init_device_mesh
 from torch.distributed.fsdp import MixedPrecisionPolicy
-from torch.distributed.tensor import Partial, Replicate, Shard
+from torch.distributed.tensor import Partial, Replicate, Shard, distribute_tensor
 from torch.distributed.tensor.parallel import (
     ColwiseParallel,
     PrepareModuleInputOutput,
@@ -222,31 +222,38 @@ def test_moe_qat_parallel(parallel_strategy, wrapper_cls, weight_config, activat
     model_optimizer.step()
     ref_optimizer.step()
 
-    # Validate output (consolidated to full CPU tensors)
+    # --- All collectives (all ranks must participate) ---
     gathered_out = consolidate_tensor_to_cpu(out)
     gathered_ref_out = consolidate_tensor_to_cpu(ref_out)
-    if torch.distributed.get_rank() == 0:
-        assert torch.isfinite(gathered_out).all(), "Consolidated output has non-finite values"
-        assert torch.isfinite(gathered_ref_out).all(), "Consolidated ref output has non-finite values"
-        out_sqnr = compute_error(gathered_out, gathered_ref_out)
-        assert out_sqnr.item() >= min_sqnr["out"], f"Output SQNR must be >= {min_sqnr['out']} dB, got {out_sqnr.item():.1f} dB"
 
-    # Validate input gradient (consolidated)
     gathered_x_grad = consolidate_tensor_to_cpu(x.grad)
     gathered_ref_x_grad = consolidate_tensor_to_cpu(ref_x.grad)
-    if torch.distributed.get_rank() == 0:
-        assert torch.isfinite(gathered_x_grad).all(), "Consolidated input grad has non-finite values"
-        assert torch.isfinite(gathered_ref_x_grad).all(), "Consolidated ref input grad has non-finite values"
-        input_grad_sqnr = compute_error(gathered_x_grad, gathered_ref_x_grad)
-        assert input_grad_sqnr.item() >= min_sqnr["input_grad"], f"Input grad SQNR must be >= {min_sqnr['input_grad']} dB, got {input_grad_sqnr.item():.1f} dB"
 
-    # Validate param gradients (consolidated)
+    param_results = []
     for (name, param), (ref_name, ref_param) in zip(
         model.named_parameters(), ref_model.named_parameters()
     ):
         gathered = consolidate_tensor_to_cpu(param.grad)
         ref_gathered = consolidate_tensor_to_cpu(ref_param.grad)
         if torch.distributed.get_rank() == 0:
+            param_results.append((name, ref_name, gathered, ref_gathered))
+
+    # --- Barrier: sync before any rank-0 assertion ---
+    torch.distributed.barrier()
+
+    # --- Rank-0 assertions ---
+    if torch.distributed.get_rank() == 0:
+        assert torch.isfinite(gathered_out).all(), "Consolidated output has non-finite values"
+        assert torch.isfinite(gathered_ref_out).all(), "Consolidated ref output has non-finite values"
+        out_sqnr = compute_error(gathered_out, gathered_ref_out)
+        assert out_sqnr.item() >= min_sqnr["out"], f"Output SQNR must be >= {min_sqnr['out']} dB, got {out_sqnr.item():.1f} dB"
+
+        assert torch.isfinite(gathered_x_grad).all(), "Consolidated input grad has non-finite values"
+        assert torch.isfinite(gathered_ref_x_grad).all(), "Consolidated ref input grad has non-finite values"
+        input_grad_sqnr = compute_error(gathered_x_grad, gathered_ref_x_grad)
+        assert input_grad_sqnr.item() >= min_sqnr["input_grad"], f"Input grad SQNR must be >= {min_sqnr['input_grad']} dB, got {input_grad_sqnr.item():.1f} dB"
+
+        for name, ref_name, gathered, ref_gathered in param_results:
             assert gathered is not None
             assert ref_gathered is not None
             assert torch.isfinite(gathered).all(), f"Consolidated {name} grad has non-finite values"
