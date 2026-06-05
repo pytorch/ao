@@ -20,7 +20,7 @@ if not (
 pytest.importorskip("triton", reason="Triton required to run this test")
 
 from torchao.prototype.moe_training.blockwise_fp8.grouped_mm import (
-    _to_fp8_blockwise_then_scaled_grouped_mm,
+    _to_fp8_blockwise_then_emulated_scaled_grouped_mm,
 )
 from torchao.quantization.utils import compute_error
 from torchao.testing.utils import skip_if_rocm
@@ -41,7 +41,9 @@ def _make_column_major_weight_t(E: int, N: int, K: int) -> torch.Tensor:
         (torch.tensor([129, 384, 500], dtype=torch.int32), True),
     ],
 )
-def test_fp8_blockwise_grouped_mm_fwd_bwd(offs, pad_token_groups_for_grouped_mm):
+def test_fp8_blockwise_emulated_grouped_mm_fwd_bwd(
+    offs, pad_token_groups_for_grouped_mm
+):
     torch.manual_seed(0)
     offs = offs.cuda()
     E = offs.numel()
@@ -53,7 +55,7 @@ def test_fp8_blockwise_grouped_mm_fwd_bwd(offs, pad_token_groups_for_grouped_mm)
     A_ref = A.detach().clone().requires_grad_(True)
     B_t_ref = B_t.detach().clone().requires_grad_(True)
 
-    out = _to_fp8_blockwise_then_scaled_grouped_mm(
+    out = _to_fp8_blockwise_then_emulated_scaled_grouped_mm(
         A,
         B_t,
         offs,
@@ -73,13 +75,15 @@ def test_fp8_blockwise_grouped_mm_fwd_bwd(offs, pad_token_groups_for_grouped_mm)
 
 
 @skip_if_rocm("ROCm not supported")
-def test_fp8_blockwise_grouped_mm_compile_aligned_groups():
+def test_fp8_blockwise_emulated_grouped_mm_compile_aligned_groups():
     E, M, K, N = 2, 256, 128, 128
     A = torch.randn(E * M, K, dtype=torch.bfloat16, device="cuda")
     B_t = _make_column_major_weight_t(E, N, K)
     offs = torch.arange(M, (E + 1) * M, M, device="cuda", dtype=torch.int32)
 
-    compiled = torch.compile(_to_fp8_blockwise_then_scaled_grouped_mm, fullgraph=True)
+    compiled = torch.compile(
+        _to_fp8_blockwise_then_emulated_scaled_grouped_mm, fullgraph=True
+    )
     out = compiled(A, B_t, offs, pad_token_groups_for_grouped_mm=False)
 
     assert out.shape == (E * M, N)

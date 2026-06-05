@@ -227,8 +227,8 @@ class MXFP8TrainingOpConfig(TrainingOpBaseConfig):
         )
 
 
-@register_quantize_module_handler(MXFP8TrainingOpConfig)
 @register_quantize_module_handler(Float8TrainingOpConfig)
+@register_quantize_module_handler(MXFP8TrainingOpConfig)
 def _moe_training_transform(
     module: nn.Module,
     config: TrainingOpBaseConfig,

@@ -202,7 +202,7 @@ def _(
     return q_out, scale_out
 
 
-# NOTE: only for emulated backend, we can remove once we have native scaled grouped gemm
+# Expand blockwise scales to match q_data's elementwise shape.
 def _expand_blockwise_scale(
     q_data: torch.Tensor,
     scale: torch.Tensor,
@@ -229,9 +229,7 @@ def _expand_blockwise_scale(
     )
 
 
-# NOTE: only for emulated backend, we can remove once we have native scaled grouped gemm
-# for correctness not performance
-def _emulated_blockwise_scaled_grouped_mm(
+def _emulated_blockwise_scaled_grouped_mm_impl(
     a: torch.Tensor,
     b: torch.Tensor,
     a_s: torch.Tensor,
@@ -249,8 +247,10 @@ def _emulated_blockwise_scaled_grouped_mm(
     return torch._grouped_mm(a_hp, b_hp, offs=offs, out_dtype=out_dtype)
 
 
-@torch.library.custom_op("torchao::blockwise_scaled_grouped_mm", mutates_args=())
-def blockwise_scaled_grouped_mm(
+@torch.library.custom_op(
+    "torchao::emulated_blockwise_scaled_grouped_mm", mutates_args=()
+)
+def emulated_blockwise_scaled_grouped_mm(
     a: torch.Tensor,
     b: torch.Tensor,
     a_s: torch.Tensor,
@@ -261,12 +261,14 @@ def blockwise_scaled_grouped_mm(
     out_dtype: torch.dtype,
     block_size: int = 128,
 ) -> torch.Tensor:
-    assert _is_row_major(a), "blockwise_scaled_grouped_mm expected row-major A"
-    assert _is_column_major(b), "blockwise_scaled_grouped_mm expected column-major B"
+    assert _is_row_major(a), "emulated_blockwise_scaled_grouped_mm expected row-major A"
+    assert _is_column_major(b), (
+        "emulated_blockwise_scaled_grouped_mm expected column-major B"
+    )
     assert offs is not None and offs.dtype == torch.int32, "offs must be int32"
     b_s = _prepare_grouped_rhs_scale(b_s, scale_recipe_b)
     # TODO(future): hook up F.scaled_grouped_mm once it supports float blockwise.
-    return _emulated_blockwise_scaled_grouped_mm(
+    return _emulated_blockwise_scaled_grouped_mm_impl(
         a,
         b,
         a_s,
@@ -279,7 +281,7 @@ def blockwise_scaled_grouped_mm(
     )
 
 
-@blockwise_scaled_grouped_mm.register_fake
+@emulated_blockwise_scaled_grouped_mm.register_fake
 def _(
     a: torch.Tensor,
     b: torch.Tensor,

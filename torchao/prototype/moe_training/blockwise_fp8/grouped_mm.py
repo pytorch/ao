@@ -10,7 +10,7 @@ import torch
 
 from torchao.float8.config import e4m3_dtype
 from torchao.prototype.blockwise_fp8_training.grouped_kernels import (
-    blockwise_scaled_grouped_mm,
+    emulated_blockwise_scaled_grouped_mm,
     triton_fp8_blockwise_weight_quant_grouped_rhs,
     triton_fp8_blockwise_weight_quant_grouped_transposed_rhs,
 )
@@ -32,7 +32,7 @@ from torchao.prototype.moe_training.utils import (
 
 
 @conditional_nostrict_trace
-def _to_fp8_blockwise_then_scaled_grouped_mm(
+def _to_fp8_blockwise_then_emulated_scaled_grouped_mm(
     A: torch.Tensor,
     B_t: torch.Tensor,
     offs: Optional[torch.Tensor] = None,
@@ -42,13 +42,13 @@ def _to_fp8_blockwise_then_scaled_grouped_mm(
     pad_token_groups_for_grouped_mm: bool = True,
 ) -> torch.Tensor:
     """
-    Differentiable FP8 blockwise grouped matrix multiplication.
+    Differentiable FP8 blockwise grouped matrix multiplication using an emulated GEMM.
 
     A has shape (M, K). B_t has shape (E, K, N), transposed and in
     per-expert column-major layout.
     """
     assert block_size == 128, "Only block_size=128 is supported"
-    return _Float8BlockwiseGroupedMM.apply(
+    return _Float8BlockwiseEmulatedGroupedMM.apply(
         A,
         B_t,
         offs,
@@ -59,7 +59,7 @@ def _to_fp8_blockwise_then_scaled_grouped_mm(
     )
 
 
-class _Float8BlockwiseGroupedMM(torch.autograd.Function):
+class _Float8BlockwiseEmulatedGroupedMM(torch.autograd.Function):
     @staticmethod
     def forward(
         ctx,
@@ -105,7 +105,7 @@ class _Float8BlockwiseGroupedMM(torch.autograd.Function):
             block_size=block_size,
             dtype=float8_dtype,
         )
-        out = blockwise_scaled_grouped_mm(
+        out = emulated_blockwise_scaled_grouped_mm(
             A_fp8,
             B_t_fp8,
             A_scale,
@@ -173,7 +173,7 @@ class _Float8BlockwiseGroupedMM(torch.autograd.Function):
             block_size=block_size,
             dtype=float8_dtype,
         )
-        grad_A = blockwise_scaled_grouped_mm(
+        grad_A = emulated_blockwise_scaled_grouped_mm(
             grad_output_fp8,
             B_fp8,
             grad_output_scale,
@@ -205,7 +205,7 @@ class _Float8BlockwiseGroupedMM(torch.autograd.Function):
             block_size=block_size,
             dtype=float8_dtype,
         )
-        grad_B = blockwise_scaled_grouped_mm(
+        grad_B = emulated_blockwise_scaled_grouped_mm(
             grad_output_t_fp8,
             A_rhs_fp8,
             grad_output_t_scale,
