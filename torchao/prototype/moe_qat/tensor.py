@@ -400,10 +400,14 @@ class Float8FakeQuantizedWeightWrapperTensor(FakeQuantizedWeightWrapperBaseTenso
         activation_config: Optional[FakeQuantizeConfigBase] = None,
         weight_config: Optional[FakeQuantizeConfigBase] = None,
     ):
-        if activation_config is not None and not isinstance(activation_config, Float8FakeQuantizeConfig):
-            raise ValueError(
-                f"Only `Float8FakeQuantizeConfig` is supported for `activation_config` in {type(self).__name__}."
-            )
+        if activation_config is not None:
+            if not isinstance(activation_config, Float8FakeQuantizeConfig):
+                raise ValueError(
+                    f"Only `Float8FakeQuantizeConfig` is supported for `activation_config` in {type(self).__name__}."
+                )
+            elif activation_config.granularity != PerRow(dim=-1):
+                raise ValueError(f"Only the row-wise granularity is supported for `activation_config`.")
+
         if weight_config is not None:
             if not isinstance(weight_config, Float8FakeQuantizeConfig):
                 raise ValueError(

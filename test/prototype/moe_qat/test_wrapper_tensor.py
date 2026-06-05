@@ -85,20 +85,42 @@ def test_wrapper_init_rejects_invalid_weight_config(wrapper_cls, weight_config, 
 
 
 @pytest.mark.parametrize("device", target_devices)
-@pytest.mark.parametrize("wrapper_cls, expected_match", [
+@pytest.mark.parametrize("wrapper_cls, weight_config, act_config, expected_match", [
     (
-        Float8FakeQuantizedWeightWrapperTensor, 
-        r"^Only `Float8FakeQuantizeConfig` is supported for `activation_config` in Float8FakeQuantizedWeightWrapperTensor\.$"
+        Float8FakeQuantizedWeightWrapperTensor,
+        Float8FakeQuantizeConfig(),
+        None,
+        r"^Only `Float8FakeQuantizeConfig` is supported for `activation_config` in Float8FakeQuantizedWeightWrapperTensor\.$",
+    ),
+    (
+        Float8FakeQuantizedWeightWrapperTensor,
+        None,
+        None,
+        r"^Only `Float8FakeQuantizeConfig` is supported for `activation_config` in Float8FakeQuantizedWeightWrapperTensor\.$",
+    ),
+    (
+        Float8FakeQuantizedWeightWrapperTensor,
+        Float8FakeQuantizeConfig(),
+        Float8FakeQuantizeConfig(dtype=torch.float8_e4m3fn, granularity=PerTensor()),
+        r"^Only the row-wise granularity is supported for `activation_config`\.$",
+    ),
+    (
+        Float8FakeQuantizedWeightWrapperTensor,
+        None,
+        Float8FakeQuantizeConfig(dtype=torch.float8_e4m3fn, granularity=PerTensor()),
+        r"^Only the row-wise granularity is supported for `activation_config`\.$",
     ),
 ])
-def test_wrapper_init_rejects_invalid_activation_config(wrapper_cls, expected_match, device):
-    """Wrapper subclass rejects non-matching activation_config type."""
-    class DummyConfig(FakeQuantizeConfigBase):
-        pass
+def test_wrapper_init_rejects_invalid_activation_config(wrapper_cls, weight_config, act_config, expected_match, device):
+    """Wrapper subclass rejects non-matching activation_config type or granularity."""
+    if act_config is None:
+        class DummyConfig(FakeQuantizeConfigBase):
+            pass
+        act_config = DummyConfig()
 
     w = torch.randn(64, 128, device=device)
     with pytest.raises(ValueError, match=expected_match):
-        wrapper_cls(w, activation_config=DummyConfig(), weight_config=Float8FakeQuantizeConfig())
+        wrapper_cls(w, activation_config=act_config, weight_config=weight_config)
 
 
 # =========================================================================
