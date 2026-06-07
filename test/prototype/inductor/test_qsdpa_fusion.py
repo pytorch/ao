@@ -134,7 +134,7 @@ class FP8QDQSDPA(torch.nn.Module):
         self.k_out_scale = 3.8
         self.attn_weights_scale = 4.0
         self.v_out_scale = 8.5
-        self.attn_out_scale = 1/512
+        self.attn_out_scale = 1 / 512
         self.qk_out_scale = 1.75
 
     def forward(self, q, k, v, mask):
