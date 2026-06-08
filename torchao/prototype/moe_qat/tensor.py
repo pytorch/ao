@@ -148,8 +148,8 @@ class FakeQuantizedWeightWrapperBaseTensor(TorchAOBaseTensor):
     def __new__(
         cls,
         tensor: torch.Tensor,
-        activation_config: Optional[FakeQuantizeConfigBase] = None,
         weight_config: Optional[FakeQuantizeConfigBase] = None,
+        activation_config: Optional[FakeQuantizeConfigBase] = None,
     ):
         self = torch.Tensor._make_wrapper_subclass(
             cls,
@@ -168,12 +168,12 @@ class FakeQuantizedWeightWrapperBaseTensor(TorchAOBaseTensor):
     def __init__(
         self,
         tensor: torch.Tensor,
-        activation_config: Optional[FakeQuantizeConfigBase] = None,
         weight_config: Optional[FakeQuantizeConfigBase] = None,
+        activation_config: Optional[FakeQuantizeConfigBase] = None,
     ):
         self._data = tensor
-        self.activation_config = activation_config
         self.weight_config = weight_config
+        self.activation_config = activation_config
 
     __torch_function__ = torch._C._disabled_torch_function_impl
 
@@ -397,17 +397,9 @@ class Float8FakeQuantizedWeightWrapperTensor(FakeQuantizedWeightWrapperBaseTenso
     def __init__(
         self,
         tensor: torch.Tensor,
-        activation_config: Optional[FakeQuantizeConfigBase] = None,
         weight_config: Optional[FakeQuantizeConfigBase] = None,
+        activation_config: Optional[FakeQuantizeConfigBase] = None,
     ):
-        if activation_config is not None:
-            if not isinstance(activation_config, Float8FakeQuantizeConfig):
-                raise ValueError(
-                    f"Only `Float8FakeQuantizeConfig` is supported for `activation_config` in {type(self).__name__}."
-                )
-            elif activation_config.granularity != PerRow(dim=-1):
-                raise ValueError(f"Only the row-wise granularity is supported for `activation_config`.")
-
         if weight_config is not None:
             if not isinstance(weight_config, Float8FakeQuantizeConfig):
                 raise ValueError(
@@ -417,7 +409,16 @@ class Float8FakeQuantizedWeightWrapperTensor(FakeQuantizedWeightWrapperBaseTenso
                 raise ValueError(
                     f"Only the row-wise granularity is supported."
                 )
-        super().__init__(tensor, activation_config=activation_config, weight_config=weight_config)
+
+        if activation_config is not None:
+            if not isinstance(activation_config, Float8FakeQuantizeConfig):
+                raise ValueError(
+                    f"Only `Float8FakeQuantizeConfig` is supported for `activation_config` in {type(self).__name__}."
+                )
+            elif activation_config.granularity != PerRow(dim=-1):
+                raise ValueError(f"Only the row-wise granularity is supported for `activation_config`.")
+
+        super().__init__(tensor, weight_config=weight_config, activation_config=activation_config)
 
     @classmethod
     def __torch_function__(cls, func, types, args, kwargs=None):
