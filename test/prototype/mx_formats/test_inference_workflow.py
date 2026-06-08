@@ -57,7 +57,27 @@ def cuda_kernel_profiler(kernel_pattern):
     result["found"] = any(kernel_pattern in name for name in kernel_names)
 
 
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+@pytest.mark.skipif(
+    not (torch.cuda.is_available() or torch.xpu.is_available()),
+    reason="CUDA or XPU not available",
+)
+@pytest.mark.parametrize(
+    "device",
+    [
+        pytest.param(
+            "cuda",
+            marks=pytest.mark.skipif(
+                not torch.cuda.is_available(), reason="CUDA not available"
+            ),
+        ),
+        pytest.param(
+            "xpu",
+            marks=pytest.mark.skipif(
+                not torch.xpu.is_available(), reason="XPU not available"
+            ),
+        ),
+    ],
+)
 @pytest.mark.parametrize("elem_dtype", [torch.float8_e4m3fn, torch.float4_e2m1fn_x2])
 @pytest.mark.parametrize("bias", [True, False])
 @pytest.mark.parametrize("compile", [True, False])
@@ -75,25 +95,31 @@ def test_inference_workflow_mx(
     emulate: bool,
     use_inference_mode: bool,
     x_rank: int,
+    device: str,
 ):
     """
     Smoke test for inference compile
     """
     # TODO(future): figure out why these CUDA capability conditions are not properly
     # applied when inside `pytest.mark.skipif` for this test
-    if elem_dtype in (torch.float8_e4m3fn, torch.float8_e5m2):
+    if (
+        elem_dtype in (torch.float8_e4m3fn, torch.float8_e5m2)
+        and device == "cuda"
+    ):
         if not is_sm_at_least_89():
             pytest.skip("CUDA capability >= 8.9 required for float8 in triton")
         elif not is_sm_at_least_100() and not emulate:
             pytest.skip("CUDA capability >= 10.0 required for mxfp8 gemm")
-    elif elem_dtype == torch.float4_e2m1fn_x2:
+    elif elem_dtype == torch.float4_e2m1fn_x2 and device == "cuda":
         if not is_sm_at_least_100() and not emulate:
             pytest.skip("CUDA capability >= 10.0 required for mxfp4 gemm")
         elif compile:
             # TODO(future PR): investigate and fix this
             pytest.skip("mxfp4 + compile currently does not work, low SQNR")
+    if compile and device == "xpu":
+        pytest.skip("compile is not yet supported on XPU for MX")
 
-    m = nn.Linear(32, 128, bias=bias, dtype=torch.bfloat16, device="cuda")
+    m = nn.Linear(32, 128, bias=bias, dtype=torch.bfloat16, device=device)
     m_mx = copy.deepcopy(m)
 
     if emulate:
@@ -109,7 +135,7 @@ def test_inference_workflow_mx(
     if compile:
         m_mx = torch.compile(m_mx, fullgraph=True)
 
-    x = torch.randn(128, 32, device="cuda", dtype=torch.bfloat16)
+    x = torch.randn(128, 32, device=device, dtype=torch.bfloat16)
     if x_rank == 3:
         x = x.unsqueeze(0)
 
