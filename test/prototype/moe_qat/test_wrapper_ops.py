@@ -243,17 +243,10 @@ def test_wrapper_dispatch_detach(wrapper_cls, weight_config, act_config, device)
     (lambda a, w: torch.bmm(a, w.transpose(-2, -1)), (4, 16, 64), (4, 128, 64), {}),
     (lambda a, w: F.linear(a, w), (16, 64), (128, 64), {}),
     (lambda a, w, *, bias: torch.addmm(bias, a, w.T), (16, 64), (128, 64), {"bias_shape": (128,)}),
-    (lambda a, w, *, offs: torch._grouped_mm(a, w.transpose(-2, -1), offs=offs), (16, 1024), (4, 2048, 1024), {"offs": torch.tensor([4, 4, 4, 4], dtype=torch.int32), "_skip_cpu": True}),
+    (lambda a, w, *, offs: torch._grouped_mm(a, w.transpose(-2, -1), offs=offs), (16, 1024), (4, 2048, 1024), {"offs": torch.tensor([4, 8, 12, 16], dtype=torch.int32)}),
 ])
 def test_wrapper_torch_function_disabled(call_fn, A_shape, w_shape, kwargs, device):
     """FakeQuantizedWeightWrapperBaseTensor.__torch_function__ passes through without fake quant."""
-    if kwargs.get("_skip_cpu", False):
-        if device == "cpu":
-            pytest.skip("grouped_mm is not fully supported on CPU yet.")
-        else:
-            kwargs = copy.deepcopy(kwargs)
-            kwargs.pop("_skip_cpu")        
-    
     w = torch.randn(*w_shape, device=device)
     wrapper = FakeQuantizedWeightWrapperBaseTensor(w, weight_config=Float8FakeQuantizeConfig())
 
@@ -511,9 +504,7 @@ def test_op_fake_quantize(wrapper_cls, weight_config, act_config, sqnr_threshold
     (Float8FakeQuantizedWeightWrapperTensor, Float8FakeQuantizeConfig(), Float8FakeQuantizeConfig(), 20),
 ])
 def test_op_grouped_mm(wrapper_cls, weight_config, act_config, sqnr_threshold, device):
-    """grouped_mm with fake-quantized weight produces good forward+backward SQNR. GPU-only."""
-    if device != "cuda":
-        pytest.skip("grouped_mm CPU backward corrupts subsequent forward calls")
+    """grouped_mm with fake-quantized weight produces good forward+backward SQNR."""
 
     S, E, K, N = 16, 4, 1024, 2048  # total_tokens, experts, in_features, out_features
 
@@ -522,7 +513,7 @@ def test_op_grouped_mm(wrapper_cls, weight_config, act_config, sqnr_threshold, d
     wrapper = wrapper_cls(w, activation_config=act_config, weight_config=weight_config)
     param = torch.nn.Parameter(wrapper)
 
-    offs = torch.tensor([4, 4, 4, 4], dtype=torch.int32, device=device)
+    offs = torch.tensor([4, 8, 12, 16], dtype=torch.int32, device=device)
     A_ref = A.clone().detach().requires_grad_(True)
     w_ref = w.clone().detach().requires_grad_(True)
     ref_out = torch._grouped_mm(A_ref, w_ref.transpose(-2, -1), offs=offs)
@@ -559,9 +550,9 @@ def test_op_grouped_mm(wrapper_cls, weight_config, act_config, sqnr_threshold, d
     # torch.addmm: weight stored as [N, K], transposed at call site
     (lambda a, w, *, bias: torch.addmm(bias, a, w.T), (16, 64), (128, 64), {"bias_shape": (128,)}),
     # torch._grouped_mm: weight stored as [E, N, K], transposed at call site.
-    # NOTE: _skip_cpu sentinel must be removed if grouped_mm CPU support improves.
+    # NOTE: _skip_cpu sentinel is only needed for torch.compile (Dynamo requires bf16).
     (lambda a, w, *, offs: torch._grouped_mm(a, w.transpose(-2, -1), offs=offs), (16, 1024), (4, 2048, 1024), {
-        "offs": torch.tensor([4, 4, 4, 4], dtype=torch.int32), "_skip_cpu": True
+        "offs": torch.tensor([4, 8, 12, 16], dtype=torch.int32), "_skip_cpu": True,
     }),
 ])
 def test_compatibility_with_torch_compile(wrapper_cls, weight_config, act_config, call_fn, A_shape, w_shape, kwargs, device, fullgraph):
