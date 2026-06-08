@@ -779,6 +779,7 @@ def _addmm_mx_dispatch(
     if gemm_choice == KernelPreference.AUTO:
         # real MX gemm backed by torchao's CUTLASS kernels
         M, K, N = a.shape[0], a.shape[1], b.shape[1]
+        is_xpu = a.qdata.is_xpu and b.qdata.is_xpu
         assert a.qdata.is_contiguous()
         assert b.qdata.t().is_contiguous()
         assert a.block_size == 32, f"Invalid block size {a.block_size}"
@@ -788,13 +789,19 @@ def _addmm_mx_dispatch(
             a_scale_block = a.scale
         else:
             a_scale = a.scale.view(M, K // a.block_size)
-            a_scale_block = maybe_dtensor_to_blocked(a_scale)
+            if is_xpu:
+                a_scale_block = a_scale
+            else:
+                a_scale_block = maybe_dtensor_to_blocked(a_scale)
 
         if b.is_swizzled_scales:
             b_scale_block = b.scale.t()
         else:
-            b_scale = b.scale.t().view(N, K // b.block_size)
-            b_scale_block = maybe_dtensor_to_blocked(b_scale)
+            if is_xpu:
+                b_scale_block = b.scale.contiguous()
+            else:
+                b_scale = b.scale.t().view(N, K // b.block_size)
+                b_scale_block = maybe_dtensor_to_blocked(b_scale)
 
         if a.elem_dtype == torch.float8_e4m3fn:
             assert b.elem_dtype == torch.float8_e4m3fn
@@ -809,19 +816,29 @@ def _addmm_mx_dispatch(
         else:
             assert a.elem_dtype == torch.float4_e2m1fn_x2
             assert b.elem_dtype == torch.float4_e2m1fn_x2
-            # FP4 operations using F.scaled_mm
-            res = F.scaled_mm(
-                a.qdata.view(torch.float4_e2m1fn_x2),
-                b.qdata.view(torch.float4_e2m1fn_x2),
-                scale_a=a_scale_block,
-                scale_recipe_a=ScalingType.BlockWise1x32,
-                scale_b=b_scale_block,
-                scale_recipe_b=ScalingType.BlockWise1x32,
-                swizzle_a=SwizzleType.SWIZZLE_32_4_4,
-                swizzle_b=SwizzleType.SWIZZLE_32_4_4,
-                bias=bias,
-                output_dtype=torch.bfloat16,
-            )
+            if is_xpu:
+                res = torch._scaled_mm(
+                    a.qdata.view(torch.float4_e2m1fn_x2),
+                    b.qdata.view(torch.float4_e2m1fn_x2),
+                    a_scale_block,
+                    b_scale_block,
+                    bias=bias,
+                    out_dtype=torch.bfloat16,
+                )
+            else:
+                # FP4 operations using F.scaled_mm
+                res = F.scaled_mm(
+                    a.qdata.view(torch.float4_e2m1fn_x2),
+                    b.qdata.view(torch.float4_e2m1fn_x2),
+                    scale_a=a_scale_block,
+                    scale_recipe_a=ScalingType.BlockWise1x32,
+                    scale_b=b_scale_block,
+                    scale_recipe_b=ScalingType.BlockWise1x32,
+                    swizzle_a=SwizzleType.SWIZZLE_32_4_4,
+                    swizzle_b=SwizzleType.SWIZZLE_32_4_4,
+                    bias=bias,
+                    output_dtype=torch.bfloat16,
+                )
 
     else:
         assert gemm_choice == KernelPreference.EMULATED, "unimplemented"

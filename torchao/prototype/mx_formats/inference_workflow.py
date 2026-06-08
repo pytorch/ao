@@ -131,6 +131,7 @@ def _mx_inference_linear_transform(
     parameter_name: str = "weight",
 ):
     weight = getattr(module, parameter_name)
+    is_swizzled_scales = False if weight.is_xpu else True
 
     assert weight.dtype == torch.bfloat16, (
         f"Only supporting bf16 out dtype for now, got {weight.dtype}"
@@ -139,7 +140,7 @@ def _mx_inference_linear_transform(
         elem_dtype=config.activation_dtype,
         block_size=config.block_size,
         kernel_preference=config.kernel_preference,
-        is_swizzled_scales=True,
+        is_swizzled_scales=is_swizzled_scales,
         scaling_mode=config.scaling_mode,
     )
 
@@ -150,7 +151,7 @@ def _mx_inference_linear_transform(
         block_size=config.block_size,
         kernel_preference=config.kernel_preference,
         act_quant_kwargs=act_quant_kwargs,
-        is_swizzled_scales=True,
+        is_swizzled_scales=is_swizzled_scales,
         scaling_mode=config.scaling_mode,
     )
 
