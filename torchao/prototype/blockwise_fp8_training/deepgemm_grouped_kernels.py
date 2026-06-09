@@ -13,26 +13,20 @@ from typing import Optional
 import torch
 
 from torchao.prototype.blockwise_fp8_training.deepgemm_metadata import (
+    DeepGemmGroupedOffsetPlan,
     DeepGemmKGroupedQuantMetadata,
-    build_deepgemm_k_grouped_quant_metadata,
-    group_sizes_from_offsets as _group_sizes_from_offsets,
 )
 from torchao.prototype.blockwise_fp8_training.deepgemm_quant import (
     _triton_fp8_blockwise_act_quant_k_grouped_deepgemm_with_group_sizes,
-    triton_fp8_blockwise_act_quant_k_grouped_deepgemm,
-    triton_fp8_blockwise_weight_quant_grouped_rhs_deepgemm,
-    triton_fp8_blockwise_weight_quant_grouped_transposed_rhs_deepgemm,
 )
 from torchao.prototype.blockwise_fp8_training.kernels import (
     BLOCKWISE_1X128_SCALING_TYPE,
     BLOCKWISE_128X128_SCALING_TYPE,
-    _is_column_major,
     _is_row_major,
     _scaling_type_value,
     triton_fp8_blockwise_act_quant_rhs,
     triton_fp8_blockwise_act_quant_transposed_lhs,
 )
-
 
 # H100 tuning on the DeepSeek-V3 MoE shapes showed direct flat quantization wins
 # for the wide K=4096/7168 operands, while the existing TorchAO quantizer plus
@@ -150,7 +144,7 @@ def _is_cuda_sm90_or_newer(x: torch.Tensor) -> bool:
     return major >= 9
 
 
-def can_use_deepgemm_m_grouped(
+def can_use_deepgemm_grouped_training(
     a: torch.Tensor,
     out_dtype: torch.dtype,
     block_size: int,
@@ -160,58 +154,9 @@ def can_use_deepgemm_m_grouped(
         block_size == 128
         and out_dtype == torch.bfloat16
         and capabilities.m_grouped_gemm is not None
+        and capabilities.k_grouped_gemm is not None
         and _is_cuda_sm90_or_newer(a)
     )
-
-
-def _grouped_layout_from_offsets(
-    group_end_offsets: torch.Tensor,
-    num_rows: int,
-    *,
-    original_group_end_offsets: Optional[torch.Tensor] = None,
-    padded_group_start_offsets: Optional[torch.Tensor] = None,
-) -> torch.Tensor:
-    assert group_end_offsets is not None and group_end_offsets.dtype == torch.int32, (
-        "group_end_offsets must be int32"
-    )
-    if original_group_end_offsets is not None:
-        assert original_group_end_offsets.dtype == torch.int32, (
-            "original_group_end_offsets must be int32"
-        )
-        assert padded_group_start_offsets is not None, (
-            "padded_group_start_offsets must be provided with original_group_end_offsets"
-        )
-        assert padded_group_start_offsets.dtype == torch.int32, (
-            "padded_group_start_offsets must be int32"
-        )
-        assert original_group_end_offsets.numel() == group_end_offsets.numel(), (
-            "original and padded group offsets must have the same number of groups"
-        )
-
-    # Torch grouped GEMM uses cumulative expert end offsets. DeepGEMM's
-    # contiguous M-grouped kernel instead wants one int32 entry per row:
-    # grouped_layout[row] = expert_idx. When token groups were padded for
-    # block alignment, inserted padding rows are marked -1 so DeepGEMM skips
-    # them instead of routing them to an expert.
-    grouped_layout = torch.full(
-        (num_rows,),
-        -1,
-        dtype=torch.int32,
-        device=group_end_offsets.device,
-    )
-    start = 0
-    for group_idx in range(group_end_offsets.numel()):
-        if original_group_end_offsets is None:
-            end = int(group_end_offsets[group_idx].item())
-            grouped_layout[start:end] = group_idx
-            start = end
-        else:
-            original_end = int(original_group_end_offsets[group_idx].item())
-            group_size = original_end - start
-            padded_start = int(padded_group_start_offsets[group_idx].item())
-            grouped_layout[padded_start : padded_start + group_size] = group_idx
-            start = original_end
-    return grouped_layout.contiguous()
 
 
 def _flatten_k_grouped_transposed_lhs(
@@ -361,19 +306,16 @@ def _quantize_wgrad_rhs(
 def prepare_deepgemm_wgrad_plan(
     padded_grad_output: torch.Tensor,
     padded_a: torch.Tensor,
-    group_end_offsets: torch.Tensor,
+    offset_plan: DeepGemmGroupedOffsetPlan,
     block_size: int,
     dtype: torch.dtype,
 ) -> Optional[DeepGemmWgradPlan]:
-    if _get_deepgemm_capabilities().k_grouped_gemm is None:
-        return None
-
-    group_sizes = _group_sizes_from_offsets(group_end_offsets)
-    if any(group_size % block_size != 0 for group_size in group_sizes):
+    if not offset_plan.groups_are_block_aligned(block_size):
         # DeepGEMM's K-grouped FP8 kernel requires token counts to be aligned
         # because the token dimension is the GEMM K axis. Ragged no-padding
         # callers should keep using the emulated wgrad path for correctness.
         return None
+    group_sizes = offset_plan.group_sizes
     lhs_needs_direct_quant_metadata = _should_quantize_k_grouped_directly(
         padded_grad_output.shape[-1]
     )
@@ -381,29 +323,19 @@ def prepare_deepgemm_wgrad_plan(
         padded_a.shape[-1]
     )
     lhs_metadata = (
-        build_deepgemm_k_grouped_quant_metadata(
-            group_end_offsets,
-            group_sizes,
-            block_size,
-            padded_grad_output.shape[-1],
-        )
+        offset_plan.k_quant_metadata(block_size, padded_grad_output.shape[-1])
         if lhs_needs_direct_quant_metadata
         else None
     )
     rhs_metadata = (
-        build_deepgemm_k_grouped_quant_metadata(
-            group_end_offsets,
-            group_sizes,
-            block_size,
-            padded_a.shape[-1],
-        )
+        offset_plan.k_quant_metadata(block_size, padded_a.shape[-1])
         if rhs_needs_direct_quant_metadata
         else None
     )
     return DeepGemmWgradPlan(
         lhs=_quantize_wgrad_lhs(
             padded_grad_output,
-            group_end_offsets,
+            offset_plan.group_end_offsets,
             group_sizes,
             block_size,
             dtype,
@@ -411,7 +343,7 @@ def prepare_deepgemm_wgrad_plan(
         ),
         rhs=_quantize_wgrad_rhs(
             padded_a,
-            group_end_offsets,
+            offset_plan.group_end_offsets,
             group_sizes,
             block_size,
             dtype,
@@ -431,8 +363,7 @@ def deepgemm_blockwise_scaled_grouped_mm(
     out_dtype: torch.dtype,
     block_size: int = 128,
     *,
-    original_group_end_offsets: Optional[torch.Tensor] = None,
-    padded_group_start_offsets: Optional[torch.Tensor] = None,
+    offset_plan: DeepGemmGroupedOffsetPlan,
 ) -> torch.Tensor:
     assert block_size == 128, (
         "DeepGEMM FP8 blockwise grouped GEMM requires block_size=128"
@@ -456,35 +387,16 @@ def deepgemm_blockwise_scaled_grouped_mm(
             "DeepGEMM FP8 blockwise grouped GEMM requires CUDA tensors. "
             "Select KernelPreference.EMULATED for non-CUDA execution."
         )
-
-    if b.stride(-1) != 1:
-        assert _is_column_major(b), (
-            "deepgemm_blockwise_scaled_grouped_mm expected K-major or column-major B"
-        )
-        # TorchAO's blockwise grouped kernels pass RHS data in the local
-        # column-major contract, with shape (..., K_contract, N_out) and
-        # matching block scales (..., K_blocks, N_blocks). DeepGEMM's NT
-        # grouped kernel expects the contracting dimension to be the contiguous
-        # last dimension, i.e. RHS (..., N_out, K_contract). Transpose both the
-        # data and scale grids into DeepGEMM's layout before launching.
-        b = b.transpose(-2, -1).contiguous()
-        if b_s.ndim == 3:
-            b_s = b_s.transpose(-2, -1).contiguous()
     assert b.stride(-1) == 1, (
-        "deepgemm_blockwise_scaled_grouped_mm expected K-major B"
+        "deepgemm_blockwise_scaled_grouped_mm expected DeepGEMM RHS layout with K-major B"
     )
     assert a.shape[-1] == b.shape[-1], (
         f"shape {a.shape} and {b.shape} are not compatible"
     )
 
-    grouped_layout = _grouped_layout_from_offsets(
-        offs,
-        a.shape[0],
-        original_group_end_offsets=original_group_end_offsets,
-        padded_group_start_offsets=padded_group_start_offsets,
-    )
-    # After normalizing RHS for DeepGEMM, b is (..., N_out, K_contract);
-    # the output keeps TorchAO's grouped GEMM shape (M, N_out).
+    grouped_layout = offset_plan.m_grouped_layout(a.shape[0])
+    # DeepGEMM RHS is (..., N_out, K_contract); the output keeps TorchAO's
+    # grouped GEMM shape (M, N_out).
     out = torch.empty(
         (a.shape[0], b.shape[-2]),
         dtype=out_dtype,
@@ -565,7 +477,7 @@ def _prepare_k_grouped_rhs_operand(
 def deepgemm_blockwise_scaled_grouped_mm_wgrad(
     lhs: DeepGemmKGroupedOperand,
     rhs: DeepGemmKGroupedOperand,
-    offs: torch.Tensor,
+    offset_plan: DeepGemmGroupedOffsetPlan,
     out_dtype: torch.dtype,
     block_size: int = 128,
 ) -> torch.Tensor:
@@ -580,7 +492,6 @@ def deepgemm_blockwise_scaled_grouped_mm_wgrad(
         DeepGemmKGroupedLayout.FLAT,
         DeepGemmKGroupedLayout.TORCHAO_RHS,
     ), f"unsupported DeepGEMM wgrad RHS layout: {rhs.layout}"
-    assert offs is not None and offs.dtype == torch.int32, "offs must be int32"
     assert out_dtype in (torch.bfloat16, torch.float32), (
         "DeepGEMM FP8 blockwise grouped wgrad supports bfloat16 or float32 output"
     )
@@ -593,9 +504,9 @@ def deepgemm_blockwise_scaled_grouped_mm_wgrad(
             "Select KernelPreference.EMULATED for non-CUDA execution."
         )
 
-    total_tokens = int(offs[-1].item())
-    group_sizes = _group_sizes_from_offsets(offs)
-    if any(group_size % block_size != 0 for group_size in group_sizes):
+    total_tokens = offset_plan.total_tokens
+    group_sizes = offset_plan.group_sizes
+    if not offset_plan.groups_are_block_aligned(block_size):
         raise NotImplementedError(
             "DeepGEMM K-grouped FP8 wgrad requires every expert token count "
             f"to be divisible by {block_size}. Enable "
@@ -610,7 +521,7 @@ def deepgemm_blockwise_scaled_grouped_mm_wgrad(
             "with contiguous K-grouped FP8 GEMM support."
         )
 
-    valid_scale_blocks = sum(group_size // block_size for group_size in group_sizes)
+    valid_scale_blocks = offset_plan.valid_scale_blocks(block_size)
     a, a_s = _prepare_k_grouped_lhs_operand(
         lhs,
         group_sizes,
@@ -629,7 +540,7 @@ def deepgemm_blockwise_scaled_grouped_mm_wgrad(
     assert b.numel() == total_tokens * rhs.dim, (
         f"shape {b.shape} and RHS scales {b_s.shape} are not compatible"
     )
-    ks_tensor = torch.tensor(group_sizes, dtype=torch.int32, device=lhs.data.device)
+    ks_tensor = offset_plan.ks_tensor
 
     # SM90 DeepGEMM K-grouped FP8 accumulates into FP32 and asserts that the
     # output tensor is float. Cast after the launch to preserve TorchAO's

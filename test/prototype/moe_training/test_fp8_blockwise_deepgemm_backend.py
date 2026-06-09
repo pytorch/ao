@@ -12,10 +12,16 @@ import torch
 pytest.importorskip("triton", reason="Triton required for blockwise FP8 modules")
 
 from torchao.float8.config import e4m3_dtype
-from torchao.prototype.blockwise_fp8_training import deepgemm_grouped_kernels
-from torchao.prototype.blockwise_fp8_training import grouped_kernels
-from torchao.quantization.utils import compute_error
+from torchao.prototype.blockwise_fp8_training import (
+    deepgemm_grouped_kernels,
+    grouped_kernels,
+)
+from torchao.prototype.blockwise_fp8_training.deepgemm_metadata import (
+    build_deepgemm_grouped_offset_plan,
+    group_sizes_from_offsets,
+)
 from torchao.quantization.quantize_.common import KernelPreference
+from torchao.quantization.utils import compute_error
 from torchao.utils import is_sm_at_least_90
 
 
@@ -74,7 +80,7 @@ def test_deepgemm_backend_reports_broken_install(monkeypatch, exc):
 
 
 def test_auto_backend_selection_falls_back_without_deepgemm(monkeypatch):
-    from torchao.prototype.moe_training.blockwise_fp8.grouped_mm import (
+    from torchao.prototype.moe_training.blockwise_fp8.grouped_mm_backend import (
         _GroupedMMBackend,
         _select_fp8_blockwise_grouped_mm_backend,
     )
@@ -89,25 +95,27 @@ def test_auto_backend_selection_falls_back_without_deepgemm(monkeypatch):
         CudaLikeTensor(),
         torch.bfloat16,
         128,
+        torch.tensor([128], dtype=torch.int32),
     )
 
-    assert backend.kind == _GroupedMMBackend.EMULATED
+    assert backend.plan.kind == _GroupedMMBackend.EMULATED
 
 
-def test_auto_backend_selection_requires_deepgemm_m_grouped_symbol(monkeypatch):
-    from torchao.prototype.moe_training.blockwise_fp8.grouped_mm import (
+def test_auto_backend_selection_requires_full_deepgemm_training_symbols(monkeypatch):
+    from torchao.prototype.moe_training.blockwise_fp8.grouped_mm_backend import (
         _GroupedMMBackend,
         _select_fp8_blockwise_grouped_mm_backend,
     )
 
-    class DeepGemmWithoutGroupedSymbols:
-        pass
+    class DeepGemmWithoutKGroupedSymbol:
+        def m_grouped_fp8_gemm_nt_contiguous(self):
+            raise AssertionError("should not be called")
 
     real_import_module = importlib.import_module
 
     def fake_import_module(name, *args, **kwargs):
         if name == "deep_gemm":
-            return DeepGemmWithoutGroupedSymbols()
+            return DeepGemmWithoutKGroupedSymbol()
         return real_import_module(name, *args, **kwargs)
 
     monkeypatch.setattr(importlib, "import_module", fake_import_module)
@@ -120,9 +128,54 @@ def test_auto_backend_selection_requires_deepgemm_m_grouped_symbol(monkeypatch):
         CudaLikeTensor(),
         torch.bfloat16,
         128,
+        torch.tensor([128], dtype=torch.int32),
     )
 
-    assert backend.kind == _GroupedMMBackend.EMULATED
+    assert backend.plan.kind == _GroupedMMBackend.EMULATED
+
+
+def test_auto_backend_selection_prefers_deepgemm_when_training_supported(monkeypatch):
+    from torchao.prototype.moe_training.blockwise_fp8.grouped_mm_backend import (
+        _GroupedMMBackend,
+        _select_fp8_blockwise_grouped_mm_backend,
+    )
+
+    class DeepGemmWithTrainingSymbols:
+        def m_grouped_fp8_gemm_nt_contiguous(self):
+            raise AssertionError("should not be called")
+
+        def k_grouped_fp8_gemm_nt_contiguous(self):
+            raise AssertionError("should not be called")
+
+    real_import_module = importlib.import_module
+
+    def fake_import_module(name, *args, **kwargs):
+        if name == "deep_gemm":
+            return DeepGemmWithTrainingSymbols()
+        return real_import_module(name, *args, **kwargs)
+
+    monkeypatch.setattr(importlib, "import_module", fake_import_module)
+    monkeypatch.setattr(
+        deepgemm_grouped_kernels,
+        "_is_cuda_sm90_or_newer",
+        lambda _: True,
+    )
+
+    backend = _select_fp8_blockwise_grouped_mm_backend(
+        KernelPreference.AUTO,
+        torch.empty(1),
+        torch.bfloat16,
+        128,
+        torch.tensor([128, 256], dtype=torch.int32),
+        num_rows=384,
+    )
+
+    assert backend.plan.kind == _GroupedMMBackend.DEEPGEMM
+    assert backend.deepgemm_offset_plan is not None
+    layout = backend.deepgemm_offset_plan.grouped_layout
+    assert torch.equal(layout[:128], torch.full((128,), 0, dtype=torch.int32))
+    assert torch.equal(layout[128:256], torch.full((128,), 1, dtype=torch.int32))
+    assert torch.equal(layout[256:], torch.full((128,), -1, dtype=torch.int32))
 
 
 def test_deepgemm_grouped_layout_from_padded_offsets():
@@ -130,12 +183,13 @@ def test_deepgemm_grouped_layout_from_padded_offsets():
     padded_group_start_offsets = torch.tensor([0, 256, 512], dtype=torch.int32)
     padded_group_end_offsets = torch.tensor([256, 512, 640], dtype=torch.int32)
 
-    layout = deepgemm_grouped_kernels._grouped_layout_from_offsets(
+    offset_plan = build_deepgemm_grouped_offset_plan(
         padded_group_end_offsets,
-        768,
         original_group_end_offsets=original_group_end_offsets,
         padded_group_start_offsets=padded_group_start_offsets,
+        num_rows=768,
     )
+    layout = offset_plan.grouped_layout
 
     assert layout.dtype == torch.int32
     assert layout.is_contiguous()
@@ -152,13 +206,13 @@ def test_deepgemm_grouped_layout_from_padded_offsets():
     reason="DeepGEMM FP8 kernels require CUDA SM90+",
 )
 def test_deepgemm_weight_quant_layouts_match_torchao_transposes():
+    from torchao.prototype.blockwise_fp8_training.deepgemm_quant import (
+        triton_fp8_blockwise_weight_quant_grouped_rhs_deepgemm,
+        triton_fp8_blockwise_weight_quant_grouped_transposed_rhs_deepgemm,
+    )
     from torchao.prototype.blockwise_fp8_training.grouped_kernels import (
         triton_fp8_blockwise_weight_quant_grouped_rhs,
         triton_fp8_blockwise_weight_quant_grouped_transposed_rhs,
-    )
-    from torchao.prototype.blockwise_fp8_training.deepgemm_grouped_kernels import (
-        triton_fp8_blockwise_weight_quant_grouped_rhs_deepgemm,
-        triton_fp8_blockwise_weight_quant_grouped_transposed_rhs_deepgemm,
     )
 
     torch.manual_seed(123)
@@ -208,7 +262,7 @@ def test_deepgemm_weight_quant_layouts_match_torchao_transposes():
 def test_deepgemm_weight_quant_supports_compile_fullgraph():
     from torch._dynamo.testing import CompileCounterWithBackend
 
-    from torchao.prototype.blockwise_fp8_training.deepgemm_grouped_kernels import (
+    from torchao.prototype.blockwise_fp8_training.deepgemm_quant import (
         triton_fp8_blockwise_weight_quant_grouped_transposed_rhs_deepgemm,
     )
 
@@ -251,6 +305,9 @@ def test_deepgemm_weight_quant_supports_compile_fullgraph():
 def test_deepgemm_k_grouped_activation_quant_matches_flattened_torchao_layouts(
     offsets,
 ):
+    from torchao.prototype.blockwise_fp8_training.deepgemm_quant import (
+        triton_fp8_blockwise_act_quant_k_grouped_deepgemm,
+    )
     from torchao.prototype.blockwise_fp8_training.kernels import (
         triton_fp8_blockwise_act_quant_rhs,
         triton_fp8_blockwise_act_quant_transposed_lhs,
@@ -258,14 +315,12 @@ def test_deepgemm_k_grouped_activation_quant_matches_flattened_torchao_layouts(
 
     torch.manual_seed(123)
     offs = torch.tensor(offsets, dtype=torch.int32, device="cuda")
-    group_sizes = deepgemm_grouped_kernels._group_sizes_from_offsets(offs)
+    group_sizes = group_sizes_from_offsets(offs)
     x = torch.randn(offsets[-1], 384, dtype=torch.bfloat16, device="cuda")
 
-    direct_q, direct_s = (
-        deepgemm_grouped_kernels.triton_fp8_blockwise_act_quant_k_grouped_deepgemm(
-            x,
-            offs,
-        )
+    direct_q, direct_s = triton_fp8_blockwise_act_quant_k_grouped_deepgemm(
+        x,
+        offs,
     )
 
     x_t_q, x_t_s = triton_fp8_blockwise_act_quant_transposed_lhs(x)
@@ -306,6 +361,7 @@ def test_deepgemm_k_grouped_wgrad_matches_emulated():
 
     torch.manual_seed(123)
     offs = torch.tensor([256, 640, 768], dtype=torch.int32, device="cuda")
+    offset_plan = build_deepgemm_grouped_offset_plan(offs)
     M = int(offs[-1].item())
     N, K = 256, 384
     grad_output = torch.randn(M, N, dtype=torch.bfloat16, device="cuda")
@@ -330,7 +386,7 @@ def test_deepgemm_k_grouped_wgrad_matches_emulated():
     plan = deepgemm_grouped_kernels.prepare_deepgemm_wgrad_plan(
         grad_output,
         A,
-        offs,
+        offset_plan,
         128,
         e4m3_dtype,
     )
@@ -338,7 +394,7 @@ def test_deepgemm_k_grouped_wgrad_matches_emulated():
     out = deepgemm_grouped_kernels.deepgemm_blockwise_scaled_grouped_mm_wgrad(
         plan.lhs,
         plan.rhs,
-        offs,
+        offset_plan,
         torch.bfloat16,
         128,
     )
