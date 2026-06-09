@@ -6,6 +6,7 @@
 import itertools
 import math
 import sys
+import unittest
 
 import pytest
 import torch
@@ -105,10 +106,10 @@ class TestOps(TestCase):
         out = torch.clamp(out / o_scale, min=-448, max=448)
         return out.to(torch.float8_e4m3fn)
 
-    @pytest.mark.skipif(not IS_LINUX, reason="only support on linux")
-    @pytest.mark.skipif(
+    @unittest.skipIf(not IS_LINUX, "only support on linux")
+    @unittest.skipIf(
         "CPU" not in torch._C._dispatch_dump("torchao::qscaled_dot_product"),
-        reason="cpp kernels not built",
+        "cpp kernels not built",
     )
     @parametrize("input_dtype", [torch.uint8, torch.float8_e4m3fn])
     @parametrize("batch_size", [56, 120])
@@ -200,10 +201,10 @@ class TestOps(TestCase):
             )
         self.assertEqual(actual.float(), math_ref.float(), atol=atol, rtol=rtol)
 
-    @pytest.mark.skipif(not IS_LINUX, reason="only support on linux")
-    @pytest.mark.skipif(
+    @unittest.skipIf(not IS_LINUX, "only support on linux")
+    @unittest.skipIf(
         "CPU" not in torch._C._dispatch_dump("torchao::qscaled_dot_product"),
-        reason="cpp kernels not built",
+        "cpp kernels not built",
     )
     @parametrize("input_dtype", [torch.uint8, torch.float8_e4m3fn])
     def test_quantized_scaled_dot_product_op_with_strided_inputs(
