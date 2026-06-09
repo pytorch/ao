@@ -805,15 +805,18 @@ def _addmm_mx_dispatch(
 
         if a.elem_dtype == torch.float8_e4m3fn:
             assert b.elem_dtype == torch.float8_e4m3fn
-            res = F.scaled_mm(
+            a_scale_v1 = a_scale_block.view(torch.float8_e8m0fnu)
+            b_scale_v1 = b_scale_block.view(torch.float8_e8m0fnu)
+            if is_xpu:
+                # v1 API expects scale_b as (K//32, N), but b_scale_block is (N, K//32)
+                b_scale_v1 = b_scale_v1.t().contiguous()
+            res = torch._scaled_mm(
                 a.qdata,
                 b.qdata,
-                scale_a=a_scale_block.view(torch.float8_e8m0fnu),
-                scale_recipe_a=ScalingType.BlockWise1x32,
-                scale_b=b_scale_block.view(torch.float8_e8m0fnu),
-                scale_recipe_b=ScalingType.BlockWise1x32,
+                a_scale_v1,
+                b_scale_v1,
                 bias=bias,
-                output_dtype=torch.bfloat16,
+                out_dtype=torch.bfloat16,
             )
         else:
             assert a.elem_dtype == torch.float4_e2m1fn_x2
