@@ -4,6 +4,8 @@
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
 
+from unittest.mock import patch
+
 import pytest
 import torch
 import torch.nn.functional as F
@@ -93,6 +95,110 @@ def test_mxfp8_linear_fwd_bwd_sqnr(bias, wgrad_with_hp, kernel_preference):
         # Bias grad is a simple sum over the batch dim and should match closely.
         sqnr_bias_grad = compute_error(ref.bias.grad, mxfp8.bias.grad)
         assert sqnr_bias_grad >= 40.0, f"Bias grad SQNR {sqnr_bias_grad} below 40.0"
+
+
+@pytest.mark.parametrize(
+    "kernel_preference", [KernelPreference.EMULATED, KernelPreference.AUTO]
+)
+def test_mxfp8_linear_frozen_weight_skips_wgrad(kernel_preference):
+    """A frozen weight (requires_grad=False) gets no grad_weight while
+    grad_input is unchanged, and the weight-gradient casts are skipped.
+
+    grad_weight is discarded by autograd for a non-trainable weight, so
+    computing it (the wgrad GEMM plus its two dim1 MXFP8 casts) is pure
+    overhead for a frozen base in LoRA / frozen-layer finetuning.
+    """
+    if kernel_preference == KernelPreference.AUTO and not is_sm_at_least_100():
+        pytest.skip("Real MXFP8 kernels require SM100+")
+
+    import torchao.prototype.moe_training.mxfp8_linear as mxfp8_mod
+
+    M, K, N = 256, 512, 1024
+    mxfp8 = MXFP8Linear(
+        K,
+        N,
+        bias=False,
+        device="cuda",
+        dtype=torch.bfloat16,
+        kernel_preference=kernel_preference,
+    )
+    x = torch.randn(M, K, dtype=torch.bfloat16, device="cuda")
+    grad_output = torch.randn(M, N, dtype=torch.bfloat16, device="cuda")
+
+    def run(weight_requires_grad):
+        mxfp8.weight.requires_grad_(weight_requires_grad)
+        mxfp8.weight.grad = None
+        x_in = x.clone().requires_grad_(True)
+
+        n_dim1_casts = 0
+        real_dim1 = mxfp8_mod._to_mxfp8_dim1_kernel_wrapper
+
+        def counting_dim1(*args, **kwargs):
+            nonlocal n_dim1_casts
+            n_dim1_casts += 1
+            return real_dim1(*args, **kwargs)
+
+        with patch.object(mxfp8_mod, "_to_mxfp8_dim1_kernel_wrapper", counting_dim1):
+            mxfp8(x_in).backward(grad_output)
+        return x_in.grad, mxfp8.weight.grad, n_dim1_casts
+
+    grad_in_train, grad_w_train, casts_train = run(True)
+    grad_in_frozen, grad_w_frozen, casts_frozen = run(False)
+
+    # A trainable weight gets a grad; a frozen weight must not.
+    assert grad_w_train is not None
+    assert grad_w_frozen is None
+    # Skipping wgrad must not perturb the input gradient (dgrad).
+    torch.testing.assert_close(grad_in_frozen, grad_in_train, atol=0.0, rtol=0.0)
+    # The frozen path skips the weight-gradient dim1 casts.
+    assert casts_frozen < casts_train
+
+
+@pytest.mark.parametrize(
+    "kernel_preference", [KernelPreference.EMULATED, KernelPreference.AUTO]
+)
+def test_mxfp8_linear_frozen_weight_compile(kernel_preference):
+    """The frozen-weight backward must stay torch.compile-safe.
+
+    ``ctx.needs_input_grad`` is a tuple of Python bools, so skipping the weight
+    gradient is a trace-time-constant branch rather than data-dependent control
+    flow. ``fullgraph=True`` therefore traces without a graph break and the
+    compiled result must match eager.
+    """
+    if kernel_preference == KernelPreference.AUTO and not is_sm_at_least_100():
+        pytest.skip("Real MXFP8 kernels require SM100+")
+
+    M, K, N = 256, 512, 1024
+    x = torch.randn(M, K, dtype=torch.bfloat16, device="cuda")
+    grad_output = torch.randn(M, N, dtype=torch.bfloat16, device="cuda")
+
+    def make_frozen():
+        m = MXFP8Linear(
+            K,
+            N,
+            bias=False,
+            device="cuda",
+            dtype=torch.bfloat16,
+            kernel_preference=kernel_preference,
+        )
+        m.weight.requires_grad_(False)
+        return m
+
+    eager = make_frozen()
+    x_eager = x.clone().requires_grad_(True)
+    eager(x_eager).backward(grad_output)
+
+    compiled_mod = make_frozen()
+    with torch.no_grad():
+        compiled_mod.weight.copy_(eager.weight)
+    x_compiled = x.clone().requires_grad_(True)
+    torch.compile(compiled_mod, fullgraph=True)(x_compiled).backward(grad_output)
+
+    # Frozen weight gets no grad in either mode, and grad_input must match.
+    assert eager.weight.grad is None
+    assert compiled_mod.weight.grad is None
+    assert x_compiled.grad is not None
+    torch.testing.assert_close(x_compiled.grad, x_eager.grad, atol=1e-2, rtol=1e-2)
 
 
 def test_mxfp8_linear_3d_input():

@@ -200,7 +200,15 @@ class mx_mm(torch.autograd.Function):
         )
 
         # input_t @ grad_output = grad_weight
-        if wgrad_with_hp:
+        #
+        # Skip the weight gradient entirely when the weight does not require
+        # grad (e.g. a frozen base in LoRA / frozen-layer finetuning): autograd
+        # discards grad_weight in that case, so the wgrad GEMM and its two dim1
+        # MXFP8 casts are pure overhead. Same idiom as the int8_mixed_precision
+        # and bitnet training linears.
+        if not ctx.needs_input_grad[1]:
+            grad_weight = None
+        elif wgrad_with_hp:
             # Compute grad_weight in high precision if wgrad_with_hp is True
             grad_weight = torch.mm(grad_output_hp_r.t(), input_hp_r)
         else:
