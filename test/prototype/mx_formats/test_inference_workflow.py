@@ -29,11 +29,6 @@ from torchao.utils import (
 
 torch.manual_seed(2)
 
-if not torch.accelerator.is_available():
-    pytest.skip("No accelerator available", allow_module_level=True)
-
-device = torch.accelerator.current_accelerator().type
-
 
 # source: https://stackoverflow.com/a/22638709
 @pytest.fixture(autouse=True)
@@ -62,6 +57,9 @@ def cuda_kernel_profiler(kernel_pattern):
     result["found"] = any(kernel_pattern in name for name in kernel_names)
 
 
+@pytest.mark.skipif(
+    not torch.accelerator.is_available(), reason="Accelerator not available"
+)
 @pytest.mark.parametrize("elem_dtype", [torch.float8_e4m3fn, torch.float4_e2m1fn_x2])
 @pytest.mark.parametrize("bias", [True, False])
 @pytest.mark.parametrize("compile", [True, False])
@@ -83,6 +81,7 @@ def test_inference_workflow_mx(
     """
     Smoke test for inference compile
     """
+    device = torch.accelerator.current_accelerator().type
     # TODO(future): figure out why these CUDA capability conditions are not properly
     # applied when inside `pytest.mark.skipif` for this test
     if (
