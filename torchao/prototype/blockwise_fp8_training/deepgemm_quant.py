@@ -15,6 +15,8 @@ from torchao.float8.config import e4m3_dtype
 from torchao.prototype.blockwise_fp8_training.deepgemm_metadata import (
     DeepGemmKGroupedQuantMetadata,
     build_deepgemm_k_grouped_quant_metadata,
+)
+from torchao.prototype.blockwise_fp8_training.deepgemm_metadata import (
     group_sizes_from_offsets as _group_sizes_from_offsets,
 )
 from torchao.prototype.blockwise_fp8_training.kernels import (
@@ -251,10 +253,9 @@ def triton_fp8_blockwise_act_quant_k_grouped_deepgemm_kernel(
     offs_d = pid_d * NUM_GROUPS + tl.arange(0, NUM_GROUPS)
     valid_group_block = pid_group_block * BLOCK_SIZE < group_size
 
-    x_offsets = (
-        (group_start + offs_m[:, None]) * x_stride_m
-        + offs_d[None, :] * x_stride_d
-    )
+    x_offsets = (group_start + offs_m[:, None]) * x_stride_m + offs_d[
+        None, :
+    ] * x_stride_d
     # Group sizes are asserted to be multiples of BLOCK_SIZE before launch.
     # Within a valid group block every row is live, so only mask off invalid
     # blocks from shorter experts and the tail of the D dimension.
@@ -263,9 +264,7 @@ def triton_fp8_blockwise_act_quant_k_grouped_deepgemm_kernel(
 
     # Compute one 1x128 scale per logical column over this expert's token
     # block, matching the existing transposed-LHS/RHS wgrad quantizers.
-    amax = tl.clamp(tl.max(tl.abs(x), axis=0), min=EPS, max=float("inf")).to(
-        tl.float64
-    )
+    amax = tl.clamp(tl.max(tl.abs(x), axis=0), min=EPS, max=float("inf")).to(tl.float64)
     scale = (FP8_MAX / amax).to(tl.float32)
     y = x * scale
     y = tl.clamp(y, min=-FP8_MAX, max=FP8_MAX).to(q_ptr.dtype.element_ty)
@@ -314,9 +313,7 @@ def triton_fp8_blockwise_act_quant_k_grouped_compact_deepgemm_kernel(
     x_offsets = (pid_block * BLOCK_SIZE + offs_m[:, None]) * D + offs_d[None, :]
     x = tl.load(x_ptr + x_offsets)
 
-    amax = tl.clamp(tl.max(tl.abs(x), axis=0), min=EPS, max=float("inf")).to(
-        tl.float64
-    )
+    amax = tl.clamp(tl.max(tl.abs(x), axis=0), min=EPS, max=float("inf")).to(tl.float64)
     scale = (FP8_MAX / amax).to(tl.float32)
     y = x * scale
     y = tl.clamp(y, min=-FP8_MAX, max=FP8_MAX).to(q_ptr.dtype.element_ty)
