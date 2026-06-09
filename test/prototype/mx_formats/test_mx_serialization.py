@@ -20,18 +20,15 @@ from torchao.quantization import quantize_
 from torchao.quantization.quantize_.common import KernelPreference
 from torchao.utils import is_sm_at_least_100
 
-if not torch.accelerator.is_available():
-    pytest.skip("No accelerator available", allow_module_level=True)
-
-device = torch.accelerator.current_accelerator().type
-
 
 @pytest.mark.skipif(
-    device == "cuda" and not is_sm_at_least_100(),
-    reason="needs CUDA capability 10.0+",
+    not torch.accelerator.is_available(), reason="Accelerator not available"
 )
 @pytest.mark.parametrize("recipe_name", ["mxfp8", "nvfp4"])
 def test_serialization(recipe_name):
+    device = torch.accelerator.current_accelerator().type
+    if device == "cuda" and not is_sm_at_least_100():
+        pytest.skip("needs CUDA capability 10.0+")
     if recipe_name == "nvfp4" and device == "xpu":
         pytest.skip("NVFP4 is not supported on XPU")
     """

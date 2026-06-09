@@ -3,6 +3,7 @@
 #
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
+from functools import partial
 
 import pytest
 import torch
@@ -14,20 +15,35 @@ from torchao.prototype.mx_formats.mx_tensor import MXTensor
 from torchao.prototype.mx_formats.utils import to_blocked
 from torchao.utils import is_sm_at_least_100
 
-if not torch.accelerator.is_available():
-    pytest.skip("No accelerator available", allow_module_level=True)
 
-device = torch.accelerator.current_accelerator().type
+def _mxfp4_scaled_mm(a_data, b_data, a_scale_block, b_scale_block):
+    """Wrapper for F.scaled_mm with MXFP4 configuration."""
+    return F.scaled_mm(
+        a_data.view(torch.float4_e2m1fn_x2),
+        b_data.view(torch.float4_e2m1fn_x2),
+        scale_a=a_scale_block,
+        scale_recipe_a=ScalingType.BlockWise1x32,
+        scale_b=b_scale_block,
+        scale_recipe_b=ScalingType.BlockWise1x32,
+        swizzle_a=SwizzleType.SWIZZLE_32_4_4,
+        swizzle_b=SwizzleType.SWIZZLE_32_4_4,
+        output_dtype=torch.bfloat16,
+    )
 
 
 def run_matrix_test(M: int, K: int, N: int, format) -> float:
     dtype = torch.bfloat16
-    is_xpu = device == "xpu"
+    device = torch.accelerator.current_accelerator().type
 
     a = torch.rand((M, K), dtype=dtype, device=device)
     b = torch.rand((N, K), dtype=dtype, device=device)
 
     fmt = torch.float8_e4m3fn if format == "fp8" else torch.float4_e2m1fn_x2
+    mx_func = (
+        partial(torch._scaled_mm, out_dtype=torch.bfloat16)
+        if format == "fp8"
+        else _mxfp4_scaled_mm
+    )
 
     a_mx = MXTensor.to_mx(a, fmt, 32)
     b_mx = MXTensor.to_mx(b, fmt, 32)
@@ -40,47 +56,19 @@ def run_matrix_test(M: int, K: int, N: int, format) -> float:
     a_scale = a_mx.scale.view(M, K // 32)
     b_scale = b_mx.scale.view(N, K // 32)
 
-    if is_xpu:
-        a_scale_block = a_scale.contiguous()
-        b_scale_block = b_scale.contiguous()
-    else:
-        a_scale_block = to_blocked(a_scale)
-        b_scale_block = to_blocked(b_scale)
+    a_scale_block = to_blocked(a_scale)
+    b_scale_block = to_blocked(b_scale)
 
     out_hp = a_mx.dequantize(torch.bfloat16) @ b_mx.dequantize(
         torch.bfloat16
     ).transpose(-1, -2)
-
-    swizzle = None if is_xpu else SwizzleType.SWIZZLE_32_4_4
-    if format == "fp8":
-        out = F.scaled_mm(
-            a_data,
-            b_data,
-            scale_a=a_scale_block,
-            scale_recipe_a=ScalingType.BlockWise1x32,
-            scale_b=b_scale_block,
-            scale_recipe_b=ScalingType.BlockWise1x32,
-            output_dtype=torch.bfloat16,
-        )
-    else:
-        out = F.scaled_mm(
-            a_data.view(torch.float4_e2m1fn_x2),
-            b_data.view(torch.float4_e2m1fn_x2),
-            scale_a=a_scale_block,
-            scale_recipe_a=ScalingType.BlockWise1x32,
-            scale_b=b_scale_block,
-            scale_recipe_b=ScalingType.BlockWise1x32,
-            swizzle_a=swizzle,
-            swizzle_b=swizzle,
-            output_dtype=torch.bfloat16,
-        )
+    out = mx_func(a_data, b_data, a_scale_block, b_scale_block)
 
     return compute_error(out_hp, out).item()
 
 
 @pytest.mark.skipif(
-    device == "cuda" and not is_sm_at_least_100(),
-    reason="CUDA capability >= 10.0 required for mxfloat8",
+    not torch.accelerator.is_available(), reason="Accelerator not available"
 )
 @pytest.mark.parametrize(
     "size",
@@ -101,6 +89,11 @@ def run_matrix_test(M: int, K: int, N: int, format) -> float:
 )
 @pytest.mark.parametrize("format", ["fp8", "fp4"])
 def test_matrix_multiplication(size, format):
+    device = torch.accelerator.current_accelerator().type
+    if device == "xpu":
+        pytest.skip("to_blocked() requires CUDA")
+    if device == "cuda" and not is_sm_at_least_100():
+        pytest.skip("CUDA capability >= 10.0 required for mxfloat8")
     M, K, N = size
     sqnr = run_matrix_test(M, K, N, format)
     threshold = 80.0
