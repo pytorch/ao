@@ -392,7 +392,6 @@ _func_to_prepend_fake_quantization = {
 class _Float8RowwiseFakeQuantizeSTE(torch.autograd.Function):
     @staticmethod
     def forward(
-        ctx,
         weight: torch.Tensor,
         config: Float8FakeQuantizeConfig,
         granularity: PerRow,
@@ -424,6 +423,10 @@ class _Float8RowwiseFakeQuantizeSTE(torch.autograd.Function):
         q_fp32 = q.to(torch.float32)
         dq = (q_fp32 * scale).to(original_dtype)
         return dq
+
+    @staticmethod
+    def setup_context(ctx, inputs, output):
+        pass
 
     @staticmethod
     def backward(ctx, grad_output):
