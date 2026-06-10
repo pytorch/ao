@@ -1,6 +1,5 @@
 import os
 import re
-import copy
 import pytest
 import torch
 import torch.nn.functional as F
@@ -533,66 +532,41 @@ def test_op_grouped_mm(wrapper_cls, weight_config, act_config, sqnr_threshold, d
     (Float8FakeQuantizedWeightWrapperTensor, Float8FakeQuantizeConfig(), None),
     (Float8FakeQuantizedWeightWrapperTensor, Float8FakeQuantizeConfig(), Float8FakeQuantizeConfig()),
 ])
-@pytest.mark.parametrize("call_fn, A_shape, w_shape, kwargs", [
+@pytest.mark.parametrize("call_fn, A_shape, w_shape, bias_shape", [
     # torch.mm: weight stored as [N, K], transposed at call site
-    (lambda a, w: torch.mm(a, w.T),             (16, 64),    (128, 64),     {}),
+    (lambda a, w, bias: torch.mm(a, w.T),             (16, 64),    (128, 64),     ()),
     # torch.matmul: same as mm
-    (lambda a, w: torch.matmul(a, w.T),         (16, 64),    (128, 64),     {}),
+    (lambda a, w, bias: torch.matmul(a, w.T),         (16, 64),    (128, 64),     ()),
     # torch.bmm: weight stored as [B, N, K], transposed at call site
-    (lambda a, w: torch.bmm(a, w.transpose(-2, -1)), (4, 16, 64), (4, 128, 64),  {}),
+    (lambda a, w, bias: torch.bmm(a, w.transpose(-2, -1)), (4, 16, 64), (4, 128, 64), ()),
     # F.linear: weight [N, K] at args[1], contracted dim=-1 (no transpose needed)
-    (lambda a, w: F.linear(a, w),               (16, 64),    (128, 64),     {}),
+    (lambda a, w, bias: F.linear(a, w),               (16, 64),    (128, 64),     ()),
     # torch.addmm: weight stored as [N, K], transposed at call site
-    (lambda a, w, *, bias: torch.addmm(bias, a, w.T), (16, 64), (128, 64), {"bias_shape": (128,)}),
-    # torch._grouped_mm: weight stored as [E, N, K], transposed at call site.
-    # NOTE: _skip_cpu sentinel is only needed for torch.compile (Dynamo requires bf16).
-    (lambda a, w, *, offs: torch._grouped_mm(a, w.transpose(-2, -1), offs=offs), (16, 1024), (4, 2048, 1024), {
-        "offs": torch.tensor([4, 8, 12, 16], dtype=torch.int32), "_skip_cpu": True,
-    }),
+    (lambda a, w, bias: torch.addmm(bias, a, w.T),    (16, 64),    (128, 64),     (128,)),
 ])
-def test_compatibility_with_torch_compile(wrapper_cls, weight_config, act_config, call_fn, A_shape, w_shape, kwargs, device, fullgraph):
+def test_compatibility_with_torch_compile(wrapper_cls, weight_config, act_config, call_fn, A_shape, w_shape, bias_shape, device, fullgraph):
     """torch.compile through a Python wrapper should match eager."""
-    if kwargs.get("_skip_cpu", False):
-        if device == "cpu":
-            pytest.skip("grouped_mm is not fully supported on CPU yet.")
-        else:
-            kwargs = copy.deepcopy(kwargs)
-            kwargs.pop("_skip_cpu")
 
-    def prepare_arguments():
-        A = torch.randn(*A_shape, device=device).requires_grad_(True)
-        w = torch.randn(*w_shape, device=device).requires_grad_(True)
-        wrapper = wrapper_cls(w, activation_config=act_config, weight_config=weight_config)
-        
-        resolved = {}
-        for k, v in kwargs.items():
-            if k.endswith("_shape"):
-                resolved[k[:-len("_shape")]] = torch.randn(*v, device=device).requires_grad_(True)
-            elif isinstance(v, torch.Tensor):
-                resolved[k] = v.to(device=device)
-            else:
-                resolved[k] = v
-        
-        return A, wrapper, resolved
-
-    def eager_forward(activation, weight, kwargs):
-        return call_fn(activation, weight, **kwargs)
+    def eager_forward(activation, weight, bias):
+        return call_fn(activation, weight, bias)
 
     compiled_forward = torch.compile(eager_forward, fullgraph=fullgraph)
 
     def run_test():
-        eager_activation, eager_weight, eager_kwargs = prepare_arguments()
+        eager_activation = torch.randn(*A_shape, device=device).requires_grad_(True)
+        eager_weight = wrapper_cls(
+            torch.randn(*w_shape, device=device).requires_grad_(True),
+            activation_config=act_config,
+            weight_config=weight_config
+        )
+        eager_bias = torch.randn(bias_shape, device=device).requires_grad_(True)
+
         compiled_activation = eager_activation.clone().detach().requires_grad_(True)
         compiled_weight = eager_weight.clone().detach().requires_grad_(True)
-        compiled_kwargs = {
-            k: copy.deepcopy(v) if not isinstance(v, torch.Tensor) else (
-                v.clone().detach().requires_grad_(True) if v.requires_grad else v.clone().detach()
-            )
-            for k, v in eager_kwargs.items()
-        }
+        compiled_bias = eager_bias.clone().detach().requires_grad_(True)
 
-        eager_out = eager_forward(eager_activation, eager_weight, eager_kwargs)
-        compiled_out = compiled_forward(compiled_activation, compiled_weight, compiled_kwargs)
+        eager_out = eager_forward(eager_activation, eager_weight, eager_bias)
+        compiled_out = compiled_forward(compiled_activation, compiled_weight, compiled_bias)
         assert eager_out.shape == compiled_out.shape
         assert torch.allclose(compiled_out, eager_out), "Compiled output should match eager output"
 
@@ -610,6 +584,11 @@ def test_compatibility_with_torch_compile(wrapper_cls, weight_config, act_config
         assert torch.allclose(eager_weight.grad, compiled_weight.grad), \
             "Compiled weight grad should match eager weight grad"
 
+        if bias_shape:
+            assert eager_bias.grad is not None
+            assert torch.allclose(eager_bias.grad, compiled_bias.grad), \
+                "Compiled bias grad should match eager bias grad"
+
     # 1. Warm up the compiler with the initial shape (creates the first graph)
     run_test()
 
@@ -619,3 +598,56 @@ def test_compatibility_with_torch_compile(wrapper_cls, weight_config, act_config
             run_test()
 
 
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="grouped_mm needs CUDA.")
+@pytest.mark.parametrize("wrapper_cls, weight_config, act_config", [
+    (Float8FakeQuantizedWeightWrapperTensor, Float8FakeQuantizeConfig(), None),
+    (Float8FakeQuantizedWeightWrapperTensor, Float8FakeQuantizeConfig(), Float8FakeQuantizeConfig()),
+])
+@pytest.mark.parametrize("fullgraph", [False, True])
+def test_compile_grouped_mm(wrapper_cls, weight_config, act_config, fullgraph):
+    """torch.compile with torch._grouped_mm should match eager."""
+    device = "cuda"
+
+    A_shape = (16, 1024)
+    w_shape = (4, 2048, 1024)
+    offs = torch.tensor([4, 8, 12, 16], dtype=torch.int32)
+
+    def eager_forward(activation, weight):
+        return torch._grouped_mm(activation, weight.transpose(-2, -1), offs=offs)
+
+    compiled_forward = torch.compile(eager_forward, fullgraph=fullgraph)
+
+    def run_test():
+        eager_activation = torch.randn(*A_shape, device=device).requires_grad_(True)
+        eager_weight = wrapper_cls(
+            torch.randn(*w_shape, device=device).requires_grad_(True),
+            activation_config=act_config,
+            weight_config=weight_config,
+        )
+
+        compiled_activation = eager_activation.clone().detach().requires_grad_(True)
+        compiled_weight = eager_weight.clone().detach().requires_grad_(True)
+
+        eager_out = eager_forward(eager_activation, eager_weight)
+        compiled_out = compiled_forward(compiled_activation, compiled_weight)
+        assert eager_out.shape == compiled_out.shape
+        assert torch.allclose(compiled_out, eager_out), "Compiled output should match eager output"
+
+        target = torch.ones_like(eager_out)
+        loss_eager = F.mse_loss(eager_out, target)
+        loss_compiled = F.mse_loss(compiled_out, target)
+        loss_eager.backward()
+        loss_compiled.backward()
+
+        assert eager_activation.grad is not None
+        assert torch.allclose(eager_activation.grad, compiled_activation.grad), \
+            "Compiled activation grad should match eager activation grad"
+
+        assert eager_weight.grad is not None
+        assert torch.allclose(eager_weight.grad, compiled_weight.grad), \
+            "Compiled weight grad should match eager weight grad"
+
+    run_test()
+    with torch.compiler.set_stance("fail_on_recompile"):
+        for _ in range(5):
+            run_test()
