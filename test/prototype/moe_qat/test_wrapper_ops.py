@@ -440,20 +440,22 @@ def test_op_fake_quantize(wrapper_cls, weight_config, act_config, sqnr_threshold
         weight_config=weight_config,
     ))
 
-    bias = torch.nn.Parameter(torch.randn(*bias_shape, device=device)) if bias_shape else None
+    bias = torch.nn.Parameter(torch.randn(bias_shape, device=device))
+    ref_bias = torch.nn.Parameter(bias.data.clone())
 
     # Prepare the reference
     ref_activation = torch.nn.Parameter(activation_tensor.clone())
     ref_weight = torch.nn.Parameter(weight_tensor.clone())
-    ref_bias = bias.clone() if bias is not None else None
 
     # Run the function call
     learning_rate = 1 # set learning rate to 1 to ensure noises in new weights are not suppressed or amplified
 
-    optimizer = torch.optim.SGD([weight], lr=learning_rate)
+    opt_params = [weight, bias] if bias_shape else [weight]
+    optimizer = torch.optim.SGD(opt_params, lr=learning_rate)
     out = call_fn(activation, weight, bias)
 
-    ref_optimizer = torch.optim.SGD([ref_weight], lr=learning_rate)
+    ref_opt_params = [ref_weight, ref_bias] if bias_shape else [ref_weight]
+    ref_optimizer = torch.optim.SGD(ref_opt_params, lr=learning_rate)
     ref_out = call_fn(ref_activation, ref_weight, ref_bias)
 
 
@@ -479,6 +481,12 @@ def test_op_fake_quantize(wrapper_cls, weight_config, act_config, sqnr_threshold
     weight_grad_sqnr = compute_error(weight.grad, ref_weight.grad)
     assert weight_grad_sqnr != float("inf"), "SQNR should be finite (fake quant was applied)"
     assert weight_grad_sqnr > sqnr_threshold, f"Weight grad SQNR too low ({weight_grad_sqnr:.1f} dB)"
+
+    if bias_shape:
+        assert bias.grad is not None
+        bias_grad_sqnr = compute_error(bias.grad, ref_bias.grad)
+        assert bias_grad_sqnr != float("inf"), "SQNR should be finite (fake quant was applied)"
+        assert bias_grad_sqnr > sqnr_threshold, f"Bias grad SQNR too low ({bias_grad_sqnr:.1f} dB)"
 
     # Update weights
     optimizer.step()
