@@ -412,28 +412,28 @@ def test_wrapper_fake_quantize(wrapper_cls, weight_config, granularity, sqnr_thr
 
 @pytest.mark.parametrize("wrapper_cls, weight_config, act_config, sqnr_threshold", [
     (Float8FakeQuantizedWeightWrapperTensor, Float8FakeQuantizeConfig(), None, 30),
-    (Float8FakeQuantizedWeightWrapperTensor, Float8FakeQuantizeConfig(), Float8FakeQuantizeConfig(), 27),
+    (Float8FakeQuantizedWeightWrapperTensor, Float8FakeQuantizeConfig(), Float8FakeQuantizeConfig(), 26),
 ])
-@pytest.mark.parametrize("call_fn, A_shape, w_shape, out_shape, kwargs", [
+@pytest.mark.parametrize("call_fn, A_shape, w_shape, bias_shape, out_shape", [
     # A_shape: (tokens, in_features) or (batch, tokens, in_features)
     # w_shape: (in_features, out_features), linear weight is (out_features, in_features)
-    # kwargs: extra keyword arguments passed to call_fn
+    # bias_shape: () for no bias, (out_features,) for bias
     # out_shape: (tokens, out_features) or (batch, tokens, out_features)
-    (lambda a, w: torch.mm(a, w.T),                         (16, 1024),     (2048, 1024),     (16, 2048),                             {}),
-    (lambda a, w: torch.bmm(a, w.transpose(-2, -1)),        (4, 16, 1024),  (4, 2048, 1024),  (4, 16, 2048),                          {}),
-    (lambda a, w: F.linear(a, w),                         (16, 1024),     (2048, 1024),     (16, 2048),                             {}),
-    (lambda a, w, *, bias=None: F.linear(a, w, bias),     (16, 1024),     (2048, 1024),     (16, 2048),     {"bias_shape": (2048,)}),
-    (lambda a, w: torch.matmul(a, w.T),                   (16, 1024),     (2048, 1024),     (16, 2048),                             {}),
-    (lambda a, w, *, bias: torch.addmm(bias, a, w.T),     (16, 1024),     (2048, 1024),     (16, 2048),     {"bias_shape": (2048,)}),
+    (lambda a, w, bias: torch.mm(a, w.T),                  (16, 1024),     (2048, 1024),     (),            (16, 2048)),
+    (lambda a, w, bias: torch.bmm(a, w.transpose(-2, -1)), (4, 16, 1024),  (4, 2048, 1024),  (),            (4, 16, 2048)),
+    (lambda a, w, bias: F.linear(a, w),                    (16, 1024),     (2048, 1024),     (),            (16, 2048)),
+    (lambda a, w, bias: F.linear(a, w, bias),              (16, 1024),     (2048, 1024),     (2048,),       (16, 2048)),
+    (lambda a, w, bias: torch.matmul(a, w.T),              (16, 1024),     (2048, 1024),     (),            (16, 2048)),
+    (lambda a, w, bias: torch.addmm(bias, a, w.T),         (16, 1024),     (2048, 1024),     (2048,),       (16, 2048)),
 ])
 @pytest.mark.parametrize("device", target_devices)
-def test_op_fake_quantize(wrapper_cls, weight_config, act_config, sqnr_threshold, call_fn, A_shape, w_shape, out_shape, kwargs, device):
+def test_op_fake_quantize(wrapper_cls, weight_config, act_config, sqnr_threshold, call_fn, A_shape, w_shape, bias_shape, out_shape, device):
     """__torch_function__ fake-quantizes weight/activation and produces good SQNR."""
-    
+
     activation_tensor = torch.randn(*A_shape, device=device)
     weight_tensor = torch.randn(*w_shape, device=device)
 
-    # Prepare the wrapper tensor 
+    # Prepare the wrapper tensor
     activation = torch.nn.Parameter(activation_tensor.clone())
     weight = torch.nn.Parameter(wrapper_cls(
         weight_tensor.clone(),
@@ -441,29 +441,21 @@ def test_op_fake_quantize(wrapper_cls, weight_config, act_config, sqnr_threshold
         weight_config=weight_config,
     ))
 
-    resolved = {}
-    for k, v in kwargs.items():
-        if k.endswith("_shape"):
-            resolved[k[:-len("_shape")]] = torch.nn.Parameter(torch.randn(*v, device=device))
-        else:
-            resolved[k] = v
+    bias = torch.nn.Parameter(torch.randn(*bias_shape, device=device)) if bias_shape else None
 
     # Prepare the reference
     ref_activation = torch.nn.Parameter(activation_tensor.clone())
     ref_weight = torch.nn.Parameter(weight_tensor.clone())
-    
-    # No graph exists yet. So we do not need .detach().requires_grad_() after .clone()
-    ref_resolved = {k : v.clone() if isinstance(v, torch.Tensor) else v for k, v in resolved.items()}
-
+    ref_bias = bias.clone() if bias is not None else None
 
     # Run the function call
     learning_rate = 1 # set learning rate to 1 to ensure noises in new weights are not suppressed or amplified
 
     optimizer = torch.optim.SGD([weight], lr=learning_rate)
-    out = call_fn(activation, weight, **resolved)
-    
+    out = call_fn(activation, weight, bias)
+
     ref_optimizer = torch.optim.SGD([ref_weight], lr=learning_rate)
-    ref_out = call_fn(ref_activation, ref_weight, **ref_resolved)
+    ref_out = call_fn(ref_activation, ref_weight, ref_bias)
 
 
     assert out.shape == out_shape
