@@ -175,6 +175,15 @@ class FakeQuantizedWeightWrapperBaseTensor(TorchAOBaseTensor):
         self.weight_config = weight_config
         self.activation_config = activation_config
 
+    def requires_grad_(self, requires_grad: bool = True):
+        # requires_grad_ bypasses both __torch_function__ and __torch_dispatch__,
+        # so it only sets the flag on the wrapper. Need to keep _data in sync, otherwise
+        # Dynamo sees _data.requires_grad=False and may drop custom autograd.Function
+        # backward during tracing, causing eager/compile gradient mismatches.
+        super().requires_grad_(requires_grad)
+        self._data.requires_grad_(requires_grad)
+        return self
+
     __torch_function__ = torch._C._disabled_torch_function_impl
 
     @classmethod
