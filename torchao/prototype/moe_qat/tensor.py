@@ -21,8 +21,6 @@ from torchao.quantization.qat.fake_quantize_config import (
 )
 from torchao.quantization.quant_primitives import (
     _choose_scale_float8,
-    _dequantize_affine_float8,
-    _quantize_affine_float8,
 )
 from torchao.quantization.utils import get_block_size
 from torchao.utils import TorchAOBaseTensor
@@ -390,6 +388,48 @@ _func_to_prepend_fake_quantization = {
     torch.nn.functional.linear,
 }
 
+
+class _Float8RowwiseFakeQuantizeSTE(torch.autograd.Function):
+    @staticmethod
+    def forward(
+        ctx,
+        weight: torch.Tensor,
+        config: Float8FakeQuantizeConfig,
+        granularity: PerRow,
+    ) -> torch.Tensor:
+        assert weight.stride(granularity.dim) == 1, "Fake-quantized dim should be contiguous."
+        
+        original_dtype = weight.dtype
+        float8_dtype = config.dtype
+        
+        # Compute scale
+        block_size = get_block_size(weight.shape, granularity)
+        scale = _choose_scale_float8(
+            weight,
+            block_size,
+            float8_dtype,
+            hp_value_lb=config.hp_value_lb,
+            hp_value_ub=config.hp_value_ub,
+        ).detach()
+        scale = torch.clamp_min(scale, torch.finfo(original_dtype).eps)
+
+        # Quantize
+        weight_fp32 = weight.to(torch.float32)
+        weight_scaled = weight_fp32 / scale
+        max_value = torch.finfo(float8_dtype).max
+        weight_clamped = weight_scaled.clamp(min=-max_value, max=max_value)
+        q = weight_clamped.to(float8_dtype)
+
+        # Dequantize
+        q_fp32 = q.to(torch.float32)
+        dq = (q_fp32 * scale).to(original_dtype)
+        return dq
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        return grad_output, None, None
+
+
 class Float8FakeQuantizedWeightWrapperTensor(FakeQuantizedWeightWrapperBaseTensor):
     """
     Applies FP8 row-wise fake-quantization during MoE QAT.
@@ -514,30 +554,14 @@ class Float8FakeQuantizedWeightWrapperTensor(FakeQuantizedWeightWrapperBaseTenso
 
         with torch._C.DisableTorchFunctionSubclass():
             return func(*args, **kwargs)
-
-    @classmethod
+    
+    @staticmethod
     def _fake_quantize(
-        cls, weight: torch.Tensor,
+        weight: torch.Tensor,
         config: Float8FakeQuantizeConfig,
         granularity: PerRow,
     ) -> torch.Tensor:
-        assert weight.stride(granularity.dim) == 1, "Fake-quantized dim should be contiguous."
-        original_dtype = weight.dtype
-        block_size = get_block_size(weight.shape, granularity)
-        scale = _choose_scale_float8(
-            weight,
-            block_size,
-            config.dtype,
-            hp_value_lb=config.hp_value_lb,
-            hp_value_ub=config.hp_value_ub,
-        ).detach()
-        # Clamp scale to a minimum epsilon. An all-zero row (e.g., from padding,
-        # ReLU zeroing, or dropout) produces max(|row|) = 0 → scale = 0, which would
-        # cause division by zero → NaN. Clamping prevents this.
-        scale = torch.clamp_min(scale, torch.finfo(original_dtype).eps)
-        q = _quantize_affine_float8(weight, scale, config.dtype)
-        dq = _dequantize_affine_float8(q, scale, original_dtype)
-        return dq
+        return _Float8RowwiseFakeQuantizeSTE.apply(weight, config, granularity)
 
 
 @register_MoE_QAT_quantize_parameter_handler(Float8FakeQuantizeConfig)
