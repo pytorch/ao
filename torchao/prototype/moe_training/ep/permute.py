@@ -239,7 +239,13 @@ def permute_and_pad(
     x_permuted = _PermuteBF16FwdBF16Bwd.apply(x, permuted_indices)
     input_shape = (x.shape[0] + 1, x.shape[1])
 
-    return input_shape, x_permuted, permuted_indices, num_tokens_per_expert_padded, group_offsets
+    return (
+        input_shape,
+        x_permuted,
+        permuted_indices,
+        num_tokens_per_expert_padded,
+        group_offsets,
+    )
 
 
 @conditional_nostrict_trace

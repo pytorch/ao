@@ -69,10 +69,18 @@ def bench(M, D, num_experts, ep_degree, warmup=20, iters=100):
 
 def main():
     print(f"Device: {torch.cuda.get_device_name(0)} | torch {torch.__version__}\n")
-    print("permute_and_pad backward: default indexing_backward vs Triton non-atomic scatter")
+    print(
+        "permute_and_pad backward: default indexing_backward vs Triton non-atomic scatter"
+    )
     hdr = ("M", "D", "experts", "ep", "default(ms)", "triton(ms)", "speedup")
-    print(f"{hdr[0]:>7}{hdr[1]:>7}{hdr[2]:>9}{hdr[3]:>4}{hdr[4]:>13}{hdr[5]:>12}{hdr[6]:>9}")
-    for M, D, ne, ep in [(4096, 7168, 256, 8), (8192, 7168, 256, 8), (16384, 7168, 256, 8)]:
+    print(
+        f"{hdr[0]:>7}{hdr[1]:>7}{hdr[2]:>9}{hdr[3]:>4}{hdr[4]:>13}{hdr[5]:>12}{hdr[6]:>9}"
+    )
+    for M, D, ne, ep in [
+        (4096, 7168, 256, 8),
+        (8192, 7168, 256, 8),
+        (16384, 7168, 256, 8),
+    ]:
         d, t = bench(M, D, ne, ep)
         print(f"{M:>7}{D:>7}{ne:>9}{ep:>4}{d:>13.4f}{t:>12.4f}{d / t:>8.2f}x")
 
