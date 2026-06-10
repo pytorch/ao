@@ -598,16 +598,16 @@ def test_compatibility_with_torch_compile(wrapper_cls, weight_config, act_config
             run_test()
 
 
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="grouped_mm needs CUDA.")
 @pytest.mark.parametrize("wrapper_cls, weight_config, act_config", [
     (Float8FakeQuantizedWeightWrapperTensor, Float8FakeQuantizeConfig(), None),
     (Float8FakeQuantizedWeightWrapperTensor, Float8FakeQuantizeConfig(), Float8FakeQuantizeConfig()),
 ])
+@pytest.mark.parametrize("device", target_devices)
 @pytest.mark.parametrize("fullgraph", [False, True])
-def test_compile_grouped_mm(wrapper_cls, weight_config, act_config, fullgraph):
+def test_compile_grouped_mm(wrapper_cls, weight_config, act_config, device, fullgraph):
     """torch.compile with torch._grouped_mm should match eager."""
-    device = "cuda"
 
+    dtype = torch.bfloat16
     A_shape = (16, 1024)
     w_shape = (4, 2048, 1024)
     offs = torch.tensor([4, 8, 12, 16], dtype=torch.int32)
@@ -618,9 +618,9 @@ def test_compile_grouped_mm(wrapper_cls, weight_config, act_config, fullgraph):
     compiled_forward = torch.compile(eager_forward, fullgraph=fullgraph)
 
     def run_test():
-        eager_activation = torch.randn(*A_shape, device=device).requires_grad_(True)
+        eager_activation = torch.randn(*A_shape, dtype=dtype, device=device).requires_grad_(True)
         eager_weight = wrapper_cls(
-            torch.randn(*w_shape, device=device).requires_grad_(True),
+            torch.randn(*w_shape, dtype=dtype, device=device).requires_grad_(True),
             activation_config=act_config,
             weight_config=weight_config,
         )
