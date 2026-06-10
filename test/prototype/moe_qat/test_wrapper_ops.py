@@ -473,8 +473,11 @@ def test_op_fake_quantize(wrapper_cls, weight_config, act_config, sqnr_threshold
     assert sqnr != float("inf"), "SQNR should be finite (fake quant was applied)"
     assert sqnr > sqnr_threshold, f"Forward SQNR too low ({sqnr:.1f} dB)"
 
-    out.sum().backward()
-    ref_out.sum().backward()
+    target = torch.ones_like(out)
+    loss = F.mse_loss(out, target)
+    loss.backward()
+    ref_loss = F.mse_loss(ref_out, target)
+    ref_loss.backward()
     
     assert activation.grad is not None
     activation_grad_sqnr = compute_error(activation.grad, ref_activation.grad)
@@ -601,8 +604,11 @@ def test_compatibility_with_torch_compile(wrapper_cls, weight_config, act_config
         assert eager_out.shape == compiled_out.shape
         assert torch.allclose(compiled_out, eager_out), "Compiled output should match eager output"
 
-        eager_out.sum().backward()
-        compiled_out.sum().backward()
+        target = torch.ones_like(eager_out)
+        loss_eager = F.mse_loss(eager_out, target)
+        loss_compiled = F.mse_loss(compiled_out, target)
+        loss_eager.backward()
+        loss_compiled.backward()
 
         assert eager_activation.grad is not None
         assert torch.allclose(eager_activation.grad, compiled_activation.grad), \
