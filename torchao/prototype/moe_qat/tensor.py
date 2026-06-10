@@ -398,14 +398,15 @@ class _Float8RowwiseFakeQuantizeSTE(torch.autograd.Function):
         granularity: PerRow,
     ) -> torch.Tensor:
         assert weight.stride(granularity.dim) == 1, "Fake-quantized dim should be contiguous."
-        
+
         original_dtype = weight.dtype
         float8_dtype = config.dtype
-        
+        weight_fp32 = weight.to(torch.float32)
+
         # Compute scale
         block_size = get_block_size(weight.shape, granularity)
         scale = _choose_scale_float8(
-            weight,
+            weight_fp32,
             block_size,
             float8_dtype,
             hp_value_lb=config.hp_value_lb,
@@ -414,7 +415,6 @@ class _Float8RowwiseFakeQuantizeSTE(torch.autograd.Function):
         scale = torch.clamp_min(scale, torch.finfo(original_dtype).eps)
 
         # Quantize
-        weight_fp32 = weight.to(torch.float32)
         weight_scaled = weight_fp32 / scale
         max_value = torch.finfo(float8_dtype).max
         weight_clamped = weight_scaled.clamp(min=-max_value, max=max_value)
