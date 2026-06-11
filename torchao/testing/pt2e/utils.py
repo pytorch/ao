@@ -235,6 +235,20 @@ def get_default_x86_quantizer(is_qat, is_dynamic):
     return quantizer
 
 
+def get_default_xpu_quantizer():
+    """
+    Create a default XPUInductorQuantizer. QAT/dynamic are not supported on XPU.
+    """
+    import torchao.quantization.pt2e.quantizer.xpu_inductor_quantizer as xpuiq
+    from torchao.quantization.pt2e.quantizer.xpu_inductor_quantizer import (
+        XPUInductorQuantizer,
+    )
+
+    quantizer = XPUInductorQuantizer()
+    quantizer.set_global(xpuiq.get_default_xpu_inductor_quantization_config())
+    return quantizer
+
+
 class FP8QDQLinear(torch.nn.Module):
     """
     Float8 quantize-dequantize (QDQ, a.k.a., fake quant) linear layer used for testing.
@@ -431,11 +445,18 @@ def _generate_ref_quantized_model(
             return mod
         else:
             export_model = torch.export.export(mod, inputs, strict=True).module()
-            quantizer = (
-                quantizer
-                if quantizer
-                else get_default_x86_quantizer(is_qat, is_dynamic)
-            )
+            if quantizer is None:
+                has_xpu = any(
+                    isinstance(inp, torch.Tensor) and inp.device.type == "xpu"
+                    for inp in inputs
+                )
+                if has_xpu:
+                    assert not is_qat and not is_dynamic, (
+                        "QAT and dynamic quantization are not supported on XPU"
+                    )
+                    quantizer = get_default_xpu_quantizer()
+                else:
+                    quantizer = get_default_x86_quantizer(is_qat, is_dynamic)
             prepare_model = (
                 prepare_qat_pt2e(export_model, quantizer)
                 if is_qat
