@@ -154,6 +154,12 @@ class mx_mm(torch.autograd.Function):
         scale_calculation_mode = ctx.scale_calculation_mode
         wgrad_with_hp = ctx.wgrad_with_hp
 
+        # grad_output may be non-contiguous (e.g. produced by a transposed or
+        # otherwise strided downstream op). Both the dim0 cast (MXTensor.to_mx /
+        # triton_to_mxfp8_dim0) and the dim1 cast kernels assert a contiguous
+        # input, so normalize here. This is a no-op when grad_output is already
+        # contiguous.
+        grad_output_hp = grad_output_hp.contiguous()
         grad_output_orig_shape = grad_output_hp.shape
         grad_output_hp_r = grad_output_hp.reshape(-1, grad_output_orig_shape[-1])
 
