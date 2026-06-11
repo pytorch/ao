@@ -1,5 +1,6 @@
 import pytest
 import torch
+import gc
 
 
 @pytest.fixture(autouse=True)
@@ -7,6 +8,10 @@ def _init_test():
     torch.manual_seed(42)
     torch.cuda.manual_seed_all(42)
     torch._dynamo.reset()
+    torch.compiler.reset()
+
+    gc.collect()
+    torch.cuda.empty_cache()
 
 
 @pytest.fixture
