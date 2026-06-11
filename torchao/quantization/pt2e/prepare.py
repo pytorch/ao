@@ -432,6 +432,7 @@ def _is_mutable_buffer_arg(
         return False
 
     schema = node.target._schema
+    # This covers in-place ops such as copy_, put_, scatter_, fill_, add_
     if (
         not schema.arguments
         or not schema.arguments[0].alias_info
