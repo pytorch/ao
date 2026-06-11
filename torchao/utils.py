@@ -724,7 +724,7 @@ class TorchAOBaseTensor(torch.Tensor):
     Attributes (defined by subclass of ``TorchAOBaseTensor``):
 
     * :attr:`tensor_data_names` (List[str]): list of names of all required tensor_data, order should match
-        the `__init__` list of tensor subclass (optional to define to use ``TorchAOBaseTensor``,
+        the ``__init__`` list of tensor subclass (optional to define to use ``TorchAOBaseTensor``,
         required for getting the util functions been defined (see Note section))
 
     * :attr:`tensor_attribute_names` (List[str]): list of names of non-``Tensor`` attributes,

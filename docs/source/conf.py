@@ -70,6 +70,8 @@ suppress_warnings = [
 ]
 ###
 
+autosectionlabel_prefix_document = True
+
 napoleon_use_ivar = True
 napoleon_numpy_docstring = False
 napoleon_google_docstring = True

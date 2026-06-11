@@ -7,7 +7,7 @@ techniques integrated into our partner frameworks. This is part 2 of 3
 such tutorials showcasing this end-to-end flow, focusing on the
 fine-tuning step.
 
-.. image:: ../../static/e2e_flow_part2.png
+.. image:: ../_static/e2e_flow_part2.png
 
 Fine-tuning is an important step for adapting your pre-trained model
 to more domain-specific data. In this tutorial, we demonstrate 3 model
@@ -129,7 +129,7 @@ dataset, we find that the quantized model achieved 3.4% higher accuracy
 with QAT than without, recovering 69.8% of the overall accuracy degradation
 from quantization:
 
-.. image:: ../../static/qat_eval.png
+.. image:: ../_static/qat_eval.png
 
 In addition to vanilla QAT as in the above example, TorchAO's QAT can also be composed with LoRA to yield a `1.89x training speedup <https://dev-discuss.pytorch.org/t/speeding-up-qat-by-1-89x-with-lora/2700>`__ and lower memory usage by 36.1%. This is implemented in TorchTune's `QAT + LoRA fine-tuning recipe <https://github.com/pytorch/torchtune/blob/main/recipes/qat_lora_finetune_distributed.py>`__, which can be run using the following command:
 

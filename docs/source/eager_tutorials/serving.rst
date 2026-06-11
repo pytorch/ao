@@ -3,7 +3,7 @@
 
 TorchAO provides an end-to-end pre-training, fine-tuning, and serving model optimization flow by leveraging our quantization and sparsity techniques integrated into our partner frameworks. This is part 3 of 3 such tutorials showcasing this end-to-end flow, focusing on the serving step.
 
-.. image:: ../../static/e2e_flow_part3.png
+.. image:: ../_static/e2e_flow_part3.png
 
 This tutorial demonstrates how to perform post-training quantization and deploy models for inference using torchao as the underlying optimization engine, seamlessly integrated through HuggingFace Transformers, vLLM, and ExecuTorch.
 
@@ -18,7 +18,7 @@ HuggingFace Transformers provides seamless integration with torchao quantization
 Please check out our `HF Integration Docs <torchao_hf_integration.html>`_ for examples on how to use quantization and sparsity in Transformers and Diffusers and `TorchAOConfig Reference <api_ref_quantization.html#inference-apis-for-quantize>`_ for all available torchao configs to use.
 
 Serving and Inference
---------------------
+---------------------
 
 Serving and Inference with vLLM
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -32,7 +32,7 @@ First, install vLLM with torchao support:
     pip install vllm --pre --extra-index-url https://download.pytorch.org/whl/nightly/vllm/
     pip install --pre torchao --index-url https://download.pytorch.org/whl/nightly/cu128
 
-To serve in vLLM, we're using the model we quantized and pushed to Hugging Face hub in the previous step :ref:`Post-training Quantization with HuggingFace`.
+To serve in vLLM, we're using the model we quantized and pushed to Hugging Face hub in the previous step :ref:`Post-training Quantization with HuggingFace <eager_tutorials/serving:Post-training Quantization with HuggingFace>`.
 
 .. code-block:: bash
 
@@ -51,7 +51,7 @@ To serve in vLLM, we're using the model we quantized and pushed to Hugging Face 
         "max_tokens": 32768
     }'
 
-Serving a float8 dynamic quantized model with vLLM shows 36% VRAM reduction, 1.15x-1.2x inference speedup and little to no accuracy impact on H100. :ref:`Memory Benchmarking` and :ref:`Performance Benchmarking` for more details.
+Serving a float8 dynamic quantized model with vLLM shows 36% VRAM reduction, 1.15x-1.2x inference speedup and little to no accuracy impact on H100. :ref:`Memory Benchmarking <eager_tutorials/serving:Memory Benchmarking>` and :ref:`Performance Benchmarking <eager_tutorials/serving:Performance Benchmarking>` for more details.
 
 .. note::
     For more information on vLLM Integration, please refer to the detailed guide :ref:`torchao_vllm_integration`.
@@ -62,7 +62,7 @@ Serving and Inference with SGLang
 (Coming soon!)
 
 Inference with Transformers
-^^^^^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 Install the required packages:
 
@@ -114,12 +114,12 @@ Install the required packages:
     print(output[0]['generated_text'])
 
 Mobile Deployment with ExecuTorch
---------------------------------
+---------------------------------
 
 ExecuTorch enables on-device inference using torchao's mobile-optimized quantization schemes. The 8da4w (8-bit dynamic activation, 4-bit weight) configuration is specifically designed for mobile deployment. Optionally, before lowering to ExecuTorch, we can finetune a model using QAT :doc:`finetuning`, which has demonstrated some improvements in the quality of quantized models.
 
 [Optional] Untie Embedding Weights
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 Optionally, we can quantize the embedding and lm_head differently, since those layers are tied, we first need to untie the model:
 
@@ -160,7 +160,7 @@ Optionally, we can quantize the embedding and lm_head differently, since those l
     tokenizer.save_pretrained(save_to)
 
 Step 1: Create Mobile-Optimized Quantization
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 Quantizing the model for mobile deployment using TorchAO's ``Int8DynamicActivationIntxWeightConfig`` configuration. If we've untied the embedding and lm_head following the previous step, we can quantize embedding using ``IntxWeightOnlyConfig`` configuration, and lm_head using ``Int8DynamicActivationIntxWeightConfig`` configuration.
 
@@ -213,7 +213,7 @@ Quantizing the model for mobile deployment using TorchAO's ``Int8DynamicActivati
 
 
 Step 2: Export to ExecuTorch
-^^^^^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 Convert the quantized model to .pte file, which can be run on mobile device.
 
@@ -244,7 +244,7 @@ Convert the quantized model to .pte file, which can be run on mobile device.
 The .pte file can be run with ExecuTorch on a mobile phone. Follow the `instructions <https://docs.pytorch.org/executorch/main/llm/llama-demo-ios.html>`_ for doing this on an iOS device.
 
 Mobile Performance Characteristics
-^^^^^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 The torchao-optimized 8da4w model provides:
 
@@ -256,10 +256,10 @@ The torchao-optimized 8da4w model provides:
     For detailed instructions on testing the ExecuTorch model and reproducing benchmarks please refer to the `HF Phi-4-mini-instruct-8da4w model <https://huggingface.co/pytorch/Phi-4-mini-instruct-8da4w>`_.
 
 Evaluation
----------
+----------
 
 Model Quality Assessment
-^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^^^
 
 Evaluate quantized models using lm-evaluation-harness:
 

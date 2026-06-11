@@ -354,19 +354,21 @@ class Int8DynamicActivationIntxWeightConfig(AOBaseConfig):
     More specifically, activations are dynamically quantized to 8-bits at a per-token granularity with scales/zeros.
     Weights are quantized with scales/zeros in a groupwise or channelwise manner using the number of bits specified by weight_dtype.
 
-    args:
-        `weight_dtype`: The dtype to use for weight quantization.  Must be torch.intx, where 1 <= x <= 8.
-       ` weight_granularity`: The granularity to use for weight quantization.  Must be PerGroup or PerAxis(axis=0).
-        `weight_mapping_type`: The type of mapping to use for the weight quantization.
-            Must be one of MappingType.ASYMMETRIC or MappingType.SYMMETRIC.  MappingType.SYMMETRIC requires ZeroPointDomain.NONE
-        `weight_scale_dtype`: The dtype to use for the weight scale.
-        `act_mapping_type`: The type of mapping to use for the activation quantization.
+    Args:
+        weight_dtype: The dtype to use for weight quantization. Must be torch.intx, where 1 <= x <= 8.
+        weight_granularity: The granularity to use for weight quantization. Must be PerGroup or PerAxis(axis=0).
+        weight_mapping_type: The type of mapping to use for the weight quantization.
+            Must be one of MappingType.ASYMMETRIC or MappingType.SYMMETRIC. MappingType.SYMMETRIC requires ZeroPointDomain.NONE
+        weight_scale_dtype: The dtype to use for the weight scale.
+        act_mapping_type: The type of mapping to use for the activation quantization.
             Must be one of MappingType.ASYMMETRIC or MappingType.SYMMETRIC.
-        `intx_packing_format`: The format to use for the packed weight tensor (version 2 only).
+        intx_packing_format: The format to use for the packed weight tensor (version 2 only).
+
             - unpacked_to_int8: this format is the default and is intended for export applications like ExecuTorch.
             - opaque_torchao_auto: this format is optimized for CPU performance.
-        `intx_choose_qparams_algorithm`: The algorithm to use for choosing the quantization parameters.
-        `version`: version of the config to use, only subset of above args are valid based on version, see note for more details.
+
+        intx_choose_qparams_algorithm: The algorithm to use for choosing the quantization parameters.
+        version: version of the config to use, only subset of above args are valid based on version, see note for more details.
 
     Example:
 
@@ -1350,15 +1352,15 @@ class IntxWeightOnlyConfig(AOBaseConfig):
     Configuration for quantizing weights to torch.intx, with 1 <= x <= 8.
     Weights are quantized with scales/zeros in a groupwise or channelwise
     manner using the number of bits specified by weight_dtype.
-    args:
-        `weight_dtype`: The dtype to use for weight quantization.  Must be torch.intx, where 1 <= x <= 8.
-        `granularity`: The granularity to use for weight quantization.  Must be PerGroup or PerAxis(0).
-        `mapping_type`: The type of mapping to use for the weight quantization.
+    Args:
+        weight_dtype: The dtype to use for weight quantization. Must be torch.intx, where 1 <= x <= 8.
+        granularity: The granularity to use for weight quantization. Must be PerGroup or PerAxis(0).
+        mapping_type: The type of mapping to use for the weight quantization.
             Must be one of MappingType.ASYMMETRIC or MappingType.SYMMETRIC.
-        `scale_dtype`: The dtype to use for the weight scale.
-        `intx_packing_format`: The format to use for the packed weight tensor (version 2 only).
-        `intx_choose_qparams_algorithm`: The algorithm to use for choosing the quantization parameters.
-        `version`: version of the config to use, only subset of above args are valid based on version, see note for more details.
+        scale_dtype: The dtype to use for the weight scale.
+        intx_packing_format: The format to use for the packed weight tensor (version 2 only).
+        intx_choose_qparams_algorithm: The algorithm to use for choosing the quantization parameters.
+        version: version of the config to use, only subset of above args are valid based on version, see note for more details.
 
     Example:
 
@@ -1499,29 +1501,32 @@ class FqnToConfig(AOBaseConfig):
     """Configuration class for applying different quantization configs to modules or parameters based on their fully qualified names (FQNs).
 
     Args:
-        `fqn_to_config`: typing.OrderedDict[str, Optional[AOBaseConfig]]: an
-         ordered dictionary from
-             (1). fully qualified name (fqn) of module or parameter
-             (2). regex of fully qualified name (in python `re` module regex format), should
-                  start with prefix "re:" or
-             (3). "_default"
-         to the config that we want to apply to the module/param or None
+        fqn_to_config (typing.OrderedDict[str, Optional[AOBaseConfig]]): An
+            ordered dictionary from
+            (1). fully qualified name (fqn) of module or parameter
+            (2). regex of fully qualified name (in python ``re`` module regex format), should
+            start with prefix "re:" or
+            (3). "_default"
+            to the config that we want to apply to the module/param or None.
 
-         Config key ordered by precedence:
-           * fully qualified parameter name, e.g. `language.layers.0.q_proj.weight`
-           * fully qualified module name, e.g. `language.layers.0.q_proj`
-           * regex for parameter names, must start with `re:`, e.g. `re:language\.layers\..+\.q_proj.weight`.
-             The first regex that matches will be applied.
-           * regex for module names, must start with `re:`, e.g. `re:language\.layers\..+\.q_proj`,
-             whichever regex fully matches the module fqn first will be applied
-             (order of keys for dictionary are kept consistent since we are using OrderedDict)
-           * "_default", fallback if no match for all previous keys
-             (Note, when using `_default`, the config is applied to all modules, to apply
+            Config key ordered by precedence:
+
+            * fully qualified parameter name, e.g. ``language.layers.0.q_proj.weight``
+            * fully qualified module name, e.g. ``language.layers.0.q_proj``
+            * regex for parameter names, must start with ``re:``, e.g. ``re:language\.layers\..+\.q_proj.weight``.
+              The first regex that matches will be applied.
+            * regex for module names, must start with ``re:``, e.g. ``re:language\.layers\..+\.q_proj``,
+              whichever regex fully matches the module fqn first will be applied
+              (order of keys for dictionary are kept consistent since we are using OrderedDict)
+            * "_default", fallback if no match for all previous keys
+              (Note, when using ``_default``, the config is applied to all modules, to apply
               it to only a subset of modules, e.g. with some types, it's better to filter
               the modules that we don't want to quantize before hand and configure them to
-              None, e.g. `{"re:.+norm.+": None, "_default": linear_config}`) "_default" is not supported when filter_fn is not specified.
-        `module_fqn_to_config`: typing.OrderedDict[str, Optional[AOBaseConfig]]: To maintain BC with ModuleFqnToConfig, to be deprecated later
-        `version`: int: Version of config to use.
+              None, e.g. ``{"re:.+norm.+": None, "_default": linear_config}``).
+              "_default" is not supported when filter_fn is not specified.
+
+        module_fqn_to_config (typing.OrderedDict[str, Optional[AOBaseConfig]]): To maintain BC with ModuleFqnToConfig, to be deprecated later.
+        version (int): Version of config to use.
 
     Note:
         - The order of patterns in the OrderedDict may matter as only the first matching pattern is applied
