@@ -12,6 +12,7 @@ pytest test/prototype/moe_qat/test_wrapper_ops.py -s -v
 pytest test/prototype/moe_qat/test_moe_qat_config.py -s -v
 pytest test/prototype/moe_qat/test_moe_qat_transform.py -s -v
 pytest test/prototype/moe_qat/test_training.py -s -v
+pytest test/prototype/moe_qat/test_training_compile.py -s -v
 ./test/prototype/moe_qat/test_distributed.sh
 fi
 
