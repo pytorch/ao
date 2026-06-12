@@ -470,6 +470,24 @@ class TestHelperModules:
                 tmp = self.linear(x)
                 return tmp + self.linear2(tmp)
 
+    class SharedLinearModule(torch.nn.Module):
+        """One Linear module with multiple call sites (e.g. an unrolled loop),
+        each followed by a fusable post op (add or relu).
+        """
+
+        def __init__(self, post_op: str = "add") -> None:
+            super().__init__()
+            self.linear = torch.nn.Linear(in_features=16, out_features=16)
+            self.post_op = post_op
+
+        def forward(self, x):
+            for _ in range(2):
+                if self.post_op == "add":
+                    x = x + self.linear(x)
+                else:
+                    x = torch.relu(self.linear(x))
+            return x
+
     class Conv2dAddModule2(torch.nn.Module):
         def __init__(
             self,
@@ -668,12 +686,13 @@ class X86InductorQuantTestCase(QuantizationTestCase):
         is_qat=False,
         debug=False,
         lower=False,
+        strict=True,
     ):
         m_eager = model.train() if is_qat else model.eval()
 
         # program capture
         m = copy.deepcopy(m_eager)
-        m = torch.export.export(m, example_inputs, strict=True).module()
+        m = torch.export.export(m, example_inputs, strict=strict).module()
 
         # QAT Model failed to deepcopy
         export_model = m if is_qat else copy.deepcopy(m)
@@ -1729,6 +1748,60 @@ class TestQuantizePT2EX86Inductor(X86InductorQuantTestCase):
                         "is_quant_out": 1,
                     },
                     add_op: {"annotated": 1, "is_quant_out": 1},
+                }
+                self._check_annotation_stat(fq_m, expected_annotation_stat)
+
+    @skipIfNoX86
+    def test_linear_reused_with_fusable_post_op(self):
+        """
+        Test one Linear module with multiple call sites (e.g. an unrolled
+        loop), each followed by a fusable post op (add or relu).
+        With non-strict export, the source partition of the reused linear has
+        one output node per call site, so fusion is skipped and each call site
+        falls back to plain linear annotation instead of raising during
+        prepare_pt2e. See https://github.com/pytorch/ao/issues/4478
+        """
+        aten = torch.ops.aten
+        example_inputs = (torch.randn(2, 16),)
+        with override_quantized_engine("x86"), torch.no_grad():
+            for post_op in ["add", "relu"]:
+                m = TestHelperModules.SharedLinearModule(post_op=post_op).eval()
+                quantizer = X86InductorQuantizer().set_global(
+                    xiq.get_default_x86_inductor_quantization_config()
+                )
+                post_op_aten = (
+                    aten.add.Tensor if post_op == "add" else aten.relu.default
+                )
+                # One q-dq pair for the input of each linear call site,
+                # and one dq of the shared weight per call site
+                node_occurrence = {
+                    torch.ops.quantized_decomposed.quantize_per_tensor.default: 2,
+                    torch.ops.quantized_decomposed.dequantize_per_tensor.default: 2,
+                    # quantize_per_channel for weights are const propagated
+                    torch.ops.quantized_decomposed.quantize_per_channel.default: 0,
+                    torch.ops.quantized_decomposed.dequantize_per_channel.default: 2,
+                }
+                node_list = [
+                    torch.ops.quantized_decomposed.quantize_per_tensor.default,
+                    torch.ops.quantized_decomposed.dequantize_per_tensor.default,
+                    torch.ops.aten.linear.default,
+                    post_op_aten,
+                ]
+                fq_m = self._test_quantizer(
+                    m,
+                    example_inputs,
+                    quantizer,
+                    node_occurrence,
+                    node_list,
+                    strict=False,
+                )[-1]
+                # Both call sites are annotated as plain linear without fusion
+                expected_annotation_stat = {
+                    aten.linear.default: {
+                        "annotated": 2,
+                        "is_quant_out": 2,
+                    },
+                    post_op_aten: {"annotated": 0, "is_quant_out": 0},
                 }
                 self._check_annotation_stat(fq_m, expected_annotation_stat)
 
