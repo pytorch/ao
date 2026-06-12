@@ -1,14 +1,47 @@
 """Shared fixtures and utilities for MoE QAT tests."""
 
+import os
+
 import pytest
 import torch
 from torch import nn
+from torch.distributed.device_mesh import init_device_mesh
 
 from .reference_moe import MoE, MoEArgs
 
 target_devices = ["cpu"]
 if torch.cuda.is_available():
     target_devices.append("cuda")
+
+
+@pytest.fixture(scope="module", params=target_devices)
+def distributed_env(request):
+    world_size = int(os.environ["WORLD_SIZE"])
+
+    assert world_size == 4, (
+        f"This test requires world_size=4, but got world_size={world_size}. "
+        "Run with: torchrun --nproc_per_node=4 -m pytest"
+    )
+
+    torch.manual_seed(42)
+    device_type = request.param
+
+    tp_mesh = init_device_mesh(device_type, (world_size,), mesh_dim_names=("tp",))
+    ep_mesh = init_device_mesh(device_type, (world_size,), mesh_dim_names=("ep",))
+    dp_mesh = init_device_mesh(device_type, (world_size,), mesh_dim_names=("dp",))
+    ep_tp_mesh = init_device_mesh(device_type, (2, 2), mesh_dim_names=("ep", "tp"))
+    dp_tp_mesh = init_device_mesh(device_type, (2, 2), mesh_dim_names=("dp", "tp"))
+
+    yield {
+        "tp_mesh": tp_mesh,
+        "ep_mesh": ep_mesh,
+        "dp_mesh": dp_mesh,
+        "ep_tp_mesh": ep_tp_mesh,
+        "dp_tp_mesh": dp_tp_mesh,
+        "device_type": device_type,
+    }
+
+    torch.distributed.destroy_process_group()
 
 
 def create_moe_model(device, use_grouped_mm, dtype=torch.float32):

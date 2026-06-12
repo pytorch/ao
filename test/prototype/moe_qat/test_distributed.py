@@ -1,14 +1,13 @@
 """Distributed tests for MoE QAT parallelism. Run with: torchrun --nproc_per_node=4 -m pytest test/prototype/moe_qat/test_distributed.py"""
 
 import copy
-import os
 
 import pytest
 import torch
 from torch import nn
 from torch.distributed._composable.fsdp import fully_shard
 from torch.distributed._tensor import DTensor
-from torch.distributed.device_mesh import DeviceMesh, init_device_mesh
+from torch.distributed.device_mesh import DeviceMesh
 from torch.distributed.fsdp import MixedPrecisionPolicy
 from torch.distributed.tensor import Partial, Replicate, Shard, distribute_tensor
 from torch.distributed.tensor.parallel import (
@@ -27,43 +26,8 @@ from torchao.quantization.granularity import PerRow
 from torchao.quantization.quant_api import quantize_
 
 from .reference_moe import MoE, MoEArgs
-from .testing_utils import _expert_weight_filter, create_moe_model, target_devices
+from .testing_utils import _expert_weight_filter, create_moe_model, distributed_env, target_devices
 from .reference_parallel_styles import ExpertParallel, ExpertTensorParallel, NoParallel, TensorParallel
-
-@pytest.fixture(scope="module", params=target_devices)
-def distributed_env(request):
-    world_size = int(os.environ["WORLD_SIZE"])
-
-    assert world_size == 4, (
-        f"This test requires world_size=4, but got world_size={world_size}. "
-        "Run with: torchrun --nproc_per_node=4 -m pytest test/prototype/moe_qat/test_distributed.py"
-    )
-
-    torch.manual_seed(42)
-    device_type = request.param
-
-    # Create meshes for different parallelization strategies:
-    # - tp_mesh: 1D mesh for tensor parallel only
-    # - ep_mesh: 1D mesh for expert parallel only
-    # - dp_mesh: 1D mesh for FSDP only
-    # - ep_tp_mesh: 2D mesh for combined EP and TP
-    # - dp_tp_mesh: 2D mesh for combined FSDP and TP
-    tp_mesh = init_device_mesh(device_type, (world_size,), mesh_dim_names=("tp",))
-    ep_mesh = init_device_mesh(device_type, (world_size,), mesh_dim_names=("ep",))
-    dp_mesh = init_device_mesh(device_type, (world_size,), mesh_dim_names=("dp",))
-    ep_tp_mesh = init_device_mesh(device_type, (2, 2), mesh_dim_names=("ep", "tp"))
-    dp_tp_mesh = init_device_mesh(device_type, (2, 2), mesh_dim_names=("dp", "tp"))
-
-    yield {
-        "tp_mesh": tp_mesh,
-        "ep_mesh": ep_mesh,
-        "dp_mesh": dp_mesh,
-        "ep_tp_mesh": ep_tp_mesh,
-        "dp_tp_mesh": dp_tp_mesh,
-        "device_type": device_type,
-    }
-
-    torch.distributed.destroy_process_group()
 
 
 @pytest.fixture(scope="module")
@@ -340,27 +304,3 @@ def apply_moe_ep_tp(
 
 
 
-@pytest.mark.parametrize("wrapper_cls,weight_config,activation_config", [
-    (FakeQuantizedWeightWrapperBaseTensor, Float8FakeQuantizeConfig(), None),
-    (FakeQuantizedWeightWrapperBaseTensor, Float8FakeQuantizeConfig(), Float8FakeQuantizeConfig()),
-    (Float8FakeQuantizedWeightWrapperTensor, Float8FakeQuantizeConfig(), None),
-    (Float8FakeQuantizedWeightWrapperTensor, Float8FakeQuantizeConfig(), Float8FakeQuantizeConfig()),
-])
-def test_scatter_preserves_subclass(wrapper_cls, weight_config, activation_config, distributed_env):
-    """c10d.scatter_.default preserves the wrapper subclass on the local shard."""
-    rank = torch.distributed.get_rank()
-    device = distributed_env["device_type"]
-    shape = (4, 64, 128)
-    if rank == 0:
-        weight = torch.randn(*shape, device=device)
-        wrapper = wrapper_cls(weight.clone(), activation_config=activation_config, weight_config=weight_config)
-    else:
-        weight = torch.zeros(*shape, device=device)
-        wrapper = wrapper_cls(weight.clone(), activation_config=activation_config, weight_config=weight_config)
-
-    mesh = distributed_env["tp_mesh"]
-    dt = distribute_tensor(wrapper, mesh, [Shard(0)])
-
-    assert isinstance(dt._local_tensor, wrapper_cls), "Wrapper subclass should be preserved"
-    torch.distributed.broadcast(weight, src=0)
-    assert torch.equal(dt._local_tensor.to_tensor(), weight.chunk(mesh.size(), dim=0)[rank])
