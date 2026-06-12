@@ -44,7 +44,18 @@ jobs:
         python -m pip install --upgrade pip
         pip install uv
         # Pre-install torch/vision's pure-python deps from the in-cluster pypi-cache for speed.
-        pip install filelock typing-extensions "setuptools<82" sympy networkx jinja2 fsspec numpy pillow
+        #
+        # spmd-types is appended on purpose: the torch nightly hard-depends on it, but the pytorch
+        # index only re-links to files.pythonhosted.org, which the OSDC H100 pool can't reach.
+        # Installing it now via the reachable cache means the cache-bypassing torch install below
+        # (--index-url only) never has to fetch it.
+        #
+        # Also affects release_model/run_microbenchmarks/dashboard_perf_test; only the H100 test
+        # workflows are patched for now since they are the ones failing.
+        #
+        # TODO: remove once the OSDC pool can reach files.pythonhosted.org (or spmd-types is
+        # mirrored on download.pytorch.org). Egress owned by PyTorch dev infra.
+        pip install filelock typing-extensions "setuptools<82" sympy networkx jinja2 fsspec numpy pillow spmd-types
         # Clear PIP_EXTRA_INDEX_URL (the runner's default cpu /whl/cpu/) so it can't supply a
         # +cpu torch; the torch-spec's --index-url makes the literal nightly cu126 index the only source.
         PIP_EXTRA_INDEX_URL= pip install ${{ matrix.torch-spec }}
