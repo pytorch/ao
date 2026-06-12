@@ -173,7 +173,7 @@
   fbq('track', 'PageView');
 </script>
 <script>
-  document.documentElement.setAttribute('data-version', 'main (0.18.0+git7987abe )');
+  document.documentElement.setAttribute('data-version', 'main (0.18.0+gitc42673d )');
 </script>
 <noscript>
   <img height="1" width="1" src="https://www.facebook.com/tr?id=243028289693773&ev=PageView&noscript=1" />
@@ -1532,29 +1532,23 @@ More specifically, activations are dynamically quantized to 8-bits at a per-toke
 Weights are quantized with scales/zeros in a groupwise or channelwise manner using the number of bits specified by weight_dtype.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
-<dd class="field-odd"><p><strong>weight_dtype</strong> – <p>The dtype to use for weight quantization.  Must be torch.intx, where 1 &lt;= x &lt;= 8.</p>
-<dl>
-<dt>` weight_granularity`: The granularity to use for weight quantization.  Must be PerGroup or PerAxis(axis=0).</dt><dd><dl class="simple">
-<dt><cite>weight_mapping_type</cite>: The type of mapping to use for the weight quantization.</dt><dd><p>Must be one of MappingType.ASYMMETRIC or MappingType.SYMMETRIC.  MappingType.SYMMETRIC requires ZeroPointDomain.NONE</p>
-</dd>
-</dl>
-<p><cite>weight_scale_dtype</cite>: The dtype to use for the weight scale.
-<cite>act_mapping_type</cite>: The type of mapping to use for the activation quantization.</p>
-<blockquote>
-<div><p>Must be one of MappingType.ASYMMETRIC or MappingType.SYMMETRIC.</p>
-</div></blockquote>
-<dl class="simple">
-<dt><cite>intx_packing_format</cite>: The format to use for the packed weight tensor (version 2 only).</dt><dd><ul class="simple">
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>weight_dtype</strong> – The dtype to use for weight quantization.  Must be torch.intx, where 1 &lt;= x &lt;= 8.</p></li>
+<li><p><strong>weight_granularity</strong> – The granularity to use for weight quantization.  Must be PerGroup or PerAxis(axis=0).</p></li>
+<li><p><strong>weight_mapping_type</strong> – The type of mapping to use for the weight quantization.
+Must be one of MappingType.ASYMMETRIC or MappingType.SYMMETRIC.  MappingType.SYMMETRIC requires ZeroPointDomain.NONE</p></li>
+<li><p><strong>weight_scale_dtype</strong> – The dtype to use for the weight scale.</p></li>
+<li><p><strong>act_mapping_type</strong> – The type of mapping to use for the activation quantization.
+Must be one of MappingType.ASYMMETRIC or MappingType.SYMMETRIC.</p></li>
+<li><p><strong>intx_packing_format</strong> – <p>The format to use for the packed weight tensor (version 2 only).</p>
+<ul>
 <li><p>unpacked_to_int8: this format is the default and is intended for export applications like ExecuTorch.</p></li>
 <li><p>opaque_torchao_auto: this format is optimized for CPU performance.</p></li>
 </ul>
-</dd>
-</dl>
-<p><cite>intx_choose_qparams_algorithm</cite>: The algorithm to use for choosing the quantization parameters.
-<cite>version</cite>: version of the config to use, only subset of above args are valid based on version, see note for more details.</p>
-</dd>
-</dl>
-</p>
+</p></li>
+<li><p><strong>intx_choose_qparams_algorithm</strong> – The algorithm to use for choosing the quantization parameters.</p></li>
+<li><p><strong>version</strong> – version of the config to use, only subset of above args are valid based on version, see note for more details.</p></li>
+</ul>
 </dd>
 </dl>
 <p>Example:</p>
@@ -1913,7 +1907,7 @@ Weights are quantized with scales/zeros in a groupwise or channelwise manner usi
        "headline": "Int8DynamicActivationIntxWeightConfig",
        "description": "PyTorch Documentation. Explore PyTorch, an open-source machine learning library that accelerates the path from research prototyping to production deployment.",
        "url": "/api_reference/generated/torchao.quantization.Int8DynamicActivationIntxWeightConfig.html",
-       "articleBody": "Int8DynamicActivationIntxWeightConfig# class torchao.quantization.Int8DynamicActivationIntxWeightConfig(weight_dtype: dtype = torch.int8, weight_granularity: Granularity = PerGroup(group_size=32), weight_mapping_type: MappingType = MappingType.SYMMETRIC, weight_scale_dtype: dtype | None = None, act_mapping_type: MappingType = MappingType.ASYMMETRIC, intx_packing_format: IntxPackingFormat = IntxPackingFormat.UNPACKED_TO_INT8, intx_choose_qparams_algorithm: IntxChooseQParamsAlgorithm = IntxChooseQParamsAlgorithm.AFFINE, version: int = 2)[source][source]# Configuration for dynamically quantizing activations to torch.int8 and weights to torch.intx, with 1 \u003c= x \u003c= 8. More specifically, activations are dynamically quantized to 8-bits at a per-token granularity with scales/zeros. Weights are quantized with scales/zeros in a groupwise or channelwise manner using the number of bits specified by weight_dtype. Parameters: weight_dtype \u2013 The dtype to use for weight quantization. Must be torch.intx, where 1 \u003c= x \u003c= 8. ` weight_granularity`: The granularity to use for weight quantization. Must be PerGroup or PerAxis(axis=0). weight_mapping_type: The type of mapping to use for the weight quantization.Must be one of MappingType.ASYMMETRIC or MappingType.SYMMETRIC. MappingType.SYMMETRIC requires ZeroPointDomain.NONE weight_scale_dtype: The dtype to use for the weight scale. act_mapping_type: The type of mapping to use for the activation quantization. Must be one of MappingType.ASYMMETRIC or MappingType.SYMMETRIC. intx_packing_format: The format to use for the packed weight tensor (version 2 only). unpacked_to_int8: this format is the default and is intended for export applications like ExecuTorch. opaque_torchao_auto: this format is optimized for CPU performance. intx_choose_qparams_algorithm: The algorithm to use for choosing the quantization parameters. version: version of the config to use, only subset of above args are valid based on version, see note for more details. Example: import torch.nn as nn from torchao.quantization import Int8DynamicActivationIntxWeightConfig, quantize_ model = nn.Sequential(nn.Linear(2048, 2048, device=\"cuda\")) quantize_(model, Int8DynamicActivationIntxWeightConfig())",
+       "articleBody": "Int8DynamicActivationIntxWeightConfig# class torchao.quantization.Int8DynamicActivationIntxWeightConfig(weight_dtype: dtype = torch.int8, weight_granularity: Granularity = PerGroup(group_size=32), weight_mapping_type: MappingType = MappingType.SYMMETRIC, weight_scale_dtype: dtype | None = None, act_mapping_type: MappingType = MappingType.ASYMMETRIC, intx_packing_format: IntxPackingFormat = IntxPackingFormat.UNPACKED_TO_INT8, intx_choose_qparams_algorithm: IntxChooseQParamsAlgorithm = IntxChooseQParamsAlgorithm.AFFINE, version: int = 2)[source][source]# Configuration for dynamically quantizing activations to torch.int8 and weights to torch.intx, with 1 \u003c= x \u003c= 8. More specifically, activations are dynamically quantized to 8-bits at a per-token granularity with scales/zeros. Weights are quantized with scales/zeros in a groupwise or channelwise manner using the number of bits specified by weight_dtype. Parameters: weight_dtype \u2013 The dtype to use for weight quantization. Must be torch.intx, where 1 \u003c= x \u003c= 8. weight_granularity \u2013 The granularity to use for weight quantization. Must be PerGroup or PerAxis(axis=0). weight_mapping_type \u2013 The type of mapping to use for the weight quantization. Must be one of MappingType.ASYMMETRIC or MappingType.SYMMETRIC. MappingType.SYMMETRIC requires ZeroPointDomain.NONE weight_scale_dtype \u2013 The dtype to use for the weight scale. act_mapping_type \u2013 The type of mapping to use for the activation quantization. Must be one of MappingType.ASYMMETRIC or MappingType.SYMMETRIC. intx_packing_format \u2013 The format to use for the packed weight tensor (version 2 only). unpacked_to_int8: this format is the default and is intended for export applications like ExecuTorch. opaque_torchao_auto: this format is optimized for CPU performance. intx_choose_qparams_algorithm \u2013 The algorithm to use for choosing the quantization parameters. version \u2013 version of the config to use, only subset of above args are valid based on version, see note for more details. Example: import torch.nn as nn from torchao.quantization import Int8DynamicActivationIntxWeightConfig, quantize_ model = nn.Sequential(nn.Linear(2048, 2048, device=\"cuda\")) quantize_(model, Int8DynamicActivationIntxWeightConfig())",
        "author": {
          "@type": "Organization",
          "name": "PyTorch Contributors",

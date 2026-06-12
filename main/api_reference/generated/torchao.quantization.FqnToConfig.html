@@ -173,7 +173,7 @@
   fbq('track', 'PageView');
 </script>
 <script>
-  document.documentElement.setAttribute('data-version', 'main (0.18.0+git7987abe )');
+  document.documentElement.setAttribute('data-version', 'main (0.18.0+gitc42673d )');
 </script>
 <noscript>
   <img height="1" width="1" src="https://www.facebook.com/tr?id=243028289693773&ev=PageView&noscript=1" />
@@ -1526,24 +1526,22 @@ document.write(`
 <h1>FqnToConfig<a class="headerlink" href="#fqntoconfig" title="Link to this heading">#</a></h1>
 <dl class="py class">
 <dt class="sig sig-object py" id="torchao.quantization.FqnToConfig">
-<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">torchao.quantization.</span></span><span class="sig-name descname"><span class="pre">FqnToConfig</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">fqn_to_config:</span> <span class="pre">~typing.OrderedDict[str</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">~torchao.core.config.AOBaseConfig</span> <span class="pre">|</span> <span class="pre">None]</span> <span class="pre">=</span> <span class="pre">&lt;factory&gt;</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">module_fqn_to_config:</span> <span class="pre">~typing.OrderedDict[str</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">~torchao.core.config.AOBaseConfig</span> <span class="pre">|</span> <span class="pre">None]</span> <span class="pre">=</span> <span class="pre">&lt;factory&gt;</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">version:</span> <span class="pre">int</span> <span class="pre">=</span> <span class="pre">1</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/torchao/quantization/quant_api.html#FqnToConfig"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="reference external" href="https://github.com/pytorch/ao/blob/main/torchao/quantization/quant_api.py#L1497"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#torchao.quantization.FqnToConfig" title="Link to this definition">#</a></dt>
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">torchao.quantization.</span></span><span class="sig-name descname"><span class="pre">FqnToConfig</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">fqn_to_config:</span> <span class="pre">~typing.OrderedDict[str</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">~torchao.core.config.AOBaseConfig</span> <span class="pre">|</span> <span class="pre">None]</span> <span class="pre">=</span> <span class="pre">&lt;factory&gt;</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">module_fqn_to_config:</span> <span class="pre">~typing.OrderedDict[str</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">~torchao.core.config.AOBaseConfig</span> <span class="pre">|</span> <span class="pre">None]</span> <span class="pre">=</span> <span class="pre">&lt;factory&gt;</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">version:</span> <span class="pre">int</span> <span class="pre">=</span> <span class="pre">1</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/torchao/quantization/quant_api.html#FqnToConfig"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="reference external" href="https://github.com/pytorch/ao/blob/main/torchao/quantization/quant_api.py#L1499"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#torchao.quantization.FqnToConfig" title="Link to this definition">#</a></dt>
 <dd><p>Configuration class for applying different quantization configs to modules or parameters based on their fully qualified names (FQNs).</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
 <dd class="field-odd"><ul class="simple">
 <li><p><strong>fqn_to_config</strong> – <p>typing.OrderedDict[str, Optional[AOBaseConfig]]: an
-ordered dictionary from</p>
-<blockquote>
-<div><p>(1). fully qualified name (fqn) of module or parameter
-(2). regex of fully qualified name (in python <cite>re</cite> module regex format), should</p>
-<blockquote>
-<div><p>start with prefix “re:” or</p>
-</div></blockquote>
-<p>(3). “_default”</p>
-</div></blockquote>
-<p>to the config that we want to apply to the module/param or None</p>
-<dl>
-<dt>Config key ordered by precedence:</dt><dd><ul>
+ordered dictionary from a key to the config that we want to apply
+to the module/param (or None). A key is one of:</p>
+<ol class="arabic simple">
+<li><p>fully qualified name (fqn) of module or parameter</p></li>
+<li><p>regex of fully qualified name (in python <cite>re</cite> module regex format), should
+start with prefix “re:” or</p></li>
+<li><p>”_default”</p></li>
+</ol>
+<p>Config key ordered by precedence:</p>
+<ul>
 <li><p>fully qualified parameter name, e.g. <cite>language.layers.0.q_proj.weight</cite></p></li>
 <li><p>fully qualified module name, e.g. <cite>language.layers.0.q_proj</cite></p></li>
 <li><p>regex for parameter names, must start with <cite>re:</cite>, e.g. <cite>re:language.layers..+.q_proj.weight</cite>.
@@ -1552,16 +1550,11 @@ The first regex that matches will be applied.</p></li>
 whichever regex fully matches the module fqn first will be applied
 (order of keys for dictionary are kept consistent since we are using OrderedDict)</p></li>
 <li><p>”_default”, fallback if no match for all previous keys
-(Note, when using <cite>_default</cite>, the config is applied to all modules, to apply</p>
-<blockquote>
-<div><p>it to only a subset of modules, e.g. with some types, it’s better to filter
+(Note, when using <cite>_default</cite>, the config is applied to all modules, to apply
+it to only a subset of modules, e.g. with some types, it’s better to filter
 the modules that we don’t want to quantize before hand and configure them to
-None, e.g. <cite>{“re:.+norm.+”: None, “_default”: linear_config}</cite>) “_default” is not supported when filter_fn is not specified.</p>
-</div></blockquote>
-</li>
+None, e.g. <cite>{“re:.+norm.+”: None, “_default”: linear_config}</cite>) “_default” is not supported when filter_fn is not specified.</p></li>
 </ul>
-</dd>
-</dl>
 </p></li>
 <li><p><strong>module_fqn_to_config</strong> – typing.OrderedDict[str, Optional[AOBaseConfig]]: To maintain BC with ModuleFqnToConfig, to be deprecated later</p></li>
 <li><p><strong>version</strong> – int: Version of config to use.</p></li>
@@ -1922,7 +1915,7 @@ None, e.g. <cite>{“re:.+norm.+”: None, “_default”: linear_config}</cite>
        "headline": "FqnToConfig",
        "description": "PyTorch Documentation. Explore PyTorch, an open-source machine learning library that accelerates the path from research prototyping to production deployment.",
        "url": "/api_reference/generated/torchao.quantization.FqnToConfig.html",
-       "articleBody": "FqnToConfig# class torchao.quantization.FqnToConfig(fqn_to_config: ~typing.OrderedDict[str, ~torchao.core.config.AOBaseConfig | None] = \u003cfactory\u003e, module_fqn_to_config: ~typing.OrderedDict[str, ~torchao.core.config.AOBaseConfig | None] = \u003cfactory\u003e, version: int = 1)[source][source]# Configuration class for applying different quantization configs to modules or parameters based on their fully qualified names (FQNs). Parameters: fqn_to_config \u2013 typing.OrderedDict[str, Optional[AOBaseConfig]]: an ordered dictionary from (1). fully qualified name (fqn) of module or parameter (2). regex of fully qualified name (in python re module regex format), should start with prefix \u201cre:\u201d or (3). \u201c_default\u201d to the config that we want to apply to the module/param or None Config key ordered by precedence: fully qualified parameter name, e.g. language.layers.0.q_proj.weight fully qualified module name, e.g. language.layers.0.q_proj regex for parameter names, must start with re:, e.g. re:language.layers..+.q_proj.weight. The first regex that matches will be applied. regex for module names, must start with re:, e.g. re:language.layers..+.q_proj, whichever regex fully matches the module fqn first will be applied (order of keys for dictionary are kept consistent since we are using OrderedDict) \u201d_default\u201d, fallback if no match for all previous keys (Note, when using _default, the config is applied to all modules, to apply it to only a subset of modules, e.g. with some types, it\u2019s better to filter the modules that we don\u2019t want to quantize before hand and configure them to None, e.g. {\u201cre:.+norm.+\u201d: None, \u201c_default\u201d: linear_config}) \u201c_default\u201d is not supported when filter_fn is not specified. module_fqn_to_config \u2013 typing.OrderedDict[str, Optional[AOBaseConfig]]: To maintain BC with ModuleFqnToConfig, to be deprecated later version \u2013 int: Version of config to use. Note The order of patterns in the OrderedDict may matter as only the first matching pattern is applied \u201c_default\u201d is ignored for parameter replacement.",
+       "articleBody": "FqnToConfig# class torchao.quantization.FqnToConfig(fqn_to_config: ~typing.OrderedDict[str, ~torchao.core.config.AOBaseConfig | None] = \u003cfactory\u003e, module_fqn_to_config: ~typing.OrderedDict[str, ~torchao.core.config.AOBaseConfig | None] = \u003cfactory\u003e, version: int = 1)[source][source]# Configuration class for applying different quantization configs to modules or parameters based on their fully qualified names (FQNs). Parameters: fqn_to_config \u2013 typing.OrderedDict[str, Optional[AOBaseConfig]]: an ordered dictionary from a key to the config that we want to apply to the module/param (or None). A key is one of: fully qualified name (fqn) of module or parameter regex of fully qualified name (in python re module regex format), should start with prefix \u201cre:\u201d or \u201d_default\u201d Config key ordered by precedence: fully qualified parameter name, e.g. language.layers.0.q_proj.weight fully qualified module name, e.g. language.layers.0.q_proj regex for parameter names, must start with re:, e.g. re:language.layers..+.q_proj.weight. The first regex that matches will be applied. regex for module names, must start with re:, e.g. re:language.layers..+.q_proj, whichever regex fully matches the module fqn first will be applied (order of keys for dictionary are kept consistent since we are using OrderedDict) \u201d_default\u201d, fallback if no match for all previous keys (Note, when using _default, the config is applied to all modules, to apply it to only a subset of modules, e.g. with some types, it\u2019s better to filter the modules that we don\u2019t want to quantize before hand and configure them to None, e.g. {\u201cre:.+norm.+\u201d: None, \u201c_default\u201d: linear_config}) \u201c_default\u201d is not supported when filter_fn is not specified. module_fqn_to_config \u2013 typing.OrderedDict[str, Optional[AOBaseConfig]]: To maintain BC with ModuleFqnToConfig, to be deprecated later version \u2013 int: Version of config to use. Note The order of patterns in the OrderedDict may matter as only the first matching pattern is applied \u201c_default\u201d is ignored for parameter replacement.",
        "author": {
          "@type": "Organization",
          "name": "PyTorch Contributors",
