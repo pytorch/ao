@@ -98,15 +98,6 @@ class ParallelStrategy:
     FSDP_TP = "fsdp_tp"
 
 
-@pytest.fixture(scope="module")
-def fixed_model_and_input(distributed_env):
-    """Create a fixed MoE model and input once per device, so all strategies use identical starting conditions."""
-    device = torch.device(distributed_env["device_type"])
-    model = create_moe_model(device, use_grouped_mm=(device.type == "cuda"))
-    x = torch.randn(8, 64, model.experts.gate_proj.shape[-1], device=device)
-    return model, x
-
-
 def consolidate_tensor_to_cpu(tensor, target_rank=0):
     """Consolidate a potentially sharded tensor to a full CPU tensor on target_rank.
 

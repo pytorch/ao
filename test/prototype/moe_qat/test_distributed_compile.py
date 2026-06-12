@@ -1,4 +1,4 @@
-"""Distributed tests for MoE QAT parallelism. Run with: torchrun --nproc_per_node=4 -m pytest test/prototype/moe_qat/test_distributed.py"""
+"""Distributed tests for MoE QAT with torch.compile. Run with: torchrun --nproc_per_node=4 -m pytest test/prototype/moe_qat/test_distributed_compile.py"""
 
 import copy
 
@@ -6,23 +6,18 @@ import pytest
 import torch
 from torch import nn
 from torch.distributed._tensor import DTensor
-from torch.distributed.device_mesh import DeviceMesh
-from torch.distributed.fsdp import MixedPrecisionPolicy
-from torch.distributed.tensor import Partial, Replicate, Shard
 from torch.nn import functional as F
 
 from torchao.float8.float8_utils import compute_error
 from torchao.prototype.moe_qat import MoEQATConfig
 from torchao.prototype.moe_qat.tensor import FakeQuantizedWeightWrapperBaseTensor, Float8FakeQuantizedWeightWrapperTensor
 from torchao.quantization.qat.fake_quantize_config import Float8FakeQuantizeConfig
-from torchao.quantization.granularity import PerRow
 from torchao.quantization.quant_api import quantize_
 
-from .reference_moe import MoE, MoEArgs
+from .reference_moe import MoE
 from .testing_utils import (
     _expert_weight_filter,
     _moe_input,
-    apply_moe_ep_tp,
     consolidate_tensor_to_cpu,
     create_moe_model,
     distributed_env,
@@ -43,17 +38,20 @@ from .testing_utils import (
     (Float8FakeQuantizedWeightWrapperTensor, Float8FakeQuantizeConfig(), None,                       {"out": 30, "input_grad": 31, "param_grad": 22}),
     (Float8FakeQuantizedWeightWrapperTensor, Float8FakeQuantizeConfig(), Float8FakeQuantizeConfig(), {"out": 28, "input_grad": 25, "param_grad": 16}),
 ])
-def test_moe_qat_parallel(parallel_strategy, wrapper_cls, weight_config, activation_config, min_sqnr, distributed_env):
+def test_compiled_model_parallel(parallel_strategy, wrapper_cls, weight_config, activation_config, min_sqnr, distributed_env):
+
+    if parallel_strategy == ParallelStrategy.EXPERT_TENSOR_PARALLEL:
+        pytest.skip("torch.compile does not support device_mesh._get_submesh")
+    if activation_config is not None:
+        pytest.skip("Currently activation fake-quant with DTensor is not compatible with torch.compile")
 
     device = torch.device(distributed_env["device_type"])
     base_model = create_moe_model(device, use_grouped_mm=(device.type == "cuda"))
     base_x = _moe_input(base_model, batch=8, seq=64)
 
-    # Reference model (no fake quantization)
     ref_model = copy.deepcopy(base_model)
     model = copy.deepcopy(base_model)
 
-    # Apply QAT to test model
     qat_config = MoEQATConfig(
         weight_config=weight_config,
         activation_config=activation_config,
@@ -62,11 +60,9 @@ def test_moe_qat_parallel(parallel_strategy, wrapper_cls, weight_config, activat
     )
     quantize_(model, qat_config, filter_fn=lambda m, fqn: isinstance(m, MoE))
 
-    # Create optimizers
     model_optimizer = torch.optim.SGD(model.parameters(), lr=0.01)
     ref_optimizer = torch.optim.SGD(ref_model.parameters(), lr=0.01)
 
-    # Verify starting params are identical
     for ref_param, model_param in zip(ref_model.parameters(), model.parameters()):
         if isinstance(model_param.data, FakeQuantizedWeightWrapperBaseTensor):
             assert isinstance(model_param.data, wrapper_cls)
@@ -75,10 +71,9 @@ def test_moe_qat_parallel(parallel_strategy, wrapper_cls, weight_config, activat
             assert torch.equal(ref_param, model_param)
 
     model, ref_model = apply_parallel_strategy(
-        model, ref_model, parallel_strategy, False, distributed_env
+        model, ref_model, parallel_strategy, use_compile=True, distributed_env=distributed_env
     )
 
-    # Rough validation that parallelization was applied properly
     if parallel_strategy != ParallelStrategy.FSDP:
         for name in ("gate_proj", "down_proj", "up_proj"):
             assert isinstance(getattr(model.experts, name).data, DTensor), (
@@ -88,28 +83,22 @@ def test_moe_qat_parallel(parallel_strategy, wrapper_cls, weight_config, activat
                 f"ref_model.experts.{name} is not a DTensor"
             )
 
-    # Inputs
     ref_x = base_x.clone().detach().requires_grad_(True)
     x = ref_x.clone().detach().requires_grad_(True)
 
-    # Forward
     ref_out = ref_model(ref_x)
     out = model(x)
 
-    # Compute loss
     labels = torch.ones_like(ref_out)
     ref_loss = F.mse_loss(ref_out, labels)
     out_loss = F.mse_loss(out, labels)
 
-    # Backward
     ref_loss.backward()
     out_loss.backward()
 
-    # Optimizer step
     model_optimizer.step()
     ref_optimizer.step()
 
-    # --- All collectives (all ranks must participate) ---
     gathered_out = consolidate_tensor_to_cpu(out)
     gathered_ref_out = consolidate_tensor_to_cpu(ref_out)
 
@@ -125,10 +114,8 @@ def test_moe_qat_parallel(parallel_strategy, wrapper_cls, weight_config, activat
         if torch.distributed.get_rank() == 0:
             param_results.append((name, ref_name, gathered, ref_gathered))
 
-    # --- Barrier: sync before any rank-0 assertion ---
     torch.distributed.barrier()
 
-    # --- Rank-0 assertions ---
     if torch.distributed.get_rank() == 0:
         assert torch.isfinite(gathered_out).all(), "Consolidated output has non-finite values"
         assert torch.isfinite(gathered_ref_out).all(), "Consolidated ref output has non-finite values"
@@ -149,7 +136,3 @@ def test_moe_qat_parallel(parallel_strategy, wrapper_cls, weight_config, activat
             assert sqnr.item() >= min_sqnr["param_grad"], (
                 f"{name} grad SQNR must be >= {min_sqnr['param_grad']} dB, got {sqnr.item():.1f} dB"
             )
-
-
-
-
