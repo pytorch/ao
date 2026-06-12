@@ -3671,7 +3671,12 @@ if RUN_CPU:
             func_inputs=[
                 [
                     "aoti_torch_cpu__qconv_pointwise_tensor",
-                    "torch.ops.quantized.max_pool2d",
+                    # quantized::max_pool2d has no AOTI C-shim and takes list
+                    # args, so cpp_wrapper emits a boxed dispatcher fallback
+                    # (c10::Dispatcher...findSchemaOrThrow("quantized::max_pool2d"))
+                    # rather than the Python-style torch.ops.quantized.max_pool2d.
+                    # See pytorch #184099.
+                    "quantized::max_pool2d",
                     "aoti_torch_cpu__qlinear_pointwise_tensor",
                 ]
             ],
