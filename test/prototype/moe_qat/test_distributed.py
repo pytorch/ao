@@ -32,6 +32,7 @@ from .testing_utils import (
 )
 
 
+@pytest.mark.parametrize("use_grouped_mm", [True, False])
 @pytest.mark.parametrize("parallel_strategy", [
     ParallelStrategy.FSDP,
     ParallelStrategy.EXPERT_PARALLEL,
@@ -43,10 +44,10 @@ from .testing_utils import (
     (Float8FakeQuantizedWeightWrapperTensor, Float8FakeQuantizeConfig(), None,                       {"out": 30, "input_grad": 31, "param_grad": 22}),
     (Float8FakeQuantizedWeightWrapperTensor, Float8FakeQuantizeConfig(), Float8FakeQuantizeConfig(), {"out": 28, "input_grad": 25, "param_grad": 16}),
 ])
-def test_moe_qat_parallel(parallel_strategy, wrapper_cls, weight_config, activation_config, min_sqnr, distributed_env):
+def test_moe_qat_parallel(parallel_strategy, wrapper_cls, weight_config, activation_config, min_sqnr, use_grouped_mm, distributed_env):
 
-    device = torch.device(distributed_env["device_type"])
-    base_model = create_moe_model(device, use_grouped_mm=(device.type == "cuda"))
+    device = distributed_env["device_type"]
+    base_model = create_moe_model(device, use_grouped_mm=use_grouped_mm)
     base_x = _moe_input(base_model, batch=8, seq=64)
 
     # Reference model (no fake quantization)
