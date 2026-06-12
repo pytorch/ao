@@ -79,6 +79,12 @@ the corresponding fake quantization configs to use.
 
 Currently only the following PTQ base configs are supported:
 - [`Int4WeightOnlyConfig`](https://docs.pytorch.org/ao/main/generated/torchao.quantization.Int4WeightOnlyConfig.html)
+- [`Float8DynamicActivationFloat8WeightConfig`](https://docs.pytorch.org/ao/main/generated/torchao.quantization.Float8DynamicActivationFloat8WeightConfig.html)
+- [`Float8DynamicActivationInt4WeightConfig`](https://docs.pytorch.org/ao/main/generated/torchao.quantization.Float8DynamicActivationInt4WeightConfig.html)
+- [`NVFP4DynamicActivationNVFP4WeightConfig`](https://docs.pytorch.org/ao/main/generated/torchao.prototype.mx_formats.NVFP4DynamicActivationNVFP4WeightConfig.html)
+- [`MXDynamicActivationMXWeightConfig`](https://docs.pytorch.org/ao/main/generated/torchao.prototype.mx_formats.MXDynamicActivationMXWeightConfig.html)
+- [`Int8DynamicActivationIntxWeightConfig`](https://docs.pytorch.org/ao/main/generated/torchao.quantization.Int8DynamicActivationIntxWeightConfig.html)
+- [`IntxWeightOnlyConfig`](https://docs.pytorch.org/ao/main/generated/torchao.quantization.IntxWeightOnlyConfig.html)
 
 For example (most use cases):
 
@@ -231,7 +237,7 @@ model = FastLanguageModel.get_peft_model(
 )
 ```
 
-For a full notebook example, see: https://colab.research.google.com/github/unslothai/notebooks/blob/main/nb/Qwen3_(14B)-Reasoning-Conversational.ipynb. A QAT-specific notebook is coming soon.
+For a full notebook example, see [this QAT notebook](https://colab.research.google.com/github/unslothai/notebooks/blob/main/nb/Qwen3_(14B)-Reasoning-Conversational.ipynb). A QAT-specific notebook is coming soon.
 
 
 <details>
@@ -329,4 +335,4 @@ and 32 for `Qwen3-8B`.
 +-------------+-----------------+------------------+-------------+-------------+
 ```
 
-For more details, please refer to [this blog post](https://pytorch.org/blog/quantization-aware-training).
+For more details, please refer to [this blog post](https://pytorch.org/blog/quantization-aware-training) and [QAT in torchao II](https://pytorch.org/blog/quantization-aware-training-in-torchao-ii/).
