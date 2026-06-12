@@ -385,7 +385,9 @@ def test_triton_nvfp4_quantize_equivalence(M, N, use_per_tensor_scale, dtype):
     )
 
 
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+@pytest.mark.skipif(
+    not torch.accelerator.is_available(), reason="Accelerator not available"
+)
 @pytest.mark.parametrize("use_gelu", [True, False])
 @pytest.mark.parametrize(
     "quant_type",
@@ -410,9 +412,6 @@ def test_triton_nvfp4_quantize_equivalence(M, N, use_per_tensor_scale, dtype):
 )
 @torch.no_grad()
 @skip_if_rocm("ROCm float4 gemm require gfx950")
-@pytest.mark.skipif(
-    not is_sm_at_least_100(), reason="CUDA capability >= 10.0 required for fp4"
-)
 def test_nvfp4_matmul_with_amax(
     use_gelu: bool,
     quant_type: str,
@@ -422,9 +421,15 @@ def test_nvfp4_matmul_with_amax(
     use_triton_kernel: bool,
     shapes: tuple,
 ):
-    # DYNAMIC mode requires SM100+, but WEIGHT_ONLY works on older GPUs
-    if quant_type == "dynamic" and not is_sm_at_least_100():
+    device = torch.accelerator.current_accelerator()
+    is_cuda = device.type == "cuda"
+
+    # DYNAMIC mode requires SM100+ on CUDA, but works on XPU
+    if is_cuda and quant_type == "dynamic" and not is_sm_at_least_100():
         pytest.skip("CUDA capability >= 10.0 required for DYNAMIC float4 gemm")
+
+    if is_cuda and not is_sm_at_least_100():
+        pytest.skip("CUDA capability >= 10.0 required for fp4")
 
     if bias and inpt_dtype == torch.float32:
         pytest.xfail("Bias is not supported when module weight is in fp32")
@@ -432,17 +437,22 @@ def test_nvfp4_matmul_with_amax(
     if quant_type == "weight_only" and compile:
         pytest.skip("TODO: weight_only currently errors w/ compile")
 
+    if not is_cuda and use_triton_kernel:
+        pytest.skip("Triton kernel only supported on CUDA")
+
+    is_swizzled_scales = is_cuda
+
     m, k, n = shapes
 
     # Create activation tensor
     if use_gelu:
-        x = torch.randn(m, k, dtype=inpt_dtype, device="cuda")
+        x = torch.randn(m, k, dtype=inpt_dtype, device=device)
         A = torch.nn.functional.gelu(x)
     else:
-        A = torch.randn(m, k, dtype=inpt_dtype, device="cuda")
+        A = torch.randn(m, k, dtype=inpt_dtype, device=device)
 
-    B = torch.randn(n, k, dtype=inpt_dtype, device="cuda")
-    bias_tensor = torch.randn(n, dtype=inpt_dtype, device="cuda") if bias else None
+    B = torch.randn(n, k, dtype=inpt_dtype, device=device)
+    bias_tensor = torch.randn(n, dtype=inpt_dtype, device=device) if bias else None
 
     # Compute reference
     C_ref = F.linear(A, B, bias_tensor)
@@ -451,17 +461,19 @@ def test_nvfp4_matmul_with_amax(
     b_scale = per_tensor_amax_to_scale(torch.amax(torch.abs(B)))
     act_quant_kwargs = None
     if quant_type == "dynamic":
-        act_quant_kwargs = QuantizeTensorToNVFP4Kwargs()
+        act_quant_kwargs = QuantizeTensorToNVFP4Kwargs(
+            is_swizzled_scales=is_swizzled_scales,
+        )
     A_nvfp4 = NVFP4Tensor.to_nvfp4(
         A,
         per_tensor_scale=a_scale,
-        is_swizzled_scales=True,
+        is_swizzled_scales=is_swizzled_scales,
         use_triton_kernel=use_triton_kernel,
     )
     B_nvfp4 = NVFP4Tensor.to_nvfp4(
         B,
         per_tensor_scale=b_scale,
-        is_swizzled_scales=True,
+        is_swizzled_scales=is_swizzled_scales,
         use_triton_kernel=use_triton_kernel,
         act_quant_kwargs=act_quant_kwargs,
     )

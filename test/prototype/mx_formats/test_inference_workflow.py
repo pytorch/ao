@@ -126,7 +126,9 @@ def test_inference_workflow_mx(
     )
 
 
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+@pytest.mark.skipif(
+    not torch.accelerator.is_available(), reason="Accelerator not available"
+)
 @pytest.mark.parametrize("bias", [True, False])
 @pytest.mark.parametrize("compile", [True, False])
 @pytest.mark.parametrize("quant_type", ["dynamic", "weight_only"])
@@ -165,13 +167,18 @@ def test_inference_workflow_nvfp4(
     Test NVFP4 recipe with scale_dtype=float8_e4m3fn and block_size=16
     Tests both DYNAMIC and WEIGHT_ONLY mm_config modes
     """
-    # DYNAMIC mode requires SM100+, but WEIGHT_ONLY works on older GPUs
-    if quant_type == "dynamic" and not is_sm_at_least_100():
+    device = torch.accelerator.current_accelerator()
+    is_cuda = device.type == "cuda"
+
+    # DYNAMIC mode requires SM100+ on CUDA, but works on XPU
+    if is_cuda and quant_type == "dynamic" and not is_sm_at_least_100():
         pytest.skip("CUDA capability >= 10.0 required for DYNAMIC float4 gemm")
     if quant_type == "weight_only" and compile:
         pytest.skip("TODO: weight_only quant currently errors w/ compile")
     if quant_type == "weight_only" and use_triton_kernel:
         pytest.skip("unsupported configuration")
+    if not is_cuda and use_triton_kernel:
+        pytest.skip("Triton kernel only supported on CUDA")
 
     if use_inference_mode and (
         shapes != (128, 64, 256) or inpt_dtype != torch.bfloat16 or use_triton_kernel
@@ -184,24 +191,26 @@ def test_inference_workflow_nvfp4(
 
     batch_size, in_features, out_features = shapes
 
-    m = nn.Linear(in_features, out_features, bias=bias, dtype=inpt_dtype, device="cuda")
+    m = nn.Linear(in_features, out_features, bias=bias, dtype=inpt_dtype, device=device)
     m_mx = copy.deepcopy(m)
 
     if quant_type == "dynamic":
         config = NVFP4DynamicActivationNVFP4WeightConfig(
             use_triton_kernel=use_triton_kernel,
             use_dynamic_per_tensor_scale=use_dynamic_per_tensor_scale,
+            is_swizzled=is_cuda,
         )
     else:
         config = NVFP4WeightOnlyConfig(
             use_dynamic_per_tensor_scale=use_dynamic_per_tensor_scale,
+            is_swizzled=is_cuda,
         )
     quantize_(m_mx, config=config)
 
     if compile:
         m_mx = torch.compile(m_mx, fullgraph=True, backend="aot_eager")
 
-    x = torch.randn(batch_size, in_features, device="cuda", dtype=inpt_dtype)
+    x = torch.randn(batch_size, in_features, device=device, dtype=inpt_dtype)
     if x_rank == 3:
         x = x.unsqueeze(0)
 
