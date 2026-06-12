@@ -504,15 +504,21 @@ def _addmm_nvfp4_dispatch(
     M, K = a.shape[0], a.shape[1]
     N = b.shape[1]
 
-    # Swizzle Dizzle
+    is_xpu = a.qdata.device.type == "xpu"
+
+    # Prepare scales
     if a.is_swizzled_scales:
         a_scale_blocked = a.scale  # Already swizzled
+    elif is_xpu:
+        a_scale_blocked = a.scale  # XPU doesn't use blocked scale format
     else:
         a_scale = a.scale.view(M, K // a.block_size)
         a_scale_blocked = to_blocked(a_scale)
 
     if b.is_swizzled_scales:
         b_scale_blocked = b.scale.t()  # Already swizzled
+    elif is_xpu:
+        b_scale_blocked = b.scale  # XPU doesn't use blocked scale format
     else:
         b_scale = b.scale.t().view(N, K // b.block_size)
         b_scale_blocked = to_blocked(b_scale)
@@ -539,7 +545,9 @@ def _addmm_nvfp4_dispatch(
     should_add_bias_separately = (
         scale_result is not None or a.orig_dtype == torch.float32
     ) and (bias is not None)
-    # should_add_bias_separately = bias is not None
+    # TODO: remove this WA once we support quantized bias in _scaled_mm
+    if is_xpu and bias is not None:
+        should_add_bias_separately = True
 
     # For gemm(A, B) with original high precision inputs A and B:
     #
