@@ -269,14 +269,20 @@ class TestQuantFlow(TestCase):
             precision=torch.float32,
             scales_precision=torch.bfloat16,
         )
-        m = ToyLinearModel().eval()
+        m = ToyLinearModel(bias=True).eval()
         example_inputs = m.example_inputs()
         m = quantizer.quantize(m)
         for name in ("linear1", "linear2"):
             mod = getattr(m, name)
             assert isinstance(mod, Int8DynActInt4WeightLinear)
+            # scales/zeros buffers follow scales_precision...
             self.assertEqual(mod.scales.dtype, torch.bfloat16)
             self.assertEqual(mod.zeros.dtype, torch.bfloat16)
+            # ...while the activation precision and bias buffer still follow
+            # precision. Asserting these guards against a future change that
+            # over-corrects by routing everything through scales_precision.
+            self.assertEqual(mod.precision, torch.float32)
+            self.assertEqual(mod.bias.dtype, torch.float32)
         m(*example_inputs)
 
     @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
