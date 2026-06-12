@@ -356,15 +356,17 @@ class Int8DynamicActivationIntxWeightConfig(AOBaseConfig):
 
     args:
         `weight_dtype`: The dtype to use for weight quantization.  Must be torch.intx, where 1 <= x <= 8.
-       ` weight_granularity`: The granularity to use for weight quantization.  Must be PerGroup or PerAxis(axis=0).
+        `weight_granularity`: The granularity to use for weight quantization.  Must be PerGroup or PerAxis(axis=0).
         `weight_mapping_type`: The type of mapping to use for the weight quantization.
             Must be one of MappingType.ASYMMETRIC or MappingType.SYMMETRIC.  MappingType.SYMMETRIC requires ZeroPointDomain.NONE
         `weight_scale_dtype`: The dtype to use for the weight scale.
         `act_mapping_type`: The type of mapping to use for the activation quantization.
             Must be one of MappingType.ASYMMETRIC or MappingType.SYMMETRIC.
         `intx_packing_format`: The format to use for the packed weight tensor (version 2 only).
+
             - unpacked_to_int8: this format is the default and is intended for export applications like ExecuTorch.
             - opaque_torchao_auto: this format is optimized for CPU performance.
+
         `intx_choose_qparams_algorithm`: The algorithm to use for choosing the quantization parameters.
         `version`: version of the config to use, only subset of above args are valid based on version, see note for more details.
 
@@ -1500,23 +1502,25 @@ class FqnToConfig(AOBaseConfig):
 
     Args:
         `fqn_to_config`: typing.OrderedDict[str, Optional[AOBaseConfig]]: an
-         ordered dictionary from
-             (1). fully qualified name (fqn) of module or parameter
-             (2). regex of fully qualified name (in python `re` module regex format), should
-                  start with prefix "re:" or
-             (3). "_default"
-         to the config that we want to apply to the module/param or None
+            ordered dictionary from a key to the config that we want to apply
+            to the module/param (or None). A key is one of:
 
-         Config key ordered by precedence:
-           * fully qualified parameter name, e.g. `language.layers.0.q_proj.weight`
-           * fully qualified module name, e.g. `language.layers.0.q_proj`
-           * regex for parameter names, must start with `re:`, e.g. `re:language\.layers\..+\.q_proj.weight`.
-             The first regex that matches will be applied.
-           * regex for module names, must start with `re:`, e.g. `re:language\.layers\..+\.q_proj`,
-             whichever regex fully matches the module fqn first will be applied
-             (order of keys for dictionary are kept consistent since we are using OrderedDict)
-           * "_default", fallback if no match for all previous keys
-             (Note, when using `_default`, the config is applied to all modules, to apply
+            1. fully qualified name (fqn) of module or parameter
+            2. regex of fully qualified name (in python `re` module regex format), should
+               start with prefix "re:" or
+            3. "_default"
+
+            Config key ordered by precedence:
+
+            * fully qualified parameter name, e.g. `language.layers.0.q_proj.weight`
+            * fully qualified module name, e.g. `language.layers.0.q_proj`
+            * regex for parameter names, must start with `re:`, e.g. `re:language\.layers\..+\.q_proj.weight`.
+              The first regex that matches will be applied.
+            * regex for module names, must start with `re:`, e.g. `re:language\.layers\..+\.q_proj`,
+              whichever regex fully matches the module fqn first will be applied
+              (order of keys for dictionary are kept consistent since we are using OrderedDict)
+            * "_default", fallback if no match for all previous keys
+              (Note, when using `_default`, the config is applied to all modules, to apply
               it to only a subset of modules, e.g. with some types, it's better to filter
               the modules that we don't want to quantize before hand and configure them to
               None, e.g. `{"re:.+norm.+": None, "_default": linear_config}`) "_default" is not supported when filter_fn is not specified.
