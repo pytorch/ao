@@ -472,20 +472,28 @@ class TestHelperModules:
 
     class SharedLinearModule(torch.nn.Module):
         """One Linear module with multiple call sites (e.g. an unrolled loop),
-        each followed by a fusable post op (add or relu).
+        each followed by a fusable post op.
+
+        ``post_op="add"`` exercises the multi-output guard in
+        ``_annotate_linear_binary_unary``; ``post_op="relu"`` uses an
+        ``nn.ReLU`` *module* (not functional ``torch.relu``) so that a
+        ``[Linear, ReLU]`` sequential partition actually forms and the guard in
+        ``_annotate_linear_unary`` is exercised.
         """
 
         def __init__(self, post_op: str = "add") -> None:
             super().__init__()
             self.linear = torch.nn.Linear(in_features=16, out_features=16)
             self.post_op = post_op
+            # Reused module post op so [Linear, ReLU] forms a source partition.
+            self.relu = torch.nn.ReLU()
 
         def forward(self, x):
             for _ in range(2):
                 if self.post_op == "add":
                     x = x + self.linear(x)
                 else:
-                    x = torch.relu(self.linear(x))
+                    x = self.relu(self.linear(x))
             return x
 
     class Conv2dAddModule2(torch.nn.Module):
