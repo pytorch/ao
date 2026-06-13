@@ -260,6 +260,8 @@ class XNNPACKQuantizer(Quantizer):
         "conv_bn",
         "conv_transpose_bn_relu",
         "conv_transpose_bn",
+        "linear_bn_relu",
+        "linear_bn",
     ]
 
     # static quantization ops (both PTQ and QAT)
