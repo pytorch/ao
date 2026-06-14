@@ -95,21 +95,23 @@ The ``qat_scheme`` parameter controls the fake quantization scheme applied durin
 training. After fine-tuning, the model is converted to actual int4 quantization
 with no additional inference overhead.
 
-Experiments fine-tuning on a single H100 GPU using the
-`mlabonne/FineTome-100k <https://huggingface.co/datasets/mlabonne/FineTome-100k>`__
-dataset show that Int4 QAT + LoRA (group_size=128) consistently recovers accuracy
-lost from naive quantization:
+On harder benchmarks than perplexity, Int4 QAT + LoRA recovers a substantial
+fraction of the accuracy lost to quantization. The numbers below are taken from
+the `TorchAO QAT blog <https://pytorch.org/blog/quantization-aware-training-in-torchao-ii/>`__
+(int4, ``group_size=32``):
 
 .. code::
 
-  Model             bf16 (Wikitext PPL ↓)  int4 QAT (Wikitext PPL ↓)
-  ----------------  ---------------------  --------------------------
-  Llama-3.2-3B      12.1322                12.8796
-  Gemma3-4B-it      12.1155                12.797
-  Gemma3-12B-it     9.1477                 9.5631
+  Model          Benchmark   Accuracy gain from QAT   Degradation recovered
+  -------------  ----------  -----------------------  ----------------------
+  Gemma3-4B-it   GPQA        +1.0%                    66.9%
+  Gemma3-12B-it  BBH         +2.1%                    45.5%
+  Qwen3-4B       MMLU Pro    +2.0%                    36.0%
+  Llama-3.2-3B   MMLU Pro    +0.7%                    (of 2.0% degradation)
 
-For a hands-on walkthrough, refer to the `Unsloth QAT tutorial
-<https://unsloth.ai/docs/blog/quantization-aware-training-qat>`__
+For a hands-on walkthrough and the full set of evaluation diagrams, refer to the
+`Unsloth QAT tutorial <https://unsloth.ai/docs/blog/quantization-aware-training-qat>`__,
+the `TorchAO QAT blog <https://pytorch.org/blog/quantization-aware-training-in-torchao-ii/>`__,
 and the `QAT experiments <https://docs.pytorch.org/ao/main/workflows/qat.html>`__
 in our documentation.
 
