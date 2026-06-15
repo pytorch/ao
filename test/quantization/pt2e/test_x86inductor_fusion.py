@@ -3667,7 +3667,11 @@ if RUN_CPU:
             "test_qconv2d_maxpool2d_linear_dynamic",
             "cpu",
             TestDynamicPatternMatcher(),
-            condition=torch.backends.mkldnn.is_available() and not IS_WINDOWS,
+            # Only run on torch >= 2.13.0.dev; the cpp_wrapper codegen changed there
+            # (pytorch #184099, see below).
+            condition=torch.backends.mkldnn.is_available()
+            and not IS_WINDOWS
+            and torch_version_at_least("2.13.0.dev"),
             func_inputs=[
                 [
                     "aoti_torch_cpu__qconv_pointwise_tensor",
