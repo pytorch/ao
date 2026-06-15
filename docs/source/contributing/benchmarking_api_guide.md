@@ -7,6 +7,7 @@ This tutorial will guide you through using the TorchAO benchmarking framework. T
 3. [Add an HF model to benchmarking recipes](#add-an-hf-model-to-benchmarking-recipes)
 4. [Add an API to micro-benchmarking CI dashboard](#add-an-api-to-benchmarking-ci-dashboard)
 
+(add-an-api-to-benchmarking-recipes)=
 ## Add an API to Benchmarking Recipes
 
 The framework currently supports quantization and sparsity recipes, which can be run using the quantize_() or sparsity_() functions:
@@ -33,6 +34,7 @@ Now we can use this recipe throughout the benchmarking framework.
 
 **Note:** If the `AOBaseConfig` uses input parameters, like bit-width, group-size etc, you can pass them appended to the string config in input. For example, for `Float8DynamicActivationFloat8WeightConfig` we can pass granularity as `float8dq-tensor` or `float8dq-row`.
 
+(add-a-model-to-benchmarking-recipes)=
 ## Add a Model to Benchmarking Recipes
 
 To add a new model architecture to the benchmarking system, you need to modify `torchao/testing/model_architectures.py`.
@@ -91,9 +93,11 @@ When adding new models:
 
 - **Quantization Compatibility**: Design your model to work with TorchAO quantization methods
 
+(add-an-hf-model-to-benchmarking-recipes)=
 ## Add an HF model to benchmarking recipes
 (Coming soon!!!)
 
+(add-an-api-to-benchmarking-ci-dashboard)=
 ## Add an API to Benchmarking CI Dashboard
 
 To integrate your API with the CI [dashboard](https://hud.pytorch.org/benchmark/llms?repoName=pytorch%2Fao&benchmarkName=micro-benchmark+api):
