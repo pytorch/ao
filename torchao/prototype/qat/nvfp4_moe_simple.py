@@ -374,6 +374,74 @@ def apply_simple_fp4_moe_qat_torchtitan(model: nn.Module) -> nn.Module:
     return model
 
 
+def apply_fp4_fake_quant_to_vllm_moe(model: nn.Module) -> None:
+    """Monkey-patch FusedMoE layers in a vLLM model to apply NVFP4 fake
+    quantization on activations during forward.
+
+    Wraps each ``FusedMoE`` layer's ``quant_method.apply()`` so that input
+    hidden states are quantize-dequantized (FP4 E2M1 block-scale) before
+    entering the fused MoE kernel. Weight fake-quantization is handled
+    separately by :func:`fake_quantize_vllm_moe_weights_inplace`, which
+    should be called once after each weight sync.
+
+    This is the vLLM-rollout counterpart of
+    :func:`apply_simple_fp4_moe_qat_torchtitan` (which patches torchtitan's
+    ``GroupedExperts``).
+    """
+    from vllm.model_executor.layers.fused_moe.layer import FusedMoE
+
+    def _make_patched_apply(orig_apply):
+        def patched_apply(layer, x, topk_weights, topk_ids,
+                          shared_experts_input):
+            x = _fp4_quant_dequant(x)
+            return orig_apply(
+                layer=layer, x=x, topk_weights=topk_weights,
+                topk_ids=topk_ids,
+                shared_experts_input=shared_experts_input,
+            )
+        return patched_apply
+
+    count = 0
+    for module in model.modules():
+        if isinstance(module, FusedMoE):
+            module.quant_method.apply = _make_patched_apply(
+                module.quant_method.apply
+            )
+            count += 1
+    logger.info(
+        "Patched %d FusedMoE layers with activation FP4 fake quant for rollout",
+        count,
+    )
+
+
+def fake_quantize_vllm_moe_weights_inplace(model: nn.Module) -> None:
+    """Replace MoE expert weights with their FP4 fake-quantized versions.
+
+    Should be called once after each weight sync (in
+    ``update_weights_from_ipc``), before rollout generation begins. Since
+    weights don't change during rollout, this is equivalent to per-forward
+    fake-quantization but avoids the per-call clone+copy overhead.
+
+    The next weight sync will overwrite these with fresh actor weights,
+    so no cleanup is needed.
+    """
+    from vllm.model_executor.layers.fused_moe.layer import FusedMoE
+
+    count = 0
+    for module in model.modules():
+        if isinstance(module, FusedMoE):
+            module.w13_weight.data.copy_(
+                _fp4_quant_dequant(module.w13_weight.data)
+            )
+            module.w2_weight.data.copy_(
+                _fp4_quant_dequant(module.w2_weight.data)
+            )
+            count += 1
+    logger.info(
+        "Fake-quantized weights in %d FusedMoE layers in-place", count
+    )
+
+
 def remove_simple_fp4_moe_qat_torchtitan(model: nn.Module) -> nn.Module:
     """Remove FP4 fake quantization from torchtitan GroupedExperts modules.
 
