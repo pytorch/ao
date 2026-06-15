@@ -3,6 +3,7 @@
 #
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
+from __future__ import annotations
 
 import importlib
 from dataclasses import dataclass
@@ -542,9 +543,14 @@ def deepgemm_blockwise_scaled_grouped_mm_wgrad(
     )
     ks_tensor = offset_plan.ks_tensor
 
-    # SM90 DeepGEMM K-grouped FP8 accumulates into FP32 and asserts that the
-    # output tensor is float. Cast after the launch to preserve TorchAO's
-    # public grouped-mm output dtype contract.
+    # SM90 DeepGEMM K-grouped FP8 always runs with accumulation: the kernel
+    # hard-asserts `c.has_value()` and a float output (see
+    # sm90_k_grouped_fp8_gemm_1d1d in DeepGEMM), computing `d = c + A@B`. `c`
+    # (`accum`) is read and `d` (`out_fp32`) is written, so they must be
+    # distinct buffers and `c` must be zero-seeded since we do not accumulate
+    # across calls. Both FP32 allocations are therefore required by the kernel
+    # contract. Cast after the launch to preserve TorchAO's public grouped-mm
+    # output dtype.
     out_fp32 = torch.empty(
         (len(group_sizes), lhs.dim, rhs.dim),
         dtype=torch.float32,

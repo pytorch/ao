@@ -3,10 +3,20 @@
 #
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
+from __future__ import annotations
 
 from dataclasses import dataclass
+from functools import cached_property
 
 import torch
+
+
+def _group_sizes_tensor(group_end_offsets: torch.Tensor) -> torch.Tensor:
+    assert group_end_offsets.dtype == torch.int32, "group_end_offsets must be int32"
+    return torch.diff(
+        group_end_offsets,
+        prepend=group_end_offsets.new_zeros(1),
+    )
 
 
 @dataclass(frozen=True)
@@ -28,18 +38,28 @@ class DeepGemmKGroupedQuantMetadata:
 @dataclass(frozen=True)
 class DeepGemmGroupedOffsetPlan:
     group_end_offsets: torch.Tensor
-    group_sizes: list[int]
-    ks_tensor: torch.Tensor
     grouped_layout: torch.Tensor
-    original_group_sizes: list[int] | None = None
-    padded_group_start_offsets: torch.Tensor | None = None
+    groups_block_aligned_by_construction: bool = False
+
+    @cached_property
+    def group_sizes(self) -> list[int]:
+        # DeepGEMM's K-grouped wgrad kernel requires the per-group sizes as a
+        # host-side `ks` sequence, so this lazy property reads them back once.
+        return _group_sizes_tensor(self.group_end_offsets).tolist()
+
+    @cached_property
+    def ks_tensor(self) -> torch.Tensor:
+        return _group_sizes_tensor(self.group_end_offsets)
 
     @property
     def total_tokens(self) -> int:
         return sum(self.group_sizes)
 
     def groups_are_block_aligned(self, block_size: int) -> bool:
-        return all(group_size % block_size == 0 for group_size in self.group_sizes)
+        if self.groups_block_aligned_by_construction:
+            return True
+        sizes = _group_sizes_tensor(self.group_end_offsets)
+        return bool((sizes % block_size == 0).all().item())
 
     def valid_scale_blocks(self, block_size: int) -> int:
         assert self.groups_are_block_aligned(block_size), (
@@ -70,13 +90,7 @@ def group_sizes_from_offsets(group_end_offsets: torch.Tensor) -> list[int]:
     assert group_end_offsets is not None and group_end_offsets.dtype == torch.int32, (
         "group_end_offsets must be int32"
     )
-    group_sizes = []
-    start = 0
-    for group_idx in range(group_end_offsets.numel()):
-        end = int(group_end_offsets[group_idx].item())
-        group_sizes.append(end - start)
-        start = end
-    return group_sizes
+    return _group_sizes_tensor(group_end_offsets).tolist()
 
 
 def build_deepgemm_grouped_offset_plan(
@@ -85,10 +99,8 @@ def build_deepgemm_grouped_offset_plan(
     original_group_end_offsets: torch.Tensor | None = None,
     padded_group_start_offsets: torch.Tensor | None = None,
     num_rows: int | None = None,
+    groups_block_aligned_by_construction: bool = False,
 ) -> DeepGemmGroupedOffsetPlan:
-    group_sizes = group_sizes_from_offsets(group_end_offsets)
-    original_group_sizes = None
-    padded_group_starts = None
     if original_group_end_offsets is not None:
         assert original_group_end_offsets.dtype == torch.int32, (
             "original_group_end_offsets must be int32"
@@ -102,69 +114,57 @@ def build_deepgemm_grouped_offset_plan(
         assert original_group_end_offsets.numel() == group_end_offsets.numel(), (
             "original and padded group offsets must have the same number of groups"
         )
-        original_group_sizes = group_sizes_from_offsets(original_group_end_offsets)
-        padded_group_starts = padded_group_start_offsets.tolist()
 
     grouped_layout = _build_deepgemm_m_grouped_layout(
-        group_end_offsets.device,
-        group_sizes,
-        original_group_sizes=original_group_sizes,
-        padded_group_starts=padded_group_starts,
+        group_end_offsets,
+        original_group_end_offsets=original_group_end_offsets,
+        padded_group_start_offsets=padded_group_start_offsets,
         num_rows=num_rows,
     )
 
     return DeepGemmGroupedOffsetPlan(
         group_end_offsets=group_end_offsets,
-        group_sizes=group_sizes,
-        ks_tensor=torch.tensor(
-            group_sizes,
-            dtype=torch.int32,
-            device=group_end_offsets.device,
-        ),
         grouped_layout=grouped_layout,
-        original_group_sizes=original_group_sizes,
-        padded_group_start_offsets=padded_group_start_offsets,
+        groups_block_aligned_by_construction=groups_block_aligned_by_construction,
     )
 
 
 def _build_deepgemm_m_grouped_layout(
-    device: torch.device,
-    group_sizes: list[int],
+    group_end_offsets: torch.Tensor,
     *,
-    original_group_sizes: list[int] | None = None,
-    padded_group_starts: list[int] | None = None,
+    original_group_end_offsets: torch.Tensor | None = None,
+    padded_group_start_offsets: torch.Tensor | None = None,
     num_rows: int | None = None,
 ) -> torch.Tensor:
     # DeepGEMM's contiguous M-grouped kernel wants one int32 entry per row:
     # grouped_layout[row] = expert_idx. Padded rows are marked -1 so the kernel
     # skips them instead of routing them to an expert.
-    min_rows = sum(group_sizes)
+    assert group_end_offsets.dtype == torch.int32, "group_end_offsets must be int32"
+    device = group_end_offsets.device
+
+    if original_group_end_offsets is None:
+        total = group_end_offsets[-1]
+        if num_rows is None:
+            num_rows = int(total.item())
+        row_ids = torch.arange(num_rows, dtype=torch.int32, device=device)
+        layout = torch.bucketize(row_ids, group_end_offsets, right=True).to(torch.int32)
+        layout[row_ids >= total] = -1
+        return layout.contiguous()
+
+    assert padded_group_start_offsets is not None, (
+        "padded_group_start_offsets must be provided with original_group_end_offsets"
+    )
+    original_sizes = _group_sizes_tensor(original_group_end_offsets)
+    padded_valid_ends = padded_group_start_offsets + original_sizes
     if num_rows is None:
-        num_rows = min_rows
-    assert num_rows >= min_rows, "grouped layout must cover all padded groups"
-    grouped_layout = torch.full(
-        (num_rows,),
-        -1,
-        dtype=torch.int32,
-        device=device,
-    )
-
-    if original_group_sizes is None:
-        start = 0
-        for group_idx, group_size in enumerate(group_sizes):
-            end = start + group_size
-            grouped_layout[start:end] = group_idx
-            start = end
-        return grouped_layout.contiguous()
-
-    assert padded_group_starts is not None, (
-        "padded_group_starts must be provided with original_group_sizes"
-    )
-    for group_idx, (group_size, padded_start) in enumerate(
-        zip(original_group_sizes, padded_group_starts)
-    ):
-        grouped_layout[padded_start : padded_start + group_size] = group_idx
-    return grouped_layout.contiguous()
+        num_rows = int(group_end_offsets[-1].item())
+    row_ids = torch.arange(num_rows, dtype=torch.int32, device=device)
+    expert = torch.bucketize(row_ids, padded_group_start_offsets, right=True) - 1
+    expert_clamped = expert.clamp(min=0)
+    valid = (expert >= 0) & (row_ids < padded_valid_ends[expert_clamped])
+    layout = expert_clamped.to(torch.int32)
+    layout[~valid] = -1
+    return layout.contiguous()
 
 
 def build_deepgemm_k_grouped_quant_metadata(

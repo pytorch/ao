@@ -318,11 +318,13 @@ def _select_fp8_blockwise_grouped_mm_backend(
             deepgemm_offset_plan=None,
         )
 
+    groups_block_aligned_by_construction = original_group_end_offsets is not None
     deepgemm_offset_plan = build_deepgemm_grouped_offset_plan(
         group_end_offsets,
         original_group_end_offsets=original_group_end_offsets,
         padded_group_start_offsets=padded_group_start_offsets,
         num_rows=num_rows,
+        groups_block_aligned_by_construction=groups_block_aligned_by_construction,
     )
     if not deepgemm_offset_plan.groups_are_block_aligned(block_size):
         return _GroupedMMBackendSelection(

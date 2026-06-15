@@ -4,6 +4,8 @@
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
 
+from __future__ import annotations
+
 from typing import Tuple
 
 import torch
@@ -29,7 +31,7 @@ from torchao.utils import ceil_div
 
 
 def _should_use_traceable_triton_launch() -> bool:
-    return torch.compiler.is_compiling() or torch._dynamo.is_compiling()
+    return torch.compiler.is_compiling()
 
 
 def _triton_launcher(kernel, traceable: bool):
