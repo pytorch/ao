@@ -22,8 +22,19 @@ from typing import Optional
 import torch
 import torch.nn.functional as F
 
+from torchao.prototype.moe_training.nvfp4_training.hadamard_amax_cutedsl import (
+    cutedsl_rht_amax,
+)
 from torchao.prototype.moe_training.nvfp4_training.hadamard_amax_triton import (
     triton_rht_amax,
+)
+from torchao.prototype.moe_training.nvfp4_training.hadamard_cutedsl_utils import (
+    CUTEDSL_NVFP4_REQUIREMENTS,
+    cutedsl_nvfp4_kernels_available,
+    cutedsl_nvfp4_unavailable_reason,
+)
+from torchao.prototype.moe_training.nvfp4_training.hadamard_quantize_row_col_cutedsl import (
+    cutedsl_rht_quantize_row_col,
 )
 from torchao.prototype.moe_training.nvfp4_training.hadamard_quantize_row_col_triton import (
     triton_rht_quantize_row_col,
@@ -81,6 +92,7 @@ class nvfp4_mm_triton(torch.autograd.Function):
         bias: Optional[torch.Tensor],
         sr_seed: torch.Tensor,
         sign_vector: tuple[int, ...] | list[int],
+        use_cutedsl: bool = False,
     ):
         sign_vector = tuple(sign_vector)
         sign_vector_list = list(sign_vector)
@@ -96,21 +108,34 @@ class nvfp4_mm_triton(torch.autograd.Function):
                 f"nvfp4_mm_triton requires M, K, N all divisible by 128; "
                 f"got M={M}, K={K}, N={N}"
             )
+        if use_cutedsl and M % 256 != 0:
+            # The outer M % 128 gate is too coarse for CuteDSL: M=128 reaches the amax
+            # kernel and silently returns zero amaxes.
+            raise ValueError(
+                f"kernel_preference=CUTEDSL requires M divisible by 256, got M={M}"
+            )
         input_2d = input_hp.reshape(-1, K).contiguous()
 
         # Compute columnwise and rowwise amaxes before quantization so callers
-        # can all-reduce across TP ranks before passing them in.
-        x_col_amax, x_row_amax = triton_rht_amax(input_2d, sign_vector=sign_vector_list)
-
-        # RHT + columnwise + rowwise quantization of input in one fused kernel.
-        # SR=False in forward — sr_seed value is not consumed here.
-        x_col_codes, x_col_sf, x_row_codes, x_row_sf = triton_rht_quantize_row_col(
-            input_2d,
-            stochastic_rounding=False,
-            sign_vector=sign_vector_list,
-            col_global_amax=x_col_amax,
-            row_global_amax=x_row_amax,
-        )
+        # can all-reduce across TP ranks before passing them in. The forward quantize is
+        # RTNE, so CuteDSL can do both the amax and the quantize.
+        if use_cutedsl:
+            x_col_amax, x_row_amax = cutedsl_rht_amax(input_2d, sign_vector_list)
+            x_col_codes, x_col_sf, x_row_codes, x_row_sf = cutedsl_rht_quantize_row_col(
+                input_2d, x_col_amax, x_row_amax, sign_vector_list
+            )
+        else:
+            x_col_amax, x_row_amax = triton_rht_amax(
+                input_2d, sign_vector=sign_vector_list
+            )
+            # SR=False in forward — sr_seed value is not consumed here.
+            x_col_codes, x_col_sf, x_row_codes, x_row_sf = triton_rht_quantize_row_col(
+                input_2d,
+                stochastic_rounding=False,
+                sign_vector=sign_vector_list,
+                col_global_amax=x_col_amax,
+                row_global_amax=x_row_amax,
+            )
 
         # Fused weight quantization: rowwise for forward GEMM, colwise saved for dgrad
         (
@@ -150,6 +175,7 @@ class nvfp4_mm_triton(torch.autograd.Function):
         ctx.input_orig_shape = input_hp.shape
         ctx.has_bias = bias is not None
         ctx.sign_vector = sign_vector
+        ctx.use_cutedsl = use_cutedsl
         return output
 
     @staticmethod
@@ -176,9 +202,14 @@ class nvfp4_mm_triton(torch.autograd.Function):
         # Quantize grad_output for GEMM 2 (dgrad) -- rowwise + sr and GEMM 3 (wgrad) --
         # colwise rht + sr.
         sign_vector_list = list(ctx.sign_vector)
-        dy_col_amax, dy_row_amax = triton_rht_amax(
-            grad_output_2d, sign_vector=sign_vector_list
-        )
+        # CuteDSL handles only the backward amax; the SR quantize below stays Triton
+        # because CuteDSL has no stochastic rounding.
+        if ctx.use_cutedsl:
+            dy_col_amax, dy_row_amax = cutedsl_rht_amax(grad_output_2d, sign_vector_list)
+        else:
+            dy_col_amax, dy_row_amax = triton_rht_amax(
+                grad_output_2d, sign_vector=sign_vector_list
+            )
         dy_col_fp4, dy_col_sf, dy_row_fp4, dy_row_sf = triton_rht_quantize_row_col(
             grad_output_2d,
             stochastic_rounding=True,
@@ -233,8 +264,8 @@ class nvfp4_mm_triton(torch.autograd.Function):
             if ctx.has_bias
             else None
         )
-        # Extra Nones: sr_seed, sign_vector
-        return grad_input, grad_weight, grad_bias, None, None
+        # Extra Nones: sr_seed, sign_vector, use_cutedsl
+        return grad_input, grad_weight, grad_bias, None, None, None
 
 
 def nvfp4_linear(
@@ -256,14 +287,22 @@ def nvfp4_linear(
         weight_hp: High precision weight [out_features, in_features]
         bias: Optional bias [out_features]
         sign_vector: RHT sign vector used for amax and quantization.
-        kernel_preference: Backend for quantization. Only TRITON is supported.
+        kernel_preference: Backend for quantization, TRITON (default) or CUTEDSL.
+            CUTEDSL uses CuteDSL for the amax + forward RTNE quantize and falls back to
+            Triton for the backward SR quantize and the weight quantize.
         sr_seed: Fixed int64 seed tensor (size=(1,)) for SR Philox key. Allocated
             fresh if None. For reproducibility, pass a pre-allocated module buffer.
     """
-    if kernel_preference != KernelPreference.TRITON:
+    if kernel_preference not in (KernelPreference.TRITON, KernelPreference.CUTEDSL):
         raise ValueError(
-            "NVFP4 training linear only supports "
-            "kernel_preference=KernelPreference.TRITON"
+            "NVFP4 training linear only supports kernel_preference TRITON or CUTEDSL, "
+            f"got {kernel_preference!r}"
+        )
+    use_cutedsl = kernel_preference == KernelPreference.CUTEDSL
+    if use_cutedsl and not cutedsl_nvfp4_kernels_available():
+        raise RuntimeError(
+            f"kernel_preference=CUTEDSL requires {CUTEDSL_NVFP4_REQUIREMENTS} "
+            f"({cutedsl_nvfp4_unavailable_reason()})."
         )
 
     if sr_seed is None:
@@ -276,4 +315,5 @@ def nvfp4_linear(
         bias,
         sr_seed,
         sign_vector,
+        use_cutedsl,
     )
