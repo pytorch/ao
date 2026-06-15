@@ -48,5 +48,12 @@ class KernelPreference(str, Enum):
     Requires bfloat16 input; M, K, N all divisible by 128.
     """
 
+    CUTEDSL = "cutedsl"
+    """Use CuTeDSL kernels for the NVFP4-training RHT amax and forward activation
+    quantize, falling back to the Triton path for the stochastic-rounding backward
+    quantize and the weight quantize.
+    Requires SM100 (Blackwell) and bfloat16 input; M divisible by 256, K, N by 128.
+    """
+
 
 torch.serialization.add_safe_globals([KernelPreference])

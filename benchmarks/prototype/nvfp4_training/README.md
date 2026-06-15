@@ -148,3 +148,42 @@ Run environment: NVIDIA GB200, PyTorch 2.13.0a0+git1f19af4, Triton 3.7.0.
 | Llama 3 8B | mlp.down input | 2048 | 14336 | 123.616 | 742.221 |
 | Llama 3 70B | hidden-state input | 2048 | 8192 | 78.304 | 669.555 |
 | Llama 3 70B | mlp.down input | 2048 | 28672 | 232.160 | 790.407 |
+
+## CuteDSL kernels — comparison vs Triton
+
+`cutedsl_rht_amax` and `cutedsl_rht_quantize_row_col` are drop-in CuteDSL (`nvidia-cutlass-dsl`)
+alternatives to the Triton activation kernels above, doing the Randomized Hadamard Transform on
+Blackwell tensor cores. They require SM100 and the same shape constraints as the Triton kernels,
+with the addition that **M must be divisible by 256**.
+
+```bash
+python -m benchmarks.prototype.nvfp4_training.bench_hadamard_amax_cutedsl --shape-set representative-models
+python -m benchmarks.prototype.nvfp4_training.bench_hadamard_quantize_row_col_cutedsl --shape-set representative-models
+```
+
+### Methodology
+
+- Reports **device kernel time** (CUDA kernel self-time via `torch.profiler`, averaged over the
+  timed loop) for both the CuteDSL and Triton ops, fed the same precomputed global amaxes.
+  Device kernel time is used rather than wall-clock because NVFP4 training runs the linear under
+  CUDA graphs / `torch.compile`, which amortizes host launch overhead.
+
+Run environment: NVIDIA GB200, PyTorch 2.12.0a0, Triton 3.7.0, nvidia-cutlass-dsl.
+
+### Hadamard Amax (`cutedsl_rht_amax` vs `triton_rht_amax`)
+
+| Model | Shape | M | N | cutedsl_kernel_us | triton_kernel_us | speedup | cutedsl_gbps |
+|---|---|---:|---:|---:|---:|---:|---:|
+| Llama 3 8B | hidden-state input | 2048 | 4096 | 10.79 | 16.87 | 1.56x | 1555.6 |
+| Llama 3 8B | mlp.down input | 2048 | 14336 | 20.59 | 27.12 | 1.32x | 2851.6 |
+| Llama 3 70B | hidden-state input | 2048 | 8192 | 15.47 | 21.12 | 1.36x | 2168.6 |
+| Llama 3 70B | mlp.down input | 2048 | 28672 | 36.96 | 42.56 | 1.15x | 3177.7 |
+
+### Hadamard Quantize Row+Col (`cutedsl_rht_quantize_row_col` vs `triton_rht_quantize_row_col`, RTNE)
+
+| Model | Shape | M | N | cutedsl_kernel_us | triton_kernel_us | speedup | cutedsl_gbps |
+|---|---|---:|---:|---:|---:|---:|---:|
+| Llama 3 8B | hidden-state input | 2048 | 4096 | 14.04 | 24.44 | 1.74x | 1867.2 |
+| Llama 3 8B | mlp.down input | 2048 | 14336 | 36.06 | 60.76 | 1.69x | 2544.5 |
+| Llama 3 70B | hidden-state input | 2048 | 8192 | 23.86 | 37.29 | 1.56x | 2197.7 |
+| Llama 3 70B | mlp.down input | 2048 | 28672 | 67.19 | 113.52 | 1.69x | 2731.1 |
