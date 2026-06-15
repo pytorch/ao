@@ -37,7 +37,6 @@ class TestQuantFlow(unittest.TestCase):
     def test_int_mm(self, device, dtype):
         from torchao.kernel import intmm
 
-        dtype = torch.bfloat16
         m, k, n = (128, 64, 16)
         x = torch.randn(m, k, dtype=dtype, device=device)
         w = torch.randn(n, k, dtype=dtype, device=device).t()
@@ -59,7 +58,6 @@ class TestQuantFlow(unittest.TestCase):
     def test_int_mm_float8(self, device, dtype):
         from torchao.kernel import intmm
 
-        dtype = torch.bfloat16
         m, k, n = (128, 64, 16)
         x = torch.randn(m, k, dtype=dtype, device=device)
         w = torch.randn(n, k, dtype=dtype, device=device).t()
@@ -85,7 +83,6 @@ class TestQuantFlow(unittest.TestCase):
 
         from torchao.kernel import intmm
 
-        dtype = torch.bfloat16
         m, k, n = (128, 64, 16)
         x = torch.randn(m, k, dtype=dtype, device=device)
         scales = x.sum(-1, keepdim=True)
@@ -93,7 +90,7 @@ class TestQuantFlow(unittest.TestCase):
         x_int = x.to(dtype=torch.int8)
         w_int = w.to(dtype=torch.int8)
         out32_1 = intmm.safe_int_mm(x_int, w_int) * scales
-        assert out32_1.dtype == torch.bfloat16
+        assert out32_1.dtype == dtype
         out32_2 = intmm.int_scaled_matmul(x_int, w_int, scales)
         assert out32_2.dtype == out32_1.dtype
         torch.testing.assert_allclose(out32_1, out32_2)
