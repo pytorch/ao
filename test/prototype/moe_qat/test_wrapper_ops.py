@@ -618,7 +618,7 @@ def test_compile_grouped_mm(wrapper_cls, weight_config, act_config, device, full
     dtype = torch.bfloat16
     A_shape = (16, 1024)
     w_shape = (4, 2048, 1024)
-    offs = torch.tensor([4, 8, 12, 16], dtype=torch.int32)
+    offs = torch.tensor([4, 8, 12, 16], dtype=torch.int32, device=device)
 
     def eager_forward(activation, weight):
         return torch._grouped_mm(activation, weight.transpose(-2, -1), offs=offs)
