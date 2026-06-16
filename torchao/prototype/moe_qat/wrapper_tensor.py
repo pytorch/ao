@@ -1,6 +1,5 @@
 import copy
 import functools
-import dataclasses
 from typing import Any, Callable, Dict, Optional, Tuple, Type
 
 import torch
@@ -14,7 +13,7 @@ from torch.distributed.fsdp import MixedPrecisionPolicy
 from torchao.prototype.moe_training.utils import (
     unwrap_weight,
 )
-from torchao.quantization.granularity import PerRow, Granularity
+from torchao.quantization.granularity import Granularity, PerRow
 from torchao.quantization.qat.fake_quantize_config import (
     FakeQuantizeConfigBase,
     Float8FakeQuantizeConfig,
@@ -264,14 +263,14 @@ class FakeQuantizedWeightWrapperBaseTensor(TorchAOBaseTensor):
         result = type(self)(
             self._data.clone(),
             activation_config=copy.deepcopy(self.activation_config),
-            weight_config=copy.deepcopy(self.weight_config)
+            weight_config=copy.deepcopy(self.weight_config),
         )
 
         # self.requires_grad triggers __torch_function__ of self, use `DisableTorchFunctionSubclass`
         # to avoid the NotImplementedError error if FakeQuantizedWeightWrapperBaseTensor is used.
         with torch._C.DisableTorchFunctionSubclass():
             result.requires_grad = self.requires_grad
-        
+
         return result
 
     def to_tensor(self) -> torch.Tensor:
@@ -361,7 +360,9 @@ class FakeQuantizedWeightWrapperBaseTensor(TorchAOBaseTensor):
             else:
                 # Otherwise, verify that `out` (pre-allocated unsharded param) has the
                 # mixed precision policy param_dtype, then copy `data` to `out`.
-                assert out_data.dtype == param_dtype, f"`out`(dtype={out_data.dtype}) does not match the mixed precision policy param_dtype {param_dtype}"
+                assert out_data.dtype == param_dtype, (
+                    f"`out`(dtype={out_data.dtype}) does not match the mixed precision policy param_dtype {param_dtype}"
+                )
                 out_data.copy_(data)
 
             return
@@ -396,7 +397,9 @@ class _Float8RowwiseFakeQuantizeSTE(torch.autograd.Function):
         config: Float8FakeQuantizeConfig,
         granularity: PerRow,
     ) -> torch.Tensor:
-        assert weight.stride(granularity.dim) == 1, "Fake-quantized dim should be contiguous."
+        assert weight.stride(granularity.dim) == 1, (
+            "Fake-quantized dim should be contiguous."
+        )
 
         original_dtype = weight.dtype
         float8_dtype = config.dtype
@@ -458,9 +461,7 @@ class Float8FakeQuantizedWeightWrapperTensor(FakeQuantizedWeightWrapperBaseTenso
                     f"Only `Float8FakeQuantizeConfig` is supported for `weight_config` in {type(self).__name__}."
                 )
             elif weight_config.granularity != PerRow(dim=-1):
-                raise ValueError(
-                    f"Only the row-wise granularity is supported."
-                )
+                raise ValueError("Only the row-wise granularity is supported.")
 
         if activation_config is not None:
             if not isinstance(activation_config, Float8FakeQuantizeConfig):
@@ -468,9 +469,13 @@ class Float8FakeQuantizedWeightWrapperTensor(FakeQuantizedWeightWrapperBaseTenso
                     f"Only `Float8FakeQuantizeConfig` is supported for `activation_config` in {type(self).__name__}."
                 )
             elif activation_config.granularity != PerRow(dim=-1):
-                raise ValueError(f"Only the row-wise granularity is supported for `activation_config`.")
+                raise ValueError(
+                    "Only the row-wise granularity is supported for `activation_config`."
+                )
 
-        super().__init__(tensor, weight_config=weight_config, activation_config=activation_config)
+        super().__init__(
+            tensor, weight_config=weight_config, activation_config=activation_config
+        )
 
     @classmethod
     def __torch_function__(cls, func, types, args, kwargs=None):
@@ -494,39 +499,45 @@ class Float8FakeQuantizedWeightWrapperTensor(FakeQuantizedWeightWrapperBaseTenso
 
         if kwargs is None:
             kwargs = {}
-        
+
         if func in (torch._grouped_mm, torch.matmul, torch.mm):
             # weight at args[1], contracted dim=-2
-            return cls._fake_quantize_then_compute(0, 1, PerRow(dim=-2), cls, func, types, args, kwargs)
-        
+            return cls._fake_quantize_then_compute(
+                0, 1, PerRow(dim=-2), cls, func, types, args, kwargs
+            )
+
         elif func is torch.nn.functional.linear:
             # weight at args[1], contracted dim=-1
-            return cls._fake_quantize_then_compute(0, 1, PerRow(dim=-1), cls, func, types, args, kwargs)
-        
+            return cls._fake_quantize_then_compute(
+                0, 1, PerRow(dim=-1), cls, func, types, args, kwargs
+            )
+
         elif func is torch.bmm:
             if isinstance(args[1], cls):
                 # weight at args[1], shape [B, K, N], contracted dim=-2
-                return cls._fake_quantize_then_compute(0, 1, PerRow(dim=-2), cls, func, types, args, kwargs)
-        
+                return cls._fake_quantize_then_compute(
+                    0, 1, PerRow(dim=-2), cls, func, types, args, kwargs
+                )
+
             else:
                 # weight at args[0], shape [B, N, K], contracted dim=-1
-                return cls._fake_quantize_then_compute(1, 0, PerRow(dim=-1), cls, func, types, args, kwargs)
-        
+                return cls._fake_quantize_then_compute(
+                    1, 0, PerRow(dim=-1), cls, func, types, args, kwargs
+                )
+
         elif func is torch.addmm:
             # weight at args[2], contracted dim=-2
-            return cls._fake_quantize_then_compute(1, 2, PerRow(dim=-2), cls, func, types, args, kwargs)
-        
+            return cls._fake_quantize_then_compute(
+                1, 2, PerRow(dim=-2), cls, func, types, args, kwargs
+            )
+
         else:
             with torch._C.DisableTorchFunctionSubclass():
                 return func(*args, **kwargs)
 
-
     @staticmethod
     def _fake_quantize_then_compute(
-        a_pos: int,
-        b_pos: int,
-        granularity: Granularity, 
-        cls, func, types, args, kwargs
+        a_pos: int, b_pos: int, granularity: Granularity, cls, func, types, args, kwargs
     ):
         A, B = args[a_pos], args[b_pos]
 
@@ -538,9 +549,12 @@ class Float8FakeQuantizedWeightWrapperTensor(FakeQuantizedWeightWrapperBaseTenso
         # Activation fake-quantization is skipped if the activation is empty. This is a possible case when
         # a loop over experts instead of grouped_mm is used and some experts don't receive any tokens.
         if B.activation_config is not None and A.numel() > 0:
-            assert not isinstance(A, TorchAOBaseTensor), \
+            assert not isinstance(A, TorchAOBaseTensor), (
                 f"When an activation config is specified, the activation must not be a quantized tensor, got {type(A)}"
-            fq_A = cls._fake_quantize(A, B.activation_config, PerRow(dim=-1)) # always quantize the last dimension of activations
+            )
+            fq_A = cls._fake_quantize(
+                A, B.activation_config, PerRow(dim=-1)
+            )  # always quantize the last dimension of activations
         else:
             fq_A = A
 
@@ -557,7 +571,7 @@ class Float8FakeQuantizedWeightWrapperTensor(FakeQuantizedWeightWrapperBaseTenso
 
         with torch._C.DisableTorchFunctionSubclass():
             return func(*args, **kwargs)
-    
+
     @staticmethod
     def _fake_quantize(
         weight: torch.Tensor,

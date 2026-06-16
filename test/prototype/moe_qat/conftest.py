@@ -1,6 +1,7 @@
+import gc
+
 import pytest
 import torch
-import gc
 
 
 @pytest.fixture(autouse=True)

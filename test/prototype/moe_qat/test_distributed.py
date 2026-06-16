@@ -4,47 +4,67 @@ import copy
 
 import pytest
 import torch
-from torch import nn
 from torch.distributed._tensor import DTensor
-from torch.distributed.device_mesh import DeviceMesh
-from torch.distributed.fsdp import MixedPrecisionPolicy
-from torch.distributed.tensor import Partial, Replicate, Shard
 from torch.nn import functional as F
 
 from torchao.float8.float8_utils import compute_error
 from torchao.prototype.moe_qat import MoEQATConfig
-from torchao.prototype.moe_qat.wrapper_tensor import FakeQuantizedWeightWrapperBaseTensor, Float8FakeQuantizedWeightWrapperTensor
+from torchao.prototype.moe_qat.wrapper_tensor import (
+    FakeQuantizedWeightWrapperBaseTensor,
+    Float8FakeQuantizedWeightWrapperTensor,
+)
 from torchao.quantization.qat.fake_quantize_config import Float8FakeQuantizeConfig
-from torchao.quantization.granularity import PerRow
 from torchao.quantization.quant_api import quantize_
 
-from .reference_moe import MoE, MoEArgs
+from .reference_moe import MoE
 from .testing_utils import (
+    ParallelStrategy,
     _expert_weight_filter,
     _moe_input,
-    apply_moe_ep_tp,
+    apply_parallel_strategy,
     consolidate_tensor_to_cpu,
     create_moe_model,
-    distributed_env,
-    ParallelStrategy,
-    target_devices,
-    apply_parallel_strategy,
+    distributed_env,  # noqa: F401
 )
 
 
 @pytest.mark.parametrize("use_grouped_mm", [True, False])
-@pytest.mark.parametrize("parallel_strategy", [
-    ParallelStrategy.FSDP,
-    ParallelStrategy.EXPERT_PARALLEL,
-    ParallelStrategy.TENSOR_PARALLEL,
-    ParallelStrategy.EXPERT_TENSOR_PARALLEL,
-    ParallelStrategy.FSDP_TP,
-])
-@pytest.mark.parametrize("wrapper_cls,weight_config,activation_config, min_sqnr", [
-    (Float8FakeQuantizedWeightWrapperTensor, Float8FakeQuantizeConfig(), None,                       {"out": 30, "input_grad": 31, "param_grad": 22}),
-    (Float8FakeQuantizedWeightWrapperTensor, Float8FakeQuantizeConfig(), Float8FakeQuantizeConfig(), {"out": 28, "input_grad": 25, "param_grad": 16}),
-])
-def test_moe_qat_parallel(parallel_strategy, wrapper_cls, weight_config, activation_config, min_sqnr, use_grouped_mm, distributed_env):
+@pytest.mark.parametrize(
+    "parallel_strategy",
+    [
+        ParallelStrategy.FSDP,
+        ParallelStrategy.EXPERT_PARALLEL,
+        ParallelStrategy.TENSOR_PARALLEL,
+        ParallelStrategy.EXPERT_TENSOR_PARALLEL,
+        ParallelStrategy.FSDP_TP,
+    ],
+)
+@pytest.mark.parametrize(
+    "wrapper_cls,weight_config,activation_config, min_sqnr",
+    [
+        (
+            Float8FakeQuantizedWeightWrapperTensor,
+            Float8FakeQuantizeConfig(),
+            None,
+            {"out": 30, "input_grad": 31, "param_grad": 22},
+        ),
+        (
+            Float8FakeQuantizedWeightWrapperTensor,
+            Float8FakeQuantizeConfig(),
+            Float8FakeQuantizeConfig(),
+            {"out": 28, "input_grad": 25, "param_grad": 16},
+        ),
+    ],
+)
+def test_moe_qat_parallel(
+    parallel_strategy,
+    wrapper_cls,
+    weight_config,
+    activation_config,
+    min_sqnr,
+    use_grouped_mm,
+    distributed_env,
+):
 
     device = distributed_env["device_type"]
     base_model = create_moe_model(device, use_grouped_mm=use_grouped_mm)
@@ -131,26 +151,38 @@ def test_moe_qat_parallel(parallel_strategy, wrapper_cls, weight_config, activat
 
     # --- Rank-0 assertions ---
     if torch.distributed.get_rank() == 0:
-        assert torch.isfinite(gathered_out).all(), "Consolidated output has non-finite values"
-        assert torch.isfinite(gathered_ref_out).all(), "Consolidated ref output has non-finite values"
+        assert torch.isfinite(gathered_out).all(), (
+            "Consolidated output has non-finite values"
+        )
+        assert torch.isfinite(gathered_ref_out).all(), (
+            "Consolidated ref output has non-finite values"
+        )
         out_sqnr = compute_error(gathered_out, gathered_ref_out)
-        assert out_sqnr.item() >= min_sqnr["out"], f"Output SQNR must be >= {min_sqnr['out']} dB, got {out_sqnr.item():.1f} dB"
+        assert out_sqnr.item() >= min_sqnr["out"], (
+            f"Output SQNR must be >= {min_sqnr['out']} dB, got {out_sqnr.item():.1f} dB"
+        )
 
-        assert torch.isfinite(gathered_x_grad).all(), "Consolidated input grad has non-finite values"
-        assert torch.isfinite(gathered_ref_x_grad).all(), "Consolidated ref input grad has non-finite values"
+        assert torch.isfinite(gathered_x_grad).all(), (
+            "Consolidated input grad has non-finite values"
+        )
+        assert torch.isfinite(gathered_ref_x_grad).all(), (
+            "Consolidated ref input grad has non-finite values"
+        )
         input_grad_sqnr = compute_error(gathered_x_grad, gathered_ref_x_grad)
-        assert input_grad_sqnr.item() >= min_sqnr["input_grad"], f"Input grad SQNR must be >= {min_sqnr['input_grad']} dB, got {input_grad_sqnr.item():.1f} dB"
+        assert input_grad_sqnr.item() >= min_sqnr["input_grad"], (
+            f"Input grad SQNR must be >= {min_sqnr['input_grad']} dB, got {input_grad_sqnr.item():.1f} dB"
+        )
 
         for name, ref_name, gathered, ref_gathered in param_results:
             assert gathered is not None
             assert ref_gathered is not None
-            assert torch.isfinite(gathered).all(), f"Consolidated {name} grad has non-finite values"
-            assert torch.isfinite(ref_gathered).all(), f"Consolidated {ref_name} grad has non-finite values"
+            assert torch.isfinite(gathered).all(), (
+                f"Consolidated {name} grad has non-finite values"
+            )
+            assert torch.isfinite(ref_gathered).all(), (
+                f"Consolidated {ref_name} grad has non-finite values"
+            )
             sqnr = compute_error(gathered, ref_gathered)
             assert sqnr.item() >= min_sqnr["param_grad"], (
                 f"{name} grad SQNR must be >= {min_sqnr['param_grad']} dB, got {sqnr.item():.1f} dB"
             )
-
-
-
-

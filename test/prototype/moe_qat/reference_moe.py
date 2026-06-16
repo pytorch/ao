@@ -351,12 +351,16 @@ def _run_experts_grouped_mm(
     offsets = torch.cumsum(num_tokens_per_expert, dim=0, dtype=torch.int32)
 
     h = F.silu(
-        torch._grouped_mm(x.bfloat16(), gate_proj.bfloat16().transpose(-2, -1), offs=offsets)
+        torch._grouped_mm(
+            x.bfloat16(), gate_proj.bfloat16().transpose(-2, -1), offs=offsets
+        )
     )
     h = h * torch._grouped_mm(
         x.bfloat16(), up_proj.bfloat16().transpose(-2, -1), offs=offsets
     )
-    out = torch._grouped_mm(h, down_proj.bfloat16().transpose(-2, -1), offs=offsets).type_as(x)
+    out = torch._grouped_mm(
+        h, down_proj.bfloat16().transpose(-2, -1), offs=offsets
+    ).type_as(x)
 
     return out
 
@@ -398,9 +402,13 @@ class GroupedExperts(nn.Module):
                 run_experts_fn = indices_padding_wrapper(_run_experts_grouped_mm)
             else:
                 run_experts_fn = _run_experts_grouped_mm
-            return run_experts_fn(gate_proj, down_proj, up_proj, x, num_tokens_per_expert)
+            return run_experts_fn(
+                gate_proj, down_proj, up_proj, x, num_tokens_per_expert
+            )
         else:
-            return _run_experts_for_loop(gate_proj, down_proj, up_proj, x, num_tokens_per_expert)
+            return _run_experts_for_loop(
+                gate_proj, down_proj, up_proj, x, num_tokens_per_expert
+            )
 
     def init_weights(self, init_std: float):
         nn.init.trunc_normal_(self.gate_proj, mean=0.0, std=0.02)

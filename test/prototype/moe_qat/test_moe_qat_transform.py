@@ -2,28 +2,31 @@ import copy
 
 import pytest
 import torch
-import torch.nn.functional as F
 
 from torchao.prototype.moe_qat import MoEQATConfig
-from torchao.prototype.moe_qat.wrapper_tensor import (
-    FakeQuantizedWeightWrapperBaseTensor,
-    Float8FakeQuantizedWeightWrapperTensor,
-)
-from torchao.quantization.qat.fake_quantize_config import Float8FakeQuantizeConfig
-from torchao.quantization.qat import QATStep
-from torchao.quantization.granularity import PerRow, PerTensor
-from torchao.quantization.quant_api import Float8DynamicActivationFloat8WeightConfig, quantize_
-
-from .reference_moe import MoE
-from .testing_utils import _moe_input, _expert_weight_filter, create_moe_model, target_devices
-
 from torchao.prototype.moe_qat.config import _is_expert
 from torchao.prototype.moe_qat.transform import (
     _is_parameter,
     _is_parameter_with_wrapped_data,
     _replace_params_with_custom_fn_if_matches_filter,
 )
+from torchao.prototype.moe_qat.wrapper_tensor import (
+    FakeQuantizedWeightWrapperBaseTensor,
+    Float8FakeQuantizedWeightWrapperTensor,
+)
+from torchao.quantization.granularity import PerRow
+from torchao.quantization.qat.fake_quantize_config import Float8FakeQuantizeConfig
+from torchao.quantization.quant_api import (
+    Float8DynamicActivationFloat8WeightConfig,
+    quantize_,
+)
 
+from .reference_moe import MoE
+from .testing_utils import (
+    _expert_weight_filter,
+    create_moe_model,
+    target_devices,
+)
 
 # =========================================================================
 # Test _replace_params_with_custom_fn_if_matches_filter
@@ -97,20 +100,25 @@ def test_replace_params_recursive():
     assert any("0.bias" in f for f in called)
 
 
-
 # =========================================================================
 # Prepare / convert lifecycle
 # =========================================================================
 
+
 @pytest.mark.parametrize("device", target_devices)
-@pytest.mark.parametrize("weight_config, wrapper_cls", [
-    (Float8FakeQuantizeConfig(), Float8FakeQuantizedWeightWrapperTensor),
-])
+@pytest.mark.parametrize(
+    "weight_config, wrapper_cls",
+    [
+        (Float8FakeQuantizeConfig(), Float8FakeQuantizedWeightWrapperTensor),
+    ],
+)
 def test_prepare_wraps_expert_weights(device, weight_config, wrapper_cls):
     """Prepare wraps expert weights with the configured tensor subclass."""
     # use_grouped_mm only affects the forward computation path — no forward run here.
     moe_model = create_moe_model(device, use_grouped_mm=True)
-    orig_values = {name: param.data.clone() for name, param in moe_model.named_parameters()}
+    orig_values = {
+        name: param.data.clone() for name, param in moe_model.named_parameters()
+    }
 
     qat_config = MoEQATConfig(
         weight_config=weight_config,
@@ -134,9 +142,12 @@ def test_prepare_wraps_expert_weights(device, weight_config, wrapper_cls):
 
 
 @pytest.mark.parametrize("device", target_devices)
-@pytest.mark.parametrize("weight_config, wrapper_cls", [
-    (Float8FakeQuantizeConfig(), Float8FakeQuantizedWeightWrapperTensor),
-])
+@pytest.mark.parametrize(
+    "weight_config, wrapper_cls",
+    [
+        (Float8FakeQuantizeConfig(), Float8FakeQuantizedWeightWrapperTensor),
+    ],
+)
 def test_prepare_skips_non_expert_params(device, weight_config, wrapper_cls):
     """params_filter_fn excluding 2D params skips router.gate.weight."""
     # use_grouped_mm only affects the forward computation path — no forward run here.
@@ -152,7 +163,9 @@ def test_prepare_skips_non_expert_params(device, weight_config, wrapper_cls):
     for name, param in moe_model.named_parameters():
         if isinstance(param.data, wrapper_cls):
             wrapped += 1
-            assert param.ndim == 3, f"Wrapped param {name} should be 3D, got {param.ndim}D"
+            assert param.ndim == 3, (
+                f"Wrapped param {name} should be 3D, got {param.ndim}D"
+            )
     assert wrapped == 3, f"All 3D expert params should be wrapped, got {wrapped}"
     # base class as wildcard — any wrapper type on non-expert params is a bug
     assert not isinstance(
@@ -161,9 +174,12 @@ def test_prepare_skips_non_expert_params(device, weight_config, wrapper_cls):
 
 
 @pytest.mark.parametrize("device", target_devices)
-@pytest.mark.parametrize("weight_config, wrapper_cls", [
-    (Float8FakeQuantizeConfig(), Float8FakeQuantizedWeightWrapperTensor),
-])
+@pytest.mark.parametrize(
+    "weight_config, wrapper_cls",
+    [
+        (Float8FakeQuantizeConfig(), Float8FakeQuantizedWeightWrapperTensor),
+    ],
+)
 def test_convert_unwraps(device, weight_config, wrapper_cls):
     """Convert unwraps all parameters and restores original weight values."""
 
@@ -178,34 +194,48 @@ def test_convert_unwraps(device, weight_config, wrapper_cls):
         params_filter_fn=_expert_weight_filter,
     )
     quantize_(model, qat_config, filter_fn=lambda m, fqn: isinstance(m, MoE))
-    
-    wrapped = sum(1 for _, p in model.named_parameters() if isinstance(p.data, wrapper_cls))
+
+    wrapped = sum(
+        1 for _, p in model.named_parameters() if isinstance(p.data, wrapper_cls)
+    )
     assert wrapped == 3, f"Only {wrapped} nn.Parameters are wrapped, 3 expected."
-    
+
     for (name, param), (orig_name, orig_param) in zip(
         model.named_parameters(), moe_model.named_parameters()
     ):
-        assert torch.equal(param, orig_param), f"Values of {name} should match after prepare"
-
+        assert torch.equal(param, orig_param), (
+            f"Values of {name} should match after prepare"
+        )
 
     qat_config = MoEQATConfig(step="convert")
     quantize_(model, qat_config, filter_fn=lambda m, fqn: isinstance(m, MoE))
 
     # base class as wildcard — no wrapper of any type should survive convert
-    wrapped = sum(1 for _, p in model.named_parameters() if isinstance(p.data, FakeQuantizedWeightWrapperBaseTensor))
+    wrapped = sum(
+        1
+        for _, p in model.named_parameters()
+        if isinstance(p.data, FakeQuantizedWeightWrapperBaseTensor)
+    )
     assert wrapped == 0, f"{wrapped} parameters should not be wrapped after convert"
 
     for (name, param), (orig_name, orig_param) in zip(
         model.named_parameters(), moe_model.named_parameters()
     ):
-        assert torch.equal(param, orig_param), f"Values of {name} should match after convert"
-
+        assert torch.equal(param, orig_param), (
+            f"Values of {name} should match after convert"
+        )
 
 
 @pytest.mark.parametrize("device", target_devices)
-@pytest.mark.parametrize("base_config, wrapper_cls", [
-    (Float8DynamicActivationFloat8WeightConfig(granularity=PerRow()), Float8FakeQuantizedWeightWrapperTensor),
-])
+@pytest.mark.parametrize(
+    "base_config, wrapper_cls",
+    [
+        (
+            Float8DynamicActivationFloat8WeightConfig(granularity=PerRow()),
+            Float8FakeQuantizedWeightWrapperTensor,
+        ),
+    ],
+)
 def test_config_prepare_with_base_config(device, base_config, wrapper_cls):
     """Model can be prepared using base_config instead of explicit weight_config."""
 
@@ -217,11 +247,10 @@ def test_config_prepare_with_base_config(device, base_config, wrapper_cls):
         params_filter_fn=_expert_weight_filter,
     )
     quantize_(moe_model, qat_config, filter_fn=lambda m, fqn: isinstance(m, MoE))
-    wrapped = sum(1 for _, p in moe_model.named_parameters() if isinstance(p.data, wrapper_cls))
+    wrapped = sum(
+        1 for _, p in moe_model.named_parameters() if isinstance(p.data, wrapper_cls)
+    )
     assert wrapped == 3, f"Expected 3 wrapped params, got {wrapped}"
-
-
-
 
 
 # =========================================================================
@@ -231,6 +260,7 @@ def test_config_prepare_with_base_config(device, base_config, wrapper_cls):
 
 def test_is_expert_filter():
     """_is_expert returns True for module FQNs ending with 'experts' or 'shared_experts'."""
+
     class DummyModule(torch.nn.Module):
         pass
 
@@ -241,12 +271,15 @@ def test_is_expert_filter():
 
 
 @pytest.mark.parametrize("device", target_devices)
-@pytest.mark.parametrize("weight_config, wrapper_cls", [
-    (Float8FakeQuantizeConfig(), Float8FakeQuantizedWeightWrapperTensor),
-])
+@pytest.mark.parametrize(
+    "weight_config, wrapper_cls",
+    [
+        (Float8FakeQuantizeConfig(), Float8FakeQuantizedWeightWrapperTensor),
+    ],
+)
 def test_is_expert_integration(device, weight_config, wrapper_cls):
     """_is_expert as filter_fn: only expert submodules are transformed, router skipped."""
-    
+
     # use_grouped_mm only affects the forward computation path — no forward run here.
     moe_model = create_moe_model(device, use_grouped_mm=True)
     qat_config = MoEQATConfig(
@@ -256,7 +289,9 @@ def test_is_expert_integration(device, weight_config, wrapper_cls):
     )
     quantize_(moe_model, qat_config, filter_fn=_is_expert)
 
-    wrapped = sum(1 for _, p in moe_model.named_parameters() if isinstance(p.data, wrapper_cls))
+    wrapped = sum(
+        1 for _, p in moe_model.named_parameters() if isinstance(p.data, wrapper_cls)
+    )
     assert wrapped == 3, f"Expected 3 wrapped params, got {wrapped}"
     # base class as wildcard — any wrapper type on non-expert params is a bug
     assert not isinstance(
@@ -275,9 +310,12 @@ def test_is_parameter_filter():
 
 
 @pytest.mark.parametrize("device", target_devices)
-@pytest.mark.parametrize("weight_config, wrapper_cls", [
-    (Float8FakeQuantizeConfig(), Float8FakeQuantizedWeightWrapperTensor),
-])
+@pytest.mark.parametrize(
+    "weight_config, wrapper_cls",
+    [
+        (Float8FakeQuantizeConfig(), Float8FakeQuantizedWeightWrapperTensor),
+    ],
+)
 def test_is_parameter_integration(device, weight_config, wrapper_cls):
     """Default filter (_is_parameter) wraps all parameters including 2D gate."""
 
@@ -294,9 +332,10 @@ def test_is_parameter_integration(device, weight_config, wrapper_cls):
 
 
 @pytest.mark.parametrize("device", target_devices)
-@pytest.mark.parametrize("weight_config, wrapper_cls", [
-    (Float8FakeQuantizeConfig(), Float8FakeQuantizedWeightWrapperTensor)
-])
+@pytest.mark.parametrize(
+    "weight_config, wrapper_cls",
+    [(Float8FakeQuantizeConfig(), Float8FakeQuantizedWeightWrapperTensor)],
+)
 def test_is_parameter_with_wrapped_data_filter(device, weight_config, wrapper_cls):
     """_is_parameter_with_wrapped_data returns True only for wrapped nn.Parameters."""
 
@@ -311,13 +350,16 @@ def test_is_parameter_with_wrapped_data_filter(device, weight_config, wrapper_cl
     assert _is_parameter_with_wrapped_data(None, "any.fqn") is False
 
 
-@pytest.mark.parametrize("weight_config, wrapper_cls", [
-    (Float8FakeQuantizeConfig(), Float8FakeQuantizedWeightWrapperTensor),
-])
+@pytest.mark.parametrize(
+    "weight_config, wrapper_cls",
+    [
+        (Float8FakeQuantizeConfig(), Float8FakeQuantizedWeightWrapperTensor),
+    ],
+)
 @pytest.mark.parametrize("device", target_devices)
 def test_is_parameter_with_wrapped_data_integration(device, weight_config, wrapper_cls):
     """_is_parameter_with_wrapped_data as params_filter_fn: prepare then convert unwraps all."""
-    
+
     # use_grouped_mm only affects the forward computation path — no forward run here.
     moe_model = create_moe_model(device, use_grouped_mm=True)
     qat_config = MoEQATConfig(
@@ -327,11 +369,12 @@ def test_is_parameter_with_wrapped_data_integration(device, weight_config, wrapp
     )
     quantize_(moe_model, qat_config, filter_fn=lambda m, fqn: isinstance(m, MoE))
 
-    qat_config = MoEQATConfig(step="convert", params_filter_fn=_is_parameter_with_wrapped_data)
+    qat_config = MoEQATConfig(
+        step="convert", params_filter_fn=_is_parameter_with_wrapped_data
+    )
     quantize_(moe_model, qat_config, filter_fn=lambda m, fqn: isinstance(m, MoE))
 
-    wrapped = sum(1 for _, p in moe_model.named_parameters() if isinstance(p.data, wrapper_cls))
+    wrapped = sum(
+        1 for _, p in moe_model.named_parameters() if isinstance(p.data, wrapper_cls)
+    )
     assert wrapped == 0
-
-
-

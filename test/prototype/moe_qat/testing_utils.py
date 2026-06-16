@@ -5,6 +5,7 @@ import os
 import pytest
 import torch
 from torch import nn
+from torch.distributed._composable.fsdp import fully_shard
 from torch.distributed._tensor import DTensor
 from torch.distributed.device_mesh import DeviceMesh, init_device_mesh
 from torch.distributed.tensor import Partial, Replicate, Shard
@@ -14,7 +15,6 @@ from torch.distributed.tensor.parallel import (
     RowwiseParallel,
     parallelize_module,
 )
-from torch.distributed._composable.fsdp import fully_shard
 
 from .reference_moe import MoE, MoEArgs
 from .reference_parallel_styles import (
@@ -83,8 +83,8 @@ def _expert_weight_filter(param, fqn):
 def _moe_input(model, batch=2, seq=8):
     """Create input tensor whose last dim matches the model's dim."""
     dim = model.experts.gate_proj.shape[-1]
-    device=model.experts.gate_proj.device
-    dtype=model.experts.gate_proj.dtype
+    device = model.experts.gate_proj.device
+    dtype = model.experts.gate_proj.dtype
     return torch.randn(batch, seq, dim, device=device, dtype=dtype)
 
 
@@ -171,7 +171,9 @@ def apply_moe_ep_tp(
     )
 
 
-def apply_parallel_strategy(model, ref_model, parallel_strategy, use_compile, distributed_env):
+def apply_parallel_strategy(
+    model, ref_model, parallel_strategy, use_compile, distributed_env
+):
     """Apply the given parallelization strategy to both model and ref_model."""
     tp_mesh = distributed_env["tp_mesh"]
     ep_mesh = distributed_env["ep_mesh"]
@@ -193,8 +195,12 @@ def apply_parallel_strategy(model, ref_model, parallel_strategy, use_compile, di
             ref_model = torch.compile(ref_model)
     elif parallel_strategy == ParallelStrategy.EXPERT_TENSOR_PARALLEL:
         tp_submesh = ep_tp_mesh["tp"]
-        apply_moe_ep_tp(model, tp_mesh=tp_submesh, ep_mesh=ep_mesh, ep_tp_mesh=ep_tp_mesh)
-        apply_moe_ep_tp(ref_model, tp_mesh=tp_submesh, ep_mesh=ep_mesh, ep_tp_mesh=ep_tp_mesh)
+        apply_moe_ep_tp(
+            model, tp_mesh=tp_submesh, ep_mesh=ep_mesh, ep_tp_mesh=ep_tp_mesh
+        )
+        apply_moe_ep_tp(
+            ref_model, tp_mesh=tp_submesh, ep_mesh=ep_mesh, ep_tp_mesh=ep_tp_mesh
+        )
         if use_compile:
             model = torch.compile(model)
             ref_model = torch.compile(ref_model)

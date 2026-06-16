@@ -41,13 +41,16 @@ class TensorParallel(ParallelStyle):
         from torch.distributed.tensor import distribute_tensor
 
         module.register_parameter(
-            "gate_proj", nn.Parameter(distribute_tensor(module.gate_proj, device_mesh, [Shard(1)]))
+            "gate_proj",
+            nn.Parameter(distribute_tensor(module.gate_proj, device_mesh, [Shard(1)])),
         )
         module.register_parameter(
-            "down_proj", nn.Parameter(distribute_tensor(module.down_proj, device_mesh, [Shard(2)]))
+            "down_proj",
+            nn.Parameter(distribute_tensor(module.down_proj, device_mesh, [Shard(2)])),
         )
         module.register_parameter(
-            "up_proj", nn.Parameter(distribute_tensor(module.up_proj, device_mesh, [Shard(1)]))
+            "up_proj",
+            nn.Parameter(distribute_tensor(module.up_proj, device_mesh, [Shard(1)])),
         )
 
     def _apply(self, module: nn.Module, device_mesh: DeviceMesh) -> nn.Module:
@@ -179,15 +182,21 @@ class ExpertTensorParallel(ExpertParallel):
 
         mod.register_parameter(
             "gate_proj",
-            nn.Parameter(distribute_tensor(mod.gate_proj, device_mesh, [Shard(0), Shard(1)])),
+            nn.Parameter(
+                distribute_tensor(mod.gate_proj, device_mesh, [Shard(0), Shard(1)])
+            ),
         )
         mod.register_parameter(
             "down_proj",
-            nn.Parameter(distribute_tensor(mod.down_proj, device_mesh, [Shard(0), Shard(2)])),
+            nn.Parameter(
+                distribute_tensor(mod.down_proj, device_mesh, [Shard(0), Shard(2)])
+            ),
         )
         mod.register_parameter(
             "up_proj",
-            nn.Parameter(distribute_tensor(mod.up_proj, device_mesh, [Shard(0), Shard(1)])),
+            nn.Parameter(
+                distribute_tensor(mod.up_proj, device_mesh, [Shard(0), Shard(1)])
+            ),
         )
 
     def _token_combine(self, mod, routed_output, device_mesh):

@@ -107,14 +107,22 @@ class MoEQATConfig(QATConfig):
 
         if self.step == QATStep.PREPARE:
             if self.base_config is not None:
-                if not isinstance(self.base_config, Float8DynamicActivationFloat8WeightConfig):
-                    raise ValueError("Only `Float8DynamicActivationFloat8WeightConfig` is supported for `base_config` in MoEQATConfig yet.")
-                self.activation_config, self.weight_config = _infer_fake_quantize_configs(self.base_config)
+                if not isinstance(
+                    self.base_config, Float8DynamicActivationFloat8WeightConfig
+                ):
+                    raise ValueError(
+                        "Only `Float8DynamicActivationFloat8WeightConfig` is supported for `base_config` in MoEQATConfig yet."
+                    )
+                self.activation_config, self.weight_config = (
+                    _infer_fake_quantize_configs(self.base_config)
+                )
                 self.base_config = None
-            
+
             if self.weight_config is None:
-                raise ValueError("`weight_config` is required for the prepare step of MoEQATConfig.")
-        
+                raise ValueError(
+                    "`weight_config` is required for the prepare step of MoEQATConfig."
+                )
+
         elif self.step == QATStep.CONVERT:
             if self.base_config is not None:
                 raise NotImplementedError(

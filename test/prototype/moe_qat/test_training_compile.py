@@ -1,22 +1,39 @@
 import copy
+
 import pytest
 import torch
 import torch.nn.functional as F
 
+from torchao.float8.float8_utils import compute_error
 from torchao.prototype.moe_qat import MoEQATConfig
 from torchao.quantization.qat.fake_quantize_config import Float8FakeQuantizeConfig
 from torchao.quantization.quant_api import quantize_
-from torchao.float8.float8_utils import compute_error
 
 from .reference_moe import MoE
-from .testing_utils import _moe_input, _expert_weight_filter, create_moe_model, target_devices
+from .testing_utils import (
+    _expert_weight_filter,
+    _moe_input,
+    create_moe_model,
+    target_devices,
+)
 
 
 @pytest.mark.parametrize("device", target_devices)
-@pytest.mark.parametrize("weight_config, act_config, sqnr_threshold", [
-    (Float8FakeQuantizeConfig(), None,                      {"out": 48, "input_grad": 45, "param_grad": 45, "weight": 45}),
-    (Float8FakeQuantizeConfig(), Float8FakeQuantizeConfig(), {"out": 38, "input_grad": 38, "param_grad": 33, "weight": 33}),
-])
+@pytest.mark.parametrize(
+    "weight_config, act_config, sqnr_threshold",
+    [
+        (
+            Float8FakeQuantizeConfig(),
+            None,
+            {"out": 48, "input_grad": 45, "param_grad": 45, "weight": 45},
+        ),
+        (
+            Float8FakeQuantizeConfig(),
+            Float8FakeQuantizeConfig(),
+            {"out": 38, "input_grad": 38, "param_grad": 33, "weight": 33},
+        ),
+    ],
+)
 def test_torch_compile_model(device, weight_config, act_config, sqnr_threshold):
     """torch.compile on the full QAT model should match eager output."""
 
@@ -46,7 +63,9 @@ def test_torch_compile_model(device, weight_config, act_config, sqnr_threshold):
     compiled_out = compiled_model(compiled_x)
 
     out_sqnr = compute_error(compiled_out, eager_out)
-    assert out_sqnr > sqnr_threshold["out"], f"Compiled vs eager output SQNR too low ({out_sqnr:.1f} dB)"
+    assert out_sqnr > sqnr_threshold["out"], (
+        f"Compiled vs eager output SQNR too low ({out_sqnr:.1f} dB)"
+    )
 
     # Set up target
     target = torch.ones_like(eager_out)
@@ -59,21 +78,29 @@ def test_torch_compile_model(device, weight_config, act_config, sqnr_threshold):
     compiled_loss.backward()
 
     loss_rel_diff = abs(eager_loss.item() - compiled_loss.item()) / eager_loss.item()
-    assert loss_rel_diff < 1e-6, f"Compiled vs eager loss should align (rel diff: {loss_rel_diff:.4f})"
+    assert loss_rel_diff < 1e-6, (
+        f"Compiled vs eager loss should align (rel diff: {loss_rel_diff:.4f})"
+    )
 
     # Check gradients
     x_grad_sqnr = compute_error(eager_x.grad, compiled_x.grad)
-    assert x_grad_sqnr > sqnr_threshold["input_grad"], f"Compiled vs eager x.grad SQNR too low ({x_grad_sqnr:.1f} dB)"
+    assert x_grad_sqnr > sqnr_threshold["input_grad"], (
+        f"Compiled vs eager x.grad SQNR too low ({x_grad_sqnr:.1f} dB)"
+    )
 
     for (eager_name, eager_param), (compiled_name, compiled_param) in zip(
-        eager_model.named_parameters(), compiled_model.named_parameters(),
+        eager_model.named_parameters(),
+        compiled_model.named_parameters(),
     ):
         if eager_param.requires_grad:
             sqnr = compute_error(eager_param.grad, compiled_param.grad)
-            assert sqnr > sqnr_threshold["param_grad"], \
+            assert sqnr > sqnr_threshold["param_grad"], (
                 f"Compiled vs eager {eager_name}.grad SQNR too low ({sqnr:.1f} dB)"
+            )
         else:
-            assert compiled_param.requires_grad is False, f"Compiled {compiled_name} should not require gradients"
+            assert compiled_param.requires_grad is False, (
+                f"Compiled {compiled_name} should not require gradients"
+            )
 
     # Update weights
     eager_optimizer.step()
@@ -81,11 +108,13 @@ def test_torch_compile_model(device, weight_config, act_config, sqnr_threshold):
 
     # Check weights
     for (eager_name, eager_param), (compiled_name, compiled_param) in zip(
-        eager_model.named_parameters(), compiled_model.named_parameters(),
+        eager_model.named_parameters(),
+        compiled_model.named_parameters(),
     ):
         sqnr = compute_error(compiled_param, eager_param)
-        assert sqnr > sqnr_threshold["weight"], \
+        assert sqnr > sqnr_threshold["weight"], (
             f"Compiled vs eager {eager_name} weight SQNR too low ({sqnr:.1f} dB)"
+        )
 
     eager_optimizer.zero_grad()
     compiled_optimizer.zero_grad()
