@@ -1,4 +1,10 @@
-"""Distributed tests for MoE QAT with torch.compile. Run with: torchrun --nproc_per_node=4 -m pytest test/prototype/moe_qat/test_distributed_compile.py"""
+"""Distributed tests for MoE QAT with torch.compile. Run with: torchrun --nproc_per_node=4 -m pytest test/prototype/moe_qat/test_distributed_compile.py
+
+TODO: re-implement EP/TP and the MoE reference model to be more compatible
+with torch.compile. The current reference_moe.py and reference_parallel_styles.py
+were written for eager execution and hit AOTAutograd subclass_codegen errors
+(e.g., 'Tensor' object has no attribute '_data') when compiled with EP/TP.
+"""
 
 import copy
 
