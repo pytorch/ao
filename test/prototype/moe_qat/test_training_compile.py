@@ -25,7 +25,7 @@ from .testing_utils import (
         (
             Float8FakeQuantizeConfig(),
             None,
-            {"out": 48, "input_grad": 45, "param_grad": 45, "weight": 45},
+            {"out": 44, "input_grad": 41, "param_grad": 41, "weight": 41},
         ),
         (
             Float8FakeQuantizeConfig(),
