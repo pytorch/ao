@@ -4,7 +4,7 @@ import pytest
 import torch
 from torch.distributed._tensor import Shard, distribute_tensor
 
-from torchao.prototype.moe_qat.tensor import (
+from torchao.prototype.moe_qat.wrapper_tensor import (
     FakeQuantizedWeightWrapperBaseTensor,
     Float8FakeQuantizedWeightWrapperTensor,
 )

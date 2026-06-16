@@ -120,7 +120,7 @@ def test_config_default_params_filter_fn():
         weight_config=Float8FakeQuantizeConfig(dtype=torch.float8_e4m3fn, granularity=PerRow()),
         step="prepare",
     )
-    from torchao.prototype.moe_qat.quantize import _is_parameter
+    from torchao.prototype.moe_qat.transform import _is_parameter
     assert qat_config.params_filter_fn is _is_parameter
 
 

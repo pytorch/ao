@@ -4,13 +4,13 @@ import torch
 from torch import nn
 
 from torchao.core.config import AOBaseConfig
-from torchao.prototype.moe_qat.quantize import (
+from torchao.prototype.moe_qat.transform import (
     _is_parameter,
     _is_parameter_with_wrapped_data,
     _replace_params_with_custom_fn_if_matches_filter,
     unwrap_param,
 )
-from torchao.prototype.moe_qat.tensor import (
+from torchao.prototype.moe_qat.wrapper_tensor import (
     _MoE_QAT_PARAMETER_QUANTIZE_CONFIG_HANDLER,
 )
 from torchao.quantization.qat import QATConfig, QATStep

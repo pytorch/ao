@@ -10,7 +10,7 @@ from torch.distributed.fsdp import MixedPrecisionPolicy
 
 from torchao.float8.float8_utils import compute_error
 from torchao.prototype.moe_qat import MoEQATConfig
-from torchao.prototype.moe_qat.tensor import FakeQuantizedWeightWrapperBaseTensor, Float8FakeQuantizedWeightWrapperTensor
+from torchao.prototype.moe_qat.wrapper_tensor import FakeQuantizedWeightWrapperBaseTensor, Float8FakeQuantizedWeightWrapperTensor
 from torchao.quantization.granularity import PerRow, PerTensor
 from torchao.quantization.qat.fake_quantize_config import FakeQuantizeConfigBase, Float8FakeQuantizeConfig
 from torchao.quantization.quant_api import quantize_

@@ -2,7 +2,7 @@ from typing import Any, Callable, Tuple
 
 from torch import nn
 
-from torchao.prototype.moe_qat.tensor import FakeQuantizedWeightWrapperBaseTensor
+from torchao.prototype.moe_qat.wrapper_tensor import FakeQuantizedWeightWrapperBaseTensor
 
 
 def _is_parameter(param: nn.Parameter, fqn: str) -> bool:

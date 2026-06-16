@@ -5,7 +5,7 @@ import torch
 import torch.nn.functional as F
 
 from torchao.prototype.moe_qat import MoEQATConfig
-from torchao.prototype.moe_qat.tensor import (
+from torchao.prototype.moe_qat.wrapper_tensor import (
     FakeQuantizedWeightWrapperBaseTensor,
     Float8FakeQuantizedWeightWrapperTensor,
 )
@@ -18,7 +18,7 @@ from .reference_moe import MoE
 from .testing_utils import _moe_input, _expert_weight_filter, create_moe_model, target_devices
 
 from torchao.prototype.moe_qat.config import _is_expert
-from torchao.prototype.moe_qat.quantize import (
+from torchao.prototype.moe_qat.transform import (
     _is_parameter,
     _is_parameter_with_wrapped_data,
     _replace_params_with_custom_fn_if_matches_filter,

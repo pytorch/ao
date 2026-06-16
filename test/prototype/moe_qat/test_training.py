@@ -5,7 +5,7 @@ import torch.nn.functional as F
 from torch import nn
 
 from torchao.prototype.moe_qat import MoEQATConfig
-from torchao.prototype.moe_qat.tensor import FakeQuantizedWeightWrapperBaseTensor
+from torchao.prototype.moe_qat.wrapper_tensor import FakeQuantizedWeightWrapperBaseTensor
 from torchao.quantization.qat.fake_quantize_config import Float8FakeQuantizeConfig
 from torchao.quantization.quant_api import quantize_
 
