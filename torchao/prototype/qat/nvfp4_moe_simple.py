@@ -1,23 +1,18 @@
 """
 Simple FP4 QAT for MoE (Mixture of Experts) models using a tensor subclass.
 
-This is a simplified version of :mod:`nvfp4_moe` that applies a straightforward
-FP4 E2M1 fake quantization (per-tensor scale + round to nearest E2M1 value)
-before each ``torch._grouped_mm`` call, **without** trying to match the exact
-numerics of the flashinfer ``trtllm_fp4_block_scale_moe`` kernel.
+Uses the same two-level NvFP4 block-scale quantization as :mod:`nvfp4_moe`
+(global per-tensor scale + per-16-element FP8-E4M3 block scale), but with a
+simpler integration path:
 
 Differences from :mod:`nvfp4_moe`:
 
-- **Per-tensor scaling** (``amax / FP4_MAX``) instead of the two-level
-  global + FP8-block-scale scheme that mirrors the NvFP4 kernel format.
-- **No per-expert quantization** — the entire activation or weight tensor
-  is quantized with a single scale factor, rather than computing an
-  independent global scale for each expert slice.
 - **No ``is_transposed`` handling** — no layout fixups to align FP4 block
   boundaries with the kernel's storage-layout quantization.
+- **Simpler tensor subclass** — intercepts ``torch._grouped_mm`` without
+  the scaled-MM dispatch machinery.
 
-For the version that closely matches the flashinfer kernel numerics, see
-:mod:`nvfp4_moe`.
+For the version with full layout-aware quantization, see :mod:`nvfp4_moe`.
 
 Usage::
 
@@ -186,13 +181,12 @@ class _SimpleFP4FakeQuantGroupedMM(torch.autograd.Function):
 
 class SimpleFP4FakeQuantizedGroupedMMTensor(torch.Tensor):
     """Tensor subclass that intercepts ``torch._grouped_mm`` and injects
-    simple per-tensor FP4 E2M1 fake quantization on both weight and
-    activation operands.
+    NvFP4 block-scale fake quantization on both weight and activation operands.
 
-    Uses a single per-tensor scale (``amax / 6.0``) instead of the two-level
-    global + FP8-block-scale scheme in
+    Uses the same two-level scaling as the NvFP4 kernel (global per-tensor
+    scale + per-16-element FP8-E4M3 block scale), but with a simpler
+    integration path than
     :class:`~torchao.prototype.qat.nvfp4_moe.NVFP4FakeQuantizedScaledGroupedMMTensor`.
-    Does not attempt to match any specific inference kernel's numerics.
 
     Follows the same interception pattern as
     :class:`torchao.prototype.moe_training.tensor.ScaledGroupedMMTensor`.
