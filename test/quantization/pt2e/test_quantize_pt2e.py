@@ -1938,6 +1938,14 @@ class TestQuantizePT2E(PT2EQuantizationTestCase):
         ao_constant_fold(gm)
 
         self.assertTrue(hasattr(gm, "shared"))
+        # The dead get_attr node must still be erased: exactly one get_attr
+        # referencing "shared" (the live one) should remain after folding, so
+        # the test pins down both halves of the behavior -- the attribute is
+        # preserved AND the dead node is removed.
+        remaining_shared_get_attrs = [
+            n for n in gm.graph.find_nodes(op="get_attr") if n.target == "shared"
+        ]
+        self.assertEqual(len(remaining_shared_get_attrs), 1)
         gm(torch.zeros(2))
 
     def test_save_load(self):
