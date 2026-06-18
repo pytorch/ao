@@ -45,6 +45,7 @@ from torchao.utils import torch_version_at_least
 
 torch.set_float32_matmul_precision("high")
 
+
 def setup_distributed():
     world_size = int(os.environ.get("WORLD_SIZE", -1))
     device = str(torch.accelerator.current_accelerator())
