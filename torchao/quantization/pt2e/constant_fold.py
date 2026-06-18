@@ -362,14 +362,10 @@ def constant_fold(
         # them became dead, leaving the remaining live get_attr dangling and
         # making the subsequent graph.lint() fail.
         live_get_attr_targets = {
-            n.target
-            for n in gm.graph.find_nodes(op="get_attr")
-            if len(n.users) > 0
+            n.target for n in gm.graph.find_nodes(op="get_attr") if len(n.users) > 0
         }
         for node in erased_params:
-            if node.target not in live_get_attr_targets and hasattr(
-                gm, node.target
-            ):
+            if node.target not in live_get_attr_targets and hasattr(gm, node.target):
                 delattr(gm, node.target)
             gm.graph.erase_node(node)
 
