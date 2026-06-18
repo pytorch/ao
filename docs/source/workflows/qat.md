@@ -40,7 +40,18 @@ For example, running QAT on a single GPU:
 
 ```python
 import torch
-from torchtune.models.llama3 import llama3
+from torch import nn
+
+# Define a simple transformer model for demonstration.
+# In practice, load your model using transformers or define your own.
+def llama3(**kwargs):
+    # Placeholder: replace with your actual model
+    return nn.Transformer(
+        d_model=kwargs.get('embed_dim', 2048),
+        nhead=kwargs.get('num_heads', 16),
+        num_encoder_layers=kwargs.get('num_layers', 16),
+        num_decoder_layers=kwargs.get('num_layers', 16),
+    )
 
 # Set up smaller version of llama3 to fit in a single GPU
 def get_model():
@@ -241,17 +252,22 @@ For a full notebook example, see [this QAT notebook](https://colab.research.goog
 
 
 <details>
-    <summary><h2>torchtune integration (legacy)</h2></summary>
+    <summary><h2>torchtune integration (legacy, no longer actively maintained)</h2></summary>
 
-torchao QAT is integrated with [torchtune](https://github.com/pytorch/torchtune)
+> **Note:** Active development on torchtune has stopped. The recipes and links
+> below are preserved for historical reference but may no longer work with the
+> latest versions of torchao. For actively maintained integrations, use
+> [Axolotl](#axolotl-integration) or [Unsloth](#unsloth-integration) above.
+
+torchao QAT was integrated with [torchtune](https://github.com/pytorch/torchtune)
 to allow users to run quantized-aware fine-tuning as follows:
 
 ```
 tune run --nproc_per_node 8 qat_distributed --config llama3/8B_qat_full
 ```
 
-torchtune also supports a [QAT + LoRA distributed training recipe](https://github.com/pytorch/torchtune/blob/main/recipes/qat_lora_finetune_distributed.py)
-that is 1.89x faster and uses 36.1% memory compared to vanilla QAT in our early experiments.
+torchtune also supported a [QAT + LoRA distributed training recipe](https://github.com/pytorch/torchtune/blob/main/recipes/qat_lora_finetune_distributed.py)
+that was 1.89x faster and used 36.1% less memory compared to vanilla QAT in early experiments.
 You can read more about it [here](https://dev-discuss.pytorch.org/t/speeding-up-qat-by-1-89x-with-lora/2700):
 
 ```

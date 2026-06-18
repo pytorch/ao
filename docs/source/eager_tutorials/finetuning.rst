@@ -53,15 +53,22 @@ model with "real" quantization that does perform the dtype casting:
 
 There are multiple options for using TorchAO's QAT for fine-tuning:
 
-1. Use our integration with `TorchTune <https://github.com/pytorch/torchtune>`__
+1. Directly use our QAT APIs with your own training loop (recommended)
 2. Use our integration with `Axolotl <https://github.com/axolotl-ai-cloud/axolotl>`__
-3. Directly use our QAT APIs with your own training loop
+3. Use our integration with `Unsloth <https://github.com/unslothai/unsloth>`__
 
 
-Option 1: TorchTune QAT Integration
-===================================
+.. raw:: html
 
-TorchAO's QAT support is integrated into TorchTune's distributed fine-tuning recipe.
+   <details>
+   <summary><b>Legacy: TorchTune QAT Integration (no longer actively maintained)</b></summary>
+
+.. note::
+   Active development on TorchTune has stopped. The recipes and links below are
+   preserved for historical reference. For actively maintained integrations,
+   use Axolotl, Unsloth, or the TorchAO QAT API directly.
+
+TorchAO's QAT support was integrated into TorchTune's distributed fine-tuning recipe.
 Instead of the following command, which applies full distributed fine-tuning without QAT:
 
 .. code::
@@ -138,7 +145,11 @@ In addition to vanilla QAT as in the above example, TorchAO's QAT can also be co
   # Fine-tuning with QAT + LoRA
   tune run --nnodes 1 --nproc_per_node 4 qat_lora_finetune_distributed --config llama3_2/3B_qat_lora batch_size=16
 
-For more details about how QAT is set up in TorchTune, please refer to `this tutorial <https://docs.pytorch.org/torchtune/main/tutorials/qat_finetune.html>`__.
+For more details about how QAT was set up in TorchTune, please refer to `this tutorial <https://docs.pytorch.org/torchtune/main/tutorials/qat_finetune.html>`__.
+
+.. raw:: html
+
+   </details>
 
 
 Option 2: Axolotl QAT Integration
@@ -158,7 +169,7 @@ To get started, try fine-tuning Llama-3.2-3B with QAT using the following comman
 Please refer to the `Axolotl QAT documentation <https://docs.axolotl.ai/docs/qat.html>`__ for full details.
 
 
-Option 3: TorchAO QAT API
+Option 1: TorchAO QAT API (Recommended)
 =========================
 
 If you prefer to use a different training framework or your own custom training loop,
@@ -170,7 +181,17 @@ In this example, we will fine-tune a mini version of Llama3 on a single GPU:
 .. code:: py
 
   import torch
-  from torchtune.models.llama3 import llama3
+  from torch import nn
+
+  # Define a simple model for demonstration.
+  # In practice, load your model with transformers or your own code.
+  def llama3(**kwargs):
+      return nn.Transformer(
+          d_model=kwargs.get('embed_dim', 2048),
+          nhead=kwargs.get('num_heads', 16),
+          num_encoder_layers=kwargs.get('num_layers', 16),
+          num_decoder_layers=kwargs.get('num_layers', 16),
+      )
 
   # Set up a smaller version of llama3 to fit in a single A100 GPU
   # For smaller GPUs, adjust the model attributes accordingly
@@ -315,20 +336,27 @@ such as regular INT4 or even newer `MXFP4 or NVFP4 <https://github.com/pytorch/a
 targeting Blackwell GPUs to reap similar memory benefits with
 varying tradeoffs.
 
-Option 1: TorchTune Integration
-===============================
+.. raw:: html
 
-TorchTune incorporates the `NF4Tensor` in its QLoRA fine-tuning
+   <details>
+   <summary><b>Legacy: TorchTune QLoRA Integration (no longer actively maintained)</b></summary>
+
+.. note::
+   Active development on TorchTune has stopped. For QLoRA, use the
+   HuggingFace PEFT integration below instead.
+
+TorchTune incorporated the `NF4Tensor` in its QLoRA fine-tuning
 recipe through their implementation of `LoRALinear <https://github.com/pytorch/torchtune/blob/a6290a5b40758f13bca61c386bc8756a49ef417e/torchtune/modules/peft/lora.py#L19>`__.
-You can also try it out by running the following command,
-or refer to their `QLoRA tutorial <https://docs.pytorch.org/torchtune/stable/tutorials/qlora_finetune.html>`__
-for more details.
 
 .. code::
 
   tune run lora_finetune_single_device --config llama3_2/3B_qlora_single_device.yaml
 
-Option 2: HuggingFace PEFT Integration
+.. raw:: html
+
+   </details>
+
+HuggingFace PEFT Integration
 ======================================
 
 `HuggingFace PEFT <https://huggingface.co/docs/peft/main/en/developer_guides/quantization#torchao-pytorch-architecture-optimization>`__
@@ -357,10 +385,10 @@ Float8 Quantized Fine-tuning
 Similar to `pre-training <pretraining.html>`__, we can also
 leverage float8 in fine-tuning for higher training throughput
 with no accuracy degradation and no increase in memory usage.
-Float8 training is integrated into TorchTune's distributed
-full fine-tuning recipe, leveraging the same APIs as our
-integration with TorchTitan. Users can invoke this fine-tuning
-recipe as follows:
+Float8 training was integrated into TorchTune's distributed
+full fine-tuning recipe (note: TorchTune is no longer actively
+maintained). The same APIs are used in our integration with
+TorchTitan. The TorchTune recipe could be invoked as follows:
 
 .. code::
 
