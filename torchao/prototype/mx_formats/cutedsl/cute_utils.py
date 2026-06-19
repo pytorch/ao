@@ -449,21 +449,26 @@ if _cutedsl_runtime_available():
     ) -> cutlass.Float32:
         """Dequantize a single E4M3 byte back to Float32.
 
-        Mirrors cutlass's ``cvt_f4e2m1x2_to_f16x2`` shape: zero-extend the byte
-        into a ``.b16``, ``cvt.rn.f16x2.e4m3x2`` it into an f16x2 (the low f16
-        holds ``e4m3(byte)``), then widen that low f16 to f32. This is the exact
-        value a float8_e4m3fn ``.to(torch.float32)`` produces for the byte.
+        Zero-extend the byte into a ``.b16`` (low byte = the e4m3 byte, high
+        byte = 0) and feed that 16-bit value straight to
+        ``cvt.rn.f16x2.e4m3x2`` (whose source operand is a ``.b16`` holding the
+        e4m3x2 pair). The low f16 of the result holds ``e4m3(byte)``, which we
+        widen to f32 -- the exact value a float8_e4m3fn ``.to(torch.float32)``
+        produces for the byte.
+
+        NOTE: we pass the zero-extended ``.b16`` directly as the cvt source.
+        Extracting it into a ``.reg .b8`` first (``mov.b16 {b, z}, $1`` then
+        ``cvt ... b``) is rejected by ptxas on the Blackwell
+        (``sm_100a`` / ``--enable-tvm-ffi``) lowering path with "Arguments
+        mismatch for instruction 'cvt'" -- ``cvt.f16x2.e4m3x2`` requires a 16-bit
+        source operand.
         """
         src_i16 = cutlass.Uint16(byte)
         rst_i32 = cutlass.Uint32(
             llvm.inline_asm(
                 T.i32(),
                 [src_i16.ir_value(loc=loc, ip=ip)],
-                "{\n\t"
-                ".reg .b8 b, z;\n\t"
-                "mov.b16 {b, z}, $1;\n\t"
-                "cvt.rn.f16x2.e4m3x2 $0, b;\n\t"
-                "}",
+                "cvt.rn.f16x2.e4m3x2 $0, $1;",
                 "=r,h",
                 has_side_effects=False,
                 is_align_stack=False,

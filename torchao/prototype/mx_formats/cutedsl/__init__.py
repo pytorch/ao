@@ -83,10 +83,50 @@ def mxfp4_rht_quantize_cutedsl(
     )
 
 
+def nvfp4_rht_quantize_cutedsl_2d(
+    x,
+    global_scale,
+    sign_vector=None,
+    block_size: int = 16,
+    is_swizzled_scales: bool = True,
+):
+    """Lazily re-exported gated wrapper for the fused NVFP4 (+/- RHT) cast.
+
+    See ``nvfp4_rht_quantize.nvfp4_rht_quantize_cutedsl_2d``. Imported lazily so
+    that importing this package does not require the CuTeDSL runtime.
+    ``sign_vector=None`` (or empty) selects the plain NVFP4 cast.
+    """
+    from .nvfp4_rht_quantize import nvfp4_rht_quantize_cutedsl_2d as _impl
+
+    return _impl(x, global_scale, sign_vector, block_size, is_swizzled_scales)
+
+
+def nvfp4_rht_quantize_cutedsl(
+    x,
+    global_scale,
+    sign_vector,
+    block_size: int = 16,
+    is_swizzled_scales: bool = True,
+    stage_count: int = 2,
+):
+    """Lazily re-exported custom op for the fused NVFP4 (+/- RHT) cast.
+
+    See ``nvfp4_rht_quantize.nvfp4_rht_quantize_cutedsl``. Imported lazily so
+    that importing this package does not require the CuTeDSL runtime.
+    """
+    from .nvfp4_rht_quantize import nvfp4_rht_quantize_cutedsl as _impl
+
+    return _impl(
+        x, global_scale, sign_vector, block_size, is_swizzled_scales, stage_count
+    )
+
+
 __all__ = [
     "_is_sm_10x",
     "_mxfp4_rht_cutedsl_kernels_available",
     "pack32_e2m1_to_bytes",
     "mxfp4_rht_quantize_cutedsl_2d",
     "mxfp4_rht_quantize_cutedsl",
+    "nvfp4_rht_quantize_cutedsl_2d",
+    "nvfp4_rht_quantize_cutedsl",
 ]

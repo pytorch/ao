@@ -96,3 +96,82 @@ class TestNvfp4E4M3Scale:
             rtol=0,
             atol=0,
         )
+
+
+class TestNvfp4RhtSmoke:
+    """Shape / dtype / stride + non-zero-scale smoke for the fused kernel.
+
+    Exercises BOTH the plain NVFP4 cast (no RHT) and the fused FWHT(16) + NVFP4
+    RHT cast through the public gated wrapper. Bit-exact correctness vs eager is
+    a separate task; here we only check the kernel compiles, launches, and emits
+    well-formed outputs.
+    """
+
+    def _global_scale(self, x: torch.Tensor) -> float:
+        # 2688 == F8E4M3_MAX (448) * F4_E2M1_MAX (6); global_scale is the
+        # multiplicative reciprocal of torchao's per_tensor_scale.
+        return 2688.0 / x.abs().max().item()
+
+    def _check_outputs(self, q, s, M, K, block_size=16):
+        assert q.shape == (M, K // 2)
+        assert q.dtype == torch.uint8
+        assert q.stride() == (K // 2, 1)
+        assert s.dtype == torch.float8_e4m3fn
+        # scales must be non-zero (a degenerate all-zero scale tensor would mean
+        # the consumer never wrote anything).
+        s_u8 = s.view(torch.uint8)
+        assert int((s_u8 != 0).sum().item()) > 0, "scales are all zero"
+
+    def test_plain_nvfp4_cast(self):
+        from torchao.prototype.mx_formats.cutedsl import (
+            nvfp4_rht_quantize_cutedsl_2d,
+        )
+
+        torch.manual_seed(0)
+        M, K = 128, 256
+        x = torch.randn(M, K, dtype=torch.bfloat16, device="cuda") * 5.0
+        global_scale = self._global_scale(x)
+
+        # sign_vector=None -> plain NVFP4 cast (no RHT).
+        q, s = nvfp4_rht_quantize_cutedsl_2d(
+            x, global_scale, sign_vector=None, is_swizzled_scales=True
+        )
+        self._check_outputs(q, s, M, K)
+
+        # Empty list is the same plain-cast path.
+        q2, s2 = nvfp4_rht_quantize_cutedsl_2d(
+            x, global_scale, sign_vector=[], is_swizzled_scales=True
+        )
+        self._check_outputs(q2, s2, M, K)
+
+    def test_rht_nvfp4_cast(self):
+        from torchao.prototype.mx_formats.cutedsl import (
+            nvfp4_rht_quantize_cutedsl_2d,
+        )
+
+        torch.manual_seed(0)
+        M, K = 128, 256
+        x = torch.randn(M, K, dtype=torch.bfloat16, device="cuda") * 5.0
+        global_scale = self._global_scale(x)
+
+        sign_vector = [1, -1] * 8  # len 16
+        q, s = nvfp4_rht_quantize_cutedsl_2d(
+            x, global_scale, sign_vector=sign_vector, is_swizzled_scales=True
+        )
+        self._check_outputs(q, s, M, K)
+
+    def test_plain_nvfp4_cast_unswizzled(self):
+        from torchao.prototype.mx_formats.cutedsl import (
+            nvfp4_rht_quantize_cutedsl_2d,
+        )
+
+        torch.manual_seed(1)
+        M, K = 128, 256
+        x = torch.randn(M, K, dtype=torch.bfloat16, device="cuda") * 5.0
+        global_scale = self._global_scale(x)
+
+        q, s = nvfp4_rht_quantize_cutedsl_2d(
+            x, global_scale, sign_vector=None, is_swizzled_scales=False
+        )
+        self._check_outputs(q, s, M, K)
+        assert s.shape == (M, K // 16)
