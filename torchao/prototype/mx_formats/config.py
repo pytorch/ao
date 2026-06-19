@@ -39,7 +39,8 @@ class MXFP4CastKernelChoice(str, Enum):
 
     TORCH: emulated PyTorch cast (default).
     CUTEDSL: fused Random Hadamard Transform + E2M1 quantize CuTeDSL kernel
-        (requires CUDA SM10.x, CUDA>=12.8, and nvidia-cutlass-dsl).
+        (max-bandwidth streaming kernel; requires CUDA SM10.x, CUDA>=12.8, and
+        nvidia-cutlass-dsl).
     """
 
     TORCH = "torch"
