@@ -114,6 +114,27 @@ def benchmark_cuda_function_in_microseconds(f, *args):
         return ((end - start) / 100) * 1e6  # Convert to microseconds
 
 
+def benchmark_cuda_function_device_time_us(f, *args, iters=100, warmup=20):
+    """Mean true on-GPU kernel time in microseconds (CUPTI device time).
+
+    Unlike ``benchmark_cuda_function_in_microseconds`` (a GPU-timeline span that
+    still captures per-call host launch/alloc overhead), this sums the CUDA
+    kernel self-times so the result reflects kernel throughput. Use for kernels
+    whose Python wrapper has non-trivial host cost (e.g. the CuTeDSL casts). The
+    warmup also covers the one-time CuTeDSL JIT compile.
+    """
+    from torch.profiler import ProfilerActivity, profile
+
+    for _ in range(warmup):
+        f(*args)
+    torch.cuda.synchronize()
+    with profile(activities=[ProfilerActivity.CUDA]) as prof:
+        for _ in range(iters):
+            f(*args)
+        torch.cuda.synchronize()
+    return sum(k.self_device_time_total for k in prof.key_averages()) / iters
+
+
 def run(
     M: int = 16384,
     K: int = 16384,
@@ -150,6 +171,7 @@ def run(
         "dim1_mxfp8_cutedsl_2d_floor",
         "dim1_mxfp8_cutedsl_2d_rceil",
         "dim1_mxfp4_rht_cutedsl_floor",
+        "dim1_mxfp4_rht_cutedsl_rceil",
     )
 
     x = torch.randn(M, K, dtype=torch.bfloat16, device="cuda") * 1000
@@ -618,26 +640,32 @@ def run(
         bytes_w = (y_d0.numel() + s_d0.numel()) * bytes_per_el_fp8
         bps = (bytes_r + bytes_w) / (time_us / 1e6)
 
-    elif mode == "dim1_mxfp4_rht_cutedsl_floor":
+    elif mode in (
+        "dim1_mxfp4_rht_cutedsl_floor",
+        "dim1_mxfp4_rht_cutedsl_rceil",
+    ):
+        # The cutedsl MXFP4 + RHT op is the max-bandwidth streaming kernel
+        # (thread-local FWHT32 + wide 128-bit stores + ILP; no smem/TMA).
         from torchao.prototype.mx_formats.cutedsl import mxfp4_rht_quantize_cutedsl_2d
+
+        scaling_mode = "rceil" if mode.endswith("rceil") else "floor"
 
         # Generate sign vector: 32 random signs
         sign = (
             (torch.randint(0, 2, (32,), device="cuda") * 2 - 1).to(torch.int32).tolist()
         )
 
-        # Warmup
-        for _ in range(2):
-            __ = mxfp4_rht_quantize_cutedsl_2d(x, sign, 32, "floor", True)
-
-        # Benchmark
-        time_us = benchmark_cuda_function_in_microseconds(
-            lambda x: mxfp4_rht_quantize_cutedsl_2d(x, sign, 32, "floor", True),
+        # Benchmark true on-GPU kernel time (CUPTI device time) -- the CuTeDSL
+        # wrapper has non-trivial per-call host cost (output alloc, sign tensor,
+        # JIT-cache lookup) that a wall-clock / GPU-span timer would fold in; the
+        # helper also warms up the one-time JIT compile.
+        time_us = benchmark_cuda_function_device_time_us(
+            lambda x: mxfp4_rht_quantize_cutedsl_2d(x, sign, 32, scaling_mode, True),
             x,
         )
 
         # Validate output types
-        y_d1, s_d1 = mxfp4_rht_quantize_cutedsl_2d(x, sign, 32, "floor", True)
+        y_d1, s_d1 = mxfp4_rht_quantize_cutedsl_2d(x, sign, 32, scaling_mode, True)
         assert y_d1.dtype == torch.uint8
         assert s_d1.dtype == torch.float8_e8m0fnu
 
