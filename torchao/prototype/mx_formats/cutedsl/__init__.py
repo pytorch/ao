@@ -1,0 +1,53 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+# All rights reserved.
+#
+# This source code is licensed under the BSD 3-Clause license found in the
+# LICENSE file in the root directory of this source tree.
+
+"""Fused MXFP4 + Random Hadamard Transform CuTeDSL quantize cast.
+
+This subpackage holds an optional, self-contained CuTeDSL implementation of an
+MXFP4 (E2M1, block 32, E8M0 scales) quantize cast fused with a Random Hadamard
+Transform. It is gated behind:
+
+* a Blackwell-family GPU (SM 10.x),
+* CUDA >= 12.8,
+* the CuTeDSL runtime packages (``nvidia-cutlass-dsl`` and friends).
+
+No ``cutlass`` import happens at module scope so importing this package is safe
+on machines without the CuTeDSL runtime (the gate flag simply evaluates False).
+"""
+
+import torch
+
+from torchao.utils import is_cuda_version_at_least
+
+from .cute_utils import _cutedsl_runtime_available
+
+
+def _is_sm_10x() -> bool:
+    """Return True iff a Blackwell-family (SM 10.x) GPU is available."""
+    return torch.cuda.is_available() and torch.cuda.get_device_capability()[0] == 10
+
+
+_mxfp4_rht_cutedsl_kernels_available = (
+    _is_sm_10x() and is_cuda_version_at_least(12, 8) and _cutedsl_runtime_available()
+)
+
+
+def pack32_e2m1_to_bytes(x: torch.Tensor) -> torch.Tensor:
+    """Lazily re-exported test/validation entry for E2M1 packing.
+
+    See ``cute_utils.pack32_e2m1_to_bytes``. Imported lazily so that importing
+    this package does not require the CuTeDSL runtime.
+    """
+    from .cute_utils import pack32_e2m1_to_bytes as _impl
+
+    return _impl(x)
+
+
+__all__ = [
+    "_is_sm_10x",
+    "_mxfp4_rht_cutedsl_kernels_available",
+    "pack32_e2m1_to_bytes",
+]
