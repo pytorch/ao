@@ -58,6 +58,14 @@ if _cutedsl_runtime_available():
     # FP4 (E2M1) constants. F4_E2M1_MAX == 6.0.
     INV_F4_E2M1_MAX = cutlass.Float32(1.0 / 6.0)
 
+    # NVFP4 two-level (E4M3 block scale) constants.
+    # E4M3_EPS is torch.finfo(float8_e4m3fn).tiny == 2**-6 == 0.015625, the
+    # smallest *normal* E4M3 value. The eager NVFP4 path clamps the block scale
+    # to [E4M3_EPS, F8E4M3_MAX] before the float8_e4m3fn cast, so we replicate
+    # the lower clamp here (the saturating PTX cvt handles the upper bound).
+    F8E4M3_MAX = cutlass.Float32(448.0)
+    E4M3_EPS = cutlass.Float32(0.015625)
+
     # FP4 E8M0 scale constants. NOTE: these are the FP4 values, NOT the FP8
     # ones -- `F4_E2M1_MAX_POW2 == 2` (the FP8 helper uses 8), and the RCEIL
     # descale divisor is `F4_E2M1_MAX == 6.0` (the FP8 helper uses 448).
@@ -392,3 +400,203 @@ if _cutedsl_runtime_available():
             gx, gscale, cutlass.Int32(num_blocks), stream, use_rceil
         )
         return scale_u8.view(torch.float8_e8m0fnu).reshape(n, kb)
+
+    # ------------------------------------------------------------------
+    # NVFP4 E4M3 two-level block-scale helpers
+    # ------------------------------------------------------------------
+
+    @dsl_user_op
+    def _cvt_rn_satfinite_e4m3x2_f32(
+        hi: cutlass.Float32,
+        lo: cutlass.Float32,
+        *,
+        loc=None,
+        ip=None,
+    ) -> cutlass.Uint8:
+        """PTX inline assembly: convert two f32 values to one E4M3x2 byte each.
+
+        ``cvt.rn.satfinite.e4m3x2.f32 d, a, b`` produces a ``.b16`` whose low
+        byte is ``e4m3(b)`` (``lo``) and high byte is ``e4m3(a)`` (``hi``); the
+        instruction itself round-to-nearest-saturates to the E4M3 finite max
+        (448). We pass ``hi == lo`` and return the low byte, so the result is
+        ``e4m3(lo)``.
+
+        Unlike the E2M1 variant the E4M3x2 cvt already has a ``.b16`` output, so
+        no ``mov.b16`` reassembly is needed.
+        """
+        packed = cutlass.Uint16(
+            llvm.inline_asm(
+                T.i16(),
+                [
+                    cutlass.Float32(hi).ir_value(loc=loc, ip=ip),
+                    cutlass.Float32(lo).ir_value(loc=loc, ip=ip),
+                ],
+                "cvt.rn.satfinite.e4m3x2.f32 $0, $1, $2;",
+                "=h,f,f",
+                has_side_effects=False,
+                is_align_stack=False,
+                asm_dialect=llvm.AsmDialect.AD_ATT,
+            )
+        )
+        return cutlass.Uint8(packed & cutlass.Uint16(0xFF))
+
+    @dsl_user_op
+    def _cvt_e4m3_byte_to_f32(
+        byte: cutlass.Uint8,
+        *,
+        loc=None,
+        ip=None,
+    ) -> cutlass.Float32:
+        """Dequantize a single E4M3 byte back to Float32.
+
+        Mirrors cutlass's ``cvt_f4e2m1x2_to_f16x2`` shape: zero-extend the byte
+        into a ``.b16``, ``cvt.rn.f16x2.e4m3x2`` it into an f16x2 (the low f16
+        holds ``e4m3(byte)``), then widen that low f16 to f32. This is the exact
+        value a float8_e4m3fn ``.to(torch.float32)`` produces for the byte.
+        """
+        src_i16 = cutlass.Uint16(byte)
+        rst_i32 = cutlass.Uint32(
+            llvm.inline_asm(
+                T.i32(),
+                [src_i16.ir_value(loc=loc, ip=ip)],
+                "{\n\t"
+                ".reg .b8 b, z;\n\t"
+                "mov.b16 {b, z}, $1;\n\t"
+                "cvt.rn.f16x2.e4m3x2 $0, b;\n\t"
+                "}",
+                "=r,h",
+                has_side_effects=False,
+                is_align_stack=False,
+                asm_dialect=llvm.AsmDialect.AD_ATT,
+            )
+        )
+        # Low 16 bits = f16(e4m3(byte)); widen to f32.
+        lo_f16_bits = cutlass.Uint16(rst_i32 & cutlass.Uint32(0xFFFF))
+        f16_val = cutlass.Float16(
+            llvm.bitcast(T.f16(), lo_f16_bits.ir_value(loc=loc, ip=ip))
+        )
+        return cutlass.Float32(f16_val)
+
+    @cute.jit
+    def compute_nvfp4_scale_e4m3(
+        amax: cutlass.Float32,
+        global_scale: cutlass.Float32,
+    ):
+        """NVFP4 two-level E4M3 block scale byte + fp32 data inverse-scale.
+
+        Bit-exactly mirrors the two-level path of torchao eager
+        ``nvfp4_quantize`` (``nvfp4_tensor.py``), where ``global_scale`` is the
+        multiplicative reciprocal of torchao's stored ``per_tensor_scale``
+        (i.e. ``global_scale = 1 / per_tensor_scale``):
+
+            block_scale = amax / 6.0                 # amax * INV_F4_E2M1_MAX
+            local       = block_scale * global_scale # == block_scale / per_tensor_scale
+            local       = clamp(local, E4M3_EPS, 448)
+            e4m3_byte   = cvt.rn.satfinite.e4m3x2.f32(local)
+            inv_scale   = global_scale / dequant_e4m3(e4m3_byte)
+
+        The ``inv_scale`` is what the data quantizer multiplies each element by
+        before the E2M1 conversion; it matches eager's
+        ``reciprocal_scale = (1/per_tensor_scale) / scaled_block_scales_fp32``.
+
+        Returns ``(e4m3_byte: Uint8, inv_scale: Float32)``.
+        """
+        block_scale = amax * INV_F4_E2M1_MAX
+        local = block_scale * global_scale
+        # Lower clamp to the smallest E4M3 normal (matches eager torch.clamp);
+        # the upper clamp to 448 is handled by the saturating PTX cvt, but we
+        # apply it explicitly to be faithful to the eager op order.
+        if local < E4M3_EPS:
+            local = E4M3_EPS
+        if local > F8E4M3_MAX:
+            local = F8E4M3_MAX
+        e4m3_byte = _cvt_rn_satfinite_e4m3x2_f32(local, local)
+        dequant = _cvt_e4m3_byte_to_f32(e4m3_byte)
+        inv_scale = global_scale / dequant
+        return e4m3_byte, inv_scale
+
+    @cute.kernel
+    def _block_scale_e4m3_nvfp4_kernel(
+        gx: cute.Tensor,
+        gscale: cute.Tensor,
+        global_scale: cutlass.Float32,
+        num_blocks: cutlass.Int32,
+    ):
+        """One thread per 16-element block: amax -> NVFP4 E4M3 scale byte.
+
+        ``gx`` is a 2D ``(num_blocks, 16)`` float32 view; ``gscale`` is a 1D
+        ``(num_blocks,)`` uint8 view (the flattened ``(N, K//16)`` scales).
+        """
+        tidx, _, _ = cute.arch.thread_idx()
+        bidx, _, _ = cute.arch.block_idx()
+        bdim, _, _ = cute.arch.block_dim()
+        block = bidx * bdim + tidx
+        if block < num_blocks:
+            vals = cute.make_rmem_tensor((16,), cutlass.Float32)
+            for j in cutlass.range_constexpr(16):
+                vals[j] = cutlass.Float32(gx[block, j])
+            amax = compute_amax(vals)
+            e4m3_byte, _ = compute_nvfp4_scale_e4m3(amax, global_scale)
+            gscale[block] = e4m3_byte
+
+    @cute.jit
+    def _block_scale_e4m3_nvfp4_launch(
+        gx: cute.Tensor,
+        gscale: cute.Tensor,
+        global_scale: cutlass.Float32,
+        num_blocks: cutlass.Int32,
+        stream,
+    ):
+        threads = 128
+        grid = (num_blocks + threads - 1) // threads
+        _block_scale_e4m3_nvfp4_kernel(gx, gscale, global_scale, num_blocks).launch(
+            grid=(grid, 1, 1),
+            block=(threads, 1, 1),
+            cluster=(1, 1, 1),
+            stream=stream,
+        )
+
+    def compute_block_scale_e4m3_nvfp4(
+        x: torch.Tensor, global_scale: float
+    ) -> torch.Tensor:
+        """Compute per-16-block NVFP4 E4M3 scale bytes.
+
+        Bit-exact (validated by ``test_nvfp4_rht_cutedsl``) against the
+        two-level path of torchao eager
+        ``nvfp4_tensor.nvfp4_quantize(x, block_size=16, per_tensor_scale=...)``
+        plain (unswizzled) ``float8_e4m3fn`` scales, where
+        ``global_scale = 1 / per_tensor_scale``.
+
+        Args:
+            x: 2D CUDA tensor ``[N, K]`` (bf16 or fp32) with ``K % 16 == 0``.
+            global_scale: Per-tensor multiplicative global scale (the reciprocal
+                of torchao's ``per_tensor_scale``).
+
+        Returns:
+            ``(N, K // 16)`` ``torch.float8_e4m3fn`` CUDA tensor of scale bytes.
+        """
+        import cuda.bindings.driver as cuda
+        from cutlass.cute.runtime import from_dlpack
+
+        assert x.is_cuda, "input must be a CUDA tensor"
+        assert x.dim() == 2, "input must be 2D [N, K]"
+        n, k = x.shape
+        assert k % 16 == 0, "K must be divisible by 16"
+
+        kb = k // 16
+        num_blocks = n * kb
+        # float32 [num_blocks, 16] view of the per-block elements.
+        x_f32 = x.to(torch.float32).contiguous().reshape(num_blocks, 16)
+        scale_u8 = torch.empty((num_blocks,), device=x.device, dtype=torch.uint8)
+
+        gx = from_dlpack(x_f32)
+        gscale = from_dlpack(scale_u8)
+        stream = cuda.CUstream(int(torch.cuda.current_stream().cuda_stream))
+        _block_scale_e4m3_nvfp4_launch(
+            gx,
+            gscale,
+            cutlass.Float32(global_scale),
+            cutlass.Int32(num_blocks),
+            stream,
+        )
+        return scale_u8.view(torch.float8_e4m3fn).reshape(n, kb)
