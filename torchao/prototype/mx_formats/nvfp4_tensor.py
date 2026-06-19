@@ -46,6 +46,7 @@ class QuantizeTensorToNVFP4Kwargs(QuantizeTensorKwargs):
     block_size: int = 16
     is_swizzled_scales: bool = False
     use_triton_kernel: bool = False
+    use_cutedsl_kernel: bool = False
     use_dynamic_per_tensor_scale: bool = False
 
 
@@ -75,6 +76,7 @@ class NVFP4Tensor(TorchAOBaseTensor):
     optional_tensor_attribute_names = [
         "is_swizzled_scales",
         "use_triton_kernel",
+        "use_cutedsl_kernel",
         "act_quant_kwargs",
     ]
 
@@ -88,6 +90,7 @@ class NVFP4Tensor(TorchAOBaseTensor):
         act_per_tensor_scale=None,
         is_swizzled_scales=False,
         use_triton_kernel=False,
+        use_cutedsl_kernel=False,
         act_quant_kwargs=None,
     ):
         # FP4 tensor size handling two paths, contiguous or not
@@ -119,6 +122,7 @@ class NVFP4Tensor(TorchAOBaseTensor):
         self.act_per_tensor_scale = act_per_tensor_scale
         self.is_swizzled_scales = is_swizzled_scales
         self.use_triton_kernel = use_triton_kernel
+        self.use_cutedsl_kernel = use_cutedsl_kernel
         self.act_quant_kwargs = act_quant_kwargs
         return self
 
@@ -126,7 +130,7 @@ class NVFP4Tensor(TorchAOBaseTensor):
         return f"NVFP4Tensor: scale: {self.scale}, per_tensor_scale: {self.per_tensor_scale}, d: {self.qdata}, d_hp: {self.dequantize(self.orig_dtype)}"
 
     def _quantization_type(self):
-        return f"{self.is_swizzled_scales=}, {self.use_triton_kernel=}, {self.act_quant_kwargs=}"
+        return f"{self.is_swizzled_scales=}, {self.use_triton_kernel=}, {self.use_cutedsl_kernel=}, {self.act_quant_kwargs=}"
 
     @staticmethod
     def to_nvfp4(
@@ -136,6 +140,7 @@ class NVFP4Tensor(TorchAOBaseTensor):
         act_per_tensor_scale: Optional[torch.Tensor] = None,
         is_swizzled_scales: bool = False,
         use_triton_kernel: bool = False,
+        use_cutedsl_kernel: bool = False,
         act_quant_kwargs: Optional[QuantizeTensorToNVFP4Kwargs] = None,
     ):
         """Convert high precision tensor to NVFP4 format.
@@ -157,7 +162,31 @@ class NVFP4Tensor(TorchAOBaseTensor):
         assert len(data_hp.shape) in (2, 3), "unsupported"
         leading_dims, M, K = data_hp.shape[:-2], data_hp.shape[-2], data_hp.shape[-1]
 
-        if use_triton_kernel:
+        if use_cutedsl_kernel:
+            assert len(data_hp.shape) == 2, (
+                "CuTeDSL NVFP4 backend only supports 2D inputs"
+            )
+            assert M % 128 == 0 and K % 128 == 0, (
+                "CuTeDSL NVFP4 backend requires M and K divisible by 128"
+            )
+            if per_tensor_scale is not None:
+                assert per_tensor_scale.numel() == 1, (
+                    "CuTeDSL NVFP4 backend only supports a scalar per_tensor_scale"
+                )
+                global_scale = float((1.0 / per_tensor_scale).item())
+            else:
+                global_scale = 1.0
+            from .cutedsl import nvfp4_rht_quantize_cutedsl_2d
+
+            data_lp, blockwise_scales = nvfp4_rht_quantize_cutedsl_2d(
+                data_hp.contiguous(),
+                global_scale,
+                None,
+                block_size=block_size,
+                is_swizzled_scales=is_swizzled_scales,
+            )
+            blockwise_scales = blockwise_scales.flatten()
+        elif use_triton_kernel:
             assert is_swizzled_scales, "Triton kernel only supports swizzled scales"
             assert K % 16 == 0, (
                 f"Triton kernel requires K (dim -1) to be divisible by 16, got {K}"
@@ -190,6 +219,7 @@ class NVFP4Tensor(TorchAOBaseTensor):
             act_per_tensor_scale,
             is_swizzled_scales,
             use_triton_kernel,
+            use_cutedsl_kernel,
             act_quant_kwargs,
         )
 
@@ -331,6 +361,7 @@ def nvfp4_to_copy(func, types, args, kwargs):
             tensor.act_per_tensor_scale,
             tensor.is_swizzled_scales,
             tensor.use_triton_kernel,
+            tensor.use_cutedsl_kernel,
             tensor.act_quant_kwargs,
         )
         return res
@@ -365,6 +396,7 @@ def nvfp4_pin_memory(func, types, args, kwargs):
         else None,
         tensor.is_swizzled_scales,
         tensor.use_triton_kernel,
+        tensor.use_cutedsl_kernel,
         tensor.act_quant_kwargs,
     )
 
@@ -394,6 +426,7 @@ def nvfp4_slice(func, types, args, kwargs):
         x.act_per_tensor_scale,
         x.is_swizzled_scales,
         x.use_triton_kernel,
+        x.use_cutedsl_kernel,
         x.act_quant_kwargs,
     )
 
@@ -414,6 +447,7 @@ def nvfp4_t(func, types, args, kwargs):
         old.act_per_tensor_scale,
         old.is_swizzled_scales,
         old.use_triton_kernel,
+        old.use_cutedsl_kernel,
         old.act_quant_kwargs,
     )
     return new
@@ -436,6 +470,7 @@ def nvfp4_transpose(func, types, args, kwargs):
         old.act_per_tensor_scale,
         old.is_swizzled_scales,
         old.use_triton_kernel,
+        old.use_cutedsl_kernel,
         old.act_quant_kwargs,
     )
     return new
@@ -457,6 +492,7 @@ def nvfp4_view_op(func, types, args, kwargs):
         args[0].act_per_tensor_scale,
         args[0].is_swizzled_scales,
         args[0].use_triton_kernel,
+        args[0].use_cutedsl_kernel,
         args[0].act_quant_kwargs,
     )
 
@@ -479,6 +515,7 @@ def nvfp4_select(func, types, args, kwargs):
         old.act_per_tensor_scale,
         old.is_swizzled_scales,
         old.use_triton_kernel,
+        old.use_cutedsl_kernel,
         old.act_quant_kwargs,
     )
     return return_and_correct_aliasing(func, args, kwargs, new)
@@ -610,6 +647,7 @@ def nvfp4_linear(func, types, args, kwargs):
             per_tensor_scale=per_tensor_scale,
             is_swizzled_scales=k.is_swizzled_scales,
             use_triton_kernel=k.use_triton_kernel,
+            use_cutedsl_kernel=k.use_cutedsl_kernel,
         )
         res = _addmm_nvfp4_dispatch(input_tensor, weight_tensor.t(), func, bias=bias)
         res = res.reshape(*orig_shape[:-1], res.shape[-1])
@@ -645,6 +683,7 @@ def nvfp4_mm(func, types, args, kwargs):
                 per_tensor_scale=per_tensor_scale,
                 is_swizzled_scales=k.is_swizzled_scales,
                 use_triton_kernel=k.use_triton_kernel,
+                use_cutedsl_kernel=k.use_cutedsl_kernel,
             )
         return _addmm_nvfp4_dispatch(input_tensor, weight_tensor, func)
 
@@ -699,6 +738,7 @@ def nvfp4_addmm(func, types, args, kwargs):
                 per_tensor_scale=per_tensor_scale,
                 is_swizzled_scales=k.is_swizzled_scales,
                 use_triton_kernel=k.use_triton_kernel,
+                use_cutedsl_kernel=k.use_cutedsl_kernel,
             )
         return _addmm_nvfp4_dispatch(input_tensor, weight_tensor, func, bias=bias)
 
