@@ -1,7 +1,7 @@
 # Copyright (c) Meta Platforms, Inc. and affiliates.
 # All rights reserved.
-#
-# This source code is licensed under the BSD 3-Clause license found in the
+
+# This source code is licensed under the license found in the
 # LICENSE file in the root directory of this source tree.
 
 """Fused MXFP4 (E2M1, block 32, E8M0) + Random Hadamard Transform CuTeDSL cast.
