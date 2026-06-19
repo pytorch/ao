@@ -80,3 +80,18 @@ class TestFp4Scale:
             rtol=0,
             atol=0,
         )
+
+
+class TestFwht32:
+    def test_fwht32_sign_matches_dense(self):
+        from torchao.prototype.mx_formats.cutedsl.fwht import fwht32_sign_host
+        from torchao.prototype.spinquant.hadamard_utils import hadamard_matrix
+
+        torch.manual_seed(0)
+        x = torch.randn(128, 32, dtype=torch.float32, device="cuda")
+        sign = (torch.randint(0, 2, (32,), device="cuda") * 2 - 1).to(torch.int32)
+        # normalized (1/sqrt(32)), symmetric Sylvester/Walsh-Hadamard matrix
+        H = hadamard_matrix(32, device="cuda").to(torch.float32)
+        ref = (x @ H) * sign.to(torch.float32)
+        ours = fwht32_sign_host(x, sign)  # (128, 32) f32
+        torch.testing.assert_close(ours, ref, rtol=1e-3, atol=1e-3)
