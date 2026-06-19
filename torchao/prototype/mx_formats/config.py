@@ -33,6 +33,19 @@ class MXFP8Dim1CastKernelChoice(Enum):
     CUTEDSL = "cutedsl"
 
 
+class MXFP4CastKernelChoice(str, Enum):
+    """
+    Defines which kernel to use for mxfp4 casting.
+
+    TORCH: emulated PyTorch cast (default).
+    CUTEDSL: fused Random Hadamard Transform + E2M1 quantize CuTeDSL kernel
+        (requires CUDA SM10.x, CUDA>=12.8, and nvidia-cutlass-dsl).
+    """
+
+    TORCH = "torch"
+    CUTEDSL = "cutedsl"
+
+
 # register as pytree constant so we can use dynamo nonstrict trace in torchao.prototype.moe_training.ep
 @register_as_pytree_constant
 class ScaleCalculationMode(Enum):

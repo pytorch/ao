@@ -39,6 +39,7 @@ if torch_version_at_least("2.12.0.dev0"):
 from torch.nn.functional import ScalingType, SwizzleType
 
 from torchao.prototype.mx_formats.config import (
+    MXFP4CastKernelChoice,
     MXFP8Dim0CastKernelChoice,
     ScaleCalculationMode,
 )
@@ -643,13 +644,58 @@ class MXTensor(TorchAOBaseTensor):
         act_quant_kwargs: Optional[QuantizeTensorToMXKwargs] = None,
         is_swizzled_scales: bool = False,
         mxfp8_dim0_cast_kernel_choice: MXFP8Dim0CastKernelChoice = MXFP8Dim0CastKernelChoice.TORCH,
+        mxfp4_cast_kernel_choice: MXFP4CastKernelChoice = MXFP4CastKernelChoice.TORCH,
+        rht_sign_vector: Optional[list[int]] = None,
     ):
+        """
+        Quantize ``data_hp`` to an ``MXTensor``.
+
+        ``mxfp4_cast_kernel_choice`` / ``rht_sign_vector`` (both trailing, defaulted):
+            When ``elem_dtype == torch.float4_e2m1fn_x2`` and
+            ``mxfp4_cast_kernel_choice == MXFP4CastKernelChoice.CUTEDSL``, a fused
+            per-32-block Random Hadamard Transform (using ``rht_sign_vector``, which
+            must have length ``block_size``) is applied before quantization. The
+            resulting ``MXTensor`` therefore represents ``RHT(x)`` and dequantizes to
+            ``≈RHT(x)``; the caller is responsible for applying the inverse rotation
+            after dequantize (RHT is caller-managed; no inverse is stored on the
+            tensor). The default ``MXFP4CastKernelChoice.TORCH`` path is unchanged and
+            does not require ``rht_sign_vector``.
+        """
         assert mxfp8_dim0_cast_kernel_choice in (
             MXFP8Dim0CastKernelChoice.TRITON,
             MXFP8Dim0CastKernelChoice.TORCH,
         ), (
             f"unsupported kernel choice for mxfp8_dim0_cast_kernel_choice: {mxfp8_dim0_cast_kernel_choice}"
         )
+
+        if (
+            elem_dtype == torch.float4_e2m1fn_x2
+            and mxfp4_cast_kernel_choice == MXFP4CastKernelChoice.CUTEDSL
+        ):
+            assert rht_sign_vector is not None and len(rht_sign_vector) == block_size, (
+                "MXFP4 CUTEDSL cast requires rht_sign_vector of length block_size"
+            )
+            from torchao.prototype.mx_formats.cutedsl import (
+                mxfp4_rht_quantize_cutedsl_2d,
+            )
+
+            data_lp, scale_e8m0 = mxfp4_rht_quantize_cutedsl_2d(
+                data_hp,
+                rht_sign_vector,
+                block_size,
+                scaling_mode.value.lower(),
+                is_swizzled_scales,
+            )
+            return MXTensor(
+                data_lp,
+                scale_e8m0,
+                elem_dtype,
+                block_size,
+                data_hp.dtype,
+                kernel_preference,
+                act_quant_kwargs,
+                is_swizzled_scales,
+            )
 
         triton_kernel_supported = (
             elem_dtype == torch.float8_e4m3fn and not is_swizzled_scales

@@ -204,3 +204,59 @@ class TestMxfp4RhtE2E:
 
         sqnr = compute_error(rht_true, deq).item()
         assert sqnr >= 13.0, f"SQNR {sqnr} dB below 13 dB for mode={mode}"
+
+
+class TestMxTensorThreading:
+    @pytest.mark.parametrize("mode", ["floor", "rceil"])
+    def test_mxtensor_cutedsl_matches_standalone(self, mode):
+        # The opt-in CUTEDSL path through MXTensor.to_mx must produce qdata/scale
+        # bit-identical to the standalone op called with the same arguments
+        # (same is_swizzled_scales=True -> apples-to-apples).
+        from torchao.prototype.mx_formats.config import MXFP4CastKernelChoice
+        from torchao.prototype.mx_formats.cutedsl import (
+            mxfp4_rht_quantize_cutedsl_2d,
+        )
+        from torchao.prototype.mx_formats.mx_tensor import (
+            MXTensor,
+            ScaleCalculationMode,
+        )
+
+        torch.manual_seed(0)
+        M, K = 256, 512
+        x = torch.randn(M, K, dtype=torch.bfloat16, device="cuda")
+        sign = (
+            (torch.randint(0, 2, (32,), device="cuda") * 2 - 1).to(torch.int32).tolist()
+        )
+        sm = {
+            "floor": ScaleCalculationMode.FLOOR,
+            "rceil": ScaleCalculationMode.RCEIL,
+        }[mode]
+        mxt = MXTensor.to_mx(
+            x,
+            torch.float4_e2m1fn_x2,
+            block_size=32,
+            scaling_mode=sm,
+            is_swizzled_scales=True,
+            mxfp4_cast_kernel_choice=MXFP4CastKernelChoice.CUTEDSL,
+            rht_sign_vector=sign,
+        )
+        q_ref, s_ref = mxfp4_rht_quantize_cutedsl_2d(x, sign, 32, mode, True)
+        torch.testing.assert_close(
+            mxt.qdata.view(torch.uint8), q_ref.view(torch.uint8), rtol=0, atol=0
+        )
+        torch.testing.assert_close(
+            mxt.scale.view(torch.uint8).flatten(),
+            s_ref.view(torch.uint8).flatten(),
+            rtol=0,
+            atol=0,
+        )
+
+    def test_default_path_unchanged(self):
+        # The default (TORCH) fp4 cast still works and does NOT require a sign
+        # vector -- the new trailing params are opt-in only.
+        from torchao.prototype.mx_formats.mx_tensor import MXTensor
+
+        torch.manual_seed(0)
+        x = torch.randn(128, 256, dtype=torch.bfloat16, device="cuda")
+        mxt = MXTensor.to_mx(x, torch.float4_e2m1fn_x2, block_size=32)
+        assert mxt.qdata.shape == (128, 128)
