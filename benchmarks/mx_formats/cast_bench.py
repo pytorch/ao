@@ -8,8 +8,13 @@ from typing import Tuple
 
 import fire
 import torch
-import triton
-from triton.testing import do_bench
+
+try:
+    import triton
+    from triton.testing import do_bench
+except ImportError:
+    triton = None
+    do_bench = None
 
 from torchao.prototype.mx_formats.config import ScaleCalculationMode
 from torchao.prototype.mx_formats.kernels import (
@@ -94,7 +99,19 @@ def to_nvfp4_reference_triton_swizzle(x_hp):
 
 
 def benchmark_cuda_function_in_microseconds(f, *args):
-    return do_bench(lambda: f(*args), return_mode="median") * 1e3
+    if do_bench is not None:
+        return do_bench(lambda: f(*args), return_mode="median") * 1e3
+    else:
+        # Fallback timing when triton is not available
+        import time
+
+        torch.cuda.synchronize()
+        start = time.perf_counter()
+        for _ in range(100):
+            f(*args)
+        torch.cuda.synchronize()
+        end = time.perf_counter()
+        return ((end - start) / 100) * 1e6  # Convert to microseconds
 
 
 def run(
@@ -106,7 +123,9 @@ def run(
     print(f"M {M} K {K} BLOCK_SIZE {BLOCK_SIZE}")
     print(f"GPU: {torch.cuda.get_device_name(0)}")
     print(f"torch version: {torch.__version__}")
-    print(f"triton version: {triton.__version__}")
+    print(
+        f"triton version: {triton.__version__ if triton is not None else 'not available'}"
+    )
     print(f"mode: {mode}")
     assert mode in (
         "memcpy",
@@ -130,6 +149,7 @@ def run(
         "dim0_mxfp8_cutedsl_2d_rceil",
         "dim1_mxfp8_cutedsl_2d_floor",
         "dim1_mxfp8_cutedsl_2d_rceil",
+        "dim1_mxfp4_rht_cutedsl_floor",
     )
 
     x = torch.randn(M, K, dtype=torch.bfloat16, device="cuda") * 1000
@@ -597,6 +617,35 @@ def run(
         bytes_r = x.numel() * bytes_per_el_bf16
         bytes_w = (y_d0.numel() + s_d0.numel()) * bytes_per_el_fp8
         bps = (bytes_r + bytes_w) / (time_us / 1e6)
+
+    elif mode == "dim1_mxfp4_rht_cutedsl_floor":
+        from torchao.prototype.mx_formats.cutedsl import mxfp4_rht_quantize_cutedsl_2d
+
+        # Generate sign vector: 32 random signs
+        sign = (
+            (torch.randint(0, 2, (32,), device="cuda") * 2 - 1).to(torch.int32).tolist()
+        )
+
+        # Warmup
+        for _ in range(2):
+            __ = mxfp4_rht_quantize_cutedsl_2d(x, sign, 32, "floor", True)
+
+        # Benchmark
+        time_us = benchmark_cuda_function_in_microseconds(
+            lambda x: mxfp4_rht_quantize_cutedsl_2d(x, sign, 32, "floor", True),
+            x,
+        )
+
+        # Validate output types
+        y_d1, s_d1 = mxfp4_rht_quantize_cutedsl_2d(x, sign, 32, "floor", True)
+        assert y_d1.dtype == torch.uint8
+        assert s_d1.dtype == torch.float8_e8m0fnu
+
+        # Throughput accounting: input bf16, output packed fp4 (uint8) + scales (fp8)
+        bytes_r = x.numel() * bytes_per_el_bf16
+        bytes_w = (y_d1.numel() + s_d1.numel()) * bytes_per_el_fp8
+        bps = (bytes_r + bytes_w) / (time_us / 1e6)
+
     else:
         raise AssertionError(f"unknown mode {mode}")
 
