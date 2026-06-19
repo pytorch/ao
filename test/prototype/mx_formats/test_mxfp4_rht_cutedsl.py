@@ -113,3 +113,94 @@ class TestMxfp4RhtSmoke:
         assert q.stride() == (K // 2, 1)
         assert s.dtype == torch.float8_e8m0fnu
         assert int((s.view(torch.uint8) != 0).sum()) > 0
+
+
+class TestMxfp4RhtE2E:
+    @pytest.mark.parametrize("mode", ["floor", "rceil"])
+    @pytest.mark.parametrize("shape", [(128, 256), (256, 512), (512, 128)])
+    def test_bitexact_vs_emulated_same_rht(self, mode, shape):
+        # (A) Feed the SAME RHT values to both sides via the validated
+        # ``fwht32_sign_host`` helper (the EXACT transform the kernel applies
+        # internally). This isolates quant/pack/scale/swizzle: since the FWHT is
+        # identical on both sides and Tasks 1-2 validated quant/pack/scale
+        # bit-exactly, this must be bit-exact -- any diff is a real kernel bug.
+        from torchao.prototype.mx_formats.cutedsl import (
+            mxfp4_rht_quantize_cutedsl_2d,
+        )
+        from torchao.prototype.mx_formats.cutedsl.fwht import fwht32_sign_host
+        from torchao.prototype.mx_formats.mx_tensor import ScaleCalculationMode, to_mx
+        from torchao.prototype.mx_formats.utils import to_blocked
+
+        torch.manual_seed(0)
+        M, K = shape
+        x = torch.randn(M, K, dtype=torch.bfloat16, device="cuda")
+        sign = (torch.randint(0, 2, (32,), device="cuda") * 2 - 1).to(torch.int32)
+
+        # The kernel TMA-loads the bf16 input and widens each element to fp32
+        # before the FWHT, so the reference must apply the FWHT to the SAME
+        # bf16-rounded-then-widened values (``x.float()``). ``fwht32_sign_host``
+        # is bit-identical to the device ``fwht32_sign`` the kernel inlines.
+        rht = fwht32_sign_host(x.float().reshape(-1, 32), sign).reshape(M, K)
+
+        sm = {
+            "floor": ScaleCalculationMode.FLOOR,
+            "rceil": ScaleCalculationMode.RCEIL,
+        }[mode]
+        # to_mx returns (scale, data) in that order.
+        s_ref, q_ref = to_mx(
+            rht, torch.float4_e2m1fn_x2, block_size=32, scaling_mode=sm
+        )
+        s_ref_sw = to_blocked(s_ref.view(M, K // 32))
+
+        q, s = mxfp4_rht_quantize_cutedsl_2d(x, sign.tolist(), 32, mode, True)
+
+        torch.testing.assert_close(
+            q.view(torch.uint8), q_ref.view(torch.uint8), rtol=0, atol=0
+        )
+        torch.testing.assert_close(
+            s.view(torch.uint8).flatten()[: s_ref_sw.numel()],
+            s_ref_sw.view(torch.uint8).flatten(),
+            rtol=0,
+            atol=0,
+        )
+        assert q.stride() == (K // 2, 1)
+
+    @pytest.mark.parametrize("mode", ["floor", "rceil"])
+    def test_sqnr_vs_dense_reference(self, mode):
+        # (B) Faithfulness of the WHOLE fused pipeline (incl. the FWHT) vs the
+        # true high-precision dense RHT ``(x @ H) * sign``.
+        from torchao.prototype.mx_formats.cutedsl import (
+            mxfp4_rht_quantize_cutedsl_2d,
+        )
+        from torchao.prototype.mx_formats.kernels import (
+            f4_unpacked_to_f32,
+            unpack_uint4,
+        )
+        from torchao.prototype.spinquant.hadamard_utils import hadamard_matrix
+        from torchao.quantization.utils import compute_error
+
+        torch.manual_seed(0)
+        M, K = 256, 512
+        x = torch.randn(M, K, dtype=torch.bfloat16, device="cuda")
+        sign = (torch.randint(0, 2, (32,), device="cuda") * 2 - 1).to(torch.int32)
+
+        # True high-precision dense RHT on the (bf16-rounded) input the kernel
+        # sees: (x @ H) * sign. hadamard_matrix(32) is normalized (1/sqrt(32)).
+        H = hadamard_matrix(32, device="cuda").to(torch.float32)
+        rht_true = ((x.float().reshape(-1, 32) @ H) * sign.float()).reshape(M, K)
+
+        # Plain (unswizzled) scales of shape (M, K // 32) for easy dequant.
+        q, s = mxfp4_rht_quantize_cutedsl_2d(x, sign.tolist(), 32, mode, False)
+
+        # Dequant: unpack two nibbles/byte -> e2m1 codes (low nibble first),
+        # decode to fp32 values, then multiply by 2^(e8m0_byte - 127) per block.
+        codes = unpack_uint4(q)  # (M, K) uint8 fp4 codes in bits 0-3
+        vals = f4_unpacked_to_f32(codes).reshape(M, K)
+        e8 = s.view(torch.uint8).to(torch.int32).reshape(M, K // 32)
+        scale = torch.pow(
+            torch.tensor(2.0, device="cuda"), (e8 - 127).float()
+        ).repeat_interleave(32, dim=1)
+        deq = vals * scale
+
+        sqnr = compute_error(rht_true, deq).item()
+        assert sqnr >= 13.0, f"SQNR {sqnr} dB below 13 dB for mode={mode}"
