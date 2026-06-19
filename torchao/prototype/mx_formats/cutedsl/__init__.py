@@ -46,8 +46,47 @@ def pack32_e2m1_to_bytes(x: torch.Tensor) -> torch.Tensor:
     return _impl(x)
 
 
+def mxfp4_rht_quantize_cutedsl_2d(
+    x,
+    sign_vector,
+    block_size: int = 32,
+    scaling_mode: str = "floor",
+    is_swizzled_scales: bool = True,
+):
+    """Lazily re-exported gated wrapper for the fused MXFP4 + RHT cast.
+
+    See ``mxfp4_rht_quantize.mxfp4_rht_quantize_cutedsl_2d``. Imported lazily so
+    that importing this package does not require the CuTeDSL runtime.
+    """
+    from .mxfp4_rht_quantize import mxfp4_rht_quantize_cutedsl_2d as _impl
+
+    return _impl(x, sign_vector, block_size, scaling_mode, is_swizzled_scales)
+
+
+def mxfp4_rht_quantize_cutedsl(
+    x,
+    sign_vector,
+    block_size: int = 32,
+    scaling_mode: str = "floor",
+    is_swizzled_scales: bool = True,
+    stage_count: int = 2,
+):
+    """Lazily re-exported custom op for the fused MXFP4 + RHT cast.
+
+    See ``mxfp4_rht_quantize.mxfp4_rht_quantize_cutedsl``. Imported lazily so
+    that importing this package does not require the CuTeDSL runtime.
+    """
+    from .mxfp4_rht_quantize import mxfp4_rht_quantize_cutedsl as _impl
+
+    return _impl(
+        x, sign_vector, block_size, scaling_mode, is_swizzled_scales, stage_count
+    )
+
+
 __all__ = [
     "_is_sm_10x",
     "_mxfp4_rht_cutedsl_kernels_available",
     "pack32_e2m1_to_bytes",
+    "mxfp4_rht_quantize_cutedsl_2d",
+    "mxfp4_rht_quantize_cutedsl",
 ]

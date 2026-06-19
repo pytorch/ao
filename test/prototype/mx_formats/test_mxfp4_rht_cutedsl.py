@@ -95,3 +95,21 @@ class TestFwht32:
         ref = (x @ H) * sign.to(torch.float32)
         ours = fwht32_sign_host(x, sign)  # (128, 32) f32
         torch.testing.assert_close(ours, ref, rtol=1e-3, atol=1e-3)
+
+
+class TestMxfp4RhtSmoke:
+    def test_runs_and_shapes(self):
+        from torchao.prototype.mx_formats.cutedsl import (
+            mxfp4_rht_quantize_cutedsl_2d,
+        )
+
+        torch.manual_seed(0)
+        M, K = 128, 256
+        x = torch.randn(M, K, dtype=torch.bfloat16, device="cuda")
+        sign = [1, -1] * 16
+        q, s = mxfp4_rht_quantize_cutedsl_2d(x, sign, 32, "floor", True)
+        assert q.shape == (M, K // 2)
+        assert q.dtype == torch.uint8
+        assert q.stride() == (K // 2, 1)
+        assert s.dtype == torch.float8_e8m0fnu
+        assert int((s.view(torch.uint8) != 0).sum()) > 0

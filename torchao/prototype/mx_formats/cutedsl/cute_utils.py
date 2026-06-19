@@ -216,7 +216,7 @@ if _cutedsl_runtime_available():
 
     @cute.jit
     def compute_scale_floor_fp4(amax: cutlass.Float32):
-        """FP4 FLOOR-mode E8M0 biased scale byte.
+        """FP4 FLOOR-mode E8M0 biased scale byte + fp32 inverse scale.
 
         Mirrors torchao eager ``to_mx`` (FLOOR branch) for
         ``elem_dtype=torch.float4_e2m1fn_x2``:
@@ -225,8 +225,17 @@ if _cutedsl_runtime_available():
             scale_unbiased     = extracted_pow2 - F4_E2M1_MAX_POW2    # -2, NOT -8
             scale_unbiased     = clamp(scale_unbiased, -127, 128)
             scale_biased(byte) = scale_unbiased + 127
+            inv_scale          = 2 ** (-scale_unbiased)
 
-        Returns the biased E8M0 byte as Int32 (caller stores low 8 bits).
+        The ``inv_scale`` is the value the quantizer multiplies each element by
+        before the E2M1 conversion (it is ``1 / 2**scale_unbiased``). The eager
+        FLOOR path floors the divisor to ``2**-126``; the matching cap here is
+        ``inv_scale <= 2**126`` (i.e. ``scale_unbiased >= -126``), so we clamp
+        the exponent used for ``inv_scale`` at the bottom.
+
+        Returns ``(scale_biased, inv_scale)`` where ``scale_biased`` is the
+        biased E8M0 byte as Int32 (caller stores low 8 bits) and ``inv_scale``
+        is a ``Float32``.
         """
         bits = _dsl_arith.bitcast(amax.ir_value(), _dsl_arith.T.i32())
         exp_i = ((bits >> cutlass.Int32(23)) & cutlass.Int32(0xFF)) - cutlass.Int32(
@@ -238,31 +247,51 @@ if _cutedsl_runtime_available():
         if scale_exp_unbiased > E8M0_EXPONENT_BIAS + 1:
             scale_exp_unbiased = cutlass.Int32(E8M0_EXPONENT_BIAS + 1)
         scale_biased = scale_exp_unbiased + E8M0_EXPONENT_BIAS
-        return scale_biased
+        # inv_scale = 2 ** (-scale_unbiased); divisor floored to 2**-126, so the
+        # inverse is capped at 2**126 (scale_exp_unbiased >= -126).
+        inv_exp = -scale_exp_unbiased
+        if inv_exp > cutlass.Int32(126):
+            inv_exp = cutlass.Int32(126)
+        inv_scale = cute.exp2(cutlass.Float32(inv_exp))
+        return scale_biased, inv_scale
 
     @cute.jit
     def compute_scale_rceil_fp4(amax: cutlass.Float32):
-        """FP4 RCEIL-mode E8M0 biased scale byte.
+        """FP4 RCEIL-mode E8M0 biased scale byte + fp32 inverse scale.
 
         Mirrors torchao eager ``_to_mx_rceil`` for
         ``elem_dtype=torch.float4_e2m1fn_x2`` (``max_pos == F4_E2M1_MAX == 6.0``):
 
             descale = amax / 6.0   (i.e. amax * INV_F4_E2M1_MAX, NOT 1/448)
             biased  = cvt.rp.satfinite.ue8m0x2.f32(0.0, descale)  # low byte
+            inv_scale = 2 ** (127 - biased)
 
-        Hardware saturates / handles NaN -> 255, Inf -> 254. Returns the biased
-        E8M0 byte as Int32 (caller stores low 8 bits).
+        Hardware saturates / handles NaN -> 255, Inf -> 254. The ``inv_scale``
+        is derived from the biased byte exactly like the mxfp8 RCEIL helper:
+        byte ``0xFF`` (NaN) -> 0.0, byte ``0`` -> ``2**126`` (subnormal floor),
+        else ``2**(127 - biased)``.
+
+        Returns ``(scale_biased, inv_scale)`` where ``scale_biased`` is the
+        biased E8M0 byte as Int32 (caller stores low 8 bits) and ``inv_scale``
+        is a ``Float32``.
         """
         descale = amax * INV_F4_E2M1_MAX
         scale_biased = cutlass.Int32(_cvt_rp_satfinite_ue8m0x2_f32(descale))
-        return scale_biased
+        inv_scale = cutlass.Float32(1.0)
+        if scale_biased == 0xFF:
+            inv_scale = cutlass.Float32(0.0)
+        elif scale_biased == 0:
+            inv_scale = cute.exp2(cutlass.Float32(126.0))
+        else:
+            inv_scale = cute.exp2(cutlass.Float32(127 - scale_biased))
+        return scale_biased, inv_scale
 
     @cute.jit
     def compute_scale_byte_fp4(
         amax: cutlass.Float32,
         USE_RCEIL: cutlass.Constexpr[bool],
     ):
-        """Dispatch to the FP4 FLOOR / RCEIL E8M0 biased scale byte.
+        """Dispatch to the FP4 FLOOR / RCEIL E8M0 biased scale byte + inv_scale.
 
         Matches eager ``to_mx``: a NaN ``amax`` maps to the E8M0 NaN byte
         (255). For FLOOR a non-NaN ``amax`` always uses the bit-extraction
@@ -270,15 +299,19 @@ if _cutedsl_runtime_available():
         eager, since ``floor(log2(0)) = -127`` clamps and ``0 -> extracted
         pow2 = -127``... handled by clamp). RCEIL uses the saturating PTX cvt,
         which itself maps subnormal/zero descale -> 0.
+
+        Returns ``(scale_biased, inv_scale)``. For a NaN ``amax`` the
+        ``inv_scale`` is ``0.0`` (matching the E8M0 NaN byte).
         """
         # NaN amax -> E8M0 NaN byte, matching eager to_mx.
         scale_biased = cutlass.Int32(E8M0_EXPONENT_NAN_VAL)
+        inv_scale = cutlass.Float32(0.0)
         if amax == amax:  # not NaN
             if cutlass.const_expr(USE_RCEIL):
-                scale_biased = compute_scale_rceil_fp4(amax)
+                scale_biased, inv_scale = compute_scale_rceil_fp4(amax)
             else:
-                scale_biased = compute_scale_floor_fp4(amax)
-        return scale_biased
+                scale_biased, inv_scale = compute_scale_floor_fp4(amax)
+        return scale_biased, inv_scale
 
     @cute.kernel
     def _block_scale_e8m0_fp4_kernel(
@@ -301,7 +334,7 @@ if _cutedsl_runtime_available():
             for j in cutlass.range_constexpr(32):
                 vals[j] = cutlass.Float32(gx[block, j])
             amax = compute_amax(vals)
-            scale_biased = compute_scale_byte_fp4(amax, USE_RCEIL)
+            scale_biased, _ = compute_scale_byte_fp4(amax, USE_RCEIL)
             gscale[block] = cutlass.Uint8(scale_biased & cutlass.Int32(0xFF))
 
     @cute.jit
