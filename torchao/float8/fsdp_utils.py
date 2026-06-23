@@ -225,7 +225,9 @@ class WeightWithDynamicFloat8CastTensor(torch.Tensor):
     def __repr__(self):
         return f"WeightWithDynamicFloat8CastTensor(tensor={self._tensor}, linear_mm_config={self._linear_mm_config}, dtype={self._dtype})"
 
-    def fsdp_pre_all_gather(self, mesh):
+    def fsdp_pre_all_gather(
+        self, mesh, outer_size=None, outer_stride=None, module=None, mp_policy=None
+    ):
         if self._precomputed_scale is not None:
             float8_training_tensor = hp_tensor_and_scale_to_float8(
                 self._tensor,
@@ -243,7 +245,21 @@ class WeightWithDynamicFloat8CastTensor(torch.Tensor):
                 gemm_input_role=GemmInputRole.WEIGHT,
                 device_mesh=mesh,
             )
-        return (float8_training_tensor._data,), (float8_training_tensor._scale,)
+        data = float8_training_tensor._data
+        # Pad the fp8 data to match FSDP2's padded shard size for uneven sharding.
+        # When the parameter's shard dim doesn't divide evenly by world_size,
+        # FSDP2 expects all-gather inputs at the padded (ceil) size.
+        if outer_size is not None:
+            import math
+            shard_dim = 0
+            padded_dim0 = math.ceil(outer_size[shard_dim] / mesh.size())
+            if data.shape[shard_dim] < padded_dim0:
+                padded_shape = list(data.shape)
+                padded_shape[shard_dim] = padded_dim0
+                padded = data.new_zeros(padded_shape)
+                padded[: data.shape[shard_dim]] = data
+                data = padded
+        return (data,), (float8_training_tensor._scale,)
 
     def fsdp_post_all_gather(
         self,
