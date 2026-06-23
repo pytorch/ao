@@ -23,8 +23,9 @@ def benchmark_fn_in_usec(f, *args, **kwargs):
 
 def run(torch_compile_mode: str = "default"):
     M, K, N = 1024, 2048, 4096
-    x = torch.randn(M, K, device="cuda", dtype=torch.bfloat16)
-    m = nn.Sequential(nn.Linear(K, N, device="cuda", dtype=torch.bfloat16))
+    device = torch.accelerator.current_accelerator()
+    x = torch.randn(M, K, device=device, dtype=torch.bfloat16)
+    m = nn.Sequential(nn.Linear(K, N, device=device, dtype=torch.bfloat16))
     quantize_(m, Float8DynamicActivationFloat8WeightConfig(granularity=PerRow()))
     m = torch.compile(m, mode=torch_compile_mode)
     # warm up
