@@ -21,6 +21,16 @@ def _group_sizes_tensor(group_end_offsets: torch.Tensor) -> torch.Tensor:
 
 @dataclass(frozen=True)
 class DeepGemmKGroupedQuantMetadata:
+    """Launch metadata for DeepGEMM K-grouped activation quantization.
+
+    Args:
+        dim: Logical feature dimension of the activation being quantized.
+        group_sizes: Host-side token count for each expert group.
+        q_offset_by_block: Per-token-block base offset into DeepGEMM's flat
+            per-expert ``(dim, expert_tokens)`` output buffer.
+        group_size_by_block: Token count for the expert owning each token block.
+    """
+
     dim: int
     group_sizes: list[int]
     q_offset_by_block: torch.Tensor
@@ -37,6 +47,17 @@ class DeepGemmKGroupedQuantMetadata:
 
 @dataclass(frozen=True)
 class DeepGemmGroupedOffsetPlan:
+    """Offset metadata shared by DeepGEMM grouped GEMM calls.
+
+    Args:
+        group_end_offsets: Cumulative end offsets for the padded expert groups.
+        grouped_layout: Int32 row-to-expert mapping consumed by DeepGEMM's
+            M-grouped kernel. Padding rows are marked as ``-1``.
+        groups_block_aligned_by_construction: True when the caller has already
+            padded every expert group to the block size, so alignment checks can
+            skip a device-to-host reduction.
+    """
+
     group_end_offsets: torch.Tensor
     grouped_layout: torch.Tensor
     groups_block_aligned_by_construction: bool = False
@@ -87,6 +108,8 @@ class DeepGemmGroupedOffsetPlan:
 
 
 def group_sizes_from_offsets(group_end_offsets: torch.Tensor) -> list[int]:
+    """Convert cumulative int32 group end offsets to host-side group sizes."""
+
     assert group_end_offsets is not None and group_end_offsets.dtype == torch.int32, (
         "group_end_offsets must be int32"
     )
@@ -101,6 +124,16 @@ def build_deepgemm_grouped_offset_plan(
     num_rows: int | None = None,
     groups_block_aligned_by_construction: bool = False,
 ) -> DeepGemmGroupedOffsetPlan:
+    """Build the row layout and offsets required by DeepGEMM grouped kernels.
+
+    ``group_end_offsets`` describes the padded groups passed to grouped GEMM.
+    When padding was applied, ``original_group_end_offsets`` and
+    ``padded_group_start_offsets`` identify the live token ranges inside each
+    padded group so ``grouped_layout`` can route only real rows and mark padding
+    rows as ``-1``. ``num_rows`` controls the layout length; if omitted, the
+    last padded offset is used.
+    """
+
     if original_group_end_offsets is not None:
         assert original_group_end_offsets.dtype == torch.int32, (
             "original_group_end_offsets must be int32"
@@ -136,9 +169,10 @@ def _build_deepgemm_m_grouped_layout(
     padded_group_start_offsets: torch.Tensor | None = None,
     num_rows: int | None = None,
 ) -> torch.Tensor:
-    # DeepGEMM's contiguous M-grouped kernel wants one int32 entry per row:
-    # grouped_layout[row] = expert_idx. Padded rows are marked -1 so the kernel
-    # skips them instead of routing them to an expert.
+    """Build DeepGEMM's per-row expert map for M-grouped GEMM."""
+
+    # Padded rows are marked -1 so the kernel skips them instead of routing
+    # them to an expert.
     assert group_end_offsets.dtype == torch.int32, "group_end_offsets must be int32"
     device = group_end_offsets.device
 
@@ -173,6 +207,13 @@ def build_deepgemm_k_grouped_quant_metadata(
     block_size: int,
     dim: int,
 ) -> DeepGemmKGroupedQuantMetadata:
+    """Build dense per-block metadata for compact K-grouped quantization.
+
+    DeepGEMM's K-grouped wgrad operands concatenate each expert as a flat
+    ``(dim, expert_tokens)`` slice. This helper maps each valid token block to
+    the base offset and expert size needed by the compact Triton quantizer.
+    """
+
     q_offset_by_block = []
     group_size_by_block = []
     group_start = 0

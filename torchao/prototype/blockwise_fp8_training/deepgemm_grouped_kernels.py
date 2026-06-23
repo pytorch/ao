@@ -38,6 +38,8 @@ _DEEPGEMM_DIRECT_K_GROUPED_QUANT_MIN_DIM = 4096
 
 
 class DeepGemmKGroupedLayout(str, Enum):
+    """How a K-grouped operand is represented before DeepGEMM dispatch."""
+
     FLAT = "flat"
     TORCHAO_TRANSPOSED_LHS = "torchao_transposed_lhs"
     TORCHAO_RHS = "torchao_rhs"
@@ -45,6 +47,16 @@ class DeepGemmKGroupedLayout(str, Enum):
 
 @dataclass(frozen=True)
 class DeepGemmKGroupedOperand:
+    """A quantized K-grouped operand plus enough layout info to dispatch it.
+
+    Args:
+        data: FP8 data buffer, either already flat in DeepGEMM order or in a
+            TorchAO intermediate layout.
+        scale: Float32 inverse scales for the operand.
+        dim: Logical non-token dimension used by DeepGEMM's K-grouped API.
+        layout: Current representation of ``data``.
+    """
+
     data: torch.Tensor
     scale: torch.Tensor
     dim: int
@@ -53,12 +65,16 @@ class DeepGemmKGroupedOperand:
 
 @dataclass(frozen=True)
 class DeepGemmWgradPlan:
+    """Quantized operands for DeepGEMM's K-grouped weight-gradient kernel."""
+
     lhs: DeepGemmKGroupedOperand
     rhs: DeepGemmKGroupedOperand
 
 
 @dataclass(frozen=True)
 class DeepGemmCapabilities:
+    """Cached import result and training symbols for the optional dependency."""
+
     module: object | None
     import_error: ImportError | None
     m_grouped_gemm: object | None

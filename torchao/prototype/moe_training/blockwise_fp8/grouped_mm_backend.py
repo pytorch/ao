@@ -38,19 +38,17 @@ from torchao.prototype.blockwise_fp8_training.kernels import (
 from torchao.quantization.quantize_.common import KernelPreference
 
 
-class _GroupedMMBackend(str, Enum):
+class _GroupedMMBackendKind(str, Enum):
+    """Grouped GEMM backend selected for the FP8 MoE training op."""
+
     DEEPGEMM = "deepgemm"
     EMULATED = "emulated"
 
 
-@dataclass(frozen=True)
-class _GroupedMMBackendSelection:
-    plan: "_GroupedMMBackendPlan"
-    deepgemm_offset_plan: DeepGemmGroupedOffsetPlan | None
+class _GroupedMMBackend:
+    """Backend-specific quantization and grouped GEMM implementation."""
 
-
-class _GroupedMMBackendPlan:
-    kind: _GroupedMMBackend
+    kind: _GroupedMMBackendKind
 
     def quantize_forward_rhs(
         self,
@@ -79,8 +77,6 @@ class _GroupedMMBackendPlan:
         offs: torch.Tensor,
         out_dtype: torch.dtype,
         block_size: int,
-        *,
-        deepgemm_offset_plan: DeepGemmGroupedOffsetPlan | None,
     ) -> torch.Tensor:
         raise NotImplementedError
 
@@ -92,14 +88,14 @@ class _GroupedMMBackendPlan:
         out_dtype: torch.dtype,
         block_size: int,
         dtype: torch.dtype,
-        *,
-        deepgemm_offset_plan: DeepGemmGroupedOffsetPlan | None,
     ) -> torch.Tensor:
         raise NotImplementedError
 
 
-class _EmulatedGroupedMMBackendPlan(_GroupedMMBackendPlan):
-    kind = _GroupedMMBackend.EMULATED
+class _EmulatedGroupedMMBackend(_GroupedMMBackend):
+    """TorchAO emulated backend that preserves the original grouped_mm path."""
+
+    kind = _GroupedMMBackendKind.EMULATED
 
     def quantize_forward_rhs(
         self,
@@ -141,8 +137,6 @@ class _EmulatedGroupedMMBackendPlan(_GroupedMMBackendPlan):
         offs: torch.Tensor,
         out_dtype: torch.dtype,
         block_size: int,
-        *,
-        deepgemm_offset_plan: DeepGemmGroupedOffsetPlan | None,
     ) -> torch.Tensor:
         return emulated_blockwise_scaled_grouped_mm(
             a,
@@ -164,8 +158,6 @@ class _EmulatedGroupedMMBackendPlan(_GroupedMMBackendPlan):
         out_dtype: torch.dtype,
         block_size: int,
         dtype: torch.dtype,
-        *,
-        deepgemm_offset_plan: DeepGemmGroupedOffsetPlan | None,
     ) -> torch.Tensor:
         grad_output_t_fp8, grad_output_t_scale = (
             triton_fp8_blockwise_act_quant_transposed_lhs(
@@ -192,8 +184,12 @@ class _EmulatedGroupedMMBackendPlan(_GroupedMMBackendPlan):
         )
 
 
-class _DeepGemmGroupedMMBackendPlan(_GroupedMMBackendPlan):
-    kind = _GroupedMMBackend.DEEPGEMM
+@dataclass(frozen=True)
+class _DeepGemmGroupedMMBackend(_GroupedMMBackend):
+    """DeepGEMM backend plus the offset metadata shared by its kernels."""
+
+    kind = _GroupedMMBackendKind.DEEPGEMM
+    offset_plan: DeepGemmGroupedOffsetPlan
 
     def quantize_forward_rhs(
         self,
@@ -236,12 +232,7 @@ class _DeepGemmGroupedMMBackendPlan(_GroupedMMBackendPlan):
         offs: torch.Tensor,
         out_dtype: torch.dtype,
         block_size: int,
-        *,
-        deepgemm_offset_plan: DeepGemmGroupedOffsetPlan | None,
     ) -> torch.Tensor:
-        assert deepgemm_offset_plan is not None, (
-            "DeepGEMM backend requires grouped offset metadata"
-        )
         return deepgemm_blockwise_scaled_grouped_mm(
             a,
             b,
@@ -252,7 +243,7 @@ class _DeepGemmGroupedMMBackendPlan(_GroupedMMBackendPlan):
             offs,
             out_dtype,
             block_size,
-            offset_plan=deepgemm_offset_plan,
+            offset_plan=self.offset_plan,
         )
 
     def wgrad(
@@ -263,16 +254,11 @@ class _DeepGemmGroupedMMBackendPlan(_GroupedMMBackendPlan):
         out_dtype: torch.dtype,
         block_size: int,
         dtype: torch.dtype,
-        *,
-        deepgemm_offset_plan: DeepGemmGroupedOffsetPlan | None,
     ) -> torch.Tensor:
-        assert deepgemm_offset_plan is not None, (
-            "DeepGEMM backend requires grouped offset metadata"
-        )
         wgrad_plan = prepare_deepgemm_wgrad_plan(
             padded_grad_output,
             padded_a,
-            deepgemm_offset_plan,
+            self.offset_plan,
             block_size,
             dtype,
         )
@@ -282,14 +268,13 @@ class _DeepGemmGroupedMMBackendPlan(_GroupedMMBackendPlan):
         return deepgemm_blockwise_scaled_grouped_mm_wgrad(
             wgrad_plan.lhs,
             wgrad_plan.rhs,
-            deepgemm_offset_plan,
+            self.offset_plan,
             out_dtype,
             block_size,
         )
 
 
-_EMULATED_GROUPED_MM_BACKEND_PLAN = _EmulatedGroupedMMBackendPlan()
-_DEEPGEMM_GROUPED_MM_BACKEND_PLAN = _DeepGemmGroupedMMBackendPlan()
+_EMULATED_GROUPED_MM_BACKEND = _EmulatedGroupedMMBackend()
 
 
 def _select_fp8_blockwise_grouped_mm_backend(
@@ -302,37 +287,36 @@ def _select_fp8_blockwise_grouped_mm_backend(
     original_group_end_offsets: Optional[torch.Tensor] = None,
     padded_group_start_offsets: Optional[torch.Tensor] = None,
     num_rows: Optional[int] = None,
-) -> _GroupedMMBackendSelection:
+) -> _GroupedMMBackend:
+    """Select the grouped GEMM backend for one forward/backward pass.
+
+    ``KernelPreference.EMULATED`` always selects the TorchAO emulated backend.
+    ``KernelPreference.AUTO`` selects DeepGEMM only when the optional dependency
+    exposes both M-grouped and K-grouped training kernels, the input is on
+    CUDA SM90+, ``out_dtype`` is bf16, ``block_size`` is 128, and every expert
+    group is block-aligned. Any unsupported AUTO case falls back to emulated.
+    When DeepGEMM is selected, the returned backend owns the offset/layout plan
+    reused by forward, dgrad, and wgrad.
+    """
+
     if kernel_preference == KernelPreference.EMULATED:
-        return _GroupedMMBackendSelection(
-            plan=_EMULATED_GROUPED_MM_BACKEND_PLAN,
-            deepgemm_offset_plan=None,
-        )
+        return _EMULATED_GROUPED_MM_BACKEND
 
     assert kernel_preference == KernelPreference.AUTO, (
         "kernel_preference must be AUTO or EMULATED"
     )
     if not can_use_deepgemm_grouped_training(A, out_dtype, block_size):
-        return _GroupedMMBackendSelection(
-            plan=_EMULATED_GROUPED_MM_BACKEND_PLAN,
-            deepgemm_offset_plan=None,
-        )
+        return _EMULATED_GROUPED_MM_BACKEND
 
     groups_block_aligned_by_construction = original_group_end_offsets is not None
-    deepgemm_offset_plan = build_deepgemm_grouped_offset_plan(
+    offset_plan = build_deepgemm_grouped_offset_plan(
         group_end_offsets,
         original_group_end_offsets=original_group_end_offsets,
         padded_group_start_offsets=padded_group_start_offsets,
         num_rows=num_rows,
         groups_block_aligned_by_construction=groups_block_aligned_by_construction,
     )
-    if not deepgemm_offset_plan.groups_are_block_aligned(block_size):
-        return _GroupedMMBackendSelection(
-            plan=_EMULATED_GROUPED_MM_BACKEND_PLAN,
-            deepgemm_offset_plan=None,
-        )
+    if not offset_plan.groups_are_block_aligned(block_size):
+        return _EMULATED_GROUPED_MM_BACKEND
 
-    return _GroupedMMBackendSelection(
-        plan=_DEEPGEMM_GROUPED_MM_BACKEND_PLAN,
-        deepgemm_offset_plan=deepgemm_offset_plan,
-    )
+    return _DeepGemmGroupedMMBackend(offset_plan=offset_plan)

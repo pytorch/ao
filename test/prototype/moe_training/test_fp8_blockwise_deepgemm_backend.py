@@ -8,6 +8,8 @@ import importlib
 
 import pytest
 import torch
+from torch._subclasses.fake_tensor import FakeTensorMode
+from torch.fx.experimental.symbolic_shapes import ShapeEnv, has_free_symbols
 
 pytest.importorskip("triton", reason="Triton required for blockwise FP8 modules")
 
@@ -81,7 +83,7 @@ def test_deepgemm_backend_reports_broken_install(monkeypatch, exc):
 
 def test_auto_backend_selection_falls_back_without_deepgemm(monkeypatch):
     from torchao.prototype.moe_training.blockwise_fp8.grouped_mm_backend import (
-        _GroupedMMBackend,
+        _GroupedMMBackendKind,
         _select_fp8_blockwise_grouped_mm_backend,
     )
 
@@ -98,12 +100,12 @@ def test_auto_backend_selection_falls_back_without_deepgemm(monkeypatch):
         torch.tensor([128], dtype=torch.int32),
     )
 
-    assert backend.plan.kind == _GroupedMMBackend.EMULATED
+    assert backend.kind == _GroupedMMBackendKind.EMULATED
 
 
 def test_auto_backend_selection_requires_full_deepgemm_training_symbols(monkeypatch):
     from torchao.prototype.moe_training.blockwise_fp8.grouped_mm_backend import (
-        _GroupedMMBackend,
+        _GroupedMMBackendKind,
         _select_fp8_blockwise_grouped_mm_backend,
     )
 
@@ -131,12 +133,12 @@ def test_auto_backend_selection_requires_full_deepgemm_training_symbols(monkeypa
         torch.tensor([128], dtype=torch.int32),
     )
 
-    assert backend.plan.kind == _GroupedMMBackend.EMULATED
+    assert backend.kind == _GroupedMMBackendKind.EMULATED
 
 
 def test_auto_backend_selection_prefers_deepgemm_when_training_supported(monkeypatch):
     from torchao.prototype.moe_training.blockwise_fp8.grouped_mm_backend import (
-        _GroupedMMBackend,
+        _GroupedMMBackendKind,
         _select_fp8_blockwise_grouped_mm_backend,
     )
 
@@ -170,9 +172,8 @@ def test_auto_backend_selection_prefers_deepgemm_when_training_supported(monkeyp
         num_rows=384,
     )
 
-    assert backend.plan.kind == _GroupedMMBackend.DEEPGEMM
-    assert backend.deepgemm_offset_plan is not None
-    layout = backend.deepgemm_offset_plan.grouped_layout
+    assert backend.kind == _GroupedMMBackendKind.DEEPGEMM
+    layout = backend.offset_plan.grouped_layout
     assert torch.equal(layout[:128], torch.full((128,), 0, dtype=torch.int32))
     assert torch.equal(layout[128:256], torch.full((128,), 1, dtype=torch.int32))
     assert torch.equal(layout[256:], torch.full((128,), -1, dtype=torch.int32))
@@ -288,6 +289,30 @@ def test_deepgemm_weight_quant_supports_compile_fullgraph():
     assert scale.shape == (1, 1, 1)
     assert scale.dtype == torch.float32
     assert compiled_frame_counter.frame_count == 1
+
+
+def test_deepgemm_k_grouped_activation_quant_fake_contract_tracks_valid_tokens():
+    from torchao.prototype.blockwise_fp8_training.deepgemm_quant import (
+        triton_fp8_blockwise_act_quant_k_grouped_deepgemm,
+    )
+
+    x = torch.empty((896, 4096), dtype=torch.bfloat16)
+    offs = torch.tensor([256, 512, 640], dtype=torch.int32)
+    shape_env = ShapeEnv(allow_dynamic_output_shape_ops=True)
+
+    with FakeTensorMode(shape_env=shape_env) as mode:
+        x_fake = mode.from_tensor(x)
+        offs_fake = mode.from_tensor(offs)
+        q, scale = triton_fp8_blockwise_act_quant_k_grouped_deepgemm(
+            x_fake,
+            offs_fake,
+        )
+
+    assert q.dtype == e4m3_dtype
+    assert scale.dtype == torch.float32
+    assert scale.shape[0] == x.shape[1]
+    assert has_free_symbols(q.shape[0])
+    assert has_free_symbols(scale.shape[1])
 
 
 @pytest.mark.skipif(

@@ -124,7 +124,7 @@ class _Float8BlockwiseGroupedMM(torch.autograd.Function):
         else:
             padded_A = A
 
-        backend_selection = _select_fp8_blockwise_grouped_mm_backend(
+        backend = _select_fp8_blockwise_grouped_mm_backend(
             kernel_preference,
             A,
             out_dtype,
@@ -136,20 +136,18 @@ class _Float8BlockwiseGroupedMM(torch.autograd.Function):
             padded_group_start_offsets=padded_group_start_offsets,
             num_rows=padded_A.shape[0],
         )
-        backend_plan = backend_selection.plan
-        deepgemm_offset_plan = backend_selection.deepgemm_offset_plan
 
         A_fp8, A_scale = triton_fp8_blockwise_act_quant_lhs(
             padded_A.contiguous(),
             block_size=block_size,
             dtype=float8_dtype,
         )
-        B_t_fp8, B_t_scale = backend_plan.quantize_forward_rhs(
+        B_t_fp8, B_t_scale = backend.quantize_forward_rhs(
             B_t,
             block_size,
             float8_dtype,
         )
-        out = backend_plan.grouped_mm(
+        out = backend.grouped_mm(
             A_fp8,
             B_t_fp8,
             A_scale,
@@ -159,7 +157,6 @@ class _Float8BlockwiseGroupedMM(torch.autograd.Function):
             padded_group_end_offsets,
             out_dtype,
             block_size,
-            deepgemm_offset_plan=deepgemm_offset_plan,
         )
         if pad_token_groups_for_grouped_mm:
             out = unpad_token_groups(
@@ -182,8 +179,7 @@ class _Float8BlockwiseGroupedMM(torch.autograd.Function):
         ctx.block_size = block_size
         ctx.pad_token_groups_for_grouped_mm = pad_token_groups_for_grouped_mm
         ctx.num_tokens = num_tokens
-        ctx.backend_plan = backend_plan
-        ctx.deepgemm_offset_plan = deepgemm_offset_plan
+        ctx.backend = backend
         return out
 
     @staticmethod
@@ -200,8 +196,7 @@ class _Float8BlockwiseGroupedMM(torch.autograd.Function):
         block_size = ctx.block_size
         pad_token_groups_for_grouped_mm = ctx.pad_token_groups_for_grouped_mm
         num_tokens = ctx.num_tokens
-        backend_plan = ctx.backend_plan
-        deepgemm_offset_plan = ctx.deepgemm_offset_plan
+        backend = ctx.backend
 
         if pad_token_groups_for_grouped_mm:
             padded_grad_output, _, _ = pad_token_groups(
@@ -217,12 +212,12 @@ class _Float8BlockwiseGroupedMM(torch.autograd.Function):
             block_size=block_size,
             dtype=float8_dtype,
         )
-        B_fp8, B_scale = backend_plan.quantize_dgrad_rhs(
+        B_fp8, B_scale = backend.quantize_dgrad_rhs(
             B_t,
             block_size,
             float8_dtype,
         )
-        grad_A = backend_plan.grouped_mm(
+        grad_A = backend.grouped_mm(
             grad_output_fp8,
             B_fp8,
             grad_output_scale,
@@ -232,7 +227,6 @@ class _Float8BlockwiseGroupedMM(torch.autograd.Function):
             padded_group_end_offsets,
             out_dtype,
             block_size,
-            deepgemm_offset_plan=deepgemm_offset_plan,
         )
         if pad_token_groups_for_grouped_mm:
             grad_A = unpad_token_groups(
@@ -243,14 +237,13 @@ class _Float8BlockwiseGroupedMM(torch.autograd.Function):
                 alignment_size=block_size,
             )
 
-        grad_B = backend_plan.wgrad(
+        grad_B = backend.wgrad(
             padded_grad_output,
             padded_A,
             padded_group_end_offsets,
             out_dtype,
             block_size,
             float8_dtype,
-            deepgemm_offset_plan=deepgemm_offset_plan,
         )
         return (
             grad_A,

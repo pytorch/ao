@@ -27,7 +27,6 @@ from torchao.prototype.blockwise_fp8_training.kernels import (
     quant_kernel_configs,
     quant_kernel_configs_with_groups,
 )
-from torchao.utils import ceil_div
 
 
 def _should_use_traceable_triton_launch() -> bool:
@@ -276,7 +275,7 @@ def triton_fp8_blockwise_act_quant_k_grouped_deepgemm_kernel(
     # shaped as (D, group_size): q[group_start * D + d * group_size + local_m].
     q_offsets = group_start * D + offs_d[:, None] * group_size + offs_m[None, :]
     q_mask = valid_group_block & (offs_d[:, None] < D)
-    tl.store(q_ptr + q_offsets, y.trans(1, 0), mask=q_mask & valid_group_block)
+    tl.store(q_ptr + q_offsets, y.trans(1, 0), mask=q_mask)
 
     # Scales are concatenated along token-blocks in the same expert order:
     # (D, total_valid_token_blocks).
@@ -324,6 +323,8 @@ def triton_fp8_blockwise_act_quant_k_grouped_compact_deepgemm_kernel(
     # (D, expert_tokens) output. Precomputing it keeps this compact kernel
     # metadata-driven without paying a group_start * D multiply in every tile.
     q_offsets = q_offset + offs_d[:, None] * group_size + offs_m[None, :]
+    # The compact path only launches when D % 128 == 0; every NUM_GROUPS value
+    # divides 128, so offs_d never runs past D and these stores need no D mask.
     tl.store(q_ptr + q_offsets, y.trans(1, 0))
 
     s_offsets = offs_d * VALID_BLOCKS + pid_block
@@ -347,6 +348,9 @@ def triton_fp8_blockwise_act_quant_k_grouped_deepgemm(
     a flat K-major DeepGEMM buffer: for each expert, data is stored as
     (D, expert_tokens), then concatenated with the next expert. Scales are
     stored as (D, total_valid_token_blocks).
+
+    The fake implementation treats the number of valid tokens as dynamic
+    because it cannot read ``group_end_offsets`` values from FakeTensors.
     """
     group_sizes = _group_sizes_from_offsets(group_end_offsets)
     return _triton_fp8_blockwise_act_quant_k_grouped_deepgemm_with_group_sizes(
@@ -464,10 +468,20 @@ def _(
     block_size: int = 128,
     dtype: torch.dtype = e4m3_dtype,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
+    ctx = torch.library.get_ctx()
+    max_valid_tokens = x.shape[0] if type(x.shape[0]) is int else None
+    valid_tokens = (
+        ctx.new_dynamic_size(min=0, max=max_valid_tokens)
+        if max_valid_tokens is not None
+        else ctx.new_dynamic_size(min=0)
+    )
+    torch._check(valid_tokens <= x.shape[0])
+    torch._check(valid_tokens % block_size == 0)
+    valid_blocks = valid_tokens // block_size
     return (
-        torch.empty((x.shape[0] * x.shape[1],), dtype=dtype, device=x.device),
+        torch.empty((valid_tokens * x.shape[1],), dtype=dtype, device=x.device),
         torch.empty(
-            (x.shape[1], ceil_div(x.shape[0], block_size)),
+            (x.shape[1], valid_blocks),
             dtype=torch.float32,
             device=x.device,
         ),
