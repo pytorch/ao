@@ -1441,19 +1441,20 @@ class X86InductorQuantizer(Quantizer):
             itertools.chain.from_iterable(linear_partitions.values())
         )
         for partition in linear_partitions:
-            if len(partition.output_nodes) > 1:
-                raise ValueError(
-                    "Linear partition cannot have more than one output node"
+            # A partition may have multiple output nodes when one nn.Linear
+            # module has multiple call sites in the exported graph (e.g. it is
+            # called inside an unrolled loop). Annotate each call site.
+            for linear_node in partition.output_nodes:
+                if linear_node.op != "call_function" or linear_node.target not in (
+                    torch.ops.aten.linear.default,
+                ):
+                    raise ValueError(f"{linear_node} is not an aten linear operator")
+                # skip annotation if it is already annotated
+                if _skip_annotate([linear_node], filter_fn):
+                    continue
+                self._annotate_linear_node_helper(
+                    linear_node, True, quantization_config
                 )
-            linear_node = partition.output_nodes[0]
-            if linear_node.op != "call_function" or linear_node.target not in (
-                torch.ops.aten.linear.default,
-            ):
-                raise ValueError(f"{linear_node} is not an aten linear operator")
-            # skip annotation if it is already annotated
-            if _skip_annotate([linear_node], filter_fn):
-                continue
-            self._annotate_linear_node_helper(linear_node, True, quantization_config)
 
     def _annotate_linear_unary(
         self,
@@ -1473,6 +1474,12 @@ class X86InductorQuantizer(Quantizer):
                 gm, [torch.nn.Linear, postop]
             )
         for fused_partition in fused_partitions:
+            if any(len(partition.output_nodes) > 1 for partition in fused_partition):
+                # Fusion patterns assume each module has a single call site. A
+                # reused module (e.g. called inside an unrolled loop) yields a
+                # partition with multiple output nodes; skip fusion and let
+                # `_annotate_linear` annotate its call sites instead.
+                continue
             linear_partition, unary_partition = fused_partition
             linear_node, unary_node = self._get_output_nodes_of_partitions(
                 [linear_partition, unary_partition]
@@ -1511,6 +1518,15 @@ class X86InductorQuantizer(Quantizer):
                 seq_partition.append(unary_op)
             fused_partitions = find_sequential_partitions(gm, seq_partition)
             for fused_partition in fused_partitions:
+                if any(
+                    len(partition.output_nodes) > 1 for partition in fused_partition
+                ):
+                    # Fusion patterns assume each module has a single call
+                    # site. A reused module (e.g. called inside an unrolled
+                    # loop) yields a partition with multiple output nodes; skip
+                    # fusion and let `_annotate_linear` annotate its call sites
+                    # instead.
+                    continue
                 unary_partition, unary_node = None, None
                 if has_unary:
                     (

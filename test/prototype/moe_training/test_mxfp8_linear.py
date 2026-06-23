@@ -95,6 +95,46 @@ def test_mxfp8_linear_fwd_bwd_sqnr(bias, wgrad_with_hp, kernel_preference):
         assert sqnr_bias_grad >= 40.0, f"Bias grad SQNR {sqnr_bias_grad} below 40.0"
 
 
+@pytest.mark.parametrize(
+    "kernel_preference", [KernelPreference.EMULATED, KernelPreference.AUTO]
+)
+def test_mxfp8_linear_noncontiguous_grad_output(kernel_preference):
+    """Regression: mx_mm.backward must accept a non-contiguous grad_output.
+
+    A non-contiguous incoming gradient (e.g. produced by a transposed or
+    otherwise strided downstream op) previously tripped the contiguity assert
+    in the dim0 MXFP8 cast (``MXTensor.to_mx`` / ``triton_to_mxfp8_dim0``) and
+    crashed the backward pass.
+    """
+    if kernel_preference == KernelPreference.AUTO and not is_sm_at_least_100():
+        pytest.skip("Real MXFP8 kernels require SM100+")
+
+    M, K, N = 256, 512, 1024
+    ref, mxfp8 = _build_linear_pair(
+        K,
+        N,
+        bias=False,
+        kernel_preference=kernel_preference,
+        wgrad_with_hp=False,
+    )
+
+    x_ref = torch.randn(M, K, dtype=torch.bfloat16, device="cuda", requires_grad=True)
+    x_mxfp8 = x_ref.clone().detach().requires_grad_(True)
+
+    # A non-contiguous (M, N) upstream gradient: materialize (N, M) then
+    # transpose so the view handed to backward is strided.
+    grad_output = torch.randn(N, M, dtype=torch.bfloat16, device="cuda").t()
+    assert not grad_output.is_contiguous()
+
+    ref(x_ref).backward(grad_output)
+    mxfp8(x_mxfp8).backward(grad_output)
+
+    assert x_mxfp8.grad is not None
+    assert torch.isfinite(x_mxfp8.grad).all()
+    sqnr_input_grad = compute_error(x_ref.grad, x_mxfp8.grad)
+    assert sqnr_input_grad >= 25.0, f"Input grad SQNR {sqnr_input_grad} below 25.0"
+
+
 def test_mxfp8_linear_3d_input():
     """MXFP8Linear should accept inputs with leading batch/sequence dims."""
     K, N = 1024, 2048
