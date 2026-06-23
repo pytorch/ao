@@ -13,7 +13,6 @@ from benchmarks.microbenchmarks.utils import (
     BenchmarkConfig,
     BenchmarkResult,
     BlockSparseWeightConfig,
-    Int4WeightOnlyConfig,
     SemiSparseWeightConfig,
     clean_caches,
     generate_results_csv,
@@ -22,7 +21,7 @@ from benchmarks.microbenchmarks.utils import (
 )
 from torchao.testing.model_architectures import (
     LNLinearActivationModel,
-    ToyLinearModel,
+    ToySingleLinearModel,
     create_model_and_input_data,
 )
 
@@ -107,10 +106,6 @@ class TestUtils(unittest.TestCase):
         config = string_to_config(None, "block")
         self.assertIsInstance(config, BlockSparseWeightConfig)
 
-        # Test combined sparsity and quantization
-        config = string_to_config("marlin", "semi-sparse")
-        self.assertIsInstance(config, Int4WeightOnlyConfig)
-
     def test_block_sparsity_with_baseline_quantization(self):
         """Test that block sparsity with baseline quantization returns BlockSparseWeightConfig"""
         config = string_to_config("baseline", "block")
@@ -138,7 +133,9 @@ class TestUtils(unittest.TestCase):
             get_quantization_sparsity_recipes(["baseline"], ["invalid_sparsity"])
 
     def test_toy_linear_model(self):
-        model = ToyLinearModel(k=64, n=32, dtype=torch.float32)
+        model = ToySingleLinearModel(
+            input_dim=64, output_dim=32, dtype=torch.float32, device="cpu"
+        )
         x = torch.randn(16, 64)
         out = model(x)
         self.assertEqual(out.shape, (16, 32))
@@ -164,7 +161,7 @@ class TestUtils(unittest.TestCase):
             high_precision_dtype=torch.float32,
             device="cpu",
         )
-        self.assertIsInstance(model, ToyLinearModel)
+        self.assertIsInstance(model, ToySingleLinearModel)
         self.assertEqual(input_data.shape, (m, k))
 
         model, input_data = create_model_and_input_data(

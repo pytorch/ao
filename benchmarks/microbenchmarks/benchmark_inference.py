@@ -158,6 +158,7 @@ def run(config: BenchmarkConfig) -> BenchmarkResult:
 
         # Check if sparsity is requested and if the device is CUDA (sparsity operations require CUDA)
         is_cuda = config.device == "cuda" and torch.cuda.is_available()
+        is_xpu = config.device == "xpu" and torch.xpu.is_available()
 
         if config.sparsity is not None and (
             config.quantization is None or "baseline" in config.quantization
@@ -253,9 +254,14 @@ def run(config: BenchmarkConfig) -> BenchmarkResult:
                 )
 
                 if result.memory_profile_path:
-                    result.memory_visualization_path = visualize_memory_profile(
-                        result.memory_profile_path
-                    )
+                    if is_xpu:
+                        print(
+                            "Memory visualization is currently not supported for XPU. Skipping visualization step."
+                        )
+                    else:
+                        result.memory_visualization_path = visualize_memory_profile(
+                            result.memory_profile_path
+                        )
             except ValueError as e:
                 if "not enough values to unpack" in str(e):
                     print(
