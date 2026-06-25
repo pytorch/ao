@@ -71,7 +71,7 @@ def safe_int_mm(input: torch.Tensor, mat2: torch.Tensor) -> torch.Tensor:
     if device_cpu or bad_dimensions_for_cublas:
         # fallback path
         return torch.matmul(input.cpu().to(torch.int32), mat2.cpu().to(torch.int32)).to(
-            input.device.type
+            input.device
         )
 
     # cublas paths

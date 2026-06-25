@@ -49,6 +49,30 @@ class TestQuantFlow(unittest.TestCase):
         assert out32_2.dtype == out32_1.dtype
         torch.testing.assert_allclose(out32_1, out32_2)
 
+    @unittest.skipIf(
+        not torch.cuda.is_available() or torch.cuda.device_count() < 2,
+        "Need at least 2 CUDA devices",
+    )
+    def test_safe_int_mm_fallback_preserves_cuda_device_index(self):
+        from torchao.kernel import intmm
+
+        original_device = torch.cuda.current_device()
+        try:
+            torch.cuda.set_device(0)
+            input_device = torch.device("cuda:1")
+            x = torch.randint(-128, 127, (4, 7), dtype=torch.int8, device=input_device)
+            w = torch.randint(-128, 127, (7, 5), dtype=torch.int8, device=input_device)
+
+            actual = intmm.safe_int_mm(x, w)
+            expected = torch.matmul(
+                x.cpu().to(torch.int32), w.cpu().to(torch.int32)
+            ).to(input_device)
+        finally:
+            torch.cuda.set_device(original_device)
+
+        self.assertEqual(actual.device, input_device)
+        torch.testing.assert_close(actual, expected, atol=0, rtol=0)
+
     @parameterized.expand(
         [
             ("cuda", torch.bfloat16),
