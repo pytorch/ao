@@ -53,13 +53,6 @@ from torchao.prototype.mx_formats.mx_tensor import MXTensor
 from torchao.prototype.mx_formats.utils import to_blocked
 from torchao.quantization import quantize_
 
-_DEVICE = torch.accelerator.current_accelerator().type
-
-if _DEVICE == "xpu":
-    import torch.xpu as torch_accelerator
-else:
-    import torch.cuda as torch_accelerator
-
 # don't truncate long kernel names
 pd.options.display.max_colwidth = 100
 # display 3 trailing decimal points for floats
@@ -230,7 +223,7 @@ def profile_function(
         for _ in range(config.warmup_iters):
             func(*args, **kwargs)
     if config.sync:
-        torch_accelerator.synchronize()
+        torch.accelerator.synchronize()
     name_context = (
         nullcontext() if config.name is None else record_function(config.name)
     )
@@ -250,7 +243,7 @@ def profile_function(
             with name_context:
                 func(*args, **kwargs)
                 if config.sync:
-                    torch_accelerator.synchronize()
+                    torch.accelerator.synchronize()
 
     if config.trace_file_path is not None:
         prof.export_chrome_trace(config.trace_file_path)
@@ -301,7 +294,7 @@ def main(
     mode_filter: str = "fwd_bwd",
     forward_only: bool = False,
 ):
-    device = _DEVICE
+    device = torch.accelerator.current_accelerator().type
     assert model_type in (
         "linear",
         "ln_linear",
