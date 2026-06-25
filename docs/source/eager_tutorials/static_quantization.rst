@@ -142,7 +142,7 @@ Other Approaches
 The calibration phase can be customized:
 
 - **Observers**: You can use lower-level observer APIs (``AffineQuantizedMinMaxObserver``) to record min/max statistics over calibration data and compute scales yourself. This gives full control over scale computation (e.g., moving averages, histograms).
-- **AWQ / SmoothQuant**: These algorithms provide a ``prepare`` -> calibrate -> ``convert`` flow via ``quantize_()`` that integrates activation pre-scaling and smoothing with static quantization. See the ``torchao.prototype.smoothquant`` and ``torchao.prototype.awq`` modules.
+- **AWQ / SmoothQuant**: These algorithms provide a ``prepare`` -> calibrate -> ``convert`` flow via ``quantize_()`` that integrates activation pre-scaling and smoothing with static quantization. They work with any tensor subclass that implements the relevant protocols — ``SupportsActivationPreScaling`` (``act_pre_scale`` attribute) for AWQ, and both ``IsStaticQuantizationConfig`` and ``SupportsActivationPreScaling`` for SmoothQuant. See the ``torchao.prototype.smoothquant`` and ``torchao.prototype.awq`` modules.
 - **Float8 static quantization**: ``Float8StaticActivationFloat8WeightConfig`` (in ``torchao.prototype.quantization``) supports a built-in observer-based prepare/convert flow for float8 dtypes.
 
 For a list of all available quantization configs, see the :doc:`API Reference <../api_reference/api_ref_quantization>`.
