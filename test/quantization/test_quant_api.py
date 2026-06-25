@@ -51,6 +51,7 @@ from torchao.quantization.quant_api import (
 )
 from torchao.quantization.quant_primitives import MappingType
 from torchao.quantization.utils import compute_error
+from torchao.testing.model_architectures import ToyLinearModel
 from torchao.testing.pt2e._xnnpack_quantizer import (
     XNNPACKQuantizer,
     get_symmetric_quantization_config,
@@ -111,25 +112,6 @@ class TorchCompileDynamicQuantizer:
     def quantize(self, model: torch.nn.Module) -> torch.nn.Module:
         quantize_(model, Int8DynamicActivationInt8WeightConfig())
         return model
-
-
-class ToyLinearModel(torch.nn.Module):
-    def __init__(self, m=64, n=32, k=64, bias=False):
-        super().__init__()
-        self.linear1 = torch.nn.Linear(m, n, bias=bias).to(torch.float)
-        self.linear2 = torch.nn.Linear(n, k, bias=bias).to(torch.float)
-
-    def example_inputs(self, batch_size=1, dtype=torch.float, device="cpu"):
-        return (
-            torch.randn(
-                batch_size, self.linear1.in_features, dtype=dtype, device=device
-            ),
-        )
-
-    def forward(self, x):
-        x = self.linear1(x)
-        x = self.linear2(x)
-        return x
 
 
 def _get_ref_change_linear_weights_to_woqtensors(deprecated_tenosr_subclass):
