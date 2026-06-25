@@ -42,6 +42,25 @@ class ToySingleLinearModel(torch.nn.Module):
         return x
 
 
+class ToyLinearModel(torch.nn.Module):
+    def __init__(self, m=64, n=32, k=64, bias=False):
+        super().__init__()
+        self.linear1 = torch.nn.Linear(m, n, bias=bias).to(torch.float)
+        self.linear2 = torch.nn.Linear(n, k, bias=bias).to(torch.float)
+
+    def example_inputs(self, batch_size=1, dtype=torch.float, device="cpu"):
+        return (
+            torch.randn(
+                batch_size, self.linear1.in_features, dtype=dtype, device=device
+            ),
+        )
+
+    def forward(self, x):
+        x = self.linear1(x)
+        x = self.linear2(x)
+        return x
+
+
 # TODO: Refactor torchao and tests to use these models
 class ToyTwoLinearModel(torch.nn.Module):
     def __init__(
