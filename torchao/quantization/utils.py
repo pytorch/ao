@@ -282,7 +282,7 @@ def dynamically_quantize_per_channel(x, quant_min, quant_max, target_dtype):
 
     assert x.dim() == 2, "only support 2d Tensors"
 
-    eps = torch.finfo(torch.float32).eps
+    eps = torch.finfo(torch.float32).smallest_normal
     block_size = (1, x.shape[1])
     zero_point_dtype = torch.int64
 
@@ -579,7 +579,7 @@ def get_group_qparams_symmetric(
 
     block_size = (1, groupsize)
     if eps is None:
-        eps = torch.finfo(w.dtype).eps
+        eps = torch.finfo(w.dtype).smallest_normal
     ranges = {}
     ranges[1] = (-1, 0)
     # generating ranges for bit 2 to 8
