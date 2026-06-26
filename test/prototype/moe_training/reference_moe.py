@@ -554,7 +554,12 @@ class TokenReorderer(nn.Module):
 
 
 class MoE(nn.Module):
-    def __init__(self, moe_args: MoEArgs, dim: int, hidden_dim: int):
+    def __init__(
+        self,
+        moe_args: MoEArgs,
+        dim: int,
+        hidden_dim: int,
+    ):
         super().__init__()
 
         num_experts = moe_args.num_experts
