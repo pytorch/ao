@@ -549,6 +549,33 @@ def test_transpose(elem_dtype):
     torch.testing.assert_close(tensor_mx_dq_t, tensor_mx_t_dq, atol=0, rtol=0)
 
 
+@pytest.mark.skipif(not torch.accelerator.is_available(), reason="Need accelerator")
+@pytest.mark.parametrize("elem_dtype", SUPPORTED_ELEM_DTYPES)
+@pytest.mark.parametrize("dims", ((1, 2), (2, 1), (-1, -2), (-2, -1)))
+def test_3d_transpose(elem_dtype, dims):
+    """
+    Verify that transposing a 3D MX tensor works and dequantize roundtrips.
+    """
+    E, M, K = 4, 128, 256
+    block_size = 32
+    device = torch.accelerator.current_accelerator()
+    tensor_hp = torch.randn(E, M, K, device=device, dtype=torch.bfloat16)
+    tensor_mx = MXTensor.to_mx(
+        tensor_hp,
+        elem_dtype,
+        block_size,
+    )
+    # dequantize then transpose
+    tensor_mx_dq_t = tensor_mx.dequantize(tensor_hp.dtype).transpose(dims[0], dims[1])
+
+    # transpose then dequantize
+    tensor_mx_t = tensor_mx.transpose(dims[0], dims[1])
+    tensor_mx_t_dq = tensor_mx_t.dequantize(tensor_hp.dtype)
+
+    assert tensor_mx_dq_t.shape == tensor_mx_t_dq.shape
+    torch.testing.assert_close(tensor_mx_dq_t, tensor_mx_t_dq, atol=0, rtol=0)
+
+
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 @pytest.mark.parametrize("elem_dtype", SUPPORTED_ELEM_DTYPES)
 def test_view(elem_dtype):
@@ -759,9 +786,6 @@ def test_to_blocked_from_blocked_roundtrip(shape, use_triton_kernel: bool):
     ),
 )
 def test_scale_shape_matches_qdata(transpose, shape):
-    if len(shape) == 3 and transpose:
-        pytest.skip("transpose not yet implemented for 3D MXTensor")
-
     block_size = 32
 
     x_hp = torch.randn(*shape, device="cuda")
