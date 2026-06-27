@@ -176,7 +176,6 @@ def run_experiment(
             m,
             n,
             num_tensors=g,
-            GROUP_RANGE_IS_ELEMENT_OFFSETS=True,
             STOCHASTIC_ROUNDING=stochastic_rounding,
             SHAPE_REP=VARYING_FIRST_DIM,
             BLOCK_M=BLOCK_M,

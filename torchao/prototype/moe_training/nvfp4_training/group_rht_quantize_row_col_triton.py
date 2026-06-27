@@ -13,20 +13,14 @@ rounding stays CUDA-graph-safe (no host RNG).
 
 The NVFP4 quantization epilogue helpers (``_nvfp4_quantize``, ``_pack_fp4``,
 ``_swizzle_scales``, ``_store_scales_swizzle``) are reused from
-``nvfp4_training.hadamard_utils``; only the grouped index lookup is local to
-this kernel.
+``nvfp4_training.hadamard_utils``. Shared grouped validation and index lookup
+live in ``nvfp4_training.group_hadamard_utils``.
 """
 
 import torch
 from torch.utils._triton import has_triton
 
 from torchao.utils import torch_version_at_least
-
-BLOCK_M = 128
-BLOCK_N = 128
-SAME_BOTH_DIMS = 0
-VARYING_FIRST_DIM = 1
-
 
 if torch_version_at_least("2.10.0") and has_triton():
     from typing import Optional, Tuple
@@ -40,20 +34,14 @@ if torch_version_at_least("2.10.0") and has_triton():
         _store_scales_swizzle,
         _swizzle_scales,
     )
-    from torchao.utils import is_sm_at_least_100
-
-    @triton.jit
-    def _group_idx_from_range(
-        token_offset,
-        group_range_ptr,
-        num_tensors: tl.constexpr,
-    ):
-        group_idx = 0
-        for i in range(num_tensors):
-            start = tl.load(group_range_ptr + i)
-            if token_offset >= start:
-                group_idx = i
-        return group_idx
+    from torchao.prototype.moe_training.nvfp4_training.group_hadamard_utils import (
+        BLOCK_M,
+        BLOCK_N,
+        SAME_BOTH_DIMS,
+        VARYING_FIRST_DIM,
+        _group_idx_from_range,
+        _validate_grouped_hadamard_inputs,
+    )
 
     @triton.jit
     def _group_row_col_rht_gemm_triton_kernel(
@@ -73,7 +61,6 @@ if torch_version_at_least("2.10.0") and has_triton():
         M,
         N,
         num_tensors: tl.constexpr,
-        GROUP_RANGE_IS_ELEMENT_OFFSETS: tl.constexpr,
         STOCHASTIC_ROUNDING: tl.constexpr,
         SHAPE_REP: tl.constexpr,
         BLOCK_M: tl.constexpr,
@@ -90,9 +77,7 @@ if torch_version_at_least("2.10.0") and has_triton():
             group_idx = pid_m // (num_tiles_token // num_tensors)
         else:
             token_offset = pid_m * BLOCK_M
-            lookup_offset = token_offset
-            if GROUP_RANGE_IS_ELEMENT_OFFSETS:
-                lookup_offset = token_offset * N
+            lookup_offset = token_offset * N
             group_idx = _group_idx_from_range(lookup_offset, group_range, num_tensors)
 
         offs_m = pid_m * BLOCK_M + tl.arange(0, BLOCK_M)
@@ -167,38 +152,8 @@ if torch_version_at_least("2.10.0") and has_triton():
         packed_offsets = outer[:, None] * (N // 2) + packed_inner[None, :]
         tl.store(QA_base + packed_offsets, row_fp4)
 
-    def _validate_common_inputs(A: torch.Tensor, B: torch.Tensor) -> None:
-        if not isinstance(A, torch.Tensor):
-            raise TypeError("A must be a torch.Tensor")
-        if A.ndim != 2:
-            raise ValueError(f"A must be 2D, got {A.ndim}D")
-        if A.dtype != torch.bfloat16:
-            raise ValueError("A.dtype must be torch.bfloat16")
-        if not A.is_contiguous():
-            raise ValueError("A must be row-major (contiguous)")
-        if not isinstance(B, torch.Tensor):
-            raise TypeError("B must be a torch.Tensor")
-        if B.ndim != 2:
-            raise ValueError(f"B must be 2D, got {B.ndim}D")
-        if B.dtype != torch.bfloat16:
-            raise ValueError("B.dtype must be torch.bfloat16")
-        if B.shape != (16, 16):
-            raise ValueError(f"B must have shape (16, 16), got {tuple(B.shape)}")
-        if A.shape[1] % BLOCK_N != 0:
-            raise ValueError("A.shape[1] must be divisible by 128")
-        if not A.is_cuda:
-            raise ValueError("A must be on CUDA")
-        if not B.is_cuda:
-            raise ValueError("B must be on CUDA")
-        if B.device != A.device:
-            raise ValueError("B must be on the same device as A")
-        if torch.cuda.is_available() and not is_sm_at_least_100():
-            raise NotImplementedError(
-                "GroupRHT Triton kernel requires SM100 (Blackwell) for FP4 conversion."
-            )
-
     def _validate_graph_amax(
-        amax: Optional[torch.Tensor],
+        amax: torch.Tensor,
         name: str,
         num_tensors: int,
         device: torch.device,
@@ -253,8 +208,8 @@ if torch_version_at_least("2.10.0") and has_triton():
         packed_sequence_length: int,
         hidden_size: int,
         shape_rep: int,
-        a_global_amax: Optional[torch.Tensor],
-        d_global_amax: Optional[torch.Tensor],
+        a_global_amax: torch.Tensor,
+        d_global_amax: torch.Tensor,
         rng_state: Optional[torch.Tensor],
         enable_stochastic_rounding: bool,
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
@@ -271,49 +226,16 @@ if torch_version_at_least("2.10.0") and has_triton():
         ``[col_seed, col_offset, row_seed, row_offset]`` whose advancement the caller owns;
         the op only forwards single-element views, performing no host RNG.
         """
-        _validate_common_inputs(A, B)
+        _validate_grouped_hadamard_inputs(
+            A,
+            B,
+            offsets,
+            num_tensors,
+            packed_sequence_length,
+            hidden_size,
+            shape_rep,
+        )
         rng_state = _validate_rng_state(rng_state, A.device, enable_stochastic_rounding)
-        if packed_sequence_length != A.shape[0]:
-            raise ValueError("packed_sequence_length must match A.shape[0]")
-        if hidden_size != A.shape[1]:
-            raise ValueError("hidden_size must match A.shape[1]")
-        if packed_sequence_length % BLOCK_M != 0:
-            raise ValueError("packed_sequence_length must be divisible by 128")
-        if hidden_size % BLOCK_N != 0:
-            raise ValueError("hidden_size must be divisible by 128")
-        if num_tensors <= 0:
-            raise ValueError("num_tensors must be greater than 0")
-        if shape_rep not in (SAME_BOTH_DIMS, VARYING_FIRST_DIM):
-            raise ValueError(
-                "graph-safe TE GroupRHT only supports SAME_BOTH_DIMS or VARYING_FIRST_DIM"
-            )
-        if shape_rep == SAME_BOTH_DIMS:
-            if packed_sequence_length % num_tensors != 0:
-                raise ValueError(
-                    "packed_sequence_length must be divisible by num_tensors "
-                    "for SAME_BOTH_DIMS"
-                )
-            if (packed_sequence_length // num_tensors) % BLOCK_M != 0:
-                raise ValueError(
-                    "SAME_BOTH_DIMS group row count must be divisible by 128"
-                )
-        if not isinstance(offsets, torch.Tensor):
-            raise TypeError("offsets must be a torch.Tensor")
-        if offsets.ndim != 1:
-            raise ValueError(f"offsets must be 1D, got {offsets.ndim}D")
-        if offsets.dtype != torch.int64:
-            raise ValueError("offsets.dtype must be torch.int64")
-        if not offsets.is_cuda:
-            raise ValueError("offsets must be on CUDA")
-        if offsets.device != A.device:
-            raise ValueError("offsets must be on the same device as A")
-        if offsets.numel() < num_tensors:
-            raise ValueError("offsets must have at least num_tensors elements")
-        if shape_rep == VARYING_FIRST_DIM:
-            torch.ops.aten._assert_async.msg(
-                torch.all(offsets[:num_tensors] % (BLOCK_M * hidden_size) == 0),
-                "VARYING_FIRST_DIM offsets must align group boundaries to 128-row tiles",
-            )
 
         qa_base = torch.empty(
             (packed_sequence_length, hidden_size // 2),
@@ -375,7 +297,6 @@ if torch_version_at_least("2.10.0") and has_triton():
             m,
             n,
             num_tensors=num_tensors,
-            GROUP_RANGE_IS_ELEMENT_OFFSETS=True,
             STOCHASTIC_ROUNDING=enable_stochastic_rounding,
             SHAPE_REP=shape_rep,
             BLOCK_M=BLOCK_M,
@@ -422,8 +343,8 @@ else:
         packed_sequence_length: int,
         hidden_size: int,
         shape_rep: int,
-        a_global_amax,
-        d_global_amax,
+        a_global_amax: torch.Tensor,
+        d_global_amax: torch.Tensor,
         rng_state,
         enable_stochastic_rounding: bool,
     ):
