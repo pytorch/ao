@@ -4,8 +4,8 @@
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
 import copy
+import unittest
 
-import pytest
 import torch
 import torch.distributed as dist
 import torch.nn.functional as F
@@ -192,7 +192,7 @@ class TestQuantizedTraining(TestCase):
             loss_int8 = F.cross_entropy(model_int8(inputs), labels)
 
             rel_error = abs(loss_int8.item() - loss_fp32.item()) / abs(loss_fp32.item())
-            assert rel_error < 2e-3, rel_error
+            self.assertLess(rel_error, 2e-3, f"rel_error={rel_error}")
 
             loss_fp32.backward()
             optim_fp32.step()
@@ -213,7 +213,7 @@ class TestQuantizedTraining(TestCase):
         ],
     )
     @parametrize("module_swap", [False, True])
-    @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+    @unittest.skipIf(not torch.cuda.is_available(), "CUDA not available")
     def test_int8_mixed_precision_training(self, compile, config, module_swap):
         _reset()
         bsize = 64
@@ -246,13 +246,13 @@ class TestQuantizedTraining(TestCase):
                 torch.linalg.vector_norm(ref) / torch.linalg.vector_norm(error)
             )
 
-        assert snr(outputs_ref, outputs_int8mp) > 20
-        assert snr(inputs_ref.grad, inputs_int8mp.grad) > 20
-        assert snr(linear.weight.grad, linear_int8mp.weight.grad) > 20
+        self.assertGreater(snr(outputs_ref, outputs_int8mp), 20)
+        self.assertGreater(snr(inputs_ref.grad, inputs_int8mp.grad), 20)
+        self.assertGreater(snr(linear.weight.grad, linear_int8mp.weight.grad), 20)
 
-    @pytest.mark.skip("Flaky on CI")
+    @unittest.skip("Flaky on CI")
     @parametrize("compile", [False, True])
-    @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+    @unittest.skipIf(not torch.cuda.is_available(), "CUDA not available")
     def test_bitnet_training(self, compile):
         # reference implementation
         # https://github.com/microsoft/unilm/blob/master/bitnet/The-Era-of-1-bit-LLMs__Training_Tips_Code_FAQ.pdf
@@ -313,7 +313,7 @@ class TestQuantizedTraining(TestCase):
 
             loss.backward()
             for p in model.parameters():
-                assert p.grad is not None
+                self.assertIsNotNone(p.grad)
             optim.step()
             optim.zero_grad()
 
@@ -327,7 +327,7 @@ class TestFSDP2(FSDPTest):
         return _FSDP_WORLD_SIZE
 
     @skip_if_lt_x_gpu(_FSDP_WORLD_SIZE)
-    @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+    @unittest.skipIf(not torch.cuda.is_available(), "CUDA not available")
     def test_fsdp2_correctness(self):
         mp_policy = MixedPrecisionPolicy()
 
@@ -398,27 +398,26 @@ class TestFSDP2(FSDPTest):
             fsdp_loss = fsdp_model(inp).sum()
             fsdp_loss.backward()
             for param in fsdp_model.parameters():
-                assert param.grad is not None
+                self.assertIsNotNone(param.grad)
             fsdp_optim.step()
 
             base_optim.zero_grad(set_to_none=(iter_idx % 2 == 0))
             base_loss = base_model(inp).sum()
             base_loss.backward()
             for param in base_model.parameters():
-                assert param.grad is not None
+                self.assertIsNotNone(param.grad)
                 dist.all_reduce(param.grad, op=dist.ReduceOp.AVG)
             base_optim.step()
 
             rel_error = (fsdp_loss - base_loss).abs() / base_loss.abs()
-            assert rel_error < tolerance, (
-                quantize_fn.__name__,
-                mp_policy,
-                iter_idx,
+            self.assertLess(
                 rel_error,
+                tolerance,
+                f"{quantize_fn.__name__}, {mp_policy}, iter={iter_idx}, rel_error={rel_error}",
             )
 
     @skip_if_lt_x_gpu(_FSDP_WORLD_SIZE)
-    @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+    @unittest.skipIf(not torch.cuda.is_available(), "CUDA not available")
     def test_precompute_bitnet_scale(self):
         from torchao.prototype.quantized_training.bitnet import (
             get_bitnet_scale,
