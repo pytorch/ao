@@ -625,8 +625,9 @@ class TestQuantPrimitives(unittest.TestCase):
 
         # block_size and scale/zero_point shape mismatch
         block_size = (1, 1)
-        with self.assertRaisesRegex(RuntimeError, "is invalid for input of size 1"):
+        with self.assertRaisesRegex(ValueError, "scale must have exactly 100 elements"):
             _ = quantize_affine(input, block_size, scale, zero_point, dtype)
+
 
     def test_get_groupwise_affine_qparams(self):
         input = torch.randn(10, 256)
@@ -911,6 +912,45 @@ class TestQuantPrimitives(unittest.TestCase):
         assert scale.shape == (B, 1, N)
         assert data.shape == (B, K, N)
 
+    def test_validate_scale_zero_point(self):
+        input_tensor = torch.randn(4, 16, dtype=torch.float32)
+        
+        # 1. Valid case
+        # For block_size=(1, 4), expected_numel = 4 * (16 // 4) = 16 elements
+        block_size = (1, 4)
+        valid_scale = torch.ones(4, 4, dtype=torch.float32)
+        valid_zp = torch.zeros(4, 4, dtype=torch.int32)
+        
+        # Should not raise any error
+        q = quantize_affine(input_tensor, block_size, valid_scale, valid_zp, torch.int8)
+        dq = dequantize_affine(q, block_size, valid_scale, valid_zp, torch.int8)
+        self.assertEqual(q.shape, input_tensor.shape)
+        self.assertEqual(dq.shape, input_tensor.shape)
+        
+        # 2. Invalid block_size length
+        invalid_block_size_len = (1,)
+        with self.assertRaises(AssertionError):
+            quantize_affine(input_tensor, invalid_block_size_len, valid_scale, valid_zp, torch.int8)
+            
+        # 3. Invalid scale shape/elements
+        invalid_scale = torch.ones(4, 3, dtype=torch.float32) # 12 elements instead of 16
+        with self.assertRaises(ValueError) as ctx:
+            quantize_affine(input_tensor, block_size, invalid_scale, valid_zp, torch.int8)
+        self.assertIn("scale must have exactly 16 elements", str(ctx.exception))
+        
+        # 4. Invalid zero_point shape/elements
+        invalid_zp = torch.zeros(4, 3, dtype=torch.int32) # 12 elements instead of 16
+        with self.assertRaises(ValueError) as ctx:
+            quantize_affine(input_tensor, block_size, valid_scale, invalid_zp, torch.int8)
+        self.assertIn("zero_point must have exactly 16 elements", str(ctx.exception))
+        
+        # 5. Non-divisible block_size
+        non_divisible_block_size = (1, 5) # 16 is not divisible by 5
+        with self.assertRaises(AssertionError) as ctx:
+            quantize_affine(input_tensor, non_divisible_block_size, valid_scale, valid_zp, torch.int8)
+        self.assertIn("must be divisible by block_size", str(ctx.exception))
+
 
 if __name__ == "__main__":
     unittest.main()
+
