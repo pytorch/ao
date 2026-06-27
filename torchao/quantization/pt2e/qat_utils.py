@@ -9,6 +9,7 @@ import copy
 import dataclasses
 import itertools
 import operator
+import warnings
 from typing import TYPE_CHECKING, Any, Callable, Optional
 
 import torch
@@ -29,7 +30,9 @@ from torchao.quantization.pt2e.utils import (
     _is_bn_node,
     _is_conv_or_conv_transpose_node,
     _is_conv_transpose_fn,
+    _is_linear_node,
     fold_bn_weights_into_conv_node,
+    fold_bn_weights_into_linear_node,
 )
 
 if TYPE_CHECKING:
@@ -319,6 +322,13 @@ def _get_folded_quantized_qat_conv_bn_pattern(
     return WrapperModule(_folded_quantized_qat_conv_bn_pattern)
 
 
+def _is_conv_or_linear_node(n: Node) -> bool:
+    """
+    Return whether the node refers to an aten conv, conv transpose, or linear op.
+    """
+    return _is_conv_or_conv_transpose_node(n) or _is_linear_node(n)
+
+
 def _has_conv_bias_filter(
     match: "InternalMatch",
     original_graph: Graph,
@@ -329,7 +339,7 @@ def _has_conv_bias_filter(
     the original graph has bias.
     """
     for n in match.nodes_map.values():
-        if _is_conv_or_conv_transpose_node(n):
+        if _is_conv_or_linear_node(n):
             return len(n.args) > 2 and n.args[2] is not None
     raise ValueError("Could not find conv node in matched conv + bn pattern")
 
@@ -344,6 +354,38 @@ def _no_conv_bias_filter(
     the original graph does NOT have bias.
     """
     return not _has_conv_bias_filter(match, original_graph, pattern_graph)
+
+
+def _linear_bn_input_is_2d_filter(
+    match: "InternalMatch",
+    original_graph: Graph,
+    pattern_graph: Graph,
+) -> bool:
+    """
+    Match filter for the subgraph rewriter that returns True if the input to
+    the linear node in the original graph is 2-D.
+
+    Linear + BN fusion is only valid when both layers operate on the same
+    dimension. Linear always acts on the last dim while BatchNorm1d acts on
+    the channel dim (dim 1). These two coincide only when the linear input
+    is 2-D (N, C). For higher-rank inputs, fusing would silently produce
+    incorrect results. See https://github.com/pytorch/ao/issues/4116
+    """
+    for n in match.nodes_map.values():
+        if not (isinstance(n, Node) and _is_linear_node(n)):
+            continue
+        linear_input = n.args[0]
+        assert isinstance(linear_input, Node)
+        linear_input_val = linear_input.meta.get("val")
+        if isinstance(linear_input_val, torch.Tensor) and linear_input_val.ndim != 2:
+            warnings.warn(
+                f"Not fusing linear+bn for node '{n.name}': the linear input "
+                f"is {linear_input_val.ndim}-D so Linear and BatchNorm operate "
+                f"on different dimensions"
+            )
+            return False
+        return True
+    raise ValueError("Could not find linear node in matched linear + bn pattern")
 
 
 def _is_quantize(n: Node) -> bool:
@@ -388,7 +430,7 @@ def _get_conv_bn_pattern_nodes(r: ReplacedPatterns) -> dict[str, tuple[Node, Nod
         for n in nodes:
             if n.op != "call_function":
                 continue
-            if _is_conv_or_conv_transpose_node(n):
+            if _is_conv_or_linear_node(n):
                 assert conv_node is None
                 conv_node = n
             if _is_bn_node(n):
@@ -508,9 +550,12 @@ def _copy_over_literal_conv_args(original_node: Node, new_node: Node):
 
     Note: Unlike other tensor args like conv weights and biases, literal args are
     preserved in the original nodes after replacement, so we can access them here.
+
+    Note: For linear, there are no literal args to copy over, so this just
+    normalizes the bias arg.
     """
-    assert _is_conv_or_conv_transpose_node(original_node)
-    assert _is_conv_or_conv_transpose_node(new_node)
+    assert _is_conv_or_linear_node(original_node)
+    assert _is_conv_or_linear_node(new_node)
     # x, weight, bias, [stride, padding, dilation, transposed, output_padding, groups]
     new_args = list(new_node.args)
     if len(new_args) < 3:
@@ -529,8 +574,8 @@ def _update_conv_input_qspec_map_after_replacement(
     so the keys in the `input_qspec_map` will need to be updated to reflect
     the corresponding nodes in the replacement graph.
     """
-    assert _is_conv_or_conv_transpose_node(original_node)
-    assert _is_conv_or_conv_transpose_node(replacement_node)
+    assert _is_conv_or_linear_node(original_node)
+    assert _is_conv_or_linear_node(replacement_node)
     if "quantization_annotation" not in original_node.meta:
         return
     original_input_qspec_map = original_node.meta[
@@ -626,6 +671,17 @@ def _fuse_conv_bn_qat(m: GraphModule) -> GraphModule:
         torch.randn(1),  # bn_running_var
     )
 
+    # Example inputs for linear-bn1d patterns
+    _linear_bn_example_inputs = (
+        torch.randn(2, 1),  # x
+        torch.randn(1, 1),  # linear_weight
+        torch.randn(1),  # linear_bias
+        torch.randn(1),  # bn_weight
+        torch.randn(1),  # bn_bias
+        torch.randn(1),  # bn_running_mean
+        torch.randn(1),  # bn_running_var
+    )
+
     has_bn = any(_is_bn_node(n) for n in m.graph.nodes)
     if not has_bn:
         return m
@@ -642,6 +698,9 @@ def _fuse_conv_bn_qat(m: GraphModule) -> GraphModule:
         )
         m = _fuse_conv_bn_qat_helper(
             m, F.conv_transpose2d, _conv2d_bn_example_inputs, is_cuda=is_cuda
+        )
+        m = _fuse_conv_bn_qat_helper(
+            m, F.linear, _linear_bn_example_inputs, is_cuda=is_cuda
         )
     return m
 
@@ -670,6 +729,13 @@ def _fuse_conv_bn_qat_helper(
         is_cuda,
     )
 
+    # For linear + bn, only fuse if the linear input is 2-D, since Linear
+    # and BatchNorm1d operate on different dimensions otherwise
+    if conv_fn is F.linear:
+        extra_match_filters = [_linear_bn_input_is_2d_filter]
+    else:
+        extra_match_filters = []
+
     # Step (1): Replace patterns with conv bias
     #
     # Here we do replacement separately for cases with and without conv bias, since
@@ -686,7 +752,7 @@ def _fuse_conv_bn_qat_helper(
         m,
         match_pattern,
         replacement_pattern_with_conv_bias,
-        match_filters=[_has_conv_bias_filter],
+        match_filters=[_has_conv_bias_filter] + extra_match_filters,
         ignore_literals=True,
     )
     m.recompile()
@@ -703,7 +769,7 @@ def _fuse_conv_bn_qat_helper(
         m,
         match_pattern,
         replacement_pattern_no_conv_bias,
-        match_filters=[_no_conv_bias_filter],
+        match_filters=[_no_conv_bias_filter] + extra_match_filters,
         ignore_literals=True,
     )
     m.recompile()
@@ -743,7 +809,7 @@ def _fuse_conv_bn_qat_helper(
                 and "nn_module_stack" not in replacement_node.meta
             ):
                 replacement_node.meta["nn_module_stack"] = copy.deepcopy(conv_nn_module)
-            if _is_conv_or_conv_transpose_node(original_node):
+            if _is_conv_or_linear_node(original_node):
                 # Step (3b): Copy over conv literal args
                 _copy_over_literal_conv_args(original_node, replacement_node)
                 # Step (3c): Update old references in the conv node's input_qspec_map
@@ -867,6 +933,16 @@ def _fold_conv_bn_qat(m: GraphModule) -> GraphModule:
         torch.randn(1),  # bn_running_var
     )
 
+    # Example inputs for quantized and folded linear-bn1d patterns used in convert
+    _quantized_linear_bn_example_inputs = (
+        torch.randn(2, 1),  # x
+        torch.randn(1, 1),  # linear_weight
+        torch.randn(1),  # bn_weight
+        torch.randn(1),  # bn_bias
+        torch.randn(1),  # bn_running_mean
+        torch.randn(1),  # bn_running_var
+    )
+
     has_bn = any(_is_bn_node(n) for n in m.graph.nodes)
     if not has_bn:
         return m
@@ -884,6 +960,9 @@ def _fold_conv_bn_qat(m: GraphModule) -> GraphModule:
         m = _fold_conv_bn_qat_helper(
             m, F.conv_transpose2d, _quantized_conv2d_bn_example_inputs, is_cuda=is_cuda
         )
+        m = _fold_conv_bn_qat_helper(
+            m, F.linear, _quantized_linear_bn_example_inputs, is_cuda=is_cuda
+        )
 
     # remove in place add from batchnorm tracking traning stats
     for node in m.graph.nodes:
@@ -891,8 +970,14 @@ def _fold_conv_bn_qat(m: GraphModule) -> GraphModule:
             node.target == torch.ops.aten.add_.Tensor
             and node.args[0].op == "get_attr"
             and node.args[1] == 1
-            and "torch.nn.modules.batchnorm.BatchNorm2d"
-            in [val[1] for _, val in node.meta["nn_module_stack"].items()]
+            and any(
+                val[1]
+                in (
+                    "torch.nn.modules.batchnorm.BatchNorm1d",
+                    "torch.nn.modules.batchnorm.BatchNorm2d",
+                )
+                for _, val in node.meta["nn_module_stack"].items()
+            )
         ):
             m.graph.erase_node(node)
 
@@ -988,7 +1073,14 @@ def _fold_conv_bn_qat_helper(
         (_, conv_weight) = node_map["conv_weight"]
         if "conv_bias" in node_map:
             (_, conv_bias) = node_map["conv_bias"]
-        fold_bn_weights_into_conv_node(conv_node, conv_weight, conv_bias, bn_node, m)
+        if _is_linear_node(conv_node):
+            fold_bn_weights_into_linear_node(
+                conv_node, conv_weight, conv_bias, bn_node, m
+            )
+        else:
+            fold_bn_weights_into_conv_node(
+                conv_node, conv_weight, conv_bias, bn_node, m
+            )
 
         # Copy over literal args for conv
         for original_node in _filter_nodes_map(r.nodes_map).values():
