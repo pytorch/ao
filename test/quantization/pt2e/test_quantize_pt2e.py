@@ -3628,6 +3628,54 @@ class TestQuantizePT2E(PT2EQuantizationTestCase):
         sqnr = compute_error(output_ref, output)
         self.assertGreater(sqnr, 35, f"SQNR too low: {sqnr} dB")
 
+    def test_nested_while_loop_convert_preserves_subgraphs(self):
+        """Regression test for https://github.com/pytorch/ao/issues/4455.
+
+        When a while_loop body contains a nested while_loop, the inner cond/body
+        subgraphs are referenced only from inside the outer body subgraph. The
+        cleanup in convert() (``delete_all_unused_submodules``) only inspects the
+        top-level graph, so it used to delete those inner subgraphs, leaving
+        dangling references that crashed graph linting in DuplicateDQPass.
+        """
+        from torch._higher_order_ops.while_loop import while_loop
+
+        class NestedWhileLoopModel(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.linear = torch.nn.Linear(5, 5)
+
+            def forward(self, x):
+                def inner_cond(j, y):
+                    return j < 2
+
+                def inner_body(j, y):
+                    return j + 1, self.linear(y)
+
+                def outer_cond(i, x):
+                    return i < 3
+
+                def outer_body(i, x):
+                    _, y = while_loop(inner_cond, inner_body, (torch.tensor(0), x))
+                    return i + 1, y
+
+                _, result = while_loop(
+                    outer_cond, outer_body, (torch.tensor(0), x)
+                )
+                return result
+
+        quantizer = XNNPACKQuantizer().set_global(get_symmetric_quantization_config())
+        m = NestedWhileLoopModel().eval()
+        example_inputs = (torch.randn(5),)
+
+        m_export = torch.export.export(m, example_inputs).module()
+        m_prepared = prepare_pt2e(m_export, quantizer)
+        with torch.no_grad():
+            m_prepared(*example_inputs)
+        # Previously raised in DuplicateDQPass ("references nonexistent attribute").
+        m_converted = convert_pt2e(m_prepared)
+        with torch.no_grad():
+            m_converted(*example_inputs)
+
 
 @skipIfNoQNNPACK
 class TestQuantizePT2EAffineQuantization(PT2EQuantizationTestCase):
