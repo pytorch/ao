@@ -22,7 +22,7 @@ from torch.ao.quantization.qconfig import (
     per_channel_weight_observer_range_neg_127_to_127,
     weight_observer_range_neg_127_to_127,
 )
-from torch.fx import Node, symbolic_trace
+from torch.fx import Graph, GraphModule, Node, symbolic_trace
 from torch.testing import FileCheck
 from torch.testing._internal.common_quantization import (
     NodeSpec as ns,
@@ -3897,6 +3897,38 @@ class TestQuantizePT2EAffineQuantization(PT2EQuantizationTestCase):
 
 
 instantiate_parametrized_tests(TestQuantizePT2E)
+
+
+class TestConstantFold(unittest.TestCase):
+    def test_shared_get_attr_target_stays_live(self):
+        from torchao.quantization.pt2e.constant_fold import constant_fold
+
+        class Root(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.register_buffer("shared", torch.arange(4.0))
+
+        root = Root().eval()
+        graph = Graph()
+        x = graph.placeholder("x")
+
+        shared0 = graph.get_attr("shared")
+        folded = graph.call_function(torch.ops.aten.neg.default, (shared0,))
+
+        shared1 = graph.get_attr("shared")
+        live = graph.call_function(torch.ops.aten.add.Tensor, (x, shared1))
+
+        graph.output((folded, live))
+        gm = GraphModule(root, graph)
+
+        constant_fold(gm)
+
+        gm.graph.lint()
+        self.assertTrue(hasattr(gm, "shared"))
+
+        folded_out, live_out = gm(torch.ones(4))
+        torch.testing.assert_close(folded_out, -torch.arange(4.0))
+        torch.testing.assert_close(live_out, torch.ones(4) + torch.arange(4.0))
 
 if __name__ == "__main__":
     run_tests()
