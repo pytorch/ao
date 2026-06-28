@@ -1412,6 +1412,163 @@ class TestQuantizePT2E(PT2EQuantizationTestCase):
         assert len(observers) == 2
         self.assertIs(observers[0], observers[1])
 
+    def _get_shared_qspec_test_model_and_clones(self, num_clones):
+        """Returns an exported model with `num_clones` chained clone ops and
+        the list of clone nodes, used by the SharedQuantizationSpec validation tests
+        """
+
+        class M(torch.nn.Module):
+            def forward(self, x):
+                for _ in range(num_clones):
+                    x = x.clone()
+                return x
+
+        example_inputs = (torch.randn(1, 5),)
+        m = torch.export.export(M().eval(), example_inputs, strict=True).module()
+        clones = [n for n in m.graph.nodes if n.target is torch.ops.aten.clone.default]
+        assert len(clones) == num_clones
+        return m, clones
+
+    def test_shared_qspec_reference_appears_later_error(self):
+        """SharedQuantizationSpec that refers to an edge or node appearing later in
+        graph order should fail with a descriptive ValueError instead of an
+        AssertionError, see https://github.com/pytorch/ao/issues/4421
+        """
+        act_qspec = QuantizationSpec(
+            dtype=torch.uint8,
+            quant_min=0,
+            quant_max=255,
+            qscheme=torch.per_tensor_affine,
+            observer_or_fake_quant_ctr=observer.default_observer,
+        )
+
+        class BackendAQuantizer(Quantizer):
+            def annotate(self, model: torch.fx.GraphModule) -> torch.fx.GraphModule:
+                first, second = [
+                    n
+                    for n in model.graph.nodes
+                    if n.target is torch.ops.aten.clone.default
+                ]
+                # the first clone shares with the second clone, but the anchor
+                # (second clone) appears later in graph order
+                first.meta["quantization_annotation"] = QuantizationAnnotation(
+                    output_qspec=SharedQuantizationSpec(second),
+                    _annotated=True,
+                )
+                second.meta["quantization_annotation"] = QuantizationAnnotation(
+                    output_qspec=act_qspec,
+                    _annotated=True,
+                )
+
+            def validate(self, model: torch.fx.GraphModule) -> None:
+                pass
+
+        m, _ = self._get_shared_qspec_test_model_and_clones(2)
+        with self.assertRaisesRegex(ValueError, "appears later in the graph"):
+            prepare_pt2e(m, BackendAQuantizer())
+
+    def test_shared_qspec_cycle_error(self):
+        """A cycle of SharedQuantizationSpecs with no concrete quantization spec should
+        fail with a descriptive ValueError instead of an AssertionError/RecursionError
+        """
+
+        class BackendAQuantizer(Quantizer):
+            def annotate(self, model: torch.fx.GraphModule) -> torch.fx.GraphModule:
+                first, second = [
+                    n
+                    for n in model.graph.nodes
+                    if n.target is torch.ops.aten.clone.default
+                ]
+                first.meta["quantization_annotation"] = QuantizationAnnotation(
+                    output_qspec=SharedQuantizationSpec(second),
+                    _annotated=True,
+                )
+                second.meta["quantization_annotation"] = QuantizationAnnotation(
+                    output_qspec=SharedQuantizationSpec(first),
+                    _annotated=True,
+                )
+
+            def validate(self, model: torch.fx.GraphModule) -> None:
+                pass
+
+        m, _ = self._get_shared_qspec_test_model_and_clones(2)
+        with self.assertRaisesRegex(ValueError, "forms a cycle"):
+            prepare_pt2e(m, BackendAQuantizer())
+
+    def test_shared_qspec_unannotated_reference_error(self):
+        """SharedQuantizationSpec that refers to an edge or node without any
+        quantization annotation should fail with a descriptive ValueError instead
+        of a KeyError
+        """
+
+        class BackendAQuantizer(Quantizer):
+            def annotate(self, model: torch.fx.GraphModule) -> torch.fx.GraphModule:
+                first, second = [
+                    n
+                    for n in model.graph.nodes
+                    if n.target is torch.ops.aten.clone.default
+                ]
+                first.meta["quantization_annotation"] = QuantizationAnnotation(
+                    output_qspec=SharedQuantizationSpec(second),
+                    _annotated=True,
+                )
+
+            def validate(self, model: torch.fx.GraphModule) -> None:
+                pass
+
+        m, _ = self._get_shared_qspec_test_model_and_clones(2)
+        with self.assertRaisesRegex(
+            ValueError, "not annotated with a quantization spec"
+        ):
+            prepare_pt2e(m, BackendAQuantizer())
+
+    def test_shared_qspec_chain_through_later_node(self):
+        """A chain of SharedQuantizationSpecs where an intermediate hop appears later
+        in graph order is still resolvable as long as the chain reaches a concrete
+        quantization spec, make sure validation doesn't reject it
+        """
+        act_qspec = QuantizationSpec(
+            dtype=torch.uint8,
+            quant_min=0,
+            quant_max=255,
+            qscheme=torch.per_tensor_affine,
+            observer_or_fake_quant_ctr=observer.default_observer,
+        )
+
+        class BackendAQuantizer(Quantizer):
+            def annotate(self, model: torch.fx.GraphModule) -> torch.fx.GraphModule:
+                first, second, third = [
+                    n
+                    for n in model.graph.nodes
+                    if n.target is torch.ops.aten.clone.default
+                ]
+                # second refers to third, which appears later in graph order, but
+                # the group's first member (first) has a concrete qspec so the
+                # sharing group is resolvable
+                first.meta["quantization_annotation"] = QuantizationAnnotation(
+                    output_qspec=act_qspec,
+                    _annotated=True,
+                )
+                second.meta["quantization_annotation"] = QuantizationAnnotation(
+                    output_qspec=SharedQuantizationSpec(third),
+                    _annotated=True,
+                )
+                third.meta["quantization_annotation"] = QuantizationAnnotation(
+                    output_qspec=SharedQuantizationSpec(first),
+                    _annotated=True,
+                )
+
+            def validate(self, model: torch.fx.GraphModule) -> None:
+                pass
+
+        m, clones = self._get_shared_qspec_test_model_and_clones(3)
+        prepare_pt2e(m, BackendAQuantizer())
+        # all three clone outputs should use the same observer instance
+        output_obs = [getattr(m, next(iter(n.users)).target) for n in clones]
+        assert len(output_obs) == 3
+        self.assertIs(output_obs[0], output_obs[1])
+        self.assertIs(output_obs[0], output_obs[2])
+
     @parametrize("dtype", (torch.float32, torch.bfloat16))
     @parametrize("quant_dtype", (torch.int16, torch.float8_e5m2, torch.float8_e4m3fn))
     def test_quantization_dtype(self, dtype, quant_dtype):
