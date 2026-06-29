@@ -381,6 +381,24 @@ def _quantize_then_scaled_grouped_mm(
 
     # Dispatch based on derived dtype
     if isinstance(config, Float8TrainingOpConfig):
+        if config.fp8_grouped_mm_recipe == "blockwise":
+            from torchao.prototype.moe_training.blockwise_fp8.grouped_mm import (
+                _to_fp8_blockwise_then_scaled_grouped_mm,
+            )
+
+            return _to_fp8_blockwise_then_scaled_grouped_mm(
+                A,
+                B_t,
+                offs,
+                out_dtype=config.out_dtype,
+                float8_dtype=config.float8_dtype,
+                pad_token_groups_for_grouped_mm=config.pad_token_groups_for_grouped_mm,
+                kernel_preference=config.kernel_preference,
+            )
+        if config.fp8_grouped_mm_recipe != "rowwise":
+            raise ValueError(
+                f"Unsupported FP8 grouped mm recipe: {config.fp8_grouped_mm_recipe}"
+            )
         return _to_fp8_rowwise_then_scaled_grouped_mm(
             A,
             B_t,

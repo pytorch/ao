@@ -12,6 +12,8 @@ from functools import lru_cache
 from typing import Optional
 
 import torch
+from torch.distributed.tensor import Partial, Replicate, Shard
+from torch.distributed.tensor.experimental import register_sharding
 
 from torchao.prototype.blockwise_fp8_training.deepgemm_metadata import (
     DeepGemmGroupedOffsetPlan,
@@ -19,6 +21,9 @@ from torchao.prototype.blockwise_fp8_training.deepgemm_metadata import (
 )
 from torchao.prototype.blockwise_fp8_training.deepgemm_quant import (
     _triton_fp8_blockwise_act_quant_k_grouped_deepgemm_with_group_sizes,
+)
+from torchao.prototype.blockwise_fp8_training.dtensor_utils import (
+    replicate_like_dtensor as _replicate_like_dtensor,
 )
 from torchao.prototype.blockwise_fp8_training.kernels import (
     BLOCKWISE_1X128_SCALING_TYPE,
@@ -174,6 +179,86 @@ def can_use_deepgemm_grouped_training(
         and capabilities.k_grouped_gemm is not None
         and _is_cuda_sm90_or_newer(a)
     )
+
+
+def _deepgemm_m_grouped_mm_shardings():
+    # Op returns a single tensor and takes:
+    # (a, b, a_s, scale_recipe_a, b_s, scale_recipe_b, grouped_layout,
+    #  out_dtype, block_size)
+    return [
+        (
+            [Replicate()],
+            [
+                Replicate(),
+                Replicate(),
+                Replicate(),
+                None,
+                Replicate(),
+                None,
+                Replicate(),
+                None,
+                None,
+            ],
+        ),
+        # Output-feature sharding: b is logical (E, N, K).
+        (
+            [Shard(1)],
+            [
+                Replicate(),
+                Shard(1),
+                Replicate(),
+                None,
+                Shard(1),
+                None,
+                Replicate(),
+                None,
+                None,
+            ],
+        ),
+        # Contracting-dimension sharding: a is (M, K), b is (E, N, K).
+        (
+            [Partial()],
+            [
+                Shard(1),
+                Shard(2),
+                Shard(1),
+                None,
+                Shard(2),
+                None,
+                Replicate(),
+                None,
+                None,
+            ],
+        ),
+    ]
+
+
+def _deepgemm_wgrad_shardings():
+    # Op returns (E, lhs_dim, rhs_dim) and takes:
+    # (a, a_s, b, b_s, ks_tensor, out_dtype, block_size).
+    # Feature-dim TP maps to dim0 of the prepared flat K-grouped operand.
+    return [
+        (
+            [Replicate()],
+            [
+                Replicate(),
+                Replicate(),
+                Replicate(),
+                Replicate(),
+                Replicate(),
+                None,
+                None,
+            ],
+        ),
+        (
+            [Shard(1)],
+            [Shard(0), Shard(0), Replicate(), Replicate(), Replicate(), None, None],
+        ),
+        (
+            [Shard(2)],
+            [Replicate(), Replicate(), Shard(0), Shard(0), Replicate(), None, None],
+        ),
+    ]
 
 
 def _flatten_k_grouped_transposed_lhs(
@@ -397,13 +482,6 @@ def deepgemm_blockwise_scaled_grouped_mm(
         BLOCKWISE_128X128_SCALING_TYPE
     ), "DeepGEMM FP8 blockwise grouped GEMM expects 128x128 RHS scales"
 
-    _require_deep_gemm()
-    capabilities = _get_deepgemm_capabilities()
-    if not a.is_cuda:
-        raise NotImplementedError(
-            "DeepGEMM FP8 blockwise grouped GEMM requires CUDA tensors. "
-            "Select KernelPreference.EMULATED for non-CUDA execution."
-        )
     assert b.stride(-1) == 1, (
         "deepgemm_blockwise_scaled_grouped_mm expected DeepGEMM RHS layout with K-major B"
     )
@@ -411,7 +489,49 @@ def deepgemm_blockwise_scaled_grouped_mm(
         f"shape {a.shape} and {b.shape} are not compatible"
     )
 
-    grouped_layout = offset_plan.m_grouped_layout(a.shape[0])
+    grouped_layout = _replicate_like_dtensor(
+        offset_plan.m_grouped_layout(a.shape[0]),
+        a,
+        b,
+        a_s,
+        b_s,
+    )
+    return _deepgemm_blockwise_scaled_grouped_mm_custom_op(
+        a,
+        b,
+        a_s,
+        scale_recipe_a,
+        b_s,
+        scale_recipe_b,
+        grouped_layout,
+        out_dtype,
+        block_size,
+    )
+
+
+@torch.library.custom_op(
+    "torchao::deepgemm_blockwise_scaled_grouped_mm",
+    mutates_args=(),
+)
+def _deepgemm_blockwise_scaled_grouped_mm_custom_op(
+    a: torch.Tensor,
+    b: torch.Tensor,
+    a_s: torch.Tensor,
+    scale_recipe_a: int,
+    b_s: torch.Tensor,
+    scale_recipe_b: int,
+    grouped_layout: torch.Tensor,
+    out_dtype: torch.dtype,
+    block_size: int = 128,
+) -> torch.Tensor:
+    _require_deep_gemm()
+    capabilities = _get_deepgemm_capabilities()
+    if not a.is_cuda:
+        raise NotImplementedError(
+            "DeepGEMM FP8 blockwise grouped GEMM requires CUDA tensors. "
+            "Select KernelPreference.EMULATED for non-CUDA execution."
+        )
+
     # DeepGEMM RHS is (..., N_out, K_contract); the output keeps TorchAO's
     # grouped GEMM shape (M, N_out).
     out = torch.empty(
@@ -439,6 +559,36 @@ def deepgemm_blockwise_scaled_grouped_mm(
         disable_ue8m0_cast=True,
     )
     return out
+
+
+@_deepgemm_blockwise_scaled_grouped_mm_custom_op.register_fake
+def _(
+    a: torch.Tensor,
+    b: torch.Tensor,
+    a_s: torch.Tensor,
+    scale_recipe_a: int,
+    b_s: torch.Tensor,
+    scale_recipe_b: int,
+    grouped_layout: torch.Tensor,
+    out_dtype: torch.dtype,
+    block_size: int = 128,
+) -> torch.Tensor:
+    return a.new_empty((a.shape[0], b.shape[-2]), dtype=out_dtype)
+
+
+@register_sharding(torch.ops.torchao.deepgemm_blockwise_scaled_grouped_mm.default)
+def custom_sharding_for_deepgemm_blockwise_scaled_grouped_mm(
+    a: torch.Tensor,
+    b: torch.Tensor,
+    a_s: torch.Tensor,
+    scale_recipe_a: int,
+    b_s: torch.Tensor,
+    scale_recipe_b: int,
+    grouped_layout: torch.Tensor,
+    out_dtype: torch.dtype,
+    block_size: int = 128,
+):
+    return _deepgemm_m_grouped_mm_shardings()
 
 
 def _prepare_k_grouped_lhs_operand(
@@ -557,22 +707,54 @@ def deepgemm_blockwise_scaled_grouped_mm_wgrad(
     assert b.numel() == total_tokens * rhs.dim, (
         f"shape {b.shape} and RHS scales {b_s.shape} are not compatible"
     )
-    ks_tensor = offset_plan.ks_tensor
+    ks_tensor = _replicate_like_dtensor(offset_plan.ks_tensor, a, b, a_s, b_s)
 
-    # SM90 DeepGEMM K-grouped FP8 always runs with accumulation: the kernel
-    # hard-asserts `c.has_value()` and a float output (see
-    # sm90_k_grouped_fp8_gemm_1d1d in DeepGEMM), computing `d = c + A@B`. `c`
-    # (`accum`) is read and `d` (`out_fp32`) is written, so they must be
-    # distinct buffers and `c` must be zero-seeded since we do not accumulate
-    # across calls. Both FP32 allocations are therefore required by the kernel
-    # contract. Cast after the launch to preserve TorchAO's public grouped-mm
-    # output dtype.
+    return _deepgemm_blockwise_scaled_grouped_mm_wgrad_custom_op(
+        a,
+        a_s,
+        b,
+        b_s,
+        ks_tensor,
+        out_dtype,
+        block_size,
+    )
+
+
+@torch.library.custom_op(
+    "torchao::deepgemm_blockwise_scaled_grouped_mm_wgrad",
+    mutates_args=(),
+)
+def _deepgemm_blockwise_scaled_grouped_mm_wgrad_custom_op(
+    a: torch.Tensor,
+    a_s: torch.Tensor,
+    b: torch.Tensor,
+    b_s: torch.Tensor,
+    ks_tensor: torch.Tensor,
+    out_dtype: torch.dtype,
+    block_size: int = 128,
+) -> torch.Tensor:
+    _require_deep_gemm()
+    capabilities = _get_deepgemm_capabilities()
+    if not a.is_cuda:
+        raise NotImplementedError(
+            "DeepGEMM FP8 blockwise grouped wgrad requires CUDA tensors. "
+            "Select KernelPreference.EMULATED for non-CUDA execution."
+        )
+
     out_fp32 = torch.empty(
-        (len(group_sizes), lhs.dim, rhs.dim),
+        (ks_tensor.numel(), a_s.shape[0], b_s.shape[0]),
         dtype=torch.float32,
-        device=lhs.data.device,
+        device=a.device,
     )
     accum = torch.zeros_like(out_fp32)
+    group_sizes = ks_tensor.tolist()
+    k_grouped_gemm = capabilities.k_grouped_gemm
+    if k_grouped_gemm is None:
+        raise ImportError(
+            "Installed `deep_gemm` does not expose "
+            "`k_grouped_fp8_gemm_nt_contiguous`. Install a DeepGEMM version "
+            "with contiguous K-grouped FP8 GEMM support."
+        )
 
     k_grouped_gemm(
         (a, a_s),
@@ -584,3 +766,29 @@ def deepgemm_blockwise_scaled_grouped_mm_wgrad(
         recipe=(1, 1, block_size),
     )
     return out_fp32 if out_dtype == torch.float32 else out_fp32.to(out_dtype)
+
+
+@_deepgemm_blockwise_scaled_grouped_mm_wgrad_custom_op.register_fake
+def _(
+    a: torch.Tensor,
+    a_s: torch.Tensor,
+    b: torch.Tensor,
+    b_s: torch.Tensor,
+    ks_tensor: torch.Tensor,
+    out_dtype: torch.dtype,
+    block_size: int = 128,
+) -> torch.Tensor:
+    return a.new_empty((ks_tensor.numel(), a_s.shape[0], b_s.shape[0]), dtype=out_dtype)
+
+
+@register_sharding(torch.ops.torchao.deepgemm_blockwise_scaled_grouped_mm_wgrad.default)
+def custom_sharding_for_deepgemm_blockwise_scaled_grouped_mm_wgrad(
+    a: torch.Tensor,
+    a_s: torch.Tensor,
+    b: torch.Tensor,
+    b_s: torch.Tensor,
+    ks_tensor: torch.Tensor,
+    out_dtype: torch.dtype,
+    block_size: int = 128,
+):
+    return _deepgemm_wgrad_shardings()

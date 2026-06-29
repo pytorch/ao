@@ -7,8 +7,16 @@
 from typing import Tuple
 
 import torch
+from torch.distributed.tensor import Partial, Replicate, Shard
+from torch.distributed.tensor.experimental import register_sharding
 
 from torchao.float8.config import e4m3_dtype
+from torchao.prototype.blockwise_fp8_training.dtensor_utils import (
+    grouped_quant_preserve_shardings as _grouped_quant_preserve_shardings,
+)
+from torchao.prototype.blockwise_fp8_training.dtensor_utils import (
+    grouped_quant_transpose_kn_shardings as _grouped_quant_transpose_kn_shardings,
+)
 from torchao.prototype.blockwise_fp8_training.kernels import (
     BLOCKWISE_1X128_SCALING_TYPE,
     BLOCKWISE_128X128_SCALING_TYPE,
@@ -52,6 +60,92 @@ def _prepare_grouped_rhs_scale(
     ):
         return scale
     return _prepare_grouped_128x128_scale(scale)
+
+
+def _emulated_grouped_mm_shardings():
+    # Op returns a single tensor and takes:
+    # (a, b, a_s, scale_recipe_a, b_s, scale_recipe_b, offs, out_dtype, block_size)
+    #
+    # For b.ndim == 3 this covers forward/dgrad:
+    #   a: (M, K), b: (E, K, N), out: (M, N)
+    # For b.ndim == 2 this covers wgrad:
+    #   a: (N, M), b: (M, K), out: (E, N, K)
+    return [
+        (
+            [Replicate()],
+            [
+                Replicate(),
+                Replicate(),
+                Replicate(),
+                None,
+                Replicate(),
+                None,
+                Replicate(),
+                None,
+                None,
+            ],
+        ),
+        # Forward/dgrad output-feature sharding.
+        (
+            [Shard(1)],
+            [
+                Replicate(),
+                Shard(2),
+                Replicate(),
+                None,
+                Shard(2),
+                None,
+                Replicate(),
+                None,
+                None,
+            ],
+        ),
+        # Forward/dgrad contraction sharding.
+        (
+            [Partial()],
+            [
+                Shard(1),
+                Shard(1),
+                Shard(1),
+                None,
+                Shard(1),
+                None,
+                Replicate(),
+                None,
+                None,
+            ],
+        ),
+        # Wgrad output dim sharding: a is logical (N, M).
+        (
+            [Shard(1)],
+            [
+                Shard(0),
+                Replicate(),
+                Shard(0),
+                None,
+                Replicate(),
+                None,
+                Replicate(),
+                None,
+                None,
+            ],
+        ),
+        # Wgrad input dim sharding: b is logical (M, K).
+        (
+            [Shard(2)],
+            [
+                Replicate(),
+                Shard(1),
+                Replicate(),
+                None,
+                Shard(1),
+                None,
+                Replicate(),
+                None,
+                None,
+            ],
+        ),
+    ]
 
 
 @torch.library.custom_op(
@@ -128,6 +222,17 @@ def _(
     return q_out, scale_out
 
 
+@register_sharding(
+    torch.ops.torchao.triton_fp8_blockwise_weight_quant_grouped_transposed_rhs.default
+)
+def custom_sharding_for_triton_fp8_blockwise_weight_quant_grouped_transposed_rhs(
+    weight_t: torch.Tensor,
+    block_size: int = 128,
+    dtype: torch.dtype = e4m3_dtype,
+):
+    return _grouped_quant_preserve_shardings()
+
+
 @torch.library.custom_op(
     "torchao::triton_fp8_blockwise_weight_quant_grouped_rhs",
     mutates_args=(),
@@ -200,6 +305,17 @@ def _(
         device=weight_t.device,
     )
     return q_out, scale_out
+
+
+@register_sharding(
+    torch.ops.torchao.triton_fp8_blockwise_weight_quant_grouped_rhs.default
+)
+def custom_sharding_for_triton_fp8_blockwise_weight_quant_grouped_rhs(
+    weight_t: torch.Tensor,
+    block_size: int = 128,
+    dtype: torch.dtype = e4m3_dtype,
+):
+    return _grouped_quant_transpose_kn_shardings()
 
 
 # Expand blockwise scales to match q_data's elementwise shape.
@@ -296,3 +412,18 @@ def _(
     if b.ndim == 3:
         return a.new_empty((a.shape[0], b.shape[-1]), dtype=out_dtype)
     return a.new_empty((offs.numel(), a.shape[0], b.shape[-1]), dtype=out_dtype)
+
+
+@register_sharding(torch.ops.torchao.emulated_blockwise_scaled_grouped_mm.default)
+def custom_sharding_for_emulated_blockwise_scaled_grouped_mm(
+    a: torch.Tensor,
+    b: torch.Tensor,
+    a_s: torch.Tensor,
+    scale_recipe_a: int,
+    b_s: torch.Tensor,
+    scale_recipe_b: int,
+    offs: torch.Tensor,
+    out_dtype: torch.dtype,
+    block_size: int = 128,
+):
+    return _emulated_grouped_mm_shardings()
