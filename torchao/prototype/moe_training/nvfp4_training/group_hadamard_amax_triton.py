@@ -32,10 +32,6 @@ if torch_version_at_least("2.10.0") and has_triton():
         _get_group_idx_binary,
         _validate_grouped_hadamard_inputs,
     )
-    from torchao.prototype.moe_training.nvfp4_training.hadamard_utils import (
-        prepare_for_cuda_graph,
-    )
-
     @triton.jit
     def _atomic_max_2d(values, output_ptr, group_idx):
         amax = tl.max(tl.max(values, axis=1), axis=0)
@@ -60,37 +56,15 @@ if torch_version_at_least("2.10.0") and has_triton():
         BLOCK_M: tl.constexpr,
         BLOCK_N: tl.constexpr,
         RHT_SIZE: tl.constexpr,
-        NUM_HIDDEN_PARTITIONS: tl.constexpr,
-        NUM_STAGES: tl.constexpr,
     ):
-        """Grouped fused RHT columnwise and direct rowwise NVFP4 quantization."""
-        # Enum for shape representation; only VARYING_FIRST_DIM and SAME_BOTH_DIMS are supported
+        """Grouped RHT columnwise and direct rowwise amax reduction."""
         VARYING_FIRST_DIM: tl.constexpr = 1
-
-        # Create TMA descriptors in-kernel from raw pointers and shape/stride
-        a_desc = tl.make_tensor_descriptor(
-            a_ptr,
-            shape=[M, N],
-            strides=[N, 1],
-            block_shape=[BLOCK_M, BLOCK_N],
-        )
-        b_desc = tl.make_tensor_descriptor(
-            b_ptr,
-            shape=[16, 16],
-            strides=[16, 1],
-            block_shape=[16, 16],
-        )
 
         num_tiles_token = tl.cdiv(M, BLOCK_M)
         num_tiles_hidden = tl.cdiv(N, BLOCK_N)
-        token_tile_idx = tl.program_id(0)
-        hidden_partition_idx = tl.program_id(1)
-        hidden_begin = (
-            num_tiles_hidden * hidden_partition_idx // NUM_HIDDEN_PARTITIONS
-        )
-        hidden_end = (
-            num_tiles_hidden * (hidden_partition_idx + 1) // NUM_HIDDEN_PARTITIONS
-        )
+        tile_idx = tl.program_id(0)
+        token_tile_idx = tile_idx // num_tiles_hidden
+        hidden_tile_idx = tile_idx - token_tile_idx * num_tiles_hidden
 
         if SHAPE_REP == VARYING_FIRST_DIM:
             group_idx = _get_group_idx_binary(
@@ -101,51 +75,28 @@ if torch_version_at_least("2.10.0") and has_triton():
         else:
             group_idx = token_tile_idx // (num_tiles_token // num_tensors)
 
-        # Load random hadamard matrix once
-        hadamard = b_desc.load([0, 0])
+        offsets_m = token_tile_idx * BLOCK_M + tl.arange(0, BLOCK_M)
+        offsets_n = hidden_tile_idx * BLOCK_N + tl.arange(0, BLOCK_N)
+        a = tl.load(a_ptr + offsets_m[:, None] * N + offsets_n[None, :])
 
-        cumulative_rht_amax = tl.zeros(
-            (BLOCK_N * BLOCK_M // RHT_SIZE, RHT_SIZE), dtype=tl.float32
+        rht_offsets = (
+            tl.arange(0, RHT_SIZE)[:, None] * RHT_SIZE
+            + tl.arange(0, RHT_SIZE)[None, :]
         )
-        cumulative_a_amax = tl.zeros((BLOCK_M, BLOCK_N), dtype=tl.float32)
+        hadamard = tl.load(b_ptr + rht_offsets)
+        a_t = tl.trans(a)
+        a_t_reshape = tl.reshape(
+            a_t, [BLOCK_N * BLOCK_M // RHT_SIZE, RHT_SIZE]
+        )
+        a_t_rht = tl.dot(a_t_reshape, hadamard).to(tl.bfloat16)
 
-        for hidden_tile_idx in tl.range(
-            hidden_begin,
-            hidden_end,
-            flatten=False,
-            warp_specialize=True,
-            num_stages=NUM_STAGES,
-        ):
-            # Load A (BLOCK_M, BLOCK_N)
-            a = a_desc.load([token_tile_idx * BLOCK_M, hidden_tile_idx * BLOCK_N])
-            # Transpose A_t (BLOCK_N, BLOCK_M)
-            a_t = tl.trans(a)
-            # Reshape to A_t_reshape
-            a_t_reshape = tl.reshape(a_t, [BLOCK_N * BLOCK_M // RHT_SIZE, RHT_SIZE])
-            # Cast to bfloat16 like regular matmul output
-            a_t_rht = tl.dot(a_t_reshape, hadamard).to(tl.bfloat16)
-
-            # Update cumulative max at tile level to avoid failing
-            # TritonGPUAutomaticWarpSpecialization MLIR pass
-            cumulative_rht_amax = tl.maximum(
-                cumulative_rht_amax,
-                tl.abs(a_t_rht),
-                propagate_nan=tl.PropagateNan.ALL,
-            )
-            cumulative_a_amax = tl.maximum(
-                cumulative_a_amax,
-                tl.abs(a.to(tl.float32)),
-                propagate_nan=tl.PropagateNan.ALL,
-            )
-
-        # Get scalar max for this block and update global max with atomic max operation
         _atomic_max_2d(
-            cumulative_rht_amax,
+            tl.abs(a_t_rht),
             global_amax_col_ptr,
             group_idx,
         )
         _atomic_max_2d(
-            cumulative_a_amax,
+            tl.abs(a.to(tl.float32)),
             global_amax_row_ptr,
             group_idx,
         )
@@ -203,43 +154,23 @@ if torch_version_at_least("2.10.0") and has_triton():
         m, n = A.shape
         rht_size = B.shape[0]
 
-        num_token_tiles = triton.cdiv(m, BLOCK_M)
-        num_hidden_tiles = triton.cdiv(n, BLOCK_N)
-        num_sms = torch.cuda.get_device_properties(A.device).multi_processor_count
-        num_hidden_partitions = 1
-        if num_token_tiles < triton.cdiv(num_sms, 2):
-            num_hidden_partitions = min(
-                num_hidden_tiles,
-                triton.cdiv(num_sms, num_token_tiles),
-            )
-        grid = (num_token_tiles, num_hidden_partitions)
-
-        # Prepare a kernel workspace for TMA descriptors.
-        if hasattr(triton, "set_allocator"):
-            workspace = prepare_for_cuda_graph(A.device)
-            triton.set_allocator(lambda size, align, stream: workspace[: max(size, 1)])
-
-        try:
-            _group_rht_amax_triton_kernel[grid](
-                A,
-                B,
-                offsets,
-                row_amax,
-                col_amax,
-                m,
-                n,
-                num_tensors=num_tensors,
-                SHAPE_REP=shape_rep,
-                BLOCK_M=BLOCK_M,
-                BLOCK_N=BLOCK_N,
-                RHT_SIZE=rht_size,
-                NUM_HIDDEN_PARTITIONS=num_hidden_partitions,
-                NUM_STAGES=3,
-                num_warps=8,
-            )
-        finally:
-            if hasattr(triton, "set_allocator"):
-                triton.set_allocator(None)
+        grid = (triton.cdiv(m, BLOCK_M) * triton.cdiv(n, BLOCK_N),)
+        _group_rht_amax_triton_kernel[grid](
+            A,
+            B,
+            offsets,
+            row_amax,
+            col_amax,
+            m,
+            n,
+            num_tensors=num_tensors,
+            SHAPE_REP=shape_rep,
+            BLOCK_M=BLOCK_M,
+            BLOCK_N=BLOCK_N,
+            RHT_SIZE=rht_size,
+            num_warps=8,
+            num_stages=3,
+        )
         return col_amax, row_amax
 
     @triton_group_rht_amax.register_fake
