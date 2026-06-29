@@ -60,6 +60,7 @@ if torch_version_at_least("2.10.0") and has_triton():
         BLOCK_M: tl.constexpr,
         BLOCK_N: tl.constexpr,
         RHT_SIZE: tl.constexpr,
+        NUM_HIDDEN_PARTITIONS: tl.constexpr,
         NUM_STAGES: tl.constexpr,
     ):
         """Grouped fused RHT columnwise and direct rowwise NVFP4 quantization."""
@@ -83,6 +84,13 @@ if torch_version_at_least("2.10.0") and has_triton():
         num_tiles_token = tl.cdiv(M, BLOCK_M)
         num_tiles_hidden = tl.cdiv(N, BLOCK_N)
         token_tile_idx = tl.program_id(0)
+        hidden_partition_idx = tl.program_id(1)
+        hidden_begin = (
+            num_tiles_hidden * hidden_partition_idx // NUM_HIDDEN_PARTITIONS
+        )
+        hidden_end = (
+            num_tiles_hidden * (hidden_partition_idx + 1) // NUM_HIDDEN_PARTITIONS
+        )
 
         if SHAPE_REP == VARYING_FIRST_DIM:
             group_idx = _get_group_idx_binary(
@@ -102,8 +110,8 @@ if torch_version_at_least("2.10.0") and has_triton():
         cumulative_a_amax = tl.zeros((BLOCK_M, BLOCK_N), dtype=tl.float32)
 
         for hidden_tile_idx in tl.range(
-            0,
-            num_tiles_hidden,
+            hidden_begin,
+            hidden_end,
             flatten=False,
             warp_specialize=True,
             num_stages=NUM_STAGES,
@@ -195,14 +203,16 @@ if torch_version_at_least("2.10.0") and has_triton():
         m, n = A.shape
         rht_size = B.shape[0]
 
-        # Instead of a persistent kernel, divide batch dimension into blocks by BLOCK_M.
-        # Since number of tokens per expert is a multiple of BLOCK_M, each block will
-        # be fully contained in a single expert group. Each block will handle the
-        # entire hidden dimension, so warp specialization will have non-trivial pipeline.
-        # A persistent kernel requires global atomic max within a for-loop, which is not
-        # supported by Triton. An occupancy based approach requires a single global
-        # atomic after the for-loop at end of the kernel.
-        grid = (triton.cdiv(m, BLOCK_M),)
+        num_token_tiles = triton.cdiv(m, BLOCK_M)
+        num_hidden_tiles = triton.cdiv(n, BLOCK_N)
+        num_sms = torch.cuda.get_device_properties(A.device).multi_processor_count
+        num_hidden_partitions = 1
+        if num_token_tiles < triton.cdiv(num_sms, 2):
+            num_hidden_partitions = min(
+                num_hidden_tiles,
+                triton.cdiv(num_sms, num_token_tiles),
+            )
+        grid = (num_token_tiles, num_hidden_partitions)
 
         # Prepare a kernel workspace for TMA descriptors.
         if hasattr(triton, "set_allocator"):
@@ -223,6 +233,7 @@ if torch_version_at_least("2.10.0") and has_triton():
                 BLOCK_M=BLOCK_M,
                 BLOCK_N=BLOCK_N,
                 RHT_SIZE=rht_size,
+                NUM_HIDDEN_PARTITIONS=num_hidden_partitions,
                 NUM_STAGES=3,
                 num_warps=8,
             )
