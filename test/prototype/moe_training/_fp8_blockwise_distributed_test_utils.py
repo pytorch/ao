@@ -8,14 +8,12 @@ import copy
 from collections.abc import Iterable
 
 import torch
-import torch.distributed as dist
 from torch import nn
-from torch.distributed._tensor import DTensor
 from torch.distributed.device_mesh import DeviceMesh
-from torch.distributed.tensor import Shard
+from torch.distributed.tensor import DTensor, Shard
 from torch.nn import functional as F
 
-from packaging import version
+from test.prototype import fp8_blockwise_distributed_utils as fp8_dist_utils
 from torchao.prototype.blockwise_fp8_training.dtensor_utils import (
     replicate_like_dtensor,
 )
@@ -26,8 +24,8 @@ from torchao.prototype.moe_training.config import (
 from torchao.prototype.moe_training.tensor import TrainingWeightWrapperBaseTensor
 from torchao.quantization import quantize_
 from torchao.quantization.quantize_.common import KernelPreference
-from torchao.quantization.utils import compute_error
-from torchao.utils import is_sm_at_least_90
+
+assert_parameters_are_dtensors = fp8_dist_utils.assert_parameters_are_dtensors
 
 
 def get_blockwise_moe_skip_reason(
@@ -35,23 +33,21 @@ def get_blockwise_moe_skip_reason(
     triton_module,
     min_cuda_devices: int,
 ) -> str | None:
-    if not torch.cuda.is_available():
-        return "CUDA not available"
-    if torch.cuda.device_count() < min_cuda_devices:
-        return f"Need at least {min_cuda_devices} CUDA devices"
-    if not is_sm_at_least_90():
-        return "Blockwise FP8 MoE grouped GEMM requires CUDA SM90+"
-    if version.parse(triton_module.__version__) < version.parse("3.3.0"):
-        return "Triton version < 3.3.0"
-    return None
+    return fp8_dist_utils.get_blockwise_fp8_distributed_skip_reason(
+        triton_module=triton_module,
+        min_cuda_devices=min_cuda_devices,
+        sm90_reason="Blockwise FP8 MoE grouped GEMM requires CUDA SM90+",
+    )
+
+
+def _unwrap_training_weight_wrapper(tensor: torch.Tensor) -> torch.Tensor:
+    if isinstance(tensor, TrainingWeightWrapperBaseTensor):
+        return tensor._data
+    return tensor
 
 
 def full_tensor(tensor: torch.Tensor) -> torch.Tensor:
-    if isinstance(tensor, DTensor):
-        tensor = tensor.full_tensor()
-    if isinstance(tensor, TrainingWeightWrapperBaseTensor):
-        tensor = tensor._data
-    return tensor
+    return fp8_dist_utils.full_tensor(tensor, unwrap_fn=_unwrap_training_weight_wrapper)
 
 
 def assert_close(
@@ -62,18 +58,18 @@ def assert_close(
     rtol: float = 2e-2,
     min_sqnr: float | None = None,
 ) -> None:
-    actual = full_tensor(actual).float()
-    expected = full_tensor(expected).float()
-    if min_sqnr is not None:
-        sqnr = compute_error(expected, actual)
-        assert sqnr >= min_sqnr, f"SQNR {sqnr.item()} must be >= {min_sqnr}"
-        return
-    torch.testing.assert_close(actual, expected, atol=atol, rtol=rtol)
+    fp8_dist_utils.assert_close(
+        actual,
+        expected,
+        atol=atol,
+        rtol=rtol,
+        min_sqnr=min_sqnr,
+        unwrap_fn=_unwrap_training_weight_wrapper,
+    )
 
 
 def broadcast_module(module: nn.Module) -> None:
-    for param in module.parameters():
-        dist.broadcast(full_tensor(param), src=0)
+    fp8_dist_utils.broadcast_module(module, unwrap_fn=_unwrap_training_weight_wrapper)
 
 
 class BlockwiseGroupedExperts(nn.Module):
@@ -230,20 +226,12 @@ def get_replicated_local_batch(
     in_features: int = 256,
     device: str | torch.device = "cuda",
 ) -> tuple[torch.Tensor, torch.Tensor]:
-    torch.manual_seed(100 + iter_idx)
-    global_input = torch.randn(
-        replica_count,
-        tokens,
-        in_features,
+    return fp8_dist_utils.get_replicated_local_batch(
+        replica_count=replica_count,
+        replica_index=replica_index,
+        iter_idx=iter_idx,
+        sample_shape=(tokens, in_features),
         device=device,
-        dtype=torch.bfloat16,
-    )
-    global_target = torch.randn_like(global_input)
-    dist.broadcast(global_input, src=0)
-    dist.broadcast(global_target, src=0)
-    return (
-        global_input[replica_index].contiguous(),
-        global_target[replica_index].contiguous(),
     )
 
 
@@ -253,15 +241,12 @@ def allreduce_reference_grads(
     world_size: int,
     group=None,
 ) -> None:
-    for param in model.parameters():
-        assert param.grad is not None
-        dist.all_reduce(full_tensor(param.grad), group=group)
-        full_tensor(param.grad).div_(world_size)
-
-
-def assert_parameters_are_dtensors(parameters: Iterable[torch.Tensor]) -> None:
-    for param in parameters:
-        assert isinstance(param, DTensor)
+    fp8_dist_utils.allreduce_reference_grads(
+        model,
+        world_size=world_size,
+        group=group,
+        unwrap_fn=_unwrap_training_weight_wrapper,
+    )
 
 
 def assert_parameters_are_training_wrappers(
@@ -277,12 +262,12 @@ def assert_dtensor_parameter_grads_match(
     *,
     min_sqnr: float = 30.0,
 ) -> None:
-    for ref_param, dist_param in zip(ref_parameters, dist_parameters, strict=True):
-        assert ref_param.grad is not None
-        assert dist_param.grad is not None
-        assert isinstance(dist_param, DTensor)
-        assert isinstance(dist_param.grad, DTensor)
-        assert_close(dist_param.grad, ref_param.grad, min_sqnr=min_sqnr)
+    fp8_dist_utils.assert_dtensor_parameter_grads_match(
+        ref_parameters,
+        dist_parameters,
+        min_sqnr=min_sqnr,
+        unwrap_fn=_unwrap_training_weight_wrapper,
+    )
 
 
 def assert_dtensor_parameter_values_match(
@@ -291,6 +276,9 @@ def assert_dtensor_parameter_values_match(
     *,
     min_sqnr: float = 30.0,
 ) -> None:
-    for ref_param, dist_param in zip(ref_parameters, dist_parameters, strict=True):
-        assert isinstance(dist_param, DTensor)
-        assert_close(dist_param, ref_param, min_sqnr=min_sqnr)
+    fp8_dist_utils.assert_dtensor_parameter_values_match(
+        ref_parameters,
+        dist_parameters,
+        min_sqnr=min_sqnr,
+        unwrap_fn=_unwrap_training_weight_wrapper,
+    )

@@ -7,9 +7,9 @@
 import torch
 import torch.nn.functional as F
 from torch import nn
-from torch.distributed._tensor import DTensor
 
 from torchao.core.config import AOBaseConfig
+from torchao.prototype.blockwise_fp8_training.dtensor_utils import is_dtensor
 from torchao.prototype.blockwise_fp8_training.kernels import (
     BLOCKWISE_1X128_SCALING_TYPE,
     BLOCKWISE_128X128_SCALING_TYPE,
@@ -39,9 +39,7 @@ def _scaled_mm(
     scale_recipe_b,
     out_dtype: torch.dtype,
 ) -> torch.Tensor:
-    if not any(
-        isinstance(tensor, DTensor) for tensor in (mat_a, mat_b, scale_a, scale_b)
-    ):
+    if not any(is_dtensor(tensor) for tensor in (mat_a, mat_b, scale_a, scale_b)):
         return F.scaled_mm(
             mat_a,
             mat_b,

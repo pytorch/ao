@@ -740,14 +740,43 @@ def _deepgemm_blockwise_scaled_grouped_mm_wgrad_custom_op(
             "DeepGEMM FP8 blockwise grouped wgrad requires CUDA tensors. "
             "Select KernelPreference.EMULATED for non-CUDA execution."
         )
+    assert a.ndim == 1 and b.ndim == 1, (
+        "DeepGEMM K-grouped wgrad operands must be flat K-major buffers"
+    )
+    assert a_s.ndim == 2 and b_s.ndim == 2, (
+        "DeepGEMM K-grouped wgrad scales must be 2D (dim, token_blocks)"
+    )
+    assert ks_tensor.ndim == 1 and ks_tensor.dtype == torch.int32, (
+        "ks_tensor must be a 1D int32 tensor of per-expert token counts"
+    )
+    group_sizes = ks_tensor.tolist()
+    total_tokens = sum(group_sizes)
+    assert a.numel() == total_tokens * a_s.shape[0], (
+        f"LHS data/scales are incompatible: data={a.shape}, scales={a_s.shape}, "
+        f"tokens={total_tokens}"
+    )
+    assert b.numel() == total_tokens * b_s.shape[0], (
+        f"RHS data/scales are incompatible: data={b.shape}, scales={b_s.shape}, "
+        f"tokens={total_tokens}"
+    )
+    assert a_s.shape[1] == b_s.shape[1], (
+        f"LHS/RHS scale token blocks must match: {a_s.shape} vs {b_s.shape}"
+    )
 
+    # SM90 DeepGEMM K-grouped FP8 always runs with accumulation: the kernel
+    # hard-asserts `c.has_value()` and a float output (see
+    # sm90_k_grouped_fp8_gemm_1d1d in DeepGEMM), computing `d = c + A@B`. `c`
+    # (`accum`) is read and `d` (`out_fp32`) is written, so they must be
+    # distinct buffers and `c` must be zero-seeded since we do not accumulate
+    # across calls. Both FP32 allocations are therefore required by the kernel
+    # contract. Cast after the launch to preserve TorchAO's public grouped-mm
+    # output dtype.
     out_fp32 = torch.empty(
         (ks_tensor.numel(), a_s.shape[0], b_s.shape[0]),
         dtype=torch.float32,
         device=a.device,
     )
     accum = torch.zeros_like(out_fp32)
-    group_sizes = ks_tensor.tolist()
     k_grouped_gemm = capabilities.k_grouped_gemm
     if k_grouped_gemm is None:
         raise ImportError(

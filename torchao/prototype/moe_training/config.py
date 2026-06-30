@@ -81,6 +81,16 @@ class Float8TrainingOpConfig(TrainingOpBaseConfig):
     )
 
     def __post_init__(self):
+        if self.fp8_grouped_mm_recipe == "blockwise" and self.kernel_preference not in (
+            KernelPreference.AUTO,
+            KernelPreference.EMULATED,
+        ):
+            raise ValueError(
+                "Float8TrainingOpConfig with fp8_grouped_mm_recipe='blockwise' "
+                "supports only KernelPreference.AUTO or KernelPreference.EMULATED, "
+                f"got {self.kernel_preference}."
+            )
+
         # Pre-build internal configs for the linear op override.
         self._float8_linear_config = Float8LinearConfig.from_recipe_name(
             self.float8_linear_recipe

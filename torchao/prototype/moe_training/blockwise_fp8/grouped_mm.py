@@ -7,18 +7,25 @@
 from typing import Optional
 
 import torch
-from torch.distributed._tensor import DTensor
-from torch.distributed.tensor import Partial, Replicate, Shard
 
 from torchao.float8.config import e4m3_dtype
 from torchao.prototype.blockwise_fp8_training.dtensor_utils import (
     dtensor_from_local_like as _dtensor_from_local_like,
 )
 from torchao.prototype.blockwise_fp8_training.dtensor_utils import (
+    is_dtensor as _is_dtensor,
+)
+from torchao.prototype.blockwise_fp8_training.dtensor_utils import (
     local_tensor as _local_tensor,
 )
 from torchao.prototype.blockwise_fp8_training.dtensor_utils import (
     replicate_like_dtensor as _replicate_like_dtensor,
+)
+from torchao.prototype.blockwise_fp8_training.dtensor_utils import (
+    require_dtensor_not_sharded_on_dim as _require_dtensor_not_sharded_on_dim,
+)
+from torchao.prototype.blockwise_fp8_training.dtensor_utils import (
+    require_dtensor_replicated as _require_dtensor_replicated,
 )
 from torchao.prototype.blockwise_fp8_training.kernels import (
     BLOCKWISE_1X128_SCALING_TYPE,
@@ -38,34 +45,7 @@ from torchao.prototype.moe_training.utils import (
 )
 from torchao.quantization.quantize_.common import KernelPreference
 
-
-def _check_dtensor_token_padding_layout(
-    tensor: torch.Tensor,
-    name: str,
-    *,
-    allow_partial: bool = False,
-) -> None:
-    if not isinstance(tensor, DTensor):
-        return
-    for placement in tensor.placements:
-        if isinstance(placement, Partial) and not allow_partial:
-            raise NotImplementedError(
-                f"{name} must not be Partial when padding token groups"
-            )
-        if isinstance(placement, Shard) and placement.dim == 0:
-            raise NotImplementedError(
-                f"{name} must not be sharded on the token dimension when padding "
-                "token groups"
-            )
-
-
-def _check_replicated_dtensor_offsets(tensor: torch.Tensor, name: str) -> None:
-    if not isinstance(tensor, DTensor):
-        return
-    if not all(isinstance(placement, Replicate) for placement in tensor.placements):
-        raise NotImplementedError(
-            f"{name} must be replicated when padding token groups"
-        )
+_TOKEN_GROUP_PADDING_REASON = "when padding token groups"
 
 
 def _pad_token_groups_preserve_dtensor(
@@ -75,9 +55,7 @@ def _pad_token_groups_preserve_dtensor(
     alignment_size: int,
     kernel_preference: KernelPreference,
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-    if not isinstance(input_act, DTensor) and not isinstance(
-        group_end_offsets, DTensor
-    ):
+    if not _is_dtensor(input_act) and not _is_dtensor(group_end_offsets):
         return pad_token_groups(
             input_act,
             group_end_offsets,
@@ -85,8 +63,19 @@ def _pad_token_groups_preserve_dtensor(
             kernel_preference=kernel_preference,
         )
 
-    _check_dtensor_token_padding_layout(input_act, "input_act", allow_partial=True)
-    _check_replicated_dtensor_offsets(group_end_offsets, "group_end_offsets")
+    _require_dtensor_not_sharded_on_dim(
+        input_act,
+        "input_act",
+        0,
+        dim_name="token dimension",
+        allow_partial=True,
+        reason=_TOKEN_GROUP_PADDING_REASON,
+    )
+    _require_dtensor_replicated(
+        group_end_offsets,
+        "group_end_offsets",
+        reason=_TOKEN_GROUP_PADDING_REASON,
+    )
     local_padded, local_starts, local_ends = pad_token_groups(
         _local_tensor(input_act),
         _local_tensor(group_end_offsets),
@@ -94,7 +83,7 @@ def _pad_token_groups_preserve_dtensor(
         kernel_preference=kernel_preference,
     )
     padded = _dtensor_from_local_like(local_padded, input_act)
-    if not isinstance(padded, DTensor):
+    if not _is_dtensor(padded):
         padded = _replicate_like_dtensor(padded, group_end_offsets)
     return (
         padded,
@@ -113,9 +102,9 @@ def _unpad_token_groups_preserve_dtensor(
     kernel_preference: KernelPreference,
 ) -> torch.Tensor:
     if (
-        not isinstance(padded_output, DTensor)
-        and not isinstance(original_group_end_offsets, DTensor)
-        and not isinstance(padded_group_start_offsets, DTensor)
+        not _is_dtensor(padded_output)
+        and not _is_dtensor(original_group_end_offsets)
+        and not _is_dtensor(padded_group_start_offsets)
     ):
         return unpad_token_groups(
             padded_output,
@@ -126,14 +115,23 @@ def _unpad_token_groups_preserve_dtensor(
             kernel_preference=kernel_preference,
         )
 
-    _check_dtensor_token_padding_layout(
-        padded_output, "padded_output", allow_partial=True
+    _require_dtensor_not_sharded_on_dim(
+        padded_output,
+        "padded_output",
+        0,
+        dim_name="token dimension",
+        allow_partial=True,
+        reason=_TOKEN_GROUP_PADDING_REASON,
     )
-    _check_replicated_dtensor_offsets(
-        original_group_end_offsets, "original_group_end_offsets"
+    _require_dtensor_replicated(
+        original_group_end_offsets,
+        "original_group_end_offsets",
+        reason=_TOKEN_GROUP_PADDING_REASON,
     )
-    _check_replicated_dtensor_offsets(
-        padded_group_start_offsets, "padded_group_start_offsets"
+    _require_dtensor_replicated(
+        padded_group_start_offsets,
+        "padded_group_start_offsets",
+        reason=_TOKEN_GROUP_PADDING_REASON,
     )
     local_unpadded = unpad_token_groups(
         _local_tensor(padded_output),

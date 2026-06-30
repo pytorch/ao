@@ -6,8 +6,7 @@
 
 import pytest
 import torch
-from torch.distributed._tensor import DTensor
-from torch.distributed.tensor import Partial, Replicate, Shard
+from torch.distributed.tensor import DTensor, Partial, Replicate, Shard
 from torch.nn import functional as F
 from torch.testing._internal.common_utils import run_tests
 from torch.testing._internal.distributed._tensor.common_dtensor import (
@@ -15,6 +14,9 @@ from torch.testing._internal.distributed._tensor.common_dtensor import (
     with_comms,
 )
 
+from test.prototype.fp8_blockwise_distributed_utils import (
+    BlockwiseFP8DTensorTestMixin,
+)
 from torchao.utils import is_MI300, is_MI350, is_sm_at_least_90
 
 if not (
@@ -251,70 +253,9 @@ def test_fp8_blockwise_quantized_grouped_experts_compile_fullgraph_fwd_bwd():
     assert compiled_frame_counter.frame_count == 1
 
 
-class TestFP8BlockwiseGroupedMMDTensor(DTensorTestBase):
+class TestFP8BlockwiseGroupedMMDTensor(BlockwiseFP8DTensorTestMixin, DTensorTestBase):
     world_size = 2
     block_size = 128
-
-    def _build_cuda_mesh(self):
-        torch.cuda.set_device(self.rank % torch.cuda.device_count())
-        mesh = self.build_device_mesh()
-        mesh._device_type = "cuda"
-        return mesh
-
-    def _local_shard(self, tensor: torch.Tensor, placement, *, contiguous: bool):
-        if isinstance(placement, Replicate):
-            return tensor.contiguous() if contiguous else tensor
-        if not isinstance(placement, Shard):
-            raise AssertionError(f"Unsupported placement: {placement}")
-
-        self.assertEqual(tensor.size(placement.dim) % self.world_size, 0)
-        chunk = tensor.size(placement.dim) // self.world_size
-        local = tensor.narrow(placement.dim, self.rank * chunk, chunk)
-        return local.contiguous() if contiguous else local
-
-    def _dtensor_from_global(
-        self,
-        mesh,
-        tensor: torch.Tensor,
-        placement,
-        *,
-        contiguous: bool,
-    ):
-        local_tensor = self._local_shard(tensor, placement, contiguous=contiguous)
-        return local_tensor, DTensor.from_local(
-            local_tensor,
-            mesh,
-            [placement],
-            run_check=False,
-        )
-
-    def _assert_dtensor_matches(
-        self,
-        actual: DTensor,
-        expected_local: torch.Tensor,
-        expected_global: torch.Tensor,
-        expected_placement,
-        *,
-        atol: float = 0.0,
-        rtol: float = 0.0,
-        min_global_sqnr: float | None = None,
-    ):
-        self.assertIsInstance(actual, DTensor)
-        self.assertEqual(actual.placements, (expected_placement,))
-        torch.testing.assert_close(actual.to_local(), expected_local, atol=0, rtol=0)
-        actual_global = actual.redistribute(placements=[Replicate()]).to_local()
-        if min_global_sqnr is not None:
-            self.assertGreaterEqual(
-                compute_error(expected_global, actual_global).item(),
-                min_global_sqnr,
-            )
-        else:
-            torch.testing.assert_close(
-                actual_global,
-                expected_global,
-                atol=atol,
-                rtol=rtol,
-            )
 
     @with_comms
     @skip_if_rocm("ROCm not supported")
