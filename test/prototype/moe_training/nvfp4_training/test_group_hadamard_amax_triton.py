@@ -27,9 +27,6 @@ if has_triton() and is_sm_at_least_100() and torch_version_at_least("2.10.0"):
     from torchao.prototype.moe_training.nvfp4_training.hadamard_amax_triton import (
         triton_rht_amax,
     )
-    from torchao.prototype.moe_training.nvfp4_training.hadamard_utils import (
-        get_rht_matrix,
-    )
 
 _HARDCODED_SIGN_VECTOR = (
     1,
@@ -109,9 +106,14 @@ def test_group_rht_amax_matches_per_group_kernel_bitwise():
         A, offsets, len(groups), _HARDCODED_SIGN_VECTOR
     )
 
-    B = get_rht_matrix(_HARDCODED_SIGN_VECTOR, device, torch.bfloat16, 16)
     actual_col, actual_row = triton_group_rht_amax(
-        A, B, offsets, len(groups), A.shape[0], hidden_size, 1
+        A,
+        list(_HARDCODED_SIGN_VECTOR),
+        offsets,
+        len(groups),
+        A.shape[0],
+        hidden_size,
+        1,
     )
 
     assert torch.equal(actual_col, expected_col)
@@ -134,9 +136,14 @@ def test_group_rht_amax_deepseek_dimensions_bitwise(shape):
         A, offsets, shape.experts, _HARDCODED_SIGN_VECTOR
     )
 
-    B = get_rht_matrix(_HARDCODED_SIGN_VECTOR, device, torch.bfloat16, 16)
     actual_col, actual_row = triton_group_rht_amax(
-        A, B, offsets, shape.experts, A.shape[0], shape.n, 0
+        A,
+        list(_HARDCODED_SIGN_VECTOR),
+        offsets,
+        shape.experts,
+        A.shape[0],
+        shape.n,
+        0,
     )
 
     assert torch.equal(actual_col, expected_col)
@@ -152,9 +159,16 @@ def test_group_rht_amax_register_fake_shapes():
     num_tensors = 3
     with FakeTensorMode():
         A = torch.empty((512, 256), dtype=torch.bfloat16, device="cuda")
-        B = torch.empty((16, 16), dtype=torch.bfloat16, device="cuda")
         offsets = torch.empty((num_tensors,), dtype=torch.int32, device="cuda")
-        col, row = triton_group_rht_amax(A, B, offsets, num_tensors, 512, 256, 1)
+        col, row = triton_group_rht_amax(
+            A,
+            list(_HARDCODED_SIGN_VECTOR),
+            offsets,
+            num_tensors,
+            512,
+            256,
+            1,
+        )
     assert col.shape == (num_tensors,)
     assert row.shape == (num_tensors,)
     assert col.dtype == torch.float32
@@ -168,9 +182,16 @@ def test_group_rht_amax_validates_packed_shape():
     device = torch.device("cuda", 0)
     groups = (128,)
     A, offsets, _ = _build_packed(groups, 256, device, seed=7)
-    B = get_rht_matrix(_HARDCODED_SIGN_VECTOR, device, torch.bfloat16, 16)
     with pytest.raises(ValueError, match="packed_sequence_length must match"):
-        triton_group_rht_amax(A, B, offsets, len(groups), 256, 256, 1)
+        triton_group_rht_amax(
+            A,
+            list(_HARDCODED_SIGN_VECTOR),
+            offsets,
+            len(groups),
+            256,
+            256,
+            1,
+        )
 
 
 @_maybe_sm100
@@ -179,12 +200,10 @@ def test_group_rht_amax_rejects_non_tensorwise_scaling():
     device = torch.device("cuda", 0)
     groups = (128,)
     A, offsets, _ = _build_packed(groups, 256, device, seed=7)
-    B = get_rht_matrix(_HARDCODED_SIGN_VECTOR, device, torch.bfloat16, 16)
-
     with pytest.raises(ValueError, match="only ScalingType.TensorWise"):
         triton_group_rht_amax(
             A,
-            B,
+            list(_HARDCODED_SIGN_VECTOR),
             offsets,
             len(groups),
             A.shape[0],

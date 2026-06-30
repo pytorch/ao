@@ -48,6 +48,7 @@ def _validate_grouped_hadamard_inputs(
     packed_sequence_length: int,
     hidden_size: int,
     shape_rep: int,
+    logical_packed_length: torch.Tensor | None = None,
 ) -> None:
     if not isinstance(A, torch.Tensor):
         raise TypeError("A must be a torch.Tensor")
@@ -111,9 +112,27 @@ def _validate_grouped_hadamard_inputs(
         raise ValueError("offsets must be on the same device as A")
     if offsets.numel() != num_tensors:
         raise ValueError("offsets must contain one row-end offset per group")
+    if logical_packed_length is None:
+        logical_packed_length = offsets[-1:]
+    if not isinstance(logical_packed_length, torch.Tensor):
+        raise TypeError("logical_packed_length must be a torch.Tensor")
+    if logical_packed_length.ndim != 1 or logical_packed_length.numel() != 1:
+        raise ValueError("logical_packed_length must be a one-element tensor")
+    if logical_packed_length.dtype != torch.int32:
+        raise ValueError("logical_packed_length.dtype must be torch.int32")
+    if not logical_packed_length.is_cuda or logical_packed_length.device != A.device:
+        raise ValueError("logical_packed_length must be on the same device as A")
     torch.ops.aten._assert_async.msg(
-        offsets[-1] == packed_sequence_length,
-        "the final group-end offset must equal packed_sequence_length",
+        offsets[-1] == logical_packed_length[0],
+        "the final group-end offset must equal logical_packed_length",
+    )
+    torch.ops.aten._assert_async.msg(
+        logical_packed_length[0] <= packed_sequence_length,
+        "logical_packed_length must not exceed packed_sequence_length capacity",
+    )
+    torch.ops.aten._assert_async.msg(
+        logical_packed_length[0] % BLOCK_M == 0,
+        "logical_packed_length must be divisible by 128",
     )
     if shape_rep == VARYING_FIRST_DIM:
         torch.ops.aten._assert_async.msg(

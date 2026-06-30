@@ -69,6 +69,7 @@ def run_experiment(config: ExperimentConfig) -> ExperimentResult:
     weights = torch.randn((total_m, N), dtype=torch.bfloat16, device="cuda")
     rht = get_rht_matrix(RHT_SIGN_VECTOR, weights.device, torch.bfloat16, 16)
     offsets = torch.arange(1, E + 1, dtype=torch.int32, device="cuda") * M
+    logical_packed_length = offsets[-1:]
     row_amax = torch.zeros((E,), dtype=torch.float32, device="cuda")
     col_amax = torch.zeros((E,), dtype=torch.float32, device="cuda")
 
@@ -88,6 +89,7 @@ def run_experiment(config: ExperimentConfig) -> ExperimentResult:
             BLOCK_M=BLOCK_M,
             BLOCK_N=BLOCK_N,
             RHT_SIZE=16,
+            logical_packed_length_ptr=logical_packed_length,
             num_warps=8,
             num_stages=3,
         )

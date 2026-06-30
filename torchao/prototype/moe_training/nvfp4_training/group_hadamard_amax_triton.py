@@ -21,7 +21,7 @@ _DEFAULT_SCALING_TYPE = (
 )
 
 if torch_version_at_least("2.10.0") and has_triton():
-    from typing import Tuple
+    from typing import List, Tuple
 
     import triton
     import triton.language as tl
@@ -31,6 +31,10 @@ if torch_version_at_least("2.10.0") and has_triton():
         BLOCK_N,
         _get_group_idx_binary,
         _validate_grouped_hadamard_inputs,
+    )
+    from torchao.prototype.moe_training.nvfp4_training.hadamard_utils import (
+        _device_key,
+        get_rht_matrix,
     )
 
     @triton.jit
@@ -57,6 +61,7 @@ if torch_version_at_least("2.10.0") and has_triton():
         BLOCK_M: tl.constexpr,
         BLOCK_N: tl.constexpr,
         RHT_SIZE: tl.constexpr,
+        logical_packed_length_ptr,
     ):
         """Grouped RHT columnwise and direct rowwise amax reduction."""
         VARYING_FIRST_DIM: tl.constexpr = 1
@@ -78,7 +83,12 @@ if torch_version_at_least("2.10.0") and has_triton():
 
         offsets_m = token_tile_idx * BLOCK_M + tl.arange(0, BLOCK_M)
         offsets_n = hidden_tile_idx * BLOCK_N + tl.arange(0, BLOCK_N)
-        a = tl.load(a_ptr + offsets_m[:, None] * N + offsets_n[None, :])
+        logical_packed_length = tl.load(logical_packed_length_ptr)
+        a = tl.load(
+            a_ptr + offsets_m[:, None] * N + offsets_n[None, :],
+            mask=offsets_m[:, None] < logical_packed_length,
+            other=0.0,
+        )
 
         rht_offsets = (
             tl.arange(0, RHT_SIZE)[:, None] * RHT_SIZE + tl.arange(0, RHT_SIZE)[None, :]
@@ -102,13 +112,14 @@ if torch_version_at_least("2.10.0") and has_triton():
     @torch.library.custom_op("torchao::triton_group_rht_amax", mutates_args=())
     def triton_group_rht_amax(
         A: torch.Tensor,
-        B: torch.Tensor,
+        sign_vector: List[int],
         offsets: torch.Tensor,
         num_tensors: int,
         packed_sequence_length: int,
         hidden_size: int,
         shape_rep: int,
         scaling_type: int = int(F.ScalingType.TensorWise),
+        logical_packed_length: torch.Tensor | None = None,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         """Per-group RHT columnwise amax and raw rowwise amax (grouped, graph-safe).
 
@@ -116,19 +127,24 @@ if torch_version_at_least("2.10.0") and has_triton():
             A: packed (sum_M, N) bfloat16 tensor, row-major. Groups are concatenated
                 along the row dimension; each group's M must be divisible by 16 and
                 N divisible by 128.
-            B: (16, 16) bfloat16 RHT matrix.
+            sign_vector: Sign vector used to construct the cached 16x16 RHT matrix.
             offsets: int32 cumulative row-end offsets, one per group.
             num_tensors: number of expert groups.
-            packed_sequence_length: total number of rows in A.
+            packed_sequence_length: allocated row capacity of A.
             hidden_size: number of columns in A.
             shape_rep: grouped shape representation.
             scaling_type: int encoding of F.ScalingType. Only TensorWise is supported.
+            logical_packed_length: one-element int32 CUDA tensor containing the
+                valid padded row count. Rows beyond it are storage capacity only.
 
         Returns:
             Tuple of (col_amax, row_amax), each (num_tensors,) float32:
               - col_amax[g] = max(abs(RHT(A_g.T))).
               - row_amax[g] = max(abs(A_g)).
         """
+        B = get_rht_matrix(
+            tuple(sign_vector), _device_key(A.device), torch.bfloat16, 16
+        )
         _validate_grouped_hadamard_inputs(
             A,
             B,
@@ -137,6 +153,7 @@ if torch_version_at_least("2.10.0") and has_triton():
             packed_sequence_length,
             hidden_size,
             shape_rep,
+            logical_packed_length,
         )
         if scaling_type != int(F.ScalingType.TensorWise):
             raise ValueError(
@@ -156,6 +173,8 @@ if torch_version_at_least("2.10.0") and has_triton():
 
         m, n = A.shape
         rht_size = B.shape[0]
+        if logical_packed_length is None:
+            logical_packed_length = offsets[-1:]
 
         grid = (triton.cdiv(m, BLOCK_M) * triton.cdiv(n, BLOCK_N),)
         _group_rht_amax_triton_kernel[grid](
@@ -171,6 +190,7 @@ if torch_version_at_least("2.10.0") and has_triton():
             BLOCK_M=BLOCK_M,
             BLOCK_N=BLOCK_N,
             RHT_SIZE=rht_size,
+            logical_packed_length_ptr=logical_packed_length,
             num_warps=8,
             num_stages=3,
         )
@@ -179,13 +199,14 @@ if torch_version_at_least("2.10.0") and has_triton():
     @triton_group_rht_amax.register_fake
     def _(
         A,
-        B,
+        sign_vector,
         offsets,
         num_tensors,
         packed_sequence_length,
         hidden_size,
         shape_rep,
         scaling_type=int(F.ScalingType.TensorWise),
+        logical_packed_length=None,
     ):
         col_amax = A.new_empty((num_tensors,), dtype=torch.float32)
         row_amax = A.new_empty((num_tensors,), dtype=torch.float32)
@@ -195,13 +216,14 @@ else:
 
     def triton_group_rht_amax(
         A: torch.Tensor,
-        B: torch.Tensor,
+        sign_vector: list[int],
         offsets: torch.Tensor,
         num_tensors: int,
         packed_sequence_length: int,
         hidden_size: int,
         shape_rep: int,
         scaling_type: int = _DEFAULT_SCALING_TYPE,
+        logical_packed_length: torch.Tensor | None = None,
     ) -> tuple[torch.Tensor, torch.Tensor]:
         raise NotImplementedError(
             "triton_group_rht_amax requires torch 2.10.0+ and triton installed"
