@@ -25,6 +25,9 @@ import pytest
 import torch
 from torch.utils._triton import has_triton
 
+from benchmarks.prototype.nvfp4_training.deepseek_v3_shapes import (
+    get_deepseek_v3_weight_shapes,
+)
 from torchao.float8.float8_utils import compute_error
 from torchao.prototype.mx_formats.nvfp4_tensor import (
     NVFP4Tensor,
@@ -83,6 +86,7 @@ class GraphShapeSpec:
     groups: tuple[int, ...]
     hidden_size: int
     shape_rep: int
+    label: str = ""
 
 
 SHAPE_SPECS = (
@@ -92,6 +96,17 @@ SHAPE_SPECS = (
         seed=225, groups=(128, 256, 384, 128), hidden_size=1024, shape_rep=1
     ),
     GraphShapeSpec(seed=226, groups=(128, 128, 128, 128), hidden_size=512, shape_rep=0),
+)
+
+DEEPSEEK_SHAPE_SPECS = tuple(
+    GraphShapeSpec(
+        seed=300 + index,
+        groups=(shape.m,) * shape.experts,
+        hidden_size=shape.n,
+        shape_rep=0,
+        label=f"{shape.model}-{shape.projection}",
+    )
+    for index, shape in enumerate(get_deepseek_v3_weight_shapes(factorized_experts=2))
 )
 
 
@@ -139,13 +154,11 @@ def _make_rng_state(device, values=(1, 2, 3, 4)) -> torch.Tensor:
     return torch.tensor(list(values), dtype=torch.int64, device=device)
 
 
-@pytest.fixture(scope="module", params=SHAPE_SPECS, ids=lambda s: f"seed{s.seed}")
-def graph_case(request):
+def _build_graph_case(spec):
     if not torch.cuda.is_available():
         pytest.skip("CUDA is required for GroupRHT correctness")
 
     device = torch.device("cuda", 0)
-    spec = request.param
     torch.manual_seed(spec.seed)
 
     group_tensors = [
@@ -173,6 +186,20 @@ def graph_case(request):
     return spec, A, B, offsets, amax_row, amax_col, group_tensors, rht_groups
 
 
+@pytest.fixture(scope="module", params=SHAPE_SPECS, ids=lambda s: f"seed{s.seed}")
+def graph_case(request):
+    return _build_graph_case(request.param)
+
+
+@pytest.fixture(
+    scope="module",
+    params=DEEPSEEK_SHAPE_SPECS,
+    ids=lambda spec: spec.label,
+)
+def deepseek_graph_case(request):
+    return _build_graph_case(request.param)
+
+
 def _check_output_shapes(spec, qa, sfa, qd, sfd):
     psl = sum(spec.groups)
     hs = spec.hidden_size
@@ -185,9 +212,7 @@ def _check_output_shapes(spec, qa, sfa, qd, sfd):
     assert qd.dtype == torch.uint8 and sfd.dtype == torch.float8_e4m3fn
 
 
-@_maybe_sm100
-@torch.no_grad()
-def test_group_rht_correctness(graph_case):
+def _assert_group_rht_correctness(graph_case):
     spec, A, B, offsets, amax_row, amax_col, group_tensors, rht_groups = graph_case
     psl, hs = A.shape
     num_groups = len(spec.groups)
@@ -249,6 +274,19 @@ def test_group_rht_correctness(graph_case):
 
     _assert_scales_adjacent(sfd, to_blocked(expected_col_sf), "col sf swizzled")
     _assert_scales_adjacent(sfa, to_blocked(expected_row_sf), "row sf swizzled")
+
+
+@_maybe_sm100
+@torch.no_grad()
+def test_group_rht_correctness(graph_case):
+    _assert_group_rht_correctness(graph_case)
+
+
+@_maybe_sm100
+@torch.no_grad()
+def test_group_rht_deepseek_dimensions_correctness(deepseek_graph_case):
+    """Real TorchTitan M/N dimensions with E factorized to two experts."""
+    _assert_group_rht_correctness(deepseek_graph_case)
 
 
 @_maybe_sm100
