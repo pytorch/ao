@@ -28,19 +28,17 @@ if torch_version_at_least("2.10.0") and has_triton():
     import triton
     import triton.language as tl
 
+    from torchao.prototype.moe_training.nvfp4_training.group_hadamard_utils import (
+        BLOCK_M,
+        BLOCK_N,
+        _group_idx_from_range,
+        _validate_grouped_hadamard_inputs,
+    )
     from torchao.prototype.moe_training.nvfp4_training.hadamard_utils import (
         _nvfp4_quantize,
         _pack_fp4,
         _store_scales_swizzle,
         _swizzle_scales,
-    )
-    from torchao.prototype.moe_training.nvfp4_training.group_hadamard_utils import (
-        BLOCK_M,
-        BLOCK_N,
-        SAME_BOTH_DIMS,
-        VARYING_FIRST_DIM,
-        _group_idx_from_range,
-        _validate_grouped_hadamard_inputs,
     )
 
     @triton.jit
@@ -67,18 +65,20 @@ if torch_version_at_least("2.10.0") and has_triton():
         BLOCK_N: tl.constexpr,
     ):
         """Grouped fused RHT columnwise and direct rowwise NVFP4 quantization."""
+        VARYING_FIRST_DIM: tl.constexpr = 1
+
         tile_id = tl.program_id(0)
         num_tiles_token = tl.cdiv(M, BLOCK_M)
         num_tiles_hidden = tl.cdiv(N, BLOCK_N)
         pid_m = tile_id // num_tiles_hidden
         pid_n = tile_id - pid_m * num_tiles_hidden
 
-        if SHAPE_REP == 0:
-            group_idx = pid_m // (num_tiles_token // num_tensors)
-        else:
+        if SHAPE_REP == VARYING_FIRST_DIM:
             token_offset = pid_m * BLOCK_M
             lookup_offset = token_offset * N
             group_idx = _group_idx_from_range(lookup_offset, group_range, num_tensors)
+        else:
+            group_idx = pid_m // (num_tiles_token // num_tensors)
 
         offs_m = pid_m * BLOCK_M + tl.arange(0, BLOCK_M)
         offs_n = pid_n * BLOCK_N + tl.arange(0, BLOCK_N)
