@@ -4,6 +4,9 @@ import pytest
 import torch
 from torch.utils._triton import has_triton
 
+from benchmarks.prototype.nvfp4_training.deepseek_v3_shapes import (
+    get_deepseek_v3_weight_shapes,
+)
 from torchao.utils import is_sm_at_least_100, torch_version_at_least
 
 if has_triton() and is_sm_at_least_100() and torch_version_at_least("2.10.0"):
@@ -16,20 +19,25 @@ if has_triton() and is_sm_at_least_100() and torch_version_at_least("2.10.0"):
 
 
 requires_grouped_kernel = pytest.mark.skipif(
-    not (
-        has_triton()
-        and is_sm_at_least_100()
-        and torch_version_at_least("2.10.0")
-    ),
+    not (has_triton() and is_sm_at_least_100() and torch_version_at_least("2.10.0")),
     reason="requires Triton, PyTorch 2.10+, and SM100+",
 )
 
+_CORRECTNESS_SHAPES = [
+    pytest.param((1, 128, 256), id="one-tile"),
+    pytest.param((3, 256, 512), id="multi-tile"),
+    *[
+        pytest.param(
+            (shape.experts, shape.m, shape.n),
+            id=f"deepseek-{shape.model}-{shape.projection}",
+        )
+        for shape in get_deepseek_v3_weight_shapes(factorized_experts=2)
+    ],
+]
+
 
 @requires_grouped_kernel
-@pytest.mark.parametrize(
-    "shape",
-    [pytest.param((1, 128, 256), id="one-tile"), pytest.param((3, 256, 512), id="multi-tile")],
-)
+@pytest.mark.parametrize("shape", _CORRECTNESS_SHAPES)
 @torch.no_grad()
 def test_group_quantize_2d_matches_independent_experts(shape):
     """Every expert must match an independent launch of the established 2D op."""
@@ -37,18 +45,13 @@ def test_group_quantize_2d_matches_independent_experts(shape):
     weights = torch.randn(shape, dtype=torch.bfloat16, device="cuda")
     global_amax = weights.float().abs().amax(dim=(1, 2))
 
-    actual = triton_group_weight_quantize_2d(
-        weights, global_amax, num_tensors=shape[0]
-    )
+    actual = triton_group_weight_quantize_2d(weights, global_amax, num_tensors=shape[0])
     expected_by_expert = [
-        triton_weight_quantize_2d(weights[e], global_amax[e])
-        for e in range(shape[0])
+        triton_weight_quantize_2d(weights[e], global_amax[e]) for e in range(shape[0])
     ]
 
     for output_idx, grouped_output in enumerate(actual):
-        expected = torch.stack(
-            [outputs[output_idx] for outputs in expected_by_expert]
-        )
+        expected = torch.stack([outputs[output_idx] for outputs in expected_by_expert])
         torch.testing.assert_close(grouped_output, expected, atol=0, rtol=0)
 
 

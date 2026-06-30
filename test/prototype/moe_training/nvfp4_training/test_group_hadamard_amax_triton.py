@@ -14,6 +14,9 @@ import pytest
 import torch
 from torch.utils._triton import has_triton
 
+from benchmarks.prototype.nvfp4_training.deepseek_v3_shapes import (
+    get_deepseek_v3_weight_shapes,
+)
 from torchao.utils import is_sm_at_least_100, torch_version_at_least
 
 if has_triton() and is_sm_at_least_100() and torch_version_at_least("2.10.0"):
@@ -108,6 +111,31 @@ def test_group_rht_amax_matches_per_group_kernel_bitwise():
     B = get_rht_matrix(_HARDCODED_SIGN_VECTOR, device, torch.bfloat16, 16)
     actual_col, actual_row = triton_group_rht_amax(
         A, B, offsets, len(groups), A.shape[0], hidden_size, 1
+    )
+
+    assert torch.equal(actual_col, expected_col)
+    assert torch.equal(actual_row, expected_row)
+
+
+@_maybe_sm100
+@pytest.mark.parametrize(
+    "shape",
+    get_deepseek_v3_weight_shapes(factorized_experts=2),
+    ids=lambda shape: f"{shape.model}-{shape.projection}",
+)
+@torch.no_grad()
+def test_group_rht_amax_deepseek_dimensions_bitwise(shape):
+    """Real TorchTitan M/N dimensions with E factorized to two experts."""
+    device = torch.device("cuda", 0)
+    groups = (shape.m,) * shape.experts
+    A, offsets, _ = _build_packed(groups, shape.n, device, seed=223)
+    expected_col, expected_row = _group_rht_amax_reference(
+        A, offsets, shape.experts, _HARDCODED_SIGN_VECTOR
+    )
+
+    B = get_rht_matrix(_HARDCODED_SIGN_VECTOR, device, torch.bfloat16, 16)
+    actual_col, actual_row = triton_group_rht_amax(
+        A, B, offsets, shape.experts, A.shape[0], shape.n, 0
     )
 
     assert torch.equal(actual_col, expected_col)

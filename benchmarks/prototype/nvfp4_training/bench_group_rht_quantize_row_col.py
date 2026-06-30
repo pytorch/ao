@@ -5,7 +5,6 @@
 # LICENSE file in the root directory of this source tree.
 
 import argparse
-import itertools
 from dataclasses import dataclass
 from typing import List
 
@@ -14,6 +13,9 @@ import triton
 from tabulate import tabulate
 from tqdm import tqdm
 
+from benchmarks.prototype.nvfp4_training.deepseek_v3_shapes import (
+    get_deepseek_v3_weight_shapes,
+)
 from benchmarks.utils import benchmark_cuda_function_in_microseconds
 from torchao.prototype.moe_training.nvfp4_training.group_rht_quantize_row_col_triton import (
     BLOCK_M,
@@ -27,10 +29,6 @@ from torchao.prototype.moe_training.nvfp4_training.hadamard_utils import (
 from torchao.utils import is_sm_at_least_100
 
 device = torch.device("cuda")
-
-GROUP_COUNTS = [4, 8]
-M_PER_GROUP = [128, 512, 2048]
-N_SHAPES = [2048, 4096, 8192]
 
 ROUNDING_MODES = ("rtne", "rs")
 ROUNDING_CHOICES = (*ROUNDING_MODES, "all")
@@ -61,6 +59,7 @@ class ExperimentConfig:
     n: int
     rounding: str = "rtne"
     model: str = ""
+    projection: str = ""
 
 
 @dataclass(frozen=True)
@@ -80,26 +79,17 @@ def get_roundings(rounding: str) -> List[str]:
     return list(ROUNDING_MODES if rounding == "all" else (rounding,))
 
 
-def get_configs(roundings: List[str]) -> List[ExperimentConfig]:
-    return [
-        ExperimentConfig(num_groups=g, m_per_group=m, n=n, rounding=rounding)
-        for g, m, n in itertools.product(GROUP_COUNTS, M_PER_GROUP, N_SHAPES)
-        for rounding in roundings
-    ]
-
-
-def get_representative_model_configs(roundings: List[str]) -> List[ExperimentConfig]:
-    # (num_experts, tokens/expert, hidden, label)
-    shapes = [
-        (8, 512, 4096, "Mixtral-ish 8x"),
-        (8, 2048, 4096, "Mixtral-ish 8x (long)"),
-        (16, 512, 2048, "fine-grained 16x"),
-    ]
+def get_deepseek_v3_configs(roundings: List[str]) -> List[ExperimentConfig]:
     return [
         ExperimentConfig(
-            num_groups=g, m_per_group=m, n=n, rounding=rounding, model=model
+            num_groups=shape.experts,
+            m_per_group=shape.m,
+            n=shape.n,
+            rounding=rounding,
+            model=shape.model,
+            projection=shape.projection,
         )
-        for g, m, n, model in shapes
+        for shape in get_deepseek_v3_weight_shapes()
         for rounding in roundings
     ]
 
@@ -224,21 +214,15 @@ def print_results(experiments: List[Experiment]):
             ),
         ]
         if has_labels:
-            row = [e.config.model] + row
+            row = [e.config.model, e.config.projection] + row
         rows.append(row)
     if has_labels:
-        headers = ["model"] + headers
+        headers = ["model", "projection"] + headers
     print(tabulate(rows, headers=headers))
 
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument(
-        "--shape-set",
-        choices=("sweep", "representative-models"),
-        default="sweep",
-        help="Benchmark the group-count/shape sweep or selected MoE-derived shapes.",
-    )
     parser.add_argument(
         "--rounding",
         choices=ROUNDING_CHOICES,
@@ -249,11 +233,7 @@ def main():
 
     torch.random.manual_seed(123)
     roundings = get_roundings(args.rounding)
-    configs = (
-        get_representative_model_configs(roundings)
-        if args.shape_set == "representative-models"
-        else get_configs(roundings)
-    )
+    configs = get_deepseek_v3_configs(roundings)
     peak_mem_bw_gbps = get_peak_mem_bw_gbps()
     print(
         f"Peak memory bandwidth: {peak_mem_bw_gbps:.1f} GB/s"
