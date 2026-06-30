@@ -42,16 +42,16 @@ if torch_version_at_least("2.10.0") and has_triton():
     )
 
     @triton.jit
-    def _group_row_col_rht_gemm_triton_kernel(
-        A,
-        RHT,
-        QA_base,
-        SFA_base,
-        group_range,
-        amax_row,
-        amax_col,
-        QD,
-        SFD,
+    def _group_rht_quantize_row_col_kernel(
+        a_ptr,
+        b_ptr,
+        qa_ptr,
+        sfa_ptr,
+        offsets_ptr,
+        global_amax_row_ptr,
+        global_amax_col_ptr,
+        qa_t_ptr,
+        sfa_t_ptr,
         col_seed_base_ptr,
         col_offset_base_ptr,
         row_seed_base_ptr,
@@ -67,27 +67,27 @@ if torch_version_at_least("2.10.0") and has_triton():
         """Grouped fused RHT columnwise and direct rowwise NVFP4 quantization."""
         VARYING_FIRST_DIM: tl.constexpr = 1
 
-        tile_id = tl.program_id(0)
+        tile_idx = tl.program_id(0)
         num_tiles_token = tl.cdiv(M, BLOCK_M)
         num_tiles_hidden = tl.cdiv(N, BLOCK_N)
-        pid_m = tile_id // num_tiles_hidden
-        pid_n = tile_id - pid_m * num_tiles_hidden
+        pid_m = tile_idx // num_tiles_hidden
+        pid_n = tile_idx - pid_m * num_tiles_hidden
 
         if SHAPE_REP == VARYING_FIRST_DIM:
             token_offset = pid_m * BLOCK_M
             lookup_offset = token_offset * N
-            group_idx = _group_idx_from_range(lookup_offset, group_range, num_tensors)
+            group_idx = _group_idx_from_range(lookup_offset, offsets_ptr, num_tensors)
         else:
             group_idx = pid_m // (num_tiles_token // num_tensors)
 
         offs_m = pid_m * BLOCK_M + tl.arange(0, BLOCK_M)
         offs_n = pid_n * BLOCK_N + tl.arange(0, BLOCK_N)
-        a = tl.load(A + offs_m[:, None] * N + offs_n[None, :])
+        a = tl.load(a_ptr + offs_m[:, None] * N + offs_n[None, :])
 
-        hadamard_offsets = tl.arange(0, 16)[:, None] * 16 + tl.arange(0, 16)[None, :]
-        hadamard = tl.load(RHT + hadamard_offsets)
+        rht_offsets = tl.arange(0, 16)[:, None] * 16 + tl.arange(0, 16)[None, :]
+        hadamard = tl.load(b_ptr + rht_offsets)
 
-        colwise_global_amax = tl.load(amax_col + group_idx)
+        colwise_global_amax = tl.load(global_amax_col_ptr + group_idx)
         a_t = tl.trans(a)
         a_t_reshape = tl.reshape(a_t, [BLOCK_N * BLOCK_M // 16, 16])
         a_t_rht = tl.dot(a_t_reshape, hadamard)
@@ -103,13 +103,13 @@ if torch_version_at_least("2.10.0") and has_triton():
             STOCHASTIC_ROUNDING,
             col_seed_base_ptr,
             col_offset_base_ptr,
-            tile_id,
+            tile_idx,
         )
 
         col_swizzled = _swizzle_scales(col_scale, BLOCK_N, BLOCK_M)
         _store_scales_swizzle(
             col_swizzled,
-            SFD,
+            sfa_t_ptr,
             pid_n,
             pid_m,
             N,
@@ -117,12 +117,12 @@ if torch_version_at_least("2.10.0") and has_triton():
             BLOCK_N,
             BLOCK_M,
         )
-        outer = pid_n * BLOCK_N + tl.arange(0, BLOCK_N)
-        packed_inner = pid_m * (BLOCK_M // 2) + tl.arange(0, BLOCK_M // 2)
-        packed_offsets = outer[:, None] * (M // 2) + packed_inner[None, :]
-        tl.store(QD + packed_offsets, col_fp4)
+        outer_t = pid_n * BLOCK_N + tl.arange(0, BLOCK_N)
+        packed_inner_t = pid_m * (BLOCK_M // 2) + tl.arange(0, BLOCK_M // 2)
+        packed_offsets_t = outer_t[:, None] * (M // 2) + packed_inner_t[None, :]
+        tl.store(qa_t_ptr + packed_offsets_t, col_fp4)
 
-        rowwise_global_amax = tl.load(amax_row + group_idx)
+        rowwise_global_amax = tl.load(global_amax_row_ptr + group_idx)
         row_scale, row_scaled = _nvfp4_quantize(
             a, rowwise_global_amax, BLOCK_M, BLOCK_N
         )
@@ -133,13 +133,13 @@ if torch_version_at_least("2.10.0") and has_triton():
             STOCHASTIC_ROUNDING,
             row_seed_base_ptr,
             row_offset_base_ptr,
-            tile_id,
+            tile_idx,
         )
 
         row_swizzled = _swizzle_scales(row_scale, BLOCK_M, BLOCK_N)
         _store_scales_swizzle(
             row_swizzled,
-            SFA_base,
+            sfa_ptr,
             pid_m,
             pid_n,
             M,
@@ -150,7 +150,7 @@ if torch_version_at_least("2.10.0") and has_triton():
         outer = pid_m * BLOCK_M + tl.arange(0, BLOCK_M)
         packed_inner = pid_n * (BLOCK_N // 2) + tl.arange(0, BLOCK_N // 2)
         packed_offsets = outer[:, None] * (N // 2) + packed_inner[None, :]
-        tl.store(QA_base + packed_offsets, row_fp4)
+        tl.store(qa_ptr + packed_offsets, row_fp4)
 
     def _validate_graph_amax(
         amax: torch.Tensor,
@@ -280,7 +280,7 @@ if torch_version_at_least("2.10.0") and has_triton():
 
         m, n = A.shape
         grid = (triton.cdiv(m, BLOCK_M) * triton.cdiv(n, BLOCK_N),)
-        _group_row_col_rht_gemm_triton_kernel[grid](
+        _group_rht_quantize_row_col_kernel[grid](
             A,
             B,
             qa_base,
