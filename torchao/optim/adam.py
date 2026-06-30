@@ -13,6 +13,7 @@ from torch.optim import Optimizer
 from .quant_utils import _fp32_to_bf16_sr
 from .subclass_4bit import OptimState4bit
 from .subclass_8bit import OptimState8bit
+from .subclass_coat_fp8 import OptimStateCoatFp8
 from .subclass_fp8 import OptimStateFp8
 
 
@@ -401,6 +402,76 @@ class AdamWFp8(_AdamBase):
     @staticmethod
     def _subclass_zeros(p: Tensor, signed: bool, block_size: int):
         return OptimStateFp8.zeros(p.shape, block_size, p.device, dtype=p.dtype)
+
+
+class AdamFp8Coat(_AdamBase):
+    def __init__(
+        self,
+        params,
+        lr=1e-3,
+        betas=(0.9, 0.999),
+        eps=1e-8,
+        weight_decay=0,
+        amsgrad=False,
+        *,
+        block_size=256,
+        bf16_stochastic_round=False,
+    ) -> None:
+        """Adam with FP8 optimizer state quantized using COAT dynamic range
+        expansion (https://arxiv.org/abs/2410.19313). This expands each block's
+        dynamic range to match FP8's before quantizing, reducing the quantization
+        error of the optimizer state compared to ``AdamFp8``."""
+        super().__init__(
+            params,
+            lr,
+            betas,
+            eps,
+            weight_decay,
+            amsgrad,
+            block_size=block_size,
+            bf16_stochastic_round=bf16_stochastic_round,
+            is_adamw=False,
+        )
+        torch._C._log_api_usage_once("torchao.optim.AdamFp8Coat")
+
+    @staticmethod
+    def _subclass_zeros(p: Tensor, signed: bool, block_size: int):
+        return OptimStateCoatFp8.zeros(p.shape, block_size, p.device, dtype=p.dtype)
+
+
+class AdamWFp8Coat(_AdamBase):
+    def __init__(
+        self,
+        params,
+        lr=1e-3,
+        betas=(0.9, 0.999),
+        eps=1e-8,
+        weight_decay=1e-2,
+        amsgrad=False,
+        *,
+        block_size=256,
+        bf16_stochastic_round=False,
+    ) -> None:
+        """AdamW with FP8 optimizer state quantized using COAT dynamic range
+        expansion (https://arxiv.org/abs/2410.19313). This expands each block's
+        dynamic range to match FP8's before quantizing, reducing the quantization
+        error of the optimizer state compared to ``AdamWFp8``."""
+        super().__init__(
+            params,
+            lr,
+            betas,
+            eps,
+            weight_decay,
+            amsgrad,
+            block_size=block_size,
+            bf16_stochastic_round=bf16_stochastic_round,
+            is_adamw=True,
+        )
+        torch._C._log_api_usage_once("torchao.optim.AdamWFp8Coat")
+
+    @staticmethod
+    def _subclass_zeros(p: Tensor, signed: bool, block_size: int):
+        return OptimStateCoatFp8.zeros(p.shape, block_size, p.device, dtype=p.dtype)
 
 
 class _AdamW(_AdamBase):
