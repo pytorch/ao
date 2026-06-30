@@ -168,10 +168,8 @@ def _build_graph_case(spec):
     A = torch.cat(group_tensors, dim=0)
     B = get_rht_matrix(_HARDCODED_SIGN_VECTOR, device, torch.bfloat16, 16)
 
-    first_dims = torch.tensor(spec.groups, dtype=torch.int64, device=device)
-    offsets = torch.empty((len(spec.groups) + 1,), dtype=torch.int64, device=device)
-    offsets[0] = 0
-    offsets[1:] = torch.cumsum(first_dims * spec.hidden_size, dim=0)
+    first_dims = torch.tensor(spec.groups, dtype=torch.int32, device=device)
+    offsets = torch.cumsum(first_dims, dim=0, dtype=torch.int32)
 
     num_groups = len(spec.groups)
     amax_row = torch.empty((num_groups,), dtype=torch.float32, device=device)

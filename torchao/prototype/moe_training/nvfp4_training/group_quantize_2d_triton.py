@@ -29,7 +29,6 @@ if torch_version_at_least("2.10.0") and has_triton():
     )
     from torchao.utils import is_sm_at_least_100
 
-
     @triton.jit
     def _group_weight_quantize_2d_kernel(
         a_ptr,
@@ -156,9 +155,7 @@ if torch_version_at_least("2.10.0") and has_triton():
               - ``(E, N//128, M//64, 32, 16)`` FP8 colwise swizzled scales.
         """
         if not is_sm_at_least_100():
-            raise NotImplementedError(
-                "triton_group_weight_quantize_2d requires SM100+"
-            )
+            raise NotImplementedError("triton_group_weight_quantize_2d requires SM100+")
         if A.dtype != torch.bfloat16:
             raise ValueError(f"Expected bfloat16, got {A.dtype}")
         if A.ndim != 3:
@@ -217,13 +214,9 @@ if torch_version_at_least("2.10.0") and has_triton():
     def _(A, global_amax, num_tensors):
         E, M, N = A.shape
         qa = A.new_empty((E, M, N // 2), dtype=torch.uint8)
-        sfa = A.new_empty(
-            (E, M // 128, N // 64, 32, 16), dtype=torch.float8_e4m3fn
-        )
+        sfa = A.new_empty((E, M // 128, N // 64, 32, 16), dtype=torch.float8_e4m3fn)
         qa_t = A.new_empty((E, N, M // 2), dtype=torch.uint8)
-        sfa_t = A.new_empty(
-            (E, N // 128, M // 64, 32, 16), dtype=torch.float8_e4m3fn
-        )
+        sfa_t = A.new_empty((E, N // 128, M // 64, 32, 16), dtype=torch.float8_e4m3fn)
         return qa, sfa, qa_t, sfa_t
 
 else:

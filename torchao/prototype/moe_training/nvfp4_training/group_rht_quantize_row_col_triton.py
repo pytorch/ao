@@ -75,9 +75,8 @@ if torch_version_at_least("2.10.0") and has_triton():
 
         if SHAPE_REP == VARYING_FIRST_DIM:
             token_offset = pid_m * BLOCK_M
-            lookup_offset = token_offset * N
             group_idx = _get_group_idx_binary(
-                lookup_offset,
+                token_offset,
                 offsets_ptr,
                 num_tensors,
             )
@@ -220,8 +219,8 @@ if torch_version_at_least("2.10.0") and has_triton():
         """Grouped fused RHT columnwise + direct rowwise NVFP4 E2M1 quantization.
 
         ``A`` is the pre-packed ``torch.cat(tensors, dim=0)`` buffer; ``offsets`` is a
-        1D int64 CUDA tensor of cumulative element offsets (``first_dim * hidden_size``)
-        marking each group's start. ``B`` is the (16, 16) bfloat16 RHT matrix.
+        1D int32 CUDA tensor of cumulative row-end offsets, one per group. ``B`` is
+        the (16, 16) bfloat16 RHT matrix.
 
         Returns ``(qa_base, sfa, qd, sfd)``. Both scale tensors carry swizzled bytes
         reinterpreted to their logical 2D shapes.

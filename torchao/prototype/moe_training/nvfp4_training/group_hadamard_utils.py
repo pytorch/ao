@@ -20,19 +20,20 @@ if torch_version_at_least("2.10.0") and has_triton():
     import triton.language as tl
 
     @triton.jit
-    def _get_group_idx_binary(token_idx, group_range_ptr, num_groups):
+    def _get_group_idx_binary(token_idx, group_end_offsets_ptr, num_groups):
         """
-        Use binary search to find group_idx for this token_idx.
-        Load each group offset individually to support arbitrary number of groups.
-        Preloading all offsets requires rounding up to next power of 2, which
-        requires host code that is not graph-safe.
+        Find the group containing token_idx from cumulative row-end offsets.
+
+        Each offset is loaded individually to support arbitrary group counts.
+        Preloading all offsets would require rounding up to the next power of 2,
+        which requires host code that is not graph-safe.
         """
         start = 0
         end = num_groups
         while (end - start) != 1:
             mid = (end - start) // 2 + start
-            mid_idx = tl.load(group_range_ptr + mid)
-            if token_idx >= mid_idx:
+            group_start = tl.load(group_end_offsets_ptr + mid - 1)
+            if token_idx >= group_start:
                 start = mid
             else:
                 end = mid
@@ -102,16 +103,20 @@ def _validate_grouped_hadamard_inputs(
         raise TypeError("offsets must be a torch.Tensor")
     if offsets.ndim != 1:
         raise ValueError(f"offsets must be 1D, got {offsets.ndim}D")
-    if offsets.dtype != torch.int64:
-        raise ValueError("offsets.dtype must be torch.int64")
+    if offsets.dtype != torch.int32:
+        raise ValueError("offsets.dtype must be torch.int32")
     if not offsets.is_cuda:
         raise ValueError("offsets must be on CUDA")
     if offsets.device != A.device:
         raise ValueError("offsets must be on the same device as A")
-    if offsets.numel() < num_tensors:
-        raise ValueError("offsets must have at least num_tensors elements")
+    if offsets.numel() != num_tensors:
+        raise ValueError("offsets must contain one row-end offset per group")
+    torch.ops.aten._assert_async.msg(
+        offsets[-1] == packed_sequence_length,
+        "the final group-end offset must equal packed_sequence_length",
+    )
     if shape_rep == VARYING_FIRST_DIM:
         torch.ops.aten._assert_async.msg(
-            torch.all(offsets[:num_tensors] % (BLOCK_M * hidden_size) == 0),
+            torch.all(offsets % BLOCK_M == 0),
             "VARYING_FIRST_DIM offsets must align group boundaries to 128-row tiles",
         )
