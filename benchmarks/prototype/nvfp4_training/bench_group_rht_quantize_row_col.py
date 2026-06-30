@@ -119,6 +119,7 @@ def run_experiment(
 
     first_dims = torch.full((g,), mpg, dtype=torch.int32, device=device)
     offsets = torch.cumsum(first_dims, dim=0, dtype=torch.int32)
+    logical_packed_length = offsets[-1:]
 
     # Per-group amaxes (values do not affect timing); compute cheaply from A.
     A_grouped = A.view(g, mpg, n).float().abs()
@@ -170,6 +171,7 @@ def run_experiment(
             SHAPE_REP=VARYING_FIRST_DIM,
             BLOCK_M=BLOCK_M,
             BLOCK_N=BLOCK_N,
+            logical_packed_length_ptr=logical_packed_length,
             num_warps=8,
             num_stages=3,
         )

@@ -217,7 +217,7 @@ def _assert_group_rht_correctness(graph_case):
 
     qa, sfa, qd, sfd = triton_group_rht_quantize_row_col(
         A,
-        B,
+        list(_HARDCODED_SIGN_VECTOR),
         offsets,
         num_groups,
         psl,
@@ -296,7 +296,7 @@ def test_group_rht_stochastic_rounding_launches(graph_case):
 
     qa, sfa, qd, sfd = triton_group_rht_quantize_row_col(
         A,
-        B,
+        list(_HARDCODED_SIGN_VECTOR),
         offsets,
         num_groups,
         psl,
@@ -317,7 +317,7 @@ def _run_sr(graph_case, rng_state):
     psl, hs = A.shape
     return triton_group_rht_quantize_row_col(
         A,
-        B,
+        list(_HARDCODED_SIGN_VECTOR),
         offsets,
         len(spec.groups),
         psl,
@@ -367,7 +367,7 @@ def test_group_rht_rng_state_validation(graph_case):
     # SR disabled: rng_state is ignored, so None is accepted.
     triton_group_rht_quantize_row_col(
         A,
-        B,
+        list(_HARDCODED_SIGN_VECTOR),
         offsets,
         num_groups,
         psl,

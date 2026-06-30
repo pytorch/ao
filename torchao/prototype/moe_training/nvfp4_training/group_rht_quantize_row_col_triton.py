@@ -17,13 +17,15 @@ The NVFP4 quantization epilogue helpers (``_nvfp4_quantize``, ``_pack_fp4``,
 live in ``nvfp4_training.group_hadamard_utils``.
 """
 
+from typing import Optional
+
 import torch
 from torch.utils._triton import has_triton
 
 from torchao.utils import torch_version_at_least
 
 if torch_version_at_least("2.10.0") and has_triton():
-    from typing import Optional, Tuple
+    from typing import List, Tuple
 
     import triton
     import triton.language as tl
@@ -35,10 +37,12 @@ if torch_version_at_least("2.10.0") and has_triton():
         _validate_grouped_hadamard_inputs,
     )
     from torchao.prototype.moe_training.nvfp4_training.hadamard_utils import (
+        _device_key,
         _nvfp4_quantize,
         _pack_fp4,
         _store_scales_swizzle,
         _swizzle_scales,
+        get_rht_matrix,
     )
 
     @triton.jit
@@ -63,6 +67,7 @@ if torch_version_at_least("2.10.0") and has_triton():
         SHAPE_REP: tl.constexpr,
         BLOCK_M: tl.constexpr,
         BLOCK_N: tl.constexpr,
+        logical_packed_length_ptr,
     ):
         """Grouped fused RHT columnwise and direct rowwise NVFP4 quantization."""
         VARYING_FIRST_DIM: tl.constexpr = 1
@@ -85,7 +90,12 @@ if torch_version_at_least("2.10.0") and has_triton():
 
         offs_m = pid_m * BLOCK_M + tl.arange(0, BLOCK_M)
         offs_n = pid_n * BLOCK_N + tl.arange(0, BLOCK_N)
-        a = tl.load(a_ptr + offs_m[:, None] * N + offs_n[None, :])
+        logical_packed_length = tl.load(logical_packed_length_ptr)
+        a = tl.load(
+            a_ptr + offs_m[:, None] * N + offs_n[None, :],
+            mask=offs_m[:, None] < logical_packed_length,
+            other=0.0,
+        )
 
         rht_offsets = tl.arange(0, 16)[:, None] * 16 + tl.arange(0, 16)[None, :]
         hadamard = tl.load(b_ptr + rht_offsets)
@@ -205,7 +215,7 @@ if torch_version_at_least("2.10.0") and has_triton():
     )
     def triton_group_rht_quantize_row_col(
         A: torch.Tensor,
-        B: torch.Tensor,
+        sign_vector: List[int],
         offsets: torch.Tensor,
         num_tensors: int,
         packed_sequence_length: int,
@@ -215,12 +225,14 @@ if torch_version_at_least("2.10.0") and has_triton():
         d_global_amax: torch.Tensor,
         rng_state: Optional[torch.Tensor],
         enable_stochastic_rounding: bool,
+        logical_packed_length: Optional[torch.Tensor] = None,
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         """Grouped fused RHT columnwise + direct rowwise NVFP4 E2M1 quantization.
 
-        ``A`` is the pre-packed ``torch.cat(tensors, dim=0)`` buffer; ``offsets`` is a
-        1D int32 CUDA tensor of cumulative row-end offsets, one per group. ``B`` is
-        the (16, 16) bfloat16 RHT matrix.
+        ``A`` is the pre-packed capacity buffer; ``offsets`` is a 1D int32 CUDA
+        tensor of cumulative row-end offsets, one per group. ``logical_packed_length``
+        is the valid padded row count; rows after it are ignored. ``sign_vector``
+        selects the cached 16x16 RHT matrix used by the Triton kernel.
 
         Returns ``(qa_base, sfa, qd, sfd)``. Both scale tensors carry swizzled bytes
         reinterpreted to their logical 2D shapes.
@@ -229,6 +241,9 @@ if torch_version_at_least("2.10.0") and has_triton():
         ``[col_seed, col_offset, row_seed, row_offset]`` whose advancement the caller owns;
         the op only forwards single-element views, performing no host RNG.
         """
+        B = get_rht_matrix(
+            tuple(sign_vector), _device_key(A.device), torch.bfloat16, 16
+        )
         _validate_grouped_hadamard_inputs(
             A,
             B,
@@ -237,6 +252,7 @@ if torch_version_at_least("2.10.0") and has_triton():
             packed_sequence_length,
             hidden_size,
             shape_rep,
+            logical_packed_length,
         )
         rng_state = _validate_rng_state(rng_state, A.device, enable_stochastic_rounding)
 
@@ -282,6 +298,8 @@ if torch_version_at_least("2.10.0") and has_triton():
             row_offset_base = 0
 
         m, n = A.shape
+        if logical_packed_length is None:
+            logical_packed_length = offsets[-1:]
         grid = (triton.cdiv(m, BLOCK_M) * triton.cdiv(n, BLOCK_N),)
         _group_rht_quantize_row_col_kernel[grid](
             A,
@@ -304,6 +322,7 @@ if torch_version_at_least("2.10.0") and has_triton():
             SHAPE_REP=shape_rep,
             BLOCK_M=BLOCK_M,
             BLOCK_N=BLOCK_N,
+            logical_packed_length_ptr=logical_packed_length,
             num_warps=8,
             num_stages=3,
         )
@@ -312,7 +331,7 @@ if torch_version_at_least("2.10.0") and has_triton():
     @triton_group_rht_quantize_row_col.register_fake
     def _(
         A,
-        B,
+        sign_vector,
         offsets,
         num_tensors,
         packed_sequence_length,
@@ -322,6 +341,7 @@ if torch_version_at_least("2.10.0") and has_triton():
         d_global_amax,
         rng_state,
         enable_stochastic_rounding,
+        logical_packed_length=None,
     ):
         qa_base = A.new_empty(
             (packed_sequence_length, hidden_size // 2), dtype=torch.uint8
@@ -340,7 +360,7 @@ else:
 
     def triton_group_rht_quantize_row_col(
         A: torch.Tensor,
-        B: torch.Tensor,
+        sign_vector: list[int],
         offsets: torch.Tensor,
         num_tensors: int,
         packed_sequence_length: int,
@@ -350,6 +370,7 @@ else:
         d_global_amax: torch.Tensor,
         rng_state,
         enable_stochastic_rounding: bool,
+        logical_packed_length: Optional[torch.Tensor] = None,
     ):
         raise NotImplementedError(
             "triton_group_rht_quantize_row_col requires torch 2.10.0+ and triton installed"
