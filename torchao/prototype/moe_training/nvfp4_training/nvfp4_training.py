@@ -78,6 +78,9 @@ class NVFP4TrainingConfig(AOBaseConfig):
     Args:
         kernel_preference: Backend for quantization kernels.
             TRITON: Pure-Triton RHT + stochastic rounding path.
+            CUTEDSL: CuteDSL kernels for the amax + forward RTNE quantize, with the
+                Triton path for the SR backward quantize and weights. Requires SM100;
+                not supported with tensor parallel.
             Default: TRITON.
         process_group: Optional ProcessGroup for tensor-parallel TP.
             When set with kernel_preference=TRITON, forward dispatches to
@@ -154,6 +157,14 @@ class NVFP4Linear(nn.Linear):
         return self._rht_sign_vector_tuple
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+        if (
+            self.process_group is not None
+            and self.kernel_preference == KernelPreference.CUTEDSL
+        ):
+            raise NotImplementedError(
+                "kernel_preference=CUTEDSL does not support tensor parallelism; "
+                "use KernelPreference.TRITON for the TP path."
+            )
         if (
             self.process_group is not None
             and self.kernel_preference == KernelPreference.TRITON
