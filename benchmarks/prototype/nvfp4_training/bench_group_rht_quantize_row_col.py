@@ -17,11 +17,13 @@ from benchmarks.prototype.nvfp4_training.deepseek_v3_shapes import (
     get_deepseek_v3_weight_shapes,
 )
 from benchmarks.utils import benchmark_cuda_function_in_microseconds
-from torchao.prototype.moe_training.nvfp4_training.group_rht_quantize_row_col_triton import (
+from torchao.prototype.moe_training.nvfp4_training.group_hadamard_utils import (
     BLOCK_M,
     BLOCK_N,
     VARYING_FIRST_DIM,
-    _group_row_col_rht_gemm_triton_kernel,
+)
+from torchao.prototype.moe_training.nvfp4_training.group_rht_quantize_row_col_triton import (
+    _group_rht_quantize_row_col_kernel,
 )
 from torchao.prototype.moe_training.nvfp4_training.hadamard_utils import (
     get_rht_matrix,
@@ -115,10 +117,8 @@ def run_experiment(
     A = torch.randn(m, n, dtype=torch.bfloat16, device=device)
     B = get_rht_matrix(RHT_SIGN_VECTOR, device, torch.bfloat16, 16)
 
-    first_dims = torch.full((g,), mpg, dtype=torch.int64, device=device)
-    offsets = torch.empty((g + 1,), dtype=torch.int64, device=device)
-    offsets[0] = 0
-    offsets[1:] = torch.cumsum(first_dims * n, dim=0)
+    first_dims = torch.full((g,), mpg, dtype=torch.int32, device=device)
+    offsets = torch.cumsum(first_dims, dim=0, dtype=torch.int32)
 
     # Per-group amaxes (values do not affect timing); compute cheaply from A.
     A_grouped = A.view(g, mpg, n).float().abs()
@@ -149,7 +149,7 @@ def run_experiment(
     grid = (triton.cdiv(m, BLOCK_M) * triton.cdiv(n, BLOCK_N),)
 
     def run_kernel():
-        _group_row_col_rht_gemm_triton_kernel[grid](
+        _group_rht_quantize_row_col_kernel[grid](
             A,
             B,
             qa,

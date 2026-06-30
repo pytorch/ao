@@ -68,7 +68,7 @@ def run_experiment(config: ExperimentConfig) -> ExperimentResult:
     total_m = E * M
     weights = torch.randn((total_m, N), dtype=torch.bfloat16, device="cuda")
     rht = get_rht_matrix(RHT_SIGN_VECTOR, weights.device, torch.bfloat16, 16)
-    offsets = torch.arange(E + 1, dtype=torch.int64, device="cuda") * M * N
+    offsets = torch.arange(1, E + 1, dtype=torch.int32, device="cuda") * M
     row_amax = torch.zeros((E,), dtype=torch.float32, device="cuda")
     col_amax = torch.zeros((E,), dtype=torch.float32, device="cuda")
 

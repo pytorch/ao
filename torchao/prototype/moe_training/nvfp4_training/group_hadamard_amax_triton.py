@@ -32,6 +32,7 @@ if torch_version_at_least("2.10.0") and has_triton():
         _get_group_idx_binary,
         _validate_grouped_hadamard_inputs,
     )
+
     @triton.jit
     def _atomic_max_2d(values, output_ptr, group_idx):
         amax = tl.max(tl.max(values, axis=1), axis=0)
@@ -68,7 +69,7 @@ if torch_version_at_least("2.10.0") and has_triton():
 
         if SHAPE_REP == VARYING_FIRST_DIM:
             group_idx = _get_group_idx_binary(
-                token_tile_idx * BLOCK_M * N,
+                token_tile_idx * BLOCK_M,
                 offsets_ptr,
                 num_tensors,
             )
@@ -80,14 +81,11 @@ if torch_version_at_least("2.10.0") and has_triton():
         a = tl.load(a_ptr + offsets_m[:, None] * N + offsets_n[None, :])
 
         rht_offsets = (
-            tl.arange(0, RHT_SIZE)[:, None] * RHT_SIZE
-            + tl.arange(0, RHT_SIZE)[None, :]
+            tl.arange(0, RHT_SIZE)[:, None] * RHT_SIZE + tl.arange(0, RHT_SIZE)[None, :]
         )
         hadamard = tl.load(b_ptr + rht_offsets)
         a_t = tl.trans(a)
-        a_t_reshape = tl.reshape(
-            a_t, [BLOCK_N * BLOCK_M // RHT_SIZE, RHT_SIZE]
-        )
+        a_t_reshape = tl.reshape(a_t, [BLOCK_N * BLOCK_M // RHT_SIZE, RHT_SIZE])
         a_t_rht = tl.dot(a_t_reshape, hadamard).to(tl.bfloat16)
 
         _atomic_max_2d(
@@ -119,7 +117,7 @@ if torch_version_at_least("2.10.0") and has_triton():
                 along the row dimension; each group's M must be divisible by 16 and
                 N divisible by 128.
             B: (16, 16) bfloat16 RHT matrix.
-            offsets: int64 cumulative element offsets for each group start.
+            offsets: int32 cumulative row-end offsets, one per group.
             num_tensors: number of expert groups.
             packed_sequence_length: total number of rows in A.
             hidden_size: number of columns in A.

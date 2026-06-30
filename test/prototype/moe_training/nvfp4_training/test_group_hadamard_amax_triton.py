@@ -74,10 +74,10 @@ def _build_packed(groups, hidden_size, device, seed):
         for m in groups
     ]
     A = torch.cat(group_tensors, dim=0)
-    offsets = torch.empty((len(groups) + 1,), dtype=torch.int64, device=device)
-    offsets[0] = 0
-    offsets[1:] = torch.cumsum(
-        torch.tensor(groups, dtype=torch.int64, device=device) * hidden_size, dim=0
+    offsets = torch.cumsum(
+        torch.tensor(groups, dtype=torch.int32, device=device),
+        dim=0,
+        dtype=torch.int32,
     )
     return A, offsets, group_tensors
 
@@ -87,8 +87,8 @@ def _group_rht_amax_reference(A, offsets, num_tensors, sign_vector):
     col = A.new_empty((num_tensors,), dtype=torch.float32)
     row = A.new_empty((num_tensors,), dtype=torch.float32)
     for g in range(num_tensors):
-        row_start = offsets[g] // A.shape[1]
-        row_end = offsets[g + 1] // A.shape[1]
+        row_start = 0 if g == 0 else offsets[g - 1]
+        row_end = offsets[g]
         Ag = A[row_start:row_end]
         c, r = triton_rht_amax(Ag, list(sign_vector))
         col[g] = c
@@ -153,7 +153,7 @@ def test_group_rht_amax_register_fake_shapes():
     with FakeTensorMode():
         A = torch.empty((512, 256), dtype=torch.bfloat16, device="cuda")
         B = torch.empty((16, 16), dtype=torch.bfloat16, device="cuda")
-        offsets = torch.empty((num_tensors + 1,), dtype=torch.int64, device="cuda")
+        offsets = torch.empty((num_tensors,), dtype=torch.int32, device="cuda")
         col, row = triton_group_rht_amax(A, B, offsets, num_tensors, 512, 256, 1)
     assert col.shape == (num_tensors,)
     assert row.shape == (num_tensors,)
