@@ -31,7 +31,7 @@ if torch_version_at_least("2.10.0") and has_triton():
     from torchao.prototype.moe_training.nvfp4_training.group_hadamard_utils import (
         BLOCK_M,
         BLOCK_N,
-        _group_idx_from_range,
+        _get_group_idx_binary,
         _validate_grouped_hadamard_inputs,
     )
     from torchao.prototype.moe_training.nvfp4_training.hadamard_utils import (
@@ -76,7 +76,11 @@ if torch_version_at_least("2.10.0") and has_triton():
         if SHAPE_REP == VARYING_FIRST_DIM:
             token_offset = pid_m * BLOCK_M
             lookup_offset = token_offset * N
-            group_idx = _group_idx_from_range(lookup_offset, offsets_ptr, num_tensors)
+            group_idx = _get_group_idx_binary(
+                lookup_offset,
+                offsets_ptr,
+                num_tensors,
+            )
         else:
             group_idx = pid_m // (num_tiles_token // num_tensors)
 

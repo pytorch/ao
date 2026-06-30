@@ -173,6 +173,10 @@ if torch_version_at_least("2.10.0") and has_triton():
             raise ValueError(f"global_amax must have shape ({E},)")
         if global_amax.dtype != torch.float32:
             raise ValueError(f"Expected float32 global_amax, got {global_amax.dtype}")
+        if not global_amax.is_cuda or global_amax.device != A.device:
+            raise ValueError("global_amax must be on the same device as A")
+        if not global_amax.is_contiguous():
+            raise ValueError("global_amax must be contiguous")
         if M % BLOCK_M != 0 or N % BLOCK_N != 0:
             raise ValueError(
                 f"Expected M divisible by {BLOCK_M} and N divisible by {BLOCK_N}, "

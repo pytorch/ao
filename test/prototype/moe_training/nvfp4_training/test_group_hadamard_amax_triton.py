@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import pytest
 import torch
+import torch.nn.functional as F
 from torch.utils._triton import has_triton
 
 from benchmarks.prototype.nvfp4_training.deepseek_v3_shapes import (
@@ -170,3 +171,24 @@ def test_group_rht_amax_validates_packed_shape():
     B = get_rht_matrix(_HARDCODED_SIGN_VECTOR, device, torch.bfloat16, 16)
     with pytest.raises(ValueError, match="packed_sequence_length must match"):
         triton_group_rht_amax(A, B, offsets, len(groups), 256, 256, 1)
+
+
+@_maybe_sm100
+@torch.no_grad()
+def test_group_rht_amax_rejects_non_tensorwise_scaling():
+    device = torch.device("cuda", 0)
+    groups = (128,)
+    A, offsets, _ = _build_packed(groups, 256, device, seed=7)
+    B = get_rht_matrix(_HARDCODED_SIGN_VECTOR, device, torch.bfloat16, 16)
+
+    with pytest.raises(ValueError, match="only ScalingType.TensorWise"):
+        triton_group_rht_amax(
+            A,
+            B,
+            offsets,
+            len(groups),
+            A.shape[0],
+            A.shape[1],
+            1,
+            int(F.ScalingType.RowWise),
+        )

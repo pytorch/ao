@@ -20,19 +20,6 @@ if torch_version_at_least("2.10.0") and has_triton():
     import triton.language as tl
 
     @triton.jit
-    def _group_idx_from_range(
-        element_offset,
-        group_range_ptr,
-        num_tensors: tl.constexpr,
-    ):
-        group_idx = 0
-        for i in range(num_tensors):
-            start = tl.load(group_range_ptr + i)
-            if element_offset >= start:
-                group_idx = i
-        return group_idx
-
-    @triton.jit
     def _get_group_idx_binary(token_idx, group_range_ptr, num_groups):
         """
         Use binary search to find group_idx for this token_idx.
