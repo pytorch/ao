@@ -880,6 +880,7 @@ if has_triton():
         )
         return output_buffer_1, scales_buffer_1, output_buffer_2, scales_buffer_2
 
+
 else:
 
     def triton_fp8_per_group_rowwise_scales(
