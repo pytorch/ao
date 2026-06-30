@@ -75,3 +75,18 @@ def test_group_quantize_2d_register_fake_shapes():
     assert qa_t.dtype == torch.uint8
     assert sfa_t.shape == (E, N // 128, M // 64, 32, 16)
     assert sfa_t.dtype == torch.float8_e4m3fn
+
+
+@requires_grouped_kernel
+@pytest.mark.parametrize("invalid_amax", ["cpu", "noncontiguous"])
+def test_group_quantize_2d_validates_global_amax_storage(invalid_amax):
+    weights = torch.empty((2, 128, 128), dtype=torch.bfloat16, device="cuda")
+    if invalid_amax == "cpu":
+        global_amax = torch.empty((2,), dtype=torch.float32)
+        error = "same device as A"
+    else:
+        global_amax = torch.empty((4,), dtype=torch.float32, device="cuda")[::2]
+        error = "contiguous"
+
+    with pytest.raises(ValueError, match=error):
+        triton_group_weight_quantize_2d(weights, global_amax, num_tensors=2)

@@ -140,6 +140,11 @@ if torch_version_at_least("2.10.0") and has_triton():
             hidden_size,
             shape_rep,
         )
+        if scaling_type != int(F.ScalingType.TensorWise):
+            raise ValueError(
+                f"scaling_type={scaling_type!r} is not supported; "
+                "only ScalingType.TensorWise is implemented."
+            )
         row_amax = torch.zeros(
             (num_tensors,),
             dtype=torch.float32,
