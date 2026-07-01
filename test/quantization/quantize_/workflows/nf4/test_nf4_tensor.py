@@ -45,7 +45,7 @@ from torchao.quantization.quantize_.workflows.nf4.nf4_tensor import (
     linear_nf4,
 )
 from torchao.testing.utils import skip_if_rocm
-from torchao.utils import get_current_accelerator_device, torch_version_at_least
+from torchao.utils import torch_version_at_least
 
 bnb_available = False
 
@@ -132,7 +132,7 @@ class TestNF4Linear(TestCase):
     def test_reconstruction_qlora_vs_bnb(self, dtype: torch.dtype):
         # From https://github.com/drisspg/transformer_nuggets/blob/f05afad68ad9086d342268f46a7f344617a02314/test/test_qlora.py#L65C1-L81C47
         torch.manual_seed(0)
-        device = get_current_accelerator_device()
+        device = torch.acceraltor.get_current_accelerator()
         embed_dim = 512
         input_weight = _build_input_weight(embed_dim, device, dtype)
         nf4_weight = to_nf4(input_weight)
@@ -162,7 +162,7 @@ class TestNF4Linear(TestCase):
         """
         torch.manual_seed(0)
         dim = 512
-        device = get_current_accelerator_device()
+        device = torch.accelerator.current_accelerator()
         input_weight = _build_input_weight(dim, device, dtype)
         nf4_weight = to_nf4(input_weight)
         bnb_linear = _build_bnb_linear(input_weight, device)
@@ -182,7 +182,7 @@ class TestNF4Linear(TestCase):
     @parametrize("dtype", [torch.bfloat16, torch.float16, torch.float32])
     def test_load_from_state_dicts(self, dtype: torch.dtype):
         """Tests loading to and from different module state dicts"""
-        device = get_current_accelerator_device()
+        device = torch.accelerator.current_accelerator()
         input_tensor = torch.rand(64, device=device, dtype=dtype)
         base_mod = self.TestMod(input_tensor, 32, 2)
 
@@ -226,7 +226,7 @@ class TestNF4Linear(TestCase):
         torch.testing.assert_allclose(input_tensor, nf4_to_dtype, atol=0.13, rtol=0.13)
 
         if torch.accelerator.is_available():
-            device = get_current_accelerator_device()
+            device = torch.accelerator.current_accelerator()
             input_tensor = torch.rand(128, device=device)
             input_tensor_nf4 = to_nf4(input_tensor, 32, 2)
             nf4_to_dtype = input_tensor_nf4.to(dtype)
@@ -236,7 +236,7 @@ class TestNF4Linear(TestCase):
 
     @unittest.skipIf(not torch.accelerator.is_available(), "Need gpu for test")
     def test_to_copy_device(self):
-        device = get_current_accelerator_device()
+        device = torch.accelerator.current_accelerator()
         input_tensor = torch.rand(128, device="cpu")
         t = to_nf4(input_tensor, 32, 2)
         assert t.device == torch.device("cpu")
@@ -260,14 +260,14 @@ class TestNF4Linear(TestCase):
     @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
     @parametrize("dtype", [torch.bfloat16, torch.float16, torch.float32])
     def test_smoketest_linear(self, dtype: torch.dtype):
-        device = get_current_accelerator_device()
+        device = torch.accelerator.current_accelerator()
         a = torch.randn(32, 32, dtype=dtype, device=device)
         a_nf4 = to_nf4(a, 16, 2)
         inp = torch.randn(2, 32, 32, dtype=a.dtype, device=a.device)
         _ = torch.nn.functional.linear(inp, a)
         _ = torch.nn.functional.linear(inp, a_nf4)
 
-    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
+    @unittest.skipIf(not torch.accelerator.is_available(), "Need CUDA available")
     @parametrize("dtype", [torch.bfloat16, torch.float16, torch.float32])
     def test_smoketest_linear_compile(self, dtype: torch.dtype):
         if (
@@ -278,7 +278,7 @@ class TestNF4Linear(TestCase):
             self.skipTest("test requires SM capability of at least (8, 0).")
         if version.parse(torch.__version__) < version.parse("2.3.0"):
             self.skipTest("test requires 2.3.0 and above for tracing NF4Tensor")
-        device = get_current_accelerator_device()
+        device = torch.accelerator.current_accelerator()
         a = torch.randn(32, 32, dtype=dtype, device=device)
         a_nf4 = to_nf4(a, 16, 2)
         inp = torch.randn(2, 32, 32, dtype=a.dtype, device=a.device)
@@ -289,7 +289,7 @@ class TestNF4Linear(TestCase):
     @parametrize("shape", [(16, 16), (32, 16)])
     @parametrize("chunk_size", [8, 16, 32])
     def test_chunk_size_equivalence(self, dtype: torch.dtype, shape, chunk_size):
-        device = get_current_accelerator_device()
+        device = torch.accelerator.current_accelerator()
         a = torch.randn(shape, device=device, dtype=dtype)
         with unittest.mock.patch.object(_nf4_tensor_mod, "CHUNK_SIZE", chunk_size):
             nf4_patched = to_nf4(a, 16, 2)
@@ -301,7 +301,7 @@ class TestNF4Linear(TestCase):
     @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
     @parametrize("input_size", [(512 * 512,), (512, 512)])
     def test_empty_like(self, input_size: Union[Tuple[int], int]):
-        device = get_current_accelerator_device()
+        device = torch.accelerator.current_accelerator()
         nf4_tensor = to_nf4(torch.rand(input_size, device=device))
         new_tensor = torch.empty_like(nf4_tensor, device="cpu")
         self.assertTrue(isinstance(new_tensor, NF4Tensor))
@@ -311,7 +311,7 @@ class TestNF4Linear(TestCase):
     @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
     @parametrize("compile", [False, True])
     def test_quantize_api(self, compile):
-        device = get_current_accelerator_device()
+        device = torch.accelerator.current_accelerator()
         nf4_linear = nn.Linear(512, 512, device=device)
         torchao.quantize_(nf4_linear, nf4_weight_only())
         assert isinstance(nf4_linear.weight, NF4Tensor)
@@ -529,7 +529,7 @@ class TestFSDPOps(TestCase):
         nf4_tensor = nf4_tensor.pin_memory()
         self.assertTrue(nf4_tensor.is_pinned())
 
-        device = get_current_accelerator_device()
+        device = torch.accelerator.current_accelerator()
         nf4_tensor = to_nf4(torch.randn(512 * 512, device=device))
         self.assertFalse(nf4_tensor.is_pinned())
 
@@ -537,7 +537,7 @@ class TestFSDPOps(TestCase):
     def test_to_cuda(self):
         nf4_tensor = to_nf4(torch.randn(512 * 512))
         self.assertEqual(nf4_tensor.device.type, "cpu")
-        device = get_current_accelerator_device()
+        device = torch.accelerator.current_accelerator()
         nf4_tensor = nf4_tensor.to(device, non_blocking=True)
         self.assertEqual(nf4_tensor.device.type, device.type)
         self.assertEqual(type(nf4_tensor), NF4Tensor)
@@ -559,7 +559,7 @@ class TestFSDPOps(TestCase):
 
     @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
     def test_to_cpu(self):
-        device = get_current_accelerator_device()
+        device = torch.accelerator.current_accelerator()
         nf4_tensor = to_nf4(torch.randn(512 * 512, device=device))
         nf4_tensor = nf4_tensor.cpu()
         self.assertEqual(nf4_tensor.device.type, "cpu")
@@ -574,7 +574,7 @@ class TestFSDPOps(TestCase):
         linear.weight = nn.Parameter(
             to_nf4(linear.weight.detach()), requires_grad=False
         )
-        device = get_current_accelerator_device()
+        device = torch.accelerator.current_accelerator()
         linear.to(device)
         self.assertEqual(linear.weight.device.type, device.type)
         weight = linear.weight.get_original_weight()
@@ -602,7 +602,7 @@ class TestFSDPOps(TestCase):
     @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
     @parametrize("input_size", [512 * 512, (512 * 512,), (512, 512)])
     def test_tensor_deepcopy(self, input_size: Union[Tuple[int], int]):
-        device = get_current_accelerator_device()
+        device = torch.accelerator.current_accelerator()
         nf4_orig = to_nf4(torch.randn(input_size, device=device))
         nf4_clone = copy.deepcopy(nf4_orig)
         self.assertEqual(
@@ -693,7 +693,7 @@ class TestQLoRA(FSDPTest):
             dropout_p=0,
         )
         torch.manual_seed(42)
-        device = get_current_accelerator_device()
+        device = torch.accelerator.current_accelerator()
         with torch.device(device):
             base_model = Transformer(model_args)
             for layer in base_model.layers:
@@ -783,7 +783,7 @@ class TestComm(FSDPTest):
         from torch.distributed._composable.fsdp import fully_shard
         from torch.distributed._tensor import distribute_tensor
 
-        device = get_current_accelerator_device()
+        device = torch.accelerator.current_accelerator()
         model = nn.Linear(input_size, input_size, device=device)
         origin_tensor = model.weight
         origin_nf4_tensor = to_nf4(origin_tensor)
