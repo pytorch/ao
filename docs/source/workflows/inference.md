@@ -90,7 +90,7 @@ To reproduce these benchmarks, run
 // on an h100
 SKIP_LM_EVAL=1 ./benchmarks/quantization/measure_accuracy_and_performance.sh h100
 // on a b200
-SKIP_LM_EVAL=1 ./benchmarks/quantization/measure_accuracy_and_performance.sh h100
+SKIP_LM_EVAL=1 ./benchmarks/quantization/measure_accuracy_and_performance.sh b200
 
 // under the hood, the actual vllm benchmark is doing the following:
 // 1. prefill
