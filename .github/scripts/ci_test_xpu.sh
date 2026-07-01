@@ -23,4 +23,7 @@ pytest -v -s --ignore=torchao/test/quantization/pt2e/test_x86inductor_fusion.py 
         torchao/test/float8/ \
         torchao/test/integration/test_integration.py \
         torchao/test/prototype/ \
-        torchao/test/quantization/quantize_/workflows/
+        torchao/test/quantization/quantize_/workflows/ \
+        torchao/test/core/test_config.py \
+        torchao/test/test_model_architecture.py \
+        torchao/test/test_utils.py
