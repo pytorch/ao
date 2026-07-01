@@ -25,6 +25,7 @@ from torchao.utils import (
     is_mslk_version_at_least,
     is_ROCM,
     is_sm_at_least_100,
+    is_XPU,
 )
 
 logger = logging.getLogger(__name__)
@@ -455,11 +456,13 @@ else:
         raise AssertionError("needs triton")
 
 
-_triton_kernels_available = (
-    has_triton()
-    and torch.cuda.is_available()
-    and (is_sm_at_least_100() and is_cuda_version_at_least(12, 8))
+_triton_kernels_available = has_triton() and (
+    (
+        torch.cuda.is_available()
+        and (is_sm_at_least_100() and is_cuda_version_at_least(12, 8))
+    )
     or (is_ROCM() and is_MI350())
+    or is_XPU()
 )
 
 if _triton_kernels_available:
