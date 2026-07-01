@@ -26,6 +26,7 @@ Usage::
 """
 
 import logging
+import os
 
 import torch
 import torch.nn as nn
@@ -340,13 +341,57 @@ def _fp4_fake_quantize_ste(x: torch.Tensor) -> torch.Tensor:
     return x + (dq - x).detach()
 
 
-def apply_simple_fp4_moe_qat_torchtitan(model: nn.Module) -> nn.Module:
-    """Enable FP4 fake quantization on torchtitan GroupedExperts modules.
+def _fp4_fake_quantize_act_ste(x: torch.Tensor) -> torch.Tensor:
+    """STE FP4 fake-quant for a linear layer's INPUT activation of any rank.
 
-    Sets ``fake_quant_fn`` on each module that has both a ``num_experts``
-    attribute and a ``fake_quant_fn`` attribute (torchtitan's GroupedExperts).
-    This injects FP4 block-scale fake quantization on both weights and
-    activations inside ``_experts_forward``, compatible with FSDP2/DTensor.
+    ``_fp4_quant_dequant`` treats a 3D tensor as independent per-expert slices
+    (looping dim 0), which is wrong for an activation shaped
+    ``(batch, seq, features)``. Flatten to 2D ``(tokens, features)`` first so the
+    per-tensor global scale spans all tokens and the FP8 block scales tile along
+    the feature dim — matching how modelopt quantizes a linear's input at eval —
+    then restore the original shape. STE preserved through the reshape.
+    """
+    if x.ndim <= 2:
+        return _fp4_fake_quantize_ste(x)
+    orig_shape = x.shape
+    flat = x.reshape(-1, orig_shape[-1])
+    return _fp4_fake_quantize_ste(flat).reshape(orig_shape)
+
+
+# Substrings of module names that the nvfp4 eval (modelopt NVFP4_DEFAULT_CFG)
+# does NOT quantize, so QAT must skip them too to match the eval scope exactly:
+# the LM head and the MoE router gate.
+_LINEAR_FQ_EXCLUDE = ("lm_head", "router", "gate")
+
+
+def _wrap_linear_fp4_fake_quant(module: nn.Linear) -> None:
+    """Override a linear's forward so its WEIGHT and INPUT ACTIVATION are both
+    FP4 fake-quantized (STE) before the matmul — i.e. w4a4, matching the nvfp4
+    eval. Instance-level forward override (eager only; these RL runs disable
+    torch.compile)."""
+    import torch.nn.functional as F
+
+    def fq_forward(x: torch.Tensor) -> torch.Tensor:
+        w = _fp4_fake_quantize_ste(module.weight)
+        x = _fp4_fake_quantize_act_ste(x)
+        return F.linear(x, w, module.bias)
+
+    module.forward = fq_forward
+    module._fp4_fake_quant_linear = True
+
+
+def apply_simple_fp4_moe_qat_torchtitan(model: nn.Module) -> nn.Module:
+    """Enable FP4 fake quantization on the MoE EXPERTS ONLY.
+
+    Sets ``fake_quant_fn`` on each module that has both ``num_experts`` and
+    ``fake_quant_fn`` (torchtitan's ``GroupedExperts``), injecting FP4 block-scale
+    fake quant on expert **weights and activations** (w4a4) inside
+    ``_experts_forward`` (FSDP2/DTensor-compatible).
+
+    Scope: **MoE experts only.** This does NOT touch attention / dense linear
+    layers — for those use :func:`apply_simple_fp4_linear_qat_torchtitan`. (The two are
+    independent; call both to fake-quantize the full set of layers that the nvfp4
+    eval quantizes.)
 
     Args:
         model: A torchtitan model with GroupedExperts modules.
@@ -365,6 +410,75 @@ def apply_simple_fp4_moe_qat_torchtitan(model: nn.Module) -> nn.Module:
                 module.num_experts,
             )
     logger.info("Applied FP4 QAT to %d GroupedExperts modules", count)
+    return model
+
+
+def apply_simple_fp4_linear_qat_torchtitan(model: nn.Module) -> nn.Module:
+    """Enable FP4 fake quantization on the dense LINEAR LAYERS ONLY.
+
+    Overrides the forward of every ``nn.Linear`` whose module name does not match
+    :data:`_LINEAR_FQ_EXCLUDE` (``lm_head``/``router``/``gate``) so that its
+    **weight and input activation** are FP4 fake-quantized (w4a4) before the
+    matmul. This covers the attention q/k/v/o projections and any other dense
+    linear, matching exactly the linear layers that the nvfp4 eval quantizes
+    (modelopt ``NVFP4_DEFAULT_CFG``: every Linear except lm_head/router/gate).
+
+    Scope: **linear layers only.** This does NOT touch the MoE experts (which are
+    3D grouped tensors run via ``torch._grouped_mm``, not ``nn.Linear``) — for
+    those use :func:`apply_simple_fp4_moe_qat_torchtitan`. (The two are
+    independent; call both to match the full nvfp4 eval scope.)
+
+    Forward is overridden at the instance level, so this is eager-only (the verl
+    RL runs disable ``torch.compile``).
+
+    Args:
+        model: A torchtitan model.
+
+    Returns:
+        The same model, modified in-place.
+    """
+    n_lin = 0
+    for name, module in model.named_modules():
+        if isinstance(module, nn.Linear) and not any(
+            excl in name for excl in _LINEAR_FQ_EXCLUDE
+        ):
+            _wrap_linear_fp4_fake_quant(module)
+            n_lin += 1
+    logger.info(
+        "Applied FP4 QAT to %d linear layers (attention q/k/v/o etc; "
+        "excluded lm_head/router/gate)",
+        n_lin,
+    )
+    return model
+
+
+def apply_simple_fp4_full_qat_torchtitan(model: nn.Module) -> nn.Module:
+    """Enable FP4 fake quantization on BOTH the MoE experts AND the dense linear
+    layers — the full set of layers quantized by the nvfp4 eval.
+
+    Always fake-quantizes the MoE experts via
+    :func:`apply_simple_fp4_moe_qat_torchtitan` (gate_up + down, w4a4). The
+    dense-linear portion (:func:`apply_simple_fp4_linear_qat_torchtitan` —
+    attention q/k/v/o etc, excluding lm_head/router/gate, w4a4) is gated by the
+    env var ``QAT_FP4_FAKE_QUANT_LINEARS`` (default ``"1"`` = enabled). With it
+    enabled, the QAT-quantized layer set matches the nvfp4 eval scope (modelopt
+    ``NVFP4_DEFAULT_CFG``) EXACTLY; set ``QAT_FP4_FAKE_QUANT_LINEARS=0`` to fall
+    back to experts-only QAT without changing the wired ``post_model_init_fn``.
+
+    Args:
+        model: A torchtitan model with GroupedExperts modules.
+
+    Returns:
+        The same model, modified in-place.
+    """
+    apply_simple_fp4_moe_qat_torchtitan(model)
+    if os.environ.get("QAT_FP4_FAKE_QUANT_LINEARS", "1") == "1":
+        apply_simple_fp4_linear_qat_torchtitan(model)
+    else:
+        logger.info(
+            "QAT_FP4_FAKE_QUANT_LINEARS=0: skipping dense-linear FQ "
+            "(experts-only QAT)"
+        )
     return model
 
 
