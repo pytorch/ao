@@ -33,12 +33,25 @@ h100_peak_flops_float32 = 67e12
 h100_peak_flops_fp16_tc = 1979e12
 h100_peak_tops_float8_tc = 3958e12
 
+# Intel Arc B580 specs: bottom of https://www.intel.com/content/www/us/en/products/sku/241598/intel-arc-b580-graphics/specifications.html
+b580_peak_flops_float32 = 58e12
+b580_peak_flops_bf16 = 116e12
+
 dtype_to_peak_tops = {
-    torch.float32: h100_peak_flops_float32,
-    torch.float16: h100_peak_flops_fp16_tc,
-    torch.bfloat16: h100_peak_flops_fp16_tc,
-    torch.float8_e4m3fn: h100_peak_tops_float8_tc,
-    torch.float8_e5m2: h100_peak_tops_float8_tc,
+    "NVIDIA H100": {
+        torch.float32: h100_peak_flops_float32,
+        torch.float16: h100_peak_flops_fp16_tc,
+        torch.bfloat16: h100_peak_flops_fp16_tc,
+        torch.float8_e4m3fn: h100_peak_tops_float8_tc,
+        torch.float8_e5m2: h100_peak_tops_float8_tc,
+    },
+    "Intel(R) Arc(TM) B580 Graphics": {
+        torch.float32: b580_peak_flops_float32,
+        torch.float16: b580_peak_flops_bf16,
+        torch.bfloat16: b580_peak_flops_bf16,
+        torch.float8_e4m3fn: b580_peak_flops_bf16,
+        torch.float8_e5m2: b580_peak_flops_bf16,
+    },
 }
 
 # prevent splitting columns when printing a data frame
@@ -71,6 +84,14 @@ class Experiment:
     compiled: bool
     use_fast_accum: bool
     scaling_repr: str
+    device: str
+
+    @property
+    def gpu_name(self):
+        if self.device == "xpu":
+            return torch.xpu.get_device_name(0)
+        else:
+            return torch.cuda.get_device_name(0)
 
     # 3 Times since we are calculating forward backward
     @property
@@ -80,7 +101,7 @@ class Experiment:
 
     @property
     def ref_pct_top_peak(self):
-        return self.ref_tops_sec / dtype_to_peak_tops[self.dtype]
+        return self.ref_tops_sec / dtype_to_peak_tops[self.gpu_name][self.dtype]
 
     @property
     def float8_tops_sec(self):
@@ -89,7 +110,10 @@ class Experiment:
 
     @property
     def float8_pct_top_peak(self):
-        return self.float8_tops_sec / dtype_to_peak_tops[torch.float8_e4m3fn]
+        return (
+            self.float8_tops_sec
+            / dtype_to_peak_tops[self.gpu_name][torch.float8_e4m3fn]
+        )
 
 
 # TODO(future PR): add option to measure GPU kernel time, as in other
@@ -110,7 +134,7 @@ def main(
     scaling_type_grad_output: str = "dynamic",
     scaling_granularity: str = "tensorwise",
 ):
-    device = "cuda"
+    device = torch.accelerator.current_accelerator().type
     print(f"Compile is set to             | {compile}")
 
     scaling_type_input = ScalingType(scaling_type_input)
@@ -203,6 +227,7 @@ def main(
             * 1e-6
             / REPEAT_N
         )
+
         experiment = Experiment(
             name,
             (M, K, N),
@@ -212,6 +237,7 @@ def main(
             compile,
             use_fast_accum=fast_accum,
             scaling_repr=scaling_repr,
+            device=device,
         )
         print(experiment)
         print("float8 speedup", experiment.ref_time_sec / experiment.float8_time_sec)
@@ -308,11 +334,11 @@ def invoke_main() -> None:
     if args.shape_gen_name is not None:
         kwargs["shape_gen_name"] = args.shape_gen_name
     if args.M is not None:
-        kwargs["M"] = (args.M,)
+        kwargs["M"] = args.M
     if args.K is not None:
-        kwargs["K"] = (args.K,)
+        kwargs["K"] = args.K
     if args.N is not None:
-        kwargs["N"] = (args.N,)
+        kwargs["N"] = args.N
     if args.scaling_type_input is not None:
         kwargs["scaling_type_input"] = args.scaling_type_input
     if args.scaling_type_weight is not None:
