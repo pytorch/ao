@@ -11,6 +11,8 @@ from typing import Tuple
 import torch
 import triton
 import triton.language as tl
+from torch.distributed.tensor import Replicate, Shard
+from torch.distributed.tensor.experimental import register_sharding
 from torch.library import triton_op, wrap_triton
 
 from torchao.float8.config import e4m3_dtype
@@ -20,6 +22,12 @@ from torchao.prototype.blockwise_fp8_training.deepgemm_metadata import (
 )
 from torchao.prototype.blockwise_fp8_training.deepgemm_metadata import (
     group_sizes_from_offsets as _group_sizes_from_offsets,
+)
+from torchao.prototype.blockwise_fp8_training.dtensor_utils import (
+    grouped_quant_preserve_shardings as _grouped_quant_preserve_shardings,
+)
+from torchao.prototype.blockwise_fp8_training.dtensor_utils import (
+    grouped_quant_transpose_kn_shardings as _grouped_quant_transpose_kn_shardings,
 )
 from torchao.prototype.blockwise_fp8_training.kernels import (
     EPS,
@@ -35,6 +43,15 @@ def _should_use_traceable_triton_launch() -> bool:
 
 def _triton_launcher(kernel, traceable: bool):
     return wrap_triton(kernel) if traceable else kernel
+
+
+def _k_grouped_quant_shardings():
+    # Direct K-grouped quantization flattens per-expert (D, tokens) buffers.
+    # TP only shards the feature dimension, which maps to dim0 of both outputs.
+    return [
+        ([Replicate(), Replicate()], [Replicate(), Replicate(), None, None]),
+        ([Shard(0), Shard(0)], [Shard(1), Replicate(), None, None]),
+    ]
 
 
 @triton.autotune(configs=quant_kernel_configs, key=["M", "K"])
@@ -169,6 +186,17 @@ def triton_fp8_blockwise_weight_quant_grouped_transposed_rhs_deepgemm(
     return q_out, scale_out
 
 
+@register_sharding(
+    torch.ops.torchao.triton_fp8_blockwise_weight_quant_grouped_transposed_rhs_deepgemm.default
+)
+def custom_sharding_for_triton_fp8_blockwise_weight_quant_grouped_transposed_rhs_deepgemm(
+    weight_t: torch.Tensor,
+    block_size: int = 128,
+    dtype: torch.dtype = e4m3_dtype,
+):
+    return _grouped_quant_transpose_kn_shardings()
+
+
 @triton_op(
     "torchao::triton_fp8_blockwise_weight_quant_grouped_rhs_deepgemm",
     mutates_args={},
@@ -219,6 +247,17 @@ def triton_fp8_blockwise_weight_quant_grouped_rhs_deepgemm(
         FP8_MAX=torch.finfo(dtype).max,
     )
     return q_out, scale_out
+
+
+@register_sharding(
+    torch.ops.torchao.triton_fp8_blockwise_weight_quant_grouped_rhs_deepgemm.default
+)
+def custom_sharding_for_triton_fp8_blockwise_weight_quant_grouped_rhs_deepgemm(
+    weight_t: torch.Tensor,
+    block_size: int = 128,
+    dtype: torch.dtype = e4m3_dtype,
+):
+    return _grouped_quant_preserve_shardings()
 
 
 @triton.autotune(configs=quant_kernel_configs_with_groups, key=["D"])
@@ -486,3 +525,15 @@ def _(
             device=x.device,
         ),
     )
+
+
+@register_sharding(
+    torch.ops.torchao.triton_fp8_blockwise_act_quant_k_grouped_deepgemm.default
+)
+def custom_sharding_for_triton_fp8_blockwise_act_quant_k_grouped_deepgemm(
+    x: torch.Tensor,
+    group_end_offsets: torch.Tensor,
+    block_size: int = 128,
+    dtype: torch.dtype = e4m3_dtype,
+):
+    return _k_grouped_quant_shardings()
