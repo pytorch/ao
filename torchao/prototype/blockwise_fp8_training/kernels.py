@@ -94,12 +94,14 @@ def _is_row_major(x: torch.Tensor) -> bool:
     return x.stride(-1) == 1
 
 
-def _ensure_column_major(x: torch.Tensor) -> torch.Tensor:
+def _normalize_rhs_layout_for_scaled_mm(x: torch.Tensor) -> torch.Tensor:
     if _is_column_major(x):
         return x
-    # DTensor sharding can materialize local shards of a logically column-major
-    # operand with regular row-major strides. Preserve the logical values while
-    # restoring the physical RHS layout required by _scaled_mm_v2.
+    # `_scaled_mm_v2` requires a physically column-major RHS. DTensor local
+    # dispatch can materialize redistributed local shards in a regular
+    # contiguous layout even when the logical operand is the transposed RHS
+    # produced by the FP8 quantizers, so normalize the physical layout at the
+    # custom-op boundary before calling into aten.
     return x.transpose(-2, -1).contiguous().transpose(-2, -1)
 
 
@@ -145,7 +147,7 @@ def blockwise_scaled_mm(
         "blockwise_scaled_mm expected a to be row-major; prepare the input with "
         "contiguous K dimension before calling"
     )
-    b = _ensure_column_major(b)
+    b = _normalize_rhs_layout_for_scaled_mm(b)
     b_s = _prepare_blockwise_scaled_mm_rhs_scale(b_s, scale_recipe_b)
 
     return torch.ops.aten._scaled_mm_v2.default(

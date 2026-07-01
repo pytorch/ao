@@ -14,7 +14,7 @@ from torch.testing._internal.distributed._tensor.common_dtensor import (
     with_comms,
 )
 
-from test.prototype.fp8_blockwise_distributed_utils import (
+from torchao.testing.training.fp8_blockwise_distributed_utils import (
     BlockwiseFP8DTensorTestMixin,
 )
 from torchao.utils import is_MI300, is_MI350, is_sm_at_least_90

@@ -8,12 +8,12 @@ import copy
 
 import torch
 
-from test.prototype import fp8_blockwise_distributed_utils as fp8_dist_utils
 from torchao.prototype.blockwise_fp8_training.linear import (
     Float8BlockwiseLinear,
     Float8BlockwiseLinearConfig,
 )
 from torchao.quantization import quantize_
+from torchao.testing.training import fp8_blockwise_distributed_utils as fp8_dist_utils
 from torchao.testing.training.dtensor_utils import ToyModel
 
 allreduce_reference_grads = fp8_dist_utils.allreduce_reference_grads

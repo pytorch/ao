@@ -16,7 +16,7 @@ from torch.testing._internal.distributed._tensor.common_dtensor import (
     with_comms,
 )
 
-from test.prototype.fp8_blockwise_distributed_utils import (
+from torchao.testing.training.fp8_blockwise_distributed_utils import (
     BlockwiseFP8DTensorTestMixin,
 )
 

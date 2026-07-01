@@ -13,7 +13,6 @@ from torch.distributed.device_mesh import DeviceMesh
 from torch.distributed.tensor import DTensor, Shard
 from torch.nn import functional as F
 
-from test.prototype import fp8_blockwise_distributed_utils as fp8_dist_utils
 from torchao.prototype.blockwise_fp8_training.dtensor_utils import (
     replicate_like_dtensor,
 )
@@ -24,6 +23,7 @@ from torchao.prototype.moe_training.config import (
 from torchao.prototype.moe_training.tensor import TrainingWeightWrapperBaseTensor
 from torchao.quantization import quantize_
 from torchao.quantization.quantize_.common import KernelPreference
+from torchao.testing.training import fp8_blockwise_distributed_utils as fp8_dist_utils
 
 assert_parameters_are_dtensors = fp8_dist_utils.assert_parameters_are_dtensors
 
