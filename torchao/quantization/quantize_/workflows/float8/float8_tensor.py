@@ -431,20 +431,31 @@ def _float8_addmm_impl(
             inpt_data, w_data = preprocess_data(inpt_data, w_data, scaled_mm_config)
 
             if _is_128_128_scaled(weight_tensor):
-                # TODO(future PR): add testing for torch._scaled_mm with
-                # blockwise scaling on CUDA 12.9
-                # TODO(future PR): add mslk path if available
-                # TODO(future PR): proper out_dtype handling
                 assert _is_1_128_scaled(input_tensor), "unsupported"
-                res = blockwise_fp8_gemm(
-                    inpt_data,
-                    input_scale,
-                    w_data.t(),
-                    w_scale.t(),
-                    block_size=128,
-                )
-                if bias is not None:
-                    res = res + bias
+                if inpt_data.device.type == "xpu":
+                    res = addmm_float8_unwrapped_inference(
+                        inpt_data,
+                        input_tensor.scale.squeeze(-1),
+                        weight_tensor.qdata,
+                        weight_tensor.scale,
+                        output_dtype=input_tensor.dtype,
+                        bias=bias,
+                        use_fast_accum=scaled_mm_config.use_fast_accum,
+                    )
+                else:
+                    # TODO(future PR): add testing for torch._scaled_mm with
+                    # blockwise scaling on CUDA 12.9
+                    # TODO(future PR): add mslk path if available
+                    # TODO(future PR): proper out_dtype handling
+                    res = blockwise_fp8_gemm(
+                        inpt_data,
+                        input_scale,
+                        w_data.t(),
+                        w_scale.t(),
+                        block_size=128,
+                    )
+                    if bias is not None:
+                        res = res + bias
             else:
                 res = addmm_float8_unwrapped_inference(
                     inpt_data,
