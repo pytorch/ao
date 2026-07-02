@@ -9,6 +9,12 @@ from typing import Tuple
 import torch
 
 from torchao.float8.config import e4m3_dtype
+from torchao.prototype.blockwise_fp8_training.deepgemm_quant import (
+    triton_fp8_blockwise_weight_quant_grouped_rhs_deepgemm as _triton_fp8_blockwise_weight_quant_grouped_rhs_direct,
+)
+from torchao.prototype.blockwise_fp8_training.deepgemm_quant import (
+    triton_fp8_blockwise_weight_quant_grouped_transposed_rhs_deepgemm as _triton_fp8_blockwise_weight_quant_grouped_transposed_rhs_direct,
+)
 from torchao.prototype.blockwise_fp8_training.kernels import (
     BLOCKWISE_1X128_SCALING_TYPE,
     BLOCKWISE_128X128_SCALING_TYPE,
@@ -17,8 +23,6 @@ from torchao.prototype.blockwise_fp8_training.kernels import (
     _is_row_major,
     _prepare_blockwise_scaled_mm_rhs_scale,
     _scaling_type_value,
-    triton_fp8_blockwise_weight_quant_rhs,
-    triton_fp8_blockwise_weight_quant_transposed_rhs,
 )
 from torchao.utils import ceil_div
 
@@ -78,32 +82,14 @@ def triton_fp8_blockwise_weight_quant_grouped_transposed_rhs(
         f"weight_t K and N must be divisible by block_size={block_size}"
     )
 
-    q_out = torch.empty_strided(
-        (E, K, N),
-        (K * N, 1, K),
+    q_out, scale_out = _triton_fp8_blockwise_weight_quant_grouped_transposed_rhs_direct(
+        weight_t,
+        block_size=block_size,
         dtype=dtype,
-        device=weight_t.device,
     )
-    scale_out = torch.empty_strided(
-        (E, K // block_size, N // block_size),
-        ((K // block_size) * (N // block_size), 1, K // block_size),
-        dtype=torch.float32,
-        device=weight_t.device,
-    )
-    # NOTE: intentionally done per expert for first pass functionality
-    # we use a known correct dense quantization kernel
-    # this will be replaced with a native grouped quant kernel without
-    # changing the MoE frontend
-    for expert_idx in range(E):
-        expert_weight = weight_t[expert_idx].transpose(-2, -1).contiguous()
-        q, scale = triton_fp8_blockwise_weight_quant_transposed_rhs(
-            expert_weight,
-            block_size=block_size,
-            dtype=dtype,
-        )
-        q_out[expert_idx].copy_(q)
-        scale_out[expert_idx].copy_(scale)
-    return q_out, scale_out
+    # The direct kernel writes the transpose-compatible row-major layout;
+    # transpose views preserve TorchAO's public column-major grouped RHS contract.
+    return q_out.transpose(-2, -1), scale_out.transpose(-2, -1)
 
 
 @triton_fp8_blockwise_weight_quant_grouped_transposed_rhs.register_fake
@@ -152,32 +138,14 @@ def triton_fp8_blockwise_weight_quant_grouped_rhs(
         f"weight_t K and N must be divisible by block_size={block_size}"
     )
 
-    q_out = torch.empty_strided(
-        (E, N, K),
-        (N * K, 1, N),
+    q_out, scale_out = _triton_fp8_blockwise_weight_quant_grouped_rhs_direct(
+        weight_t,
+        block_size=block_size,
         dtype=dtype,
-        device=weight_t.device,
     )
-    scale_out = torch.empty_strided(
-        (E, N // block_size, K // block_size),
-        ((N // block_size) * (K // block_size), 1, N // block_size),
-        dtype=torch.float32,
-        device=weight_t.device,
-    )
-    # NOTE: intentionally done per expert for first pass functionality
-    # we use a known correct dense quantization kernel
-    # this will be replaced with a native grouped quant kernel without
-    # changing the MoE frontend
-    for expert_idx in range(E):
-        expert_weight = weight_t[expert_idx].transpose(-2, -1).contiguous()
-        q, scale = triton_fp8_blockwise_weight_quant_rhs(
-            expert_weight,
-            block_size=block_size,
-            dtype=dtype,
-        )
-        q_out[expert_idx].copy_(q)
-        scale_out[expert_idx].copy_(scale)
-    return q_out, scale_out
+    # The direct kernel writes the transpose-compatible row-major layout;
+    # transpose views preserve TorchAO's public column-major grouped RHS contract.
+    return q_out.transpose(-2, -1), scale_out.transpose(-2, -1)
 
 
 @triton_fp8_blockwise_weight_quant_grouped_rhs.register_fake
