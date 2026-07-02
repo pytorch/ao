@@ -87,6 +87,40 @@ class TestIntxUnpackedToInt8Tensor(TestCase):
         error = compute_error(original, quantized)
         self.assertTrue(error > 20, f"Got error {error}")
 
+    def test_hqq_general_int8_intx_weight_only_config(self):
+        torch.manual_seed(0)
+        dtype = torch.bfloat16
+        device = "cpu"
+        config = IntxWeightOnlyConfig(
+            weight_dtype=torch.int8,
+            granularity=PerGroup(32),
+            intx_choose_qparams_algorithm="hqq",
+        )
+        input = torch.randn(1, 128, dtype=dtype, device=device)
+        linear = torch.nn.Linear(128, 256, dtype=dtype, device=device)
+        original = linear(input)
+        quantize_(linear, config)
+        quantized = linear(input)
+        sqnr = compute_error(original, quantized)
+        self.assertTrue(sqnr > 40, f"Expected SQNR > 40 for int8 HQQ, got {sqnr}")
+
+    def test_hqq_general_int6_intx_weight_only_config(self):
+        torch.manual_seed(0)
+        dtype = torch.bfloat16
+        device = "cpu"
+        config = IntxWeightOnlyConfig(
+            weight_dtype=torch.int6,
+            granularity=PerGroup(32),
+            intx_choose_qparams_algorithm="hqq",
+        )
+        input = torch.randn(1, 128, dtype=dtype, device=device)
+        linear = torch.nn.Linear(128, 256, dtype=dtype, device=device)
+        original = linear(input)
+        quantize_(linear, config)
+        quantized = linear(input)
+        sqnr = compute_error(original, quantized)
+        self.assertTrue(sqnr > 30, f"Expected SQNR > 30 for int6 HQQ, got {sqnr}")
+
     def test_hqq_int8_dyn_act_intx_weight_config(self):
         dtype = torch.bfloat16
         device = "cpu"
