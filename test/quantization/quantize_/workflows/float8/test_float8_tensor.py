@@ -321,8 +321,6 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
                 return unittest.skip("PerGroup not supported for dynamic mode")
 
         elif granularity == (PerBlock([1, 128]), PerBlock([128, 128])):
-            if torch.xpu.is_available():
-                return unittest.skip("PerBlock granularity not supported on XPU")
             if dtype is not torch.bfloat16:
                 return unittest.skip("unimplemented")
             elif mode != "dynamic":
@@ -358,6 +356,14 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
             or (not torch.cuda.is_available() and not is_sm_at_least_90())
         ):
             return unittest.skip("Requires mslk to run mslk kernel preference test")
+
+        if kernel_preference == KernelPreference.MSLK and isinstance(
+            granularity, PerTensor
+        ):
+            return unittest.skip(
+                "tensorwise-scaled MSLK gemm (torch.ops.mslk.f8f8bf16) is no longer "
+                "supported, use KernelPreference.TORCH instead"
+            )
 
         error_context = (
             self.assertRaisesRegex(AssertionError, error_message)
@@ -856,7 +862,14 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
         other_kernel_preferences = [
             KernelPreference.AUTO,
         ]
-        if _is_mslk_available() and torch.cuda.is_available() and is_sm_at_least_90():
+        # MSLK no longer supports tensorwise-scaled gemm (torch.ops.mslk.f8f8bf16),
+        # so it is only exercised for non-PerTensor granularities here.
+        if (
+            _is_mslk_available()
+            and torch.cuda.is_available()
+            and is_sm_at_least_90()
+            and not isinstance(granularity, PerTensor)
+        ):
             other_kernel_preferences.append(KernelPreference.MSLK)
 
         quantized_outputs = {}

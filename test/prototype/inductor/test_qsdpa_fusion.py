@@ -22,6 +22,7 @@ from torchao.prototype.inductor.fx_passes.qsdpa_fusion import (
     custom_pass,
 )
 from torchao.testing.pt2e.utils import qdq_fp8
+from torchao.utils import torch_version_at_least
 
 
 def fp8_convert_(model):
@@ -129,17 +130,17 @@ class FP8QDQLinear(torch.nn.Module):
 class FP8QDQSDPA(torch.nn.Module):
     def __init__(self):
         super().__init__()
-        self.q_out_scale = 1.5
-        self.k_out_scale = 1.5
-        self.attn_weights_scale = 1.5
-        self.v_out_scale = 1.5
-        self.attn_out_scale = 1.5
-        self.qk_out_scale = 1.5
+        self.q_out_scale = 2.8
+        self.k_out_scale = 3.8
+        self.attn_weights_scale = 4.0
+        self.v_out_scale = 8.5
+        self.attn_out_scale = 1 / 512
+        self.qk_out_scale = 1.75
 
     def forward(self, q, k, v, mask):
-        key = self.transpose_for_scores(q)
-        value = self.transpose_for_scores(k)
-        query = self.transpose_for_scores(v)
+        key = self.transpose_for_scores(k)
+        value = self.transpose_for_scores(v)
+        query = self.transpose_for_scores(q)
 
         # Take the dot product between "query" and "key" to get the raw attention scores.
         query_qdq = qdq_fp8(query, self.q_out_scale)
@@ -324,14 +325,18 @@ class TestSDPAPatternRewriterTemplate(TestCase):
 
     @skipIfRocm
     @unittest.skipIf(
+        not torch_version_at_least("2.7.0"),
+        reason="qsdpa requires torch 2.7 or later",
+    )
+    @unittest.skipIf(
         "CPU" not in torch._C._dispatch_dump("torchao::qscaled_dot_product"),
         reason="cpp kernels not built",
     )
     @config.patch({"freezing": True})
     def _test_int8_sdpa_rewriter(self):
         import torchao.quantization.pt2e.quantizer.x86_inductor_quantizer as xiq
-        from torchao.prototype.inductor.fx_passes.int8_concat_linear_fusion_cpu import (
-            register_int8_concat_linear_cpu_pass,
+        from torchao.prototype.inductor.fx_passes.quantized_concat_linear_fusion_cpu import (
+            register_quantized_concat_linear_cpu_pass,
         )
         from torchao.quantization.pt2e.quantize_pt2e import convert_pt2e, prepare_pt2e
         from torchao.quantization.pt2e.quantizer.x86_inductor_quantizer import (
@@ -346,7 +351,7 @@ class TestSDPAPatternRewriterTemplate(TestCase):
             [True, False],
             [56, 1],
         ):
-            seqlen, numhead, headsize = 100, 12, 64
+            seqlen, numhead, headsize = 100, 4, 64
             mod = MHAModule(
                 input_dim=headsize * numhead,
                 has_mask=has_mask,
@@ -354,7 +359,7 @@ class TestSDPAPatternRewriterTemplate(TestCase):
                 attention_head_size=headsize,
             ).eval()
             inputs = (
-                torch.randn(
+                torch.rand(
                     (bs, seqlen, headsize * numhead), device=self.device, dtype=dtype
                 ),
                 torch.randn((bs, 1, 1, seqlen), device=self.device)
@@ -374,7 +379,7 @@ class TestSDPAPatternRewriterTemplate(TestCase):
             ):
                 _qsdpa_init()
                 if enable_concat_linear_fusion:
-                    register_int8_concat_linear_cpu_pass()
+                    register_quantized_concat_linear_cpu_pass()
                 quantizer = X86InductorQuantizer()
                 quantizer.set_global(xiq.get_default_x86_inductor_quantization_config())
                 quantizer.set_function_type_qconfig(
@@ -387,14 +392,18 @@ class TestSDPAPatternRewriterTemplate(TestCase):
                 torchao.quantization.pt2e.move_exported_model_to_eval(convert_model)
 
                 self._check_common(
-                    convert_model, args1=inputs, check_train=False, atol=1.0
+                    convert_model, args1=inputs, check_train=False, atol=1
                 )
                 if enable_concat_linear_fusion:
                     self.assertGreaterEqual(
-                        counters["inductor"]["int8_concat_linear_fusion"], 1
+                        counters["inductor"]["quantized_concat_linear_fusion"], 1
                     )
 
     @skipIfRocm
+    @unittest.skipIf(
+        not torch_version_at_least("2.7.0"),
+        reason="qsdpa requires torch 2.7 or later",
+    )
     @unittest.skipIf(
         "CPU" not in torch._C._dispatch_dump("torchao::qscaled_dot_product"),
         reason="cpp kernels not built",
@@ -402,11 +411,16 @@ class TestSDPAPatternRewriterTemplate(TestCase):
     @config.patch({"freezing": True})
     def _test_fp8_sdpa_rewriter(self):
         import torchao.quantization.pt2e.quantizer.x86_inductor_quantizer as xiq  # noqa: F401
+        from torchao.prototype.inductor.fx_passes.quantized_concat_linear_fusion_cpu import (
+            register_quantized_concat_linear_cpu_pass,
+        )
 
         # pattern is different for bs=1
         torch.manual_seed(1234)
-        for dtype, bs in itertools.product([torch.float32, torch.bfloat16], [56, 1]):
-            seqlen, numhead, headsize = 197, 16, 64
+        for enable_concat_linear_fusion, dtype, bs in itertools.product(
+            [False, True], [torch.float32, torch.bfloat16], [56, 1]
+        ):
+            seqlen, numhead, headsize = 100, 4, 64
             mod = MHAModule(
                 input_dim=headsize * numhead,
                 has_mask=False,
@@ -414,8 +428,10 @@ class TestSDPAPatternRewriterTemplate(TestCase):
                 attention_head_size=headsize,
             ).eval()
             inputs = (
-                torch.randn(
-                    (bs, seqlen, headsize * numhead), device=self.device, dtype=dtype
+                torch.rand(
+                    (bs, seqlen, headsize * numhead),
+                    device=self.device,
+                    dtype=dtype,
                 ),
                 None,
             )
@@ -425,14 +441,23 @@ class TestSDPAPatternRewriterTemplate(TestCase):
                 torch.amp.autocast(
                     self.device, enabled=enable_autocast, dtype=torch.bfloat16
                 ),
-                config.patch(post_grad_custom_pre_pass=custom_pass),
+                config.patch(
+                    post_grad_custom_pre_pass=custom_pass,
+                    post_grad_custom_post_pass=None,
+                ),
             ):
                 _qsdpa_init()
+                if enable_concat_linear_fusion:
+                    register_quantized_concat_linear_cpu_pass()
                 convert_model = fp8_convert_(mod)
 
                 self._check_common(
-                    convert_model, args1=inputs, check_train=False, atol=1.0
+                    convert_model, args1=inputs, check_train=False, atol=0.5
                 )
+                if enable_concat_linear_fusion:
+                    self.assertGreaterEqual(
+                        counters["inductor"]["quantized_concat_linear_fusion"], 1
+                    )
 
 
 if HAS_CPU:

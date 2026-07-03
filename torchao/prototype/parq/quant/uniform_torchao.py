@@ -86,7 +86,7 @@ class UnifTorchaoQuantizer(Quantizer):
     ) -> tuple[Tensor, Tensor]:
         self._init_quant_min_max(b)
         if self.eps is None:
-            self.eps = torch.finfo(p.dtype).eps
+            self.eps = torch.finfo(p.dtype).smallest_normal
 
         # assume that p has already been grouped in QuantOptimizer.step
         block_size = (1, p.size(-1)) if dim is not None else p.size()

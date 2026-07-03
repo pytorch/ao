@@ -5,7 +5,6 @@
 # LICENSE file in the root directory of this source tree.
 
 
-import warnings
 from dataclasses import dataclass
 from typing import List, Optional
 
@@ -369,17 +368,10 @@ def _float8_addmm_impl(
                 _is_mslk_available()
                 and is_sm_at_least_90()
                 and (not _is_128_128_scaled(weight_tensor))
-                and not (is_sm_at_least_100() and _is_tensorwise_scaled(weight_tensor))
+                and not _is_tensorwise_scaled(weight_tensor)
             ):
                 kernel_choice = "mslk"
         elif weight_tensor.kernel_preference == KernelPreference.MSLK:
-            # If user explicitly requests MSLK on a B200-like GPU with per-tensor
-            # scales, warn but honor the user's explicit preference.
-            if is_sm_at_least_100() and _is_tensorwise_scaled(weight_tensor):
-                warnings.warn(
-                    "Requested MSLK kernel with per-tensor scaled weights on a B200/GB200-like GPU "
-                    "may fail or be very slow. Consider setting KernelPreference to TORCH or AUTO."
-                )
             kernel_choice = "mslk"
         else:
             assert weight_tensor.kernel_preference == KernelPreference.TORCH, (
@@ -395,7 +387,6 @@ def _float8_addmm_impl(
             assert not _is_128_128_scaled(weight_tensor), "unimplemented"
 
             xq = input_tensor.qdata.reshape(-1, input_tensor.qdata.shape[-1])
-            x_scale = input_tensor.scale
             if _is_rowwise_scaled(weight_tensor.t()):
                 assert _is_rowwise_scaled(input_tensor), (
                     "Input tensor must be rowwise block size"
@@ -411,14 +402,10 @@ def _float8_addmm_impl(
             else:
                 assert _is_tensorwise_scaled(weight_tensor)
                 assert _is_tensorwise_scaled(input_tensor)
-                res = torch.ops.mslk.f8f8bf16(
-                    xq,
-                    weight_tensor.qdata.t(),
-                    x_scale * weight_tensor.scale.t(),
-                    use_fast_accum=mm_config.use_fast_accum,
-                ).reshape(out_shape)
-                if bias is not None:
-                    res = res + bias
+                raise NotImplementedError(
+                    "torch.ops.mslk.f8f8bf16 (tensorwise-scaled MSLK gemm) is no "
+                    "longer supported. Please use KernelPreference.TORCH instead."
+                )
             return res
         else:
             assert kernel_choice == "torch"

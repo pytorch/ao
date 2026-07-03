@@ -3667,11 +3667,20 @@ if RUN_CPU:
             "test_qconv2d_maxpool2d_linear_dynamic",
             "cpu",
             TestDynamicPatternMatcher(),
-            condition=torch.backends.mkldnn.is_available() and not IS_WINDOWS,
+            # Only run on torch >= 2.13.0.dev; the cpp_wrapper codegen changed there
+            # (pytorch #184099, see below).
+            condition=torch.backends.mkldnn.is_available()
+            and not IS_WINDOWS
+            and torch_version_at_least("2.13.0.dev"),
             func_inputs=[
                 [
                     "aoti_torch_cpu__qconv_pointwise_tensor",
-                    "torch.ops.quantized.max_pool2d",
+                    # quantized::max_pool2d has no AOTI C-shim and takes list
+                    # args, so cpp_wrapper emits a boxed dispatcher fallback
+                    # (c10::Dispatcher...findSchemaOrThrow("quantized::max_pool2d"))
+                    # rather than the Python-style torch.ops.quantized.max_pool2d.
+                    # See pytorch #184099.
+                    "quantized::max_pool2d",
                     "aoti_torch_cpu__qlinear_pointwise_tensor",
                 ]
             ],
