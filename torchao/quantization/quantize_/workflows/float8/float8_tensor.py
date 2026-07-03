@@ -435,7 +435,12 @@ def _float8_addmm_impl(
                 if inpt_data.device.type == "xpu":
                     res = addmm_float8_unwrapped_inference(
                         inpt_data,
-                        input_tensor.scale.squeeze(-1),
+                        # scale_a must be [M, K/128] to match inpt_data ([M, K]).
+                        # reshape(-1, -1's last) collapses all leading dims for nD
+                        # activations (e.g. 3D (1, seq, K) from batched inputs);
+                        # squeeze(-1) only handles 2D and silently passes 3D scales
+                        # through, which _scaled_mm rejects as "scale must be 2D".
+                        input_tensor.scale.reshape(-1, input_tensor.scale.shape[-1]),
                         weight_tensor.qdata,
                         weight_tensor.scale,
                         output_dtype=input_tensor.dtype,
