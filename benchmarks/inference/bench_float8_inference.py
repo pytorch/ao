@@ -23,7 +23,7 @@ def benchmark_fn_in_usec(f, *args, **kwargs):
 
 def run(torch_compile_mode: str = "default"):
     M, K, N = 1024, 2048, 4096
-    device = torch.accelerator.current_accelerator()
+    device = torch.accelerator.current_accelerator().type
     x = torch.randn(M, K, device=device, dtype=torch.bfloat16)
     m = nn.Sequential(nn.Linear(K, N, device=device, dtype=torch.bfloat16))
     quantize_(m, Float8DynamicActivationFloat8WeightConfig(granularity=PerRow()))

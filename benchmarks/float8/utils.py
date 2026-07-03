@@ -354,7 +354,7 @@ def update_triton_kernels_in_prof_chome_trace_with_torch_logs(
         if match_name:
             cur_name = match_name.group(1)
 
-        match_end = re.match(f"''', device_str='{device}'\)", line)
+        match_end = re.match(rf"''', device_str='{device}'\)", line)
         if match_end:
             cur_end = line_num
 

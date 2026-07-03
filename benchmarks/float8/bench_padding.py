@@ -28,12 +28,25 @@ h100_peak_flops_float32 = 67e12
 h100_peak_flops_fp16_tc = 1979e12
 h100_peak_tops_float8_tc = 3958e12
 
+# Intel Arc B580 specs: bottom of https://www.intel.com/content/www/us/en/products/sku/241598/intel-arc-b580-graphics/specifications.html
+b580_peak_flops_float32 = 58e12
+b580_peak_flops_bf16 = 116e12
+
 dtype_to_peak_tops = {
-    torch.float32: h100_peak_flops_float32,
-    torch.float16: h100_peak_flops_fp16_tc,
-    torch.bfloat16: h100_peak_flops_fp16_tc,
-    torch.float8_e4m3fn: h100_peak_tops_float8_tc,
-    torch.float8_e5m2: h100_peak_tops_float8_tc,
+    "NVIDIA H100": {
+        torch.float32: h100_peak_flops_float32,
+        torch.float16: h100_peak_flops_fp16_tc,
+        torch.bfloat16: h100_peak_flops_fp16_tc,
+        torch.float8_e4m3fn: h100_peak_tops_float8_tc,
+        torch.float8_e5m2: h100_peak_tops_float8_tc,
+    },
+    "Intel(R) Arc(TM) B580 Graphics": {
+        torch.float32: b580_peak_flops_float32,
+        torch.float16: b580_peak_flops_bf16,
+        torch.bfloat16: b580_peak_flops_bf16,
+        torch.float8_e4m3fn: b580_peak_flops_bf16,
+        torch.float8_e5m2: b580_peak_flops_bf16,
+    },
 }
 
 
@@ -142,7 +155,15 @@ def gen_configs():
 
 @torch.no_grad()
 def run(compile: bool = False, n_limit: Optional[int] = None):
-    device = torch.accelerator.current_accelerator()
+    device = torch.accelerator.current_accelerator().type
+    if device == "xpu":
+        gpu_name = torch.xpu.get_device_name(0)
+    else:
+        gpu_name = torch.cuda.get_device_name(0)
+
+    peak = dtype_to_peak_tops.get(gpu_name)
+    assert peak is not None, f"Missing peak TOPS for {gpu_name}; cannot compute %-peak."
+
     experiments = gen_configs()
     results = []
     tops_table = []
@@ -177,13 +198,13 @@ def run(compile: bool = False, n_limit: Optional[int] = None):
         )
 
         ref_tops_sec, ref_pct_top_peak = get_tops_info(
-            tops, ref_time, dtype_to_peak_tops[output_dtype]
+            tops, ref_time, dtype_to_peak_tops[gpu_name][output_dtype]
         )
         aligned_bf16_tops_sec, aligned_bf16_pct_top_peak = get_tops_info(
-            tops, aligned_bf16_time, dtype_to_peak_tops[torch.bfloat16]
+            tops, aligned_bf16_time, dtype_to_peak_tops[gpu_name][torch.bfloat16]
         )
         fp8_tops_sec, fp8_pct_top_peak = get_tops_info(
-            tops, fp8_time, dtype_to_peak_tops[fp8_dtype]
+            tops, fp8_time, dtype_to_peak_tops[gpu_name][fp8_dtype]
         )
         tops_table.append(
             [

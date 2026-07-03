@@ -101,7 +101,12 @@ class Experiment:
 
     @property
     def ref_pct_top_peak(self):
-        return self.ref_tops_sec / dtype_to_peak_tops[self.gpu_name][self.dtype]
+        peak = dtype_to_peak_tops.get(self.gpu_name)
+        if peak is None:
+            # Missing peak TOPS for self.gpu_name; %-peak will be NaN
+            return float("nan")
+        else:
+            return self.ref_tops_sec / dtype_to_peak_tops[self.gpu_name][self.dtype]
 
     @property
     def float8_tops_sec(self):
@@ -110,10 +115,15 @@ class Experiment:
 
     @property
     def float8_pct_top_peak(self):
-        return (
-            self.float8_tops_sec
-            / dtype_to_peak_tops[self.gpu_name][torch.float8_e4m3fn]
-        )
+        peak = dtype_to_peak_tops.get(self.gpu_name)
+        if peak is None:
+            # Missing peak TOPS for self.gpu_name; %-peak will be NaN
+            return float("nan")
+        else:
+            return (
+                self.float8_tops_sec
+                / dtype_to_peak_tops[self.gpu_name][torch.float8_e4m3fn]
+            )
 
 
 # TODO(future PR): add option to measure GPU kernel time, as in other
