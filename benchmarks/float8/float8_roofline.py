@@ -72,13 +72,6 @@ from torchao.testing.training.roofline_utils import (
 )
 from torchao.utils import is_MI300, round_up
 
-_DEVICE = torch.accelerator.current_accelerator().type
-
-if _DEVICE == "xpu":
-    import torch.xpu as torch_accelerator
-else:
-    import torch.cuda as torch_accelerator
-
 
 class LNLinearSigmoid(torch.nn.Module):
     def __init__(self, fc_dim1, fc_dim2):
@@ -100,8 +93,10 @@ def get_gpu_kernel_time(m, x, grad_output):
         y = m(x)
         y.backward(grad_output)
 
+    device = torch.accelerator.current_accelerator().type
+
     # capture a profiling run
-    if _DEVICE == "xpu":
+    if device == "xpu":
         activities = [ProfilerActivity.CPU, ProfilerActivity.XPU]
     else:
         activities = [ProfilerActivity.CPU, ProfilerActivity.CUDA]
@@ -111,7 +106,7 @@ def get_gpu_kernel_time(m, x, grad_output):
         for _ in range(n_iter):
             y = m(x)
             y.backward(grad_output)
-            torch_accelerator.synchronize()
+            torch.accelerator.synchronize()
     # get the gpu kernel time and aggregate it
     num_leaf_tensors = 1 + len(list(m.parameters()))
     ref_times = profiler_output_to_filtered_time_by_kernel_name(
@@ -156,7 +151,7 @@ def get_gemm_times(
     if key in cache:
         return cache[key]
 
-    device = torch.device(_DEVICE)
+    device = torch.accelerator.current_accelerator()
 
     # bf16 time
     x_bf16 = torch.randn(M, K, dtype=torch.bfloat16, device=device)
@@ -250,7 +245,7 @@ def run(
     * `mx_recipe_name (optional)`: MX format recipe
     * `enable_fusion_modeling`: if False uses Linear, if True uses LNLinearSigmoid and models the fusion of float8 overhead
     """
-    device = _DEVICE
+    device = torch.accelerator.current_accelerator().type
 
     assert not ((float8_recipe_name is not None) and (mx_recipe_name is not None)), (
         "unsupported"
@@ -258,7 +253,12 @@ def run(
     if float8_recipe_name is None and mx_recipe_name is None:
         float8_recipe_name = "tensorwise"
 
-    print(f"GPU: {torch_accelerator.get_device_name(0)}")
+    if device == "xpu":
+        gpu_name = torch.xpu.get_device_name(0)
+    else:
+        gpu_name = torch.cuda.get_device_name(0)
+
+    print(f"GPU: {gpu_name}")
     print(f"torch version: {torch.__version__}")
     print(f"torchao version: {torchao.__version__}")
     print(f"do_benchmarks: {do_benchmarks}")

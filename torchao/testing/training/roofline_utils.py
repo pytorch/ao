@@ -98,6 +98,7 @@ gpu_name_to_specs = {
     "Intel(R) Arc(TM) B580 Graphics": {
         # https://www.intel.com/content/www/us/en/products/sku/241598/intel-arc-b580-graphics/specifications.html
         "bf16_peak_tops": 116.5e12,
+        # Same as bf16, since Intel Arc B580 does not support float8
         "fp8_peak_tops": 116.5e12,
         "peak_mem_bw_bytes_sec": 456e9,
         # From measurement on hardware
