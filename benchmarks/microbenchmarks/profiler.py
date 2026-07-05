@@ -79,7 +79,7 @@ def generate_model_profile(model, input_data, profile_file_path):
 
 
 def generate_memory_profile(model, input_data, profile_file_path):
-    """Function to generate CUDA memory profile.
+    """Function to generate CUDA/XPU memory profile.
 
     Args:
         model: The model to profile
@@ -92,11 +92,11 @@ def generate_memory_profile(model, input_data, profile_file_path):
     if torch.cuda.is_available():
         import torch.cuda as torch_accelerator
 
-        record_memory_enabled = None
+        record_memory_enabled = False
     elif torch.xpu.is_available():
         import torch.xpu as torch_accelerator
 
-        record_memory_enabled = False
+        record_memory_enabled = None
     else:
         print(
             "Warning: CUDA or XPU is not available. Memory profiling requires CUDA or XPU."
