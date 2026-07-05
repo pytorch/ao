@@ -60,13 +60,6 @@ from torchao.testing.training.roofline_utils import (
 )
 from torchao.utils import _is_mslk_available, is_MI300, is_sm_at_least_100
 
-_DEVICE = torch.accelerator.current_accelerator().type
-
-if _DEVICE == "xpu":
-    import torch.xpu as torch_accelerator
-else:
-    import torch.cuda as torch_accelerator
-
 # Import mslk.conv to register the fp8 conv operator
 if _is_mslk_available():
     import mslk.conv  # noqa: F401
@@ -78,8 +71,10 @@ def get_gpu_kernel_time(m, x, trace_filename=None):
     for _ in range(2):
         __ = m(x)
 
+    device = torch.accelerator.current_accelerator().type
+
     # capture a profiling run
-    if _DEVICE == "xpu":
+    if device == "xpu":
         activities = [ProfilerActivity.CPU, ProfilerActivity.XPU]
     else:
         activities = [ProfilerActivity.CPU, ProfilerActivity.CUDA]
@@ -88,7 +83,7 @@ def get_gpu_kernel_time(m, x, trace_filename=None):
     with profile(activities=activities) as prof:
         for _ in range(n_iter):
             __ = m(x)
-            torch_accelerator.synchronize()
+            torch.accelerator.synchronize()
 
     # save a trace, if requested
     if trace_filename is not None:
@@ -111,7 +106,7 @@ def get_gemm_times(
     fast_accum: bool,
     recipe_name: Optional[str],
 ):
-    device = torch.device(_DEVICE)
+    device = torch.accelerator.current_accelerator()
 
     # bf16 time
     x_bf16 = torch.randn(M, K, dtype=torch.bfloat16, device=device)
@@ -222,7 +217,7 @@ def get_conv_times(
 
     This measures only the conv kernel time itself, without quantization overhead.
     """
-    device = torch.device(_DEVICE)
+    device = torch.accelerator.current_accelerator()
 
     # Create input tensors
     if op_name == "conv2d":
@@ -420,7 +415,7 @@ def _create_model_and_input(
     """
     Build the model and its corresponding input tensor for benchmarking.
     """
-    device = _DEVICE
+    device = torch.accelerator.current_accelerator()
 
     def _stack_layers_conv(
         core_layer: nn.Module, add_post_relu: bool = False
@@ -545,7 +540,7 @@ def run(
             "Expected kernel_size to be specified for conv3d"
         )
 
-    device = _DEVICE
+    device = torch.accelerator.current_accelerator().type
 
     if device == "xpu":
         assert recipe_name in (
@@ -559,8 +554,13 @@ def run(
                 "To skip fp8 conv benchmarking, set --do_benchmarks=False to run roofline model only."
             )
 
+    if device == "xpu":
+        gpu_name = torch.xpu.get_device_name(0)
+    else:
+        gpu_name = torch.cuda.get_device_name(0)
+
     config_table = [
-        ["GPU", torch_accelerator.get_device_name(0)],
+        ["GPU", gpu_name],
         ["torch version", torch.__version__],
         ["torchao version", torchao.__version__],
         ["recipe_name", recipe_name],
