@@ -22,13 +22,6 @@ from benchmarks.microbenchmarks.utils import (
 )
 from torchao.testing.model_architectures import ToySingleLinearModel
 
-_DEVICE = torch.accelerator.current_accelerator().type
-
-if _DEVICE == "xpu":
-    import torch.xpu as torch_accelerator
-else:
-    import torch.cuda as torch_accelerator
-
 
 class TestBenchmarkProfiler(unittest.TestCase):
     def setUp(self):
@@ -36,16 +29,21 @@ class TestBenchmarkProfiler(unittest.TestCase):
         self.results_dir = os.path.join(self.test_dir, "results")
         os.makedirs(self.results_dir, exist_ok=True)
 
+        self.device = (
+            torch.accelerator.current_accelerator().type
+            if torch.accelerator.is_available()
+            else "cpu"
+        )
+
         # Set up a simple model and input for testing
         self.m, self.k, self.n = 1024, 1024, 1024
         self.dtype = torch.bfloat16
         self.model = ToySingleLinearModel(
-            input_dim=self.m, output_dim=self.n, dtype=self.dtype, device=_DEVICE
+            input_dim=self.m, output_dim=self.n, dtype=self.dtype, device=self.device
         )
         self.input_data = torch.randn(1, self.k, dtype=self.dtype)
 
         # Move to appropriate device
-        self.device = _DEVICE if torch_accelerator.is_available() else "cpu"
         self.model = self.model.to(self.device)
         self.input_data = self.input_data.to(self.device)
 
@@ -129,7 +127,7 @@ class TestBenchmarkProfiler(unittest.TestCase):
         self.assertIn("ts", event)  # Timestamp
         self.assertIn("pid", event)  # Process ID
 
-    @unittest.skipIf(not torch_accelerator.is_available(), "Accelerator not available")
+    @unittest.skipIf(not torch.accelerator.is_available(), "Accelerator not available")
     def test_accelerator_profiling(self):
         """Test accelerator profiling when available"""
         config = BenchmarkConfig(
@@ -166,7 +164,7 @@ class TestBenchmarkProfiler(unittest.TestCase):
         ]
         self.assertGreater(len(accelerator_events), 0)
 
-    @unittest.skipIf(not torch_accelerator.is_available(), "Accelerator not available")
+    @unittest.skipIf(not torch.accelerator.is_available(), "Accelerator not available")
     def test_memory_profiler_enabled(self):
         """Test that memory profiler works when enabled and Accelerator is available"""
         config = BenchmarkConfig(
@@ -256,6 +254,11 @@ class TestBenchmarkProfiler(unittest.TestCase):
     def test_memory_profiler_accelerator_unavailable(self):
         """Test memory profiler behavior when accelerator is not available"""
         # Save original torch_accelerator.is_available function
+        if torch.xpu.is_available():
+            import torch.xpu as torch_accelerator
+        else:
+            import torch.cuda as torch_accelerator
+
         original_is_available = torch_accelerator.is_available
 
         try:
