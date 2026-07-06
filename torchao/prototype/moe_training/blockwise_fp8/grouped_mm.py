@@ -29,7 +29,7 @@ from torchao.quantization.quantize_.common import KernelPreference
 
 
 @conditional_nostrict_trace
-def _to_fp8_blockwise_then_scaled_grouped_mm(
+def fp8_blockwise_grouped_mm(
     A: torch.Tensor,
     B_t: torch.Tensor,
     offs: Optional[torch.Tensor] = None,
@@ -60,6 +60,9 @@ def _to_fp8_blockwise_then_scaled_grouped_mm(
         pad_token_groups_for_grouped_mm,
         kernel_preference,
     )
+
+
+_to_fp8_blockwise_then_scaled_grouped_mm = fp8_blockwise_grouped_mm
 
 
 @conditional_nostrict_trace
