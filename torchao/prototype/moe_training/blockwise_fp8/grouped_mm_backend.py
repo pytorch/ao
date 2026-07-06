@@ -20,14 +20,12 @@ from torchao.prototype.blockwise_fp8_training.deepgemm_metadata import (
     DeepGemmGroupedOffsetPlan,
     build_deepgemm_grouped_offset_plan,
 )
-from torchao.prototype.blockwise_fp8_training.deepgemm_quant import (
-    triton_fp8_blockwise_weight_quant_grouped_rhs_deepgemm,
-    triton_fp8_blockwise_weight_quant_grouped_transposed_rhs_deepgemm,
-)
 from torchao.prototype.blockwise_fp8_training.grouped_kernels import (
     emulated_blockwise_scaled_grouped_mm,
-    triton_fp8_blockwise_weight_quant_grouped_rhs,
-    triton_fp8_blockwise_weight_quant_grouped_transposed_rhs,
+)
+from torchao.prototype.blockwise_fp8_training.grouped_weight_quant import (
+    triton_fp8_blockwise_weight_quant_grouped_dgrad_rhs,
+    triton_fp8_blockwise_weight_quant_grouped_forward_rhs,
 )
 from torchao.prototype.blockwise_fp8_training.kernels import (
     BLOCKWISE_1X128_SCALING_TYPE,
@@ -105,11 +103,12 @@ class _EmulatedGroupedMMBackend(_GroupedMMBackend):
     ) -> tuple[torch.Tensor, torch.Tensor]:
         # The emulated backend consumes TorchAO's grouped RHS layout:
         # (E, K, N) data with (E, K_blocks, N_blocks) scales.
-        return triton_fp8_blockwise_weight_quant_grouped_transposed_rhs(
+        q, scale = triton_fp8_blockwise_weight_quant_grouped_forward_rhs(
             B_t,
             block_size=block_size,
             dtype=dtype,
         )
+        return q.transpose(-2, -1), scale.transpose(-2, -1)
 
     def quantize_dgrad_rhs(
         self,
@@ -120,11 +119,12 @@ class _EmulatedGroupedMMBackend(_GroupedMMBackend):
         # The emulated backend consumes TorchAO's grouped RHS layout for
         # grad_output @ weight: (E, N, K) data with
         # (E, N_blocks, K_blocks) scales.
-        return triton_fp8_blockwise_weight_quant_grouped_rhs(
+        q, scale = triton_fp8_blockwise_weight_quant_grouped_dgrad_rhs(
             B_t,
             block_size=block_size,
             dtype=dtype,
         )
+        return q.transpose(-2, -1), scale.transpose(-2, -1)
 
     def grouped_mm(
         self,
@@ -200,7 +200,7 @@ class _DeepGemmGroupedMMBackend(_GroupedMMBackend):
         # DeepGEMM forward consumes RHS as (E, N, K), with K contiguous and
         # scales as (E, N_blocks, K_blocks). This quantizer writes that
         # layout directly, avoiding a dispatch-time transpose/copy.
-        return triton_fp8_blockwise_weight_quant_grouped_transposed_rhs_deepgemm(
+        return triton_fp8_blockwise_weight_quant_grouped_forward_rhs(
             B_t,
             block_size=block_size,
             dtype=dtype,
@@ -215,7 +215,7 @@ class _DeepGemmGroupedMMBackend(_GroupedMMBackend):
         # DeepGEMM dgrad consumes RHS as (E, K, N), with N contiguous and
         # scales as (E, K_blocks, N_blocks). This quantizer writes that
         # layout directly, avoiding a dispatch-time transpose/copy.
-        return triton_fp8_blockwise_weight_quant_grouped_rhs_deepgemm(
+        return triton_fp8_blockwise_weight_quant_grouped_dgrad_rhs(
             B_t,
             block_size=block_size,
             dtype=dtype,

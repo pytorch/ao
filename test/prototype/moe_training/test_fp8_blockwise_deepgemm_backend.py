@@ -206,51 +206,62 @@ def test_deepgemm_grouped_layout_from_padded_offsets():
     not torch.cuda.is_available() or not is_sm_at_least_90(),
     reason="DeepGEMM FP8 kernels require CUDA SM90+",
 )
-def test_deepgemm_weight_quant_layouts_match_torchao_transposes():
-    from torchao.prototype.blockwise_fp8_training.deepgemm_quant import (
-        triton_fp8_blockwise_weight_quant_grouped_rhs_deepgemm,
-        triton_fp8_blockwise_weight_quant_grouped_transposed_rhs_deepgemm,
+def test_grouped_weight_quant_layouts_match_dense_per_expert_quantizers():
+    from torchao.prototype.blockwise_fp8_training.grouped_weight_quant import (
+        triton_fp8_blockwise_weight_quant_grouped_dgrad_rhs,
+        triton_fp8_blockwise_weight_quant_grouped_forward_rhs,
     )
-    from torchao.prototype.blockwise_fp8_training.grouped_kernels import (
-        triton_fp8_blockwise_weight_quant_grouped_rhs,
-        triton_fp8_blockwise_weight_quant_grouped_transposed_rhs,
+    from torchao.prototype.blockwise_fp8_training.kernels import (
+        triton_fp8_blockwise_weight_quant_rhs,
+        triton_fp8_blockwise_weight_quant_transposed_rhs,
     )
+
+    def stack_per_expert_quant(quant_fn, weight):
+        q_parts = []
+        scale_parts = []
+        for expert_weight in weight:
+            q, scale = quant_fn(expert_weight)
+            q_parts.append(q.transpose(-2, -1).contiguous())
+            scale_parts.append(scale.transpose(-2, -1).contiguous())
+        return torch.stack(q_parts), torch.stack(scale_parts)
 
     torch.manual_seed(123)
     E, N, K = 3, 256, 384
     B_t = _make_column_major_weight_t(E, N, K)
+    weight = B_t.transpose(-2, -1).contiguous()
 
-    torchao_fwd_q, torchao_fwd_s = (
-        triton_fp8_blockwise_weight_quant_grouped_transposed_rhs(B_t)
+    grouped_fwd_q, grouped_fwd_s = (
+        triton_fp8_blockwise_weight_quant_grouped_forward_rhs(B_t)
     )
-    deepgemm_fwd_q, deepgemm_fwd_s = (
-        triton_fp8_blockwise_weight_quant_grouped_transposed_rhs_deepgemm(B_t)
+    ref_fwd_q, ref_fwd_s = stack_per_expert_quant(
+        triton_fp8_blockwise_weight_quant_transposed_rhs,
+        weight,
     )
-    assert deepgemm_fwd_q.is_contiguous()
-    assert deepgemm_fwd_s.is_contiguous()
-    assert torch.equal(deepgemm_fwd_q, torchao_fwd_q.transpose(-2, -1).contiguous())
+
+    assert grouped_fwd_q.is_contiguous()
+    assert grouped_fwd_s.is_contiguous()
+    assert torch.equal(grouped_fwd_q, ref_fwd_q)
     torch.testing.assert_close(
-        deepgemm_fwd_s,
-        torchao_fwd_s.transpose(-2, -1).contiguous(),
+        grouped_fwd_s,
+        ref_fwd_s,
         rtol=0,
         atol=0,
     )
 
-    torchao_dgrad_q, torchao_dgrad_s = triton_fp8_blockwise_weight_quant_grouped_rhs(
-        B_t
+    grouped_dgrad_q, grouped_dgrad_s = (
+        triton_fp8_blockwise_weight_quant_grouped_dgrad_rhs(B_t)
     )
-    deepgemm_dgrad_q, deepgemm_dgrad_s = (
-        triton_fp8_blockwise_weight_quant_grouped_rhs_deepgemm(B_t)
+    ref_dgrad_q, ref_dgrad_s = stack_per_expert_quant(
+        triton_fp8_blockwise_weight_quant_rhs,
+        weight,
     )
-    assert deepgemm_dgrad_q.is_contiguous()
-    assert deepgemm_dgrad_s.is_contiguous()
-    assert torch.equal(
-        deepgemm_dgrad_q,
-        torchao_dgrad_q.transpose(-2, -1).contiguous(),
-    )
+
+    assert grouped_dgrad_q.is_contiguous()
+    assert grouped_dgrad_s.is_contiguous()
+    assert torch.equal(grouped_dgrad_q, ref_dgrad_q)
     torch.testing.assert_close(
-        deepgemm_dgrad_s,
-        torchao_dgrad_s.transpose(-2, -1).contiguous(),
+        grouped_dgrad_s,
+        ref_dgrad_s,
         rtol=0,
         atol=0,
     )
@@ -260,11 +271,11 @@ def test_deepgemm_weight_quant_layouts_match_torchao_transposes():
     not torch.cuda.is_available() or not is_sm_at_least_90(),
     reason="DeepGEMM FP8 kernels require CUDA SM90+",
 )
-def test_deepgemm_weight_quant_supports_compile_fullgraph():
+def test_grouped_weight_quant_supports_compile_fullgraph():
     from torch._dynamo.testing import CompileCounterWithBackend
 
-    from torchao.prototype.blockwise_fp8_training.deepgemm_quant import (
-        triton_fp8_blockwise_weight_quant_grouped_transposed_rhs_deepgemm,
+    from torchao.prototype.blockwise_fp8_training.grouped_weight_quant import (
+        triton_fp8_blockwise_weight_quant_grouped_forward_rhs,
     )
 
     torch._dynamo.reset()
@@ -273,9 +284,7 @@ def test_deepgemm_weight_quant_supports_compile_fullgraph():
     compiled_frame_counter = CompileCounterWithBackend("inductor")
 
     def fn(weight_t):
-        return triton_fp8_blockwise_weight_quant_grouped_transposed_rhs_deepgemm(
-            weight_t
-        )
+        return triton_fp8_blockwise_weight_quant_grouped_forward_rhs(weight_t)
 
     compiled_fn = torch.compile(
         fn,

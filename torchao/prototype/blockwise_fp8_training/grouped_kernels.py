@@ -4,21 +4,11 @@
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
 
-from typing import Tuple
-
 import torch
 
-from torchao.float8.config import e4m3_dtype
-from torchao.prototype.blockwise_fp8_training.deepgemm_quant import (
-    triton_fp8_blockwise_weight_quant_grouped_rhs_deepgemm as _triton_fp8_blockwise_weight_quant_grouped_rhs_direct,
-)
-from torchao.prototype.blockwise_fp8_training.deepgemm_quant import (
-    triton_fp8_blockwise_weight_quant_grouped_transposed_rhs_deepgemm as _triton_fp8_blockwise_weight_quant_grouped_transposed_rhs_direct,
-)
 from torchao.prototype.blockwise_fp8_training.kernels import (
     BLOCKWISE_1X128_SCALING_TYPE,
     BLOCKWISE_128X128_SCALING_TYPE,
-    FP8_E4M3_DTYPES,
     _is_column_major,
     _is_row_major,
     _prepare_blockwise_scaled_mm_rhs_scale,
@@ -56,118 +46,6 @@ def _prepare_grouped_rhs_scale(
     ):
         return scale
     return _prepare_grouped_128x128_scale(scale)
-
-
-@torch.library.custom_op(
-    "torchao::triton_fp8_blockwise_weight_quant_grouped_transposed_rhs",
-    mutates_args=(),
-)
-def triton_fp8_blockwise_weight_quant_grouped_transposed_rhs(
-    weight_t: torch.Tensor,
-    block_size: int = 128,
-    dtype: torch.dtype = e4m3_dtype,
-) -> Tuple[torch.Tensor, torch.Tensor]:
-    """
-    Quantize expert weights for output = A @ weight_t.
-
-    Input is (E, K, N), normally the transposed expert weight tensor used by
-    grouped GEMM. Output data is (E, K, N) in per-expert column-major layout,
-    with 128x128 reciprocal scales of shape (E, K // 128, N // 128).
-    """
-    assert weight_t.ndim == 3, "weight_t must be 3D"
-    assert _is_column_major(weight_t), "weight_t must be per-expert column-major"
-    assert dtype in FP8_E4M3_DTYPES, f"dtype must be one of {FP8_E4M3_DTYPES}"
-    E, K, N = weight_t.shape
-    assert K % block_size == 0 and N % block_size == 0, (
-        f"weight_t K and N must be divisible by block_size={block_size}"
-    )
-
-    q_out, scale_out = _triton_fp8_blockwise_weight_quant_grouped_transposed_rhs_direct(
-        weight_t,
-        block_size=block_size,
-        dtype=dtype,
-    )
-    # The direct kernel writes the transpose-compatible row-major layout;
-    # transpose views preserve TorchAO's public column-major grouped RHS contract.
-    return q_out.transpose(-2, -1), scale_out.transpose(-2, -1)
-
-
-@triton_fp8_blockwise_weight_quant_grouped_transposed_rhs.register_fake
-def _(
-    weight_t: torch.Tensor,
-    block_size: int = 128,
-    dtype: torch.dtype = e4m3_dtype,
-) -> Tuple[torch.Tensor, torch.Tensor]:
-    E, K, N = weight_t.shape
-    q_out = torch.empty_strided(
-        (E, K, N),
-        (K * N, 1, K),
-        dtype=dtype,
-        device=weight_t.device,
-    )
-    scale_out = torch.empty_strided(
-        (E, K // block_size, N // block_size),
-        ((K // block_size) * (N // block_size), 1, K // block_size),
-        dtype=torch.float32,
-        device=weight_t.device,
-    )
-    return q_out, scale_out
-
-
-@torch.library.custom_op(
-    "torchao::triton_fp8_blockwise_weight_quant_grouped_rhs",
-    mutates_args=(),
-)
-def triton_fp8_blockwise_weight_quant_grouped_rhs(
-    weight_t: torch.Tensor,
-    block_size: int = 128,
-    dtype: torch.dtype = e4m3_dtype,
-) -> Tuple[torch.Tensor, torch.Tensor]:
-    """
-    Quantize expert weights for dgrad = grad_output @ weight.
-
-    Input is (E, K, N), normally the transposed expert weight tensor saved from
-    forward. Output data is (E, N, K) in per-expert column-major layout, with
-    128x128 reciprocal scales of shape (E, N // 128, K // 128).
-    """
-    assert weight_t.ndim == 3, "weight_t must be 3D"
-    assert _is_column_major(weight_t), "weight_t must be per-expert column-major"
-    assert dtype in FP8_E4M3_DTYPES, f"dtype must be one of {FP8_E4M3_DTYPES}"
-    E, K, N = weight_t.shape
-    assert K % block_size == 0 and N % block_size == 0, (
-        f"weight_t K and N must be divisible by block_size={block_size}"
-    )
-
-    q_out, scale_out = _triton_fp8_blockwise_weight_quant_grouped_rhs_direct(
-        weight_t,
-        block_size=block_size,
-        dtype=dtype,
-    )
-    # The direct kernel writes the transpose-compatible row-major layout;
-    # transpose views preserve TorchAO's public column-major grouped RHS contract.
-    return q_out.transpose(-2, -1), scale_out.transpose(-2, -1)
-
-
-@triton_fp8_blockwise_weight_quant_grouped_rhs.register_fake
-def _(
-    weight_t: torch.Tensor,
-    block_size: int = 128,
-    dtype: torch.dtype = e4m3_dtype,
-) -> Tuple[torch.Tensor, torch.Tensor]:
-    E, K, N = weight_t.shape
-    q_out = torch.empty_strided(
-        (E, N, K),
-        (N * K, 1, N),
-        dtype=dtype,
-        device=weight_t.device,
-    )
-    scale_out = torch.empty_strided(
-        (E, N // block_size, K // block_size),
-        ((N // block_size) * (K // block_size), 1, N // block_size),
-        dtype=torch.float32,
-        device=weight_t.device,
-    )
-    return q_out, scale_out
 
 
 # Expand blockwise scales to match q_data's elementwise shape.

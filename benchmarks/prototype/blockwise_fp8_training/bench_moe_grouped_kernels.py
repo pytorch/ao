@@ -54,9 +54,9 @@ from torchao.prototype.blockwise_fp8_training.deepgemm_grouped_kernels import (
 from torchao.prototype.blockwise_fp8_training.deepgemm_metadata import (
     build_deepgemm_grouped_offset_plan,
 )
-from torchao.prototype.blockwise_fp8_training.deepgemm_quant import (
-    triton_fp8_blockwise_weight_quant_grouped_rhs_deepgemm,
-    triton_fp8_blockwise_weight_quant_grouped_transposed_rhs_deepgemm,
+from torchao.prototype.blockwise_fp8_training.grouped_weight_quant import (
+    triton_fp8_blockwise_weight_quant_grouped_dgrad_rhs,
+    triton_fp8_blockwise_weight_quant_grouped_forward_rhs,
 )
 from torchao.prototype.blockwise_fp8_training.kernels import (
     BLOCKWISE_1X128_SCALING_TYPE,
@@ -181,13 +181,13 @@ def _bench_shape(
     )
 
     B_fwd_fp8, B_fwd_scale = (
-        triton_fp8_blockwise_weight_quant_grouped_transposed_rhs_deepgemm(
+        triton_fp8_blockwise_weight_quant_grouped_forward_rhs(
             B_t, block_size=block_size, dtype=fp8
         )
     )
     time_mem(
         "fwd: weight_quant_forward_rhs",
-        lambda: triton_fp8_blockwise_weight_quant_grouped_transposed_rhs_deepgemm(
+        lambda: triton_fp8_blockwise_weight_quant_grouped_forward_rhs(
             B_t, block_size=block_size, dtype=fp8
         ),
         _io_bytes(B_t),
@@ -231,12 +231,12 @@ def _bench_shape(
         gout_scale,
     )
 
-    B_dgrad_fp8, B_dgrad_scale = triton_fp8_blockwise_weight_quant_grouped_rhs_deepgemm(
+    B_dgrad_fp8, B_dgrad_scale = triton_fp8_blockwise_weight_quant_grouped_dgrad_rhs(
         B_t, block_size=block_size, dtype=fp8
     )
     time_mem(
         "bwd: weight_quant_dgrad_rhs",
-        lambda: triton_fp8_blockwise_weight_quant_grouped_rhs_deepgemm(
+        lambda: triton_fp8_blockwise_weight_quant_grouped_dgrad_rhs(
             B_t, block_size=block_size, dtype=fp8
         ),
         _io_bytes(B_t),
