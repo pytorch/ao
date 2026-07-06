@@ -180,10 +180,8 @@ def _bench_shape(
         A_scale,
     )
 
-    B_fwd_fp8, B_fwd_scale = (
-        triton_fp8_blockwise_weight_quant_grouped_forward_rhs(
-            B_t, block_size=block_size, dtype=fp8
-        )
+    B_fwd_fp8, B_fwd_scale = triton_fp8_blockwise_weight_quant_grouped_forward_rhs(
+        B_t, block_size=block_size, dtype=fp8
     )
     time_mem(
         "fwd: weight_quant_forward_rhs",
