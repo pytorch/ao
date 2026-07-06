@@ -11,7 +11,7 @@ from typing import Tuple
 import torch
 import triton
 import triton.language as tl
-from torch.library import triton_op, wrap_triton
+from torch.library import wrap_triton
 
 from torchao.float8.config import e4m3_dtype
 from torchao.prototype.blockwise_fp8_training.deepgemm_metadata import (
