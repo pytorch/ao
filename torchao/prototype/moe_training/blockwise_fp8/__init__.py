@@ -6,8 +6,10 @@
 
 from torchao.prototype.moe_training.blockwise_fp8.grouped_mm import (
     fp8_blockwise_grouped_mm,
+    prepare_fp8_blockwise_grouped_mm_plan,
 )
 
 __all__ = [
     "fp8_blockwise_grouped_mm",
+    "prepare_fp8_blockwise_grouped_mm_plan",
 ]

@@ -287,6 +287,7 @@ def _select_fp8_blockwise_grouped_mm_backend(
     original_group_end_offsets: Optional[torch.Tensor] = None,
     padded_group_start_offsets: Optional[torch.Tensor] = None,
     num_rows: Optional[int] = None,
+    precomputed_deepgemm_plan: Optional[DeepGemmGroupedOffsetPlan] = None,
 ) -> _GroupedMMBackend:
     """Select the grouped GEMM backend for one forward/backward pass.
 
@@ -295,6 +296,9 @@ def _select_fp8_blockwise_grouped_mm_backend(
     exposes both M-grouped and K-grouped training kernels, the input is on
     CUDA SM90+, ``out_dtype`` is bf16, ``block_size`` is 128, and every expert
     group is block-aligned. Any unsupported AUTO case falls back to emulated.
+    A precomputed DeepGEMM plan is an explicit DeepGEMM selection and skips the
+    optional-dependency probe so callers can prepare host metadata outside a
+    compiled region.
     When DeepGEMM is selected, the returned backend owns the offset/layout plan
     reused by forward, dgrad, and wgrad.
     """
@@ -305,18 +309,55 @@ def _select_fp8_blockwise_grouped_mm_backend(
     assert kernel_preference == KernelPreference.AUTO, (
         "kernel_preference must be AUTO or EMULATED"
     )
-    if not can_use_deepgemm_grouped_training(A, out_dtype, block_size):
+    if precomputed_deepgemm_plan is not None:
+        offset_plan = precomputed_deepgemm_plan
+        if block_size != 128 or out_dtype != torch.bfloat16 or not A.is_cuda:
+            return _EMULATED_GROUPED_MM_BACKEND
+    else:
+        if not can_use_deepgemm_grouped_training(A, out_dtype, block_size):
+            return _EMULATED_GROUPED_MM_BACKEND
+        groups_block_aligned_by_construction = original_group_end_offsets is not None
+        offset_plan = build_deepgemm_grouped_offset_plan(
+            group_end_offsets,
+            original_group_end_offsets=original_group_end_offsets,
+            padded_group_start_offsets=padded_group_start_offsets,
+            num_rows=num_rows,
+            groups_block_aligned_by_construction=groups_block_aligned_by_construction,
+        )
+    if not offset_plan.groups_are_block_aligned(block_size):
         return _EMULATED_GROUPED_MM_BACKEND
 
-    groups_block_aligned_by_construction = original_group_end_offsets is not None
-    offset_plan = build_deepgemm_grouped_offset_plan(
+    return _DeepGemmGroupedMMBackend(offset_plan=offset_plan)
+
+
+def prepare_fp8_blockwise_grouped_mm_plan(
+    group_end_offsets: torch.Tensor,
+    *,
+    block_size: int = 128,
+    original_group_end_offsets: Optional[torch.Tensor] = None,
+    padded_group_start_offsets: Optional[torch.Tensor] = None,
+    num_rows: Optional[int] = None,
+    groups_block_aligned_by_construction: bool = False,
+) -> DeepGemmGroupedOffsetPlan:
+    plan = build_deepgemm_grouped_offset_plan(
         group_end_offsets,
         original_group_end_offsets=original_group_end_offsets,
         padded_group_start_offsets=padded_group_start_offsets,
         num_rows=num_rows,
         groups_block_aligned_by_construction=groups_block_aligned_by_construction,
     )
-    if not offset_plan.groups_are_block_aligned(block_size):
-        return _EMULATED_GROUPED_MM_BACKEND
-
-    return _DeepGemmGroupedMMBackend(offset_plan=offset_plan)
+    assert plan.groups_are_block_aligned(block_size), (
+        "FP8 blockwise grouped MM plans require block-aligned group sizes"
+    )
+    if not plan.groups_block_aligned_by_construction:
+        plan = build_deepgemm_grouped_offset_plan(
+            group_end_offsets,
+            original_group_end_offsets=original_group_end_offsets,
+            padded_group_start_offsets=padded_group_start_offsets,
+            num_rows=num_rows,
+            groups_block_aligned_by_construction=True,
+        )
+    # Materialize host-side group sizes before entering a compiled region.
+    _ = plan.group_sizes
+    _ = plan.ks_tensor
+    return plan
