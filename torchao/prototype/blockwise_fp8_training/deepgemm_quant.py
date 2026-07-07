@@ -144,6 +144,10 @@ def triton_fp8_blockwise_weight_quant_grouped_forward_rhs(
         device=weight_t.device,
     )
 
+    # `weight_t.transpose(-2, -1)` is a view back to the original row-major
+    # expert weights (E, N, K). Flattening expert and N rows lets the fast
+    # dense 2D cast write the forward RHS as (E, N, K) data and
+    # (E, N_blocks, K_blocks) scales directly.
     weight = weight_t.transpose(-2, -1)
     assert weight.is_contiguous(), "weight_t must be per-expert column-major"
     wrap_triton(triton_fp8_blockwise_weight_quant_grouped_forward_rhs_kernel)[
@@ -191,6 +195,9 @@ def triton_fp8_blockwise_weight_quant_grouped_dgrad_rhs(
         device=weight_t.device,
     )
 
+    # Read the same contiguous (E, N, K) forward-weight view used by the fast
+    # forward cast, but store each quantized block transposed into the dgrad
+    # RHS contract: data (E, K, N), scales (E, K_blocks, N_blocks).
     weight = weight_t.transpose(-2, -1)
     assert weight.is_contiguous(), "weight_t must be per-expert column-major"
     wrap_triton(triton_fp8_blockwise_weight_quant_grouped_dgrad_rhs_kernel)[

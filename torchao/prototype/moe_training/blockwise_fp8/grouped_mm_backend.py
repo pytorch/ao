@@ -101,7 +101,9 @@ class _EmulatedGroupedMMBackend(_GroupedMMBackend):
         block_size: int,
         dtype: torch.dtype,
     ) -> tuple[torch.Tensor, torch.Tensor]:
-        # The emulated backend consumes TorchAO's grouped RHS layout:
+        # The shared direct quantizer writes forward RHS as row-major
+        # (E, N, K) data with (E, N_blocks, K_blocks) scales. Transpose views
+        # convert that to TorchAO's grouped RHS contract for output = A @ B_t:
         # (E, K, N) data with (E, K_blocks, N_blocks) scales.
         q, scale = triton_fp8_blockwise_weight_quant_grouped_forward_rhs(
             B_t,
@@ -116,7 +118,9 @@ class _EmulatedGroupedMMBackend(_GroupedMMBackend):
         block_size: int,
         dtype: torch.dtype,
     ) -> tuple[torch.Tensor, torch.Tensor]:
-        # The emulated backend consumes TorchAO's grouped RHS layout for
+        # The shared direct quantizer writes dgrad RHS as row-major
+        # (E, K, N) data with (E, K_blocks, N_blocks) scales. Transpose views
+        # convert that to TorchAO's grouped RHS contract for
         # grad_output @ weight: (E, N, K) data with
         # (E, N_blocks, K_blocks) scales.
         q, scale = triton_fp8_blockwise_weight_quant_grouped_dgrad_rhs(
