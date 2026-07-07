@@ -434,13 +434,13 @@ def _float8_addmm_impl(
                 assert _is_1_128_scaled(input_tensor), "unsupported"
                 if inpt_data.device.type == "xpu":
                     # _scaled_mm rejects preprocess_scale's (M*K/128, 1)
-                    # for blockwise; reshape to (M, K/128)
+                    # for blockwise; reshape to (M, K/128) using inpt_data M
                     res = addmm_float8_unwrapped_inference(
                         inpt_data,
-                        input_scale.reshape(-1, input_scale.shape[-1]),
+                        input_scale.reshape(inpt_data.shape[0], -1),
                         w_data,
                         w_scale,
-                        output_dtype=input_scale.dtype,
+                        output_dtype=input_tensor.dtype,
                         bias=bias,
                         use_fast_accum=scaled_mm_config.use_fast_accum,
                     )
