@@ -519,5 +519,107 @@ def _(func, types, args, kwargs):
     return return_and_correct_aliasing(func, args, kwargs, new_int8_tensor)
 
 
+@implements(aten.transpose.int)
+def _(func, types, args, kwargs):
+    self, dim0, dim1 = args
+    ndim = self.qdata.ndim
+    d0 = dim0 + ndim if dim0 < 0 else dim0
+    d1 = dim1 + ndim if dim1 < 0 else dim1
+
+    qdata = func(self.qdata, dim0, dim1)
+    scale = func(self.scale, dim0, dim1)
+    zero_point = (
+        func(self.zero_point, dim0, dim1) if self.zero_point is not None else None
+    )
+    block_size = list(self.block_size)
+    block_size[d0], block_size[d1] = block_size[d1], block_size[d0]
+
+    new_int8_tensor = Int8Tensor(
+        qdata,
+        scale,
+        block_size,
+        self.dtype,
+        zero_point=zero_point,
+        act_quant_scale=self.act_quant_scale,
+        act_quant_zero_point=self.act_quant_zero_point,
+        act_pre_scale=self.act_pre_scale,
+        act_quant_kwargs=self.act_quant_kwargs,
+        reduce_range=self.reduce_range,
+    )
+    return return_and_correct_aliasing(func, args, kwargs, new_int8_tensor)
+
+
+@implements(aten.mm.default)
+def _(func, types, args, kwargs):
+    input_tensor, mat2 = args
+    if isinstance(mat2, Int8Tensor):
+        if isinstance(input_tensor, Int8Tensor):
+            input_tensor = input_tensor.dequantize()
+        return aten.linear.default(input_tensor, mat2.transpose(0, 1))
+    # only the lhs is quantized: dequantize it and run a plain mm
+    return func(input_tensor.dequantize(), mat2)
+
+
+@implements(aten.addmm.default)
+def _(func, types, args, kwargs):
+    bias, input_tensor, mat2 = args
+    beta = kwargs.get("beta", 1)
+    alpha = kwargs.get("alpha", 1)
+    if isinstance(mat2, Int8Tensor) and beta == 1 and alpha == 1:
+        if isinstance(input_tensor, Int8Tensor):
+            input_tensor = input_tensor.dequantize()
+        return aten.linear.default(input_tensor, mat2.transpose(0, 1), bias)
+    # unsupported scaling factors or lhs-only quant: dequantize and fall back
+    if isinstance(input_tensor, Int8Tensor):
+        input_tensor = input_tensor.dequantize()
+    if isinstance(mat2, Int8Tensor):
+        mat2 = mat2.dequantize()
+    return func(bias, input_tensor, mat2, **kwargs)
+
+
+# Inverse of the slice/select handlers. With per-row quantization each row carries its
+# own scale, so concatenating along the row dim just concatenates qdata and
+# scale, needs no dequantization and the result is exact.
+# Concatenating along a dim where a single scale spans multiple elements
+# (e.g. per-tensor, or the feature dim of a per-row weight) would mix values governed
+# by different scales and cannot be represented as a single Int8Tensor, so we raise
+# NotImplementedError there (mirroring the per-row-only contract of slice).
+@implements(aten.cat.default)
+def _(func, types, args, kwargs):
+    tensors = args[0]
+    dim = args[1] if len(args) > 1 else kwargs.get("dim", 0)
+    if dim < 0:
+        dim += tensors[0].qdata.ndim
+    if not all(isinstance(t, Int8Tensor) for t in tensors):
+        raise NotImplementedError(
+            "Int8Tensor.cat only supports a list of Int8Tensor"
+        )
+    if not all(t.block_size[dim] == 1 for t in tensors):
+        raise NotImplementedError(
+            f"Int8Tensor only supports cat along a per-row dim "
+            f"(block_size[dim] == 1), got dim={dim}"
+        )
+
+    first = tensors[0]
+    qdata = func([t.qdata for t in tensors], dim)
+    scale = func([t.scale for t in tensors], dim)
+    zero_point = None
+    if first.zero_point is not None:
+        zero_point = func([t.zero_point for t in tensors], dim)
+
+    return Int8Tensor(
+        qdata,
+        scale,
+        list(first.block_size),
+        first.dtype,
+        zero_point=zero_point,
+        act_quant_scale=first.act_quant_scale,
+        act_quant_zero_point=first.act_quant_zero_point,
+        act_pre_scale=first.act_pre_scale,
+        act_quant_kwargs=first.act_quant_kwargs,
+        reduce_range=first.reduce_range,
+    )
+
+
 Int8Tensor.__module__ = "torchao.quantization"
 torch.serialization.add_safe_globals([Int8Tensor, QuantizeTensorToInt8Kwargs])
