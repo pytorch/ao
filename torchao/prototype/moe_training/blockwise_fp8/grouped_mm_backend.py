@@ -20,12 +20,12 @@ from torchao.prototype.blockwise_fp8_training.deepgemm_metadata import (
     DeepGemmGroupedOffsetPlan,
     build_deepgemm_grouped_offset_plan,
 )
-from torchao.prototype.blockwise_fp8_training.grouped_kernels import (
-    emulated_blockwise_scaled_grouped_mm,
-)
-from torchao.prototype.blockwise_fp8_training.grouped_weight_quant import (
+from torchao.prototype.blockwise_fp8_training.deepgemm_quant import (
     triton_fp8_blockwise_weight_quant_grouped_dgrad_rhs,
     triton_fp8_blockwise_weight_quant_grouped_forward_rhs,
+)
+from torchao.prototype.blockwise_fp8_training.grouped_kernels import (
+    emulated_blockwise_scaled_grouped_mm,
 )
 from torchao.prototype.blockwise_fp8_training.kernels import (
     BLOCKWISE_1X128_SCALING_TYPE,

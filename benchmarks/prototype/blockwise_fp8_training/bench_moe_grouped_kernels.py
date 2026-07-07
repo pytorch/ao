@@ -54,7 +54,7 @@ from torchao.prototype.blockwise_fp8_training.deepgemm_grouped_kernels import (
 from torchao.prototype.blockwise_fp8_training.deepgemm_metadata import (
     build_deepgemm_grouped_offset_plan,
 )
-from torchao.prototype.blockwise_fp8_training.grouped_weight_quant import (
+from torchao.prototype.blockwise_fp8_training.deepgemm_quant import (
     triton_fp8_blockwise_weight_quant_grouped_dgrad_rhs,
     triton_fp8_blockwise_weight_quant_grouped_forward_rhs,
 )
