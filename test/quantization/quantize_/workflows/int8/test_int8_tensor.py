@@ -24,6 +24,7 @@ from torchao.quantization.quantize_.common import (
     _choose_quant_func_and_quantize_tensor,
 )
 from torchao.quantization.quantize_.workflows.int8.int8_tensor import (
+    Int8Tensor,
     QuantizeTensorToInt8Kwargs,
 )
 from torchao.quantization.utils import compute_error, get_block_size
@@ -322,6 +323,114 @@ class TestInt8Tensor(TorchAOIntegrationTestCase):
         # Verify output is valid (not NaN/Inf)
         self.assertFalse(torch.isnan(output).any())
         self.assertFalse(torch.isinf(output).any())
+
+    @common_utils.parametrize("config", INT8_TEST_CONFIGS)
+    @common_utils.parametrize("device", get_available_devices())
+    def test_cat(self, config, device):
+        """Test torch.cat on Int8Tensor weights.
+
+        This exercises the aten.cat implementation used by inductor's
+        batch-linear fusion. With per-row quantization each row carries its own
+        scale, so concatenating along the row dim is exact. Concatenating along
+        a dim where a single scale spans multiple elements (per-tensor, or the
+        feature dim of a per-row weight) raises NotImplementedError.
+        """
+        N, K = 128, 256
+        dtype = torch.bfloat16
+
+        linear1 = torch.nn.Linear(K, N, bias=False, dtype=dtype, device=device)
+        linear2 = torch.nn.Linear(K, N, bias=False, dtype=dtype, device=device)
+        quantize_(linear1, config)
+        quantize_(linear2, config)
+        w1, w2 = linear1.weight, linear2.weight
+
+        # Row-wise along dim 0 iff each row carries its own scale.
+        per_row = w1.block_size[0] == 1
+
+        if per_row:
+            # cat along the row dim (dim 0) is exact: no requantization
+            out = torch.cat([w1, w2], dim=0)
+            self.assertIsInstance(out, Int8Tensor)
+            self.assertEqual(out.shape, (2 * N, K))
+            torch.testing.assert_close(
+                out.dequantize(),
+                torch.cat([w1.dequantize(), w2.dequantize()], dim=0),
+            )
+            # negative dim resolves to the row dim
+            torch.testing.assert_close(
+                torch.cat([w1, w2], dim=-2).dequantize(), out.dequantize()
+            )
+            # cat along the feature dim is not representable with per-row scales
+            with self.assertRaises(NotImplementedError):
+                torch.cat([w1, w2], dim=1)
+        else:
+            # per-tensor: a single scale spans the whole axis, cat is unsupported
+            with self.assertRaises(NotImplementedError):
+                torch.cat([w1, w2], dim=0)
+
+    @common_utils.parametrize("config", INT8_TEST_CONFIGS)
+    @common_utils.parametrize("device", get_available_devices())
+    def test_transpose(self, config, device):
+        """Test torch.transpose on Int8Tensor weights.
+
+        This exercises the aten.transpose implementation used by inductor's
+        batch-linear fusion. Transpose is lossless: it swaps the two dims of
+        qdata/scale/zero_point and the corresponding block_size entries, so the
+        dequantized result equals transposing the dequantized weight.
+        """
+        N, K = 128, 256
+        dtype = torch.bfloat16
+
+        linear = torch.nn.Linear(K, N, bias=False, dtype=dtype, device=device)
+        quantize_(linear, config)
+        w = linear.weight
+
+        wt = torch.transpose(w, 0, 1)
+        self.assertIsInstance(wt, Int8Tensor)
+        self.assertEqual(wt.shape, (K, N))
+        torch.testing.assert_close(wt.dequantize(), w.dequantize().transpose(0, 1))
+
+        # negative dims resolve the same way
+        torch.testing.assert_close(
+            torch.transpose(w, -1, -2).dequantize(), wt.dequantize()
+        )
+
+    @common_utils.parametrize("config", INT8_TEST_CONFIGS)
+    @common_utils.parametrize("device", get_available_devices())
+    @common_utils.parametrize("bias", [False, True])
+    def test_mm_addmm(self, config, device, bias):
+        """Test torch.mm / torch.addmm on Int8Tensor weights.
+
+        These are produced by inductor's batch-linear fusion, which rewrites a
+        fused linear as transpose + mm/addmm on the weight. mm(x, W) and
+        addmm(bias, x, W) must match F.linear(x, W.t()[, bias]).
+        """
+        M, N, K = 32, 128, 256
+        dtype = torch.bfloat16
+
+        x = torch.randn(M, K, dtype=dtype, device=device)
+        linear = torch.nn.Linear(K, N, bias=False, dtype=dtype, device=device)
+        quantize_(linear, config)
+        w = linear.weight  # (N, K) Int8Tensor
+        w_t = torch.transpose(w, 0, 1)  # (K, N), what the fusion feeds to mm
+
+        # Reference: full-precision result
+        ref = x @ w.dequantize().t()
+
+        if bias:
+            b = torch.randn(N, dtype=dtype, device=device)
+            out = torch.addmm(b, x, w_t)
+            ref = ref + b
+        else:
+            out = torch.mm(x, w_t)
+
+        self.assertEqual(out.shape, (M, N))
+        self.assertGreater(
+            compute_error(ref, out), 20, "mm/addmm SQNR too low"
+        )
+
+
+
 
 
 @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
