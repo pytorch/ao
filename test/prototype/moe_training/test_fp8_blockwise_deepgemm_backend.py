@@ -207,7 +207,7 @@ def test_deepgemm_grouped_layout_from_padded_offsets():
     reason="DeepGEMM FP8 kernels require CUDA SM90+",
 )
 def test_grouped_weight_quant_layouts_match_dense_per_expert_quantizers():
-    from torchao.prototype.blockwise_fp8_training.deepgemm_quant import (
+    from torchao.prototype.blockwise_fp8_training.grouped_weight_quant import (
         triton_fp8_blockwise_weight_quant_grouped_dgrad_rhs,
         triton_fp8_blockwise_weight_quant_grouped_forward_rhs,
     )
@@ -274,7 +274,7 @@ def test_grouped_weight_quant_layouts_match_dense_per_expert_quantizers():
 def test_grouped_weight_quant_supports_compile_fullgraph():
     from torch._dynamo.testing import CompileCounterWithBackend
 
-    from torchao.prototype.blockwise_fp8_training.deepgemm_quant import (
+    from torchao.prototype.blockwise_fp8_training.grouped_weight_quant import (
         triton_fp8_blockwise_weight_quant_grouped_forward_rhs,
     )
 
