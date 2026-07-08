@@ -73,7 +73,9 @@ from torchao.quantization.quant_api import (
     Float8DynamicActivationFloat8WeightConfig,
     Float8DynamicActivationInt4WeightConfig,
     Int4WeightOnlyConfig,
+    Int8DynamicActivationInt8WeightConfig,
     Int8DynamicActivationIntxWeightConfig,
+    Int8WeightOnlyConfig,
     IntxWeightOnlyConfig,
 )
 from torchao.quantization.quant_primitives import (
@@ -285,6 +287,56 @@ class TestQAT(TestCase):
         out.sum().backward()
 
         # compare against PTQ ops
+        out_ptq = quantize_affine(
+            x2,
+            block_size,
+            s,
+            zp,
+            torch.int8,
+            qmin,
+            qmax,
+        )
+        out_ptq = dequantize_affine(
+            out_ptq,
+            block_size,
+            s,
+            zp,
+            torch.int8,
+            qmin,
+            qmax,
+            output_dtype=torch.float32,
+        )
+        torch.testing.assert_close(out, out_ptq, atol=0, rtol=0)
+
+    def test_fake_quantize_per_token_symmetric(self):
+        """
+        Test symmetric per token fake quantization against PTQ ops.
+        """
+        (qmin, qmax) = _get_qmin_qmax(8)
+
+        torch.manual_seed(self.SEED)
+        x = torch.randn(100, 256).requires_grad_()
+        x2 = copy.deepcopy(x)
+        fake_quantizer = IntxFakeQuantizer(
+            IntxFakeQuantizeConfig(torch.int8, "per_token", is_symmetric=True)
+        )
+
+        # fake quant op
+        out = fake_quantizer(x)
+        out.sum().backward()
+
+        # compare against PTQ ops
+        block_size = _get_per_token_block_size(x2)
+        (s, zp) = choose_qparams_affine(
+            x2,
+            mapping_type=MappingType.SYMMETRIC,
+            block_size=block_size,
+            target_dtype=torch.int8,
+            quant_min=qmin,
+            quant_max=qmax,
+            scale_dtype=torch.float32,
+            zero_point_dtype=torch.int32,
+        )
         out_ptq = quantize_affine(
             x2,
             block_size,
@@ -1933,6 +1985,64 @@ class TestQAT(TestCase):
             module_type=module_type,
         )
 
+    @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
+    @skip_if_xpu("XPU enablement in progress")
+    @parametrize(
+        "act_mapping_type, dtype",
+        [
+            (act_mapping_type, dtype)
+            for act_mapping_type in [MappingType.SYMMETRIC, MappingType.ASYMMETRIC]
+            for dtype in [torch.bfloat16, torch.float32]
+        ],
+    )
+    def test_quantize_api_int8_int8(self, act_mapping_type, dtype):
+        """
+        Test the following:
+            quantize_(model, QATConfig(Int8DynamicActivationInt8WeightConfig(), step="prepare"))
+            quantize_(model, QATConfig(Int8DynamicActivationInt8WeightConfig(), step="convert"))
+        """
+        # Unlike the intx configs above, prepare SQNR is finite here because
+        # the PTQ linear accumulates the int8 matmul in int32 and applies the
+        # scales afterwards, while fake quantization stays in high precision.
+        self._test_quantize_api_against_ptq(
+            Int8DynamicActivationInt8WeightConfig(act_mapping_type=act_mapping_type),
+            target_prepare_sqnr=35,
+            target_convert_sqnr=float("inf"),
+            dtype=dtype,
+        )
+
+    @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
+    @skip_if_xpu("XPU enablement in progress")
+    @parametrize(
+        "granularity, dtype",
+        [
+            (granularity, dtype)
+            for granularity in [PerRow(), PerGroup(32)]
+            for dtype in [torch.bfloat16, torch.float32]
+        ],
+    )
+    def test_quantize_api_int8_weight_only(self, granularity, dtype):
+        """
+        Test the following:
+            quantize_(model, QATConfig(Int8WeightOnlyConfig(), step="prepare"))
+            quantize_(model, QATConfig(Int8WeightOnlyConfig(), step="convert"))
+        """
+        # For PerRow, prepare SQNR is finite because the PTQ linear multiplies
+        # the int8 weight with the activations before applying the scales,
+        # while fake quantization applies the scales to the weight first.
+        # For PerGroup, the PTQ linear dequantizes the weight before the
+        # matmul, which matches fake quantization numerics exactly.
+        if isinstance(granularity, PerRow):
+            target_prepare_sqnr = 40
+        else:
+            target_prepare_sqnr = float("inf")
+        self._test_quantize_api_against_ptq(
+            Int8WeightOnlyConfig(granularity=granularity),
+            target_prepare_sqnr=target_prepare_sqnr,
+            target_convert_sqnr=float("inf"),
+            dtype=dtype,
+        )
+
     def test_infer_fp8_int4_config(self):
         """
         Test that fake quantize configs are correctly inferred from
@@ -1966,6 +2076,61 @@ class TestQAT(TestCase):
         self.assertIsInstance(weight_config, Int4WeightFakeQuantizeConfig)
         self.assertEqual(weight_config.group_size, group_size)
         self.assertEqual(weight_config.activation_dtype, torch.bfloat16)
+
+    def test_infer_int8_configs(self):
+        """
+        Test that fake quantize configs are correctly inferred from
+        `Int8DynamicActivationInt8WeightConfig` and `Int8WeightOnlyConfig`.
+        """
+        from torchao.quantization.qat.fake_quantize_config import (
+            _infer_fake_quantize_configs,
+        )
+
+        # Int8DynamicActivationInt8WeightConfig
+        base_config = Int8DynamicActivationInt8WeightConfig()
+        (act_config, weight_config) = _infer_fake_quantize_configs(base_config)
+        self.assertIsInstance(act_config, IntxFakeQuantizeConfig)
+        self.assertEqual(act_config.dtype, torch.int8)
+        self.assertIsInstance(act_config.granularity, PerToken)
+        self.assertEqual(act_config.mapping_type, MappingType.SYMMETRIC)
+        self.assertIsInstance(weight_config, IntxFakeQuantizeConfig)
+        self.assertEqual(weight_config.dtype, torch.int8)
+        self.assertIsInstance(weight_config.granularity, PerAxis)
+        self.assertEqual(weight_config.granularity.axis, 0)
+        self.assertTrue(weight_config.is_symmetric)
+
+        # Int8DynamicActivationInt8WeightConfig with asymmetric activations
+        base_config = Int8DynamicActivationInt8WeightConfig(
+            act_mapping_type=MappingType.ASYMMETRIC
+        )
+        (act_config, weight_config) = _infer_fake_quantize_configs(base_config)
+        self.assertEqual(act_config.mapping_type, MappingType.ASYMMETRIC)
+        self.assertTrue(weight_config.is_symmetric)
+
+        # Int8WeightOnlyConfig
+        base_config = Int8WeightOnlyConfig()
+        (act_config, weight_config) = _infer_fake_quantize_configs(base_config)
+        self.assertIsNone(act_config)
+        self.assertIsInstance(weight_config, IntxFakeQuantizeConfig)
+        self.assertEqual(weight_config.dtype, torch.int8)
+        self.assertIsInstance(weight_config.granularity, PerAxis)
+        self.assertEqual(weight_config.granularity.axis, 0)
+        self.assertTrue(weight_config.is_symmetric)
+
+        # Int8WeightOnlyConfig with PerGroup granularity
+        base_config = Int8WeightOnlyConfig(granularity=PerGroup(64))
+        (act_config, weight_config) = _infer_fake_quantize_configs(base_config)
+        self.assertIsNone(act_config)
+        self.assertEqual(weight_config.group_size, 64)
+        self.assertTrue(weight_config.is_symmetric)
+
+        # PerTensor granularity is not supported yet
+        with self.assertRaisesRegex(AssertionError, "Only PerRow"):
+            _infer_fake_quantize_configs(
+                Int8DynamicActivationInt8WeightConfig(granularity=PerTensor())
+            )
+        with self.assertRaisesRegex(ValueError, "Only PerRow"):
+            _infer_fake_quantize_configs(Int8WeightOnlyConfig(granularity=PerTensor()))
 
     @unittest.skipIf(not is_sm_at_least_89(), "Need sm89+")
     @parametrize("use_per_tensor_scale", [True, False])

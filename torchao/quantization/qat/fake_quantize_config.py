@@ -366,9 +366,12 @@ def _infer_fake_quantize_configs(
         Float8DynamicActivationFloat8WeightConfig,
         Float8DynamicActivationInt4WeightConfig,
         Int4WeightOnlyConfig,
+        Int8DynamicActivationInt8WeightConfig,
         Int8DynamicActivationIntxWeightConfig,
+        Int8WeightOnlyConfig,
         IntxWeightOnlyConfig,
     )
+    from torchao.quantization.quantize_.workflows import Int8Tensor
 
     if isinstance(base_config, Int4WeightOnlyConfig):
         act_config = None
@@ -435,6 +438,52 @@ def _infer_fake_quantize_configs(
             block_size=base_config.block_size,
             scaling_mode=base_config.scaling_mode,
             kernel_preference=base_config.kernel_preference,
+        )
+    elif isinstance(base_config, Int8DynamicActivationInt8WeightConfig):
+        assert base_config.version >= 2, "Only version 2+ is supported"
+        assert not base_config.weight_only_decode, "weight_only_decode is not supported"
+        assert not base_config.reduce_range, "reduce_range is not supported"
+        (act_granularity, weight_granularity) = Int8Tensor._normalize_granularity(
+            base_config.granularity
+        )
+        assert all(
+            isinstance(g, PerRow) and g.dim == -1
+            for g in (act_granularity, weight_granularity)
+        ), "Only PerRow(dim=-1) granularity is supported"
+
+        # Match `Int8Tensor.from_hp`, which always computes scales
+        # in float32 with float32 eps
+        act_config = IntxFakeQuantizeConfig(
+            torch.int8,
+            "per_token",
+            mapping_type=base_config.act_mapping_type,
+            eps=torch.finfo(torch.float32).eps,
+        )
+        weight_config = IntxFakeQuantizeConfig(
+            torch.int8,
+            "per_channel",
+            mapping_type=MappingType.SYMMETRIC,
+            eps=torch.finfo(torch.float32).eps,
+        )
+    elif isinstance(base_config, Int8WeightOnlyConfig):
+        assert base_config.version >= 2, "Only version 2+ is supported"
+        if isinstance(base_config.granularity, PerRow) and (
+            base_config.granularity.dim == -1
+        ):
+            weight_granularity = "per_channel"
+        elif isinstance(base_config.granularity, PerGroup):
+            weight_granularity = base_config.granularity
+        else:
+            raise ValueError(
+                f"Only PerRow(dim=-1) and PerGroup granularity are supported, "
+                f"got {base_config.granularity}"
+            )
+        act_config = None
+        weight_config = IntxFakeQuantizeConfig(
+            torch.int8,
+            weight_granularity,
+            mapping_type=MappingType.SYMMETRIC,
+            eps=torch.finfo(torch.float32).eps,
         )
     elif isinstance(base_config, Int8DynamicActivationIntxWeightConfig):
         assert base_config.version >= 2, "Only version 2+ is supported"
