@@ -549,15 +549,27 @@ def _(func, types, args, kwargs):
     return return_and_correct_aliasing(func, args, kwargs, new_int8_tensor)
 
 
+def _int8_mm(input_tensor, mat2, bias=None):
+    if not isinstance(mat2, Int8Tensor):
+        raise NotImplementedError(
+            "Int8Tensor mm/addmm only supports an Int8Tensor as the "
+            f"second matrix, got {type(mat2)}"
+        )
+    if isinstance(input_tensor, Int8Tensor):
+        # The activation must be high precision so the int8 linear path can
+        # quantize it per mat2.act_quant_kwargs; a pre-quantized activation
+        # cannot be honored here.
+        raise NotImplementedError(
+            "Int8Tensor mm/addmm does not support a quantized activation "
+            "(first matrix); expected a high-precision activation"
+        )
+    return aten.linear.default(input_tensor, mat2.transpose(0, 1), bias)
+
+
 @implements(aten.mm.default)
 def _(func, types, args, kwargs):
     input_tensor, mat2 = args
-    if isinstance(mat2, Int8Tensor):
-        if isinstance(input_tensor, Int8Tensor):
-            input_tensor = input_tensor.dequantize()
-        return aten.linear.default(input_tensor, mat2.transpose(0, 1))
-    # only the lhs is quantized: dequantize it and run a plain mm
-    return func(input_tensor.dequantize(), mat2)
+    return _int8_mm(input_tensor, mat2)
 
 
 @implements(aten.addmm.default)
@@ -565,16 +577,12 @@ def _(func, types, args, kwargs):
     bias, input_tensor, mat2 = args
     beta = kwargs.get("beta", 1)
     alpha = kwargs.get("alpha", 1)
-    if isinstance(mat2, Int8Tensor) and beta == 1 and alpha == 1:
-        if isinstance(input_tensor, Int8Tensor):
-            input_tensor = input_tensor.dequantize()
-        return aten.linear.default(input_tensor, mat2.transpose(0, 1), bias)
-    # unsupported scaling factors or lhs-only quant: dequantize and fall back
-    if isinstance(input_tensor, Int8Tensor):
-        input_tensor = input_tensor.dequantize()
-    if isinstance(mat2, Int8Tensor):
-        mat2 = mat2.dequantize()
-    return func(bias, input_tensor, mat2, **kwargs)
+    if beta != 1 or alpha != 1:
+        raise NotImplementedError(
+            f"Int8Tensor addmm only supports beta=alpha=1, got alpha={alpha}, "
+            f"beta={beta}"
+        )
+    return _int8_mm(input_tensor, mat2, bias)
 
 
 # Inverse of the slice/select handlers. With per-row quantization each row carries its
@@ -601,6 +609,22 @@ def _(func, types, args, kwargs):
         )
 
     first = tensors[0]
+    # All inputs must share the same activation-quant metadata, since the result
+    # keeps a single set of params
+    def _act_tensor_eq(x, y):
+        if x is None or y is None:
+            return x is None and y is None
+        return x.shape == y.shape and torch.equal(x, y)
+
+    for t in tensors[1:]:
+        assert t.qdata.ndim == first.qdata.ndim
+        assert t.block_size == first.block_size
+        assert t.act_quant_kwargs == first.act_quant_kwargs
+        assert bool(t.reduce_range) == bool(first.reduce_range)
+        assert _act_tensor_eq(t.act_quant_scale, first.act_quant_scale)
+        assert _act_tensor_eq(t.act_quant_zero_point, first.act_quant_zero_point)
+        assert _act_tensor_eq(t.act_pre_scale, first.act_pre_scale)
+
     qdata = func([t.qdata for t in tensors], dim)
     scale = func([t.scale for t in tensors], dim)
     zero_point = None

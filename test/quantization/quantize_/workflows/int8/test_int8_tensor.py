@@ -368,6 +368,30 @@ class TestInt8Tensor(TorchAOIntegrationTestCase):
             with self.assertRaises(NotImplementedError):
                 torch.cat([w1, w2], dim=0)
 
+    @common_utils.parametrize("device", get_available_devices())
+    def test_cat_activation_metadata_mismatch(self, device):
+        """cat must reject inputs whose activation-quant metadata differs."""
+        N, K = 128, 256
+        dtype = torch.bfloat16
+
+        def make(act_mapping_type):
+            linear = torch.nn.Linear(K, N, bias=False, dtype=dtype, device=device)
+            quantize_(
+                linear,
+                Int8DynamicActivationInt8WeightConfig(
+                    version=2,
+                    granularity=PerRow(),
+                    act_mapping_type=act_mapping_type,
+                ),
+            )
+            return linear.weight
+
+        w_sym = make(MappingType.SYMMETRIC)
+        w_asym = make(MappingType.ASYMMETRIC)
+        with self.assertRaises(AssertionError):
+            torch.cat([w_sym, w_asym], dim=0)
+
+
     @common_utils.parametrize("config", INT8_TEST_CONFIGS)
     @common_utils.parametrize("device", get_available_devices())
     def test_transpose(self, config, device):
@@ -428,6 +452,16 @@ class TestInt8Tensor(TorchAOIntegrationTestCase):
         self.assertGreater(
             compute_error(ref, out), 20, "mm/addmm SQNR too low"
         )
+
+        # We must not silently dequantize: unsupported configurations raise.
+        # Quantized activation on the lhs cannot be honored.
+        with self.assertRaises(NotImplementedError):
+            torch.mm(w, w_t)
+        # addmm only supports beta = alpha = 1.
+        b = torch.randn(N, dtype=dtype, device=device)
+        with self.assertRaises(NotImplementedError):
+            torch.addmm(b, x, w_t, beta=2.0)
+
 
 
 
