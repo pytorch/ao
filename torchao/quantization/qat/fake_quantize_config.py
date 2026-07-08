@@ -382,7 +382,7 @@ def _infer_fake_quantize_configs(
                     f"Packing format must be one of {supported_packing_formats}"
                 )
             weight_config = Int4WeightFakeQuantizeConfig(
-                group_size=128,
+                group_size=base_config.group_size,
                 activation_dtype=torch.bfloat16,
             )
         else:

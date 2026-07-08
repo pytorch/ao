@@ -8,6 +8,7 @@ import operator
 
 import torch
 from torch._dynamo.utils import counters
+from torch.fx.passes.shape_prop import _extract_tensor_metadata
 
 QLINEAR_TARGETS = {
     torch.ops.onednn.qlinear_pointwise.default,
@@ -481,7 +482,14 @@ def _concat_linear_quantized_cpu(graph: torch.fx.Graph):
                             new_qlinear_node = graph.create_node(
                                 "call_function", node.target, (), qlinear_kwargs
                             )
-
+                    old_vals = [user.meta["val"] for user in qlinear_users]
+                    out_shape = list(old_vals[0].shape)
+                    out_shape[-1] = sum(out_feature_size_list)
+                    new_val = old_vals[0].new_empty(tuple(out_shape))
+                    new_qlinear_node.meta["val"] = new_val
+                    new_qlinear_node.meta["tensor_meta"] = _extract_tensor_metadata(
+                        new_val
+                    )
                     with graph.inserting_after(new_qlinear_node):
                         split_node = graph.create_node(
                             "call_function",

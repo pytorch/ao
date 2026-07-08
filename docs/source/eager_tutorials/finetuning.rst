@@ -53,92 +53,67 @@ model with "real" quantization that does perform the dtype casting:
 
 There are multiple options for using TorchAO's QAT for fine-tuning:
 
-1. Use our integration with `TorchTune <https://github.com/pytorch/torchtune>`__
+1. Use our integration with `Unsloth <https://github.com/unslothai/unsloth>`__
 2. Use our integration with `Axolotl <https://github.com/axolotl-ai-cloud/axolotl>`__
 3. Directly use our QAT APIs with your own training loop
 
 
-Option 1: TorchTune QAT Integration
+Option 1: Unsloth QAT Integration
 ===================================
 
-TorchAO's QAT support is integrated into TorchTune's distributed fine-tuning recipe.
-Instead of the following command, which applies full distributed fine-tuning without QAT:
+`Unsloth <https://github.com/unslothai/unsloth>`__ integrates TorchAO's QAT support
+for efficient quantization-aware fine-tuning combined with LoRA. To get started,
+install the required packages:
 
 .. code::
 
-  # Regular fine-tuning without QAT
-  tune run --nnodes 1 --nproc_per_node 4 full_finetune_distributed --config llama3_2/3B_full batch_size=16
+  pip install --upgrade unsloth unsloth_zoo
 
-Users can run the following equivalent command instead. Note that specifying the quantizer
-is optional:
+Then load a model and apply a QAT scheme during LoRA fine-tuning:
 
-.. code::
+.. code:: py
 
-  # Fine-tuning with QAT, by default:
-  #   activations are fake quantized to asymmetric per token int8
-  #   weights are fake quantized to symmetric per group int4
-  #   configurable through "quantizer._component_" in the command
-  tune run --nnodes 1 --nproc_per_node 4 qat_distributed --config llama3_2/3B_qat_full batch_size=16
+  from unsloth import FastLanguageModel
 
-After fine-tuning, users can quantize and evaluate the resulting model as follows.
-This is the same whether or not QAT was used during the fine-tuning process:
+  model, tokenizer = FastLanguageModel.from_pretrained(
+      "unsloth/Llama-3.2-3B-Instruct",
+      max_seq_len = 2048,
+      dtype = torch.bfloat16,
+      load_in_4bit = False,
+      full_finetuning = False,
+  )
+  model = FastLanguageModel.get_peft_model(
+      model,
+      r = 16,
+      target_modules = ["q_proj", "k_proj", "v_proj", "o_proj",
+                        "gate_proj", "up_proj", "down_proj"],
+      lora_alpha = 32,
+      qat_scheme = "int4",  # also supports "int8-int4", "fp8-int4", "fp8-fp8"
+  )
 
-.. code::
+The ``qat_scheme`` parameter controls the fake quantization scheme applied during
+training. After fine-tuning, the model is converted to actual int4 quantization
+with no additional inference overhead.
 
-  # Quantize model weights to int4
-  tune run quantize --config quantization \
-      model._component_=torchtune.models.llama3_2.llama3_2_3b \
-      checkpointer._component_=torchtune.training.FullModelHFCheckpointer \
-      'checkpointer.checkpoint_files=[model-00001-of-00002.safetensors,model-00002-of-00002.safetensors]' \
-      checkpointer.model_type=LLAMA3 \
-      quantizer._component_=torchtune.training.quantization.Int8DynActInt4WeightQuantizer \
-      quantizer.groupsize=32
-
-  # Evaluate the int4 model on hellaswag and wikitext
-  tune run eleuther_eval --config eleuther_evaluation \
-      batch_size=1 \
-      'tasks=[hellaswag, wikitext]' \
-      model._component_=torchtune.models.llama3_2.llama3_2_3b \
-      checkpointer._component_=torchtune.training.FullModelTorchTuneCheckpointer \
-      'checkpointer.checkpoint_files=[model-00001-of-00002-8da4w.ckpt]' \
-      checkpointer.model_type=LLAMA3 \
-      tokenizer._component_=torchtune.models.llama3.llama3_tokenizer \
-      tokenizer.path=/tmp/Meta-Llama-3-8B-Instruct/original/tokenizer.model \
-      quantizer._component_=torchtune.training.quantization.Int8DynActInt4WeightQuantizer \
-      quantizer.groupsize=32
-
-This should print the following after fine-tuning:
+On harder benchmarks than perplexity, Int4 QAT + LoRA recovers a substantial
+fraction of the accuracy lost to quantization. The numbers below are taken from
+the `TorchAO QAT blog <https://pytorch.org/blog/quantization-aware-training-in-torchao-ii/>`__
+(int4, ``group_size=32``):
 
 .. code::
 
-  |  Tasks  |Version|Filter|n-shot| Metric |   |Value |   |Stderr|
-  |---------|------:|------|------|--------|---|-----:|---|-----:|
-  |hellaswag|      1|none  |None  |acc     |↑  |0.5021|±  |0.0050|
-  |         |       |none  |None  |acc_norm|↑  |0.6797|±  |0.0047|
+  Model          Benchmark   Accuracy gain from QAT   Degradation recovered
+  -------------  ----------  -----------------------  ----------------------
+  Gemma3-4B-it   GPQA        +1.0%                    66.9%
+  Gemma3-12B-it  BBH         +2.1%                    45.5%
+  Qwen3-4B       MMLU Pro    +2.0%                    36.0%
+  Llama-3.2-3B   MMLU Pro    +0.7%                    (of 2.0% degradation)
 
-  | Tasks  |Version|Filter|n-shot|    Metric     |   | Value |   |Stderr|
-  |--------|------:|------|------|---------------|---|------:|---|------|
-  |wikitext|      2|none  |None  |bits_per_byte  |↓  | 0.6965|±  |   N/A|
-  |        |       |none  |None  |byte_perplexity|↓  | 1.6206|±  |   N/A|
-  |        |       |none  |None  |word_perplexity|↓  |13.2199|±  |   N/A|
-
-You can compare these values with and without QAT to see how much QAT helped mitigate quantization degradation!
-For example, when fine-tuning Llama-3.2-3B on the
-`OpenAssistant Conversations (OASST1) <https://huggingface.co/datasets/OpenAssistant/oasst1>`__
-dataset, we find that the quantized model achieved 3.4% higher accuracy
-with QAT than without, recovering 69.8% of the overall accuracy degradation
-from quantization:
-
-.. image:: ../../static/qat_eval.png
-
-In addition to vanilla QAT as in the above example, TorchAO's QAT can also be composed with LoRA to yield a `1.89x training speedup <https://dev-discuss.pytorch.org/t/speeding-up-qat-by-1-89x-with-lora/2700>`__ and lower memory usage by 36.1%. This is implemented in TorchTune's `QAT + LoRA fine-tuning recipe <https://github.com/pytorch/torchtune/blob/main/recipes/qat_lora_finetune_distributed.py>`__, which can be run using the following command:
-
-.. code::
-
-  # Fine-tuning with QAT + LoRA
-  tune run --nnodes 1 --nproc_per_node 4 qat_lora_finetune_distributed --config llama3_2/3B_qat_lora batch_size=16
-
-For more details about how QAT is set up in TorchTune, please refer to `this tutorial <https://docs.pytorch.org/torchtune/main/tutorials/qat_finetune.html>`__.
+For a hands-on walkthrough and the full set of evaluation diagrams, refer to the
+`Unsloth QAT tutorial <https://unsloth.ai/docs/blog/quantization-aware-training-qat>`__,
+the `TorchAO QAT blog <https://pytorch.org/blog/quantization-aware-training-in-torchao-ii/>`__,
+and the `QAT experiments <https://docs.pytorch.org/ao/main/workflows/qat.html>`__
+in our documentation.
 
 
 Option 2: Axolotl QAT Integration
@@ -163,7 +138,7 @@ Option 3: TorchAO QAT API
 
 If you prefer to use a different training framework or your own custom training loop,
 you can call TorchAO's QAT APIs directly to transform the model before fine-tuning.
-These APIs are what the TorchTune and Axolotl QAT integrations call under the hood.
+These APIs are what the Unsloth and Axolotl QAT integrations call under the hood.
 
 In this example, we will fine-tune a mini version of Llama3 on a single GPU:
 
