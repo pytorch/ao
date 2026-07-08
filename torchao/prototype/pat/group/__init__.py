@@ -7,6 +7,7 @@
 from .attention import (  # noqa: F401
     AttentionHeadGrouperDim0,
     AttentionHeadGrouperDim1,
+    QKGrouper,
 )
 from .conv import ConvFilterGrouper  # noqa: F401
 from .dim import Dim0Grouper, Dim1Grouper  # noqa: F401
@@ -15,4 +16,5 @@ from .grouper import (  # noqa: F401
     Grouper,
     LayerGrouper,
 )
+from .k_element import KElementGrouper  # noqa: F401
 from .low_rank import PackedSVDGrouper, SVDGrouper  # noqa: F401

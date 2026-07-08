@@ -28,11 +28,19 @@ jobs:
             torch-spec: '--pre torch torchvision --index-url https://download.pytorch.org/whl/nightly/cu126'
             gpu-arch-type: "cuda"
             gpu-arch-version: "12.6"
+            compiler: ""
           - name: CPU Nightly
             runs-on: linux.4xlarge
             torch-spec: '--pre torch torchvision --index-url https://download.pytorch.org/whl/nightly/cpu'
             gpu-arch-type: "cpu"
             gpu-arch-version: ""
+            compiler: ""
+          - name: CPU Nightly (Clang)
+            runs-on: linux.4xlarge
+            torch-spec: '--pre torch torchvision --index-url https://download.pytorch.org/whl/nightly/cpu'
+            gpu-arch-type: "cpu"
+            gpu-arch-version: ""
+            compiler: "clang"
 
     permissions:
       id-token: write
@@ -45,8 +53,27 @@ jobs:
       gpu-arch-version: ${{ matrix.gpu-arch-version }}
       submodules: recursive
       script: |
-        conda create -n venv python=3.10 libgcc-ng=11.2.0 libstdcxx-ng=11.2.0 -y
-        conda activate venv
+        if [ "${{ matrix.compiler }}" = "clang" ]; then
+          # Install clang from the system package manager. The docker image's
+          # bundled conda has a broken menuinst plugin that rejects -c conda-forge,
+          # so we cannot install clangxx via conda here.
+          dnf install -y clang
+          clang --version
+          conda create -n venv python=3.10 libgcc-ng=11.2.0 libstdcxx-ng=11.2.0 -y
+          conda activate venv
+          export CC=clang
+          export CXX=clang++
+          # distutils (used by setup.py via cpp_extension.BuildExtension) reads
+          # CFLAGS from the env and applies it to both C and C++ compiles.
+          # It does NOT honor CXXFLAGS — that is a Make convention, not distutils.
+          export CFLAGS="-Werror -Wno-vla-cxx-extension"
+          # Compile the x86 CPU aten_kernels — they are off by default
+          # in setup.py and not otherwise exercised by any OSS CI job.
+          export USE_CPU_KERNELS=1
+        else
+          conda create -n venv python=3.10 libgcc-ng=11.2.0 libstdcxx-ng=11.2.0 -y
+          conda activate venv
+        fi
         python -m pip install --upgrade pip
         pip install ${{ matrix.torch-spec }}
         pip install -r dev-requirements.txt
@@ -59,40 +86,16 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - name: CUDA 2.8
+          - name: CUDA 2.12
             runs-on: linux.g5.12xlarge.nvidia.gpu
-            torch-spec: 'torch==2.8.0 torchvision==0.23.0'
-            gpu-arch-type: "cuda"
-            gpu-arch-version: "12.6"
-            dev-requirements-overrides: ""
-          - name: CUDA 2.9
-            runs-on: linux.g5.12xlarge.nvidia.gpu
-            torch-spec: 'torch==2.9.1 torchvision==0.24.1'
-            gpu-arch-type: "cuda"
-            gpu-arch-version: "12.6"
-            dev-requirements-overrides: ""
-          - name: CUDA 2.10
-            runs-on: linux.g5.12xlarge.nvidia.gpu
-            torch-spec: 'torch==2.10.0 torchvision==0.25.0'
+            torch-spec: 'torch==2.12.0 torchvision==0.27.0 --index-url https://download.pytorch.org/whl/cu126'
             gpu-arch-type: "cuda"
             gpu-arch-version: "12.6"
             dev-requirements-overrides: ""
 
-          - name: CPU 2.8
+          - name: CPU 2.12
             runs-on: linux.4xlarge
-            torch-spec: 'torch==2.8.0 torchvision==0.23.0 --index-url https://download.pytorch.org/whl/cpu'
-            gpu-arch-type: "cpu"
-            gpu-arch-version: ""
-            dev-requirements-overrides: ""
-          - name: CPU 2.9
-            runs-on: linux.4xlarge
-            torch-spec: 'torch==2.9.1 torchvision==0.24.1 --index-url https://download.pytorch.org/whl/cpu'
-            gpu-arch-type: "cpu"
-            gpu-arch-version: ""
-            dev-requirements-overrides: ""
-          - name: CPU 2.10
-            runs-on: linux.4xlarge
-            torch-spec: 'torch==2.10.0 torchvision==0.25.0 --index-url https://download.pytorch.org/whl/cpu'
+            torch-spec: 'torch==2.12.0 torchvision==0.27.0 --index-url https://download.pytorch.org/whl/cpu'
             gpu-arch-type: "cpu"
             gpu-arch-version: ""
             dev-requirements-overrides: ""

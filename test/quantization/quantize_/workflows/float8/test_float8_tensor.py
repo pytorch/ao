@@ -36,7 +36,6 @@ from torchao.utils import (
     is_sm_at_least_89,
     is_sm_at_least_90,
     is_sm_at_least_100,
-    torch_version_at_least,
 )
 
 # Needed since changing args to function causes recompiles
@@ -94,6 +93,19 @@ class ToyConvModel(torch.nn.Module):
 
     def forward(self, x):
         return self.conv(x)
+
+
+class GroupedMMModel(torch.nn.Module):
+    """A toy model whose only op in forward is torch._grouped_mm."""
+
+    def __init__(self, E, K, N, device, dtype=torch.bfloat16):
+        super().__init__()
+        self.weight = torch.nn.Parameter(
+            torch.randn(E, N, K, device=device, dtype=dtype)
+        )
+
+    def forward(self, x, offs):
+        return torch._grouped_mm(x, self.weight.transpose(-2, -1), offs=offs)
 
 
 class ToyTwoConvModel(torch.nn.Module):
@@ -181,13 +193,13 @@ class ToyLoRAModel(torch.nn.Module):
 
 
 # TODO: move tests in test_affine_quantized_float.py here after we migrated all implementations
-@unittest.skipIf(not torch_version_at_least("2.8.0"), "Need pytorch 2.8+")
 @unittest.skipIf(
     not torch.accelerator.is_available(), "skipping when gpu is not available"
 )
 @unittest.skipIf(torch.cuda.is_available() and not is_sm_at_least_89(), "Need sm89+")
 class TestFloat8Tensor(TorchAOIntegrationTestCase):
     def setUp(self):
+        super().setUp()
         _DEVICE = get_current_accelerator_device()
         self.GPU_DEVICES = [_DEVICE] if torch.accelerator.is_available() else []
         torch.set_grad_enabled(False)
@@ -309,8 +321,6 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
                 return unittest.skip("PerGroup not supported for dynamic mode")
 
         elif granularity == (PerBlock([1, 128]), PerBlock([128, 128])):
-            if torch.xpu.is_available():
-                return unittest.skip("PerBlock granularity not supported on XPU")
             if dtype is not torch.bfloat16:
                 return unittest.skip("unimplemented")
             elif mode != "dynamic":
@@ -346,6 +356,14 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
             or (not torch.cuda.is_available() and not is_sm_at_least_90())
         ):
             return unittest.skip("Requires mslk to run mslk kernel preference test")
+
+        if kernel_preference == KernelPreference.MSLK and isinstance(
+            granularity, PerTensor
+        ):
+            return unittest.skip(
+                "tensorwise-scaled MSLK gemm (torch.ops.mslk.f8f8bf16) is no longer "
+                "supported, use KernelPreference.TORCH instead"
+            )
 
         error_context = (
             self.assertRaisesRegex(AssertionError, error_message)
@@ -844,7 +862,14 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
         other_kernel_preferences = [
             KernelPreference.AUTO,
         ]
-        if _is_mslk_available() and torch.cuda.is_available() and is_sm_at_least_90():
+        # MSLK no longer supports tensorwise-scaled gemm (torch.ops.mslk.f8f8bf16),
+        # so it is only exercised for non-PerTensor granularities here.
+        if (
+            _is_mslk_available()
+            and torch.cuda.is_available()
+            and is_sm_at_least_90()
+            and not isinstance(granularity, PerTensor)
+        ):
             other_kernel_preferences.append(KernelPreference.MSLK)
 
         quantized_outputs = {}
@@ -1438,6 +1463,21 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
         x_fp8 = Float8Tensor.from_hp(x)
         self._test_chunk_similar_to_vllm_llama4(x_fp8, dim)
 
+    @common_utils.parametrize("dim", [-2, -1])
+    def test_chunk_via_torch_chunk_with_dim_kwarg(self, dim):
+        # Complements `test_chunk`: that test uses `Tensor.chunk`, which
+        # lands in `aten.split.Tensor` with `dim` in `args`; this one uses
+        # the free function `torch.chunk(t, n, dim=dim)`, which leaves
+        # `dim` in `kwargs` (the path FSDP2's `_chunk_with_empty` takes).
+        device = get_current_accelerator_device()
+        x = torch.randn(16, 5120, 16384, device=device, dtype=torch.bfloat16)
+        x_fp8 = Float8Tensor.from_hp(x)
+        chunks = torch.chunk(x_fp8, 2, dim=dim)
+        recombined = torch.cat(chunks, dim=dim)
+        torch.testing.assert_close(
+            x_fp8.dequantize(), recombined.dequantize(), atol=0, rtol=0
+        )
+
     @common_utils.parametrize(
         "config",
         [
@@ -1485,6 +1525,124 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
             output = linear(input_tensor)
             self.assertEqual(output.shape, (16, 48))
             self.assertEqual(output.dtype, torch.bfloat16)
+
+    @unittest.skipIf(not torch.cuda.is_available(), "CUDA not available")
+    @unittest.skipIf(not is_sm_at_least_90(), "Need sm90+")
+    @common_utils.parametrize(
+        "E,K,N,m_per_group",
+        [
+            (4, 128, 256, [32, 64, 16, 48]),
+            (8, 256, 512, [16, 16, 16, 16, 16, 16, 16, 16]),
+        ],
+    )
+    @torch.no_grad()
+    def test_fp8_grouped_mm_dynamic_act_weight(self, E, K, N, m_per_group):
+        """Test Float8DynamicActivationFloat8WeightConfig with grouped_mm dispatch."""
+        device = torch.accelerator.current_accelerator()
+        dtype = torch.bfloat16
+        total_m = sum(m_per_group)
+
+        model_ref = GroupedMMModel(E, K, N, device=device, dtype=dtype)
+        model = copy.deepcopy(model_ref)
+
+        x = torch.randn(total_m, K, device=device, dtype=dtype)
+        offs = torch.tensor(
+            [sum(m_per_group[: i + 1]) for i in range(E)],
+            device=device,
+            dtype=torch.int32,
+        )
+
+        y_ref = model_ref(x, offs)
+
+        config = Float8DynamicActivationFloat8WeightConfig(granularity=PerRow())
+        quantize_(
+            model,
+            config,
+            filter_fn=lambda mod, fqn: (
+                isinstance(mod, GroupedMMModel) and hasattr(mod, "weight")
+            ),
+        )
+
+        self.assertIsInstance(model.weight, Float8Tensor)
+
+        w_sqnr = compute_error(model_ref.weight, model.weight.dequantize())
+        self.assertGreater(w_sqnr, 25.0, f"Weight SQNR too low: {w_sqnr:.2f}")
+
+        y = model(x, offs)
+        y_sqnr = compute_error(y_ref, y)
+        self.assertGreater(y_sqnr, 20.0, f"Output SQNR too low: {y_sqnr:.2f}")
+
+    @unittest.skipIf(not torch.cuda.is_available(), "CUDA not available")
+    @unittest.skipIf(not is_sm_at_least_90(), "Need sm90+")
+    @common_utils.parametrize("E,K,N", [(4, 128, 256)])
+    @torch.no_grad()
+    def test_fp8_grouped_mm_weight_only(self, E, K, N):
+        """Test Float8WeightOnlyConfig with grouped_mm dispatch (weight-only dequant path)."""
+        device = torch.accelerator.current_accelerator()
+        dtype = torch.bfloat16
+        m_per_group = [32, 64, 16, 48]
+        total_m = sum(m_per_group)
+
+        model_ref = GroupedMMModel(E, K, N, device=device, dtype=dtype)
+        model = copy.deepcopy(model_ref)
+
+        x = torch.randn(total_m, K, device=device, dtype=dtype)
+        offs = torch.tensor(
+            [sum(m_per_group[: i + 1]) for i in range(E)],
+            device=device,
+            dtype=torch.int32,
+        )
+
+        y_ref = model_ref(x, offs)
+
+        config = Float8WeightOnlyConfig(granularity=PerRow())
+        quantize_(
+            model,
+            config,
+            filter_fn=lambda mod, fqn: (
+                isinstance(mod, GroupedMMModel) and hasattr(mod, "weight")
+            ),
+        )
+
+        self.assertIsInstance(model.weight, Float8Tensor)
+
+        y = model(x, offs)
+        y_sqnr = compute_error(y_ref, y)
+        self.assertGreater(y_sqnr, 25.0, f"Output SQNR too low: {y_sqnr:.2f}")
+
+    @unittest.skipIf(not torch.cuda.is_available(), "CUDA not available")
+    @unittest.skipIf(not is_sm_at_least_90(), "Need sm90+")
+    @common_utils.parametrize("E,K,N", [(4, 128, 256)])
+    @torch.no_grad()
+    def test_fp8_grouped_mm_non_rowwise_raises(self, E, K, N):
+        """Test that _grouped_mm with non-PerRow granularity raises NotImplementedError."""
+        device = torch.accelerator.current_accelerator()
+        dtype = torch.bfloat16
+        m_per_group = [32, 64, 16, 48]
+        total_m = sum(m_per_group)
+
+        model = GroupedMMModel(E, K, N, device=device, dtype=dtype)
+
+        x = torch.randn(total_m, K, device=device, dtype=dtype)
+        offs = torch.tensor(
+            [sum(m_per_group[: i + 1]) for i in range(E)],
+            device=device,
+            dtype=torch.int32,
+        )
+
+        config = Float8DynamicActivationFloat8WeightConfig(granularity=PerTensor())
+        quantize_(
+            model,
+            config,
+            filter_fn=lambda mod, fqn: (
+                isinstance(mod, GroupedMMModel) and hasattr(mod, "weight")
+            ),
+        )
+
+        self.assertIsInstance(model.weight, Float8Tensor)
+
+        with self.assertRaises(NotImplementedError):
+            model(x, offs)
 
 
 common_utils.instantiate_parametrized_tests(TestFloat8Tensor)

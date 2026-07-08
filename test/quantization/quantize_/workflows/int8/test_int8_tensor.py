@@ -32,7 +32,6 @@ from torchao.testing.utils import TorchAOIntegrationTestCase, skip_if_xpu
 from torchao.utils import (
     get_available_devices,
     is_ROCM,
-    torch_version_at_least,
 )
 
 INT8_TEST_CONFIGS = [
@@ -47,12 +46,12 @@ INT8_TEST_CONFIGS = [
     ),
     Int8DynamicActivationInt8WeightConfig(
         version=2,
-        granularity=(PerTensor(), PerRow()),
+        granularity=[PerTensor(), PerRow()],
         act_mapping_type=MappingType.SYMMETRIC,
     ),
     Int8DynamicActivationInt8WeightConfig(
         version=2,
-        granularity=(PerRow(), PerTensor()),
+        granularity=[PerRow(), PerTensor()],
         act_mapping_type=MappingType.SYMMETRIC,
     ),
     Int8DynamicActivationInt8WeightConfig(
@@ -253,9 +252,6 @@ class TestInt8Tensor(TorchAOIntegrationTestCase):
             f"Dequantization error is too high to get a SQNR of {compute_error(dequantized, weight_fp)}"
         )
 
-    @unittest.skipIf(
-        not torch_version_at_least("2.7.0"), "torch 2.6.0 and below has custom fx pass"
-    )
     @common_utils.parametrize("device", get_available_devices())
     def test_available_gpu_kernels(self, device):
         """Check which GPU kernels are used"""

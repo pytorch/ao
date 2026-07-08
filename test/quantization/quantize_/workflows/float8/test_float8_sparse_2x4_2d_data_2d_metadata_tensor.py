@@ -23,21 +23,14 @@ from torchao.quantization.quantize_.workflows import (
 )
 from torchao.quantization.utils import compute_error
 from torchao.sparsity import apply_fake_sparsity
-from torchao.utils import (
-    is_sm_at_least_90,
-    torch_version_at_least,
-)
+from torchao.utils import is_sm_at_least_90
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
 )
 
 
-@unittest.skipIf(
-    not torch_version_at_least("2.10.0"),
-    "Need torch >= 2.10.0 for availability of ABI kernels",
-)
-class TestSparse2x4Float8Tensor(common_utils.TestCase):
+class TestFloat8Sparse2x4_2DData2DMetadataTensor(common_utils.TestCase):
     @unittest.skipIf(not is_sm_at_least_90(), "Need H100 to run")
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     @common_utils.parametrize("compile", [True, False])
@@ -68,7 +61,7 @@ class TestSparse2x4Float8Tensor(common_utils.TestCase):
                 model,
                 Float8DynamicActivationFloat8WeightConfig(
                     version=2,
-                    packing_format=Float8PackingFormat.SPARSE_CUTLASS,
+                    packing_format=Float8PackingFormat.SPARSE_2D_DATA_2D_METADATA,
                     granularity=PerRow(),
                 ),
             )
@@ -89,7 +82,7 @@ class TestSparse2x4Float8Tensor(common_utils.TestCase):
                 model,
                 Float8DynamicActivationFloat8WeightConfig(
                     version=2,
-                    packing_format=Float8PackingFormat.SPARSE_CUTLASS,
+                    packing_format=Float8PackingFormat.SPARSE_2D_DATA_2D_METADATA,
                     granularity=PerRow(),
                 ),
             )
@@ -114,7 +107,7 @@ class TestSparse2x4Float8Tensor(common_utils.TestCase):
                 model,
                 Float8DynamicActivationFloat8WeightConfig(
                     version=2,
-                    packing_format=Float8PackingFormat.SPARSE_CUTLASS,
+                    packing_format=Float8PackingFormat.SPARSE_2D_DATA_2D_METADATA,
                     granularity=PerRow(),
                 ),
             )
@@ -137,7 +130,7 @@ class TestSparse2x4Float8Tensor(common_utils.TestCase):
             )
 
 
-common_utils.instantiate_parametrized_tests(TestSparse2x4Float8Tensor)
+common_utils.instantiate_parametrized_tests(TestFloat8Sparse2x4_2DData2DMetadataTensor)
 
 if __name__ == "__main__":
     unittest.main()

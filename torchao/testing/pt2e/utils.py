@@ -6,7 +6,6 @@
 
 import contextlib
 import copy
-import unittest
 
 import torch
 from torch.ao.quantization.backend_config import (
@@ -32,7 +31,6 @@ from torchao.quantization.pt2e.quantize_pt2e import (
     prepare_pt2e,
     prepare_qat_pt2e,
 )
-from torchao.utils import torch_version_at_least
 
 
 class PT2EQuantizationTestCase(QuantizationTestCase):
@@ -135,7 +133,6 @@ class PT2EQuantizationTestCase(QuantizationTestCase):
         return m
 
 
-@unittest.skipIf(not torch_version_at_least("2.7.0"), "Requires torch 2.7+")
 class PT2ENumericDebuggerTestCase(TestCase):
     """
     Base test case class for PT2E numeric debugger tests containing common utility functions
@@ -255,7 +252,7 @@ class FP8QDQLinear(torch.nn.Module):
 
     def forward(self, input):
         weight = torch.ops.torchao.dequantize_affine_float8_non_decomposed.default(
-            tensor=self.weight.data,
+            tensor=self.weight,
             scale=torch.tensor([self.weight_scale]),
             output_dtype=torch.float,
         )

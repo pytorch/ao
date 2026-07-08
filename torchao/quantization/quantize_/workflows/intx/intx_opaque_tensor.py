@@ -18,10 +18,7 @@ from torchao.quantization.quantize_.workflows.intx.intx_unpacked_to_int8_tensor 
     IntxUnpackedToInt8Tensor,
     IntxUnpackedToInt8TensorActivationQuantization,
 )
-from torchao.utils import (
-    TorchAOBaseTensor,
-    torch_version_at_least,
-)
+from torchao.utils import TorchAOBaseTensor
 
 __all__ = [
     "IntxOpaqueTensor",
@@ -162,9 +159,6 @@ class IntxOpaqueTensor(TorchAOBaseTensor):
 
         # Handle ATEN
         if intx_packing_format == IntxPackingFormat.OPAQUE_ATEN_KLEIDIAI:
-            assert torch_version_at_least("2.6.0"), (
-                "ATEN target requires torch version > 2.6.0"
-            )
             assert torch.backends.kleidiai.is_available(), (
                 "ATEN target requires torch.backends.kleidiai.is_available()"
             )

@@ -5,11 +5,11 @@
 # LICENSE file in the root directory of this source tree.
 
 
-import warnings
 from dataclasses import dataclass
 from typing import List, Optional
 
 import torch
+from torch.nn.functional import ScalingType, scaled_grouped_mm
 from torch.utils._python_dispatch import return_and_correct_aliasing
 
 from torchao.float8.inference import (
@@ -49,6 +49,8 @@ from torchao.utils import (
 
 if _is_mslk_available():
     import mslk.conv  # noqa: F401
+    import mslk.gemm  # noqa: F401  # registers fake/meta kernels for mslk gemm ops
+    import mslk.quantize.triton.fp8_quantize  # noqa: F401  # registers fake/meta kernels for triton quantize ops
 
 __all__ = [
     "Float8Tensor",
@@ -366,17 +368,10 @@ def _float8_addmm_impl(
                 _is_mslk_available()
                 and is_sm_at_least_90()
                 and (not _is_128_128_scaled(weight_tensor))
-                and not (is_sm_at_least_100() and _is_tensorwise_scaled(weight_tensor))
+                and not _is_tensorwise_scaled(weight_tensor)
             ):
                 kernel_choice = "mslk"
         elif weight_tensor.kernel_preference == KernelPreference.MSLK:
-            # If user explicitly requests MSLK on a B200-like GPU with per-tensor
-            # scales, warn but honor the user's explicit preference.
-            if is_sm_at_least_100() and _is_tensorwise_scaled(weight_tensor):
-                warnings.warn(
-                    "Requested MSLK kernel with per-tensor scaled weights on a B200/GB200-like GPU "
-                    "may fail or be very slow. Consider setting KernelPreference to TORCH or AUTO."
-                )
             kernel_choice = "mslk"
         else:
             assert weight_tensor.kernel_preference == KernelPreference.TORCH, (
@@ -392,7 +387,6 @@ def _float8_addmm_impl(
             assert not _is_128_128_scaled(weight_tensor), "unimplemented"
 
             xq = input_tensor.qdata.reshape(-1, input_tensor.qdata.shape[-1])
-            x_scale = input_tensor.scale
             if _is_rowwise_scaled(weight_tensor.t()):
                 assert _is_rowwise_scaled(input_tensor), (
                     "Input tensor must be rowwise block size"
@@ -408,14 +402,10 @@ def _float8_addmm_impl(
             else:
                 assert _is_tensorwise_scaled(weight_tensor)
                 assert _is_tensorwise_scaled(input_tensor)
-                res = torch.ops.mslk.f8f8bf16(
-                    xq,
-                    weight_tensor.qdata.t(),
-                    x_scale * weight_tensor.scale.t(),
-                    use_fast_accum=mm_config.use_fast_accum,
-                ).reshape(out_shape)
-                if bias is not None:
-                    res = res + bias
+                raise NotImplementedError(
+                    "torch.ops.mslk.f8f8bf16 (tensorwise-scaled MSLK gemm) is no "
+                    "longer supported. Please use KernelPreference.TORCH instead."
+                )
             return res
         else:
             assert kernel_choice == "torch"
@@ -1022,7 +1012,10 @@ def _(func, types, args, kwargs):
 
 @implements(aten.split.Tensor)
 def _(func, types, args, kwargs):
-    tensor, split_size_or_sections, dim = args
+    # `dim` may arrive positionally or as a kwarg depending on the caller
+    # (e.g. `torch.chunk(t, n, dim=d)` keeps it in kwargs).
+    tensor, split_size_or_sections = args[0], args[1]
+    dim = args[2] if len(args) > 2 else kwargs.get("dim", 0)
     assert isinstance(split_size_or_sections, int), "unimplemented"
 
     # 2D case
@@ -1087,6 +1080,47 @@ def _(func, types, args, kwargs):
 
 
 Float8Tensor.__module__ = "torchao.quantization"
+
+
+@implements([aten._grouped_mm.default])
+def float8_grouped_mm(func, types, args, kwargs):
+    """Handles torch._grouped_mm when weight (mat_b) is a Float8Tensor.
+    Only PerRow granularity is supported; non-PerRow raises NotImplementedError.
+    """
+    mat_a, mat_b = args[0], args[1]
+    offs = args[2] if len(args) > 2 else kwargs.get("offs", None)
+    assert isinstance(mat_b, Float8Tensor)
+    assert offs is not None, "offs is required for _grouped_mm"
+
+    is_b_transposed = mat_b.qdata.stride(-2) < mat_b.qdata.stride(-1)
+    assert is_b_transposed, "unsupported"
+
+    output_dtype = mat_a.dtype
+    act_quant_kwargs = mat_b.act_quant_kwargs
+
+    if act_quant_kwargs is None:
+        return torch._grouped_mm(mat_a, mat_b.dequantize(), offs=offs)
+
+    # Only PerRow granularity is supported for scaled path
+    if not isinstance(act_quant_kwargs.granularity, PerRow):
+        raise NotImplementedError(
+            f"_grouped_mm only supports PerRow granularity, "
+            f"got {act_quant_kwargs.granularity}"
+        )
+
+    mat_a_q = _choose_quant_func_and_quantize_tensor(mat_a, act_quant_kwargs)
+    b_scale = mat_b.scale.transpose(-2, -1)
+    return scaled_grouped_mm(
+        mat_a_q.qdata,
+        mat_b.qdata,
+        scale_a=mat_a_q.scale.squeeze(-1),
+        scale_recipe_a=ScalingType.RowWise,
+        scale_b=b_scale.squeeze(-1),
+        scale_recipe_b=ScalingType.RowWise,
+        offs=offs,
+        output_dtype=output_dtype,
+    )
+
 
 # Allow a model with Float8Tensor weights to be loaded with `weights_only=True`
 torch.serialization.add_safe_globals([Float8Tensor, QuantizeTensorToFloat8Kwargs])

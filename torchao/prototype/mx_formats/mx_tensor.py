@@ -23,6 +23,7 @@ from typing import Optional, Union
 
 import torch
 import torch.nn.functional as F
+from torch._subclasses.fake_tensor import is_fake
 from torch.distributed.tensor import DTensor, Replicate, Shard
 from torch.distributed.tensor.experimental import local_map
 from torch.utils._python_dispatch import (
@@ -30,11 +31,12 @@ from torch.utils._python_dispatch import (
 )
 from torch.utils._pytree import tree_map
 
-from torchao.utils import torch_version_at_least
+from torchao.utils import is_sm_at_least_100, torch_version_at_least
 
-# ScalingType and SwizzleType are only available in PyTorch 2.10+
-if torch_version_at_least("2.10.0"):
-    from torch.nn.functional import ScalingType, SwizzleType
+if torch_version_at_least("2.12.0.dev0"):
+    from torch._higher_order_ops.inline_asm_elementwise import inline_asm_elementwise
+
+from torch.nn.functional import ScalingType, SwizzleType
 
 from torchao.prototype.mx_formats.config import (
     MXFP8Dim0CastKernelChoice,
@@ -114,9 +116,9 @@ def _to_mx_rceil(
     https://docs.nvidia.com/cuda/cublas/#d-block-quantization
 
     For Nvidia GPU with Blackwell+ architecture, the scale factor derivation method
-    could be accelerated by the `cvt.rp.satfinite.ue8m0x2.f32` instruction.
-
-    Fixed to match CUDA float_to_e8m0 and exp2f_rcp behavior with per-element handling.
+    is accelerated by the `cvt.rp.satfinite.ue8m0x2.f32` instruction via
+    `inline_asm_elementwise`, if torch.compile is on. Falls back to pure PyTorch ops
+    on other hardware and in eager mode.
 
     Args:
         data_hp: High precision data.
@@ -130,24 +132,55 @@ def _to_mx_rceil(
     """
     descale = max_abs / max_pos
 
-    # Handle special values in scale calculation
-    exponent = torch.where(
-        torch.isnan(descale),
-        255,  # 0xFF for NaN in amax
-        torch.where(
-            torch.isinf(descale),
-            254,  # 0xFE for inf in amax
-            # Normal case
-            (
-                torch.clamp(
-                    torch.ceil(torch.log2(descale)),
-                    min=-E8M0_EXPONENT_BIAS,
-                    max=E8M0_EXPONENT_BIAS,
-                )
-                + E8M0_EXPONENT_BIAS
-            ).to(torch.uint8),
-        ),
-    )
+    if (
+        # gate the inline PTX to compile only because the functionality does
+        # not work properly in eager mode due to mismatch between input and
+        # output tensor dtype (limitation of JITerator).
+        # Note: we use both `torch.compiler.is_compiling()` as well as `is_fake`
+        # because `torch.compiler.is_compiling()` properly covers
+        # microbenchmarks, and `is_fake` properly covers e2e runs where this code
+        # path is hit through `__torch_dispatch__` and
+        # `torch.compiler.is_compiling()` returns False.
+        # Note that we need both checks, as neither of them work in both benchmark
+        # and e2e use cases by themselves.
+        (torch.compiler.is_compiling() or is_fake(descale))
+        and is_sm_at_least_100()
+        # the PyTorch Core support for inline_asm_elementwise is available in
+        # 2.12.0 nightly and above
+        and torch_version_at_least("2.12.0.dev0")
+        and descale.is_cuda
+    ):
+        # Use cvt.rp.satfinite.ue8m0x2.f32 to convert fp32 descale to e8m0.
+        # The instruction takes two fp32 inputs, packs two e8m0 results into uint16.
+        # We pass 0.0 as the first input (high byte) and descale as the second (low byte).
+        # Handles NaN->255, Inf->254, subnormals->0 in hardware.
+        scale_e8m0_u16 = inline_asm_elementwise(
+            descale.to(torch.float32),
+            asm_str="cvt.rp.satfinite.ue8m0x2.f32 $0, 0.0, $1;",
+            constraints="=h,r",
+            dtype=torch.uint16,
+        )
+        # Low byte contains e8m0 of our input; truncate uint16 -> uint8
+        exponent = scale_e8m0_u16.to(torch.uint8)
+    else:
+        # Fallback
+        exponent = torch.where(
+            torch.isnan(descale),
+            255,  # 0xFF for NaN in amax
+            torch.where(
+                torch.isinf(descale),
+                254,  # 0xFE for inf in amax
+                # Normal case
+                (
+                    torch.clamp(
+                        torch.ceil(torch.log2(descale)),
+                        min=-E8M0_EXPONENT_BIAS,
+                        max=E8M0_EXPONENT_BIAS,
+                    )
+                    + E8M0_EXPONENT_BIAS
+                ).to(torch.uint8),
+            ),
+        )
 
     # Ref: https://github.com/NVIDIA/TransformerEngine/blob/b7598aa887eb7d619d64c90692980009669379bf/transformer_engine/common/util/ptx.cuh#L332-L341
     rcp_fp32 = torch.where(
@@ -328,12 +361,13 @@ def to_mx(
             elem_dtype in (torch.float8_e4m3fn, torch.float8_e5m2)
             and not torch._dynamo.is_compiling()
         ):
-            # As of 20250317, the Pytorch eager mode cast to `torch.float8_e4m3fn`
-            # is unsaturated. This cast is saturated in triton. If we are compute bound,
-            # we see a speedup if we remove this redundant clamp if we are compiling
-            # to triton.
-            # TODO(#1912): make the saturated cast work in eager mode and remove this
-            # workaround.
+            # PyTorch 2.11 and older eager casts did not saturate finite
+            # overflow values, so torchao clamps before casting. Triton
+            # casts saturate, if we are compute bound we see a speedup if we remove
+            # this redundant clamp (in the case of compiling to Triton)
+            # TODO(#1912): PyTorch core fixed eager saturation in
+            # https://github.com/pytorch/pytorch/pull/178817. Remove this
+            # workaround after torchao stops supporting PyTorch 2.11.
             data_lp = torch.clamp(data_lp, min=-1 * max_pos, max=max_pos)
 
     # cast to target dtype
@@ -451,7 +485,7 @@ def tensor_size_hp_to_fp4x2(orig_size, is_contiguous):
         else:
             assert len(orig_size) == 3, "unsupported"
             # only supporting dim0, dim1, dim2 and dim0, dim2, dim1 orders
-            new_size = [new_size[0], new_size[2] // 2, new_size[1]]
+            new_size = [new_size[0], new_size[1] // 2, new_size[2]]
     return new_size
 
 
@@ -465,7 +499,7 @@ def tensor_size_fp4x2_to_hp(orig_size, is_contiguous):
         else:
             assert len(orig_size) == 3, "unsupported"
             # only supporting dim0, dim1, dim2 and dim0, dim2, dim1 orders
-            new_size = [new_size[0], new_size[2] * 2, new_size[1]]
+            new_size = [new_size[0], new_size[1] * 2, new_size[2]]
     return new_size
 
 
@@ -775,10 +809,6 @@ def _addmm_mx_dispatch(
         else:
             assert a.elem_dtype == torch.float4_e2m1fn_x2
             assert b.elem_dtype == torch.float4_e2m1fn_x2
-            if not torch_version_at_least("2.10.0"):
-                raise RuntimeError(
-                    "MXFP4 matmul requires PyTorch 2.10.0 or later for F.scaled_mm support"
-                )
             # FP4 operations using F.scaled_mm
             res = F.scaled_mm(
                 a.qdata.view(torch.float4_e2m1fn_x2),

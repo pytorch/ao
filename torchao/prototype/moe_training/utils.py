@@ -1,7 +1,6 @@
 """Shared utilities for MoE training: FP8/MXFP8 quantization, group padding/unpadding, and scaled grouped matmul."""
 
 import random
-import warnings
 from typing import Optional, Tuple
 
 import torch
@@ -15,7 +14,6 @@ from torchao.prototype.moe_training.config import (
 )
 from torchao.prototype.mx_formats.mx_tensor import to_mx
 from torchao.quantization.quantize_.common import KernelPreference
-from torchao.utils import torch_version_at_least
 
 
 # --- float8 rowwise scaling ---
@@ -353,16 +351,7 @@ def generate_jagged_offs(E, M, multiple_of=32, dtype=torch.int32, device="cuda")
 
 
 def conditional_nostrict_trace(fn):
-    """
-    Applies @torch._dynamo.nonstrict_trace if exists, otherwise no-op.
-    """
-    if torch_version_at_least("2.7.0"):
-        return torch._dynamo.nonstrict_trace(fn)
-    warnings.warn(
-        f"torch._dynamo.nonstrict_trace is not available in torch version {torch.__version__}."
-        "please use torch 2.7.0+ for torch.compile support on mxfp8 expert parallel autograd functions."
-    )
-    return fn
+    return torch._dynamo.nonstrict_trace(fn)
 
 
 # dispatching helper for ScaledGroupedMMTensor
@@ -371,6 +360,7 @@ def _quantize_then_scaled_grouped_mm(
     B_t: torch.Tensor,
     config: TrainingOpBaseConfig,
     offs: Optional[torch.Tensor] = None,
+    bias: Optional[torch.Tensor] = None,
 ) -> torch.Tensor:
     """
     This function performs dynamic quantization with the given config
@@ -400,15 +390,20 @@ def _quantize_then_scaled_grouped_mm(
             pad_token_groups_for_grouped_mm=config.pad_token_groups_for_grouped_mm,
         )
     elif isinstance(config, MXFP8TrainingOpConfig):
+        kwargs = {
+            "out_dtype": config.out_dtype,
+            "kernel_preference": config.kernel_preference,
+            "wgrad_with_hp": config.wgrad_with_hp,
+            "scale_calculation_mode": config.scale_calculation_mode,
+            "pad_token_groups_for_grouped_mm": config.pad_token_groups_for_grouped_mm,
+        }
+        if bias is not None:
+            kwargs["bias"] = bias
         return _to_mxfp8_then_scaled_grouped_mm(
             A,
             B_t,
             offs,
-            out_dtype=config.out_dtype,
-            kernel_preference=config.kernel_preference,
-            wgrad_with_hp=config.wgrad_with_hp,
-            scale_calculation_mode=config.scale_calculation_mode,
-            pad_token_groups_for_grouped_mm=config.pad_token_groups_for_grouped_mm,
+            **kwargs,
         )
     else:
         raise ValueError(f"Unsupported config type: {type(config)}")
@@ -512,3 +507,12 @@ class _UnwrapWeight(torch.autograd.Function):
 
 def unwrap_weight(wrapper_tensor):
     return _UnwrapWeight.apply(wrapper_tensor)
+
+
+def _to_fp8_then_scaled_mm(input, weight, config):
+    """Helper to perform FP8 linear via matmul_with_hp_or_float8_args."""
+    from torchao.float8.float8_linear import matmul_with_hp_or_float8_args
+
+    return matmul_with_hp_or_float8_args.apply(
+        input, weight.t(), config._linear_mm_config, config._float8_linear_config
+    )

@@ -239,6 +239,11 @@ class _Round(torch.autograd.Function):
 class _RoundToFloat8(torch.autograd.Function):
     """
     Implementation of `tensor.to(float8_dtype)` with backward STE.
+
+    In PyTorch 2.11 and older, eager casts to FP8 do not saturate finite
+    overflow values. Callers that require saturated FP8 semantics should
+    clamp before invoking this function, `_quantize_affine_float8` does
+    that before casting.
     """
 
     @staticmethod
@@ -1308,7 +1313,7 @@ def _choose_qparams_affine_tinygemm(
     if scale_dtype is None:
         scale_dtype = input.dtype
     if eps is None:
-        eps = torch.finfo(input.dtype).eps
+        eps = torch.finfo(input.dtype).smallest_normal
 
     assert len(block_size) == input.dim(), (
         f"Got input dim:{input.dim()}, block_size: {block_size}"
@@ -1379,7 +1384,7 @@ def _choose_qparams_affine_dont_preserve_zero(
     if scale_dtype is None:
         scale_dtype = input.dtype
     if eps is None:
-        eps = torch.finfo(input.dtype).eps
+        eps = torch.finfo(input.dtype).smallest_normal
 
     assert len(block_size) == input.dim(), (
         f"Got input dim:{input.dim()}, block_size: {block_size}"
@@ -1448,7 +1453,7 @@ def choose_qparams_affine_with_min_max(
     if scale_dtype is None:
         scale_dtype = min_val.dtype
     if eps is None:
-        eps = torch.finfo(min_val.dtype).eps
+        eps = torch.finfo(min_val.dtype).smallest_normal
 
     min_val_neg = torch.min(min_val, torch.zeros_like(min_val))
     max_val_pos = torch.max(max_val, torch.zeros_like(max_val))
@@ -1524,7 +1529,7 @@ def _choose_qparams_affine(
     if scale_dtype is None:
         scale_dtype = input.dtype
     if eps is None:
-        eps = torch.finfo(input.dtype).eps
+        eps = torch.finfo(input.dtype).smallest_normal
 
     assert len(block_size) == input.dim(), (
         f"Got input dim:{input.dim()}, block_size: {block_size}"

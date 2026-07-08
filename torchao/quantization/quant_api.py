@@ -52,6 +52,8 @@ from torchao.quantization.quantize_.common import (
 )
 from torchao.quantization.quantize_.workflows import (
     Float8PackingFormat,
+    Float8Sparse2x4_1DData1DMetadataTensor,
+    Float8Sparse2x4_2DData2DMetadataTensor,
     Float8Tensor,
     Int4ChooseQParamsAlgorithm,
     Int4PackingFormat,
@@ -66,7 +68,6 @@ from torchao.quantization.quantize_.workflows import (
     IntxUnpackedToInt8Tensor,
     QuantizeTensorToFloat8Kwargs,
     QuantizeTensorToInt8Kwargs,
-    Sparse2x4CUTLASSFloat8Tensor,
 )
 from torchao.quantization.transform_module import (
     _QUANTIZE_CONFIG_HANDLER,
@@ -355,15 +356,17 @@ class Int8DynamicActivationIntxWeightConfig(AOBaseConfig):
 
     args:
         `weight_dtype`: The dtype to use for weight quantization.  Must be torch.intx, where 1 <= x <= 8.
-       ` weight_granularity`: The granularity to use for weight quantization.  Must be PerGroup or PerAxis(axis=0).
+        `weight_granularity`: The granularity to use for weight quantization.  Must be PerGroup or PerAxis(axis=0).
         `weight_mapping_type`: The type of mapping to use for the weight quantization.
             Must be one of MappingType.ASYMMETRIC or MappingType.SYMMETRIC.  MappingType.SYMMETRIC requires ZeroPointDomain.NONE
         `weight_scale_dtype`: The dtype to use for the weight scale.
         `act_mapping_type`: The type of mapping to use for the activation quantization.
             Must be one of MappingType.ASYMMETRIC or MappingType.SYMMETRIC.
         `intx_packing_format`: The format to use for the packed weight tensor (version 2 only).
+
             - unpacked_to_int8: this format is the default and is intended for export applications like ExecuTorch.
             - opaque_torchao_auto: this format is optimized for CPU performance.
+
         `intx_choose_qparams_algorithm`: The algorithm to use for choosing the quantization parameters.
         `version`: version of the config to use, only subset of above args are valid based on version, see note for more details.
 
@@ -835,14 +838,17 @@ class Int8DynamicActivationInt8WeightConfig(AOBaseConfig):
     quantization to linear layers.
 
     Args:
-        granularity: Optional[Union[Granularity, Tuple[Granularity, Granularity], List[Granularity]]] = PerRow()
+        granularity: Optional[Union[Granularity, List[Granularity]]] = PerRow()
             The granularity for quantization. Can be either a single granularity (applied to both
-            activations and weights) or a tuple / list of two granularities (first for activations, second for weights).
+            activations and weights) or a list of two granularities (first for activations, second for weights).
             If None, defaults to PerRow for both. Only PerTensor and PerRow are supported.
         act_mapping_type: Optional[MappingType] = MappingType.SYMMETRIC - Mapping type for activation quantization.
             SYMMETRIC and ASYMMETRIC are supported.
         set_inductor_config: bool = True - If True, adjusts `torchinductor` settings to recommended values
             for better performance with this quantization scheme.
+        version (int): the version of the config
+        reduce_range (Optional[bool] = False): If True, use reduced activation and weight quantization ranges
+            to avoid overflow on CPU without VNNI. Users can call should_reduce_range() to help determine.
 
     Example:
 
@@ -852,11 +858,10 @@ class Int8DynamicActivationInt8WeightConfig(AOBaseConfig):
 
     act_mapping_type: Optional[MappingType] = MappingType.SYMMETRIC
     weight_only_decode: bool = False
-    granularity: Optional[
-        Union[Granularity, Tuple[Granularity, Granularity], list[Granularity]]
-    ] = PerRow()
+    granularity: Optional[Union[Granularity, list[Granularity]]] = PerRow()
     set_inductor_config: bool = True
     version: int = 2
+    reduce_range: Optional[bool] = False
 
     def __post_init__(self):
         torch._C._log_api_usage_once(
@@ -895,7 +900,9 @@ def _int8_dynamic_activation_int8_weight_quantize_tensor(weight, config):
         act_quant_kwargs=QuantizeTensorToInt8Kwargs(
             granularity=act_granularity,
             mapping_type=config.act_mapping_type,
+            reduce_range=config.reduce_range,
         ),
+        reduce_range=config.reduce_range,
     )
 
     return quantized_weight
@@ -942,23 +949,24 @@ class Int8StaticActivationInt8WeightConfig(AOBaseConfig):
     Args:
         act_quant_scale (torch.Tensor): The scale tensor for activation quantization.
         act_quant_zero_point (torch.Tensor): The zero_point tensor for activation quantization (asymmetric only).
-        granularity (Optional[Union[Granularity, Tuple[Granularity, Granularity], List[Granularity]]] = PerRow()):
+        granularity (Optional[Union[Granularity, List[Granularity]]] = PerRow()):
             The granularity for quantization. Can be either a single granularity (applied to both
-            activations and weights) or a tuple / list of two granularities (first for activations, second for weights).
+            activations and weights) or a list of two granularities (first for activations, second for weights).
             If None, defaults to PerRow for both. Only PerTensor and PerRow are supported.
         act_mapping_type (MappingType): The mapping type for activation quantization. SYMMETRIC and ASYMMETRIC are supported.
         set_inductor_config (bool): if True, adjusts `torchinductor` settings to recommended values.
         version (int): the version of the config
+        reduce_range (Optional[bool] = False): If True, use reduced activation and weight quantization ranges
+            to avoid overflow on CPU without VNNI. Users can call should_reduce_range() to help determine.
     """
 
     act_quant_scale: Optional[torch.Tensor] = None
     act_quant_zero_point: Optional[torch.Tensor] = None
-    granularity: Optional[
-        Union[Granularity, Tuple[Granularity, Granularity], list[Granularity]]
-    ] = PerRow()
+    granularity: Optional[Union[Granularity, list[Granularity]]] = PerRow()
     act_mapping_type: Optional[MappingType] = MappingType.SYMMETRIC
     set_inductor_config: bool = True
     version: int = 1
+    reduce_range: Optional[bool] = False
 
     def __post_init__(self):
         torch._C._log_api_usage_once(
@@ -992,6 +1000,7 @@ class Int8StaticActivationInt8WeightConfig(AOBaseConfig):
         return QuantizeTensorToInt8Kwargs(
             granularity=act_granularity,
             mapping_type=self.act_mapping_type,
+            reduce_range=self.reduce_range,
         )
 
 
@@ -1022,9 +1031,11 @@ def _int8_static_activation_int8_weight_transform(
         act_quant_kwargs=QuantizeTensorToInt8Kwargs(
             granularity=activation_granularity,
             mapping_type=config.act_mapping_type,
+            reduce_range=config.reduce_range,
         ),
         act_quant_scale=config.act_quant_scale.detach(),
         act_quant_zero_point=act_quant_zero_point,
+        reduce_range=config.reduce_range,
     )
 
     setattr(
@@ -1160,6 +1171,7 @@ class Float8DynamicActivationFloat8WeightConfig(AOBaseConfig):
     kernel_preference: KernelPreference = KernelPreference.AUTO
     set_inductor_config: bool = True
     version: int = 2
+    alg_id: int = 0
 
     def __post_init__(self):
         torch._C._log_api_usage_once(
@@ -1245,15 +1257,27 @@ def _float8_dynamic_activation_float8_weight_quantize_tensor(weight, config):
             act_quant_kwargs=act_quant_kwargs,
         )
         return quantized_weight
-    elif packing_format == Float8PackingFormat.SPARSE_CUTLASS:
+    elif packing_format == Float8PackingFormat.SPARSE_2D_DATA_2D_METADATA:
         assert isinstance(weight_granularity, PerRow), (
             "Sparse packing format only supports per-row quantization"
         )
-        quantized_weight = Sparse2x4CUTLASSFloat8Tensor.from_hp(
+        quantized_weight = Float8Sparse2x4_2DData2DMetadataTensor.from_hp(
             weight,
             float8_dtype=weight_dtype,
             granularity=weight_granularity,
             act_quant_kwargs=act_quant_kwargs,
+        )
+        return quantized_weight
+    elif packing_format == Float8PackingFormat.SPARSE_1D_DATA_1D_METADATA:
+        assert isinstance(weight_granularity, PerTensor), (
+            "Sparse 1D data 1D metadata packing format only supports per-tensor quantization"
+        )
+        quantized_weight = Float8Sparse2x4_1DData1DMetadataTensor.from_hp(
+            weight,
+            float8_dtype=weight_dtype,
+            granularity=weight_granularity,
+            act_quant_kwargs=act_quant_kwargs,
+            alg_id=config.alg_id,
         )
         return quantized_weight
 
@@ -1478,23 +1502,25 @@ class FqnToConfig(AOBaseConfig):
 
     Args:
         `fqn_to_config`: typing.OrderedDict[str, Optional[AOBaseConfig]]: an
-         ordered dictionary from
-             (1). fully qualified name (fqn) of module or parameter
-             (2). regex of fully qualified name (in python `re` module regex format), should
-                  start with prefix "re:" or
-             (3). "_default"
-         to the config that we want to apply to the module/param or None
+            ordered dictionary from a key to the config that we want to apply
+            to the module/param (or None). A key is one of:
 
-         Config key ordered by precedence:
-           * fully qualified parameter name, e.g. `language.layers.0.q_proj.weight`
-           * fully qualified module name, e.g. `language.layers.0.q_proj`
-           * regex for parameter names, must start with `re:`, e.g. `re:language\.layers\..+\.q_proj.weight`.
-             The first regex that matches will be applied.
-           * regex for module names, must start with `re:`, e.g. `re:language\.layers\..+\.q_proj`,
-             whichever regex fully matches the module fqn first will be applied
-             (order of keys for dictionary are kept consistent since we are using OrderedDict)
-           * "_default", fallback if no match for all previous keys
-             (Note, when using `_default`, the config is applied to all modules, to apply
+            1. fully qualified name (fqn) of module or parameter
+            2. regex of fully qualified name (in python `re` module regex format), should
+               start with prefix "re:" or
+            3. "_default"
+
+            Config key ordered by precedence:
+
+            * fully qualified parameter name, e.g. `language.layers.0.q_proj.weight`
+            * fully qualified module name, e.g. `language.layers.0.q_proj`
+            * regex for parameter names, must start with `re:`, e.g. `re:language\.layers\..+\.q_proj.weight`.
+              The first regex that matches will be applied.
+            * regex for module names, must start with `re:`, e.g. `re:language\.layers\..+\.q_proj`,
+              whichever regex fully matches the module fqn first will be applied
+              (order of keys for dictionary are kept consistent since we are using OrderedDict)
+            * "_default", fallback if no match for all previous keys
+              (Note, when using `_default`, the config is applied to all modules, to apply
               it to only a subset of modules, e.g. with some types, it's better to filter
               the modules that we don't want to quantize before hand and configure them to
               None, e.g. `{"re:.+norm.+": None, "_default": linear_config}`) "_default" is not supported when filter_fn is not specified.

@@ -25,10 +25,7 @@ from torchao.quantization.quant_primitives import (
     dequantize_affine,
     quantize_affine,
 )
-from torchao.utils import (
-    check_cpu_version,
-    check_xpu_version,
-)
+from torchao.utils import _is_device
 
 from .granularity import (
     Granularity,
@@ -285,7 +282,7 @@ def dynamically_quantize_per_channel(x, quant_min, quant_max, target_dtype):
 
     assert x.dim() == 2, "only support 2d Tensors"
 
-    eps = torch.finfo(torch.float32).eps
+    eps = torch.finfo(torch.float32).smallest_normal
     block_size = (1, x.shape[1])
     zero_point_dtype = torch.int64
 
@@ -462,11 +459,11 @@ def groupwise_affine_quantize_tensor_from_qparams(
         quant_max,
     )
     if w.shape[-1] > 1:
-        if (not (check_cpu_version(int_data.device))) and (
-            not (check_xpu_version(int_data.device))
+        if (not (_is_device("cpu", int_data.device))) and (
+            not (_is_device("xpu", int_data.device))
         ):
             int_data = (int_data[::, ::2] << 4 | int_data[::, 1::2]).to(torch.uint8)
-        if check_xpu_version(int_data.device):
+        if _is_device("xpu", int_data.device):
             int_data = (int_data[::, 1::2] << 4 | int_data[::, ::2]).to(torch.uint8)
     return int_data
 
@@ -483,7 +480,7 @@ def groupwise_affine_dequantize_tensor_from_qparams(
     assert w_int4x8.dim() == 2
     # need to handle single column case so check for dtype/size from groupwise_affine_quantize_tensor_from_qparams path
     if (w_int4x8.dtype == torch.uint8 or w_int4x8.shape[-1] > 1) and not (
-        check_cpu_version(w_int4x8.device)
+        _is_device("cpu", w_int4x8.device)
     ):
         data = w_int4x8.to(torch.int32)
         high_bits = data >> 4
@@ -493,7 +490,7 @@ def groupwise_affine_dequantize_tensor_from_qparams(
             dtype=torch.int32,
             device=w_int4x8.device,
         )
-        if not (check_xpu_version(w_int4x8.device)):
+        if not (_is_device("xpu", w_int4x8.device)):
             w_int32[::, ::2] = high_bits
             w_int32[::, 1::2] = low_bits
         else:
@@ -582,7 +579,7 @@ def get_group_qparams_symmetric(
 
     block_size = (1, groupsize)
     if eps is None:
-        eps = torch.finfo(w.dtype).eps
+        eps = torch.finfo(w.dtype).smallest_normal
     ranges = {}
     ranges[1] = (-1, 0)
     # generating ranges for bit 2 to 8

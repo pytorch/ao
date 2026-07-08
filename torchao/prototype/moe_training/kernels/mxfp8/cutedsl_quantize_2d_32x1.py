@@ -21,19 +21,20 @@ from .cute_utils import (
 )
 
 
-def _make_tile_smem_layouts(cute, tile_m: int, tile_k: int):
+def _make_tile_smem_layouts(tile_m: int, tile_k: int):
     """Create shared memory layouts for input and output tiles.
 
     Input uses row-major format. Output uses column-major format.
 
     Args:
-        cute: CuTe module
         tile_m: Tile size in M dimension
         tile_k: Tile size in K dimension
 
     Returns:
         Tuple of (smem_layout_in, smem_layout_out) for shared memory
     """
+    import cutlass.cute as cute
+
     # Input SMEM: Row-major layout
     smem_layout_in = cute.make_layout(
         (tile_m, tile_k),
@@ -87,7 +88,7 @@ def _compile_mxfp8_quantize_2d_32x1_cutedsl(
     m_tiles_per_cta: int,
     is_full_m_tiles: bool,
     blocked_scale_output: bool,
-    offs: Optional[torch.Tensor] = None,
+    has_offs: bool = False,
 ):
     """Compile the 2D MXFP8 quantization kernel using CuTeDSL for 32x1 scaling.
 
@@ -586,9 +587,7 @@ def _compile_mxfp8_quantize_2d_32x1_cutedsl(
             if cutlass.const_expr(STAGE_COUNT_VALUE > 1):
                 tma_mbar_ptr1 = tma_mbar_ptr0 + 1
 
-            smem_layout_in, smem_layout_out = _make_tile_smem_layouts(
-                cute, TILE_M, TILE_K
-            )
+            smem_layout_in, smem_layout_out = _make_tile_smem_layouts(TILE_M, TILE_K)
             staged_layout_in = cute.make_layout(
                 (STAGE_COUNT_VALUE, TILE_M, TILE_K),
                 stride=(TILE_M * TILE_K, TILE_K, 1),
@@ -836,9 +835,7 @@ def _compile_mxfp8_quantize_2d_32x1_cutedsl(
             Storage locations:
                 All tensors in global memory
             """
-            smem_layout_in, smem_layout_out = _make_tile_smem_layouts(
-                cute, TILE_M, TILE_K
-            )
+            smem_layout_in, smem_layout_out = _make_tile_smem_layouts(TILE_M, TILE_K)
             # Use tcgen05.CtaGroup.ONE for the optimised single-CTA Blackwell (SM 10.x) TMA load path.
             g2s_op = cpasync.CopyBulkTensorTileG2SOp(tcgen05.CtaGroup.ONE)
             tma_atom_in, tma_tensor_in = cpasync.make_tiled_tma_atom(
@@ -947,7 +944,7 @@ def _compile_mxfp8_quantize_2d_32x1_cutedsl(
         )
     fake_stream = make_fake_stream()
 
-    if offs is not None:
+    if has_offs:
         offs_stride = cute.sym_int()
         fake_offs = make_fake_tensor(
             cutlass.Int32,
@@ -1011,7 +1008,8 @@ def mxfp8_quantize_cutedsl_2d_32x1(
     assert x.is_cuda, "Input tensor must be CUDA"
     assert block_size == 32, "Only block_size=32 is supported"
     M, K = x.shape
-    assert M % block_size == 0, "M must be divisible by block_size for 32x1 scaling"
+    assert M % 128 == 0, "M must be divisible by 128"
+    assert K % 128 == 0, "K must be divisible by 128"
 
     if offs is not None:
         assert offs.is_cuda, "offs tensor must be CUDA"
@@ -1050,7 +1048,7 @@ def mxfp8_quantize_cutedsl_2d_32x1(
             ceil_div(m_blocks, 4) * 4
         )  # M//32 rounded to multiple of 4 (second dim)
         scales_u8 = (
-            torch.zeros(  # Initialize with zeros to match to_blocked() padding behavior
+            torch.empty(  # Initialize with zeros to match to_blocked() padding behavior
                 (padded_scale_rows * padded_scale_cols,),
                 device=x.device,
                 dtype=torch.uint8,
@@ -1073,7 +1071,7 @@ def mxfp8_quantize_cutedsl_2d_32x1(
         m_tiles_per_cta,
         is_full_m_tiles,
         blocked_scale_output,
-        offs,
+        offs is not None,
     )
 
     import cuda.bindings.driver as cuda

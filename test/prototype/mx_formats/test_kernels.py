@@ -47,13 +47,9 @@ from torchao.utils import (
     is_cuda_version_at_least,
     is_MI350,
     is_sm_at_least_100,
-    torch_version_at_least,
 )
 
 torch.manual_seed(0)
-
-if not torch_version_at_least("2.8.0"):
-    pytest.skip("Unsupported PyTorch version", allow_module_level=True)
 
 
 # TODO: shared utils file for benchmarking and testing

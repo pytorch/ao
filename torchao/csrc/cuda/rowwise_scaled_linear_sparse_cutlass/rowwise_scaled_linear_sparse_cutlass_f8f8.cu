@@ -21,8 +21,8 @@ Tensor
 rowwise_scaled_linear_sparse_cutlass_f8f8(
     const Tensor& Xq, const Tensor& X_scale, const Tensor& Wq,
     const Tensor& W_meta, const Tensor& W_scale,
-    const std::optional<Tensor>& bias_opt = std::nullopt,
-    const std::optional<torch::headeronly::ScalarType> out_dtype_opt = std::nullopt) {
+    const std::optional<Tensor>& bias_opt,
+    const std::optional<torch::headeronly::ScalarType> out_dtype_opt) {
   // Validate input datatypes.
   STD_TORCH_CHECK(
       (Xq.scalar_type() == torch::headeronly::ScalarType::Float8_e4m3fn &&

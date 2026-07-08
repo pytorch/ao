@@ -5,8 +5,6 @@
 # LICENSE file in the root directory of this source tree.
 import torch
 
-from torchao.utils import torch_version_at_least
-
 # This is conceptually an enum of non-core dtypes
 # TODO(future PR): change to a cleaner way to represent this without
 # regressing torch.compile and while keeping things readable.
@@ -20,21 +18,16 @@ SUPPORTED_ELEM_DTYPES = [
     torch.float8_e5m2,
     DTYPE_FP6_E2M3,
     DTYPE_FP6_E3M2,
+    torch.float4_e2m1fn_x2,
 ]
-SUPPORTED_ELEM_DTYPES = (
-    SUPPORTED_ELEM_DTYPES + [torch.float4_e2m1fn_x2]
-    if torch_version_at_least("2.8.0")
-    else SUPPORTED_ELEM_DTYPES
-)
 
 DTYPE_TO_SHORT_STR = {
     torch.float8_e4m3fn: "f8e4m3",
     torch.float8_e5m2: "f8e5m2",
     DTYPE_FP6_E2M3: "f6e2m3",
     DTYPE_FP6_E3M2: "f6e3m2",
+    torch.float4_e2m1fn_x2: "f4e2m1",
 }
-if torch_version_at_least("2.8.0"):
-    DTYPE_TO_SHORT_STR[torch.float4_e2m1fn_x2] = "f4e2m1"
 
 F8E4M3_MAX = torch.finfo(torch.float8_e4m3fn).max  # 448.0
 F8E5M2_MAX = torch.finfo(torch.float8_e5m2).max  # 57344.0

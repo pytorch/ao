@@ -3,6 +3,73 @@
 This directory contains benchmarking scripts for the blockwise FP8 quantization
 and GEMM paths under `torchao.prototype.blockwise_fp8_training.kernels`.
 
+## Linear Roofline Benchmark
+
+The linear benchmark compares measured `Float8BlockwiseLinear` fwd/bwd speedup
+against the shared blockwise FP8 roofline target:
+
+```bash
+python benchmarks/prototype/blockwise_fp8_training/bench_linear_roofline.py
+```
+
+What it reports:
+
+- `b_bf16_e2e_s`: measured BF16 linear fwd/bwd time.
+- `b_fp8_e2e_s`: measured `Float8BlockwiseLinear` fwd/bwd time.
+- `b_fp8_e2e_spdp`: measured BF16 / FP8 speedup.
+- `r_fp8_gemm_and_ovhd_spdp`: modeled blockwise FP8 roofline speedup.
+- `b_fp8_e2e_spdp_ratio_of_r`: measured speedup as a ratio of modeled
+  roofline speedup.
+
+By default, it runs the DSV3 16B/671B FFN shapes with the scaled-mm backend.
+Pass `--use_triton` to time the prototype Triton GEMM backend.
+
+## MoE Grouped-Kernel Benchmark
+
+Per-kernel benchmark for the blockwise FP8 MoE grouped-GEMM path with the
+DeepGEMM backend. It mirrors the linear kernel benchmarks: each kernel the MoE
+op dispatches is timed in isolation. Quantization (cast) kernels are
+memory-bound and reported in GB/s against the memory-bandwidth roofline; the
+DeepGEMM grouped GEMMs are compute-bound and reported in TFLOP/s against the FP8
+tensor-core roofline.
+
+```bash
+python -m benchmarks.prototype.blockwise_fp8_training.bench_moe_grouped_kernels
+```
+
+Requires the optional `deep_gemm` dependency and an SM90+ GPU. It times, per
+shape `(M, N, K, E)`:
+
+- forward: `act_quant_lhs`, `weight_quant_forward_rhs`, `deepgemm_grouped_mm`
+- dgrad: `act_quant_lhs(grad_out)`, `weight_quant_dgrad_rhs`,
+  `deepgemm_grouped_mm_dgrad`
+- wgrad: `wgrad_quant_lhs(grad_out)`, `wgrad_quant_rhs(A)` (each is the
+  K-grouped activation quant of one operand), `deepgemm_grouped_mm_wgrad`
+
+Each cast row reports memory bandwidth (input read + FP8 data write + FP32 scale
+write); each GEMM row reports both compute (TFLOP/s) and modeled memory traffic,
+so memory-bound GEMMs are visible. Offsets default to balanced per-expert token
+counts to isolate kernel efficiency from routing skew; pass `--jagged` for
+skewed (realistic) token distributions. Pass `--shapes M,N,K,E ...` to override
+the default DeepSeek-V3 FFN shapes. Offsets are 128-aligned so the DeepGEMM
+backend is selected without padding.
+
+### H100 results (balanced tokens, M=32768, E=8)
+
+DeepSeek-V3 FFN shape `N=2048, K=7168`:
+
+| kernel | us | TFLOP/s | %ach_compute | GB/s | %ach_bw |
+|---|--:|--:|--:|--:|--:|
+| fwd: act_quant_lhs | 253.5 | - | - | 2809 | 91.1 |
+| fwd: weight_quant_forward_rhs | 128.1 | - | - | 2750 | 89.2 |
+| fwd: deepgemm_grouped_mm | 779.3 | 1234 | 80.0 | 634 | 20.5 |
+| bwd: act_quant_lhs(grad_out) | 77.6 | - | - | 2621 | 85.0 |
+| bwd: weight_quant_dgrad_rhs | 126.3 | - | - | 2790 | 90.5 |
+| bwd: deepgemm_grouped_mm_dgrad | 778.6 | 1236 | 80.1 | 843 | 27.3 |
+| bwd: wgrad_quant_lhs(grad_out) [transposed] | 85.1 | - | - | 2390 | 77.5 |
+| bwd: wgrad_quant_rhs(A) [direct] | 275.3 | - | - | 2586 | 83.8 |
+| bwd: deepgemm_grouped_mm_wgrad | 2105.4 | 457 | 29.6 | 594 | 19.3 |
+
 ## Quantized Kernel Bandwidth Benchmark
 
 The kernel-path bandwidth utility is:

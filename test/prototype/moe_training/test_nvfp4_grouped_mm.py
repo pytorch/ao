@@ -7,12 +7,10 @@
 import pytest
 import torch
 
-from torchao.utils import is_MI300, is_MI350, is_sm_at_least_90, torch_version_at_least
+from torchao.utils import is_MI300, is_MI350, is_sm_at_least_90
 
 if not (
-    torch_version_at_least("2.7.0")
-    and torch.cuda.is_available()
-    and (is_sm_at_least_90() or is_MI300() or is_MI350())
+    torch.cuda.is_available() and (is_sm_at_least_90() or is_MI300() or is_MI350())
 ):
     pytest.skip(
         "Requires SM90+ GPU (torch._grouped_mm), MI300, or MI350",

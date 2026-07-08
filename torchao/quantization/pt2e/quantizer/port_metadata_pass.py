@@ -178,7 +178,6 @@ def _port_metadata_for_input_quant_nodes(
                 torch.ops.aten.slice_copy.Tensor,
                 torch.ops.aten.squeeze.dim,
                 torch.ops.aten.squeeze_copy.dim,
-                torch.ops.aten.transpose.Dimname,
                 torch.ops.aten.transpose.int,
                 torch.ops.aten.transpose_,
                 torch.ops.aten.view_copy.default,

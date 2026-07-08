@@ -4,14 +4,12 @@
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
 
-from functools import partial
-
 import torch._inductor.config as inductor_config
 import torch.nn as nn
 
 from torchao.prototype.attention.shared_utils.fusion_utils import (
+    RopeSDPAFusionPass,
     detect_causal_mask,
-    rope_sdpa_fusion_pass,
 )
 from torchao.prototype.attention.shared_utils.wrapper import (
     _FP8FlashAttentionMonkeyPatchWrapper,
@@ -31,8 +29,7 @@ def setup_fp8_backend(
 
     strip_causal_mask = detect_causal_mask(model, flash_impl_name=flash_impl_name)
 
-    inductor_config.pre_grad_custom_pass = partial(
-        rope_sdpa_fusion_pass,
+    inductor_config.pre_grad_custom_pass = RopeSDPAFusionPass(
         rope_sdpa_op=_ops.rope_sdpa_op,
         fp8_sdpa_op=_ops.fp8_sdpa_op,
         backend_name=flash_impl_name,

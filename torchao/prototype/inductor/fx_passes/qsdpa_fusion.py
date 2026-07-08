@@ -1,3 +1,9 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+# All rights reserved.
+#
+# This source code is licensed under the BSD 3-Clause license found in the
+# LICENSE file in the root directory of this source tree.
+
 import functools
 import itertools
 
@@ -5,7 +11,6 @@ import torch
 from torch._dynamo.utils import counters
 from torch._inductor import config
 from torch._inductor.lowering import lowerings as L
-from torch._inductor.lowering import make_fallback
 from torch._inductor.pattern_matcher import (
     Arg,
     CallFunction,
@@ -15,13 +20,7 @@ from torch._inductor.pattern_matcher import (
     register_lowering_pattern,
 )
 
-from torchao.utils import torch_version_at_least
-
-if torch_version_at_least("2.7.0"):
-    # PyTorch 2.7+ is needed for functions in qsdpa lowering
-    from ..qsdpa_lowering import register_qsdpa  # noqa: F401
-else:
-    make_fallback(torch.ops.torchao.qscaled_dot_product.default)
+from ..qsdpa_lowering import register_qsdpa  # noqa: F401
 
 __all__ = [
     "_qsdpa_init",
@@ -54,6 +53,13 @@ def _register_qsdpa_pattern(pattern, custom_pass_dict):
         pattern, extra_check=_is_valid_qsdpa_pattern(), pass_dict=custom_pass_dict
     )
     def qsdpa(match: Match, *args, **kwargs):
+        def get_scale(name):
+            value = kwargs[name]
+            if isinstance(value, (float, int)):
+                return float(value)
+            assert match.kwargs[name].target == aten.full.default
+            return match.kwargs[name].args[1]
+
         query = kwargs["query"]
         key = kwargs["key"]
         value = kwargs["value"]
@@ -61,30 +67,22 @@ def _register_qsdpa_pattern(pattern, custom_pass_dict):
         if scale is None:
             scale = kwargs["scale"] if "scale" in kwargs else None
         attn_mask = kwargs["attn_mask"] if "attn_mask" in kwargs else None
+        q_scale = get_scale("q_scale")
+        k_scale = get_scale("k_scale")
+        v_scale = get_scale("v_scale")
+        a_scale = get_scale("a_scale")
+        o_scale = get_scale("o_scale")
         q_zp = 0
         k_zp = 0
         v_zp = 0
         a_zp = 0
         o_zp = 0
         if query.dtype == torch.uint8:
-            q_scale = kwargs["q_scale"]
             q_zp = kwargs["q_zp"]
-            k_scale = kwargs["k_scale"]
             k_zp = kwargs["k_zp"]
-            v_scale = kwargs["v_scale"]
             v_zp = kwargs["v_zp"]
-            a_scale = kwargs["a_scale"]
             a_zp = kwargs["a_zp"]
-            o_scale = kwargs["o_scale"]
             o_zp = kwargs["o_zp"]
-        else:
-            assert match.kwargs["q_scale"].target == aten.full.default
-            q_scale = match.kwargs["q_scale"].args[1]
-            k_scale = match.kwargs["k_scale"].args[1]
-            v_scale = match.kwargs["v_scale"].args[1]
-            a_scale = match.kwargs["a_scale"].args[1]
-            o_scale = match.kwargs["o_scale"].args[1]
-
         counters["inductor"]["qsdpa_fuse_attention"] += 1
         counters["inductor"]["qsdpa_nodes"] += len(match.nodes)
 
@@ -484,28 +482,23 @@ def _register_qsdpa_lowerings(custom_pass_dict):
         )
 
 
-custom_pass = None
-if torch_version_at_least("2.7.0"):
-    # PyTorch 2.7+ is needed for custom graph pass
-    from torch._inductor.custom_graph_pass import CustomGraphPass, get_hash_for_files
+from torch._inductor.custom_graph_pass import CustomGraphPass, get_hash_for_files
 
-    # define the custom pass
-    class _CustomPass(PatternMatcherPass, CustomGraphPass):
-        def __init__(self) -> None:
-            super().__init__()
 
-        def __call__(self, g: torch.fx.graph.Graph):
-            self.apply(g)
+class _CustomPass(PatternMatcherPass, CustomGraphPass):
+    def __init__(self) -> None:
+        super().__init__()
 
-        def uuid(self) -> bytes:
-            return get_hash_for_files((__file__,))
+    def __call__(self, g: torch.fx.graph.Graph):
+        self.apply(g)
 
-    custom_pass = _CustomPass()
+    def uuid(self) -> bytes:
+        return get_hash_for_files((__file__,))
+
+
+custom_pass = _CustomPass()
 
 
 @functools.lru_cache(None)
 def _qsdpa_init():
-    if torch_version_at_least("2.7.0"):
-        _register_qsdpa_lowerings(config.post_grad_custom_pre_pass)
-    else:
-        pass
+    _register_qsdpa_lowerings(config.post_grad_custom_pre_pass)

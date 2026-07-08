@@ -33,20 +33,38 @@ def _(func, types, args, kwargs):
     )
 
 
+@implements([aten.alias.default])
+def _(func, types, args, kwargs):
+    return return_and_correct_aliasing(
+        func, args, kwargs, args[0]._apply_fn_to_data(aten.alias)
+    )
+
+
 @implements([aten.split.Tensor])
 def _(func, types, args, kwargs):
-    tensor_impl_list = func(args[0].tensor_impl, *args[1:], **kwargs)
+    int_data_list = func(args[0].int_data, *args[1:], **kwargs)
+    scale_list = func(args[0].scale, *args[1:], **kwargs)
     out = [
-        MyDTypeTensorTP(tensor_impl, tensor_impl.shape)
-        for tensor_impl in tensor_impl_list
+        MyDTypeTensorTP(
+            int_data,
+            scale,
+            transposed=args[0].transposed,
+            dtype=args[0].dtype,
+        )
+        for int_data, scale in zip(int_data_list, scale_list)
     ]
     return out
 
 
 @implements([aten.empty_like.default])
 def _(func, types, args, kwargs):
-    empty_like_tensor_impl = func(args[0].tensor_impl, *args[1:], **kwargs)
-    return MyDTypeTensorTP(empty_like_tensor_impl, empty_like_tensor_impl.shape)
+    int_data_empty_like = func(args[0].int_data, *args[1:], **kwargs)
+    return MyDTypeTensorTP(
+        int_data_empty_like,
+        args[0].scale,
+        transposed=args[0].transposed,
+        dtype=args[0].dtype,
+    )
 
 
 @implements(aten.slice.Tensor)
@@ -55,24 +73,34 @@ def _(func, types, args, kwargs):
     assert step == 1
     if end >= self.shape[dim]:
         end = self.shape[dim]
-    shape = list(self.shape)
-    shape[dim] = end - start
-    return self.__class__(
-        aten.slice.Tensor(self.tensor_impl, dim, start, end, step), shape, self.dtype
-    )
+    if dim == 0:
+        return return_and_correct_aliasing(
+            func,
+            args,
+            kwargs,
+            self._apply_fn_to_data(
+                lambda x: aten.slice.Tensor(x, dim, start, end, step)
+            ),
+        )
+    elif dim == 1:
+        return MyDTypeTensorTP(
+            aten.slice.Tensor(self.int_data, dim, start, end, step),
+            self.scale.view(-1),
+            transposed=self.transposed,
+            dtype=self.dtype,
+        )
+    else:
+        raise NotImplementedError(
+            f"MyDTypeTensorTP slice with dim={dim} is not supported"
+        )
 
 
 # this is needed for DTensor.from_local() and for flattening tensor
 @implements(aten.view.default)
 def _(func, types, args, kwargs):
     x, shape = args
-
-    if tuple(x.shape) == tuple(shape):
-        return x.__class__(x.tensor_impl, x.shape, x.dtype)
-
-    if len(shape) == 1 and shape[0] == -1:
-        return x.__class__(x.tensor_impl, (x.numel(),), x.dtype)
-
+    if tuple(x.shape) == tuple(shape) or (len(shape) == 1 and shape[0] == -1):
+        return x.__class__(x.int_data, x.scale, transposed=x.transposed, dtype=x.dtype)
     raise ValueError(
         f"{x.__class__.__name__} only supports .view() with same shape or shape=[-1]"
     )
@@ -81,8 +109,12 @@ def _(func, types, args, kwargs):
 @implements(aten.t.default)
 def _(func, types, args, kwargs):
     tensor = args[0]
-    shape = tensor.shape[::-1]
-    new = tensor.__class__(tensor.tensor_impl.t(), shape, tensor.dtype)
+    new = MyDTypeTensorTP(
+        tensor.int_data,
+        tensor.scale,
+        transposed=not tensor.transposed,
+        dtype=tensor.dtype,
+    )
     return return_and_correct_aliasing(func, args, kwargs, new)
 
 

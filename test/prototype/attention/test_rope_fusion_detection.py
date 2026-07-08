@@ -14,7 +14,6 @@ import contextlib
 import logging
 import io
 import unittest
-from functools import partial
 
 import torch
 import torch._inductor.config as inductor_config
@@ -23,7 +22,7 @@ import torch.nn as nn
 from torchao.prototype.attention.shared_utils.custom_ops import (
     register_fp8_attention_ops,
 )
-from torchao.prototype.attention.shared_utils.fusion_utils import rope_sdpa_fusion_pass
+from torchao.prototype.attention.shared_utils.fusion_utils import RopeSDPAFusionPass
 
 
 # Register test-only custom ops with dummy implementations.

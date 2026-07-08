@@ -16,7 +16,7 @@ from torch._inductor.select_algorithm import (
     autotune_select_algorithm,
 )
 
-from .codegen.cpp_int8_sdpa_template import CppInt8SdpaTemplate
+from .codegen.cpp_qsdpa_template import CppQsdpaTemplate
 
 op_qsdpa = ExternKernelChoice(
     torch.ops.torchao.qscaled_dot_product.default,
@@ -92,15 +92,21 @@ def register_qsdpa():
         if attn_mask is not None:
             input_nodes.append(attn_mask)
 
-        # use template if machine has amx, only support uint8 for now
+        # use template if machine has amx
         if hasattr(torch._C._cpu, "_is_amx_tile_supported"):
             is_amx_tile_supported = torch._C._cpu._is_amx_tile_supported()
         elif hasattr(torch.cpu, "_is_amx_tile_supported"):
             is_amx_tile_supported = torch.cpu._is_amx_tile_supported()
         else:
             is_amx_tile_supported = False
-        if is_amx_tile_supported and query.get_dtype() is torch.uint8:
-            CppInt8SdpaTemplate.add_choices(
+        if is_amx_tile_supported:
+            if query.get_dtype() is torch.float8_e4m3fn:
+                q_zp = 0
+                k_zp = 0
+                v_zp = 0
+                a_zp = 0
+                o_zp = 0
+            CppQsdpaTemplate.add_choices(
                 choices=choices,
                 input_nodes=input_nodes,
                 layout=layout,

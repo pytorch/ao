@@ -606,8 +606,7 @@ class Int8DynActInt4WeightQuantizer:
             self.groupsize,
             self.padding_allowed,
             self.precision,
-            # TODO: this should be self.scales_precision?
-            self.precision,
+            self.scales_precision,
         )
         return model
 

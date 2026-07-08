@@ -8,7 +8,7 @@ import re
 from contextlib import contextmanager
 from functools import partial
 from importlib import import_module
-from typing import Any, Dict, Optional, Set, Tuple
+from typing import Any, Optional
 
 import torch
 from torch import nn
@@ -33,10 +33,13 @@ def get_index_linspace(
 
 
 @contextmanager
-def use_deterministic_algorithms():
-    """Context manager to enable deterministic algorithms in PyTorch"""
+def use_deterministic_algorithms(mode: bool = True):
+    """Context manager that toggles PyTorch's deterministic-algorithms mode."""
     deterministic_restore = torch.are_deterministic_algorithms_enabled()
-    torch.use_deterministic_algorithms(True)
+    if deterministic_restore == mode:
+        yield
+        return
+    torch.use_deterministic_algorithms(mode)
     try:
         yield
     finally:
@@ -59,10 +62,10 @@ def instantiate_module(module_name: str):
 
 def get_param_groups(
     model: nn.Module,
-    prune_config: Dict[Tuple[nn.Module, str], Any],
-    skip_wd_names: Optional[Set[str]] = None,
+    prune_config: dict[tuple[nn.Module, str], Any],
+    skip_wd_names: Optional[set[str]] = None,
     verbose: bool = True,
-) -> Dict[str, Dict[str, Any]]:
+) -> dict[str, dict[str, Any]]:
     # Create list of regex patterns for matching parameter names
     re_pats = [
         re.compile(k[len(RE_PREFIX) :])
@@ -127,7 +130,7 @@ def latent_svd(self, name=""):
     S = getattr(self, f"{name}_S")
     Vh = getattr(self, f"{name}_Vh")
     orig_shape = torch.Size(getattr(self, f"{name}_orig_shape"))
-    return torch.linalg.multi_dot([U, torch.diag(S), Vh]).view(orig_shape)
+    return ((U * S) @ Vh).view(orig_shape)
 
 
 def insert_svd_modules_(model: nn.Module, optimizer: torch.optim.Optimizer):

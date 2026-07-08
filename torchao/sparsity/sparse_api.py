@@ -92,7 +92,11 @@ def _semi_sparse_weight_transform(
     module: torch.nn.Module,
     config: SemiSparseWeightConfig,
 ) -> torch.nn.Module:
-    is_nightly_or_source = "dev" in torch.__version__ or "git" in torch.__version__
+    is_nightly_or_source = (
+        "dev" in torch.__version__
+        or "git" in torch.__version__
+        or "fb" in torch.__version__
+    )
     if is_nightly_or_source:
         new_weight = to_sparse_semi_structured(module.weight, alg_id=config.alg_id)
     else:

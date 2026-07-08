@@ -35,11 +35,8 @@ from torchao.prototype.mx_formats.mx_tensor import (
 )
 from torchao.quantization.qat import FakeQuantizeConfigBase
 from torchao.quantization.quantize_.common.kernel_preference import KernelPreference
-from torchao.utils import torch_version_at_least
 
-_DEFAULT_MX_DTYPE = (
-    torch.float4_e2m1fn_x2 if torch_version_at_least("2.8.0") else torch.float8_e4m3fn
-)
+_DEFAULT_MX_DTYPE = torch.float4_e2m1fn_x2
 
 
 @dataclass
