@@ -628,6 +628,44 @@ class TestQuantPrimitives(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "is invalid for input of size 1"):
             _ = quantize_affine(input, block_size, scale, zero_point, dtype)
 
+    def test_choose_qparams_affine_all_ones_block_size(self):
+        """block_size of all ones (e.g. PerRow on in_features=1) must not collapse scales.
+
+        See https://github.com/pytorch/ao/issues/761
+        """
+        input = torch.randn(4, 1)
+        block_size = (1, 1)
+        for mapping_type in (MappingType.SYMMETRIC, MappingType.ASYMMETRIC):
+            scale, zero_point = choose_qparams_affine(
+                input,
+                mapping_type,
+                block_size,
+                torch.int8,
+                keepdim=True,
+                eps=torch.finfo(torch.float32).eps,
+            )
+            self.assertEqual(scale.shape, torch.Size([4, 1]))
+            self.assertEqual(zero_point.shape, torch.Size([4, 1]))
+            quantized = quantize_affine(
+                input, block_size, scale, zero_point, torch.int8
+            )
+            self.assertEqual(quantized.shape, input.shape)
+
+        # Same empty-reduction edge case for float8 scale selection
+        float8_scale = _choose_scale_float8(input, block_size=[1, 1])
+        self.assertEqual(float8_scale.shape, torch.Size([4, 1]))
+
+    def test_int8_weight_only_linear_in_features_one(self):
+        """End-to-end Int8WeightOnlyConfig with in_features=1 (issue #761)."""
+        from torchao.quantization import Int8WeightOnlyConfig, quantize_
+
+        torch.manual_seed(0)
+        model = torch.nn.Linear(1, 4)
+        quantize_(model, Int8WeightOnlyConfig(version=2, granularity=PerRow()))
+        self.assertEqual(model.weight.scale.shape, torch.Size([4, 1]))
+        out = model(torch.randn(8, 1))
+        self.assertEqual(out.shape, torch.Size([8, 4]))
+
     def test_get_groupwise_affine_qparams(self):
         input = torch.randn(10, 256)
         n_bit = 4
