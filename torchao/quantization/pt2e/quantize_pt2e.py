@@ -10,6 +10,7 @@ from torch.fx.passes.infra.pass_manager import PassManager
 
 from torchao.quantization.pt2e.qat_utils import _fold_conv_bn_qat, _fuse_conv_bn_qat
 from torchao.quantization.pt2e.quantizer import (  # noqa: F401
+    AddMutableBufferWritebackPass,
     DuplicateDQPass,
     PortNodeMetaForQDQ,
     Quantizer,
@@ -345,6 +346,9 @@ def convert_pt2e(
     model = pm(model).graph_module
 
     pm = PassManager([PortNodeMetaForQDQ()])
+    model = pm(model).graph_module
+
+    pm = PassManager([AddMutableBufferWritebackPass()])
     model = pm(model).graph_module
 
     if fold_quantize:

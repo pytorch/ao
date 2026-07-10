@@ -1,3 +1,4 @@
+from .add_mutable_buffer_writeback_pass import AddMutableBufferWritebackPass
 from .composable_quantizer import ComposableQuantizer
 from .duplicate_dq_pass import DuplicateDQPass
 from .port_metadata_pass import PortNodeMetaForQDQ
@@ -50,4 +51,5 @@ __all__ = [
     "get_bias_qspec",
     "DuplicateDQPass",
     "PortNodeMetaForQDQ",
+    "AddMutableBufferWritebackPass",
 ]
