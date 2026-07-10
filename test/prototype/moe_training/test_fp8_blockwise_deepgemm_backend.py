@@ -347,6 +347,23 @@ def test_deepgemm_k_grouped_activation_quant_matches_flattened_torchao_layouts(
         triton_fp8_blockwise_act_quant_transposed_lhs,
     )
 
+    def flatten_transposed_lhs(q):
+        parts = []
+        start = 0
+        for group_size in group_sizes:
+            parts.append(q[:, start : start + group_size].contiguous().view(-1))
+            start += group_size
+        return torch.cat(parts)
+
+    def flatten_rhs(q):
+        parts = []
+        start = 0
+        for group_size in group_sizes:
+            expert_q = q[start : start + group_size]
+            parts.append(expert_q.transpose(-2, -1).contiguous().view(-1))
+            start += group_size
+        return torch.cat(parts)
+
     torch.manual_seed(123)
     offs = torch.tensor(offsets, dtype=torch.int32, device="cuda")
     group_sizes = group_sizes_from_offsets(offs)
@@ -358,18 +375,12 @@ def test_deepgemm_k_grouped_activation_quant_matches_flattened_torchao_layouts(
     )
 
     x_t_q, x_t_s = triton_fp8_blockwise_act_quant_transposed_lhs(x)
-    expected_from_lhs = deepgemm_grouped_kernels._flatten_k_grouped_transposed_lhs(
-        x_t_q,
-        group_sizes,
-    )
+    expected_from_lhs = flatten_transposed_lhs(x_t_q)
     assert torch.equal(direct_q, expected_from_lhs)
     torch.testing.assert_close(direct_s, x_t_s.contiguous(), rtol=0, atol=0)
 
     x_rhs_q, x_rhs_s = triton_fp8_blockwise_act_quant_rhs(x)
-    expected_from_rhs = deepgemm_grouped_kernels._flatten_k_grouped_rhs(
-        x_rhs_q,
-        group_sizes,
-    )
+    expected_from_rhs = flatten_rhs(x_rhs_q)
     assert torch.equal(direct_q, expected_from_rhs)
     torch.testing.assert_close(
         direct_s,

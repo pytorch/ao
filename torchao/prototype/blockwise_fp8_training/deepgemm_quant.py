@@ -40,70 +40,6 @@ def _triton_launcher(kernel, traceable: bool):
 @triton.jit
 def triton_fp8_blockwise_act_quant_k_grouped_deepgemm_kernel(
     x_ptr,
-    x_stride_m,
-    x_stride_d,
-    group_end_offsets_ptr,
-    q_ptr,
-    s_ptr,
-    s_stride_d,
-    s_stride_block,
-    D: tl.constexpr,
-    BLOCK_SIZE: tl.constexpr,
-    NUM_GROUPS: tl.constexpr,
-    EPS: tl.constexpr,
-    FP8_MAX: tl.constexpr,
-):
-    pid_group = tl.program_id(axis=0)
-    pid_group_block = tl.program_id(axis=1)
-    pid_d = tl.program_id(axis=2)
-
-    group_end = tl.load(group_end_offsets_ptr + pid_group)
-    group_start = tl.load(
-        group_end_offsets_ptr + pid_group - 1,
-        mask=pid_group > 0,
-        other=0,
-    )
-    group_size = group_end - group_start
-
-    offs_m = pid_group_block * BLOCK_SIZE + tl.arange(0, BLOCK_SIZE)
-    offs_d = pid_d * NUM_GROUPS + tl.arange(0, NUM_GROUPS)
-    valid_group_block = pid_group_block * BLOCK_SIZE < group_size
-
-    x_offsets = (group_start + offs_m[:, None]) * x_stride_m + offs_d[
-        None, :
-    ] * x_stride_d
-    # Group sizes are asserted to be multiples of BLOCK_SIZE before launch.
-    # Within a valid group block every row is live, so only mask off invalid
-    # blocks from shorter experts and the tail of the D dimension.
-    x_mask = valid_group_block & (offs_d[None, :] < D)
-    x = tl.load(x_ptr + x_offsets, mask=x_mask, other=0.0)
-
-    # Compute one 1x128 scale per logical column over this expert's token
-    # block, matching the existing transposed-LHS/RHS wgrad quantizers.
-    amax = tl.clamp(tl.max(tl.abs(x), axis=0), min=EPS, max=float("inf")).to(tl.float64)
-    scale = (FP8_MAX / amax).to(tl.float32)
-    y = x * scale
-    y = tl.clamp(y, min=-FP8_MAX, max=FP8_MAX).to(q_ptr.dtype.element_ty)
-
-    # DeepGEMM K-grouped K-major buffers are concatenated per expert. For an
-    # expert with `group_size` tokens and logical dimension D, its flat slice is
-    # shaped as (D, group_size): q[group_start * D + d * group_size + local_m].
-    q_offsets = group_start * D + offs_d[:, None] * group_size + offs_m[None, :]
-    q_mask = valid_group_block & (offs_d[:, None] < D)
-    tl.store(q_ptr + q_offsets, y.trans(1, 0), mask=q_mask)
-
-    # Scales are concatenated along token-blocks in the same expert order:
-    # (D, total_valid_token_blocks).
-    block_idx = group_start // BLOCK_SIZE + pid_group_block
-    s_offsets = offs_d * s_stride_d + block_idx * s_stride_block
-    s_mask = (offs_d < D) & valid_group_block
-    tl.store(s_ptr + s_offsets, tl.div_rn(1.0, scale), mask=s_mask)
-
-
-@triton.autotune(configs=quant_kernel_configs_with_groups, key=["D"])
-@triton.jit
-def triton_fp8_blockwise_act_quant_k_grouped_compact_deepgemm_kernel(
-    x_ptr,
     q_offset_by_block_ptr,
     group_size_by_block_ptr,
     q_ptr,
@@ -138,8 +74,8 @@ def triton_fp8_blockwise_act_quant_k_grouped_compact_deepgemm_kernel(
     # (D, expert_tokens) output. Precomputing it keeps this compact kernel
     # metadata-driven without paying a group_start * D multiply in every tile.
     q_offsets = q_offset + offs_d[:, None] * group_size + offs_m[None, :]
-    # The compact path only launches when D % 128 == 0; every NUM_GROUPS value
-    # divides 128, so offs_d never runs past D and these stores need no D mask.
+    # DeepGEMM requires D to be block-aligned. Every NUM_GROUPS value divides
+    # BLOCK_SIZE, so offs_d never runs past D and these stores need no D mask.
     tl.store(q_ptr + q_offsets, y.trans(1, 0))
 
     s_offsets = offs_d * VALID_BLOCKS + pid_block
@@ -205,54 +141,33 @@ def _triton_fp8_blockwise_act_quant_k_grouped_deepgemm_with_group_sizes(
     )
 
     D = x.shape[1]
+    assert block_size == 128, "DeepGEMM K-grouped quantization requires block_size=128"
+    assert D % block_size == 0, (
+        "DeepGEMM K-grouped quantization requires the input dimension "
+        f"to be divisible by block_size={block_size}"
+    )
     valid_blocks = valid_tokens // block_size
     q_out = torch.empty((valid_tokens * D,), dtype=dtype, device=x.device)
     scale_out = torch.empty((D, valid_blocks), dtype=torch.float32, device=x.device)
-    max_group_blocks = max(group_sizes) // block_size if group_sizes else 0
     traceable = (
         _should_use_traceable_triton_launch() if traceable is None else traceable
     )
 
-    if group_sizes and D % 128 == 0:
-        if metadata is None:
-            metadata = build_deepgemm_k_grouped_quant_metadata(
-                group_end_offsets,
-                group_sizes,
-                block_size,
-                D,
-            )
-        assert metadata.dim == D, (
-            f"DeepGEMM K-grouped metadata was built for dim={metadata.dim}, "
-            f"but input dim is {D}"
+    if metadata is None:
+        metadata = build_deepgemm_k_grouped_quant_metadata(
+            group_end_offsets,
+            group_sizes,
+            block_size,
+            D,
         )
-
-        def compact_grid(meta):
-            return (
-                valid_blocks,
-                triton.cdiv(D, meta["NUM_GROUPS"]),
-            )
-
-        _triton_launcher(
-            triton_fp8_blockwise_act_quant_k_grouped_compact_deepgemm_kernel,
-            traceable=traceable,
-        )[compact_grid](
-            x,
-            metadata.q_offset_by_block,
-            metadata.group_size_by_block,
-            q_out,
-            scale_out,
-            D=D,
-            VALID_BLOCKS=valid_blocks,
-            BLOCK_SIZE=block_size,
-            EPS=EPS,
-            FP8_MAX=torch.finfo(dtype).max,
-        )
-        return q_out, scale_out
+    assert metadata.dim == D, (
+        f"DeepGEMM K-grouped metadata was built for dim={metadata.dim}, "
+        f"but input dim is {D}"
+    )
 
     def grid(meta):
         return (
-            group_end_offsets.numel(),
-            max_group_blocks,
+            valid_blocks,
             triton.cdiv(D, meta["NUM_GROUPS"]),
         )
 
@@ -261,14 +176,12 @@ def _triton_fp8_blockwise_act_quant_k_grouped_deepgemm_with_group_sizes(
         traceable=traceable,
     )[grid](
         x,
-        x.stride(0),
-        x.stride(1),
-        group_end_offsets,
+        metadata.q_offset_by_block,
+        metadata.group_size_by_block,
         q_out,
         scale_out,
-        scale_out.stride(0),
-        scale_out.stride(1),
         D=D,
+        VALID_BLOCKS=valid_blocks,
         BLOCK_SIZE=block_size,
         EPS=EPS,
         FP8_MAX=torch.finfo(dtype).max,

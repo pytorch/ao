@@ -43,9 +43,7 @@ from triton.testing import do_bench
 
 from torchao.float8.config import e4m3_dtype
 from torchao.prototype.blockwise_fp8_training.deepgemm_grouped_kernels import (
-    _quantize_wgrad_lhs,
-    _quantize_wgrad_rhs,
-    _should_quantize_k_grouped_directly,
+    _quantize_wgrad_operand,
     deepgemm_blockwise_scaled_grouped_mm,
     deepgemm_blockwise_scaled_grouped_mm_wgrad,
     is_deep_gemm_available,
@@ -264,31 +262,19 @@ def _bench_shape(
     )
 
     # ---- backward: wgrad (K-grouped) ----
-    # Build the per-block quant metadata once, outside the timed region (it is a
-    # host-side python loop, not a kernel), so each quant row times only its
-    # kernel. Each operand picks the direct K-grouped quant for wide dims and
-    # TorchAO's transposed quant otherwise (see _DEEPGEMM_DIRECT..._MIN_DIM).
-    lhs_md = (
-        offset_plan.k_quant_metadata(block_size, N)
-        if _should_quantize_k_grouped_directly(N)
-        else None
-    )
-    rhs_md = (
-        offset_plan.k_quant_metadata(block_size, K)
-        if _should_quantize_k_grouped_directly(K)
-        else None
-    )
-    lhs_op = _quantize_wgrad_lhs(
+    # Build per-block metadata outside the timed region so each row measures
+    # only direct quantization into DeepGEMM's flat K-grouped layout.
+    lhs_md = offset_plan.k_quant_metadata(block_size, N)
+    rhs_md = offset_plan.k_quant_metadata(block_size, K)
+    lhs_op = _quantize_wgrad_operand(
         grad_out, offset_plan.group_end_offsets, group_sizes, block_size, fp8, lhs_md
     )
-    rhs_op = _quantize_wgrad_rhs(
+    rhs_op = _quantize_wgrad_operand(
         A, offset_plan.group_end_offsets, group_sizes, block_size, fp8, rhs_md
     )
-    lhs_path = "direct" if _should_quantize_k_grouped_directly(N) else "transposed"
-    rhs_path = "direct" if _should_quantize_k_grouped_directly(K) else "transposed"
     time_mem(
-        f"bwd: wgrad_quant_lhs(grad_out) [{lhs_path}]",
-        lambda: _quantize_wgrad_lhs(
+        "bwd: wgrad_quant_lhs(grad_out) [direct]",
+        lambda: _quantize_wgrad_operand(
             grad_out,
             offset_plan.group_end_offsets,
             group_sizes,
@@ -301,8 +287,8 @@ def _bench_shape(
         lhs_op.scale,
     )
     time_mem(
-        f"bwd: wgrad_quant_rhs(A) [{rhs_path}]",
-        lambda: _quantize_wgrad_rhs(
+        "bwd: wgrad_quant_rhs(A) [direct]",
+        lambda: _quantize_wgrad_operand(
             A, offset_plan.group_end_offsets, group_sizes, block_size, fp8, rhs_md
         ),
         _io_bytes(A),
