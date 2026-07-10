@@ -8,6 +8,7 @@
 #include <cpuinfo.h>
 #include <torchao/csrc/cpu/shared_kernels/linear_8bit_act_xbit_weight/kernel_config.h>
 #include <torchao/csrc/cpu/shared_kernels/linear_8bit_act_xbit_weight/packed_weights_format.h>
+#include <mutex>
 #include <optional>
 #include <string>
 #include <unordered_map>
@@ -37,6 +38,10 @@ struct UKernelConfigRegistrationTable {
     }
   };
   std::unordered_map<Key, UKernelConfig, KeyHasher> registration_table_;
+  // Guards `registration_table_` against concurrent insert / lookup on the
+  // hot path. Required under free-threaded CPython, where the GIL no longer
+  // implicitly serializes callers.
+  mutable std::mutex mu_;
   inline Key make_key(
       torchao::ops::PackedWeightsHeader header,
       cpuinfo_uarch uarch) const {
@@ -50,6 +55,7 @@ struct UKernelConfigRegistrationTable {
       UKernelConfig config) {
     auto header = format.to_packed_weights_header();
     auto key = make_key(header, uarch);
+    std::lock_guard<std::mutex> guard(mu_);
     if (registration_table_.find(key) != registration_table_.end()) {
       throw std::runtime_error(
           "UKernelConfig is already registered for this format");
@@ -61,6 +67,7 @@ struct UKernelConfigRegistrationTable {
       torchao::ops::PackedWeightsHeader header,
       cpuinfo_uarch uarch) const {
     auto key = make_key(header, uarch);
+    std::lock_guard<std::mutex> guard(mu_);
     auto it = registration_table_.find(key);
     if (it == registration_table_.end()) {
       return std::nullopt;
@@ -408,7 +415,6 @@ void register_ukernel_config(
   }
 }
 
-// Not thread safe
 template <int weight_nbit>
 UKernelConfig select_ukernel_config(torchao::ops::PackedWeightsHeader header) {
   static UKernelConfigRegistrationTable table;
