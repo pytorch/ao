@@ -298,17 +298,14 @@ def _bench_shape(
 
     wgrad_plan = prepare_deepgemm_wgrad_plan(grad_out, A, offset_plan, block_size, fp8)
     assert wgrad_plan is not None, "wgrad plan requires block-aligned groups"
-    # wgrad mem traffic: read lhs + rhs fp8 data + scales, read FP32 accum seed,
-    # write FP32 (E,N,K) output. The two FP32 (E,N,K) buffers dominate.
-    wgrad_gemm_bytes = (
-        _io_bytes(
-            wgrad_plan.lhs.data,
-            wgrad_plan.lhs.scale,
-            wgrad_plan.rhs.data,
-            wgrad_plan.rhs.scale,
-        )
-        + 2 * E * N * K * 4  # FP32 accum read + FP32 out write
-    )
+    # The wrapper zeroes the FP32 accumulator, DeepGEMM reads it and writes an
+    # FP32 result, then the wrapper reads that result and writes the bf16 output.
+    wgrad_gemm_bytes = _io_bytes(
+        wgrad_plan.lhs.data,
+        wgrad_plan.lhs.scale,
+        wgrad_plan.rhs.data,
+        wgrad_plan.rhs.scale,
+    ) + E * N * K * (4 + 4 + 4 + 4 + 2)
     time_gemm(
         "bwd: deepgemm_grouped_mm_wgrad",
         lambda: deepgemm_blockwise_scaled_grouped_mm_wgrad(

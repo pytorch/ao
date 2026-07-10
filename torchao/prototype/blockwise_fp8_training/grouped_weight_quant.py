@@ -23,24 +23,35 @@ from torchao.prototype.blockwise_fp8_training.kernels import (
 @triton.jit
 def triton_fp8_blockwise_weight_quant_grouped_forward_rhs_kernel(
     x_ptr,
+    x_stride_e,
+    x_stride_k,
+    x_stride_n,
     q_ptr,
     s_ptr,
     M: tl.constexpr,
+    N: tl.constexpr,
     K: tl.constexpr,
     BLOCK_SIZE: tl.constexpr,
     EPS: tl.constexpr,
     FP8_MAX: tl.constexpr,
 ):
-    pid_m_block = tl.program_id(axis=0)
+    pid_en_block = tl.program_id(axis=0)
     pid_k_block = tl.program_id(axis=1)
 
-    offs_m = pid_m_block * BLOCK_SIZE + tl.arange(0, BLOCK_SIZE)
+    n_blocks = N // BLOCK_SIZE
+    expert_idx = pid_en_block // n_blocks
+    pid_n_block = pid_en_block - expert_idx * n_blocks
+
+    offs_n = pid_n_block * BLOCK_SIZE + tl.arange(0, BLOCK_SIZE)
     offs_k = pid_k_block * BLOCK_SIZE + tl.arange(0, BLOCK_SIZE)
 
-    # The Python wrapper exposes the original row-major expert weights as a
-    # contiguous (E*N, K) view. N is block-aligned, so every row block stays
-    # inside one expert.
-    x_offsets = offs_m[:, None] * K + offs_k[None, :]
+    # Read logical (E, K, N) input as an (N, K) tile for one expert. Explicit
+    # strides preserve per-expert column-major inputs with a non-packed E axis.
+    x_offsets = (
+        expert_idx * x_stride_e
+        + offs_k[None, :] * x_stride_k
+        + offs_n[:, None] * x_stride_n
+    )
     x = tl.load(x_ptr + x_offsets).to(tl.float32)
 
     amax = tl.clamp(tl.max(tl.abs(x)), min=EPS, max=float("inf")).to(tl.float64)
@@ -48,9 +59,10 @@ def triton_fp8_blockwise_weight_quant_grouped_forward_rhs_kernel(
     y = x * scale
     y = tl.clamp(y, min=-FP8_MAX, max=FP8_MAX).to(q_ptr.dtype.element_ty)
 
-    tl.store(q_ptr + x_offsets, y)
+    q_offsets = (expert_idx * N + offs_n[:, None]) * K + offs_k[None, :]
+    tl.store(q_ptr + q_offsets, y)
     tl.store(
-        s_ptr + pid_m_block * (K // BLOCK_SIZE) + pid_k_block,
+        s_ptr + pid_en_block * (K // BLOCK_SIZE) + pid_k_block,
         tl.div_rn(1.0, scale),
     )
 
@@ -59,6 +71,9 @@ def triton_fp8_blockwise_weight_quant_grouped_forward_rhs_kernel(
 @triton.jit
 def triton_fp8_blockwise_weight_quant_grouped_dgrad_rhs_kernel(
     x_ptr,
+    x_stride_e,
+    x_stride_k,
+    x_stride_n,
     q_ptr,
     s_ptr,
     N: tl.constexpr,
@@ -77,11 +92,13 @@ def triton_fp8_blockwise_weight_quant_grouped_dgrad_rhs_kernel(
 
     offs_n = pid_n_block * BLOCK_SIZE + tl.arange(0, BLOCK_SIZE)
     offs_k = pid_k_block * BLOCK_SIZE + tl.arange(0, BLOCK_SIZE)
-    offs_m = pid_en_block * BLOCK_SIZE + tl.arange(0, BLOCK_SIZE)
-
-    # Read the contiguous forward-weight view as (E*N, K), then transpose each
-    # quantized 128x128 tile into the dgrad RHS layout (E, K, N).
-    x_offsets = offs_m[:, None] * K + offs_k[None, :]
+    # Read the same logical (E, K, N) input tile, then store it transposed into
+    # the row-major dgrad RHS contract (E, K, N).
+    x_offsets = (
+        expert_idx * x_stride_e
+        + offs_k[None, :] * x_stride_k
+        + offs_n[:, None] * x_stride_n
+    )
     x = tl.load(x_ptr + x_offsets).to(tl.float32)
 
     amax = tl.clamp(tl.max(tl.abs(x)), min=EPS, max=float("inf")).to(tl.float64)
@@ -126,19 +143,18 @@ def triton_fp8_blockwise_weight_quant_grouped_forward_rhs(
         device=weight_t.device,
     )
 
-    # `weight_t.transpose(-2, -1)` is a view back to the original row-major
-    # expert weights (E, N, K). Flattening expert and N rows lets the fast
-    # dense 2D cast write the forward RHS as (E, N, K) data and
-    # (E, N_blocks, K_blocks) scales directly.
-    weight = weight_t.transpose(-2, -1)
-    assert weight.is_contiguous(), "weight_t must be per-expert column-major"
+    assert weight_t.stride(-2) == 1, "weight_t must be per-expert column-major"
     wrap_triton(triton_fp8_blockwise_weight_quant_grouped_forward_rhs_kernel)[
         (E * (N // block_size), K // block_size)
     ](
-        weight.reshape(E * N, K),
+        weight_t,
+        weight_t.stride(0),
+        weight_t.stride(1),
+        weight_t.stride(2),
         q_out.reshape(E * N, K),
         scale_out.reshape(E * (N // block_size), K // block_size),
         M=E * N,
+        N=N,
         K=K,
         BLOCK_SIZE=block_size,
         EPS=EPS,
@@ -177,15 +193,14 @@ def triton_fp8_blockwise_weight_quant_grouped_dgrad_rhs(
         device=weight_t.device,
     )
 
-    # Read the same contiguous (E, N, K) forward-weight view used by the fast
-    # forward cast, but store each quantized block transposed into the dgrad
-    # RHS contract: data (E, K, N), scales (E, K_blocks, N_blocks).
-    weight = weight_t.transpose(-2, -1)
-    assert weight.is_contiguous(), "weight_t must be per-expert column-major"
+    assert weight_t.stride(-2) == 1, "weight_t must be per-expert column-major"
     wrap_triton(triton_fp8_blockwise_weight_quant_grouped_dgrad_rhs_kernel)[
         (E * (N // block_size), K // block_size)
     ](
-        weight.reshape(E * N, K),
+        weight_t,
+        weight_t.stride(0),
+        weight_t.stride(1),
+        weight_t.stride(2),
         q_out,
         scale_out,
         N=N,
