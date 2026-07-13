@@ -50,7 +50,7 @@ def _precomputed_deepgemm_plan_fields(
         return None
     assert plan.group_end_offsets is group_end_offsets, (
         "precomputed_deepgemm_plan must be prepared from the same offs tensor "
-        "passed to fp8_blockwise_grouped_mm"
+        "passed to _to_fp8_blockwise_then_scaled_grouped_mm"
     )
     assert "group_sizes" in plan.__dict__ and "ks_tensor" in plan.__dict__, (
         "precomputed_deepgemm_plan must come from "
@@ -88,7 +88,7 @@ def _deepgemm_plan_from_fields(
     return plan
 
 
-def fp8_blockwise_grouped_mm(
+def _to_fp8_blockwise_then_scaled_grouped_mm(
     A: torch.Tensor,
     B_t: torch.Tensor,
     offs: Optional[torch.Tensor] = None,
@@ -124,7 +124,8 @@ def fp8_blockwise_grouped_mm(
         precomputed_deepgemm_plan is not None and pad_token_groups_for_grouped_mm
     ), (
         "precomputed_deepgemm_plan requires pad_token_groups_for_grouped_mm=False; "
-        "prepare the padded offsets and plan before calling fp8_blockwise_grouped_mm"
+        "prepare the padded offsets and plan before calling "
+        "_to_fp8_blockwise_then_scaled_grouped_mm"
     )
     precomputed_deepgemm_plan_fields = _precomputed_deepgemm_plan_fields(
         precomputed_deepgemm_plan,
@@ -140,29 +141,6 @@ def fp8_blockwise_grouped_mm(
         pad_token_groups_for_grouped_mm,
         kernel_preference,
         precomputed_deepgemm_plan_fields,
-    )
-
-
-@conditional_nostrict_trace
-def _to_fp8_blockwise_then_scaled_grouped_mm(
-    A: torch.Tensor,
-    B_t: torch.Tensor,
-    offs: Optional[torch.Tensor] = None,
-    out_dtype: Optional[torch.dtype] = torch.bfloat16,
-    float8_dtype: torch.dtype = e4m3_dtype,
-    block_size: int = 128,
-    pad_token_groups_for_grouped_mm: bool = True,
-    kernel_preference: KernelPreference = KernelPreference.AUTO,
-) -> torch.Tensor:
-    return fp8_blockwise_grouped_mm(
-        A,
-        B_t,
-        offs,
-        out_dtype,
-        float8_dtype,
-        block_size,
-        pad_token_groups_for_grouped_mm,
-        kernel_preference,
     )
 
 
