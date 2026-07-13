@@ -19,7 +19,9 @@ if not (
 
 pytest.importorskip("triton", reason="Triton required to run this test")
 
-from torchao.prototype.moe_training import fp8_blockwise_grouped_mm
+from torchao.prototype.moe_training import (
+    _to_fp8_blockwise_then_scaled_grouped_mm,
+)
 from torchao.prototype.moe_training.blockwise_fp8.grouped_mm import (
     _to_fp8_blockwise_then_emulated_scaled_grouped_mm,
 )
@@ -77,7 +79,7 @@ def test_fp8_blockwise_emulated_grouped_mm_fwd_bwd(
 
 
 @skip_if_rocm("ROCm not supported")
-def test_fp8_blockwise_grouped_mm_public_function_emulated_backend():
+def test_fp8_blockwise_grouped_mm_emulated_backend():
     torch.manual_seed(0)
     E, tokens_per_expert, K, N = 2, 256, 256, 256
     M = E * tokens_per_expert
@@ -94,7 +96,7 @@ def test_fp8_blockwise_grouped_mm_public_function_emulated_backend():
     A_ref = A.detach().clone().requires_grad_(True)
     B_t_ref = B_t.detach().clone().requires_grad_(True)
 
-    out = fp8_blockwise_grouped_mm(
+    out = _to_fp8_blockwise_then_scaled_grouped_mm(
         A,
         B_t,
         offs,
