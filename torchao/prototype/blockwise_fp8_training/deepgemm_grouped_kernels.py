@@ -158,19 +158,6 @@ def can_use_deepgemm_grouped_training(
     )
 
 
-def _deepgemm_flat_k_grouped_operand(
-    data: torch.Tensor,
-    scale: torch.Tensor,
-) -> DeepGemmKGroupedOperand:
-    assert data.ndim == 1, "DeepGEMM flat K-grouped data must be 1D"
-    assert scale.ndim == 2, "DeepGEMM flat K-grouped scale must be 2D"
-    return DeepGemmKGroupedOperand(
-        data=data,
-        scale=scale,
-        dim=scale.shape[0],
-    )
-
-
 def _quantize_wgrad_operand(
     x: torch.Tensor,
     group_end_offsets: torch.Tensor,
@@ -187,7 +174,9 @@ def _quantize_wgrad_operand(
         dtype=dtype,
         metadata=metadata,
     )
-    return _deepgemm_flat_k_grouped_operand(q, scale)
+    assert q.ndim == 1, "DeepGEMM flat K-grouped data must be 1D"
+    assert scale.ndim == 2, "DeepGEMM flat K-grouped scale must be 2D"
+    return DeepGemmKGroupedOperand(q, scale, scale.shape[0])
 
 
 def prepare_deepgemm_wgrad_plan(
