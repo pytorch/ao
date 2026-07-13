@@ -78,13 +78,15 @@ class NVFP4TrainingConfig(AOBaseConfig):
     Args:
         kernel_preference: Backend for quantization kernels.
             TRITON: Pure-Triton RHT + stochastic rounding path.
-            CUTEDSL: CuteDSL kernels for the amax + forward RTNE quantize, with the
-                Triton path for the SR backward quantize and weights. Requires SM100;
-                not supported with tensor parallel.
+            CUTEDSL: CuteDSL kernels for the full quantize path (amax, forward
+                RTNE quantize, SR backward quantize, and 2D weight quantize).
+                Requires SM100; in_features divisible by 128 and out_features
+                by 256. Under tensor parallel the same constraints apply to each
+                per-rank shard, and the per-rank M shard must be divisible by 256.
             Default: TRITON.
         process_group: Optional ProcessGroup for tensor-parallel TP.
-            When set with kernel_preference=TRITON, forward dispatches to
-            the selected NVFP4 tensor-parallel path.
+            When set, forward dispatches to the selected NVFP4 tensor-parallel
+            path (TRITON or CUTEDSL).
         world_size: TP world size.  Inferred from process_group if None.
         rht_sign_vector: Optional {-1, 1} sign vector of length 16 for the
             randomized Hadamard transform.  When None, each NVFP4Linear draws
@@ -108,9 +110,8 @@ class NVFP4Linear(nn.Linear):
     Drop-in replacement for nn.Linear that quantizes activations, weights,
     and gradients to NVFP4 for all three training GEMMs.
 
-    When process_group is set and kernel_preference==TRITON the forward uses
-    the tensor-parallel protocol selected by NVFP4ColwiseParallel or
-    NVFP4RowwiseParallel.
+    When process_group is set the forward uses the tensor-parallel protocol
+    selected by NVFP4ColwiseParallel or NVFP4RowwiseParallel.
     """
 
     def __init__(
@@ -157,17 +158,9 @@ class NVFP4Linear(nn.Linear):
         return self._rht_sign_vector_tuple
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        if (
-            self.process_group is not None
-            and self.kernel_preference == KernelPreference.CUTEDSL
-        ):
-            raise NotImplementedError(
-                "kernel_preference=CUTEDSL does not support tensor parallelism; "
-                "use KernelPreference.TRITON for the TP path."
-            )
-        if (
-            self.process_group is not None
-            and self.kernel_preference == KernelPreference.TRITON
+        if self.process_group is not None and self.kernel_preference in (
+            KernelPreference.TRITON,
+            KernelPreference.CUTEDSL,
         ):
             import torch.distributed as dist
             from torch.distributed.tensor import DTensor
@@ -202,6 +195,7 @@ class NVFP4Linear(nn.Linear):
                 tp_group=self.process_group,
                 world_size=ws,
                 sign_vector=self.rht_sign_vector,
+                use_cutedsl=self.kernel_preference == KernelPreference.CUTEDSL,
             )
         return nvfp4_linear(
             x,

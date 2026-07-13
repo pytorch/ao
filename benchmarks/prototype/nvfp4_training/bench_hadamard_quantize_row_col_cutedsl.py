@@ -22,9 +22,9 @@ from typing import List, Optional
 
 import torch
 from tabulate import tabulate
-from tqdm import tqdm
 from torch.profiler import ProfilerActivity, profile
 from torch.utils._triton import has_triton
+from tqdm import tqdm
 
 from torchao.prototype.moe_training.nvfp4_training.hadamard_amax_cutedsl import (
     cutedsl_rht_amax,
@@ -71,8 +71,7 @@ class Experiment:
 
 def get_configs() -> List[ExperimentConfig]:
     return [
-        ExperimentConfig(m=m, n=n)
-        for m, n in itertools.product(M_SHAPES, N_SHAPES)
+        ExperimentConfig(m=m, n=n) for m, n in itertools.product(M_SHAPES, N_SHAPES)
     ]
 
 
@@ -109,7 +108,10 @@ def _kernel_us(fn, warmup: int = 15, iters: int = 50) -> float:
             fn()
         torch.cuda.synchronize()
     total = sum(
-        (getattr(e, "self_device_time_total", 0) or getattr(e, "self_cuda_time_total", 0))
+        (
+            getattr(e, "self_device_time_total", 0)
+            or getattr(e, "self_cuda_time_total", 0)
+        )
         for e in prof.key_averages()
         if "memcpy" not in e.key.lower() and "memset" not in e.key.lower()
     )
@@ -166,7 +168,15 @@ def run_experiment(
 
 def print_results(experiments: List[Experiment]):
     has_labels = any(e.config.model or e.config.shape for e in experiments)
-    headers = ["M", "N", "cutedsl_kernel_us", "triton_kernel_us", "speedup", "cutedsl_gbps", "pct_peak_bw"]
+    headers = [
+        "M",
+        "N",
+        "cutedsl_kernel_us",
+        "triton_kernel_us",
+        "speedup",
+        "cutedsl_gbps",
+        "pct_peak_bw",
+    ]
     rows = []
     for e in experiments:
         r = e.result
@@ -204,7 +214,11 @@ def main():
         else get_configs()
     )
     peak = get_peak_mem_bw_gbps()
-    print(f"Peak memory bandwidth: {peak:.1f} GB/s" if peak else "Peak memory bandwidth: n/a")
+    print(
+        f"Peak memory bandwidth: {peak:.1f} GB/s"
+        if peak
+        else "Peak memory bandwidth: n/a"
+    )
 
     results = []
     for config in tqdm(configs):

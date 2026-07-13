@@ -11,12 +11,6 @@ import torch
 from torch.utils._triton import has_triton
 
 from torchao.float8.float8_utils import compute_error
-from torchao.prototype.mx_formats.nvfp4_tensor import (
-    NVFP4Tensor,
-    nvfp4_quantize,
-    per_tensor_amax_to_scale,
-)
-from torchao.prototype.mx_formats.utils import to_blocked
 from torchao.prototype.moe_training.nvfp4_training.hadamard_amax_cutedsl import (
     cutedsl_rht_amax,
 )
@@ -27,6 +21,12 @@ from torchao.prototype.moe_training.nvfp4_training.hadamard_quantize_row_col_cut
     cutedsl_rht_quantize_row_col,
 )
 from torchao.prototype.moe_training.nvfp4_training.hadamard_utils import get_rht_matrix
+from torchao.prototype.mx_formats.nvfp4_tensor import (
+    NVFP4Tensor,
+    nvfp4_quantize,
+    per_tensor_amax_to_scale,
+)
+from torchao.prototype.mx_formats.utils import to_blocked
 
 # Kernel requires M % 256 == 0, N % 128 == 0.
 _M_VALUES = [256, 512, 1024]
@@ -167,10 +167,9 @@ def test_cutedsl_vs_triton_interchangeable(M, N):
 @_skip_no_cutedsl
 @torch.no_grad()
 def test_cutedsl_rht_quantize_zero_input():
-    """All-zero input packs to zero codes and dequantizes to zero (finite).
-
-    An all-zero block emits a scale of 0, which dequantizes cleanly back to 0.
-    """
+    """All-zero input packs to zero codes; each block scale is clamped to E4M3 eps (not 0,
+    matching triton), and it still dequantizes to zero."""
+    eps = torch.finfo(torch.float8_e4m3fn).tiny
     M, N = 256, 256
     A = torch.zeros(M, N, dtype=torch.bfloat16, device="cuda")
     col_codes, col_sf, row_codes, row_sf, col_amax, row_amax = _quantize_row_col(A)
@@ -181,7 +180,9 @@ def test_cutedsl_rht_quantize_zero_input():
         (row_codes, row_sf, row_amax),
     ):
         assert torch.count_nonzero(codes).item() == 0, "zero input must pack to zero"
-        assert torch.isfinite(sf.to(torch.float32)).all()
+        assert (sf.to(torch.float32) == eps).all(), (
+            "zero block scale must clamp to E4M3 eps"
+        )
         dq = _dequantize(codes, sf, amax)
         assert torch.isfinite(dq).all()
         torch.testing.assert_close(dq, torch.zeros_like(dq), atol=0, rtol=0)
@@ -218,8 +219,12 @@ def test_cutedsl_rht_quantize_plain_sf_and_no_rowwise(M, N):
     # FP4 codes are layout-independent.
     assert torch.equal(col_p, col_sw) and torch.equal(row_p, row_sw)
     # Plain SF is the pre-blocked form of the swizzled SF.
-    torch.testing.assert_close(to_blocked(col_sf_p), col_sf_sw.flatten(), atol=0, rtol=0)
-    torch.testing.assert_close(to_blocked(row_sf_p), row_sf_sw.flatten(), atol=0, rtol=0)
+    torch.testing.assert_close(
+        to_blocked(col_sf_p), col_sf_sw.flatten(), atol=0, rtol=0
+    )
+    torch.testing.assert_close(
+        to_blocked(row_sf_p), row_sf_sw.flatten(), atol=0, rtol=0
+    )
 
     # compute_rowwise=False suppresses the rowwise *return* (the kernel still computes it).
     c_fp4, c_sf, r_fp4, r_sf = _cutedsl_rht_quantize_row_col_impl(
@@ -231,10 +236,11 @@ def test_cutedsl_rht_quantize_plain_sf_and_no_rowwise(M, N):
 
 @_skip_no_cutedsl
 @torch.no_grad()
-def test_cutedsl_rht_quantize_stochastic_rounding_unsupported():
+def test_cutedsl_rht_quantize_sr_requires_seed_offset():
+    """stochastic_rounding=True needs both seed and offset tensors; omitting either raises."""
     A = torch.randn(256, 256, dtype=torch.bfloat16, device="cuda")
     col_amax, row_amax = cutedsl_rht_amax(A, list(_HARDCODED_SIGN_VECTOR))
-    with pytest.raises(NotImplementedError):
+    with pytest.raises(ValueError):
         cutedsl_rht_quantize_row_col(
             A,
             col_amax,
@@ -242,6 +248,56 @@ def test_cutedsl_rht_quantize_stochastic_rounding_unsupported():
             list(_HARDCODED_SIGN_VECTOR),
             stochastic_rounding=True,
         )
+
+
+@_skip_no_cutedsl
+@torch.no_grad()
+def test_cutedsl_rht_quantize_sr_unbiased():
+    """Hardware stochastic rounding (cvt.rs) is unbiased. Feed the row path elements that land
+    EXACTLY halfway between FP4 grid points (1.25, between 1.0 and 1.5) -- the maximal-bias case
+    RTNE always pins to one side -- and confirm averaging many SR draws converges to 1.25 with a
+    ~50/50 grid split. Per 1x16 row-block one 6.0 anchor sets the block amax; global amax 2688
+    gives an identity global scale, so every other element passes through as its raw value 1.25."""
+    M, N = 256, 256
+    dev = "cuda"
+    sign = list(_HARDCODED_SIGN_VECTOR)
+    A = torch.full((M, N), 1.25, dtype=torch.bfloat16, device=dev)
+    A[:, ::16] = 6.0  # block amax anchor
+    amax = torch.tensor(
+        2688.0, dtype=torch.float32, device=dev
+    )  # identity global scale (0-dim)
+    halfway = torch.arange(N, device=dev) % 16 != 0  # the 1.25 positions
+
+    # RTNE pins every halfway element to a single side (no spread).
+    _, _, rtne_codes, rtne_sf = cutedsl_rht_quantize_row_col(A, amax, amax, sign)
+    assert _dequantize(rtne_codes, rtne_sf, amax)[:, halfway].unique().numel() == 1
+
+    seed = torch.tensor([0x12345678], dtype=torch.int64, device=dev)
+    K = 32
+    acc = torch.zeros(M, N, device=dev)
+    n_lo = n_hi = n_other = 0
+    for k in range(K):
+        offset = torch.tensor([k * 2654435761 + 7], dtype=torch.int64, device=dev)
+        _, _, codes, sf = cutedsl_rht_quantize_row_col(
+            A,
+            amax,
+            amax,
+            sign,
+            stochastic_rounding=True,
+            seed=seed,
+            offset=offset,
+        )
+        vals = _dequantize(codes, sf, amax)[:, halfway]
+        acc[:, halfway] += vals
+        n_lo += int((vals == 1.0).sum())
+        n_hi += int((vals == 1.5).sum())
+        n_other += int(((vals != 1.0) & (vals != 1.5)).sum())
+
+    mean_sr = (acc / K)[:, halfway].mean().item()
+    tot = n_lo + n_hi + n_other
+    assert n_other == 0, "SR produced off-grid values"
+    assert abs(mean_sr - 1.25) < 0.01, f"SR mean {mean_sr:.4f} != 1.25 (biased)"
+    assert 0.45 < n_lo / tot < 0.55, f"SR grid split {n_lo / tot:.3f} not ~50/50"
 
 
 @_skip_no_cutedsl

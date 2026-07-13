@@ -11,18 +11,16 @@ NVFP4 cast. The two global amaxes are taken as input: the caller computes them f
 ``cutedsl_rht_amax``.
 """
 
-from typing import List, Tuple
+from typing import List, Optional, Tuple
 
 import torch
 import torch.nn.functional as F
 
-from .hadamard_cutedsl_utils import (
-    CUTEDSL_NVFP4_REQUIREMENTS,
-    cutedsl_nvfp4_kernels_available,
-    cutedsl_nvfp4_unavailable_reason,
-)
+from .hadamard_cutedsl_utils import raise_if_cutedsl_nvfp4_unavailable
 
-_DEFAULT_SCALING_TYPE = int(F.ScalingType.TensorWise) if hasattr(F, "ScalingType") else 0
+_DEFAULT_SCALING_TYPE = (
+    int(F.ScalingType.TensorWise) if hasattr(F, "ScalingType") else 0
+)
 
 
 @torch.library.custom_op("torchao::cutedsl_rht_quantize_row_col", mutates_args=())
@@ -34,6 +32,8 @@ def cutedsl_rht_quantize_row_col(
     stochastic_rounding: bool = False,
     hadamard_dimension: int = 16,
     scaling_type: int = _DEFAULT_SCALING_TYPE,
+    seed: Optional[torch.Tensor] = None,
+    offset: Optional[torch.Tensor] = None,
 ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
     """RHT + NVFP4 E2M1 columnwise quantize fused with rowwise quantize.
 
@@ -49,9 +49,14 @@ def cutedsl_rht_quantize_row_col(
             ``cutedsl_rht_amax`` (and optionally all-reduce for TP) before passing in.
         row_global_amax: scalar float32 ``max(abs(A))``. Same source.
         sign_vector: RHT sign vector as a list of ints.
-        stochastic_rounding: not implemented (raises if True).
+        stochastic_rounding: if True, both quant paths round via the Blackwell ``cvt.rs`` HW
+            stochastic-rounding cvt (requires ``seed`` and ``offset``). False -> RTNE (default).
         hadamard_dimension: Hadamard dimension (only 16 supported).
         scaling_type: int encoding of F.ScalingType. Only TensorWise is supported.
+        seed: int64 RNG key tensor (1-elem), required when ``stochastic_rounding=True``. A fixed
+            per-module buffer.
+        offset: int64 RNG offset tensor (1-elem), required when ``stochastic_rounding=True``. A
+            fresh per-call value so CUDA-graph replays advance the stream (mirrors the Triton path).
 
     Returns:
         4-tuple (col_fp4, col_sf, row_fp4, row_sf):
@@ -61,18 +66,18 @@ def cutedsl_rht_quantize_row_col(
           - row_sf:  (M//128, N//64, 32, 16) float8_e4m3fn swizzled scale factors.
 
     Raises:
-        NotImplementedError: pre-SM100 / missing CuteDSL runtime, or stochastic_rounding=True.
-        ValueError: bad dtype/shape/divisibility/amax, or unsupported hadamard_dimension/scaling_type.
+        NotImplementedError: pre-SM100 / missing CuteDSL runtime.
+        ValueError: bad dtype/shape/divisibility/amax, unsupported hadamard_dimension/scaling_type,
+            or stochastic_rounding=True without seed/offset.
     """
-    if torch.cuda.is_available() and not cutedsl_nvfp4_kernels_available():
-        raise NotImplementedError(
-            f"cutedsl_rht_quantize_row_col requires {CUTEDSL_NVFP4_REQUIREMENTS} "
-            f"({cutedsl_nvfp4_unavailable_reason()})."
-        )
+    raise_if_cutedsl_nvfp4_unavailable("cutedsl_rht_quantize_row_col")
+    sr_rng = None
     if stochastic_rounding:
-        raise NotImplementedError(
-            "stochastic rounding is not implemented in the cutedsl kernel"
-        )
+        if seed is None or offset is None:
+            raise ValueError(
+                "stochastic_rounding=True requires both seed and offset tensors"
+            )
+        sr_rng = seed.to(torch.int64) ^ offset.to(torch.int64)
     if hadamard_dimension != 16:
         raise ValueError(f"hadamard_dimension must be 16, got {hadamard_dimension}")
     if scaling_type != _DEFAULT_SCALING_TYPE:
@@ -83,7 +88,12 @@ def cutedsl_rht_quantize_row_col(
     from ._cutedsl_kernels_impl import _cutedsl_rht_quantize_row_col_impl
 
     return _cutedsl_rht_quantize_row_col_impl(
-        A, col_global_amax, row_global_amax, tuple(sign_vector)
+        A,
+        col_global_amax,
+        row_global_amax,
+        tuple(sign_vector),
+        stochastic_rounding=stochastic_rounding,
+        sr_rng=sr_rng,
     )
 
 
@@ -96,6 +106,8 @@ def _(
     stochastic_rounding=False,
     hadamard_dimension=16,
     scaling_type=_DEFAULT_SCALING_TYPE,
+    seed=None,
+    offset=None,
 ):
     M, N = A.shape
     col_fp4 = A.new_empty((N, M // 2), dtype=torch.uint8)
