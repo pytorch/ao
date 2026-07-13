@@ -44,9 +44,14 @@ _PrecomputedDeepGemmPlanFields = tuple[
 
 def _precomputed_deepgemm_plan_fields(
     plan: Optional[DeepGemmGroupedOffsetPlan],
+    group_end_offsets: Optional[torch.Tensor],
 ) -> Optional[_PrecomputedDeepGemmPlanFields]:
     if plan is None:
         return None
+    assert plan.group_end_offsets is group_end_offsets, (
+        "precomputed_deepgemm_plan must be prepared from the same offs tensor "
+        "passed to fp8_blockwise_grouped_mm"
+    )
     assert "group_sizes" in plan.__dict__ and "ks_tensor" in plan.__dict__, (
         "precomputed_deepgemm_plan must come from "
         "prepare_fp8_blockwise_grouped_mm_plan so host group sizes are "
@@ -99,6 +104,16 @@ def fp8_blockwise_grouped_mm(
 
     A has shape (M, K). B_t has shape (E, K, N), transposed and in
     per-expert column-major layout.
+
+    ``kernel_preference`` selects one backend for the complete autograd
+    operation. ``EMULATED`` uses PyTorch grouped-mm layouts and kernels;
+    ``AUTO`` uses DeepGEMM-specific layouts and kernels when supported and
+    otherwise falls back to emulation. The selected backend is reused for
+    forward, dgrad, and wgrad.
+
+    Supplying ``precomputed_deepgemm_plan`` explicitly selects DeepGEMM and
+    requires the exact ``offs`` tensor from which the plan was prepared. This
+    lets host metadata be materialized before ``torch.compile``.
     """
     assert block_size == 128, "Only block_size=128 is supported"
     assert kernel_preference in (
@@ -112,7 +127,8 @@ def fp8_blockwise_grouped_mm(
         "prepare the padded offsets and plan before calling fp8_blockwise_grouped_mm"
     )
     precomputed_deepgemm_plan_fields = _precomputed_deepgemm_plan_fields(
-        precomputed_deepgemm_plan
+        precomputed_deepgemm_plan,
+        offs,
     )
     return _Float8BlockwiseGroupedMM.apply(
         A,

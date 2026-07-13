@@ -91,7 +91,7 @@ class _GroupedMMBackend:
 
 
 class _EmulatedGroupedMMBackend(_GroupedMMBackend):
-    """TorchAO emulated backend that preserves the original grouped_mm path."""
+    """TorchAO emulated backend using PyTorch grouped-mm operand layouts."""
 
     kind = _GroupedMMBackendKind.EMULATED
 
@@ -101,7 +101,9 @@ class _EmulatedGroupedMMBackend(_GroupedMMBackend):
         block_size: int,
         dtype: torch.dtype,
     ) -> tuple[torch.Tensor, torch.Tensor]:
-        # The emulated backend consumes TorchAO's grouped RHS layout:
+        # The shared direct quantizer writes forward RHS as row-major
+        # (E, N, K) data with (E, N_blocks, K_blocks) scales. Transpose views
+        # convert that to TorchAO's grouped RHS contract for output = A @ B_t:
         # (E, K, N) data with (E, K_blocks, N_blocks) scales.
         q, scale = triton_fp8_blockwise_weight_quant_grouped_forward_rhs(
             B_t,
@@ -116,7 +118,9 @@ class _EmulatedGroupedMMBackend(_GroupedMMBackend):
         block_size: int,
         dtype: torch.dtype,
     ) -> tuple[torch.Tensor, torch.Tensor]:
-        # The emulated backend consumes TorchAO's grouped RHS layout for
+        # The shared direct quantizer writes dgrad RHS as row-major
+        # (E, K, N) data with (E, K_blocks, N_blocks) scales. Transpose views
+        # convert that to TorchAO's grouped RHS contract for
         # grad_output @ weight: (E, N, K) data with
         # (E, N_blocks, K_blocks) scales.
         q, scale = triton_fp8_blockwise_weight_quant_grouped_dgrad_rhs(
@@ -159,6 +163,11 @@ class _EmulatedGroupedMMBackend(_GroupedMMBackend):
         block_size: int,
         dtype: torch.dtype,
     ) -> torch.Tensor:
+        # For expert e, wgrad is [N, M_e] @ [M_e, K] -> [N, K]. PyTorch's
+        # 2D x 2D grouped_mm contract represents all experts as two 2D tensors:
+        #   grad_output_t: [N, M], row-major
+        #   A:             [M, K], column-major
+        # `group_end_offsets` partitions their shared M dimension into M_e.
         grad_output_t_fp8, grad_output_t_scale = (
             triton_fp8_blockwise_act_quant_transposed_lhs(
                 padded_grad_output.contiguous(),
@@ -255,6 +264,12 @@ class _DeepGemmGroupedMMBackend(_GroupedMMBackend):
         block_size: int,
         dtype: torch.dtype,
     ) -> torch.Tensor:
+        # DeepGEMM computes the same [N, M_e] @ [M_e, K] wgrad but its
+        # K-grouped API takes two flat expert-major buffers. The quantizer
+        # concatenates row-major [N, M_e] blocks in expert order for the LHS
+        # and row-major [K, M_e] blocks in expert order for the RHS. The flat
+        # segment lengths are therefore [N * M_0, ..., N * M_{E-1}] and
+        # [K * M_0, ..., K * M_{E-1}], respectively.
         wgrad_plan = prepare_deepgemm_wgrad_plan(
             padded_grad_output,
             padded_a,
@@ -300,7 +315,8 @@ def _select_fp8_blockwise_grouped_mm_backend(
     optional-dependency probe so callers can prepare host metadata outside a
     compiled region.
     When DeepGEMM is selected, the returned backend owns the offset/layout plan
-    reused by forward, dgrad, and wgrad.
+    reused by forward, dgrad, and wgrad. The autograd function saves this
+    backend, so wgrad cannot independently choose a different layout or kernel.
     """
 
     if kernel_preference == KernelPreference.EMULATED:

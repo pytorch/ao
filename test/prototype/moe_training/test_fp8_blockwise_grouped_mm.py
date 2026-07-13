@@ -19,9 +19,9 @@ if not (
 
 pytest.importorskip("triton", reason="Triton required to run this test")
 
+from torchao.prototype.moe_training import fp8_blockwise_grouped_mm
 from torchao.prototype.moe_training.blockwise_fp8.grouped_mm import (
     _to_fp8_blockwise_then_emulated_scaled_grouped_mm,
-    fp8_blockwise_grouped_mm,
     prepare_fp8_blockwise_grouped_mm_plan,
 )
 from torchao.quantization.quantize_.common import KernelPreference
