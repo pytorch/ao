@@ -44,6 +44,12 @@ def _to_fp8_blockwise_then_scaled_grouped_mm(
 
     A has shape (M, K). B_t has shape (E, K, N), transposed and in
     per-expert column-major layout.
+
+    ``kernel_preference`` selects one backend for the complete autograd
+    operation. ``EMULATED`` uses PyTorch grouped-mm layouts and kernels;
+    ``AUTO`` uses DeepGEMM-specific layouts and kernels when supported and
+    otherwise falls back to emulation. The selected backend is reused for
+    forward, dgrad, and wgrad.
     """
     assert block_size == 128, "Only block_size=128 is supported"
     assert kernel_preference in (

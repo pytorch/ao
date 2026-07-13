@@ -95,10 +95,11 @@ def triton_fp8_blockwise_act_quant_k_grouped_deepgemm(
     """
     Quantize activations directly for DeepGEMM K-grouped wgrad.
 
-    Input is logical (M_tokens, D), already padded/grouped by expert. Output is
-    a flat K-major DeepGEMM buffer: for each expert, data is stored as
-    (D, expert_tokens), then concatenated with the next expert. Scales are
-    stored as (D, total_valid_token_blocks).
+    Input is logical ``(M, D)``, already padded and concatenated by expert.
+    For expert token counts ``M_0, ..., M_{E-1}``, output data concatenates
+    row-major ``(D, M_e)`` expert blocks in a flat buffer; its segment lengths
+    are ``[D * M_0, ..., D * M_{E-1}]``. Scales are stored as
+    ``(D, sum_e(M_e / block_size))`` in the same expert order.
 
     The fake implementation treats the number of valid tokens as dynamic
     because it cannot read ``group_end_offsets`` values from FakeTensors.

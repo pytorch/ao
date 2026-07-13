@@ -32,8 +32,11 @@ class DeepGemmKGroupedOperand:
     """A quantized operand in DeepGEMM's flat K-grouped layout.
 
     Args:
-        data: Flat FP8 data with each expert stored as ``(dim, expert_tokens)``.
-        scale: Float32 inverse scales for the operand.
+        data: Flat FP8 concatenation of row-major ``(dim, M_e)`` expert
+            blocks. Its segment lengths are
+            ``[dim * M_0, ..., dim * M_{E-1}]``.
+        scale: Float32 inverse scales stored as
+            ``(dim, sum_e(M_e / block_size))`` in the same expert order.
         dim: Logical non-token dimension used by DeepGEMM's K-grouped API.
     """
 
