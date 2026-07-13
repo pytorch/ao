@@ -7,7 +7,6 @@ from __future__ import annotations
 
 import importlib
 from dataclasses import dataclass
-from enum import Enum
 from functools import lru_cache
 from typing import Optional
 
@@ -25,42 +24,25 @@ from torchao.prototype.blockwise_fp8_training.kernels import (
     BLOCKWISE_128X128_SCALING_TYPE,
     _is_row_major,
     _scaling_type_value,
-    triton_fp8_blockwise_act_quant_rhs,
-    triton_fp8_blockwise_act_quant_transposed_lhs,
 )
-
-# H100 tuning on the DeepSeek-V3 MoE shapes showed direct flat quantization wins
-# for the wide K=4096/7168 operands, while the existing TorchAO quantizer plus
-# flatten is faster for the common N=2048 operand. Keep the threshold here with
-# the DeepGEMM backend policy so future PyTorch grouped FP8 support can replace
-# the whole path without leaking this heuristic into the public MoE op.
-_DEEPGEMM_DIRECT_K_GROUPED_QUANT_MIN_DIM = 4096
-
-
-class DeepGemmKGroupedLayout(str, Enum):
-    """How a K-grouped operand is represented before DeepGEMM dispatch."""
-
-    FLAT = "flat"
-    TORCHAO_TRANSPOSED_LHS = "torchao_transposed_lhs"
-    TORCHAO_RHS = "torchao_rhs"
 
 
 @dataclass(frozen=True)
 class DeepGemmKGroupedOperand:
-    """A quantized K-grouped operand plus enough layout info to dispatch it.
+    """A quantized operand in DeepGEMM's flat K-grouped layout.
 
     Args:
-        data: FP8 data buffer, either already flat in DeepGEMM order or in a
-            TorchAO intermediate layout.
-        scale: Float32 inverse scales for the operand.
+        data: Flat FP8 concatenation of row-major ``(dim, M_e)`` expert
+            blocks. Its segment lengths are
+            ``[dim * M_0, ..., dim * M_{E-1}]``.
+        scale: Float32 inverse scales stored as
+            ``(dim, sum_e(M_e / block_size))`` in the same expert order.
         dim: Logical non-token dimension used by DeepGEMM's K-grouped API.
-        layout: Current representation of ``data``.
     """
 
     data: torch.Tensor
     scale: torch.Tensor
     dim: int
-    layout: DeepGemmKGroupedLayout
 
 
 @dataclass(frozen=True)
@@ -176,148 +158,25 @@ def can_use_deepgemm_grouped_training(
     )
 
 
-def _flatten_k_grouped_transposed_lhs(
-    a_t: torch.Tensor,
+def _quantize_wgrad_operand(
+    x: torch.Tensor,
+    group_end_offsets: torch.Tensor,
     group_sizes: list[int],
-) -> torch.Tensor:
-    parts = []
-    start = 0
-    for group_size in group_sizes:
-        end = start + group_size
-        # TorchAO's wgrad LHS quantizer returns logical (N_out, M_tokens).
-        # DeepGEMM's K-grouped K-major buffer stores one expert at a time as
-        # (N_out, expert_tokens). Slice the token dimension per expert before
-        # flattening so each expert's K range is contiguous in DeepGEMM order.
-        parts.append(a_t[:, start:end].contiguous().view(-1))
-        start = end
-    return torch.cat(parts) if len(parts) > 1 else parts[0]
-
-
-def _flatten_k_grouped_rhs(
-    b: torch.Tensor,
-    group_sizes: list[int],
-) -> torch.Tensor:
-    parts = []
-    start = 0
-    for group_size in group_sizes:
-        end = start + group_size
-        # TorchAO's wgrad RHS quantizer returns logical (M_tokens, K_in) in a
-        # column-major physical layout for torch._grouped_mm. DeepGEMM's
-        # K-grouped K-major buffer stores each expert as (K_in, expert_tokens),
-        # so transpose the logical slice and make that DeepGEMM flat order.
-        parts.append(b[start:end].transpose(-2, -1).contiguous().view(-1))
-        start = end
-    return torch.cat(parts) if len(parts) > 1 else parts[0]
-
-
-def _deepgemm_flat_k_grouped_operand(
-    data: torch.Tensor,
-    scale: torch.Tensor,
+    block_size: int,
+    dtype: torch.dtype,
+    metadata: DeepGemmKGroupedQuantMetadata,
 ) -> DeepGemmKGroupedOperand:
-    assert data.ndim == 1, "DeepGEMM flat K-grouped data must be 1D"
+    q, scale = _triton_fp8_blockwise_act_quant_k_grouped_deepgemm_with_group_sizes(
+        x.contiguous(),
+        group_end_offsets,
+        group_sizes,
+        block_size=block_size,
+        dtype=dtype,
+        metadata=metadata,
+    )
+    assert q.ndim == 1, "DeepGEMM flat K-grouped data must be 1D"
     assert scale.ndim == 2, "DeepGEMM flat K-grouped scale must be 2D"
-    return DeepGemmKGroupedOperand(
-        data=data,
-        scale=scale,
-        dim=scale.shape[0],
-        layout=DeepGemmKGroupedLayout.FLAT,
-    )
-
-
-def _torchao_transposed_lhs_operand(
-    data: torch.Tensor,
-    scale: torch.Tensor,
-) -> DeepGemmKGroupedOperand:
-    assert data.ndim == 2, "TorchAO transposed-LHS data must be 2D"
-    assert scale.ndim == 2, "TorchAO transposed-LHS scale must be 2D"
-    return DeepGemmKGroupedOperand(
-        data=data,
-        scale=scale,
-        dim=data.shape[0],
-        layout=DeepGemmKGroupedLayout.TORCHAO_TRANSPOSED_LHS,
-    )
-
-
-def _torchao_rhs_operand(
-    data: torch.Tensor,
-    scale: torch.Tensor,
-) -> DeepGemmKGroupedOperand:
-    assert data.ndim == 2, "TorchAO RHS data must be 2D"
-    assert scale.ndim == 2, "TorchAO RHS scale must be 2D"
-    return DeepGemmKGroupedOperand(
-        data=data,
-        scale=scale,
-        dim=data.shape[-1],
-        layout=DeepGemmKGroupedLayout.TORCHAO_RHS,
-    )
-
-
-def _should_quantize_k_grouped_directly(dim: int) -> bool:
-    return dim >= _DEEPGEMM_DIRECT_K_GROUPED_QUANT_MIN_DIM
-
-
-def _quantize_wgrad_lhs(
-    x: torch.Tensor,
-    group_end_offsets: torch.Tensor,
-    group_sizes: list[int],
-    block_size: int,
-    dtype: torch.dtype,
-    metadata: DeepGemmKGroupedQuantMetadata | None,
-) -> DeepGemmKGroupedOperand:
-    if _should_quantize_k_grouped_directly(x.shape[-1]):
-        q, scale = _triton_fp8_blockwise_act_quant_k_grouped_deepgemm_with_group_sizes(
-            x.contiguous(),
-            group_end_offsets,
-            group_sizes,
-            block_size=block_size,
-            dtype=dtype,
-            metadata=metadata,
-        )
-        # Direct quantization writes the DeepGEMM input contract directly:
-        # flat per-expert (dim, tokens) data with (dim, token_blocks) scales.
-        return _deepgemm_flat_k_grouped_operand(q, scale)
-
-    q, scale = triton_fp8_blockwise_act_quant_transposed_lhs(
-        x.contiguous(),
-        block_size=block_size,
-        dtype=dtype,
-    )
-    # For narrower LHS dimensions, TorchAO's transposed-LHS quantizer is
-    # faster; the DeepGEMM launcher later flattens (dim, all_tokens) into
-    # per-expert (dim, expert_tokens) chunks.
-    return _torchao_transposed_lhs_operand(q, scale)
-
-
-def _quantize_wgrad_rhs(
-    x: torch.Tensor,
-    group_end_offsets: torch.Tensor,
-    group_sizes: list[int],
-    block_size: int,
-    dtype: torch.dtype,
-    metadata: DeepGemmKGroupedQuantMetadata | None,
-) -> DeepGemmKGroupedOperand:
-    if _should_quantize_k_grouped_directly(x.shape[-1]):
-        q, scale = _triton_fp8_blockwise_act_quant_k_grouped_deepgemm_with_group_sizes(
-            x.contiguous(),
-            group_end_offsets,
-            group_sizes,
-            block_size=block_size,
-            dtype=dtype,
-            metadata=metadata,
-        )
-        # Direct quantization writes the DeepGEMM input contract directly:
-        # flat per-expert (dim, tokens) data with (dim, token_blocks) scales.
-        return _deepgemm_flat_k_grouped_operand(q, scale)
-
-    q, scale = triton_fp8_blockwise_act_quant_rhs(
-        x.contiguous(),
-        block_size=block_size,
-        dtype=dtype,
-    )
-    # For narrower RHS dimensions, keep TorchAO's grouped-mm RHS contract:
-    # logical (tokens, dim) data in column-major physical layout with
-    # (token_blocks, dim) scales, then convert at DeepGEMM launch time.
-    return _torchao_rhs_operand(q, scale)
+    return DeepGemmKGroupedOperand(q, scale, scale.shape[0])
 
 
 def prepare_deepgemm_wgrad_plan(
@@ -333,24 +192,12 @@ def prepare_deepgemm_wgrad_plan(
         # callers should keep using the emulated wgrad path for correctness.
         return None
     group_sizes = offset_plan.group_sizes
-    lhs_needs_direct_quant_metadata = _should_quantize_k_grouped_directly(
-        padded_grad_output.shape[-1]
+    lhs_metadata = offset_plan.k_quant_metadata(
+        block_size, padded_grad_output.shape[-1]
     )
-    rhs_needs_direct_quant_metadata = _should_quantize_k_grouped_directly(
-        padded_a.shape[-1]
-    )
-    lhs_metadata = (
-        offset_plan.k_quant_metadata(block_size, padded_grad_output.shape[-1])
-        if lhs_needs_direct_quant_metadata
-        else None
-    )
-    rhs_metadata = (
-        offset_plan.k_quant_metadata(block_size, padded_a.shape[-1])
-        if rhs_needs_direct_quant_metadata
-        else None
-    )
+    rhs_metadata = offset_plan.k_quant_metadata(block_size, padded_a.shape[-1])
     return DeepGemmWgradPlan(
-        lhs=_quantize_wgrad_lhs(
+        lhs=_quantize_wgrad_operand(
             padded_grad_output,
             offset_plan.group_end_offsets,
             group_sizes,
@@ -358,7 +205,7 @@ def prepare_deepgemm_wgrad_plan(
             dtype,
             lhs_metadata,
         ),
-        rhs=_quantize_wgrad_rhs(
+        rhs=_quantize_wgrad_operand(
             padded_a,
             offset_plan.group_end_offsets,
             group_sizes,
@@ -441,56 +288,6 @@ def deepgemm_blockwise_scaled_grouped_mm(
     return out
 
 
-def _prepare_k_grouped_lhs_operand(
-    operand: DeepGemmKGroupedOperand,
-    group_sizes: list[int],
-    total_tokens: int,
-    valid_scale_blocks: int,
-) -> tuple[torch.Tensor, torch.Tensor]:
-    if operand.layout == DeepGemmKGroupedLayout.FLAT:
-        # Direct quantization already produced DeepGEMM's flat K-major
-        # contract. Trim scale columns to valid padded rows and ignore any
-        # upper-bound padding allocated for CUDA graph friendliness.
-        return operand.data, operand.scale[:, :valid_scale_blocks]
-
-    assert operand.layout == DeepGemmKGroupedLayout.TORCHAO_TRANSPOSED_LHS, (
-        f"unsupported DeepGEMM wgrad LHS layout: {operand.layout}"
-    )
-    assert operand.data.shape[-1] >= total_tokens, (
-        f"shape {operand.data.shape} and offs={total_tokens} are not compatible"
-    )
-    data = _flatten_k_grouped_transposed_lhs(operand.data, group_sizes)
-    scale = operand.scale[:, :valid_scale_blocks]
-    return data, scale
-
-
-def _prepare_k_grouped_rhs_operand(
-    operand: DeepGemmKGroupedOperand,
-    group_sizes: list[int],
-    total_tokens: int,
-    valid_scale_blocks: int,
-) -> tuple[torch.Tensor, torch.Tensor]:
-    if operand.layout == DeepGemmKGroupedLayout.FLAT:
-        # Direct quantization already produced DeepGEMM's flat K-major
-        # contract. Trim scale columns to valid padded rows and ignore any
-        # upper-bound padding allocated for CUDA graph friendliness.
-        return operand.data, operand.scale[:, :valid_scale_blocks]
-
-    assert operand.layout == DeepGemmKGroupedLayout.TORCHAO_RHS, (
-        f"unsupported DeepGEMM wgrad RHS layout: {operand.layout}"
-    )
-    assert operand.data.shape[-2] >= total_tokens, (
-        f"shape {operand.data.shape} and offs={total_tokens} are not compatible"
-    )
-    data = _flatten_k_grouped_rhs(operand.data, group_sizes)
-    scale = operand.scale[:valid_scale_blocks]
-    # TorchAO RHS 1x128 scales are stored as (M_blocks, K_in). DeepGEMM's
-    # K-grouped scale contract is (K_in, M_blocks), matching its flattened
-    # per-expert (K_in, expert_tokens) RHS data.
-    scale = scale.transpose(-2, -1)
-    return data, scale
-
-
 def deepgemm_blockwise_scaled_grouped_mm_wgrad(
     lhs: DeepGemmKGroupedOperand,
     rhs: DeepGemmKGroupedOperand,
@@ -501,14 +298,6 @@ def deepgemm_blockwise_scaled_grouped_mm_wgrad(
     assert block_size == 128, (
         "DeepGEMM FP8 blockwise grouped wgrad requires block_size=128"
     )
-    assert lhs.layout in (
-        DeepGemmKGroupedLayout.FLAT,
-        DeepGemmKGroupedLayout.TORCHAO_TRANSPOSED_LHS,
-    ), f"unsupported DeepGEMM wgrad LHS layout: {lhs.layout}"
-    assert rhs.layout in (
-        DeepGemmKGroupedLayout.FLAT,
-        DeepGemmKGroupedLayout.TORCHAO_RHS,
-    ), f"unsupported DeepGEMM wgrad RHS layout: {rhs.layout}"
     assert out_dtype in (torch.bfloat16, torch.float32), (
         "DeepGEMM FP8 blockwise grouped wgrad supports bfloat16 or float32 output"
     )
@@ -539,18 +328,8 @@ def deepgemm_blockwise_scaled_grouped_mm_wgrad(
         )
 
     valid_scale_blocks = offset_plan.valid_scale_blocks(block_size)
-    a, a_s = _prepare_k_grouped_lhs_operand(
-        lhs,
-        group_sizes,
-        total_tokens,
-        valid_scale_blocks,
-    )
-    b, b_s = _prepare_k_grouped_rhs_operand(
-        rhs,
-        group_sizes,
-        total_tokens,
-        valid_scale_blocks,
-    )
+    a, a_s = lhs.data, lhs.scale[:, :valid_scale_blocks]
+    b, b_s = rhs.data, rhs.scale[:, :valid_scale_blocks]
     assert a.numel() == total_tokens * lhs.dim, (
         f"shape {a.shape} and LHS scales {a_s.shape} are not compatible"
     )
