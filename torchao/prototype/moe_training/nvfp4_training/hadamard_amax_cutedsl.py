@@ -17,11 +17,7 @@ from typing import List, Tuple
 
 import torch
 
-from .hadamard_cutedsl_utils import (
-    CUTEDSL_NVFP4_REQUIREMENTS,
-    cutedsl_nvfp4_kernels_available,
-    cutedsl_nvfp4_unavailable_reason,
-)
+from .hadamard_cutedsl_utils import raise_if_cutedsl_nvfp4_unavailable
 
 
 @torch.library.custom_op("torchao::cutedsl_rht_amax", mutates_args=())
@@ -46,11 +42,7 @@ def cutedsl_rht_amax(
         NotImplementedError: If the CuteDSL runtime / Blackwell hardware is unavailable.
         ValueError: If ``hadamard_dimension`` is not 16.
     """
-    if torch.cuda.is_available() and not cutedsl_nvfp4_kernels_available():
-        raise NotImplementedError(
-            f"cutedsl_rht_amax requires {CUTEDSL_NVFP4_REQUIREMENTS} "
-            f"({cutedsl_nvfp4_unavailable_reason()})."
-        )
+    raise_if_cutedsl_nvfp4_unavailable("cutedsl_rht_amax")
     if hadamard_dimension != 16:
         raise ValueError(f"hadamard_dimension must be 16, got {hadamard_dimension}")
 

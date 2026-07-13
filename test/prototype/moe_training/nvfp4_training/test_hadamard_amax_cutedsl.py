@@ -89,15 +89,22 @@ def test_cutedsl_rht_amax_rejects_non_bf16():
         cutedsl_rht_amax(A, list(_HARDCODED_SIGN_VECTOR))
 
 
+@pytest.mark.skipif(not has_triton(), reason="parity check needs triton")
 @_skip_no_cutedsl
 @torch.no_grad()
-def test_cutedsl_rht_amax_nan_input_stays_finite():
-    """A NaN input yields a FINITE amax: the max reduction returns the non-NaN operand
-    rather than propagating NaN. Pinned so it can't change silently."""
+def test_cutedsl_rht_amax_propagates_nan():
+    """A NaN input propagates to both amaxes (max.NaN.f32 reduction), matching triton_rht_amax."""
+    from torchao.prototype.moe_training.nvfp4_training.hadamard_amax_triton import (
+        triton_rht_amax,
+    )
+
     A = torch.randn(256, 256, dtype=torch.bfloat16, device="cuda")
     A.view(-1)[123] = float("nan")
-    col_amax, row_amax = cutedsl_rht_amax(A, list(_HARDCODED_SIGN_VECTOR))
-    assert torch.isfinite(col_amax) and torch.isfinite(row_amax)
+    sign_vector = list(_HARDCODED_SIGN_VECTOR)
+    col_c, row_c = cutedsl_rht_amax(A, sign_vector)
+    col_t, row_t = triton_rht_amax(A, sign_vector=sign_vector)
+    assert torch.isnan(col_c) and torch.isnan(row_c)
+    assert torch.isnan(col_t) and torch.isnan(row_t)
 
 
 @pytest.mark.skipif(not has_triton(), reason="cross-check needs triton")

@@ -49,10 +49,11 @@ class KernelPreference(str, Enum):
     """
 
     CUTEDSL = "cutedsl"
-    """Use CuTeDSL kernels for the NVFP4-training RHT amax and forward activation
-    quantize, falling back to the Triton path for the stochastic-rounding backward
-    quantize and the weight quantize.
-    Requires SM100 (Blackwell) and bfloat16 input; M divisible by 256, K, N by 128.
+    """Use CuTeDSL kernels for the full NVFP4-training quantize path: RHT amax,
+    forward RTNE quantize, stochastic-rounding backward quantize, and the 2D
+    weight quantize (no Triton fallback).
+    Requires SM100 (Blackwell) and bfloat16 input; M divisible by 256, K by 128,
+    and N (out_features) by 256.
     """
 
 

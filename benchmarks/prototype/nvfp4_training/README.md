@@ -159,6 +159,7 @@ with the addition that **M must be divisible by 256**.
 ```bash
 python -m benchmarks.prototype.nvfp4_training.bench_hadamard_amax_cutedsl --shape-set representative-models
 python -m benchmarks.prototype.nvfp4_training.bench_hadamard_quantize_row_col_cutedsl --shape-set representative-models
+python -m benchmarks.prototype.nvfp4_training.bench_quantize_2d_cutedsl --shape-set representative-models
 ```
 
 ### Methodology
@@ -174,16 +175,28 @@ Run environment: NVIDIA GB200, PyTorch 2.12.0a0, Triton 3.7.0, nvidia-cutlass-ds
 
 | Model | Shape | M | N | cutedsl_kernel_us | triton_kernel_us | speedup | cutedsl_gbps |
 |---|---|---:|---:|---:|---:|---:|---:|
-| Llama 3 8B | hidden-state input | 2048 | 4096 | 10.79 | 16.87 | 1.56x | 1555.6 |
-| Llama 3 8B | mlp.down input | 2048 | 14336 | 20.59 | 27.12 | 1.32x | 2851.6 |
-| Llama 3 70B | hidden-state input | 2048 | 8192 | 15.47 | 21.12 | 1.36x | 2168.6 |
-| Llama 3 70B | mlp.down input | 2048 | 28672 | 36.96 | 42.56 | 1.15x | 3177.7 |
+| Llama 3 8B | hidden-state input | 2048 | 4096 | 11.25 | 17.16 | 1.52x | 1490.7 |
+| Llama 3 8B | mlp.down input | 2048 | 14336 | 21.48 | 27.55 | 1.28x | 2734.3 |
+| Llama 3 70B | hidden-state input | 2048 | 8192 | 16.14 | 21.57 | 1.34x | 2078.5 |
+| Llama 3 70B | mlp.down input | 2048 | 28672 | 37.58 | 43.24 | 1.15x | 3125.3 |
 
 ### Hadamard Quantize Row+Col (`cutedsl_rht_quantize_row_col` vs `triton_rht_quantize_row_col`, RTNE)
 
 | Model | Shape | M | N | cutedsl_kernel_us | triton_kernel_us | speedup | cutedsl_gbps |
 |---|---|---:|---:|---:|---:|---:|---:|
-| Llama 3 8B | hidden-state input | 2048 | 4096 | 14.04 | 24.44 | 1.74x | 1867.2 |
-| Llama 3 8B | mlp.down input | 2048 | 14336 | 36.06 | 60.76 | 1.69x | 2544.5 |
-| Llama 3 70B | hidden-state input | 2048 | 8192 | 23.86 | 37.29 | 1.56x | 2197.7 |
-| Llama 3 70B | mlp.down input | 2048 | 28672 | 67.19 | 113.52 | 1.69x | 2731.1 |
+| Llama 3 8B | hidden-state input | 2048 | 4096 | 15.36 | 24.56 | 1.60x | 1707.1 |
+| Llama 3 8B | mlp.down input | 2048 | 14336 | 36.92 | 60.87 | 1.65x | 2485.1 |
+| Llama 3 70B | hidden-state input | 2048 | 8192 | 25.38 | 37.44 | 1.47x | 2065.6 |
+| Llama 3 70B | mlp.down input | 2048 | 28672 | 69.83 | 113.88 | 1.63x | 2628.0 |
+
+### 2D Weight Quantize (`cutedsl_weight_quantize_2d` vs `triton_weight_quantize_2d`, no RHT)
+
+Note: the CuteDSL kernel emits 1x16 block scales (the Triton kernel emits 16x16), so outputs are
+not bit-identical across the two. Requires `out_features % 256 == 0`.
+
+| Model | Weight | M (out) | N (in) | cutedsl_kernel_us | triton_kernel_us | speedup | cutedsl_gbps |
+|---|---|---:|---:|---:|---:|---:|---:|
+| Llama 3 8B | mlp.gate/up | 14336 | 4096 | 65.65 | 249.65 | 3.80x | 2795.3 |
+| Llama 3 8B | mlp.down | 4096 | 14336 | 65.43 | 249.39 | 3.81x | 2804.7 |
+| Llama 3 70B | mlp.gate/up | 28672 | 8192 | 235.25 | 948.24 | 4.03x | 3120.0 |
+| Llama 3 70B | mlp.down | 8192 | 28672 | 235.51 | 948.38 | 4.03x | 3116.6 |

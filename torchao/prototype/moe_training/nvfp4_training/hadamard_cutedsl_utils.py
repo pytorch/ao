@@ -76,3 +76,46 @@ def cutedsl_nvfp4_unavailable_reason() -> str:
     if missing:
         reasons.append("missing packages: " + ", ".join(sorted(missing)))
     return "; ".join(reasons)
+
+
+def raise_if_cutedsl_nvfp4_unavailable(op_name: str) -> None:
+    """Raise ``NotImplementedError`` when the CuteDSL NVFP4 kernels cannot run here."""
+    if not cutedsl_nvfp4_kernels_available():
+        raise NotImplementedError(
+            f"{op_name} requires {CUTEDSL_NVFP4_REQUIREMENTS} "
+            f"({cutedsl_nvfp4_unavailable_reason()})."
+        )
+
+
+def cutedsl_prepare_for_cuda_graph(device, *, sign_vectors=None) -> None:
+    """Pre-allocate per-device CuteDSL state before ``torch.compile(mode="reduce-overhead")``.
+
+    The CuteDSL ops cache small per-device buffers (the RHT / identity Hadamard operands and the
+    stochastic-rounding RNG seed) and compile their kernels lazily on first use. Under CUDA-graph
+    capture, anything first allocated *inside* the captured region lands in the cudagraph memory
+    pool and is rejected as an untracked live allocation. Calling this once per device (passing the
+    RHT sign vectors the graph will use) forces those allocations + compiles into the normal pool,
+    before capture. Mirrors the Triton ``prepare_for_cuda_graph``; a no-op if CuteDSL is unavailable.
+    """
+    if not cutedsl_nvfp4_kernels_available():
+        return
+    from ._cutedsl_kernels_impl import (
+        _compile_amax_tc_kernel,
+        _compile_fused_kernel,
+        _get_identity_buffer,
+        _get_rht_buffer,
+        _get_sr_rng_buffer,
+    )
+
+    dev = torch.device(device)
+    idx = dev.index if dev.index is not None else torch.cuda.current_device()
+    _get_identity_buffer(idx)
+    _get_sr_rng_buffer(idx)
+    for sign_vector in sign_vectors or ():
+        _get_rht_buffer(tuple(int(v) for v in sign_vector), idx)
+    # Pre-compile the kernels so no lazy compile fires mid-capture: amax; the RHT fused RTNE +
+    # SR variants (apply_rht=True); and the no-MMA weight-quantize variant (apply_rht=False).
+    _compile_amax_tc_kernel(idx)
+    for sr in (False, True):
+        _compile_fused_kernel(idx, True, sr, apply_rht=True)
+    _compile_fused_kernel(idx, True, False, apply_rht=False)
