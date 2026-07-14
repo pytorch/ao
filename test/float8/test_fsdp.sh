@@ -13,7 +13,7 @@ launch() {
 
     # the NCCL_DEBUG setting is to avoid log spew
     # the CUDA_VISIBLE_DEVICES setting is for easy debugging
-    CCL_LOG_LEVEL=info NCCL_DEBUG=WARN CUDA_VISIBLE_DEVICES=0,1 python test/float8/test_fsdp.py \
+    CCL_LOG_LEVEL=warn NCCL_DEBUG=WARN CUDA_VISIBLE_DEVICES=0,1 python test/float8/test_fsdp.py \
         --compile_fsdp $COMPILE
 
     echo "✅ All Tests Passed ✅"
