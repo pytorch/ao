@@ -13,4 +13,4 @@ if python -c 'import torch;print(torch.accelerator.is_available())' | grep -q "F
 fi
 
 # Code to be executed if CUDA devices are available
-CCL_LOG_LEVEL=info NCCL_DEBUG=WARN CUDA_VISIBLE_DEVICES=0,1 python test/float8/test_fsdp_compile.py
+CCL_LOG_LEVEL=warn NCCL_DEBUG=WARN CUDA_VISIBLE_DEVICES=0,1 python test/float8/test_fsdp_compile.py
