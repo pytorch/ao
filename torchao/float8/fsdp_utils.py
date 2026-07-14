@@ -226,10 +226,15 @@ class WeightWithDynamicFloat8CastTensor(torch.Tensor):
         return f"WeightWithDynamicFloat8CastTensor(tensor={self._tensor}, linear_mm_config={self._linear_mm_config}, dtype={self._dtype})"
 
     def fsdp_pre_all_gather(self, mesh):
-        if self._precomputed_scale is not None:
+        # Snapshot once: `_precomputed_scale` may be re-assigned by
+        # `precompute_float8_dynamic_scale_for_fsdp` between iterations, and
+        # under free-threaded CPython we must not read the attribute twice in
+        # the if/use pair.
+        precomputed_scale = self._precomputed_scale
+        if precomputed_scale is not None:
             float8_training_tensor = hp_tensor_and_scale_to_float8(
                 self._tensor,
-                self._precomputed_scale,
+                precomputed_scale,
                 self._dtype,
                 self._linear_mm_config,
                 GemmInputRole.WEIGHT,
