@@ -87,6 +87,27 @@ class Int4TilePackedTo4dTensor(TorchAOBaseTensor):
         self.block_size = block_size
         self.act_pre_scale = act_pre_scale
 
+        # Validate block_size against scale_and_zero so a checkpoint that pins an
+        # inconsistent (but individually valid) block_size cannot make the tinygemm
+        # kernel iterate more groups than scale_and_zero holds and read out of bounds.
+        # This mirrors the int8/intx sibling (intx_unpacked_to_int8_tensor.py), which
+        # re-derives n_blocks from block_size and asserts the scale shape matches.
+        # scale_and_zero is packed by pack_tinygemm_scales_and_zeros to
+        # (..., k // group_size, n, 2), so the group count along K lives at dim -3
+        # for both the 2D and MoE (leading experts dim) layouts.
+        group_size = block_size[-1]
+        k = shape[-1]
+        assert k % group_size == 0, (
+            f"Expected in_features ({k}) to be divisible by group size "
+            f"({group_size}) inferred from block_size={block_size}"
+        )
+        n_groups = k // group_size
+        assert scale_and_zero.shape[-3] == n_groups, (
+            f"block_size={block_size} is inconsistent with scale_and_zero: expected "
+            f"{n_groups} groups along K (scale_and_zero.shape[-3]), got "
+            f"{scale_and_zero.shape[-3]}"
+        )
+
     def _quantization_type(self):
         s = f"shape={self.shape}, block_size={self.block_size}, device={self.device}"
         if self.act_pre_scale is not None:
