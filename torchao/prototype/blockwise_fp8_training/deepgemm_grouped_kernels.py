@@ -31,13 +31,16 @@ from torchao.prototype.blockwise_fp8_training.kernels import (
 class DeepGemmKGroupedOperand:
     """A quantized operand in DeepGEMM's flat K-grouped layout.
 
+    DeepGEMM calls this K-grouped because each expert's token count ``M_e`` is
+    the varying reduction/K extent of ``(N, M_e) @ (M_e, K)``.
+
     Args:
-        data: Flat FP8 concatenation of row-major ``(dim, M_e)`` expert
-            blocks. Its segment lengths are
-            ``[dim * M_0, ..., dim * M_{E-1}]``.
+        data: Flat expert-major concatenation of row-major ``(N, M_e)`` wgrad
+            LHS blocks or ``(K, M_e)`` wgrad RHS blocks.
         scale: Float32 inverse scales stored as
-            ``(dim, sum_e(M_e / block_size))`` in the same expert order.
-        dim: Logical non-token dimension used by DeepGEMM's K-grouped API.
+            ``(N, sum_e(M_e / block_size))`` for the LHS or
+            ``(K, sum_e(M_e / block_size))`` for the RHS.
+        dim: ``N`` for the wgrad LHS or ``K`` for the wgrad RHS.
     """
 
     data: torch.Tensor
@@ -259,8 +262,8 @@ def deepgemm_blockwise_scaled_grouped_mm(
     )
 
     grouped_layout = offset_plan.m_grouped_layout(a.shape[0])
-    # DeepGEMM RHS is (..., N_out, K_contract); the output keeps TorchAO's
-    # grouped GEMM shape (M, N_out).
+    # DeepGEMM RHS is (..., N_out, K_contract); the output keeps the
+    # (M, N_out) shape required by torch._grouped_mm and torch._scaled_grouped_mm.
     out = torch.empty(
         (a.shape[0], b.shape[-2]),
         dtype=out_dtype,
@@ -344,7 +347,7 @@ def deepgemm_blockwise_scaled_grouped_mm_wgrad(
     # (`accum`) is read and `d` (`out_fp32`) is written, so they must be
     # distinct buffers and `c` must be zero-seeded since we do not accumulate
     # across calls. Both FP32 allocations are therefore required by the kernel
-    # contract. Cast after the launch to preserve TorchAO's public grouped-mm
+    # contract. Cast after the launch to preserve the requested grouped-mm
     # output dtype.
     out_fp32 = torch.empty(
         (len(group_sizes), lhs.dim, rhs.dim),

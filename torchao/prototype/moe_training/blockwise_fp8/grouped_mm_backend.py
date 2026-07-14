@@ -103,8 +103,9 @@ class _EmulatedGroupedMMBackend(_GroupedMMBackend):
     ) -> tuple[torch.Tensor, torch.Tensor]:
         # The shared direct quantizer writes forward RHS as row-major
         # (E, N, K) data with (E, N_blocks, K_blocks) scales. Transpose views
-        # convert that to TorchAO's grouped RHS contract for output = A @ B_t:
-        # (E, K, N) data with (E, K_blocks, N_blocks) scales.
+        # convert that to the RHS contract required by torch._grouped_mm and
+        # torch._scaled_grouped_mm for output = A @ B_t: (E, K, N) data with
+        # (E, K_blocks, N_blocks) scales.
         q, scale = triton_fp8_blockwise_weight_quant_grouped_forward_rhs(
             B_t,
             block_size=block_size,
@@ -120,8 +121,8 @@ class _EmulatedGroupedMMBackend(_GroupedMMBackend):
     ) -> tuple[torch.Tensor, torch.Tensor]:
         # The shared direct quantizer writes dgrad RHS as row-major
         # (E, K, N) data with (E, K_blocks, N_blocks) scales. Transpose views
-        # convert that to TorchAO's grouped RHS contract for
-        # grad_output @ weight: (E, N, K) data with
+        # convert that to the RHS contract required by torch._grouped_mm and
+        # torch._scaled_grouped_mm for grad_output @ weight: (E, N, K) data with
         # (E, N_blocks, K_blocks) scales.
         q, scale = triton_fp8_blockwise_weight_quant_grouped_dgrad_rhs(
             B_t,
@@ -264,8 +265,10 @@ class _DeepGemmGroupedMMBackend(_GroupedMMBackend):
         block_size: int,
         dtype: torch.dtype,
     ) -> torch.Tensor:
-        # DeepGEMM computes the same [N, M_e] @ [M_e, K] wgrad but its
-        # K-grouped API takes two flat expert-major buffers. The quantizer
+        # DeepGEMM computes the same [N, M_e] @ [M_e, K] wgrad. Its API calls
+        # this K-grouped because the expert-dependent M_e is the GEMM
+        # reduction/K extent. `k_grouped_fp8_gemm_nt_contiguous` takes two flat
+        # expert-major buffers. The quantizer
         # concatenates row-major [N, M_e] blocks in expert order for the LHS
         # and row-major [K, M_e] blocks in expert order for the RHS. The flat
         # segment lengths are therefore [N * M_0, ..., N * M_{E-1}] and
