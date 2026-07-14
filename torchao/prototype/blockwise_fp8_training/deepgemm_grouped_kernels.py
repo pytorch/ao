@@ -31,13 +31,16 @@ from torchao.prototype.blockwise_fp8_training.kernels import (
 class DeepGemmKGroupedOperand:
     """A quantized operand in DeepGEMM's flat K-grouped layout.
 
+    DeepGEMM calls this K-grouped because each expert's token count ``M_e`` is
+    the varying reduction/K extent of ``(N, M_e) @ (M_e, K)``.
+
     Args:
-        data: Flat FP8 concatenation of row-major ``(dim, M_e)`` expert
-            blocks. Its segment lengths are
-            ``[dim * M_0, ..., dim * M_{E-1}]``.
+        data: Flat expert-major concatenation of row-major ``(N, M_e)`` wgrad
+            LHS blocks or ``(K, M_e)`` wgrad RHS blocks.
         scale: Float32 inverse scales stored as
-            ``(dim, sum_e(M_e / block_size))`` in the same expert order.
-        dim: Logical non-token dimension used by DeepGEMM's K-grouped API.
+            ``(N, sum_e(M_e / block_size))`` for the LHS or
+            ``(K, sum_e(M_e / block_size))`` for the RHS.
+        dim: ``N`` for the wgrad LHS or ``K`` for the wgrad RHS.
     """
 
     data: torch.Tensor
@@ -311,6 +314,8 @@ def deepgemm_blockwise_scaled_grouped_mm(
     )
 
     grouped_layout = offset_plan.m_grouped_layout(a.shape[0])
+    # The custom op preserves the (M, N_out) output shape required by
+    # torch._grouped_mm and torch._scaled_grouped_mm.
     return _deepgemm_blockwise_scaled_grouped_mm_custom_op(
         a,
         b,

@@ -3,13 +3,3 @@
 #
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
-
-from torchao.prototype.moe_training.blockwise_fp8.grouped_mm import (
-    _to_fp8_blockwise_then_scaled_grouped_mm,
-    prepare_fp8_blockwise_grouped_mm_plan,
-)
-
-__all__ = [
-    "_to_fp8_blockwise_then_scaled_grouped_mm",
-    "prepare_fp8_blockwise_grouped_mm_plan",
-]

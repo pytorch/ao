@@ -6,29 +6,6 @@ from torchao.prototype.moe_training.mxfp8_grouped_mm import (
 )
 
 __all__ = [
-    "_to_fp8_blockwise_then_scaled_grouped_mm",
-    "prepare_fp8_blockwise_grouped_mm_plan",
     "_to_mxfp8_then_scaled_grouped_mm",
     "_to_fp8_rowwise_then_scaled_grouped_mm",
 ]
-
-
-def __getattr__(name: str):
-    if name in (
-        "_to_fp8_blockwise_then_scaled_grouped_mm",
-        "prepare_fp8_blockwise_grouped_mm_plan",
-    ):
-        from torchao.prototype.moe_training.blockwise_fp8 import (
-            _to_fp8_blockwise_then_scaled_grouped_mm,
-            prepare_fp8_blockwise_grouped_mm_plan,
-        )
-
-        return {
-            "_to_fp8_blockwise_then_scaled_grouped_mm": (
-                _to_fp8_blockwise_then_scaled_grouped_mm
-            ),
-            "prepare_fp8_blockwise_grouped_mm_plan": (
-                prepare_fp8_blockwise_grouped_mm_plan
-            ),
-        }[name]
-    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

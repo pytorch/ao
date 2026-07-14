@@ -70,8 +70,9 @@ def triton_fp8_blockwise_act_quant_k_grouped_deepgemm_kernel(
     y = x * scale
     y = tl.clamp(y, min=-FP8_MAX, max=FP8_MAX).to(q_ptr.dtype.element_ty)
 
-    # `q_offset` is the per-block base in DeepGEMM's flat per-expert
-    # (D, expert_tokens) output. Precomputing it keeps this compact kernel
+    # D is the shared feature extent: N when x is grad_output and K when x is
+    # the forward activation. `q_offset` is the per-block base in DeepGEMM's
+    # flat per-expert (D, M_e) output. Precomputing it keeps this compact kernel
     # metadata-driven without paying a group_start * D multiply in every tile.
     q_offsets = q_offset + offs_d[:, None] * group_size + offs_m[None, :]
     # DeepGEMM requires D to be block-aligned. Every NUM_GROUPS value divides
@@ -93,13 +94,21 @@ def triton_fp8_blockwise_act_quant_k_grouped_deepgemm(
     dtype: torch.dtype = e4m3_dtype,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     """
-    Quantize activations directly for DeepGEMM K-grouped wgrad.
+    Quantize both 2D operands directly for DeepGEMM grouped wgrad.
 
-    Input is logical ``(M, D)``, already padded and concatenated by expert.
-    For expert token counts ``M_0, ..., M_{E-1}``, output data concatenates
-    row-major ``(D, M_e)`` expert blocks in a flat buffer; its segment lengths
-    are ``[D * M_0, ..., D * M_{E-1}]``. Scales are stored as
-    ``(D, sum_e(M_e / block_size))`` in the same expert order.
+    For ``E`` experts with token counts ``M_e`` and ``M = sum_e(M_e)``, wgrad
+    computes ``(N, M_e) @ (M_e, K) -> (N, K)`` for each expert. This quantizer
+    is called on the row-major ``grad_output`` of shape ``(M, N)`` and on the
+    row-major forward activation of shape ``(M, K)``. It writes flat
+    expert-major concatenations of row-major ``(N, M_e)`` blocks for
+    ``grad_output`` or ``(K, M_e)`` blocks for the activation. The corresponding
+    scale shapes are ``(N, sum_e(M_e / block_size))`` and
+    ``(K, sum_e(M_e / block_size))``.
+
+    "K-grouped" is DeepGEMM API terminology from
+    ``k_grouped_fp8_gemm_nt_contiguous``: the expert-dependent ``M_e`` is the
+    GEMM reduction/K extent, while the output dimensions ``N`` and ``K`` are
+    fixed across experts.
 
     The fake implementation treats the number of valid tokens as dynamic
     because it cannot read ``group_end_offsets`` values from FakeTensors.
