@@ -9,6 +9,9 @@ from typing import Optional
 import torch
 
 from torchao.float8.config import e4m3_dtype
+from torchao.prototype.blockwise_fp8_training.deepgemm_metadata import (
+    DeepGemmGroupedOffsetPlan,
+)
 from torchao.prototype.blockwise_fp8_training.kernels import (
     BLOCKWISE_1X128_SCALING_TYPE,
     BLOCKWISE_128X128_SCALING_TYPE,
@@ -20,6 +23,9 @@ from torchao.prototype.blockwise_fp8_training.kernels import (
 from torchao.prototype.moe_training.blockwise_fp8.grouped_mm_backend import (
     _select_fp8_blockwise_grouped_mm_backend,
 )
+from torchao.prototype.moe_training.blockwise_fp8.grouped_mm_backend import (
+    prepare_fp8_blockwise_grouped_mm_plan as prepare_fp8_blockwise_grouped_mm_plan,
+)
 from torchao.prototype.moe_training.utils import (
     conditional_nostrict_trace,
     pad_token_groups,
@@ -27,8 +33,61 @@ from torchao.prototype.moe_training.utils import (
 )
 from torchao.quantization.quantize_.common import KernelPreference
 
+_PrecomputedDeepGemmPlanFields = tuple[
+    torch.Tensor,
+    torch.Tensor,
+    list[int],
+    torch.Tensor,
+    bool,
+]
 
-@conditional_nostrict_trace
+
+def _precomputed_deepgemm_plan_fields(
+    plan: Optional[DeepGemmGroupedOffsetPlan],
+    group_end_offsets: Optional[torch.Tensor],
+) -> Optional[_PrecomputedDeepGemmPlanFields]:
+    if plan is None:
+        return None
+    assert plan.group_end_offsets is group_end_offsets, (
+        "precomputed_deepgemm_plan must be prepared from the same offs tensor "
+        "passed to _to_fp8_blockwise_then_scaled_grouped_mm"
+    )
+    assert "group_sizes" in plan.__dict__ and "ks_tensor" in plan.__dict__, (
+        "precomputed_deepgemm_plan must come from "
+        "prepare_fp8_blockwise_grouped_mm_plan so host group sizes are "
+        "materialized before torch.compile"
+    )
+    return (
+        plan.group_end_offsets,
+        plan.grouped_layout,
+        plan.__dict__["group_sizes"],
+        plan.__dict__["ks_tensor"],
+        plan.groups_block_aligned_by_construction,
+    )
+
+
+def _deepgemm_plan_from_fields(
+    fields: Optional[_PrecomputedDeepGemmPlanFields],
+) -> Optional[DeepGemmGroupedOffsetPlan]:
+    if fields is None:
+        return None
+    (
+        group_end_offsets,
+        grouped_layout,
+        group_sizes,
+        ks_tensor,
+        groups_block_aligned_by_construction,
+    ) = fields
+    plan = DeepGemmGroupedOffsetPlan(
+        group_end_offsets=group_end_offsets,
+        grouped_layout=grouped_layout,
+        groups_block_aligned_by_construction=groups_block_aligned_by_construction,
+    )
+    plan.__dict__["group_sizes"] = group_sizes
+    plan.__dict__["ks_tensor"] = ks_tensor
+    return plan
+
+
 def _to_fp8_blockwise_then_scaled_grouped_mm(
     A: torch.Tensor,
     B_t: torch.Tensor,
@@ -38,6 +97,7 @@ def _to_fp8_blockwise_then_scaled_grouped_mm(
     block_size: int = 128,
     pad_token_groups_for_grouped_mm: bool = True,
     kernel_preference: KernelPreference = KernelPreference.AUTO,
+    precomputed_deepgemm_plan: Optional[DeepGemmGroupedOffsetPlan] = None,
 ) -> torch.Tensor:
     """
     Differentiable FP8 blockwise grouped matrix multiplication.
@@ -50,12 +110,27 @@ def _to_fp8_blockwise_then_scaled_grouped_mm(
     ``AUTO`` uses DeepGEMM-specific layouts and kernels when supported and
     otherwise falls back to emulation. The selected backend is reused for
     forward, dgrad, and wgrad.
+
+    Supplying ``precomputed_deepgemm_plan`` explicitly selects DeepGEMM and
+    requires the exact ``offs`` tensor from which the plan was prepared. This
+    lets host metadata be materialized before ``torch.compile``.
     """
     assert block_size == 128, "Only block_size=128 is supported"
     assert kernel_preference in (
         KernelPreference.AUTO,
         KernelPreference.EMULATED,
     ), "kernel_preference must be AUTO or EMULATED"
+    assert not (
+        precomputed_deepgemm_plan is not None and pad_token_groups_for_grouped_mm
+    ), (
+        "precomputed_deepgemm_plan requires pad_token_groups_for_grouped_mm=False; "
+        "prepare the padded offsets and plan before calling "
+        "_to_fp8_blockwise_then_scaled_grouped_mm"
+    )
+    precomputed_deepgemm_plan_fields = _precomputed_deepgemm_plan_fields(
+        precomputed_deepgemm_plan,
+        offs,
+    )
     return _Float8BlockwiseGroupedMM.apply(
         A,
         B_t,
@@ -65,6 +140,7 @@ def _to_fp8_blockwise_then_scaled_grouped_mm(
         block_size,
         pad_token_groups_for_grouped_mm,
         kernel_preference,
+        precomputed_deepgemm_plan_fields,
     )
 
 
@@ -105,6 +181,9 @@ class _Float8BlockwiseGroupedMM(torch.autograd.Function):
         block_size: int = 128,
         pad_token_groups_for_grouped_mm: bool = True,
         kernel_preference: KernelPreference = KernelPreference.AUTO,
+        precomputed_deepgemm_plan_fields: Optional[
+            _PrecomputedDeepGemmPlanFields
+        ] = None,
     ) -> torch.Tensor:
         assert A.ndim == 2, "A must be 2D"
         assert B_t.ndim == 3, "B_t must be 3D"
@@ -117,6 +196,10 @@ class _Float8BlockwiseGroupedMM(torch.autograd.Function):
         assert A.shape[-1] % block_size == 0 and B_t.shape[-1] % block_size == 0, (
             f"K and N must be divisible by block_size={block_size}"
         )
+        assert not (
+            precomputed_deepgemm_plan_fields is not None
+            and pad_token_groups_for_grouped_mm
+        ), "precomputed_deepgemm_plan requires pad_token_groups_for_grouped_mm=False"
         assert _is_row_major(A), "A must be row-major"
         assert _is_column_major(B_t), "B_t must be per-expert column-major"
 
@@ -130,6 +213,9 @@ class _Float8BlockwiseGroupedMM(torch.autograd.Function):
         else:
             padded_A = A
 
+        precomputed_deepgemm_plan = _deepgemm_plan_from_fields(
+            precomputed_deepgemm_plan_fields
+        )
         backend = _select_fp8_blockwise_grouped_mm_backend(
             kernel_preference,
             A,
@@ -141,6 +227,7 @@ class _Float8BlockwiseGroupedMM(torch.autograd.Function):
             else None,
             padded_group_start_offsets=padded_group_start_offsets,
             num_rows=padded_A.shape[0],
+            precomputed_deepgemm_plan=precomputed_deepgemm_plan,
         )
 
         A_fp8, A_scale = triton_fp8_blockwise_act_quant_lhs(
@@ -254,6 +341,7 @@ class _Float8BlockwiseGroupedMM(torch.autograd.Function):
         return (
             grad_A,
             grad_B.transpose(-2, -1),
+            None,
             None,
             None,
             None,

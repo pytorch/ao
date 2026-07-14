@@ -21,7 +21,10 @@ pytest.importorskip("triton", reason="Triton required to run this test")
 
 from torchao.prototype.moe_training.blockwise_fp8.grouped_mm import (
     _to_fp8_blockwise_then_emulated_scaled_grouped_mm,
+    _to_fp8_blockwise_then_scaled_grouped_mm,
+    prepare_fp8_blockwise_grouped_mm_plan,
 )
+from torchao.quantization.quantize_.common import KernelPreference
 from torchao.quantization.utils import compute_error
 from torchao.testing.utils import skip_if_rocm
 
@@ -88,3 +91,79 @@ def test_fp8_blockwise_emulated_grouped_mm_compile_aligned_groups():
 
     assert out.shape == (E * M, N)
     assert out.dtype == torch.bfloat16
+
+
+@skip_if_rocm("ROCm not supported")
+def test_fp8_blockwise_grouped_mm_compile_fwd_bwd():
+    torch.manual_seed(0)
+    E, tokens_per_expert, K, N = 2, 128, 128, 128
+    M = E * tokens_per_expert
+    A = torch.randn(M, K, dtype=torch.bfloat16, device="cuda", requires_grad=True)
+    B_t = _make_column_major_weight_t(E, N, K).requires_grad_(True)
+    offs = torch.arange(
+        tokens_per_expert,
+        M + 1,
+        tokens_per_expert,
+        device="cuda",
+        dtype=torch.int32,
+    )
+
+    def fn(A, B_t):
+        out = _to_fp8_blockwise_then_scaled_grouped_mm(
+            A,
+            B_t,
+            offs,
+            pad_token_groups_for_grouped_mm=False,
+            kernel_preference=KernelPreference.EMULATED,
+        )
+        return out.float().square().mean()
+
+    compiled = torch.compile(fn, fullgraph=True)
+    loss = compiled(A, B_t)
+    loss.backward()
+
+    assert loss.dtype == torch.float32
+    assert A.grad is not None and A.grad.shape == A.shape
+    assert B_t.grad is not None and B_t.grad.shape == B_t.shape
+
+
+@skip_if_rocm("ROCm not supported")
+@pytest.mark.skipif(
+    not torch.cuda.is_available() or not is_sm_at_least_90(),
+    reason="DeepGEMM FP8 kernels require CUDA SM90+",
+)
+def test_fp8_blockwise_grouped_mm_deepgemm_precomputed_plan_compile_fwd_bwd():
+    pytest.importorskip("deep_gemm", reason="DeepGEMM is an optional dependency")
+
+    torch.manual_seed(0)
+    E, tokens_per_expert, K, N = 2, 128, 128, 128
+    M = E * tokens_per_expert
+    A = torch.randn(M, K, dtype=torch.bfloat16, device="cuda", requires_grad=True)
+    B_t = _make_column_major_weight_t(E, N, K).requires_grad_(True)
+    offs = torch.arange(
+        tokens_per_expert,
+        M + 1,
+        tokens_per_expert,
+        device="cuda",
+        dtype=torch.int32,
+    )
+    plan = prepare_fp8_blockwise_grouped_mm_plan(offs)
+
+    def fn(A, B_t):
+        out = _to_fp8_blockwise_then_scaled_grouped_mm(
+            A,
+            B_t,
+            offs,
+            pad_token_groups_for_grouped_mm=False,
+            kernel_preference=KernelPreference.AUTO,
+            precomputed_deepgemm_plan=plan,
+        )
+        return out.float().square().mean()
+
+    compiled = torch.compile(fn, fullgraph=True)
+    loss = compiled(A, B_t)
+    loss.backward()
+
+    assert loss.dtype == torch.float32
+    assert A.grad is not None and A.grad.shape == A.shape
+    assert B_t.grad is not None and B_t.grad.shape == B_t.shape

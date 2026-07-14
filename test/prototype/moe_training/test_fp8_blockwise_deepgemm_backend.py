@@ -344,6 +344,66 @@ def test_deepgemm_k_grouped_activation_quant_fake_contract_tracks_valid_tokens()
     assert has_free_symbols(scale.shape[1])
 
 
+def test_prepare_fp8_blockwise_grouped_mm_plan_materializes_host_metadata():
+    from torchao.prototype.moe_training.blockwise_fp8.grouped_mm import (
+        _precomputed_deepgemm_plan_fields,
+        prepare_fp8_blockwise_grouped_mm_plan,
+    )
+
+    offs = torch.tensor([128, 384, 512], dtype=torch.int32)
+    plan = prepare_fp8_blockwise_grouped_mm_plan(offs)
+
+    assert plan.groups_block_aligned_by_construction
+    assert plan.__dict__["group_sizes"] == [128, 256, 128]
+    assert torch.equal(
+        plan.__dict__["ks_tensor"],
+        torch.tensor([128, 256, 128], dtype=torch.int32),
+    )
+    assert _precomputed_deepgemm_plan_fields(plan, offs) is not None
+    with pytest.raises(AssertionError, match="same offs tensor"):
+        _precomputed_deepgemm_plan_fields(plan, offs.clone())
+
+
+def test_deepgemm_grouped_custom_ops_fake_contracts():
+    shape_env = ShapeEnv(allow_dynamic_output_shape_ops=True)
+    with FakeTensorMode(shape_env=shape_env) as mode:
+        a = mode.from_tensor(torch.empty((256, 128), dtype=e4m3_dtype))
+        b = mode.from_tensor(torch.empty((2, 384, 128), dtype=e4m3_dtype))
+        a_s = mode.from_tensor(torch.empty((2, 1), dtype=torch.float32))
+        b_s = mode.from_tensor(torch.empty((2, 3, 1), dtype=torch.float32))
+        grouped_layout = mode.from_tensor(torch.empty((256,), dtype=torch.int32))
+        out = deepgemm_grouped_kernels._deepgemm_blockwise_scaled_grouped_mm_custom_op(
+            a,
+            b,
+            a_s,
+            b_s,
+            grouped_layout,
+            torch.bfloat16,
+            128,
+        )
+
+        wgrad_a = mode.from_tensor(torch.empty((256 * 384,), dtype=e4m3_dtype))
+        wgrad_a_s = mode.from_tensor(torch.empty((384, 2), dtype=torch.float32))
+        wgrad_b = mode.from_tensor(torch.empty((256 * 512,), dtype=e4m3_dtype))
+        wgrad_b_s = mode.from_tensor(torch.empty((512, 2), dtype=torch.float32))
+        ks_tensor = mode.from_tensor(torch.tensor([128, 128], dtype=torch.int32))
+        wgrad = deepgemm_grouped_kernels._deepgemm_blockwise_scaled_grouped_mm_wgrad_custom_op(
+            wgrad_a,
+            wgrad_a_s,
+            wgrad_b,
+            wgrad_b_s,
+            ks_tensor,
+            [128, 128],
+            torch.bfloat16,
+            128,
+        )
+
+    assert out.shape == (256, 384)
+    assert out.dtype == torch.bfloat16
+    assert wgrad.shape == (2, 384, 512)
+    assert wgrad.dtype == torch.bfloat16
+
+
 @pytest.mark.skipif(
     not torch.cuda.is_available() or not is_sm_at_least_90(),
     reason="DeepGEMM FP8 kernels require CUDA SM90+",
