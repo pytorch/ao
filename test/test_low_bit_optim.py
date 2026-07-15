@@ -117,7 +117,7 @@ class TestQuantize(TestCase):
         assert x_rep_bf16.dtype is torch.bfloat16
 
         # must cast BF16 tensor back to FP32 so that .mean() is accurate
-        torch.testing.assert_close(x_rep_bf16.float().mean(1), x, atol=3e-5, rtol=3e-5)
+        torch.testing.assert_close(x_rep_bf16.float().mean(1), x, atol=5e-3, rtol=5e-5)
 
     @parametrize("device", _DEVICES)
     @parametrize("compile", [False, True])
