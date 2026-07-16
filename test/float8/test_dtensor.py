@@ -41,15 +41,14 @@ from torchao.float8.fsdp_utils import WeightWithDynamicFloat8CastTensor
 from torchao.testing.training.dtensor_utils import (
     _test_lowp_mlp_tensor_parallelism_base,
 )
-from torchao.utils import get_current_accelerator_device, torch_version_at_least
-
-device = str(get_current_accelerator_device())
+from torchao.utils import torch_version_at_least
 
 torch.set_float32_matmul_precision("high")
 
 
 def setup_distributed():
     world_size = int(os.environ.get("WORLD_SIZE", -1))
+    device = str(torch.accelerator.current_accelerator())
     device_mesh = init_device_mesh(device, (world_size,))
     # seed must be the same in all processes
     torch.manual_seed(1)
