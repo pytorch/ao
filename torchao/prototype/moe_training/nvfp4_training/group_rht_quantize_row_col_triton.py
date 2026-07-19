@@ -45,6 +45,22 @@ if torch_version_at_least("2.10.0") and has_triton():
         get_rht_matrix,
     )
 
+    # BLOCK_M/BLOCK_N are held at 128 (group offsets are only 128-aligned, so a
+    # larger row tile could straddle two experts and apply the wrong amax). Only
+    # num_warps/num_stages are autotuned; the shipped default (w8/s3) is in the set,
+    # so autotune never regresses. Measured ~1.4x from num_warps=4 (register-heavy
+    # quantize body over-subscribes at 8 warps). Body is straight-line (no tl.range),
+    # so num_stages is purely the launch-time pipeliner and the grid is unaffected.
+    _GROUP_QUANTIZE_CONFIGS: list[triton.Config] = [
+        triton.Config({}, num_warps=nw, num_stages=ns)
+        for ns in (2, 3, 4)
+        for nw in (4, 8)
+    ]
+
+    @triton.autotune(
+        configs=_GROUP_QUANTIZE_CONFIGS,
+        key=["M", "N", "STOCHASTIC_ROUNDING"],
+    )
     @triton.jit
     def _group_rht_quantize_row_col_kernel(
         a_ptr,
@@ -323,8 +339,6 @@ if torch_version_at_least("2.10.0") and has_triton():
             BLOCK_M=BLOCK_M,
             BLOCK_N=BLOCK_N,
             logical_packed_length_ptr=logical_packed_length,
-            num_warps=8,
-            num_stages=3,
         )
         return qa_base, sfa_return, qd, sfd_return
 
