@@ -29,6 +29,20 @@ if torch_version_at_least("2.10.0") and has_triton():
     )
     from torchao.utils import is_sm_at_least_100
 
+    # Autotune num_warps/num_stages only (BLOCK held at 128). The shipped default
+    # (w8/s3) is in the set, so autotune never regresses; the grouped activation
+    # quantize twin gains ~1.4x from num_warps=4. Straight-line body (no tl.range),
+    # so num_stages is the launch-time pipeliner and the grid is unaffected.
+    _GROUP_QUANTIZE_2D_CONFIGS: list[triton.Config] = [
+        triton.Config({}, num_warps=nw, num_stages=ns)
+        for ns in (2, 3, 4)
+        for nw in (4, 8)
+    ]
+
+    @triton.autotune(
+        configs=_GROUP_QUANTIZE_2D_CONFIGS,
+        key=["M", "N"],
+    )
     @triton.jit
     def _group_weight_quantize_2d_kernel(
         a_ptr,
@@ -205,8 +219,6 @@ if torch_version_at_least("2.10.0") and has_triton():
             N,
             BLOCK_M=BLOCK_M,
             BLOCK_N=BLOCK_N,
-            num_warps=8,
-            num_stages=3,
         )
         return qa, sfa, qa_t, sfa_t
 
