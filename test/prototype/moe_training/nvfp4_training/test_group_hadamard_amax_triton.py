@@ -121,6 +121,35 @@ def test_group_rht_amax_matches_per_group_kernel_bitwise():
 
 
 @_maybe_sm100
+@torch.no_grad()
+def test_group_rht_amax_persistent_path_bitwise():
+    """Large ragged VARYING_FIRST_DIM groups take the per-group-CTA persistent fast
+    path (avg rows/group >= threshold); outputs must still match the per-expert
+    kernel bitwise. The small-group test above stays on the tiled kernel."""
+    device = torch.device("cuda", 0)
+    groups = (2048, 1024, 4096, 1152)  # 128-aligned, avg >> 1024 -> persistent
+    hidden_size = 2048
+    A, offsets, _ = _build_packed(groups, hidden_size, device, seed=91)
+
+    expected_col, expected_row = _group_rht_amax_reference(
+        A, offsets, len(groups), _HARDCODED_SIGN_VECTOR
+    )
+
+    actual_col, actual_row = triton_group_rht_amax(
+        A,
+        list(_HARDCODED_SIGN_VECTOR),
+        offsets,
+        len(groups),
+        A.shape[0],
+        hidden_size,
+        1,
+    )
+
+    assert torch.equal(actual_col, expected_col)
+    assert torch.equal(actual_row, expected_row)
+
+
+@_maybe_sm100
 @pytest.mark.parametrize(
     "shape",
     get_deepseek_v3_weight_shapes(factorized_experts=2),

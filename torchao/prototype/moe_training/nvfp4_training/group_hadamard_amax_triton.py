@@ -33,9 +33,30 @@ if torch_version_at_least("2.10.0") and has_triton():
         _validate_grouped_hadamard_inputs,
     )
     from torchao.prototype.moe_training.nvfp4_training.hadamard_utils import (
+        _compute_pid,
         _device_key,
         get_rht_matrix,
+        prepare_for_cuda_graph,
     )
+
+    # Below this average rows-per-group the tiled kernel wins (too few tiles per
+    # group to amortize the persistent prologue); above it the per-group-CTA
+    # persistent kernel recovers single-tensor bandwidth. Measured crossover ~1K.
+    _PERSISTENT_MIN_AVG_ROWS = 1024
+
+    # Autotune space for the persistent kernel (mirrors the single-tensor kernel's
+    # tile set). 64x128 typically wins; 128x128 has 2x the register footprint.
+    _PERSISTENT_TILE_SHAPES = [(128, 32), (128, 64), (128, 128), (64, 64), (64, 128)]
+    _PERSISTENT_CONFIGS = [
+        triton.Config(
+            {"BLOCK_M": bm, "BLOCK_N": bn, "NUM_STAGES": ns},
+            num_warps=nw,
+            num_stages=ns,
+        )
+        for (bm, bn) in _PERSISTENT_TILE_SHAPES
+        for ns in (3, 4)
+        for nw in (4, 8)
+    ]
 
     @triton.jit
     def _atomic_max_2d(values, output_ptr, group_idx):
@@ -109,6 +130,90 @@ if torch_version_at_least("2.10.0") and has_triton():
             group_idx,
         )
 
+    @triton.autotune(configs=_PERSISTENT_CONFIGS, key=["M", "N"])
+    @triton.jit
+    def _pergroup_cta_rht_amax_kernel(
+        a_ptr,
+        b_ptr,
+        offsets_ptr,
+        global_amax_row_ptr,
+        global_amax_col_ptr,
+        M,
+        N,
+        CTAS_PER_GROUP: tl.constexpr,
+        RHT_SIZE: tl.constexpr,
+        GROUP_SIZE_N: tl.constexpr,
+        BLOCK_M: tl.constexpr,
+        BLOCK_N: tl.constexpr,
+        NUM_STAGES: tl.constexpr,
+    ):
+        """Persistent grouped RHT amax: each CTA is bound to ONE expert group.
+
+        Generalizes the single-tensor _hadamard_amax_kernel: CTAS_PER_GROUP CTAs
+        cooperate over a group's tiles, each keeping an elementwise cumulative max
+        (no in-loop reduction, so warp_specialize stays on) and doing ONE atomic per
+        CTA. Groups are read purely from ``offsets`` (cumulative row-ends), so this
+        is correct for both SAME_BOTH_DIMS and VARYING_FIRST_DIM. Recovers
+        single-tensor bandwidth for large groups.
+        """
+        a_desc = tl.make_tensor_descriptor(
+            a_ptr, shape=[M, N], strides=[N, 1], block_shape=[BLOCK_M, BLOCK_N]
+        )
+        b_desc = tl.make_tensor_descriptor(
+            b_ptr,
+            shape=[RHT_SIZE, RHT_SIZE],
+            strides=[RHT_SIZE, 1],
+            block_shape=[RHT_SIZE, RHT_SIZE],
+        )
+        hadamard = b_desc.load([0, 0])
+
+        pid = tl.program_id(0)
+        g = pid // CTAS_PER_GROUP
+        local = pid % CTAS_PER_GROUP
+
+        # Masked load avoids the OOB read of offsets_ptr[-1] when g == 0.
+        g_start = tl.load(offsets_ptr + g - 1, mask=g > 0, other=0)
+        g_end = tl.load(offsets_ptr + g)
+        num_pid_m = tl.cdiv(g_end - g_start, BLOCK_M)
+        num_pid_n = tl.cdiv(N, BLOCK_N)
+        num_pid_in_group = GROUP_SIZE_N * num_pid_m
+        num_tiles = num_pid_m * num_pid_n
+
+        cum_col = tl.zeros((BLOCK_N * BLOCK_M // RHT_SIZE, RHT_SIZE), dtype=tl.float32)
+        cum_row = tl.zeros((BLOCK_M, BLOCK_N), dtype=tl.float32)
+
+        for tile_id in tl.range(
+            local,
+            num_tiles,
+            CTAS_PER_GROUP,
+            flatten=False,
+            warp_specialize=True,
+            num_stages=NUM_STAGES,
+        ):
+            pid_n, pid_m = _compute_pid(
+                tile_id, num_pid_in_group, num_pid_n, GROUP_SIZE_N
+            )
+            a = a_desc.load([g_start + pid_m * BLOCK_M, pid_n * BLOCK_N])
+            a_t = tl.trans(a)
+            a_t_r = tl.reshape(a_t, [BLOCK_N * BLOCK_M // RHT_SIZE, RHT_SIZE])
+            a_t_rht = tl.dot(a_t_r, hadamard).to(tl.bfloat16)
+            cum_col = tl.maximum(
+                cum_col, tl.abs(a_t_rht), propagate_nan=tl.PropagateNan.ALL
+            )
+            cum_row = tl.maximum(
+                cum_row, tl.abs(a.to(tl.float32)), propagate_nan=tl.PropagateNan.ALL
+            )
+
+        col = tl.max(tl.max(cum_col, axis=1), axis=0)
+        col_nan = tl.max(tl.max((cum_col != cum_col).to(tl.int32), axis=1), axis=0)
+        col = tl.where(col_nan != 0, float("nan"), col)
+        tl.atomic_max(global_amax_col_ptr + g, col.to(tl.float32))
+
+        row = tl.max(tl.max(cum_row, axis=1), axis=0)
+        row_nan = tl.max(tl.max((cum_row != cum_row).to(tl.int32), axis=1), axis=0)
+        row = tl.where(row_nan != 0, float("nan"), row)
+        tl.atomic_max(global_amax_row_ptr + g, row.to(tl.float32))
+
     @torch.library.custom_op("torchao::triton_group_rht_amax", mutates_args=())
     def triton_group_rht_amax(
         A: torch.Tensor,
@@ -175,6 +280,37 @@ if torch_version_at_least("2.10.0") and has_triton():
         rht_size = B.shape[0]
         if logical_packed_length is None:
             logical_packed_length = offsets[-1:]
+
+        # Fast path: for large groups the per-group-CTA persistent kernel recovers
+        # single-tensor bandwidth (~2x the tiled kernel). It bins CTAs by group, so
+        # it needs at least one CTA per group; below _PERSISTENT_MIN_AVG_ROWS the
+        # tiled kernel wins. Group membership is read from offsets, valid for both
+        # shape_reps.
+        num_sms = torch.cuda.get_device_properties(A.device).multi_processor_count
+        if num_tensors <= num_sms and (m // num_tensors) >= _PERSISTENT_MIN_AVG_ROWS:
+            ctas_per_group = num_sms // num_tensors
+            workspace = prepare_for_cuda_graph(
+                A.device, sign_vectors=(tuple(sign_vector),)
+            )
+            triton.set_allocator(
+                lambda size, align, stream: workspace[: max(size, 1)]
+            )
+            try:
+                _pergroup_cta_rht_amax_kernel[(num_tensors * ctas_per_group,)](
+                    A,
+                    B,
+                    offsets,
+                    row_amax,
+                    col_amax,
+                    m,
+                    n,
+                    CTAS_PER_GROUP=ctas_per_group,
+                    RHT_SIZE=rht_size,
+                    GROUP_SIZE_N=8,
+                )
+            finally:
+                triton.set_allocator(None)
+            return col_amax, row_amax
 
         grid = (triton.cdiv(m, BLOCK_M) * triton.cdiv(n, BLOCK_N),)
         _group_rht_amax_triton_kernel[grid](
