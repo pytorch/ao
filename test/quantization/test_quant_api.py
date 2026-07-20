@@ -1155,6 +1155,9 @@ class TestFqnToConfigNoneParams(TestCase):
         )
         quantize_(model, quant_config, filter_fn=None)
 
+        # w1/w2 are deliberately bare, unrelated params configured with None (skip);
+        # only the regex-targeted w3 should be quantized. This asserts the None entries
+        # don't shift which sibling entry is removed.
         assert not isinstance(model.w1, Int8Tensor)
         assert not isinstance(model.w2, Int8Tensor)
         assert isinstance(model.w3, Int8Tensor)
