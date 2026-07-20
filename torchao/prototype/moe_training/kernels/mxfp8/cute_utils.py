@@ -50,7 +50,7 @@ if _cutedsl_runtime_available():
     import cutlass
     import cutlass.cute as cute
     from cutlass._mlir.dialects import llvm
-    from cutlass.base_dsl._mlir_helpers import arith as _dsl_arith
+    from cutlass._mlir_helpers import arith as _dsl_arith
     from cutlass.cutlass_dsl import T, dsl_user_op
 
     # FP8 constants
