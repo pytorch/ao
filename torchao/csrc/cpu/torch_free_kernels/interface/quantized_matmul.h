@@ -12,6 +12,7 @@
 #include <torchao/csrc/cpu/torch_free_kernels/fallback/matmul/fp32_a_channelwise_8bit_b_fp32_c.h>
 
 #if defined(__aarch64__) && defined(__ARM_NEON)
+#include <cpuinfo.h>
 #include <torchao/csrc/cpu/torch_free_kernels/aarch64/matmul/matmul.h>
 #endif // defined(__aarch64__) && defined(__ARM_NEON)
 
@@ -66,7 +67,12 @@ get_int8_a_int8_b_channelwise_qmatmul(
     int& a_stride_m,
     int& b_stride_n) {
 #if defined(__aarch64__) && defined(__ARM_NEON)
-  if (!a_transposed && b_transposed && n >= 8) {
+  // This kernel uses dot-product (UDOT/SDOT, FEAT_DotProd) instructions, which
+  // are absent on ARMv8.3 and earlier (e.g. Apple A12). Dispatching it on such
+  // hardware traps with SIGILL, so gate it behind a runtime cpuinfo check and
+  // fall through to the scalar kernel when FEAT_DotProd is unavailable.
+  if (cpuinfo_initialize() && cpuinfo_has_arm_neon_dot() && !a_transposed &&
+      b_transposed && n >= 8) {
     a_stride_m = k;
     b_stride_n = k;
     return aarch64::quantized_matmul::
