@@ -1015,26 +1015,28 @@ def test_cutedsl_kernels_work_with_valid_128_multiple_groups():
 # (`to_mx` with FLOOR mode), gated on `_mxfp8_flydsl_kernels_available`.
 # =============================================================================
 
-# 1x32 (K-direction): K % 2048 (no tail handling yet).
-# 32x1 (M-direction): M % 32, K % 256 (lane × VEC bf16 dwordx2 loads).
-# 3D (per-expert N-direction): N % 32, K % 256 (lane × VEC bf16 dwordx2 loads).
-# Shape grids mirror cutedsl test coverage (`(128, 8192)` × cutedsl K set
-# for 1x32; `(128, 1024)` × cutedsl K set for 32x1) wherever the FlyDSL
-# divisibility constraints above allow.
-_FLYDSL_1X32_K = (2048, 4096, 8192)
-_FLYDSL_2D_M = (1, 32, 128, 1024, 8192)
-_FLYDSL_32X1_K = (256, 512, 1536, 2048, 4096, 5120, 7168, 8192)
-_FLYDSL_3D_E = (1, 2, 4, 8)
-_FLYDSL_3D_N = (32, 64, 256)
-_FLYDSL_3D_K = (256, 1024, 4096)
+# Explicit shape tuples (not full M×K×N×E cross-products) so the suite runs
+# in O(seconds). Each list holds a full-tile shape, an edge shape, and a
+# K/N *tail* shape whose K is deliberately not a multiple of the kernel tile,
+# so the per-lane tail-handling path is exercised against the to_mx reference.
+# dtype × scaling_mode is still swept in full because those select distinct
+# numeric code paths (bf16/f32 load, floor clamp vs. fused rceil cvt).
+#
+# Tail divisibility per kernel (all shapes keep K % 32 == 0, the MXFP8 min):
+#   1x32: tile K = 2048; tail K=2080 (2080 % 2048 != 0).
+#   32x1: tile K =  256; tail K=1408 (DSV3 hidden_dim, 1408 % 256 != 0).
+#   3D:   tile K =  256; tail K=1408 (DSV3 hidden_dim, 1408 % 256 != 0).
+_FLYDSL_1X32_SHAPES = ((1, 2048), (128, 4096), (64, 2080))  # (M, K)
+_FLYDSL_32X1_SHAPES = ((32, 256), (128, 5120), (64, 1408))  # (M, K)
+_FLYDSL_3D_SHAPES = ((1, 32, 256), (4, 64, 1024), (2, 64, 1408))  # (E, N, K)
+_FLYDSL_3D_CFG_SHAPES = ((8, 256, 256), (2, 64, 1408))  # (E, N, K)
 
 
 @pytest.mark.skipif(
     not _mxfp8_flydsl_kernels_available,
     reason="MXFP8 FlyDSL kernels not available (requires MI300/MI350 + FlyDSL runtime)",
 )
-@pytest.mark.parametrize("M", _FLYDSL_2D_M)
-@pytest.mark.parametrize("K", _FLYDSL_1X32_K)
+@pytest.mark.parametrize("M,K", _FLYDSL_1X32_SHAPES)
 @pytest.mark.parametrize("input_dtype", (torch.bfloat16, torch.float32))
 @pytest.mark.parametrize("scaling_mode", ("floor", "rceil"))
 def test_flydsl_mx_dim1_2d_numerics(M, K, input_dtype, scaling_mode):
@@ -1076,8 +1078,7 @@ def test_flydsl_mx_dim1_2d_numerics(M, K, input_dtype, scaling_mode):
     not _mxfp8_flydsl_kernels_available,
     reason="MXFP8 FlyDSL kernels not available",
 )
-@pytest.mark.parametrize("M", (32, 64, 128, 1024))
-@pytest.mark.parametrize("K", _FLYDSL_32X1_K)
+@pytest.mark.parametrize("M,K", _FLYDSL_32X1_SHAPES)
 @pytest.mark.parametrize("input_dtype", (torch.bfloat16, torch.float32))
 @pytest.mark.parametrize("scaling_mode", ("floor", "rceil"))
 def test_flydsl_mx_dim0_2d_numerics(M, K, input_dtype, scaling_mode):
@@ -1139,9 +1140,7 @@ def test_flydsl_2d_32x1_rejects_misaligned_M(M):
     not _mxfp8_flydsl_kernels_available,
     reason="MXFP8 FlyDSL kernels not available",
 )
-@pytest.mark.parametrize("E", _FLYDSL_3D_E)
-@pytest.mark.parametrize("N", _FLYDSL_3D_N)
-@pytest.mark.parametrize("K", _FLYDSL_3D_K)
+@pytest.mark.parametrize("E,N,K", _FLYDSL_3D_SHAPES)
 @pytest.mark.parametrize("input_dtype", (torch.bfloat16, torch.float32))
 @pytest.mark.parametrize("scaling_mode", ("floor", "rceil"))
 def test_flydsl_mx_dim1_3d_numerics(E, N, K, input_dtype, scaling_mode):
@@ -1186,11 +1185,10 @@ def test_flydsl_mx_dim1_3d_numerics(E, N, K, input_dtype, scaling_mode):
 )
 # The default-config 3D test above already sweeps (E,N,K,dtype) on
 # (sbk=1, bso=False); this test only needs to exercise the
-# (scale_block_k × blocked_scale_output) cross-product, so the shape
-# grid is intentionally narrow (one small + one larger value per axis).
-@pytest.mark.parametrize("E", (1, 8))
-@pytest.mark.parametrize("N", (32, 256))
-@pytest.mark.parametrize("K", (256, 4096))
+# (scale_block_k × blocked_scale_output) cross-product, so the shape grid is
+# just one full-tile shape plus one K-tail shape (K=1408 % 256 != 0) to cover
+# the tail path under sbk=32 and blocked_scale_output.
+@pytest.mark.parametrize("E,N,K", _FLYDSL_3D_CFG_SHAPES)
 @pytest.mark.parametrize("input_dtype", (torch.bfloat16,))
 @pytest.mark.parametrize(
     "scale_block_k",
