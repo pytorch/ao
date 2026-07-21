@@ -9,11 +9,6 @@ from typing import Optional
 import torch
 
 from torchao.float8.config import e4m3_dtype
-from torchao.prototype.blockwise_fp8_training.grouped_kernels import (
-    emulated_blockwise_scaled_grouped_mm,
-    triton_fp8_blockwise_weight_quant_grouped_rhs,
-    triton_fp8_blockwise_weight_quant_grouped_transposed_rhs,
-)
 from torchao.prototype.blockwise_fp8_training.kernels import (
     BLOCKWISE_1X128_SCALING_TYPE,
     BLOCKWISE_128X128_SCALING_TYPE,
@@ -21,14 +16,50 @@ from torchao.prototype.blockwise_fp8_training.kernels import (
     _is_row_major,
     _scaling_type_value,
     triton_fp8_blockwise_act_quant_lhs,
-    triton_fp8_blockwise_act_quant_rhs,
-    triton_fp8_blockwise_act_quant_transposed_lhs,
+)
+from torchao.prototype.moe_training.blockwise_fp8.grouped_mm_backend import (
+    _select_fp8_blockwise_grouped_mm_backend,
 )
 from torchao.prototype.moe_training.utils import (
     conditional_nostrict_trace,
     pad_token_groups,
     unpad_token_groups,
 )
+from torchao.quantization.quantize_.common import KernelPreference
+
+
+@conditional_nostrict_trace
+def _to_fp8_blockwise_then_scaled_grouped_mm(
+    A: torch.Tensor,
+    B_t: torch.Tensor,
+    offs: Optional[torch.Tensor] = None,
+    out_dtype: Optional[torch.dtype] = torch.bfloat16,
+    float8_dtype: torch.dtype = e4m3_dtype,
+    block_size: int = 128,
+    pad_token_groups_for_grouped_mm: bool = True,
+    kernel_preference: KernelPreference = KernelPreference.AUTO,
+) -> torch.Tensor:
+    """
+    Differentiable FP8 blockwise grouped matrix multiplication.
+
+    A has shape (M, K). B_t has shape (E, K, N), transposed and in
+    per-expert column-major layout.
+    """
+    assert block_size == 128, "Only block_size=128 is supported"
+    assert kernel_preference in (
+        KernelPreference.AUTO,
+        KernelPreference.EMULATED,
+    ), "kernel_preference must be AUTO or EMULATED"
+    return _Float8BlockwiseGroupedMM.apply(
+        A,
+        B_t,
+        offs,
+        out_dtype,
+        float8_dtype,
+        block_size,
+        pad_token_groups_for_grouped_mm,
+        kernel_preference,
+    )
 
 
 @conditional_nostrict_trace
@@ -43,12 +74,8 @@ def _to_fp8_blockwise_then_emulated_scaled_grouped_mm(
 ) -> torch.Tensor:
     """
     Differentiable FP8 blockwise grouped matrix multiplication using an emulated GEMM.
-
-    A has shape (M, K). B_t has shape (E, K, N), transposed and in
-    per-expert column-major layout.
     """
-    assert block_size == 128, "Only block_size=128 is supported"
-    return _Float8BlockwiseEmulatedGroupedMM.apply(
+    return _to_fp8_blockwise_then_scaled_grouped_mm(
         A,
         B_t,
         offs,
@@ -56,10 +83,11 @@ def _to_fp8_blockwise_then_emulated_scaled_grouped_mm(
         float8_dtype,
         block_size,
         pad_token_groups_for_grouped_mm,
+        KernelPreference.EMULATED,
     )
 
 
-class _Float8BlockwiseEmulatedGroupedMM(torch.autograd.Function):
+class _Float8BlockwiseGroupedMM(torch.autograd.Function):
     @staticmethod
     def forward(
         ctx,
@@ -70,6 +98,7 @@ class _Float8BlockwiseEmulatedGroupedMM(torch.autograd.Function):
         float8_dtype: torch.dtype = e4m3_dtype,
         block_size: int = 128,
         pad_token_groups_for_grouped_mm: bool = True,
+        kernel_preference: KernelPreference = KernelPreference.AUTO,
     ) -> torch.Tensor:
         assert A.ndim == 2, "A must be 2D"
         assert B_t.ndim == 3, "B_t must be 3D"
@@ -95,17 +124,30 @@ class _Float8BlockwiseEmulatedGroupedMM(torch.autograd.Function):
         else:
             padded_A = A
 
+        backend = _select_fp8_blockwise_grouped_mm_backend(
+            kernel_preference,
+            A,
+            out_dtype,
+            block_size,
+            padded_group_end_offsets,
+            original_group_end_offsets=offs
+            if pad_token_groups_for_grouped_mm
+            else None,
+            padded_group_start_offsets=padded_group_start_offsets,
+            num_rows=padded_A.shape[0],
+        )
+
         A_fp8, A_scale = triton_fp8_blockwise_act_quant_lhs(
             padded_A.contiguous(),
             block_size=block_size,
             dtype=float8_dtype,
         )
-        B_t_fp8, B_t_scale = triton_fp8_blockwise_weight_quant_grouped_transposed_rhs(
+        B_t_fp8, B_t_scale = backend.quantize_forward_rhs(
             B_t,
-            block_size=block_size,
-            dtype=float8_dtype,
+            block_size,
+            float8_dtype,
         )
-        out = emulated_blockwise_scaled_grouped_mm(
+        out = backend.grouped_mm(
             A_fp8,
             B_t_fp8,
             A_scale,
@@ -137,6 +179,7 @@ class _Float8BlockwiseEmulatedGroupedMM(torch.autograd.Function):
         ctx.block_size = block_size
         ctx.pad_token_groups_for_grouped_mm = pad_token_groups_for_grouped_mm
         ctx.num_tokens = num_tokens
+        ctx.backend = backend
         return out
 
     @staticmethod
@@ -153,6 +196,7 @@ class _Float8BlockwiseEmulatedGroupedMM(torch.autograd.Function):
         block_size = ctx.block_size
         pad_token_groups_for_grouped_mm = ctx.pad_token_groups_for_grouped_mm
         num_tokens = ctx.num_tokens
+        backend = ctx.backend
 
         if pad_token_groups_for_grouped_mm:
             padded_grad_output, _, _ = pad_token_groups(
@@ -168,12 +212,12 @@ class _Float8BlockwiseEmulatedGroupedMM(torch.autograd.Function):
             block_size=block_size,
             dtype=float8_dtype,
         )
-        B_fp8, B_scale = triton_fp8_blockwise_weight_quant_grouped_rhs(
+        B_fp8, B_scale = backend.quantize_dgrad_rhs(
             B_t,
-            block_size=block_size,
-            dtype=float8_dtype,
+            block_size,
+            float8_dtype,
         )
-        grad_A = emulated_blockwise_scaled_grouped_mm(
+        grad_A = backend.grouped_mm(
             grad_output_fp8,
             B_fp8,
             grad_output_scale,
@@ -193,32 +237,18 @@ class _Float8BlockwiseEmulatedGroupedMM(torch.autograd.Function):
                 alignment_size=block_size,
             )
 
-        grad_output_t_fp8, grad_output_t_scale = (
-            triton_fp8_blockwise_act_quant_transposed_lhs(
-                padded_grad_output.contiguous(),
-                block_size=block_size,
-                dtype=float8_dtype,
-            )
-        )
-        A_rhs_fp8, A_rhs_scale = triton_fp8_blockwise_act_quant_rhs(
-            padded_A.contiguous(),
-            block_size=block_size,
-            dtype=float8_dtype,
-        )
-        grad_B = emulated_blockwise_scaled_grouped_mm(
-            grad_output_t_fp8,
-            A_rhs_fp8,
-            grad_output_t_scale,
-            _scaling_type_value(BLOCKWISE_1X128_SCALING_TYPE),
-            A_rhs_scale,
-            _scaling_type_value(BLOCKWISE_1X128_SCALING_TYPE),
+        grad_B = backend.wgrad(
+            padded_grad_output,
+            padded_A,
             padded_group_end_offsets,
             out_dtype,
             block_size,
+            float8_dtype,
         )
         return (
             grad_A,
             grad_B.transpose(-2, -1),
+            None,
             None,
             None,
             None,

@@ -589,7 +589,7 @@ class TestQuantPrimitives(unittest.TestCase):
         scale, zero_point = choose_qparams_affine(
             input, mapping_type, block_size, dtype
         )
-        eps = torch.finfo(torch.float32).eps
+        eps = torch.finfo(torch.float32).smallest_normal
         self.assertEqual(scale, eps)
 
     @unittest.skipIf(

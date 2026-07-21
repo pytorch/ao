@@ -132,7 +132,7 @@ class ToyLinearModel(torch.nn.Module):
         return x
 
 
-def _get_ref_change_linear_weights_to_woqtensors(deprecated_tenosr_subclass):
+def _get_ref_change_linear_weights_to_woqtensors(deprecated_tensor_subclass):
     def _ref_change_linear_weights_to_woqtensors(model, filter_fn=None, **kwargs):
         """
         The deprecated implementation for weight only quant API, used as a reference for
@@ -145,7 +145,7 @@ def _get_ref_change_linear_weights_to_woqtensors(deprecated_tenosr_subclass):
         _replace_with_custom_fn_if_matches_filter(
             model,
             _get_subclass_inserter(
-                deprecated_tenosr_subclass, enable_parametrization=True, **kwargs
+                deprecated_tensor_subclass, enable_parametrization=True, **kwargs
             ),
             filter_fn,
         )

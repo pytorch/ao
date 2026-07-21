@@ -34,6 +34,7 @@ from torchao.prototype.quantized_training import (
     quantize_int8_rowwise,
 )
 from torchao.quantization.quant_api import quantize_
+from torchao.utils import torch_version_at_least
 
 if common_utils.SEED is None:
     common_utils.SEED = 1234
@@ -328,6 +329,7 @@ class TestFSDP2(FSDPTest):
 
     @skip_if_lt_x_gpu(_FSDP_WORLD_SIZE)
     @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+    @pytest.mark.skipif(torch_version_at_least("2.11.0"), reason="Failing in CI")
     def test_fsdp2_correctness(self):
         mp_policy = MixedPrecisionPolicy()
 

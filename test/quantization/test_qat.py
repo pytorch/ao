@@ -1951,7 +1951,8 @@ class TestQAT(TestCase):
         self.assertEqual(weight_config.group_size, 128)
         self.assertEqual(weight_config.activation_dtype, e4m3_dtype)
 
-    def test_infer_int4_weight_only_config(self):
+    @parametrize("group_size", [256, 128, 64, 32])
+    def test_infer_int4_weight_only_config(self, group_size: int):
         """
         Test that fake quantize configs are correctly inferred from `Int4WeightOnlyConfig`.
         """
@@ -1959,11 +1960,11 @@ class TestQAT(TestCase):
             _infer_fake_quantize_configs,
         )
 
-        base_config = Int4WeightOnlyConfig(version=2)
+        base_config = Int4WeightOnlyConfig(version=2, group_size=group_size)
         (act_config, weight_config) = _infer_fake_quantize_configs(base_config)
         self.assertIsNone(act_config)
         self.assertIsInstance(weight_config, Int4WeightFakeQuantizeConfig)
-        self.assertEqual(weight_config.group_size, 128)
+        self.assertEqual(weight_config.group_size, group_size)
         self.assertEqual(weight_config.activation_dtype, torch.bfloat16)
 
     @unittest.skipIf(not is_sm_at_least_89(), "Need sm89+")
