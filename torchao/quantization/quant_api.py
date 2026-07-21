@@ -1282,6 +1282,44 @@ def _float8_dynamic_activation_float8_weight_quantize_tensor(weight, config):
         return quantized_weight
 
 
+def _maybe_warn_rowwise_fp8_cuda_12_9(
+    config: Float8DynamicActivationFloat8WeightConfig,
+) -> None:
+    if not torch.cuda.is_available():
+        return
+    if not torch.version.cuda.startswith("12.9"):
+        return
+    # config.granularity is normalized to [activation, weight] in __post_init__.
+    if not any(isinstance(g, PerRow) for g in config.granularity):
+        return
+    # user is already on the mslk (CUTLASS) kernel, which is unaffected.
+    if config.kernel_preference == KernelPreference.MSLK:
+        return
+    # user has already disabled fast accumulation, which avoids the failing path.
+    # mm_config is populated in __post_init__, which runs before this.
+    if config.mm_config is not None and not config.mm_config.use_fast_accum:
+        return
+    warnings.warn(
+        "Rowwise fp8 (Float8DynamicActivationFloat8WeightConfig with PerRow()) on "
+        "CUDA 12.9 can crash with CUBLAS_STATUS_NOT_SUPPORTED for some large-K + "
+        "small-M/N GEMM shapes, due to a cuBLASLt regression specific to CUDA 12.9 "
+        "(not present in 12.6, fixed in 13.0). We can't reliably predict which "
+        "shapes fail, so we warn rather than guard. If you hit this, work around it "
+        "with any of:\n"
+        "  (1) upgrade to CUDA 13.0 (or downgrade to 12.6), where the regression is "
+        "not present; or\n"
+        "on the affected layers (e.g. via FqnToConfig):\n"
+        "  (2) the mslk kernel, which uses CUTLASS instead of cuBLASLt and is "
+        "unaffected: Float8DynamicActivationFloat8WeightConfig(granularity=PerRow(), "
+        "kernel_preference=KernelPreference.MSLK). This requires the mslk package to "
+        "be installed (see https://github.com/pytorch/MSLK); or\n"
+        "  (3) disabling fast accumulation, which avoids the failing cuBLASLt path: "
+        "Float8DynamicActivationFloat8WeightConfig(granularity=PerRow(), "
+        "mm_config=Float8MMConfig(use_fast_accum=False)).\n"
+        "See https://github.com/pytorch/ao/issues/4582."
+    )
+
+
 @register_quantize_module_handler(Float8DynamicActivationFloat8WeightConfig)
 def _float8_dynamic_activation_float8_weight_transform(
     module: torch.nn.Module,
@@ -1289,6 +1327,7 @@ def _float8_dynamic_activation_float8_weight_transform(
     *,
     parameter_name: str = "weight",
 ):
+    _maybe_warn_rowwise_fp8_cuda_12_9(config)
     if torch.cuda.is_available():
         assert is_sm_at_least_89() or is_MI300() or is_MI350(), (
             "Float8 dynamic activation quantization is only supported on CUDA>=8.9 and MI300+"
