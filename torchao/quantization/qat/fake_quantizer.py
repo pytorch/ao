@@ -17,7 +17,6 @@ from torchao.quantization.granularity import (
 from torchao.quantization.quant_primitives import (
     _DTYPE_TO_BIT_WIDTH,
     _DTYPE_TO_QVALUE_BOUNDS,
-    MappingType,
     _choose_scale_float8,
     _dequantize_affine_float8,
     _fake_quantize_affine,
@@ -229,13 +228,11 @@ class IntxFakeQuantizer(FakeQuantizerBase):
         """
         Perform per token fake quantization on the tensor.
         """
-        if self.config.is_symmetric:
-            raise NotImplementedError("Symmetric per token is not supported yet")
         qmin, qmax = _DTYPE_TO_QVALUE_BOUNDS[self.config.dtype]
         if self._should_compute_qparams():
             self.scale, self.zero_point = choose_qparams_affine(
                 x,
-                mapping_type=MappingType.ASYMMETRIC,
+                mapping_type=self.config.mapping_type,
                 block_size=_get_per_token_block_size(x),
                 target_dtype=self.config.dtype,
                 quant_min=qmin,
