@@ -11,6 +11,7 @@ from torch.optim import Optimizer
 from .group_lasso import ProxGroupLasso, ProxGroupLassoVectorized  # noqa: F401
 from .lasso import ProxLasso  # noqa: F401
 from .min_sparsity import (  # noqa: F401
+    GlobalMinSparsityConstraint,
     MinRankConstraint,
     MinSparsityConstraint,
     NMSparseConstraint,

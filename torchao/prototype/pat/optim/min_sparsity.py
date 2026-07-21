@@ -78,6 +78,60 @@ class MinSparsityConstraint(ProxMap, _TopKZeroMixin):
         return self._topk_zero_(p, scores, n_zero)
 
 
+class GlobalMinSparsityConstraint(MinSparsityConstraint):
+    """Allocate one structured sparsity budget across a parameter group.
+
+    Unlike ``MinSparsityConstraint``, which applies the target independently to
+    each tensor, this constraint ranks groups from every tensor jointly. The
+    optimizer collects scores with :meth:`score`, selects the globally smallest
+    ``ceil(min_sparsity * total_groups)`` groups, and applies the selection with
+    :meth:`zero_groups_`.
+
+    ``score_type`` controls comparisons across different group sizes:
+
+    - ``"rms"``: L2 norm divided by ``sqrt(group_size)``.
+    - ``"l2"``: raw L2 norm.
+    - ``"param_cost"``: L2 norm divided by ``group_size``.
+    """
+
+    whole_tensor = True
+
+    def __init__(
+        self, reg_lambda: float, min_sparsity: float, score_type: str = "rms"
+    ) -> None:
+        super().__init__(reg_lambda, min_sparsity)
+        assert score_type in ("rms", "l2", "param_cost"), (
+            f"score_type must be one of rms/l2/param_cost, got {score_type!r}"
+        )
+        self.score_type = score_type
+
+    def score(self, p: Tensor) -> Tensor:
+        """Return one importance score per leading-dimension group."""
+        assert p.dim() == 2, (
+            "GlobalMinSparsityConstraint.score expects a 2-D "
+            f"(n_groups, group_size) view, got shape {tuple(p.shape)}."
+        )
+        norm = torch.linalg.vector_norm(p, dim=1)
+        group_size = p.size(1)
+        if self.score_type == "rms":
+            return norm / math.sqrt(group_size)
+        if self.score_type == "param_cost":
+            return norm / group_size
+        return norm
+
+    @staticmethod
+    def zero_groups_(p: Tensor, zero_idx: Tensor) -> Tensor:
+        """Zero selected leading-dimension groups and return element count."""
+        assert p.dim() == 2, (
+            "GlobalMinSparsityConstraint.zero_groups_ expects a 2-D view, "
+            f"got shape {tuple(p.shape)}."
+        )
+        if zero_idx.numel() > 0:
+            p[zero_idx] = 0.0
+        zeros = zero_idx.numel() * p.size(1)
+        return torch.tensor(zeros, device=p.device, dtype=torch.long)
+
+
 class MinRankConstraint(ProxMap, _TopKZeroMixin):
     """Zeros the smallest ``ceil(min_sparsity * k)`` singular values of an
     SVD-grouped tensor. Here the shared ``min_sparsity`` key is the fraction of

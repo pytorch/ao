@@ -4,6 +4,7 @@
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
 
+import math
 import sys
 from collections import defaultdict
 from collections.abc import Callable
@@ -163,30 +164,35 @@ class PruneOptimizer(Optimizer):
                 "NMSparseConstraint requires 'n_nonzero' in prune config"
             )
             prox_kwargs["n_nonzero"] = group["n_nonzero"]
-        elif group["prox_type"] in ("MinSparsityConstraint", "MinRankConstraint"):
+        elif group["prox_type"] in (
+            "MinSparsityConstraint",
+            "MinRankConstraint",
+            "GlobalMinSparsityConstraint",
+        ):
             assert "min_sparsity" in group, (
                 f"{group['prox_type']} requires 'min_sparsity' in prune config"
             )
             prox_kwargs["min_sparsity"] = self._effective_min_sparsity(group)
+            if group["prox_type"] == "GlobalMinSparsityConstraint":
+                prox_kwargs["score_type"] = group.get("score_type", "rms")
         return prox_kwargs
 
     def _effective_min_sparsity(self, group: dict[str, Any]) -> float:
-        """Cubic ramp from 0 -> ``min_sparsity`` over (warmup, healing_start).
+        """Cubic ramp from 0 to the target before healing freezes the mask.
 
-        When ``min_sparsity_schedule`` is unset (default), returns the static
-        target. The ramp ends at ``healing_start_step`` because the mask
-        freezes there — pushing the target up after that would be a no-op.
+        When ``min_sparsity_schedule`` is unset, returns the static target. The
+        ramp reaches its target at ``healing_start_step - 1``, the last step on
+        which a proximal update can materialize the final hard mask.
         """
         target = group["min_sparsity"]
         if not group.get("min_sparsity_schedule", False):
             return target
         n = self.num_steps
+        final_prune_step = self.healing_start_step - 1
+        if n >= final_prune_step:
+            return target
         if n <= self.warmup_steps:
             return 0.0
-        # Unreachable in training (step() short-circuits at healing_start_step);
-        # kept as a boundary guard for direct callers.
-        if n >= self.healing_start_step:
-            return target
         t = (n - self.warmup_steps) / (self.healing_start_step - self.warmup_steps)
         return target * (1 - (1 - t) ** 3)
 
@@ -458,8 +464,114 @@ class PruneOptimizer(Optimizer):
             )
         return result
 
+    @staticmethod
+    def _grouped_view(grouper):
+        """Return the dense 2-D view represented by ``grouper``."""
+        full = grouper.p.full_tensor() if _is_dtensor(grouper.p) else grouper.p
+        grouper_name = type(grouper).__name__
+        if grouper_name == "ElemGrouper":
+            view = full.reshape(-1, 1)
+        elif grouper_name == "LayerGrouper":
+            view = full.reshape(1, -1)
+        elif getattr(grouper, "in_dims", 0) == 1 and full.dim() == 2:
+            view = full.transpose(0, 1)
+        else:
+            view = full
+        return view, full
+
+    def _run_global_prox_on_group(self, group: dict[str, Any]):
+        """Allocate one sparsity budget across every tensor in ``group``."""
+        prox_map = instantiate_module(
+            f"torchao.prototype.pat.optim.{group['prox_type']}"
+        )(group["reg_lambda"], **self._get_prox_kwargs(group))
+        grouper_cls = instantiate_module(
+            f"torchao.prototype.pat.group.{group['group_type']}"
+        )
+        grouper_kwargs = self._get_grouper_kwargs(group)
+
+        entries = []
+        score_chunks = []
+        for p in group["params"]:
+            if not p.requires_grad:
+                continue
+            state = self.state[p]
+            state["latent"].copy_(p)
+            with grouper_cls(p, **grouper_kwargs) as grouper:
+                if hasattr(grouper, "_pad_size"):
+                    raise ValueError(
+                        "GlobalMinSparsityConstraint does not support padded "
+                        "KElementGrouper groups; choose a k that divides each "
+                        "grouped dimension."
+                    )
+                view, _ = self._grouped_view(grouper)
+                scores = prox_map.score(view).detach()
+            entries.append((p, state, scores, grouper.p.numel()))
+            score_chunks.append(scores)
+
+        if not score_chunks:
+            return 0, 0
+
+        all_scores = torch.cat([scores.reshape(-1) for scores in score_chunks])
+        total_groups = all_scores.numel()
+        n_zero = math.ceil(self._effective_min_sparsity(group) * total_groups)
+        if n_zero <= 0:
+            zero_mask = torch.zeros(
+                total_groups, dtype=torch.bool, device=all_scores.device
+            )
+        elif n_zero >= total_groups:
+            zero_mask = torch.ones(
+                total_groups, dtype=torch.bool, device=all_scores.device
+            )
+        else:
+            _, drop_idx = torch.topk(all_scores, k=n_zero, largest=False, sorted=False)
+            zero_mask = torch.zeros(
+                total_groups, dtype=torch.bool, device=all_scores.device
+            )
+            zero_mask[drop_idx] = True
+
+        group_zeros = 0
+        group_params = 0
+        offset = 0
+        for p, state, scores, numel in entries:
+            n_local = scores.numel()
+            local_zero_idx = zero_mask[offset : offset + n_local].nonzero(
+                as_tuple=True
+            )[0]
+            offset += n_local
+
+            with grouper_cls(p, **grouper_kwargs) as grouper:
+                view, full = self._grouped_view(grouper)
+                zeros = prox_map.zero_groups_(view, local_zero_idx)
+                if _is_dtensor(grouper.p):
+                    grouper.p.copy_(
+                        distribute_tensor(
+                            full,
+                            device_mesh=grouper.p.device_mesh,
+                            placements=grouper.p.placements,
+                        )
+                    )
+            zeros = int(zeros.item()) if torch.is_tensor(zeros) else int(zeros)
+            state["sparsity_frac"] = zeros / numel if numel else 0.0
+            group_zeros += zeros
+            group_params += numel
+
+        return group_zeros, group_params
+
     def should_prune(self, group: dict[str, Any], step: int) -> bool:
         """Run the group's prox map every ``prox_freq`` steps after warmup."""
+        hard_constraints = {
+            "GlobalMinSparsityConstraint",
+            "MinRankConstraint",
+            "MinSparsityConstraint",
+            "NMSparseConstraint",
+        }
+        if (
+            step == self.healing_start_step - 1
+            and group.get("prox_type") in hard_constraints
+        ):
+            # Materialize the final hard mask immediately before healing,
+            # regardless of prox_freq alignment.
+            return True
         freq = group.get("prox_freq", 1)
         if freq <= 1:
             return True
@@ -586,6 +698,12 @@ class PruneOptimizer(Optimizer):
                     if not p.requires_grad:
                         continue
                     self.state[p]["latent"].copy_(p)
+                continue
+
+            if group["prox_type"] == "GlobalMinSparsityConstraint":
+                zero_elts, numel = self._run_global_prox_on_group(group)
+                regularized_zeros += zero_elts
+                regularized_params += numel
                 continue
 
             prox_map, grouper_cls, grouper_kwargs, prox_kwargs = (

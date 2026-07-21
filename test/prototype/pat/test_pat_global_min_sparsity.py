@@ -1,0 +1,258 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+# All rights reserved.
+#
+# This source code is licensed under the BSD 3-Clause license found in the
+# LICENSE file in the root directory of this source tree.
+
+import math
+import random
+import unittest
+
+import torch
+from torch.distributed.tensor import distribute_tensor
+from torch.distributed.tensor.placement_types import Shard
+from torch.testing._internal import common_utils
+
+from test.prototype.pat.test_common import DistributedTestMixin, optim_step
+from torchao.prototype.pat.optim import GlobalMinSparsityConstraint, PruneOptimizer
+from torchao.prototype.pat.utils import get_param_groups
+
+
+def _global_group(params, min_sparsity, score_type="rms", group_type="Dim0Grouper"):
+    return {
+        "params": list(params),
+        "group_type": group_type,
+        "prox_type": "GlobalMinSparsityConstraint",
+        "min_sparsity": min_sparsity,
+        "score_type": score_type,
+    }
+
+
+def _count_zero_groups(p, axis=0):
+    flat = p.data if axis == 0 else p.data.transpose(0, 1)
+    return sum(flat[i].eq(0).all().item() for i in range(flat.size(0)))
+
+
+class TestGlobalMinSparsityScore(common_utils.TestCase):
+    def test_score_types(self):
+        p = torch.randn(6, 4)
+        norm = torch.linalg.vector_norm(p, dim=1)
+        self.assertTrue(
+            torch.allclose(
+                GlobalMinSparsityConstraint(0.0, 0.5, "rms").score(p),
+                norm / math.sqrt(4),
+            )
+        )
+        self.assertTrue(
+            torch.allclose(GlobalMinSparsityConstraint(0.0, 0.5, "l2").score(p), norm)
+        )
+        self.assertTrue(
+            torch.allclose(
+                GlobalMinSparsityConstraint(0.0, 0.5, "param_cost").score(p),
+                norm / 4,
+            )
+        )
+
+    def test_invalid_score_type(self):
+        with self.assertRaises(AssertionError):
+            GlobalMinSparsityConstraint(0.0, 0.5, "bogus")
+
+    def test_zero_groups(self):
+        p = torch.arange(24.0).reshape(6, 4).clone()
+        idx = torch.tensor([1, 3, 4])
+        zeros = GlobalMinSparsityConstraint.zero_groups_(p, idx)
+        self.assertEqual(int(zeros), 3 * 4)
+        for i in range(6):
+            if i in (1, 3, 4):
+                self.assertTrue(p[i].eq(0).all())
+            else:
+                self.assertTrue(p[i].ne(0).any())
+
+    def test_zero_groups_empty(self):
+        p = torch.randn(5, 4).clone()
+        original = p.clone()
+        zeros = GlobalMinSparsityConstraint.zero_groups_(
+            p, torch.tensor([], dtype=torch.long)
+        )
+        self.assertEqual(int(zeros), 0)
+        self.assertTrue(torch.equal(p, original))
+
+
+class TestGlobalMinSparsityOptimizer(common_utils.TestCase):
+    def _run(self, params, min_sparsity, score_type="rms", steps=3, lr=0.1):
+        base = torch.optim.SGD([_global_group(params, min_sparsity, score_type)], lr=lr)
+        optimizer = PruneOptimizer(base, warmup_steps=0, healing_start_step=100)
+        for _ in range(steps):
+            optimizer.zero_grad()
+            loss = sum((p * p).sum() for p in params)
+            loss.backward()
+            optimizer.step()
+        return optimizer
+
+    def test_exact_global_budget(self):
+        torch.manual_seed(0)
+        a = torch.nn.Parameter(torch.randn(8, 4))
+        b = torch.nn.Parameter(torch.randn(8, 4))
+        optimizer = self._run([a, b], 0.5)
+        total_zero = _count_zero_groups(a) + _count_zero_groups(b)
+        self.assertEqual(total_zero, math.ceil(0.5 * 16))
+        self.assertAlmostEqual(optimizer.relative_sparsity, 0.5, places=6)
+
+    def test_nonuniform_allocation(self):
+        torch.manual_seed(0)
+        a = torch.nn.Parameter(torch.randn(8, 4) * 10.0)
+        b = torch.nn.Parameter(torch.randn(8, 4) * 0.1)
+        self._run([a, b], 0.5, lr=0.0, steps=1)
+        zero_a = _count_zero_groups(a)
+        zero_b = _count_zero_groups(b)
+        self.assertEqual(zero_a + zero_b, 8)
+        self.assertEqual(zero_a, 0)
+        self.assertEqual(zero_b, 8)
+
+    def test_parity_with_uniform_norms(self):
+        torch.manual_seed(1)
+        a = torch.nn.Parameter(torch.randn(8, 4))
+        b = torch.nn.Parameter(torch.randn(8, 4))
+        self._run([a, b], 0.5, lr=0.0, steps=1)
+        zero_a = _count_zero_groups(a)
+        zero_b = _count_zero_groups(b)
+        self.assertEqual(zero_a + zero_b, 8)
+        self.assertEqual(zero_a, 4)
+        self.assertEqual(zero_b, 4)
+
+    def test_healing_freezes_nonuniform_mask(self):
+        torch.manual_seed(0)
+        a = torch.nn.Parameter(torch.randn(8, 4) * 10.0)
+        b = torch.nn.Parameter(torch.randn(8, 4) * 0.1)
+        base = torch.optim.SGD([_global_group([a, b], 0.5)], lr=0.1)
+        optimizer = PruneOptimizer(base, warmup_steps=0, healing_start_step=2)
+        for _ in range(6):
+            optimizer.zero_grad()
+            (a.pow(2).sum() + b.pow(2).sum()).backward()
+            optimizer.step()
+        self.assertEqual(_count_zero_groups(a) + _count_zero_groups(b), 8)
+
+    @common_utils.parametrize("scheduled", [False, True])
+    def test_healing_boundary_overrides_prox_freq(self, scheduled):
+        torch.manual_seed(0)
+        a = torch.nn.Parameter(torch.randn(8, 4) * 10.0)
+        b = torch.nn.Parameter(torch.randn(8, 4) * 0.1)
+        group = _global_group([a, b], 0.5)
+        group["prox_freq"] = 2
+        group["min_sparsity_schedule"] = scheduled
+        optimizer = PruneOptimizer(
+            torch.optim.SGD([group], lr=0.1),
+            warmup_steps=0,
+            healing_start_step=2,
+        )
+        for _ in range(5):
+            optimizer.zero_grad()
+            (a.pow(2).sum() + b.pow(2).sum()).backward()
+            optimizer.step()
+        self.assertEqual(_count_zero_groups(a) + _count_zero_groups(b), 8)
+
+    def test_rejects_padded_k_element_groups(self):
+        param = torch.nn.Parameter(torch.randn(1, 5))
+        group = _global_group([param], 0.5, group_type="KElementGrouper")
+        group["k"] = 4
+        optimizer = PruneOptimizer(torch.optim.SGD([group], lr=0.0))
+        param.grad = torch.zeros_like(param)
+        with self.assertRaisesRegex(
+            ValueError, "does not support padded KElementGrouper groups"
+        ):
+            optimizer.step()
+
+    def test_elem_grouper_allocates_element_budget(self):
+        a = torch.nn.Parameter(torch.tensor([[10.0, 9.0], [8.0, 7.0]]))
+        b = torch.nn.Parameter(torch.tensor([[0.4, 0.3], [0.2, 0.1]]))
+        group = _global_group([a, b], 0.5, group_type="ElemGrouper")
+        optimizer = PruneOptimizer(torch.optim.SGD([group], lr=0.0))
+        for param in (a, b):
+            param.grad = torch.zeros_like(param)
+        optimizer.step()
+        self.assertEqual(torch.count_nonzero(a), 4)
+        self.assertEqual(torch.count_nonzero(b), 0)
+        self.assertEqual(optimizer.relative_sparsity, 0.5)
+
+    def test_layer_grouper_allocates_layer_budget(self):
+        a = torch.nn.Parameter(torch.full((2, 2), 10.0))
+        b = torch.nn.Parameter(torch.full((2, 2), 0.1))
+        group = _global_group([a, b], 0.5, group_type="LayerGrouper")
+        optimizer = PruneOptimizer(torch.optim.SGD([group], lr=0.0))
+        for param in (a, b):
+            param.grad = torch.zeros_like(param)
+        optimizer.step()
+        self.assertTrue(a.ne(0).all())
+        self.assertTrue(b.eq(0).all())
+        self.assertEqual(optimizer.relative_sparsity, 0.5)
+
+    def test_via_get_param_groups(self):
+        torch.manual_seed(0)
+
+        class TinyStack(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.layers = torch.nn.ModuleList(
+                    [torch.nn.Linear(8, 8, bias=False) for _ in range(3)]
+                )
+
+            def forward(self, x):
+                for layer in self.layers:
+                    x = layer(x)
+                return x
+
+        model = TinyStack()
+        prune_config = {
+            (torch.nn.Linear, "weight"): {
+                "group_type": "Dim0Grouper",
+                "prox_type": "GlobalMinSparsityConstraint",
+                "min_sparsity": 0.5,
+                "score_type": "rms",
+            }
+        }
+        param_groups = get_param_groups(model, prune_config, verbose=False)
+        optimizer = PruneOptimizer(
+            torch.optim.SGD(param_groups, lr=0.1), reg_lambda=0.0
+        )
+        dummy = torch.randn(4, 8)
+        label = torch.randint(0, 8, (4,))
+        for step in range(4):
+            optim_step(model, optimizer, dummy, label, step)
+        total_groups = sum(layer.weight.size(0) for layer in model.layers)
+        total_zero = sum(_count_zero_groups(layer.weight) for layer in model.layers)
+        self.assertEqual(total_zero, math.ceil(0.5 * total_groups))
+
+
+class TestGlobalMinSparsityDTensor(DistributedTestMixin, common_utils.TestCase):
+    def test_two_dtensors_global_budget(self):
+        torch.manual_seed(0)
+        a = torch.randn(8, 4) * 10.0
+        b = torch.randn(8, 4) * 0.1
+        a_dt = torch.nn.Parameter(
+            distribute_tensor(a, self.mesh, [Shard(0)] * self.mesh.ndim)
+        )
+        b_dt = torch.nn.Parameter(
+            distribute_tensor(b, self.mesh, [Shard(0)] * self.mesh.ndim)
+        )
+        base = torch.optim.SGD([_global_group([a_dt, b_dt], 0.5)], lr=0.0)
+        optimizer = PruneOptimizer(base, warmup_steps=0, healing_start_step=100)
+        optimizer.zero_grad()
+        (a_dt.to_local().pow(2).sum() + b_dt.to_local().pow(2).sum()).backward()
+        optimizer.step()
+        full_a = a_dt.full_tensor()
+        full_b = b_dt.full_tensor()
+        zero_a = sum(full_a[i].eq(0).all().item() for i in range(8))
+        zero_b = sum(full_b[i].eq(0).all().item() for i in range(8))
+        self.assertEqual(zero_a + zero_b, 8)
+        self.assertGreater(zero_b, zero_a)
+
+
+common_utils.instantiate_parametrized_tests(TestGlobalMinSparsityScore)
+common_utils.instantiate_parametrized_tests(TestGlobalMinSparsityOptimizer)
+common_utils.instantiate_parametrized_tests(TestGlobalMinSparsityDTensor)
+
+
+if __name__ == "__main__":
+    random.seed(0)
+    torch.manual_seed(0)
+    unittest.main()
