@@ -151,7 +151,9 @@ def insert_svd_modules_(model: nn.Module, optimizer: torch.optim.Optimizer):
 
                 k = int(optimizer.state[p]["sv_count"].item())
                 assert k > 0, f"Invalid sv_count={k}"
-                with instantiate_module("pat.group.SVDGrouper")(p) as grouper:
+                with instantiate_module("torchao.prototype.pat.group.SVDGrouper")(
+                    p
+                ) as grouper:
                     # patch parameter with SVD
                     module.register_buffer(
                         f"{pn}_orig_shape", torch.tensor(grouper.orig_shape)
