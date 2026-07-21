@@ -30,6 +30,8 @@ from torch.testing._internal.common_utils import (
     run_tests,
 )
 
+from torchao.testing.utils import skip_if_xpu
+
 if common_utils.SEED is None:
     common_utils.SEED = 1234
 
@@ -766,6 +768,7 @@ class TestQLoRA(FSDPTest):
             self.assertEqual(fsdp_loss, base_loss)
 
 
+@skip_if_xpu("Distributed test is not supported on XPU currently")
 class TestComm(FSDPTest):
     @property
     def world_size(self) -> int:

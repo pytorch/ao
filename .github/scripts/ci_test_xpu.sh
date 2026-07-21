@@ -16,9 +16,6 @@ python -c "import torch; import torchao; print(f'Torch version: {torch.__version
 
 python -m pip install pytest expecttest parameterized accelerate hf_transfer 'modelscope!=1.15.0' transformers tabulate fire
 
-export CCL_ROOT=$(dirname $(which python))/../
-export PATH="${CCL_ROOT}/bin/libfabric:${PATH}"
-export LD_LIBRARY_PATH="${CCL_ROOT}/lib:${LD_LIBRARY_PATH}"
 pytest -v -s --ignore=torchao/test/quantization/pt2e/test_x86inductor_fusion.py \
         torchao/test/quantization/pt2e/ \
         torchao/test/quantization/*.py \
