@@ -1135,22 +1135,26 @@ def _fake_mxfp8_quantize_2d_32x1_cutedsl_custom_op(
     assert block_size == 32, "Only block_size=32 is supported"
     m, k = x.shape
 
-    # For 32x1 scaling, output data has same dimensions as input (no padding)
     q_data = torch.empty_strided(
         (m, k),
-        (k, 1),
+        (1, m),
         device=x.device,
         dtype=torch.float8_e4m3fn,
     )
 
-    # Only scales tensor needs padding for 4x128 scale factor tiles
     m_blocks = m // block_size
-    padded_scale_rows = ceil_div(m_blocks, 4) * 4
-    padded_scale_cols = ceil_div(k, 128) * 128
-    scales = x.new_empty(
-        (padded_scale_cols * padded_scale_rows,),
-        dtype=torch.float8_e8m0fnu,
-    )
+    if blocked_scale_output:
+        padded_scale_rows = ceil_div(m_blocks, 4) * 4
+        padded_scale_cols = ceil_div(k, 128) * 128
+        scales = x.new_empty(
+            (padded_scale_cols * padded_scale_rows,),
+            dtype=torch.float8_e8m0fnu,
+        )
+    else:
+        scales = x.new_empty(
+            (k, m_blocks),
+            dtype=torch.float8_e8m0fnu,
+        )
     return q_data, scales
 
 
