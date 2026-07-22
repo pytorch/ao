@@ -93,6 +93,7 @@ from torchao.quantization.utils import (
     get_groupwise_affine_qparams,
     groupwise_affine_quantize_tensor,
 )
+from torchao.testing.model_architectures import ToyTwoLinearModel
 from torchao.testing.utils import skip_if_xpu
 from torchao.utils import (
     _is_mslk_available,
@@ -198,21 +199,6 @@ class M4(torch.nn.Module):
 
     def forward(self, x):
         return self.linear(x)
-
-
-class ModelWithLinearBias(torch.nn.Module):
-    def __init__(self):
-        super().__init__()
-        self.linear1 = torch.nn.Linear(512, 256, bias=True)
-        self.linear2 = torch.nn.Linear(256, 512, bias=True)
-
-    def example_inputs(self):
-        return (torch.randn(1, 512),)
-
-    def forward(self, x):
-        x = self.linear1(x)
-        x = self.linear2(x)
-        return x
 
 
 class TestQAT(TestCase):
@@ -1391,7 +1377,7 @@ class TestQAT(TestCase):
         """
         Test that QAT supports linear bias.
         """
-        m = ModelWithLinearBias()
+        m = ToyTwoLinearModel(512, 256, 512, torch.float32, "cpu", has_bias=True)
         act_config = IntxFakeQuantizeConfig(torch.int8, "per_token", is_symmetric=False)
         weight_config = IntxFakeQuantizeConfig(TorchAODType.INT4, group_size=32)
         qat_config = QATConfig(
