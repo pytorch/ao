@@ -1155,6 +1155,16 @@ class Float8DynamicActivationFloat8WeightConfig(AOBaseConfig):
         set_inductor_config (bool): if True, adjusts `torchinductor` settings to recommended values.
         version (int): the version of the config, version 1 is deprecated, version 2 is using Float8Tensor (default)
 
+    Note:
+        This is an **inference-only** configuration. Calling ``backward()`` through a
+        linear quantized with this config raises
+        ``RuntimeError: derivative for aten::_scaled_mm is not implemented`` because
+        the underlying ``torch._scaled_mm`` op has no autograd kernel. Use a LoRA-style
+        ``filter_fn`` to skip trainable adapter modules during ``quantize_``, and keep
+        anything that needs gradients (e.g. LoRA ``A``/``B``) outside the quantized base.
+        For float8 *training*, use ``torchao.float8.convert_to_float8_training`` instead.
+        See: https://github.com/pytorch/ao/issues/4376.
+
     Example:
 
     .. literalinclude:: ../../examples/inference/float8_dynamic_activation_float8_weight.py
