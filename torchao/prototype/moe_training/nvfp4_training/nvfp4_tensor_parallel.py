@@ -44,18 +44,33 @@ _TP_STYLE_ROWWISE = "rowwise"
 
 
 def _check_cutedsl_shard(
-    x: torch.Tensor, world_size: int, w: Optional[torch.Tensor] = None
+    x: torch.Tensor,
+    world_size: int,
+    w: Optional[torch.Tensor] = None,
+    *,
+    scatter_m: bool = False,
 ) -> None:
     """The CuteDSL kernels need the per-rank activation shard to have M % 256 == 0 and
     K % 128 == 0 (Triton allows M % 128). The weight quantize additionally needs the per-rank
     weight shard to have out_features % 256 == 0 and in_features % 128 == 0. Fail early with a
-    TP-aware message."""
+    TP-aware message.
+
+    ``scatter_m=True`` (row parallel): the forward reduce-scatters the output along M, so the
+    backward quantizes a grad shard of M // world_size rows. Requiring M % (256 * world_size)
+    here keeps that backward quantize legal — otherwise a shape that passes this check dies
+    mid-backward with a bare "M must be divisible by 256" and no TP context."""
     M, K = x.shape[0], x.shape[1]
-    if M % 256 != 0 or K % 128 != 0:
+    m_multiple = 256 * world_size if scatter_m else 256
+    if M % m_multiple != 0 or K % 128 != 0:
+        detail = (
+            f"M % {m_multiple} == 0 (256 x world_size, since the backward quantizes the "
+            f"reduce-scattered M // {world_size} grad shard) and K % 128 == 0"
+            if scatter_m
+            else "M % 256 == 0 and K % 128 == 0"
+        )
         raise ValueError(
             "kernel_preference=CUTEDSL requires the per-rank activation shard to have "
-            f"M % 256 == 0 and K % 128 == 0; got shard shape {tuple(x.shape)} "
-            f"(world_size={world_size})"
+            f"{detail}; got shard shape {tuple(x.shape)} (world_size={world_size})"
         )
     if w is not None and (w.shape[0] % 256 != 0 or w.shape[1] % 128 != 0):
         raise ValueError(
@@ -448,7 +463,7 @@ class nvfp4_row_parallel_mm(torch.autograd.Function):
         if w.dtype != torch.bfloat16:
             w = w.to(torch.bfloat16)
         if use_cutedsl:
-            _check_cutedsl_shard(x, world_size, w)
+            _check_cutedsl_shard(x, world_size, w, scatter_m=True)
 
         # --- Amax computation ---
         # For the reduce-scatter gemm pattern, calculating the true global amax using

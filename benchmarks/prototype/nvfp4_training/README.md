@@ -104,9 +104,9 @@ Peak memory bandwidth from CUDA device properties: 7928.1 GB/s.
 
 ## 2D Quantize Benchmark
 
-Benchmarks `triton_quantize_2d_weight` — the 2D 16x16 NVFP4 E2M1 weight
-quantization kernel producing rowwise and colwise packed FP4 outputs with
-swizzled scale factors. Requires SM100 (Blackwell).
+Benchmarks `triton_quantize_2d_weight` — the 2D NVFP4 E2M1 weight
+quantization kernel (2D 16x16 block scaling) producing rowwise and colwise
+packed FP4 outputs with swizzled scale factors. Requires SM100 (Blackwell).
 
 ```bash
 python -m benchmarks.prototype.nvfp4_training.bench_quantize_2d
@@ -151,52 +151,52 @@ Run environment: NVIDIA GB200, PyTorch 2.13.0a0+git1f19af4, Triton 3.7.0.
 
 ## CuteDSL kernels — comparison vs Triton
 
-`cutedsl_rht_amax` and `cutedsl_rht_quantize_row_col` are drop-in CuteDSL (`nvidia-cutlass-dsl`)
-alternatives to the Triton activation kernels above, doing the Randomized Hadamard Transform on
-Blackwell tensor cores. They require SM100 and the same shape constraints as the Triton kernels,
+Each `bench_*` script above runs **both backends** (Triton and CuteDSL) on the same shapes and
+reports the speedup. The CuteDSL (`nvidia-cutlass-dsl`) kernels do the Randomized Hadamard Transform
+on Blackwell tensor cores; they require SM100 and the same shape constraints as the Triton kernels,
 with the addition that **M must be divisible by 256**.
 
 ```bash
-python -m benchmarks.prototype.nvfp4_training.bench_hadamard_amax_cutedsl --shape-set representative-models
-python -m benchmarks.prototype.nvfp4_training.bench_hadamard_quantize_row_col_cutedsl --shape-set representative-models
-python -m benchmarks.prototype.nvfp4_training.bench_quantize_2d_cutedsl --shape-set representative-models
+python -m benchmarks.prototype.nvfp4_training.bench_hadamard_amax --shape-set representative-models
+python -m benchmarks.prototype.nvfp4_training.bench_hadamard_quantize_row_col --shape-set representative-models
+python -m benchmarks.prototype.nvfp4_training.bench_quantize_2d --shape-set representative-models
 ```
 
 ### Methodology
 
 - Reports **device kernel time** (CUDA kernel self-time via `torch.profiler`, averaged over the
-  timed loop) for both the CuteDSL and Triton ops, fed the same precomputed global amaxes.
-  Device kernel time is used rather than wall-clock because NVFP4 training runs the linear under
-  CUDA graphs / `torch.compile`, which amortizes host launch overhead.
+  timed loop; see `bench_utils.kernel_time_us`) for each backend, fed the same precomputed global
+  amaxes. Device kernel time is used rather than wall-clock because NVFP4 training runs the linear
+  under CUDA graphs / `torch.compile`, which amortizes host launch overhead.
 
-Run environment: NVIDIA GB200, PyTorch 2.12.0a0, Triton 3.7.0, nvidia-cutlass-dsl.
+Run environment: NVIDIA GB200, PyTorch 2.12.0a0, Triton 3.7.0, nvidia-cutlass-dsl 4.6.1.
 
 ### Hadamard Amax (`cutedsl_rht_amax` vs `triton_rht_amax`)
 
 | Model | Shape | M | N | cutedsl_kernel_us | triton_kernel_us | speedup | cutedsl_gbps |
 |---|---|---:|---:|---:|---:|---:|---:|
-| Llama 3 8B | hidden-state input | 2048 | 4096 | 11.25 | 17.16 | 1.52x | 1490.7 |
-| Llama 3 8B | mlp.down input | 2048 | 14336 | 21.48 | 27.55 | 1.28x | 2734.3 |
-| Llama 3 70B | hidden-state input | 2048 | 8192 | 16.14 | 21.57 | 1.34x | 2078.5 |
-| Llama 3 70B | mlp.down input | 2048 | 28672 | 37.58 | 43.24 | 1.15x | 3125.3 |
+| Llama 3 8B | hidden-state input | 2048 | 4096 | 11.36 | 16.78 | 1.48x | 1477.4 |
+| Llama 3 8B | mlp.down input | 2048 | 14336 | 20.99 | 27.41 | 1.31x | 2797.5 |
+| Llama 3 70B | hidden-state input | 2048 | 8192 | 16.21 | 21.43 | 1.32x | 2070.2 |
+| Llama 3 70B | mlp.down input | 2048 | 28672 | 38.03 | 42.92 | 1.13x | 3087.8 |
 
 ### Hadamard Quantize Row+Col (`cutedsl_rht_quantize_row_col` vs `triton_rht_quantize_row_col`, RTNE)
 
 | Model | Shape | M | N | cutedsl_kernel_us | triton_kernel_us | speedup | cutedsl_gbps |
 |---|---|---:|---:|---:|---:|---:|---:|
-| Llama 3 8B | hidden-state input | 2048 | 4096 | 15.36 | 24.56 | 1.60x | 1707.1 |
-| Llama 3 8B | mlp.down input | 2048 | 14336 | 36.92 | 60.87 | 1.65x | 2485.1 |
-| Llama 3 70B | hidden-state input | 2048 | 8192 | 25.38 | 37.44 | 1.47x | 2065.6 |
-| Llama 3 70B | mlp.down input | 2048 | 28672 | 69.83 | 113.88 | 1.63x | 2628.0 |
+| Llama 3 8B | hidden-state input | 2048 | 4096 | 13.82 | 24.15 | 1.75x | 1897.4 |
+| Llama 3 8B | mlp.down input | 2048 | 14336 | 35.11 | 60.47 | 1.72x | 2613.0 |
+| Llama 3 70B | hidden-state input | 2048 | 8192 | 23.51 | 37.22 | 1.58x | 2229.6 |
+| Llama 3 70B | mlp.down input | 2048 | 28672 | 67.97 | 113.71 | 1.67x | 2699.6 |
 
 ### 2D Weight Quantize (`cutedsl_weight_quantize_2d` vs `triton_weight_quantize_2d`, no RHT)
 
-Note: the CuteDSL kernel emits 1x16 block scales (the Triton kernel emits 16x16), so outputs are
-not bit-identical across the two. Requires `out_features % 256 == 0`.
+Both kernels emit 2D 16x16 weight block scaling.
+Requires `out_features % 256 == 0`.
 
 | Model | Weight | M (out) | N (in) | cutedsl_kernel_us | triton_kernel_us | speedup | cutedsl_gbps |
 |---|---|---:|---:|---:|---:|---:|---:|
-| Llama 3 8B | mlp.gate/up | 14336 | 4096 | 65.65 | 249.65 | 3.80x | 2795.3 |
-| Llama 3 8B | mlp.down | 4096 | 14336 | 65.43 | 249.39 | 3.81x | 2804.7 |
-| Llama 3 70B | mlp.gate/up | 28672 | 8192 | 235.25 | 948.24 | 4.03x | 3120.0 |
-| Llama 3 70B | mlp.down | 8192 | 28672 | 235.51 | 948.38 | 4.03x | 3116.6 |
+| Llama 3 8B | mlp.gate/up | 14336 | 4096 | 79.38 | 249.05 | 3.14x | 2311.6 |
+| Llama 3 8B | mlp.down | 4096 | 14336 | 79.73 | 248.95 | 3.12x | 2301.5 |
+| Llama 3 70B | mlp.gate/up | 28672 | 8192 | 291.66 | 948.65 | 3.25x | 2516.6 |
+| Llama 3 70B | mlp.down | 8192 | 28672 | 292.05 | 948.51 | 3.25x | 2513.2 |

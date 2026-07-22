@@ -360,12 +360,29 @@ def _pack16(q, sr: cutlass.Constexpr, rng_base):
     return w0, w1
 
 
-def _quant16(vals, enc_over_fp4max, dec, sr: cutlass.Constexpr = False, rng_base=None):
-    """16-value NVFP4 quantize -> (w0,w1 packed u32, pvscale_fp8). vals: 16-elem f32 rmem.
-    sr selects stochastic rounding (rng_base = the per-block RNG seed) over RTNE."""
+def _abs_amax16(vals):
+    """Max abs over 16 f32 rmem values (the 1x16 block amax)."""
     amax = _abs_f32(vals[0])
     for i in range(1, 16):
         amax = _max_f32(amax, _abs_f32(vals[i]))
+    return amax
+
+
+def _group16_amax(amax):
+    """Reduce a 1x16 block amax to the 16x16 (2D) block amax via a butterfly max over the
+    16-lane half-warp group. The 16 lanes hold the 16 orthogonal 1x16 strips of one 16x16
+    block, so xor offsets 8/4/2/1 (which stay within a 16-aligned lane group) leave every
+    lane holding the shared block max."""
+    for delta in (8, 4, 2, 1):
+        amax = _max_f32(amax, cute.arch.shuffle_sync_bfly(amax, delta))
+    return amax
+
+
+def _quant16_from_amax(
+    vals, amax, enc_over_fp4max, dec, sr: cutlass.Constexpr = False, rng_base=None
+):
+    """Quantize 16 f32 values to NVFP4 (w0,w1 packed u32, pvscale_fp8) using a given block amax
+    (1x16 or a shared 16x16 amax). sr selects stochastic rounding over RTNE."""
     # Clamp to [eps, max]: a zero/near-zero block stores eps, not 0 (matches triton, and keeps
     # the decode reciprocal finite).
     pvscale = _min_f32(amax * enc_over_fp4max, cutlass.Float32(FP8_E4M3_MAX))
@@ -387,6 +404,13 @@ def _quant16(vals, enc_over_fp4max, dec, sr: cutlass.Constexpr = False, rng_base
     return w0, w1, pvscale_fp8
 
 
+def _quant16(vals, enc_over_fp4max, dec, sr: cutlass.Constexpr = False, rng_base=None):
+    """1x16 NVFP4 quantize -> (w0,w1 packed u32, pvscale_fp8). vals: 16-elem f32 rmem."""
+    return _quant16_from_amax(
+        vals, _abs_amax16(vals), enc_over_fp4max, dec, sr, rng_base
+    )
+
+
 class _Tcgen05RowColFused:
     def __init__(
         self, swizzle_sf: bool = True, sr: bool = False, apply_rht: bool = True
@@ -396,8 +420,10 @@ class _Tcgen05RowColFused:
         # sr=True: stochastic rounding (cvt.rs) in the FP4 cast; False: round-to-nearest.
         # apply_rht=True: columnwise path = NVFP4(RHT(A.t())) via the tcgen05 UMMA (the B operand is
         # the Hadamard matrix). False (weight quantize): plain NVFP4(A.t()) — the col warps read the
-        # transposed A from SMEM directly (no MMA/TMEM/acc-pipeline, no B), so it's a 2D block-scaling
-        # quantize. The RHT path is compiled separately, so its codegen is unchanged.
+        # transposed A from SMEM directly (no MMA/TMEM/acc-pipeline, no B). That weight path also
+        # emits 2D 16x16 block scaling.
+        # Activations (apply_rht=True) keep the standard 1x16 scaling. The RHT path is compiled
+        # separately, so its codegen is unchanged.
         self.swizzle_sf = swizzle_sf
         self.sr = sr
         self.apply_rht = apply_rht
@@ -947,17 +973,29 @@ class _Tcgen05RowColFused:
                         ].to(cutlass.Float32)
                     row_rng = None
                     if cutlass.const_expr(self.sr):
-                        # row-stream RNG seed for this (global M-row, SF-col block); 0x00B0.. tags row
+                        # row-stream RNG seed for this (global M-row, SF-col block); 0x00B0.. tags row.
+                        # The two fields are mixed multiplicatively rather than bit-packed: the SF-col
+                        # block index runs to N/16, so a (row << 8) ^ blk packing aliases as soon as
+                        # N > 4096 -- seed(r, 256+j) == seed(r^1, j) -- handing whole block pairs the
+                        # same SR stream on real shapes (N=14336/28672). Distinct odd multipliers
+                        # scatter each field across all 32 bits instead.
                         row_rng = (
                             sr_rng
-                            ^ (cutlass.Uint32(m0 + k_row) << cutlass.Uint32(8))
-                            ^ cutlass.Uint32(
-                                pid_m * cutlass.Int32(M_TILE // 16) + cutlass.Int32(b)
+                            ^ (cutlass.Uint32(m0 + k_row) * cutlass.Uint32(0x9E3779B1))
+                            ^ (
+                                cutlass.Uint32(
+                                    pid_m * cutlass.Int32(M_TILE // 16)
+                                    + cutlass.Int32(b)
+                                )
+                                * cutlass.Uint32(0x85EBCA77)
                             )
                             ^ cutlass.Uint32(0x00B00200)
                         )
-                    w0, w1, sf = _quant16(
-                        blk, r_enc_over_fp4max, r_dec, self.sr, row_rng
+                    amax = _abs_amax16(blk)
+                    if cutlass.const_expr(not self.apply_rht):
+                        amax = _group16_amax(amax)
+                    w0, w1, sf = _quant16_from_amax(
+                        blk, amax, r_enc_over_fp4max, r_dec, self.sr, row_rng
                     )
                     sRowFP4[k_row, b * 2, buf] = w0
                     sRowFP4[k_row, b * 2 + 1, buf] = w1
@@ -1066,7 +1104,6 @@ class _Tcgen05RowColFused:
                     vals = tTR_rAcc.load().reshape((16,))
                     col_rng = None
                     if cutlass.const_expr(self.sr):
-                        # col-stream RNG seed for this (global row, u-block); 0x00C0.. tags col stream
                         col_rng = (
                             sr_rng
                             ^ (
@@ -1175,7 +1212,10 @@ class _Tcgen05RowColFused:
                             ^ cutlass.Uint32(u)
                             ^ cutlass.Uint32(0x00C01000)
                         )
-                    w0, w1, sf = _quant16(blk, enc_over_fp4max, g_dec, self.sr, col_rng)
+                    amax = _group16_amax(_abs_amax16(blk))
+                    w0, w1, sf = _quant16_from_amax(
+                        blk, amax, enc_over_fp4max, g_dec, self.sr, col_rng
+                    )
                     sFP4[nrow, u * 2] = w0
                     sFP4[nrow, u * 2 + 1] = w1
                     if cutlass.const_expr(self.swizzle_sf):
