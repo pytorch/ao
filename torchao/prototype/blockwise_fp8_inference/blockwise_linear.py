@@ -7,25 +7,33 @@
 import torch
 from torch import nn
 
+from torchao.float8.config import e4m3_dtype
 from torchao.kernel.blockwise_quantization import (
     blockwise_fp8_gemm,
     fp8_blockwise_act_quant,
 )
 
+_SUPPORTED_FP8_DTYPES = [
+    torch.float8_e4m3fn,
+    torch.float8_e4m3fnuz,
+    torch.float8_e5m2,
+    torch.float8_e5m2fnuz,
+]
+
 
 class BlockwiseQuantLinear(nn.Module):
     """
-    Custom linear layer with support for quantized weights and optional bias.
+    Custom linear layer with support for blockwise FP8 quantized weights.
 
     Args:
         in_features (int): Number of input features.
         out_features (int): Number of output features.
         bias (bool): Whether to include a bias term. Defaults to False.
         block_size (int): Block size for quantization. Defaults to 128.
-        dtype (torch.dtype): Data type for the weights. Defaults to torch.float8_e4m3fn.
+        dtype (torch.dtype): FP8 data type for quantized weights.
+            Defaults to the hardware-appropriate e4m3 variant
+            (e4m3fn on NVIDIA, e4m3fnuz on MI300).
     """
-
-    dtype = torch.bfloat16
 
     def __init__(
         self,
@@ -33,15 +41,11 @@ class BlockwiseQuantLinear(nn.Module):
         out_features: int,
         bias: bool = False,
         block_size: int = 128,
-        dtype: torch.dtype = torch.float8_e4m3fn,
+        dtype: torch.dtype = e4m3_dtype,
     ):
         super().__init__()
-        supported_dtypes = [
-            torch.float8_e4m3fn,
-            torch.float8_e5m2,
-        ]
-        assert dtype in supported_dtypes, (
-            f"Unsupported dtype: {dtype}. Supported dtypes: {supported_dtypes}"
+        assert dtype in _SUPPORTED_FP8_DTYPES, (
+            f"Unsupported dtype: {dtype}. Supported dtypes: {_SUPPORTED_FP8_DTYPES}"
         )
         scale_in_features = (in_features + block_size - 1) // block_size
         scale_out_features = (out_features + block_size - 1) // block_size
@@ -50,7 +54,7 @@ class BlockwiseQuantLinear(nn.Module):
             torch.empty(scale_out_features, scale_in_features, dtype=torch.float32)
         )
         self.block_size = block_size
-        self.dtype
+        self.fp8_dtype = dtype
 
         if bias:
             self.bias = nn.Parameter(torch.empty(out_features))
@@ -67,7 +71,7 @@ class BlockwiseQuantLinear(nn.Module):
         Returns:
             torch.Tensor: Transformed tensor after linear computation.
         """
-        x, scale = fp8_blockwise_act_quant(x, self.block_size, self.dtype)
+        x, scale = fp8_blockwise_act_quant(x, self.block_size, self.fp8_dtype)
         y = blockwise_fp8_gemm(
             x, scale, self.weight, self.weight.scale, self.block_size
         )
