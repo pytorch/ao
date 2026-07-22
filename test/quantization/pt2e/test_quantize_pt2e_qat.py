@@ -204,6 +204,7 @@ class PT2EQATTestCase(QuantizationTestCase):
         has_bias: bool = True,
         is_cuda: bool = False,
         expected_conv_literal_args: Optional[tuple[Any, ...]] = None,
+        is_linear: bool = False,
         # TODO: set this to true by default
         verify_convert: bool = False,
     ):
@@ -215,6 +216,7 @@ class PT2EQATTestCase(QuantizationTestCase):
             has_bias=has_bias,
             is_cuda=is_cuda,
             expected_conv_literal_args=expected_conv_literal_args,
+            is_linear=is_linear,
             verify_convert=verify_convert,
         )
         self._verify_symmetric_xnnpack_qat_graph_helper(
@@ -225,6 +227,7 @@ class PT2EQATTestCase(QuantizationTestCase):
             has_bias=has_bias,
             is_cuda=is_cuda,
             expected_conv_literal_args=expected_conv_literal_args,
+            is_linear=is_linear,
             verify_convert=verify_convert,
         )
 
@@ -237,6 +240,7 @@ class PT2EQATTestCase(QuantizationTestCase):
         has_bias: bool = True,
         is_cuda: bool = False,
         expected_conv_literal_args: Optional[tuple[Any, ...]] = None,
+        is_linear: bool = False,
         verify_convert: bool = False,
     ):
         """
@@ -290,7 +294,10 @@ class PT2EQATTestCase(QuantizationTestCase):
         (conv_node, scale_factor_reshape_node) = div_scale_factor_node.args
         conv_op = conv_node.target
         self.assertEqual(div_scale_factor_node.target, torch.ops.aten.div.Tensor)
-        self.assertTrue(_is_conv_node(conv_node))
+        if is_linear:
+            self.assertEqual(conv_node.target, torch.ops.aten.linear.default)
+        else:
+            self.assertTrue(_is_conv_node(conv_node))
         self.assertEqual(
             scale_factor_reshape_node.target, torch.ops.aten.reshape.default
         )
@@ -929,6 +936,153 @@ class TestQuantizePT2EQAT_ConvBn2d(TestQuantizePT2EQAT_ConvBn_Base):
         assert num_batch_norm_nodes_checked == 2, (
             f"bad test setup, didn't check 2 bns, only checked these: {nodes_to_check}"
         )
+
+
+@skipIfNoQNNPACK
+class TestQuantizePT2EQAT_LinearBn(PT2EQATTestCase):
+    """
+    TestCase for QAT fusion and folding of the linear-bn[-relu] pattern.
+
+    See https://github.com/pytorch/ao/issues/4463.
+    """
+
+    example_inputs = (torch.randn(3, 8),)
+
+    class _LinearBnModel(torch.nn.Module):
+        def __init__(self, has_linear_bias: bool = True, has_relu: bool = False):
+            super().__init__()
+            self.linear = torch.nn.Linear(8, 16, bias=has_linear_bias)
+            self.bn = torch.nn.BatchNorm1d(16)
+            self.relu = torch.nn.ReLU() if has_relu else None
+
+        def forward(self, x):
+            x = self.linear(x)
+            x = self.bn(x)
+            if self.relu is not None:
+                x = self.relu(x)
+            return x
+
+    def _get_linear_bn_nodes(self, m: torch.fx.GraphModule):
+        """
+        Return a 2-tuple of (linear, bn) nodes from the graph.
+        """
+        m.graph.eliminate_dead_code()
+        m.recompile()
+        linear_node = None
+        bn_node = None
+        for n in m.graph.nodes:
+            if n.target == torch.ops.aten.linear.default:
+                linear_node = n
+            if n.target in (
+                torch.ops.aten._native_batch_norm_legit.default,
+                torch.ops.aten._native_batch_norm_legit_no_training.default,
+                torch.ops.aten.batch_norm.default,
+            ):
+                bn_node = n
+        assert linear_node is not None, "bad test setup"
+        return (linear_node, bn_node)
+
+    def _prepare_qat_linear_bn(
+        self,
+        m: torch.nn.Module,
+        example_inputs: tuple[Any, ...],
+        is_per_channel: bool,
+    ) -> torch.fx.GraphModule:
+        quantizer = XNNPACKQuantizer()
+        quantizer.set_global(
+            get_symmetric_quantization_config(is_per_channel, is_qat=True)
+        )
+        m = torch.export.export(m, example_inputs, strict=True).module()
+        return prepare_qat_pt2e(m, quantizer)
+
+    def test_qat_linear_bn_fusion(self):
+        m = self._LinearBnModel()
+        self._verify_symmetric_xnnpack_qat_graph(
+            m,
+            self.example_inputs,
+            has_relu=False,
+            is_linear=True,
+            verify_convert=True,
+        )
+        self._verify_symmetric_xnnpack_qat_numerics(m, self.example_inputs)
+
+    def test_qat_linear_bn_fusion_no_linear_bias(self):
+        m = self._LinearBnModel(has_linear_bias=False)
+        self._verify_symmetric_xnnpack_qat_graph(
+            m,
+            self.example_inputs,
+            has_relu=False,
+            has_bias=False,
+            is_linear=True,
+            verify_convert=True,
+        )
+        self._verify_symmetric_xnnpack_qat_numerics(m, self.example_inputs)
+
+    def test_qat_linear_bn_relu_fusion(self):
+        # Note: We don't verify FX numerics here since FX has no fused
+        # LinearBnReLU1d module (unlike ConvBnReLU2d), so FX inserts an
+        # extra fake quantize between the bn and the relu and the numerics
+        # legitimately differ
+        m = self._LinearBnModel(has_relu=True)
+        self._verify_symmetric_xnnpack_qat_graph(
+            m,
+            self.example_inputs,
+            has_relu=True,
+            is_linear=True,
+            verify_convert=True,
+        )
+
+    def test_qat_linear_bn_fold_erases_bn_node(self):
+        """
+        Ensure the BN node is erased from the graph after folding
+        it into linear in `convert_pt2e`.
+        """
+        for is_per_channel in [True, False]:
+            for has_linear_bias in [True, False]:
+                m = self._LinearBnModel(has_linear_bias=has_linear_bias)
+                m = self._prepare_qat_linear_bn(m, self.example_inputs, is_per_channel)
+                m(*self.example_inputs)
+                m = convert_pt2e(m)
+                m(*self.example_inputs)
+                (_, bn_node) = self._get_linear_bn_nodes(m)
+                self.assertTrue(bn_node is None)
+
+    def test_qat_linear_bn_3d_input_not_fused(self):
+        """
+        Linear + BN should not be fused or folded when the linear input is
+        not 2-D, since Linear operates on the last dim while BatchNorm1d
+        operates on dim 1, and the two only coincide for 2-D (N, C) inputs.
+        See https://github.com/pytorch/ao/issues/4116.
+        """
+
+        class M(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.linear = torch.nn.Linear(8, 6)
+                self.bn = torch.nn.BatchNorm1d(5)
+
+            def forward(self, x):
+                return self.bn(self.linear(x))
+
+        example_inputs = (torch.randn(4, 5, 8),)
+        m = self._prepare_qat_linear_bn(M(), example_inputs, is_per_channel=True)
+
+        # Verify that linear and bn were not fused into the QAT pattern
+        # during prepare. The fused QAT pattern scales the linear weights
+        # and undoes the scaling with a div after the linear, so the
+        # absence of any div node means no fusion happened.
+        (_, bn_node) = self._get_linear_bn_nodes(m)
+        self.assertTrue(bn_node is not None)
+        self.assertTrue(
+            all(n.target != torch.ops.aten.div.Tensor for n in m.graph.nodes)
+        )
+
+        # Verify that bn was not folded into linear during convert
+        m(*example_inputs)
+        m = convert_pt2e(m)
+        m(*example_inputs)
+        (_, bn_node) = self._get_linear_bn_nodes(m)
+        self.assertTrue(bn_node is not None)
 
 
 def _is_conv_node(n: torch.fx.Node):
