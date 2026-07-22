@@ -24,6 +24,7 @@ class Float8TrainingRecipe(Enum):
     """FP8 recipes for grouped matrix multiplication."""
 
     FP8_ROWWISE = "fp8_rowwise"
+    FP8_TENSORWISE = "fp8_tensorwise"
 
 
 class MXFP8TrainingRecipe(Enum):
@@ -66,15 +67,13 @@ class Float8TrainingOpConfig(TrainingOpBaseConfig):
     # causes a D2H sync that breaks torch.compile.
     pad_token_groups_for_grouped_mm: bool = False
 
-    # Recipe for the float8 linear op override ("tensorwise" or "rowwise").
-    float8_linear_recipe: Literal["tensorwise", "rowwise", "rowwise_with_gw_hp"] = (
-        "rowwise"
-    )
+    # Recipe for both linear and grouped GEMM ops.
+    # "tensorwise" uses single-scalar scaling; "rowwise"/"rowwise_with_gw_hp" use per-row scaling.
+    float8_recipe: Literal["tensorwise", "rowwise", "rowwise_with_gw_hp"] = "rowwise"
 
     def __post_init__(self):
-        # Pre-build internal configs for the linear op override.
         self._float8_linear_config = Float8LinearConfig.from_recipe_name(
-            self.float8_linear_recipe
+            self.float8_recipe
         )
         c = self._float8_linear_config
         self._linear_mm_config = LinearMMConfig(
@@ -107,10 +106,13 @@ class Float8TrainingOpConfig(TrainingOpBaseConfig):
         recipe: Float8TrainingRecipe,
     ) -> "Float8TrainingOpConfig":
         """Factory method to create a Float8TrainingOpConfig from a Float8TrainingRecipe."""
-        if recipe == Float8TrainingRecipe.FP8_ROWWISE:
-            return cls()
-        else:
+        recipe_map = {
+            Float8TrainingRecipe.FP8_ROWWISE: "rowwise",
+            Float8TrainingRecipe.FP8_TENSORWISE: "tensorwise",
+        }
+        if recipe not in recipe_map:
             raise ValueError(f"Unsupported FP8 recipe: {recipe}")
+        return cls(float8_recipe=recipe_map[recipe])
 
     def __eq__(self, other):
         if isinstance(other, Float8TrainingOpConfig):
@@ -119,7 +121,7 @@ class Float8TrainingOpConfig(TrainingOpBaseConfig):
                 and self.out_dtype == other.out_dtype
                 and self.pad_token_groups_for_grouped_mm
                 == other.pad_token_groups_for_grouped_mm
-                and self.float8_linear_recipe == other.float8_linear_recipe
+                and self.float8_recipe == other.float8_recipe
             )
         return NotImplemented
 
@@ -129,7 +131,7 @@ class Float8TrainingOpConfig(TrainingOpBaseConfig):
                 self.float8_dtype,
                 self.out_dtype,
                 self.pad_token_groups_for_grouped_mm,
-                self.float8_linear_recipe,
+                self.float8_recipe,
             )
         )
 
