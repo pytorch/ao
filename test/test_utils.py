@@ -89,6 +89,66 @@ class TestTorchAOBaseTensor(unittest.TestCase):
         kwargs = t._get_to_kwargs(device="cpu")
         self.assertFalse(kwargs["non_blocking"])
 
+    def test_custom_flatten_subclass_utilities(self):
+        class MyCustomFlattenTensor(TorchAOBaseTensor):
+            def __new__(cls, qdata, attr, device=None):
+                shape = qdata.shape
+                if device is None:
+                    device = qdata.device
+                kwargs = {"device": device}
+                return torch.Tensor._make_wrapper_subclass(cls, shape, **kwargs)
+
+            def __init__(self, qdata, attr, device=None):
+                self.qdata = qdata
+                self.attr = attr
+
+            def __tensor_flatten__(self):
+                return ["qdata"], {"attr": self.attr, "device": self.device}
+
+            @classmethod
+            def __tensor_unflatten__(cls, tensor_data_dict, attributes, outer_size, outer_stride):
+                qdata = tensor_data_dict["qdata"]
+                attr = attributes["attr"]
+                device = attributes["device"]
+                return cls(qdata, attr, device)
+
+        # Create instance
+        qdata = torch.randn(2, 3)
+        t = MyCustomFlattenTensor(qdata, "hello")
+
+        # Test __repr__
+        repr_str = repr(t)
+        self.assertIn("MyCustomFlattenTensor", repr_str)
+        self.assertIn("qdata=", repr_str)
+        self.assertIn("attr=hello", repr_str)
+
+        # Test copy_ (which uses _same_metadata internally)
+        t2 = MyCustomFlattenTensor(torch.randn(2, 3), "hello")
+        t2.copy_(t)
+        self.assertTrue(torch.equal(t2.qdata, t.qdata))
+
+        # copy_ should raise ValueErrors if attributes or shapes differ
+        t3 = MyCustomFlattenTensor(torch.randn(2, 3), "world")
+        t4 = MyCustomFlattenTensor(torch.randn(2, 4), "hello")
+        with self.assertRaises(ValueError):
+            t3.copy_(t)
+        with self.assertRaises(ValueError):
+            t4.copy_(t)
+
+        # Test _apply_fn_to_data
+        t_double = t._apply_fn_to_data(lambda x: x * 2)
+        self.assertTrue(torch.equal(t_double.qdata, t.qdata * 2))
+        self.assertEqual(t_double.attr, "hello")
+
+        # Test detach / clone / contiguous / alias (since it implements custom_flatten)
+        t_clone = t.clone()
+        self.assertTrue(torch.equal(t_clone.qdata, t.qdata))
+        self.assertEqual(t_clone.attr, t.attr)
+
+        t_detach = t.detach()
+        self.assertTrue(torch.equal(t_detach.qdata, t.qdata.detach()))
+        self.assertEqual(t_detach.attr, t.attr)
+
     def _test_default_impls_helper(self, lp_tensor, lp_tensor_for_copy):
         # get `all_tensor_data_names` and `all_tensor_attribute_names`
         all_tensor_data_names = lp_tensor.tensor_data_names.copy()
