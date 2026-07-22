@@ -136,7 +136,9 @@ with warnings.catch_warnings():
     _DTYPE_TO_QVALUE_BOUNDS: Dict[Union[torch.dtype, TorchAODType], Tuple[int, int]] = {
         torch.uint8: (0, 255),
         torch.int8: (-128, 127),
+        torch.uint16: (0, 2**16 - 1),
         torch.int16: (-(2**15), 2**15 - 1),
+        torch.uint32: (0, 2**32 - 1),
         torch.int32: (-(2**31), 2**31 - 1),
     }
 
@@ -150,7 +152,9 @@ with warnings.catch_warnings():
         TorchAODType.INT7: 7,
         torch.uint8: 8,
         torch.int8: 8,
+        torch.uint16: 16,
         torch.int16: 16,
+        torch.uint32: 32,
         torch.int32: 32,
     }
 
