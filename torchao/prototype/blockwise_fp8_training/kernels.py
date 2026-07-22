@@ -15,6 +15,9 @@ from torch.distributed.tensor.experimental import register_sharding
 from torch.library import triton_op, wrap_triton
 
 from torchao.float8.config import e4m3_dtype
+from torchao.prototype.blockwise_fp8_training.dtensor_utils import (
+    two_output_quant_shardings as _two_output_quant_shardings,
+)
 
 FP8_E4M3_DTYPES = {torch.float8_e4m3fn, torch.float8_e4m3fnuz}
 
@@ -91,17 +94,15 @@ def _is_row_major(x: torch.Tensor) -> bool:
     return x.stride(-1) == 1
 
 
-def _two_output_quant_shardings(
-    *,
-    shard_dim0_outputs: Tuple[Shard, Shard],
-    shard_dim1_outputs: Tuple[Shard, Shard],
-):
-    # order is: ([outputs, ...], [inputs, ...])
-    return [
-        ([Replicate(), Replicate()], [Replicate(), None, None]),
-        (list(shard_dim0_outputs), [Shard(0), None, None]),
-        (list(shard_dim1_outputs), [Shard(1), None, None]),
-    ]
+def _normalize_rhs_layout_for_scaled_mm(x: torch.Tensor) -> torch.Tensor:
+    if _is_column_major(x):
+        return x
+    # `_scaled_mm_v2` requires a physically column-major RHS. DTensor local
+    # dispatch can materialize redistributed local shards in a regular
+    # contiguous layout even when the logical operand is the transposed RHS
+    # produced by the FP8 quantizers, so normalize the physical layout at the
+    # custom-op boundary before calling into aten.
+    return x.transpose(-2, -1).contiguous().transpose(-2, -1)
 
 
 def _blockwise_gemm_shardings():
@@ -146,10 +147,7 @@ def blockwise_scaled_mm(
         "blockwise_scaled_mm expected a to be row-major; prepare the input with "
         "contiguous K dimension before calling"
     )
-    assert _is_column_major(b), (
-        "blockwise_scaled_mm expected b to be column-major; prepare the input with "
-        "contiguous K dimension before calling"
-    )
+    b = _normalize_rhs_layout_for_scaled_mm(b)
     b_s = _prepare_blockwise_scaled_mm_rhs_scale(b_s, scale_recipe_b)
 
     return torch.ops.aten._scaled_mm_v2.default(

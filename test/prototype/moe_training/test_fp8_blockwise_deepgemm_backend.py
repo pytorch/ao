@@ -291,6 +291,117 @@ def test_deepgemm_weight_quant_supports_compile_fullgraph():
     assert compiled_frame_counter.frame_count == 1
 
 
+def test_deepgemm_grouped_mm_custom_ops_fake_contract():
+    shape_env = ShapeEnv(allow_dynamic_output_shape_ops=True)
+
+    with FakeTensorMode(shape_env=shape_env) as mode:
+        a = mode.from_tensor(torch.empty((256, 128), dtype=e4m3_dtype))
+        b = mode.from_tensor(torch.empty((2, 384, 128), dtype=e4m3_dtype))
+        a_s = mode.from_tensor(torch.empty((256, 1), dtype=torch.float32))
+        b_s = mode.from_tensor(torch.empty((2, 3, 1), dtype=torch.float32))
+        grouped_layout = mode.from_tensor(torch.empty((256,), dtype=torch.int32))
+        out = torch.ops.torchao.deepgemm_blockwise_scaled_grouped_mm.default(
+            a,
+            b,
+            a_s,
+            4,
+            b_s,
+            5,
+            grouped_layout,
+            torch.bfloat16,
+            128,
+        )
+
+        lhs = mode.from_tensor(torch.empty((256 * 128,), dtype=e4m3_dtype))
+        rhs = mode.from_tensor(torch.empty((256 * 384,), dtype=e4m3_dtype))
+        lhs_s = mode.from_tensor(torch.empty((128, 2), dtype=torch.float32))
+        rhs_s = mode.from_tensor(torch.empty((384, 2), dtype=torch.float32))
+        ks_tensor = mode.from_tensor(torch.empty((2,), dtype=torch.int32))
+        wgrad = torch.ops.torchao.deepgemm_blockwise_scaled_grouped_mm_wgrad.default(
+            lhs,
+            lhs_s,
+            rhs,
+            rhs_s,
+            ks_tensor,
+            torch.float32,
+            128,
+        )
+
+    assert out.shape == (256, 384)
+    assert out.dtype == torch.bfloat16
+    assert wgrad.shape == (2, 128, 384)
+    assert wgrad.dtype == torch.float32
+
+
+@pytest.mark.skipif(
+    not torch.cuda.is_available() or not is_sm_at_least_90(),
+    reason="DeepGEMM FP8 kernels require CUDA SM90+",
+)
+def test_deepgemm_grouped_mm_custom_ops_support_compile_fullgraph():
+    pytest.importorskip("deep_gemm", reason="DeepGEMM is an optional dependency")
+
+    from torch._dynamo.testing import CompileCounterWithBackend
+
+    torch._dynamo.reset()
+    torch.manual_seed(123)
+    compiled_frame_counter = CompileCounterWithBackend("inductor")
+
+    a = torch.randn(256, 128, dtype=torch.bfloat16, device="cuda").to(e4m3_dtype)
+    b = torch.randn(2, 384, 128, dtype=torch.bfloat16, device="cuda").to(e4m3_dtype)
+    a_s = torch.ones(256, 1, dtype=torch.float32, device="cuda")
+    b_s = torch.ones(2, 3, 1, dtype=torch.float32, device="cuda")
+    grouped_layout = torch.cat(
+        [
+            torch.full((128,), 0, dtype=torch.int32, device="cuda"),
+            torch.full((128,), 1, dtype=torch.int32, device="cuda"),
+        ]
+    )
+
+    lhs = torch.randn(256 * 128, dtype=torch.bfloat16, device="cuda").to(e4m3_dtype)
+    rhs = torch.randn(256 * 384, dtype=torch.bfloat16, device="cuda").to(e4m3_dtype)
+    lhs_s = torch.ones(128, 2, dtype=torch.float32, device="cuda")
+    rhs_s = torch.ones(384, 2, dtype=torch.float32, device="cuda")
+    ks_tensor = torch.tensor([128, 128], dtype=torch.int32, device="cuda")
+
+    def fn(a, b, a_s, b_s, grouped_layout, lhs, lhs_s, rhs, rhs_s, ks_tensor):
+        out = torch.ops.torchao.deepgemm_blockwise_scaled_grouped_mm.default(
+            a,
+            b,
+            a_s,
+            4,
+            b_s,
+            5,
+            grouped_layout,
+            torch.bfloat16,
+            128,
+        )
+        wgrad = torch.ops.torchao.deepgemm_blockwise_scaled_grouped_mm_wgrad.default(
+            lhs,
+            lhs_s,
+            rhs,
+            rhs_s,
+            ks_tensor,
+            torch.float32,
+            128,
+        )
+        return out, wgrad
+
+    compiled = torch.compile(
+        fn,
+        backend=compiled_frame_counter,
+        fullgraph=True,
+    )
+    out, wgrad = compiled(
+        a, b, a_s, b_s, grouped_layout, lhs, lhs_s, rhs, rhs_s, ks_tensor
+    )
+
+    assert out.shape == (256, 384)
+    assert out.dtype == torch.bfloat16
+    assert wgrad.shape == (2, 128, 384)
+    assert wgrad.dtype == torch.float32
+    assert compiled_frame_counter.frame_count == 1
+
+
 def test_deepgemm_k_grouped_activation_quant_fake_contract_tracks_valid_tokens():
     from torchao.prototype.blockwise_fp8_training.deepgemm_quant import (
         triton_fp8_blockwise_act_quant_k_grouped_deepgemm,

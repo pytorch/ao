@@ -8,13 +8,16 @@ import unittest
 
 import pytest
 import torch
-from torch.distributed._tensor import DTensor
-from torch.distributed.tensor import Partial, Replicate, Shard
+from torch.distributed.tensor import DTensor, Partial, Replicate, Shard
 from torch.nn import functional as F
 from torch.testing._internal.common_utils import run_tests
 from torch.testing._internal.distributed._tensor.common_dtensor import (
     DTensorTestBase,
     with_comms,
+)
+
+from torchao.testing.training.fp8_blockwise_distributed_utils import (
+    BlockwiseFP8DTensorTestMixin,
 )
 
 try:
@@ -95,60 +98,9 @@ LINEAR_SKIP_REASON = get_blockwise_linear_skip_reason(
 )
 
 
-class TestBlockwiseFP8DTensorSharding(DTensorTestBase):
+class TestBlockwiseFP8DTensorSharding(BlockwiseFP8DTensorTestMixin, DTensorTestBase):
     world_size = 2
     block_size = 128
-
-    def _build_cuda_mesh(self):
-        torch.cuda.set_device(self.rank % torch.cuda.device_count())
-        mesh = self.build_device_mesh()
-        mesh._device_type = "cuda"
-        return mesh
-
-    def _local_shard(self, tensor: torch.Tensor, placement, *, contiguous: bool):
-        if isinstance(placement, Replicate):
-            return tensor.contiguous() if contiguous else tensor
-
-        if not isinstance(placement, Shard):
-            raise AssertionError(f"Unsupported placement: {placement}")
-
-        self.assertEqual(tensor.size(placement.dim) % self.world_size, 0)
-        chunk = tensor.size(placement.dim) // self.world_size
-        local = tensor.narrow(placement.dim, self.rank * chunk, chunk)
-        return local.contiguous() if contiguous else local
-
-    def _dtensor_from_global(
-        self, mesh, tensor: torch.Tensor, placement, *, contiguous: bool
-    ):
-        local_tensor = self._local_shard(tensor, placement, contiguous=contiguous)
-        dist_tensor = DTensor.from_local(
-            local_tensor, mesh, [placement], run_check=False
-        )
-        return local_tensor, dist_tensor
-
-    def _assert_distributed_output(
-        self,
-        dist_output: DTensor,
-        expected_local_output: torch.Tensor,
-        expected_global_output: torch.Tensor,
-        expected_placement,
-        expected_global_shape,
-        *,
-        global_atol: float = 0.0,
-        global_rtol: float = 0.0,
-    ):
-        self.assertIsInstance(dist_output, DTensor)
-        self.assertEqual(dist_output.placements, (expected_placement,))
-        self.assertEqual(tuple(dist_output.shape), tuple(expected_global_shape))
-        torch.testing.assert_close(
-            dist_output.to_local(), expected_local_output, atol=0, rtol=0
-        )
-        torch.testing.assert_close(
-            dist_output.redistribute(placements=[Replicate()]).to_local(),
-            expected_global_output,
-            atol=global_atol,
-            rtol=global_rtol,
-        )
 
     def _assert_quant_outputs(
         self,
