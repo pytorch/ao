@@ -50,7 +50,6 @@ if _cutedsl_runtime_available():
     import cutlass
     import cutlass.cute as cute
     from cutlass._mlir.dialects import llvm
-    from cutlass.base_dsl._mlir_helpers import arith as _dsl_arith
     from cutlass.cutlass_dsl import T, dsl_user_op
 
     # FP8 constants
@@ -135,7 +134,7 @@ if _cutedsl_runtime_available():
             Tuple of (scale_biased, inv_scale)
         """
         # reference: https://github.com/pytorch/ao/blob/ac0b820899b0a5d415310f798c9c96b5a5973f53/torchao/csrc/cuda/mx_kernels/mxfp8_quantize.cuh#L520
-        bits = _dsl_arith.bitcast(amax.ir_value(), _dsl_arith.T.i32())
+        bits = amax.bitcast(cutlass.Int32)
         exp_i = ((bits >> cutlass.Int32(23)) & cutlass.Int32(0xFF)) - cutlass.Int32(127)
         scale_exp_unbiased = exp_i - cutlass.Int32(8)
         if scale_exp_unbiased < -127:
