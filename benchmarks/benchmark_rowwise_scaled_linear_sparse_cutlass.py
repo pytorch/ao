@@ -8,12 +8,14 @@ import torch
 from tqdm import tqdm
 from triton.testing import do_bench
 
-from torchao.ops import rowwise_scaled_linear_sparse_cutlass_f8f8
-from torchao.quantization.quant_api import (
-    _float8_cutlass_quant,
-    _float8_cutlass_quant_sparse,
+from torchao.quantization.quant_api import quantize_
+
+raise ImportError(
+    "This benchmark is broken: _float8_cutlass_quant and _float8_cutlass_quant_sparse "
+    "were removed when AffineQuantizedTensor (AQT) was deleted. "
+    "See torchao/quantization/quantize_/workflows/float8/sparse_2x4_cutlass_float8_tensor.py "
+    "for the current API."
 )
-from torchao.sparsity.utils import create_semi_structured_tensor
 
 dtype = torch.bfloat16
 dtypeq_X = torch.float8_e4m3fn
