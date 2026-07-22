@@ -15,8 +15,7 @@ import torch.nn.functional as F
 from torch import Tensor, nn
 
 from torchao._models.sam2.modeling.position_encoding import (
-    apply_rotary_enc,
-    compute_axial_cis,
+    compute_2d_axial_rope_frequencies,
 )
 from torchao._models.sam2.modeling.sam2_utils import MLP
 from torchao._models.sam2.utils.misc import get_sdpa_settings
@@ -307,12 +306,15 @@ class RoPEAttention(Attention):
         **kwargs,
     ):
         super().__init__(*args, **kwargs)
-
-        self.compute_cis = partial(
-            compute_axial_cis, dim=self.internal_dim // self.num_heads, theta=rope_theta
+        head_dim = self.internal_dim // self.num_heads
+        self.compute_rope_freqs = partial(
+            compute_2d_axial_rope_frequencies, dim=head_dim, theta=rope_theta
         )
-        freqs_cis = self.compute_cis(end_x=feat_sizes[0], end_y=feat_sizes[1])
-        self.freqs_cis = freqs_cis
+        cos, sin = self.compute_rope_freqs(
+            end_x=feat_sizes[0], end_y=feat_sizes[1],
+        )
+        self.rope_cos = cos
+        self.rope_sin = sin
         self.rope_k_repeat = rope_k_repeat
 
     def forward(
@@ -328,40 +330,43 @@ class RoPEAttention(Attention):
         k = self._separate_heads(k, self.num_heads)
         v = self._separate_heads(v, self.num_heads)
 
-        # Apply rotary position encoding
+        # Recompute frequencies if spatial resolution changed
         w = h = math.sqrt(q.shape[-2])
-        # NOTE: Disabling this.
-        # self.freqs_cis = self.freqs_cis.to(q.device)
-        if self.freqs_cis.shape[0] != q.shape[-2]:
-            self.freqs_cis = self.compute_cis(
-                end_x=w, end_y=h, device=q.device
-            )  # .to(q.device)
-        if q.shape[-2] != k.shape[-2]:
-            assert self.rope_k_repeat
+        if self.rope_cos.shape[0] != q.shape[-2]:
+            self.rope_cos, self.rope_sin = self.compute_rope_freqs(
+                end_x=int(w), end_y=int(h),
+            )
+            self.rope_cos = self.rope_cos.to(device=q.device)
+            self.rope_sin = self.rope_sin.to(device=q.device)
 
         num_k_rope = k.size(-2) - num_k_exclude_rope
-        q, k[:, :, :num_k_rope] = apply_rotary_enc(
-            q,
-            k[:, :, :num_k_rope],
-            freqs_cis=self.freqs_cis,
-            repeat_freqs_k=self.rope_k_repeat,
-        )
+        if q.shape[-2] != num_k_rope:
+            assert self.rope_k_repeat
+
+        cos, sin = self.rope_cos, self.rope_sin
+
+        if self.rope_k_repeat:
+            q, _ = F.apply_rotary_emb(
+                q, q, cos, sin, seq_dim=2, interleaved=True
+            )
+            r = num_k_rope // q.shape[-2]
+            cos_k = cos.repeat(r, 1)
+            sin_k = sin.repeat(r, 1)
+            _, k_rope = F.apply_rotary_emb(
+                k[:, :, :num_k_rope], k[:, :, :num_k_rope],
+                cos_k, sin_k, seq_dim=2, interleaved=True
+            )
+        else:
+            q, k_rope = F.apply_rotary_emb(
+                q, k[:, :, :num_k_rope], cos, sin, seq_dim=2, interleaved=True
+            )
+
+        if num_k_exclude_rope > 0:
+            k = torch.cat([k_rope, k[:, :, num_k_rope:]], dim=2)
+        else:
+            k = torch.cat([k_rope], dim=2) if num_k_rope < k.size(2) else k_rope
 
         dropout_p = self.dropout_p if self.training else 0.0
-        # # Attention
-        # try:
-        #     with sdp_kernel_context(dropout_p):
-        #         out = F.scaled_dot_product_attention(q, k, v, dropout_p=dropout_p)
-        # except Exception as e:
-        #     # Fall back to all kernels if the Flash attention kernel fails
-        #     warnings.warn(
-        #         f"Flash Attention kernel failed due to: {e}\nFalling back to all available "
-        #         f"kernels for scaled_dot_product_attention (which may have a slower speed).",
-        #         category=UserWarning,
-        #         stacklevel=2,
-        #     )
-        #     global ALLOW_ALL_KERNELS
-        #     ALLOW_ALL_KERNELS = True
         # TODO: This scale should not be needed. But without it compile causes a NaN.
         out = F.scaled_dot_product_attention(
             q, k, v, dropout_p=dropout_p, scale=(1.0 / math.sqrt(q.size(-1)))
