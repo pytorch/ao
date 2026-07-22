@@ -113,8 +113,8 @@ def _weight_quantize_2d(x: torch.Tensor, use_cutedsl: bool):
       W_*  = rowwise quantized x (for forward GEMM)
       Wt_* = colwise quantized x = rowwise quantized x.T (for dgrad GEMM)
 
-    use_cutedsl selects the CuteDSL kernel (plain transpose-quantize via an identity Hadamard,
-    canonical 1x16 scales) over the Triton 2D weight kernel. Neither path applies RHT or SR.
+    use_cutedsl selects the CuteDSL kernel (plain transpose-quantize via an identity Hadamard)
+    over the Triton 2D weight kernel. Neither path applies RHT or SR.
     """
     global_amax = x.float().abs().max()
     quantize = cutedsl_weight_quantize_2d if use_cutedsl else triton_weight_quantize_2d

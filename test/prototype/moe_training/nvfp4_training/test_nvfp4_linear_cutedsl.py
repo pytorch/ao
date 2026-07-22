@@ -41,10 +41,7 @@ _skip = pytest.mark.skipif(
 @_skip
 @torch.no_grad()
 def test_cutedsl_forward_close_to_triton():
-    """Both backends produce an accurate NVFP4 forward vs the bf16 reference. They do NOT match
-    bitwise: the CuteDSL weight quantize uses canonical 1x16 block scales while the Triton 2D
-    weight kernel shares one scale per 16x16 block, so CuteDSL is in fact slightly *more* accurate
-    (the activation rowwise quantize is identical between backends; only the weight differs)."""
+    """Both backends produce an accurate NVFP4 forward vs the bf16 reference."""
     torch.manual_seed(0)
     M, K, N = 512, 512, 512
     x = torch.randn(M, K, dtype=torch.bfloat16, device="cuda")

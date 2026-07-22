@@ -13,10 +13,6 @@ no tensor-core matmul, the columnwise warps read the transposed bf16 tile straig
 plain ``A.t()`` transpose-quantize) and the rowwise warps read it in the row grain (plain
 ``NVFP4(A)``). The warp layout is balanced col=8/row=8 for the symmetric 2D-quantize work (the RHT
 kernel's 4-col/8-row split was sized for a cheap TMEM col-epilogue and starves this path).
-
-Unlike the Triton 2D weight kernel — which shares one scale across each 16x16 block — this emits
-canonical NVFP4 1x16 block scales (one scale per 16 contiguous elements): finer / slightly more
-accurate, with the identical output layout, and ~3.8-4.0x faster than the Triton kernel.
 """
 
 from typing import Tuple
