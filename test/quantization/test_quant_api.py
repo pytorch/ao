@@ -132,7 +132,45 @@ class ToyLinearModel(torch.nn.Module):
         return x
 
 
-def _get_ref_change_linear_weights_to_woqtensors(deprecated_tensor_subclass):
+class ToyMoEModel(torch.nn.Module):
+    """Token-choice top-k MoE block: a softmax router plus linear experts."""
+
+    def __init__(self, dim=64, hidden_dim=128, num_experts=4, top_k=2):
+        super().__init__()
+        self.router = torch.nn.Linear(dim, num_experts, bias=False)
+        self.experts = torch.nn.ModuleList(
+            torch.nn.Sequential(
+                torch.nn.Linear(dim, hidden_dim, bias=False),
+                torch.nn.SiLU(),
+                torch.nn.Linear(hidden_dim, dim, bias=False),
+            )
+            for _ in range(num_experts)
+        )
+        self.top_k = top_k
+
+    def example_inputs(self, batch_size=8, dtype=torch.float, device="cpu"):
+        return (
+            torch.randn(
+                batch_size, self.router.in_features, dtype=dtype, device=device
+            ),
+        )
+
+    def forward(self, x):
+        probs = torch.softmax(self.router(x), dim=-1)
+        weights, expert_idx = probs.topk(self.top_k, dim=-1)
+        weights = weights / weights.sum(dim=-1, keepdim=True)
+        out = torch.zeros_like(x)
+        for e, expert in enumerate(self.experts):
+            routed = expert_idx == e
+            token_idx = routed.any(dim=-1).nonzero(as_tuple=True)[0]
+            if token_idx.numel() == 0:
+                continue
+            gate = (weights * routed).sum(dim=-1)[token_idx].unsqueeze(-1)
+            out[token_idx] += gate * expert(x[token_idx])
+        return out
+
+
+def _get_ref_change_linear_weights_to_woqtensors(deprecated_tenosr_subclass):
     def _ref_change_linear_weights_to_woqtensors(model, filter_fn=None, **kwargs):
         """
         The deprecated implementation for weight only quant API, used as a reference for
@@ -199,6 +237,33 @@ class TestQuantFlow(TestCase):
         m = torch.compile(m, mode="max-autotune")
         compiled = m(*example_inputs)
         torch.testing.assert_close(quantized, compiled, atol=0, rtol=0)
+
+    def test_int8_weight_only_moe_experts_only(self):
+        # MoE pattern from https://github.com/pytorch/ao/issues/729: quantize
+        # the expert weights only, keeping the router in high precision so
+        # token-to-expert routing decisions are unchanged
+        m = ToyMoEModel().eval()
+        example_inputs = m.example_inputs()
+        with torch.no_grad():
+            y_ref = m(*example_inputs)
+
+        quantize_(
+            m,
+            Int8WeightOnlyConfig(),
+            filter_fn=lambda mod, fqn: isinstance(mod, torch.nn.Linear)
+            and "experts" in fqn,
+        )
+
+        for expert in m.experts:
+            for layer in expert:
+                if isinstance(layer, torch.nn.Linear):
+                    self.assertIsInstance(layer.weight, Int8Tensor)
+        self.assertNotIsInstance(m.router.weight, Int8Tensor)
+
+        with torch.no_grad():
+            y_q = m(*example_inputs)
+        sqnr = compute_error(y_ref, y_q)
+        self.assertGreater(sqnr, 25, f"SQNR {sqnr} is too low")
 
     @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
     def test_int8_wo_quant_save_load(self):
