@@ -15,6 +15,7 @@ from torchao.prototype.sparsity.sparsifier.utils import (
     get_arg_info_from_tensor_fqn,
     module_to_fqn,
 )
+from torchao.prototype.sparsity.sparsifier.fisher_pruner import FisherPruner
 from torchao.prototype.sparsity.sparsifier.weight_norm_sparsifier import (
     WeightNormSparsifier,
 )
@@ -24,6 +25,7 @@ __all__ = [
     "CubicSL",
     "LambdaSL",
     "BaseSparsifier",
+    "FisherPruner",
     "NearlyDiagonalSparsifier",
     "FakeSparsity",
     "fqn_to_module",
