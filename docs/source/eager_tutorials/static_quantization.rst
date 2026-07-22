@@ -175,7 +175,7 @@ There are multiple ways to actually quantize the model. Here we walk through the
            return F.linear(qinput, self.qweight, self.bias)
 
        @classmethod
-       def from_observed(cls, observed_linear, target_dtype):
+       def from_observed(cls, observed_linear):
            quantized_linear = cls(
                observed_linear.in_features,
                observed_linear.out_features,
@@ -183,7 +183,6 @@ There are multiple ways to actually quantize the model. Here we walk through the
                observed_linear.weight_obs,
                observed_linear.weight,
                observed_linear.bias,
-               target_dtype,
            )
            return quantized_linear
 
@@ -201,7 +200,7 @@ This linear class computes the scales and zero points for both input activations
 
    @dataclass
    class StaticQuantConfig(AOBaseConfig):
-       target_dtype: torch.dtype
+       pass
 
    @register_quantize_module_handler(StaticQuantConfig)
    def _apply_static_quant(
@@ -209,16 +208,16 @@ This linear class computes the scales and zero points for both input activations
        config: StaticQuantConfig,
    ):
        """
-       Define a transformation associated with `StaticQuantConfig`.
-       This is called by `quantize_`, not by the user directly.
+       Define a transformation associated with ``StaticQuantConfig``.
+       This is called by ``quantize_``, not by the user directly.
        """
-       return QuantizedLinear.from_observed(module, config.target_dtype)
+       return QuantizedLinear.from_observed(module)
 
    # filter function to identify which modules to swap
    is_observed_linear = lambda m, fqn: isinstance(m, ObservedLinear)
 
    # perform static quantization
-   quantize_(m, StaticQuantConfig(torch.uint8), is_observed_linear)
+   quantize_(m, StaticQuantConfig(), is_observed_linear)
 
 Now, we will see that the linear layers in our model are swapped to our `QuantizedLinear` class, with a fixed input activation scale and a fixed quantized weight:
 
