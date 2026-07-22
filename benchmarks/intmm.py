@@ -99,7 +99,8 @@ if __name__ == "__main__":
     assert file_path.is_file()
 
     # Format is (m, k, n)
-    shapes = list(csv.reader(open(file_path, "r")))[1:]
+    with open(file_path, "r") as f:
+        shapes = list(csv.reader(f))[1:]
     # Turn into list of int tuples
     shapes = list(map(lambda x: tuple(map(int, x)), shapes))
 
