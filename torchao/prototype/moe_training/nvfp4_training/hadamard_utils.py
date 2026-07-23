@@ -238,7 +238,11 @@ if has_triton():
         safe_global_amax = tl.where(is_global_amax, 1.0, global_amax)
         # TE's scale bytes follow correctly-rounded FP32 division; Triton's normal
         # "/" lowers through a reciprocal path that can flip FP8 midpoint ties.
-        global_scale_num = safe_global_amax * 0.0 + (FP8_E4M3_MAX * FP4_E2M1_MAX)
+        global_scale_num = tl.full(
+            safe_global_amax.shape,
+            FP8_E4M3_MAX * FP4_E2M1_MAX,
+            safe_global_amax.dtype,
+        )
         candidate = tl.div_rn(global_scale_num, safe_global_amax)
         candidate = tl.minimum(candidate, FP32_MAX)
         candidate = tl.where(candidate == 0, 1.0, candidate)
