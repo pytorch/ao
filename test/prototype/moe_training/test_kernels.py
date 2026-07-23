@@ -51,6 +51,10 @@ from torchao.prototype.moe_training.kernels.mxfp8 import (
     triton_mx_block_rearrange_2d_M_groups,
     triton_mx_block_rearrange_per_group_3d,
 )
+from torchao.prototype.moe_training.kernels.mxfp8.cutedsl_pad_token_groups import (
+    pad_token_groups_cutedsl,
+    unpad_token_groups_cutedsl,
+)
 from torchao.prototype.moe_training.kernels.mxfp8.cutedsl_rearrange_2d_m_groups import (
     mx_block_rearrange_2d_m_groups_cutedsl,
 )
@@ -876,6 +880,78 @@ def test_cuda_fused_unpad_token_groups(
     assert torch.allclose(inputs, kernel_unpadded_tokens, rtol=0, atol=1e-5), (
         "Unpadded tokens should match original inputs"
     )
+
+
+@pytest.mark.skipif(
+    not _mxfp8_cutedsl_kernels_available,
+    reason="MXFP8 cutedsl kernels not available",
+)
+@skip_if_rocm("ROCm enablement in progress")
+@pytest.mark.parametrize("num_tokens", [128, 157, 4096])
+@pytest.mark.parametrize("dim", [32, 7168])
+@pytest.mark.parametrize("num_groups", [1, 8])
+@pytest.mark.parametrize("alignment_size", [32])
+@pytest.mark.parametrize("dtype", [torch.bfloat16])
+def test_cutedsl_pad_token_groups(
+    num_tokens: int, dim: int, num_groups: int, alignment_size: int, dtype: torch.dtype
+):
+    device = "cuda"
+    inputs = torch.randn(num_tokens, dim, dtype=dtype, device=device)
+    group_offsets = generate_jagged_offs(
+        num_groups, num_tokens, multiple_of=1, device=device
+    )
+
+    ref_padded_tokens, ref_start_offsets, ref_end_offsets = torch_pad_token_groups(
+        inputs, group_offsets, alignment_size
+    )
+    cutedsl_padded_tokens, cutedsl_start_offsets, cutedsl_end_offsets = (
+        pad_token_groups_cutedsl(inputs, group_offsets, alignment_size)
+    )
+
+    assert torch.equal(ref_padded_tokens, cutedsl_padded_tokens)
+    assert torch.equal(ref_start_offsets, cutedsl_start_offsets)
+    assert torch.equal(ref_end_offsets, cutedsl_end_offsets)
+
+
+@pytest.mark.skipif(
+    not _mxfp8_cutedsl_kernels_available,
+    reason="MXFP8 cutedsl kernels not available",
+)
+@skip_if_rocm("ROCm enablement in progress")
+@pytest.mark.parametrize("num_tokens", [128, 157, 4096])
+@pytest.mark.parametrize("dim", [32, 7168])
+@pytest.mark.parametrize("num_groups", [1, 8])
+@pytest.mark.parametrize("alignment_size", [32])
+@pytest.mark.parametrize("dtype", [torch.bfloat16])
+def test_cutedsl_unpad_token_groups(
+    num_tokens: int, dim: int, num_groups: int, alignment_size: int, dtype: torch.dtype
+):
+    device = "cuda"
+    inputs = torch.randn(num_tokens, dim, dtype=dtype, device=device)
+    group_offsets = generate_jagged_offs(
+        num_groups, num_tokens, multiple_of=1, device=device
+    )
+    padded_tokens, padded_group_start_offsets, _ = torch_pad_token_groups(
+        inputs, group_offsets, alignment_size
+    )
+
+    ref_unpadded_tokens = torch_unpad_token_groups(
+        padded_tokens,
+        group_offsets,
+        padded_group_start_offsets,
+        num_tokens,
+        alignment_size,
+    )
+    cutedsl_unpadded_tokens = unpad_token_groups_cutedsl(
+        padded_tokens,
+        group_offsets,
+        padded_group_start_offsets,
+        num_tokens,
+        alignment_size,
+    )
+
+    assert torch.equal(ref_unpadded_tokens, cutedsl_unpadded_tokens)
+    assert torch.equal(inputs, cutedsl_unpadded_tokens)
 
 
 @pytest.mark.parametrize("round_scales_to_power_of_2", [True, False])
