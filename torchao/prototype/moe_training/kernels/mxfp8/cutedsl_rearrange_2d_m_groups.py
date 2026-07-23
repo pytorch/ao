@@ -558,7 +558,7 @@ def _compile_mx_block_rearrange_2d_m_groups_cutedsl(
     )
 
 
-def mx_block_rearrange_2d_m_groups_cutedsl(
+def _mx_block_rearrange_2d_m_groups_cutedsl_impl(
     scales_tensor: torch.Tensor,
     input_offsets: torch.Tensor,
     chunk_width: int | None = None,
@@ -608,3 +608,47 @@ def mx_block_rearrange_2d_m_groups_cutedsl(
         stream,
     )
     return output.view(scales_tensor.dtype)
+
+
+@torch.library.custom_op(
+    "torchao::mx_block_rearrange_2d_m_groups_cutedsl",
+    mutates_args=(),
+)
+def _mx_block_rearrange_2d_m_groups_cutedsl_custom_op(
+    scales_tensor: torch.Tensor,
+    input_offsets: torch.Tensor,
+    chunk_width: int,
+) -> torch.Tensor:
+    return _mx_block_rearrange_2d_m_groups_cutedsl_impl(
+        scales_tensor,
+        input_offsets,
+        None if chunk_width == 0 else chunk_width,
+    )
+
+
+@_mx_block_rearrange_2d_m_groups_cutedsl_custom_op.register_fake
+def _fake_mx_block_rearrange_2d_m_groups_cutedsl_custom_op(
+    scales_tensor: torch.Tensor,
+    input_offsets: torch.Tensor,
+    chunk_width: int,
+) -> torch.Tensor:
+    assert scales_tensor.ndim == 2
+    assert scales_tensor.element_size() == 1
+    assert input_offsets.ndim == 1
+    rows, cols = scales_tensor.shape
+    num_groups = input_offsets.shape[0]
+    padded_rows = rows + num_groups * 128
+    padded_cols = ceil_div(cols, 4) * 4
+    return scales_tensor.new_empty((padded_rows, padded_cols))
+
+
+def mx_block_rearrange_2d_m_groups_cutedsl(
+    scales_tensor: torch.Tensor,
+    input_offsets: torch.Tensor,
+    chunk_width: int | None = None,
+) -> torch.Tensor:
+    return _mx_block_rearrange_2d_m_groups_cutedsl_custom_op(
+        scales_tensor,
+        input_offsets,
+        0 if chunk_width is None else chunk_width,
+    )
