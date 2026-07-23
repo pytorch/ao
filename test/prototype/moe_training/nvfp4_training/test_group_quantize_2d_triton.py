@@ -56,6 +56,22 @@ def test_group_quantize_2d_matches_independent_experts(shape):
 
 
 @requires_grouped_kernel
+@torch.no_grad()
+def test_group_quantize_2d_large_expert_offset():
+    """The last expert remains addressable when its input base exceeds int32."""
+    E, M, N = 65, 8192, 8192
+    weights = torch.empty((E, M, N), dtype=torch.bfloat16, device="cuda")
+    weights[-1].fill_(1.0)
+    global_amax = torch.ones((E,), dtype=torch.float32, device="cuda")
+
+    actual = triton_group_weight_quantize_2d(weights, global_amax, num_tensors=E)
+    expected = triton_weight_quantize_2d(weights[-1], global_amax[-1])
+
+    for grouped_output, expected_output in zip(actual, expected):
+        torch.testing.assert_close(grouped_output[-1], expected_output, atol=0, rtol=0)
+
+
+@requires_grouped_kernel
 def test_group_quantize_2d_register_fake_shapes():
     from torch._subclasses.fake_tensor import FakeTensorMode
 

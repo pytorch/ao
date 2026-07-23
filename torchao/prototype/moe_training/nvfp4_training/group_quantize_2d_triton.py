@@ -59,7 +59,7 @@ if torch_version_at_least("2.10.0") and has_triton():
         """Grouped 2D (16x16) NVFP4 E2M1 weight quantization -- one tile per CTA."""
         pid_m = tl.program_id(0)
         pid_n = tl.program_id(1)
-        expert = tl.program_id(2)
+        expert = tl.program_id(2).to(tl.int64)
 
         # Get global amax for this expert (float32).
         global_amax = tl.load(global_amax_ptr + expert)

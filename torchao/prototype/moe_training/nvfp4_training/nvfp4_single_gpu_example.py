@@ -22,7 +22,6 @@ from torch.utils._triton import has_triton
 
 from torchao.utils import torch_version_at_least
 
-
 NUM_LOCAL_EXPERTS = 128
 MODEL_DIM = 7168
 EXPERT_HIDDEN_DIM = 2048

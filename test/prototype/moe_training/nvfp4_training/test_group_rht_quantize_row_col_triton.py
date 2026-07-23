@@ -38,6 +38,9 @@ from torchao.prototype.mx_formats.utils import from_blocked, to_blocked
 from torchao.utils import is_sm_at_least_100, torch_version_at_least
 
 if has_triton() and is_sm_at_least_100() and torch_version_at_least("2.10.0"):
+    from torchao.prototype.moe_training.nvfp4_training.group_hadamard_amax_triton import (
+        triton_group_rht_amax,
+    )
     from torchao.prototype.moe_training.nvfp4_training.group_rht_quantize_row_col_triton import (
         triton_group_rht_quantize_row_col,
     )
@@ -289,6 +292,94 @@ def test_group_rht_deepseek_dimensions_correctness(deepseek_graph_case):
 
 @_maybe_sm100
 @torch.no_grad()
+def test_group_rht_padded_capacity_masks_spare_rows():
+    """Capacity rows do not affect amax and flush to zero during quantization."""
+    device = torch.device("cuda", 0)
+    logical_rows, capacity_rows, hidden_size = 128, 256, 128
+    torch.manual_seed(227)
+    valid = torch.randn(
+        (logical_rows, hidden_size), dtype=torch.bfloat16, device=device
+    )
+    capacity = torch.empty(
+        (capacity_rows, hidden_size), dtype=torch.bfloat16, device=device
+    )
+    capacity[:logical_rows].copy_(valid)
+    capacity[logical_rows:].fill_(1000.0)
+    offsets = torch.tensor([logical_rows], dtype=torch.int32, device=device)
+    logical_packed_length = offsets[-1:]
+
+    expected_col_amax, expected_row_amax = triton_group_rht_amax(
+        valid,
+        list(_HARDCODED_SIGN_VECTOR),
+        offsets,
+        1,
+        logical_rows,
+        hidden_size,
+        1,
+    )
+    actual_col_amax, actual_row_amax = triton_group_rht_amax(
+        capacity,
+        list(_HARDCODED_SIGN_VECTOR),
+        offsets,
+        1,
+        capacity_rows,
+        hidden_size,
+        1,
+        logical_packed_length=logical_packed_length,
+    )
+    assert torch.equal(actual_col_amax, expected_col_amax)
+    assert torch.equal(actual_row_amax, expected_row_amax)
+
+    expected = triton_group_rht_quantize_row_col(
+        valid,
+        list(_HARDCODED_SIGN_VECTOR),
+        offsets,
+        1,
+        logical_rows,
+        hidden_size,
+        1,
+        expected_row_amax,
+        expected_col_amax,
+        None,
+        False,
+    )
+    actual = triton_group_rht_quantize_row_col(
+        capacity,
+        list(_HARDCODED_SIGN_VECTOR),
+        offsets,
+        1,
+        capacity_rows,
+        hidden_size,
+        1,
+        actual_row_amax,
+        actual_col_amax,
+        None,
+        False,
+        logical_packed_length=logical_packed_length,
+    )
+    expected_qa, expected_sfa, expected_qd, expected_sfd = expected
+    actual_qa, actual_sfa, actual_qd, actual_sfd = actual
+    actual_sfa_plain = from_blocked(actual_sfa, capacity_rows, hidden_size // 16)
+    actual_sfd_plain = from_blocked(actual_sfd, hidden_size, capacity_rows // 16)
+
+    assert torch.equal(actual_qa[:logical_rows], expected_qa)
+    assert torch.equal(
+        actual_sfa_plain[:logical_rows],
+        from_blocked(expected_sfa, logical_rows, hidden_size // 16),
+    )
+    assert torch.equal(actual_qd[:, : logical_rows // 2], expected_qd)
+    assert torch.equal(
+        actual_sfd_plain[:, : logical_rows // 16],
+        from_blocked(expected_sfd, hidden_size, logical_rows // 16),
+    )
+    assert torch.count_nonzero(actual_qa[logical_rows:]) == 0
+    assert torch.count_nonzero(actual_sfa_plain[logical_rows:]) == 0
+    assert torch.count_nonzero(actual_qd[:, logical_rows // 2 :]) == 0
+    assert torch.count_nonzero(actual_sfd_plain[:, logical_rows // 16 :]) == 0
+
+
+@_maybe_sm100
+@torch.no_grad()
 def test_group_rht_stochastic_rounding_launches(graph_case):
     spec, A, B, offsets, amax_row, amax_col, _, _ = graph_case
     psl, hs = A.shape
@@ -378,3 +469,39 @@ def test_group_rht_rng_state_validation(graph_case):
         None,
         False,
     )
+
+
+@_maybe_sm100
+@pytest.mark.parametrize(
+    ("invalid_amax", "error"),
+    [
+        ("2d", "a_global_amax must be 1D"),
+        ("noncontiguous", "a_global_amax must be contiguous"),
+    ],
+)
+def test_group_rht_amax_storage_validation(graph_case, invalid_amax, error):
+    spec, A, _, offsets, _, amax_col, _, _ = graph_case
+    if invalid_amax == "2d":
+        amax_row = torch.empty(
+            (1, len(spec.groups)), dtype=torch.float32, device=A.device
+        )
+    else:
+        storage_size = max(2, len(spec.groups))
+        amax_row = torch.empty(
+            (storage_size * 2,), dtype=torch.float32, device=A.device
+        )[::2]
+
+    with pytest.raises(ValueError, match=error):
+        triton_group_rht_quantize_row_col(
+            A,
+            list(_HARDCODED_SIGN_VECTOR),
+            offsets,
+            len(spec.groups),
+            A.shape[0],
+            A.shape[1],
+            spec.shape_rep,
+            amax_row,
+            amax_col,
+            None,
+            False,
+        )
