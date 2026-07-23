@@ -39,7 +39,7 @@ class MinSparsityConstraint(ProxMap, _TopKZeroMixin):
     """Drops the smallest-L2-norm ``ceil(min_sparsity * n_groups)`` whole
     groups of a 2-D ``(n_groups, group_size)`` view. ``whole_tensor = True``
     routes the optimizer around ``torch.vmap`` so the prox sees all groups
-    at once. ``reg_lambda``, ``gamma``, and ``tau_reweight`` are ignored.
+    at once. ``reg_lambda`` and ``gamma`` are ignored.
 
     Pair with ``Dim0Grouper`` / ``Dim1Grouper`` / ``ConvFilterGrouper`` for
     row/column/filter pruning, or with ``KElementGrouper(k=1)`` for global
@@ -66,7 +66,6 @@ class MinSparsityConstraint(ProxMap, _TopKZeroMixin):
         self,
         p: Tensor,
         gamma: Union[Tensor, float],
-        tau_reweight: Union[Tensor, float] = 1.0,
     ) -> tuple[Tensor, Tensor]:
         assert p.dim() == 2, (
             f"MinSparsityConstraint expects a 2-D (n_groups, group_size) view, "
@@ -85,7 +84,9 @@ class GlobalMinSparsityConstraint(MinSparsityConstraint):
     each tensor, this constraint ranks groups from every tensor jointly. The
     optimizer collects scores with :meth:`score`, selects the globally smallest
     ``ceil(min_sparsity * total_groups)`` groups, and applies the selection with
-    :meth:`zero_groups_`.
+    :meth:`zero_groups_`. The inherited ``min_sparsity`` attribute is retained
+    for constructor validation and API consistency; ``PruneOptimizer`` owns the
+    scheduled global budget computation.
 
     ``score_type`` controls comparisons across different group sizes:
 
@@ -137,8 +138,8 @@ class MinRankConstraint(ProxMap, _TopKZeroMixin):
     SVD-grouped tensor. Here the shared ``min_sparsity`` key is the fraction of
     singular values zeroed, so each matrix retains
     ``k - ceil(min_sparsity * k)`` singular values. Pair with ``SVDGrouper`` or
-    ``PackedSVDGrouper``. ``reg_lambda``, ``gamma``, and ``tau_reweight`` are
-    ignored; the count is optionally resolved on the cubic schedule by
+    ``PackedSVDGrouper``. ``reg_lambda`` and ``gamma`` are ignored; the count
+    is optionally resolved on the cubic schedule by
     ``PruneOptimizer._effective_min_sparsity``.
 
     ``whole_tensor = True`` routes the optimizer around ``torch.vmap`` so
@@ -164,7 +165,6 @@ class MinRankConstraint(ProxMap, _TopKZeroMixin):
         self,
         p: Tensor,
         gamma: Union[Tensor, float],
-        tau_reweight: Union[Tensor, float] = 1.0,
     ) -> tuple[Tensor, Tensor]:
         # SVDGrouper.p is (k,); PackedSVDGrouper.p is (npack, k).
         n_zero = math.ceil(self.min_sparsity * p.shape[-1])
@@ -199,7 +199,6 @@ class NMSparseConstraint(ProxMap, _TopKZeroMixin):
         self,
         p: Tensor,
         gamma: Union[Tensor, float],
-        tau_reweight: Union[Tensor, float] = 1.0,
     ) -> tuple[Tensor, Tensor]:
         assert self.n_nonzero <= p.numel(), (
             f"n_nonzero ({self.n_nonzero}) must be at most group_size ({p.numel()})"

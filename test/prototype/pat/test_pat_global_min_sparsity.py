@@ -7,6 +7,7 @@
 import math
 import random
 import unittest
+from unittest import mock
 
 import torch
 from torch.distributed.tensor import distribute_tensor
@@ -14,7 +15,9 @@ from torch.distributed.tensor.placement_types import Shard
 from torch.testing._internal import common_utils
 
 from test.prototype.pat.test_common import DistributedTestMixin, optim_step
+from torchao.prototype.pat.group import Dim0Grouper
 from torchao.prototype.pat.optim import GlobalMinSparsityConstraint, PruneOptimizer
+from torchao.prototype.pat.optim.prox_executor import apply_global_prox, grouped_view
 from torchao.prototype.pat.utils import get_param_groups
 
 
@@ -77,6 +80,12 @@ class TestGlobalMinSparsityScore(common_utils.TestCase):
         self.assertEqual(int(zeros), 0)
         self.assertTrue(torch.equal(p, original))
 
+    def test_rejects_mixed_score_devices(self):
+        params = [torch.randn(2, 2), torch.empty(2, 2, device="meta")]
+        prox = GlobalMinSparsityConstraint(0.0, 0.5)
+        with self.assertRaisesRegex(ValueError, "scores on the same device"):
+            apply_global_prox(params, prox, Dim0Grouper, {}, min_sparsity=0.5)
+
 
 class TestGlobalMinSparsityOptimizer(common_utils.TestCase):
     def _run(self, params, min_sparsity, score_type="rms", steps=3, lr=0.1):
@@ -117,8 +126,26 @@ class TestGlobalMinSparsityOptimizer(common_utils.TestCase):
         zero_a = _count_zero_groups(a)
         zero_b = _count_zero_groups(b)
         self.assertEqual(zero_a + zero_b, 8)
-        self.assertEqual(zero_a, 4)
-        self.assertEqual(zero_b, 4)
+
+    def test_builds_each_grouped_view_once(self):
+        a = torch.nn.Parameter(torch.arange(32.0).reshape(8, 4) + 1)
+        b = torch.nn.Parameter(torch.arange(32.0).reshape(8, 4) + 33)
+        group = _global_group([a, b], 0.5)
+        optimizer = PruneOptimizer(torch.optim.SGD([group], lr=0.0))
+        for param in (a, b):
+            param.grad = torch.zeros_like(param)
+
+        with mock.patch(
+            "torchao.prototype.pat.optim.prox_executor.grouped_view",
+            wraps=grouped_view,
+        ) as grouped_view_mock:
+            optimizer.step()
+
+        self.assertEqual(grouped_view_mock.call_count, 2)
+        grouped_params = [
+            call.args[0]._param for call in grouped_view_mock.call_args_list
+        ]
+        self.assertEqual(grouped_params, [a, b])
 
     def test_healing_freezes_nonuniform_mask(self):
         torch.manual_seed(0)
@@ -224,27 +251,43 @@ class TestGlobalMinSparsityOptimizer(common_utils.TestCase):
 
 
 class TestGlobalMinSparsityDTensor(DistributedTestMixin, common_utils.TestCase):
-    def test_two_dtensors_global_budget(self):
+    """PAT CI exercises the DTensor API at world size one, not true multi-rank."""
+
+    def test_two_dtensors_match_dense_result(self):
         torch.manual_seed(0)
         a = torch.randn(8, 4) * 10.0
         b = torch.randn(8, 4) * 0.1
+        a_dense = torch.nn.Parameter(a.clone())
+        b_dense = torch.nn.Parameter(b.clone())
+        dense_optimizer = PruneOptimizer(
+            torch.optim.SGD([_global_group([a_dense, b_dense], 0.5)], lr=0.0),
+            warmup_steps=0,
+            healing_start_step=100,
+        )
+        for param in (a_dense, b_dense):
+            param.grad = torch.zeros_like(param)
+        dense_optimizer.step()
+
         a_dt = torch.nn.Parameter(
             distribute_tensor(a, self.mesh, [Shard(0)] * self.mesh.ndim)
         )
         b_dt = torch.nn.Parameter(
             distribute_tensor(b, self.mesh, [Shard(0)] * self.mesh.ndim)
         )
-        base = torch.optim.SGD([_global_group([a_dt, b_dt], 0.5)], lr=0.0)
-        optimizer = PruneOptimizer(base, warmup_steps=0, healing_start_step=100)
+        optimizer = PruneOptimizer(
+            torch.optim.SGD([_global_group([a_dt, b_dt], 0.5)], lr=0.0),
+            warmup_steps=0,
+            healing_start_step=100,
+        )
         optimizer.zero_grad()
         (a_dt.to_local().pow(2).sum() + b_dt.to_local().pow(2).sum()).backward()
         optimizer.step()
+
         full_a = a_dt.full_tensor()
         full_b = b_dt.full_tensor()
-        zero_a = sum(full_a[i].eq(0).all().item() for i in range(8))
-        zero_b = sum(full_b[i].eq(0).all().item() for i in range(8))
-        self.assertEqual(zero_a + zero_b, 8)
-        self.assertGreater(zero_b, zero_a)
+        self.assertEqual(full_a, a_dense)
+        self.assertEqual(full_b, b_dense)
+        self.assertEqual(_count_zero_groups(full_a) + _count_zero_groups(full_b), 8)
 
 
 common_utils.instantiate_parametrized_tests(TestGlobalMinSparsityScore)

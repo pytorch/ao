@@ -21,6 +21,7 @@ from test.prototype.pat.test_common import (
 )
 from torchao.prototype.pat.group import KElementGrouper
 from torchao.prototype.pat.optim import NMSparseConstraint, PruneOptimizer
+from torchao.prototype.pat.optim.prox_executor import apply_prox
 from torchao.prototype.pat.utils import get_param_groups
 
 
@@ -89,7 +90,7 @@ class TestNMSparseWithKElementGrouper(common_utils.TestCase):
 
         grouper = KElementGrouper(p, k=k)
         prox_kwargs = make_prox_kwargs(gamma=1.0, zero_elts_are_counts=True)
-        zero_elts, group_norm, zeros_are_summed = PruneOptimizer._apply_prox(
+        zero_elts, group_norm, zeros_are_summed = apply_prox(
             grouper, prox, p, **prox_kwargs
         )
 
@@ -106,9 +107,7 @@ class TestNMSparseWithKElementGrouper(common_utils.TestCase):
 
         grouper = KElementGrouper(p, k=1)
         prox_kwargs = make_prox_kwargs(gamma=1.0, zero_elts_are_counts=True)
-        zero_elts, _, zeros_are_summed = PruneOptimizer._apply_prox(
-            grouper, prox, p, **prox_kwargs
-        )
+        zero_elts, _, zeros_are_summed = apply_prox(grouper, prox, p, **prox_kwargs)
 
         self.assertTrue(p.eq(0).all())
         self.assertEqual(zero_elts, M * N)
@@ -123,9 +122,7 @@ class TestNMSparseWithKElementGrouper(common_utils.TestCase):
 
         grouper = KElementGrouper(p, k=k)
         prox_kwargs = make_prox_kwargs(gamma=1.0, zero_elts_are_counts=True)
-        _, _, zeros_are_summed = PruneOptimizer._apply_prox(
-            grouper, prox, p, **prox_kwargs
-        )
+        _, _, zeros_are_summed = apply_prox(grouper, prox, p, **prox_kwargs)
 
         # Padded blocks may have <= n_nonzero (partial last block).
         self.assert_nm_pattern(p, k, n_nonzero, exact=False)
@@ -140,7 +137,7 @@ class TestNMSparseWithKElementGrouper(common_utils.TestCase):
 
         grouper = KElementGrouper(p, k=k)
         prox_kwargs = make_prox_kwargs(gamma=1.0, zero_elts_are_counts=True)
-        _, group_norm, _ = PruneOptimizer._apply_prox(grouper, prox, p, **prox_kwargs)
+        _, group_norm, _ = apply_prox(grouper, prox, p, **prox_kwargs)
 
         n_groups = M * N // k
         self.assertEqual(group_norm.shape, (n_groups,))
@@ -167,7 +164,7 @@ class TestNMSparseDTensor(DistributedTestMixin, common_utils.TestCase):
 
         # Regular path
         grouper_reg = KElementGrouper(p_regular, k=k)
-        z_reg, gn_reg, _ = PruneOptimizer._apply_prox(
+        z_reg, gn_reg, _ = apply_prox(
             grouper_reg,
             NMSparseConstraint(reg_lambda, n_nonzero=n_nonzero),
             p_regular,
@@ -176,7 +173,7 @@ class TestNMSparseDTensor(DistributedTestMixin, common_utils.TestCase):
 
         # DTensor path
         grouper_dt = KElementGrouper(p_dtensor, k=k)
-        z_dt, gn_dt, _ = PruneOptimizer._apply_prox(
+        z_dt, gn_dt, _ = apply_prox(
             grouper_dt,
             NMSparseConstraint(reg_lambda, n_nonzero=n_nonzero),
             p_dtensor,

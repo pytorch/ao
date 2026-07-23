@@ -15,6 +15,7 @@ from torch.testing._internal import common_utils
 from test.prototype.pat.test_common import TwoLayerMLP, make_prox_kwargs, optim_step
 from torchao.prototype.pat.group import PackedSVDGrouper, SVDGrouper
 from torchao.prototype.pat.optim import MinRankConstraint, PruneOptimizer
+from torchao.prototype.pat.optim.prox_executor import apply_prox
 from torchao.prototype.pat.utils import get_param_groups
 
 
@@ -76,7 +77,7 @@ class TestMinRankWithSVDGrouper(common_utils.TestCase):
         prox_kwargs = make_prox_kwargs(
             gamma=1.0, zero_elts_are_counts=True, is_svd_grouper=True
         )
-        zero_elts, _, zeros_are_summed = PruneOptimizer._apply_prox(
+        zero_elts, _, zeros_are_summed = apply_prox(
             grouper,
             prox,
             model.weight,
@@ -99,7 +100,7 @@ class TestMinRankWithSVDGrouper(common_utils.TestCase):
             gamma=1.0, zero_elts_are_counts=True, is_svd_grouper=True
         )
         sv_count = torch.zeros(npack, dtype=torch.int)
-        zero_elts, _, _ = PruneOptimizer._apply_prox(
+        zero_elts, _, _ = apply_prox(
             grouper,
             prox,
             model.weight,

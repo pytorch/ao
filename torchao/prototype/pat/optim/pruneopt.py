@@ -4,7 +4,6 @@
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
 
-import math
 import sys
 from collections import defaultdict
 from collections.abc import Callable
@@ -12,9 +11,6 @@ from typing import Any
 
 import torch
 from torch import Tensor
-from torch.distributed.tensor import distribute_tensor
-from torch.distributed.tensor.experimental import local_map
-from torch.distributed.tensor.placement_types import Partial, Shard
 from torch.optim import Optimizer
 from torch.optim.optimizer import StateDict
 
@@ -24,9 +20,8 @@ from ..distributed_utils import (
     _maybe_async_aggregate,
     _sum_async_streams,
 )
-from ..utils import get_index_linspace, instantiate_module
-from .group_lasso import ProxGroupLasso, ProxGroupLassoVectorized
-from .iterative_reweight import IterativeReweight
+from ..utils import instantiate_module
+from .prox_executor import apply_global_prox, apply_prox_to_param
 
 
 class PruneOptimizer(Optimizer):
@@ -42,12 +37,6 @@ class PruneOptimizer(Optimizer):
             pruned parameters are frozen. Must be greater than warmup_steps.
         reg_lambda: Regularization strength for the proximal updates. Can be
             overridden per parameter group.
-        reweight_tau_freq: Frequency in steps to apply an iterative reweighting
-            heuristic after each proximal update to adjust the regularization
-            strength based on the current magnitude of the parameters.
-        reweight_tau_end_step: Last step at which to apply iterative reweighting.
-        reweight_eps: Small constant to prevent division by zero in iterative
-            reweighting.
     """
 
     def __init__(
@@ -56,9 +45,6 @@ class PruneOptimizer(Optimizer):
         warmup_steps: int = 0,
         healing_start_step: int = sys.maxsize,
         reg_lambda: float = 0.0,
-        reweight_tau_freq: int = 0,
-        reweight_tau_end_step: int = sys.maxsize,
-        reweight_eps: float = 1e-3,
     ) -> None:
         # need to reconstruct these objects if loading checkpoint
         self.base_optimizer = base_optimizer
@@ -80,12 +66,6 @@ class PruneOptimizer(Optimizer):
                     "min_sparsity_schedule requires a finite healing_start_step; "
                     "the ramp ends when the mask freezes."
                 )
-
-        self.iterative_reweight = (
-            IterativeReweight(reweight_tau_freq, reweight_tau_end_step, reweight_eps)
-            if reweight_tau_freq > 0
-            else None
-        )
 
         self.relative_sparsity = 0
         self.relative_factored_frac = 0
@@ -209,188 +189,18 @@ class PruneOptimizer(Optimizer):
                 grouper_kwargs["pack_dim"] = group["pack_dim"]
         return grouper_kwargs
 
-    @staticmethod
-    def _apply_prox_dtensor(
-        grouper, prox_map, p, gamma, gamma_in_dims, tau_reweight, tau_reweight_in_dims
-    ):
-        """Apply prox_map to a DTensor parameter via local_map.
-
-        Returns:
-            zero_elts: number of zero elements (int, globally summed)
-            group_norm: group-level norm DTensor
-        """
-        if not torch.is_tensor(gamma):
-            gamma = torch.tensor(gamma, device=p.device)
-
-        # Derive input placements from grouper.p
-        p_in_placements = tuple(
-            Shard(grouper.in_dims)
-            if grouper.in_dims is not None and plc.is_shard()
-            else plc
-            for plc in grouper.p.placements
-        )
-        if grouper.in_dims is not None and gamma.dim() > 0:
-            # Shard gamma according to grouper.in_dims
-            gamma = distribute_tensor(
-                gamma.unsqueeze(int(not grouper.in_dims)),
-                device_mesh=p.device_mesh,
-                placements=p_in_placements,
-            )
-            gamma_in_dims = grouper.in_dims
-        else:
-            gamma = distribute_tensor(gamma, device_mesh=p.device_mesh)
-
-        # Use ProxGroupLassoVectorized for group lasso
-        if isinstance(prox_map, ProxGroupLasso):
-            prox_map_vec = ProxGroupLassoVectorized(
-                prox_map.reg_lambda,
-                reduce_dim=int(not grouper.in_dims),
-            )
-            local_fn = prox_map_vec.apply_
-            if torch.is_tensor(tau_reweight) and tau_reweight.dim() < grouper.p.dim():
-                tau_reweight = tau_reweight.unsqueeze(int(not grouper.in_dims))
-        else:
-            # Use vmap for other prox types
-            local_fn = torch.vmap(
-                prox_map.apply_,
-                in_dims=(
-                    grouper.in_dims,
-                    gamma_in_dims,
-                    tau_reweight_in_dims,
-                ),
-                out_dims=(0, 0),
-            )
-
-        # Redistribute explicitly so the in-place prox mutation lands on a
-        # tensor we can copy back; local_map's own redistribute would discard it.
-        needs_redistribute = tuple(grouper.p.placements) != p_in_placements
-        p_for_prox = (
-            grouper.p.redistribute(placements=p_in_placements)
-            if needs_redistribute
-            else grouper.p
-        )
-
-        zero_elts_per_group, group_norm = local_map(
-            local_fn,
-            out_placements=(
-                (Partial(),) * p.device_mesh.ndim,
-                (Shard(0),) * p.device_mesh.ndim,
-            ),
-            in_placements=(
-                p_in_placements,
-                gamma.placements if _is_dtensor(gamma) else None,
-                tau_reweight.placements if _is_dtensor(tau_reweight) else None,
-            ),
-            redistribute_inputs=False,
-        )(p_for_prox, gamma, tau_reweight)
-
-        if needs_redistribute:
-            # Write mutated values back to the original parameter.
-            grouper.p.copy_(p_for_prox.redistribute(placements=grouper.p.placements))
-
-        return zero_elts_per_group.full_tensor().sum().item(), group_norm
-
-    @staticmethod
-    def _apply_prox(
-        grouper, prox_map, p, tau_reweight=1.0, sv_count=None, **prox_kwargs
-    ) -> tuple[Tensor, Tensor, bool]:
-        """
-        Apply `prox_map` to the grouped parameter tensor `p` in place. Update
-        `sv_count` if provided. Handles both torch.Tensor and DTensor inputs,
-        mirroring `torch.vmap` semantics. Assumes prox_map.apply_ returns an
-        integer per group.
-
-        Returns:
-            zero_elts: number of zero elements after applying prox map
-            group_norm: per-group norm divided by the prox map's tau
-            zeros_are_summed: whether zero_elts is already globally summed
-        """
-        gamma = prox_kwargs["gamma"]
-        zeros_are_summed = False
-        with grouper:
-            gamma_in_dims = None
-            tau_reweight_in_dims = None
-            if torch.is_tensor(tau_reweight) and tau_reweight.dim() > 0:
-                tau_reweight_in_dims = 0
-            if prox_kwargs["gamma_index_slope"] > 0:
-                # y = slope(2x - 1) + 1
-                gamma = gamma * get_index_linspace(
-                    prox_kwargs["gamma_index_slope"],
-                    grouper.n_groups(),
-                    device=p.device,
-                )
-                gamma_in_dims = 0
-
-            if prox_kwargs["disable_vmap"] or prox_map.whole_tensor:
-                # Element-, layer-, or whole-tensor pruning: bypass vmap and
-                # call apply_ once on the full grouped view. whole_tensor prox
-                # maps treat p.size(0) as n_groups, so transpose when the
-                # grouper iterates dim 1 (e.g. Dim1Grouper).
-                transpose = getattr(grouper, "in_dims", 0) == 1 and grouper.p.dim() == 2
-                if _is_dtensor(grouper.p):
-                    # Prox maps that mutate via index_put_ (e.g.
-                    # MinSparsityConstraint) have no DTensor sharding rule and
-                    # the whole-tensor variants need a global view to compute
-                    # correct top-k. Gather, mutate, then scatter back.
-                    full = grouper.p.full_tensor()
-                    view = full.transpose(0, 1) if transpose else full
-                    zero_elts, group_norm = prox_map.apply_(view, gamma, tau_reweight)
-                    grouper.p.copy_(
-                        distribute_tensor(
-                            full,
-                            device_mesh=grouper.p.device_mesh,
-                            placements=grouper.p.placements,
-                        )
-                    )
-                else:
-                    view = grouper.p.transpose(0, 1) if transpose else grouper.p
-                    zero_elts, group_norm = prox_map.apply_(view, gamma, tau_reweight)
-                zeros_are_summed = zero_elts.dim() == 0
-            else:
-                if not prox_kwargs["is_svd_grouper"] and _is_dtensor(p):
-                    zero_elts, group_norm = PruneOptimizer._apply_prox_dtensor(
-                        grouper,
-                        prox_map,
-                        p,
-                        gamma,
-                        gamma_in_dims,
-                        tau_reweight,
-                        tau_reweight_in_dims,
-                    )
-                else:
-                    # torch.Tensor branch - use standard vmap
-                    zero_elts_per_group, group_norm = torch.vmap(
-                        prox_map.apply_,
-                        in_dims=(
-                            grouper.in_dims,
-                            gamma_in_dims,
-                            tau_reweight_in_dims,
-                        ),
-                        out_dims=(0, 0),
-                    )(grouper.p, gamma, tau_reweight)
-                    zero_elts = zero_elts_per_group.sum().item()
-                zeros_are_summed = True
-
-                # Adjust for group-based pruning
-                if not prox_kwargs["is_svd_grouper"] and not prox_kwargs.get(
-                    "zero_elts_are_counts", False
-                ):
-                    zero_elts *= grouper.group_size()
-
-            # Record for reconstruction and logging
-            if prox_kwargs["is_svd_grouper"]:
-                dim = -1 if grouper.p.dim() > 1 else None
-                sv_count.copy_(
-                    (grouper.p != 0).to(torch.uint8).sum(dim=dim)
-                    if _is_dtensor(p)
-                    else torch.count_nonzero(grouper.p, dim=dim)
-                )
-
-            return zero_elts, group_norm, zeros_are_summed
-
     def _set_gamma(self, group):
         # AProx in practice: ensure shrinkage coefficient >= 1
         group["gamma"] += group["lr"]
+
+    @staticmethod
+    def _get_sv_count(p, state, grouper_kwargs, prox_kwargs):
+        if not prox_kwargs["is_svd_grouper"]:
+            return None
+        npack = grouper_kwargs.get("npack", 1)
+        return state.setdefault(
+            "sv_count", torch.zeros(npack, dtype=torch.int, device=p.device)
+        )
 
     def _build_prox_artifacts(self, group: dict[str, Any]):
         """Build the prox and grouper objects shared by pruning and healing."""
@@ -412,150 +222,6 @@ class PruneOptimizer(Optimizer):
             in ("NMSparseConstraint", "MinSparsityConstraint", "MinRankConstraint"),
         }
         return prox_map, grouper_cls, grouper_kwargs, prox_kwargs
-
-    def _run_prox_on_param(
-        self, p, state, prox_map, grouper_cls, grouper_kwargs, prox_kwargs
-    ):
-        """Apply prox to one parameter, including SVD DTensor synchronization."""
-        if prox_kwargs["is_svd_grouper"]:
-            npack = grouper_kwargs.get("npack", 1)
-            state.setdefault(
-                "sv_count", torch.zeros(npack, dtype=torch.int, device=p.device)
-            )
-
-        sharded_p = None
-        if _is_dtensor(p) and prox_kwargs["is_svd_grouper"]:
-            sharded_p = p
-            p = p.full_tensor()
-
-        sv_count = state.get("sv_count")
-        result = None
-        if sharded_p is None or sharded_p.device_mesh.get_rank() == 0:
-            grouper = grouper_cls(p, **grouper_kwargs)
-            zero_elts, group_norm, zeros_are_summed = self._apply_prox(
-                grouper,
-                prox_map,
-                p,
-                tau_reweight=state.get("tau_reweight", 1.0),
-                sv_count=sv_count,
-                **prox_kwargs,
-            )
-            result = {
-                "zero_elts": zero_elts,
-                "group_norm": group_norm,
-                "zeros_are_summed": zeros_are_summed,
-                "numel": grouper.p.numel(),
-            }
-            if prox_kwargs["is_svd_grouper"]:
-                result["matrix_rows"] = grouper.U.size(-2)
-                result["matrix_cols"] = grouper.Vh.size(-1)
-                result["unfactored_size"] = p.numel()
-
-        if sharded_p is not None:
-            torch.distributed.barrier()
-            if isinstance(sv_count, Tensor):
-                torch.distributed.broadcast(sv_count, src=0)
-            sharded_p.copy_(
-                distribute_tensor(
-                    p,
-                    device_mesh=sharded_p.device_mesh,
-                    placements=sharded_p.placements,
-                )
-            )
-        return result
-
-    @staticmethod
-    def _grouped_view(grouper):
-        """Return the dense 2-D view represented by ``grouper``."""
-        full = grouper.p.full_tensor() if _is_dtensor(grouper.p) else grouper.p
-        grouper_name = type(grouper).__name__
-        if grouper_name == "ElemGrouper":
-            view = full.reshape(-1, 1)
-        elif grouper_name == "LayerGrouper":
-            view = full.reshape(1, -1)
-        elif getattr(grouper, "in_dims", 0) == 1 and full.dim() == 2:
-            view = full.transpose(0, 1)
-        else:
-            view = full
-        return view, full
-
-    def _run_global_prox_on_group(self, group: dict[str, Any]):
-        """Allocate one sparsity budget across every tensor in ``group``."""
-        prox_map = instantiate_module(
-            f"torchao.prototype.pat.optim.{group['prox_type']}"
-        )(group["reg_lambda"], **self._get_prox_kwargs(group))
-        grouper_cls = instantiate_module(
-            f"torchao.prototype.pat.group.{group['group_type']}"
-        )
-        grouper_kwargs = self._get_grouper_kwargs(group)
-
-        entries = []
-        score_chunks = []
-        for p in group["params"]:
-            if not p.requires_grad:
-                continue
-            state = self.state[p]
-            state["latent"].copy_(p)
-            with grouper_cls(p, **grouper_kwargs) as grouper:
-                if hasattr(grouper, "_pad_size"):
-                    raise ValueError(
-                        "GlobalMinSparsityConstraint does not support padded "
-                        "KElementGrouper groups; choose a k that divides each "
-                        "grouped dimension."
-                    )
-                view, _ = self._grouped_view(grouper)
-                scores = prox_map.score(view).detach()
-            entries.append((p, state, scores, grouper.p.numel()))
-            score_chunks.append(scores)
-
-        if not score_chunks:
-            return 0, 0
-
-        all_scores = torch.cat([scores.reshape(-1) for scores in score_chunks])
-        total_groups = all_scores.numel()
-        n_zero = math.ceil(self._effective_min_sparsity(group) * total_groups)
-        if n_zero <= 0:
-            zero_mask = torch.zeros(
-                total_groups, dtype=torch.bool, device=all_scores.device
-            )
-        elif n_zero >= total_groups:
-            zero_mask = torch.ones(
-                total_groups, dtype=torch.bool, device=all_scores.device
-            )
-        else:
-            _, drop_idx = torch.topk(all_scores, k=n_zero, largest=False, sorted=False)
-            zero_mask = torch.zeros(
-                total_groups, dtype=torch.bool, device=all_scores.device
-            )
-            zero_mask[drop_idx] = True
-
-        group_zeros = 0
-        group_params = 0
-        offset = 0
-        for p, state, scores, numel in entries:
-            n_local = scores.numel()
-            local_zero_idx = zero_mask[offset : offset + n_local].nonzero(
-                as_tuple=True
-            )[0]
-            offset += n_local
-
-            with grouper_cls(p, **grouper_kwargs) as grouper:
-                view, full = self._grouped_view(grouper)
-                zeros = prox_map.zero_groups_(view, local_zero_idx)
-                if _is_dtensor(grouper.p):
-                    grouper.p.copy_(
-                        distribute_tensor(
-                            full,
-                            device_mesh=grouper.p.device_mesh,
-                            placements=grouper.p.placements,
-                        )
-                    )
-            zeros = int(zeros.item()) if torch.is_tensor(zeros) else int(zeros)
-            state["sparsity_frac"] = zeros / numel if numel else 0.0
-            group_zeros += zeros
-            group_params += numel
-
-        return group_zeros, group_params
 
     def should_prune(self, group: dict[str, Any], step: int) -> bool:
         """Run the group's prox map every ``prox_freq`` steps after warmup."""
@@ -667,14 +333,6 @@ class PruneOptimizer(Optimizer):
                 self.base_optimizer.state[p]["latent"] = self._state[p]["latent"]
             del self._state
 
-        init_sigma_reweight, update_tau_reweight = False, False
-        if self.iterative_reweight is not None:
-            init_sigma_reweight = self.num_steps == self.warmup_steps
-            # offset by 1 since we update tau_reweight for the next step's prox map
-            update_tau_reweight = self.iterative_reweight.should_update(
-                self.num_steps + 1
-            )
-
         regularized_params = 0
         regularized_unfactored_size = 0
         dist_is_init = torch.distributed.is_initialized()
@@ -701,9 +359,28 @@ class PruneOptimizer(Optimizer):
                 continue
 
             if group["prox_type"] == "GlobalMinSparsityConstraint":
-                zero_elts, numel = self._run_global_prox_on_group(group)
-                regularized_zeros += zero_elts
-                regularized_params += numel
+                prox_map, grouper_cls, grouper_kwargs, _ = self._build_prox_artifacts(
+                    group
+                )
+                params = [p for p in group["params"] if p.requires_grad]
+                for p in params:
+                    self.state[p]["latent"].copy_(p)
+                global_result = apply_global_prox(
+                    params,
+                    prox_map,
+                    grouper_cls,
+                    grouper_kwargs,
+                    self._effective_min_sparsity(group),
+                )
+                for param_result in global_result.parameters:
+                    state = self.state[param_result.parameter]
+                    state["sparsity_frac"] = (
+                        param_result.zero_elts / param_result.numel
+                        if param_result.numel
+                        else 0.0
+                    )
+                regularized_zeros += global_result.zero_elts
+                regularized_params += global_result.numel
                 continue
 
             prox_map, grouper_cls, grouper_kwargs, prox_kwargs = (
@@ -715,16 +392,20 @@ class PruneOptimizer(Optimizer):
 
                 state = self.state[p]
                 state["latent"].copy_(p)
-                result = self._run_prox_on_param(
-                    p, state, prox_map, grouper_cls, grouper_kwargs, prox_kwargs
+                result = apply_prox_to_param(
+                    p,
+                    prox_map,
+                    grouper_cls,
+                    grouper_kwargs,
+                    prox_kwargs,
+                    sv_count=self._get_sv_count(p, state, grouper_kwargs, prox_kwargs),
                 )
                 if result is None:
                     continue
 
-                zero_elts = result["zero_elts"]
-                group_norm = result["group_norm"]
-                zeros_are_summed = result["zeros_are_summed"]
-                numel = result["numel"]
+                zero_elts = result.zero_elts
+                zeros_are_summed = result.zeros_are_summed
+                numel = result.numel
 
                 if zeros_are_summed:
                     state["sparsity_frac"] = zero_elts / numel
@@ -734,19 +415,14 @@ class PruneOptimizer(Optimizer):
                 if torch.is_tensor(zero_elts):
                     zero_elts = zero_elts.item()
 
-                if self.iterative_reweight is not None:
-                    if init_sigma_reweight:
-                        state["sigma"] = group_norm
-                    if "sigma" in state and update_tau_reweight:
-                        state["tau_reweight"] = self.iterative_reweight(
-                            group_norm, state["sigma"]
-                        )
-
                 if prox_kwargs["is_svd_grouper"]:
-                    unfactored_size = result["unfactored_size"]
+                    assert result.unfactored_size is not None
+                    assert result.matrix_rows is not None
+                    assert result.matrix_cols is not None
+                    unfactored_size = result.unfactored_size
                     n_singular_vals = numel - zero_elts
                     factored_size = (
-                        result["matrix_rows"] + result["matrix_cols"]
+                        result.matrix_rows + result.matrix_cols
                     ) * n_singular_vals
                     group["factored_frac"] = factored_size / unfactored_size
                     if zeros_are_summed:
@@ -802,13 +478,14 @@ class PruneOptimizer(Optimizer):
             for p in group["params"]:
                 if not p.requires_grad:
                     continue
-                self._run_prox_on_param(
+                state = self.state[p]
+                apply_prox_to_param(
                     p,
-                    self.state[p],
                     prox_map,
                     grouper_cls,
                     grouper_kwargs,
                     prox_kwargs,
+                    sv_count=self._get_sv_count(p, state, grouper_kwargs, prox_kwargs),
                 )
 
     @torch._disable_dynamo
