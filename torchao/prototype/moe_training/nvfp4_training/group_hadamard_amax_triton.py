@@ -130,6 +130,8 @@ if torch_version_at_least("2.10.0") and has_triton():
             group_idx,
         )
 
+    # The output buffers start at zero, and repeated atomic_max launches are
+    # idempotent, so autotuning does not need reset_to_zero.
     @triton.autotune(configs=_PERSISTENT_CONFIGS, key=["M", "N"])
     @triton.jit
     def _pergroup_cta_rht_amax_kernel(
@@ -292,9 +294,7 @@ if torch_version_at_least("2.10.0") and has_triton():
             workspace = prepare_for_cuda_graph(
                 A.device, sign_vectors=(tuple(sign_vector),)
             )
-            triton.set_allocator(
-                lambda size, align, stream: workspace[: max(size, 1)]
-            )
+            triton.set_allocator(lambda size, align, stream: workspace[: max(size, 1)])
             try:
                 _pergroup_cta_rht_amax_kernel[(num_tensors * ctas_per_group,)](
                     A,

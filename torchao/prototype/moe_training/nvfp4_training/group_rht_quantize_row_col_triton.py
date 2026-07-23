@@ -193,6 +193,10 @@ if torch_version_at_least("2.10.0") and has_triton():
             raise ValueError(f"{name}.dtype must be torch.float32")
         if not amax.is_cuda or amax.device != device:
             raise ValueError(f"{name} must be on the same device as A")
+        if amax.ndim != 1:
+            raise ValueError(f"{name} must be 1D")
+        if not amax.is_contiguous():
+            raise ValueError(f"{name} must be contiguous")
         if amax.numel() < num_tensors:
             raise ValueError(f"{name} must have at least num_tensors elements")
         return amax
