@@ -108,11 +108,17 @@ class PruneOptimizer(Optimizer):
     @torch._disable_dynamo
     def patch_state_dict(self, state_dict: StateDict) -> None:
         """Fix missing state after calling torch.distributed.checkpoint.load"""
-        for i, group in enumerate(self.regularized_param_groups()):
-            state_group = state_dict["param_groups"][i]
-            for k in ("reg_lambda", "num_steps", "gamma"):
-                if k in state_group:
-                    group[k] = state_group[k]
+        assert len(self.param_groups) == len(state_dict["param_groups"]), (
+            "Expected live and serialized optimizer parameter groups to match"
+        )
+        for group, state_group in zip(
+            self.param_groups, state_dict["param_groups"], strict=True
+        ):
+            if not group.get("prox_type"):
+                continue
+            for key in ("reg_lambda", "num_steps", "gamma"):
+                if key in state_group:
+                    group[key] = state_group[key]
 
     @property
     def num_steps(self) -> int:

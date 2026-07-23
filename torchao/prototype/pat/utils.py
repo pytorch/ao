@@ -13,7 +13,7 @@ from typing import Any, Optional
 import torch
 from torch import nn
 
-from .distributed_utils import _is_main_process
+from .distributed_utils import _is_dtensor, _is_main_process
 
 RE_PREFIX = ":"
 
@@ -134,13 +134,24 @@ def latent_svd(self, name=""):
 
 
 def insert_svd_modules_(model: nn.Module, optimizer: torch.optim.Optimizer):
-    """Replaces the parameters of the model with their SVD decompositions."""
-    param_set = {
-        p.data_ptr()
+    """Replaces dense parameters with their SVD decompositions.
+
+    DTensor conversion is intentionally unsupported because this function
+    replaces model parameters with dense U/S/Vh tensors and has no placement or
+    mesh policy for the resulting modules.
+    """
+    svd_params = [
+        p
         for group in optimizer.regularized_param_groups()
         for p in group["params"]
         if group["group_type"] == "SVDGrouper"
-    }
+    ]
+    if any(_is_dtensor(p) for p in svd_params):
+        raise TypeError(
+            "insert_svd_modules_ does not support DTensor parameters; convert "
+            "the model to dense parameters before inserting SVD modules."
+        )
+    param_set = {p.data_ptr() for p in svd_params}
 
     def insert_inner_(model):
         for mn, module in model.named_children():

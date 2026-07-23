@@ -24,7 +24,7 @@ from test.prototype.pat.test_common import (
 from torchao.prototype.pat.group import PackedSVDGrouper, SVDGrouper
 from torchao.prototype.pat.optim import MinRankConstraint, PruneOptimizer
 from torchao.prototype.pat.optim.prox_executor import apply_prox, apply_prox_to_param
-from torchao.prototype.pat.utils import get_param_groups
+from torchao.prototype.pat.utils import get_param_groups, insert_svd_modules_
 
 
 class TestMinRankConstraintApply(common_utils.TestCase):
@@ -183,6 +183,46 @@ class TestMinRankDTensor(DistributedTestMixin, common_utils.TestCase):
         self.assertEqual(sv_count.item(), 4)
         singular_values = torch.linalg.svdvals(p.full_tensor().to(torch.float32))
         self.assertEqual(int((singular_values > 1e-5).sum().item()), 4)
+
+
+class TestSVDModuleInsertion(DistributedTestMixin, common_utils.TestCase):
+    def test_dense_conversion_preserves_output(self):
+        torch.manual_seed(0)
+        model = torch.nn.Sequential(torch.nn.Linear(8, 8, bias=False))
+        group = {
+            "params": [model[0].weight],
+            "group_type": "SVDGrouper",
+            "prox_type": "MinRankConstraint",
+            "min_sparsity": 0.5,
+        }
+        optimizer = PruneOptimizer(torch.optim.SGD([group], lr=0.0))
+        model[0].weight.grad = torch.zeros_like(model[0].weight)
+        optimizer.step()
+        sample = torch.randn(2, 8)
+        expected = model(sample).detach()
+
+        insert_svd_modules_(model, optimizer)
+
+        self.assertEqual(model(sample), expected)
+
+    def test_dtensor_conversion_is_rejected(self):
+        mesh = self.mesh
+        p = torch.nn.Parameter(
+            distribute_tensor(
+                torch.randn(8, 8),
+                device_mesh=mesh,
+                placements=(Shard(0), Replicate()),
+            )
+        )
+        group = {
+            "params": [p],
+            "group_type": "SVDGrouper",
+            "prox_type": "MinRankConstraint",
+            "min_sparsity": 0.5,
+        }
+        optimizer = PruneOptimizer(torch.optim.SGD([group], lr=0.0))
+        with self.assertRaisesRegex(TypeError, "does not support DTensor parameters"):
+            insert_svd_modules_(torch.nn.Module(), optimizer)
 
 
 class TestProxFreqGate(common_utils.TestCase):
@@ -394,6 +434,7 @@ class TestPackedFactorizationMetrics(common_utils.TestCase):
 common_utils.instantiate_parametrized_tests(TestMinRankConstraintApply)
 common_utils.instantiate_parametrized_tests(TestMinRankWithSVDGrouper)
 common_utils.instantiate_parametrized_tests(TestMinRankDTensor)
+common_utils.instantiate_parametrized_tests(TestSVDModuleInsertion)
 common_utils.instantiate_parametrized_tests(TestProxFreqGate)
 common_utils.instantiate_parametrized_tests(TestProxThroughHeal)
 common_utils.instantiate_parametrized_tests(TestPackedFactorizationMetrics)

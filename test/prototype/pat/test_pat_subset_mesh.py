@@ -10,21 +10,20 @@ import torch
 import torch.distributed as dist
 from torch.distributed.device_mesh import DeviceMesh
 from torch.distributed.tensor import distribute_tensor
-from torch.distributed.tensor.placement_types import Shard
+from torch.distributed.tensor.placement_types import Replicate, Shard
 from torch.testing._internal.common_distributed import MultiProcessTestCase
 from torch.testing._internal.common_utils import run_tests
 
-from torchao.prototype.pat.optim import PruneOptimizer
+from test.prototype.pat.test_common import make_prox_kwargs
+from torchao.prototype.pat.group import Dim0Grouper
+from torchao.prototype.pat.optim import ProxGroupLasso, PruneOptimizer
+from torchao.prototype.pat.optim.prox_executor import apply_prox
 
 
-class TestPATSubsetDeviceMesh(MultiProcessTestCase):
+class _GlooMultiProcessTestCase(MultiProcessTestCase):
     def setUp(self):
         super().setUp()
         self._spawn_processes()
-
-    @property
-    def world_size(self):
-        return 3
 
     def _init_process_group(self):
         store = dist.FileStore(self.file_name, self.world_size)
@@ -35,6 +34,12 @@ class TestPATSubsetDeviceMesh(MultiProcessTestCase):
             world_size=self.world_size,
             timeout=timedelta(seconds=60),
         )
+
+
+class TestPATSubsetDeviceMesh(_GlooMultiProcessTestCase):
+    @property
+    def world_size(self):
+        return 3
 
     @staticmethod
     def _step(optimizer, params):
@@ -118,6 +123,42 @@ class TestPATSubsetDeviceMesh(MultiProcessTestCase):
             self.assertGreater(records[1]["sv_metric"], 0)
             self.assertEqual(records[1]["global_zero_rows"], 8)
             self.assertEqual(records[1]["global_metric"], 0.5)
+        finally:
+            if dist.is_initialized():
+                dist.destroy_process_group()
+
+
+class TestPATReplicatedPlacement(_GlooMultiProcessTestCase):
+    @property
+    def world_size(self):
+        return 4
+
+    def test_replicated_mesh_dimension_does_not_duplicate_counts(self):
+        self._init_process_group()
+        try:
+            mesh = DeviceMesh("cpu", [[0, 1], [2, 3]])
+            full = torch.cat([torch.full((4, 4), 0.1), torch.full((4, 4), 2.0)])
+            dense = full.clone()
+            zero_dense, norm_dense, _ = apply_prox(
+                Dim0Grouper(dense),
+                ProxGroupLasso(reg_lambda=0.5),
+                dense,
+                **make_prox_kwargs(gamma=1.0),
+            )
+
+            dtensor = distribute_tensor(full.clone(), mesh, (Shard(0), Replicate()))
+            zero_dtensor, norm_dtensor, _ = apply_prox(
+                Dim0Grouper(dtensor),
+                ProxGroupLasso(reg_lambda=0.5),
+                dtensor,
+                **make_prox_kwargs(gamma=1.0),
+            )
+
+            self.assertEqual(zero_dense, 16)
+            self.assertEqual(zero_dtensor, zero_dense)
+            self.assertEqual(norm_dtensor.placements, (Shard(0), Replicate()))
+            self.assertEqual(norm_dtensor.full_tensor(), norm_dense)
+            self.assertEqual(dtensor.full_tensor(), dense)
         finally:
             if dist.is_initialized():
                 dist.destroy_process_group()

@@ -356,6 +356,34 @@ class TestMinSparsitySchedule(common_utils.TestCase):
         with self.assertRaises(AssertionError):
             self._make_optimizer(True, warmup=2, healing=sys.maxsize, target=0.5)
 
+    def test_patch_state_dict_with_interleaved_unregularized_group(self):
+        unregularized = torch.nn.Parameter(torch.randn(2, 2))
+        regularized = torch.nn.Parameter(torch.randn(4, 4))
+        groups = [
+            {"params": [unregularized]},
+            {
+                "params": [regularized],
+                "group_type": "Dim0Grouper",
+                "prox_type": "MinSparsityConstraint",
+                "min_sparsity": 0.5,
+            },
+        ]
+        optimizer = PruneOptimizer(torch.optim.SGD(groups, lr=0.1))
+        state_dict = optimizer.state_dict()
+        state_dict["param_groups"][0].update(
+            {"reg_lambda": 11.0, "gamma": 12.0, "num_steps": 13}
+        )
+        state_dict["param_groups"][1].update(
+            {"reg_lambda": 21.0, "gamma": 22.0, "num_steps": 23}
+        )
+
+        optimizer.patch_state_dict(state_dict)
+
+        self.assertNotIn("gamma", optimizer.param_groups[0])
+        self.assertEqual(optimizer.param_groups[1]["reg_lambda"], 21.0)
+        self.assertEqual(optimizer.param_groups[1]["gamma"], 22.0)
+        self.assertEqual(optimizer.param_groups[1]["num_steps"], 23)
+
     def test_resume_via_patch_state_dict(self):
         """Drive opt_a forward with real step() calls, snapshot via state_dict(),
         then load_state_dict() + patch_state_dict() into a fresh opt_b and

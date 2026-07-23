@@ -102,11 +102,19 @@ def _apply_prox_dtensor(grouper, prox_map, p, gamma, gamma_in_dims):
         else grouper.p
     )
 
+    zero_out_placements = tuple(
+        Partial() if placement.is_shard() else placement
+        for placement in p_in_placements
+    )
+    group_norm_out_placements = tuple(
+        Shard(0) if placement.is_shard() else placement for placement in p_in_placements
+    )
+
     zero_elts_per_group, group_norm = local_map(
         local_fn,
         out_placements=(
-            (Partial(),) * p.device_mesh.ndim,
-            (Shard(0),) * p.device_mesh.ndim,
+            zero_out_placements,
+            group_norm_out_placements,
         ),
         in_placements=(
             p_in_placements,
