@@ -134,6 +134,9 @@ def apply_prox(
     contract: zero element count, group norm, and whether the zero count is
     already globally summed.
     """
+    if _is_dtensor(p) and p.device_mesh.get_coordinate() is None:
+        return 0, p.to_local().new_zeros(()), True
+
     gamma = prox_kwargs["gamma"]
     zeros_are_summed = False
     with grouper:
@@ -210,40 +213,42 @@ def apply_prox_to_param(
     """Apply a prox map to one parameter, including SVD synchronization."""
     sharded_p = None
     prox_p = p
-    if _is_dtensor(p) and prox_kwargs["is_svd_grouper"]:
-        sharded_p = p
-        prox_p = p.full_tensor()
-
-    result = None
-    if sharded_p is None or sharded_p.device_mesh.get_rank() == 0:
-        grouper = grouper_cls(prox_p, **grouper_kwargs)
-        zero_elts, group_norm, zeros_are_summed = apply_prox(
-            grouper,
-            prox_map,
-            prox_p,
-            sv_count=sv_count,
-            **prox_kwargs,
-        )
-        result = ProxResult(
-            zero_elts=zero_elts,
-            group_norm=group_norm,
-            zeros_are_summed=zeros_are_summed,
-            numel=grouper.p.numel(),
-        )
+    if _is_dtensor(p):
+        if p.device_mesh.get_coordinate() is None:
+            return None
         if prox_kwargs["is_svd_grouper"]:
-            result.matrix_rows = grouper.U.size(-2)
-            result.matrix_cols = grouper.Vh.size(-1)
-            result.unfactored_size = prox_p.numel()
+            sharded_p = p
+            prox_p = p.full_tensor()
+
+    grouper = grouper_cls(prox_p, **grouper_kwargs)
+    zero_elts, group_norm, zeros_are_summed = apply_prox(
+        grouper,
+        prox_map,
+        prox_p,
+        sv_count=sv_count,
+        **prox_kwargs,
+    )
+    result = ProxResult(
+        zero_elts=zero_elts,
+        group_norm=group_norm,
+        zeros_are_summed=zeros_are_summed,
+        numel=grouper.p.numel(),
+    )
+    if prox_kwargs["is_svd_grouper"]:
+        result.matrix_rows = grouper.U.size(-2)
+        result.matrix_cols = grouper.Vh.size(-1)
+        result.unfactored_size = prox_p.numel()
 
     if sharded_p is not None:
-        torch.distributed.barrier()
-        if isinstance(sv_count, Tensor):
-            torch.distributed.broadcast(sv_count, src=0)
+        # Every mesh participant materializes the same full tensor and applies
+        # the deterministic SVD/prox locally. Reshard from each rank's local
+        # result to avoid WORLD collectives and global-rank-0 assumptions.
         sharded_p.copy_(
             distribute_tensor(
                 prox_p,
                 device_mesh=sharded_p.device_mesh,
                 placements=sharded_p.placements,
+                src_data_rank=None,
             )
         )
     return result
@@ -290,6 +295,22 @@ def apply_global_prox(
         raise NotImplementedError(
             f"Unsupported materialization policy: {materialization_policy}"
         )
+
+    dtensor_params = [p for p in params if _is_dtensor(p)]
+    if dtensor_params:
+        if len(dtensor_params) != len(params):
+            raise ValueError(
+                "GlobalMinSparsityConstraint cannot mix dense tensors and "
+                "DTensors in one optimizer parameter group."
+            )
+        first_mesh = dtensor_params[0].device_mesh
+        if any(p.device_mesh != first_mesh for p in dtensor_params[1:]):
+            raise ValueError(
+                "GlobalMinSparsityConstraint requires all DTensors in an "
+                "optimizer parameter group to use the same DeviceMesh."
+            )
+        if first_mesh.get_coordinate() is None:
+            return GlobalProxResult(parameters=(), zero_elts=0, numel=0)
 
     with contextlib.ExitStack() as stack:
         entries = []

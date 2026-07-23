@@ -194,6 +194,8 @@ class PruneOptimizer(Optimizer):
     def _get_sv_count(p, state, grouper_kwargs, prox_kwargs):
         if not prox_kwargs["is_svd_grouper"]:
             return None
+        if _is_dtensor(p) and p.device_mesh.get_coordinate() is None:
+            return None
         npack = grouper_kwargs.get("npack", 1)
         return state.setdefault(
             "sv_count", torch.zeros(npack, dtype=torch.int, device=p.device)
@@ -465,7 +467,12 @@ class PruneOptimizer(Optimizer):
                 regularized_factored_size_buf
             )
 
-        if _is_main_process() and all_groups_ran:
+        if all_groups_ran and (
+            regularized_params > 0 or regularized_unfactored_size > 0
+        ):
+            # DTensor subset-mesh participants compute complete metrics locally;
+            # ranks outside the mesh have no processed parameters and retain
+            # their previous values instead of publishing zeros.
             self.relative_sparsity = (
                 regularized_zeros / regularized_params
                 if regularized_params > 0

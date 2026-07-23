@@ -264,6 +264,34 @@ class TestGlobalMinSparsityOptimizer(common_utils.TestCase):
 class TestGlobalMinSparsityDTensor(DistributedTestMixin, common_utils.TestCase):
     """PAT CI exercises the DTensor API at world size one, not true multi-rank."""
 
+    def test_rejects_mixed_dense_and_dtensor_group(self):
+        dense = torch.randn(8, 4)
+        dtensor = distribute_tensor(
+            torch.randn(8, 4), self.mesh, [Shard(0)] * self.mesh.ndim
+        )
+        prox = GlobalMinSparsityConstraint(0.0, 0.5)
+        with self.assertRaisesRegex(ValueError, "cannot mix dense tensors"):
+            apply_global_prox([dense, dtensor], prox, Dim0Grouper, {}, min_sparsity=0.5)
+
+    def test_nonparticipant_skips_before_grouping(self):
+        dtensor = distribute_tensor(
+            torch.randn(8, 4), self.mesh, [Shard(0)] * self.mesh.ndim
+        )
+        prox = GlobalMinSparsityConstraint(0.0, 0.5)
+        with (
+            mock.patch.object(dtensor.device_mesh, "get_coordinate", return_value=None),
+            mock.patch(
+                "torchao.prototype.pat.optim.prox_executor.grouped_view",
+                side_effect=AssertionError("unexpected grouped view"),
+            ),
+        ):
+            result = apply_global_prox(
+                [dtensor], prox, Dim0Grouper, {}, min_sparsity=0.5
+            )
+        self.assertEqual(result.parameters, ())
+        self.assertEqual(result.zero_elts, 0)
+        self.assertEqual(result.numel, 0)
+
     def test_two_dtensors_match_dense_result(self):
         torch.manual_seed(0)
         a = torch.randn(8, 4) * 10.0
