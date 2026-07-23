@@ -18,6 +18,7 @@ from parameterized import parameterized
 from torch._dynamo import config
 from torch._inductor.utils import run_and_get_code
 from torch.testing import FileCheck
+from torch.testing._internal.common_cuda import SM80OrLater
 
 import torchao
 from torchao.quantization import safe_int_mm
@@ -293,6 +294,7 @@ class PythonQuantUtilOpUnitTest(unittest.TestCase):
         torch.testing.assert_close(y_ref, y_opt, atol=0, rtol=0)
 
     @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
+    @unittest.skipIf(not SM80OrLater, "Need Ampere or newer (SM 8.0+)")
     def test__int_mm_eager_and_torch_compile_numerics(self):
         def __int_mm_ref(x, w):
             x = x.cpu().to(torch.int32)
@@ -881,6 +883,7 @@ class TestBenchmarkModel(unittest.TestCase):
         return benchmark_model(m_bf16, num_runs, example_inputs)
 
     @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
+    @unittest.skipIf(not SM80OrLater, "Need Ampere or newer (SM 8.0+)")
     def test_benchmark_model_cuda(self):
         device = get_current_accelerator_device()
         assert self.run_benchmark_model(device) is not None
