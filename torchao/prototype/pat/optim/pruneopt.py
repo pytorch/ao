@@ -147,14 +147,11 @@ class PruneOptimizer(Optimizer):
         elif group["prox_type"] in (
             "MinSparsityConstraint",
             "MinRankConstraint",
-            "GlobalMinSparsityConstraint",
         ):
             assert "min_sparsity" in group, (
                 f"{group['prox_type']} requires 'min_sparsity' in prune config"
             )
             prox_kwargs["min_sparsity"] = self._effective_min_sparsity(group)
-            if group["prox_type"] == "GlobalMinSparsityConstraint":
-                prox_kwargs["score_type"] = group.get("score_type", "rms")
         return prox_kwargs
 
     def _effective_min_sparsity(self, group: dict[str, Any]) -> float:
@@ -202,15 +199,33 @@ class PruneOptimizer(Optimizer):
             "sv_count", torch.zeros(npack, dtype=torch.int, device=p.device)
         )
 
+    def _build_group_artifacts(self, group: dict[str, Any]):
+        grouper_cls = instantiate_module(
+            f"torchao.prototype.pat.group.{group['group_type']}"
+        )
+        return grouper_cls, self._get_grouper_kwargs(group)
+
+    def _build_global_prox_artifacts(self, group: dict[str, Any]):
+        """Build global prox artifacts without resolving the scheduled budget."""
+        assert "min_sparsity" in group, (
+            "GlobalMinSparsityConstraint requires 'min_sparsity' in prune config"
+        )
+        prox_map = instantiate_module(
+            f"torchao.prototype.pat.optim.{group['prox_type']}"
+        )(
+            group["reg_lambda"],
+            min_sparsity=group["min_sparsity"],
+            score_type=group.get("score_type", "rms"),
+        )
+        grouper_cls, grouper_kwargs = self._build_group_artifacts(group)
+        return prox_map, grouper_cls, grouper_kwargs
+
     def _build_prox_artifacts(self, group: dict[str, Any]):
         """Build the prox and grouper objects shared by pruning and healing."""
         prox_map = instantiate_module(
             f"torchao.prototype.pat.optim.{group['prox_type']}"
         )(group["reg_lambda"], **self._get_prox_kwargs(group))
-        grouper_cls = instantiate_module(
-            f"torchao.prototype.pat.group.{group['group_type']}"
-        )
-        grouper_kwargs = self._get_grouper_kwargs(group)
+        grouper_cls, grouper_kwargs = self._build_group_artifacts(group)
         prox_kwargs = {
             "gamma": group["gamma"],
             "gamma_index_slope": group.get("gamma_index_slope", 0.0),
@@ -359,8 +374,8 @@ class PruneOptimizer(Optimizer):
                 continue
 
             if group["prox_type"] == "GlobalMinSparsityConstraint":
-                prox_map, grouper_cls, grouper_kwargs, _ = self._build_prox_artifacts(
-                    group
+                prox_map, grouper_cls, grouper_kwargs = (
+                    self._build_global_prox_artifacts(group)
                 )
                 params = [p for p in group["params"] if p.requires_grad]
                 for p in params:

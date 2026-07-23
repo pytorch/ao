@@ -303,6 +303,13 @@ def apply_global_prox(
                     "grouped dimension."
                 )
             view, full = grouped_view(grouper)
+            if view.dim() != 2:
+                raise ValueError(
+                    "GlobalMinSparsityConstraint requires a grouper that produces "
+                    "a 2-D (n_groups, group_size) view; "
+                    f"{type(grouper).__name__} produced shape {tuple(view.shape)} "
+                    f"for parameter shape {tuple(p.shape)}."
+                )
             scores = prox_map.score(view).detach()
             entries.append((p, grouper, view, full, scores, grouper.p.numel()))
             score_chunks.append(scores)

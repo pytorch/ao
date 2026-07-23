@@ -156,86 +156,42 @@ class TestApplyProxVmap(DistributedTestMixin, common_utils.TestCase):
         torch.manual_seed(42)
 
     @common_utils.parametrize(
-        "GrouperCls,placements,prox_cls",
+        "GrouperCls,placements,prox_cls,requires_redistribution",
         [
-            # Placement-mismatch cases: DTensor sharded on a dim that does not
-            # match grouper.in_dims, exercising the redistribute + write-back
-            # path in _apply_prox_dtensor (e.g. FSDP2 Shard(0) + Dim1Grouper).
-            (Dim1Grouper, (Shard(0), Replicate()), ProxLasso),
-            (Dim1Grouper, (Shard(0), Replicate()), ProxGroupLasso),
-            (Dim0Grouper, (Shard(1), Replicate()), ProxLasso),
-            (Dim0Grouper, (Shard(1), Replicate()), ProxGroupLasso),
+            (Dim0Grouper, (Shard(0), Replicate()), ProxLasso, False),
+            (Dim1Grouper, (Shard(1), Replicate()), ProxLasso, False),
+            (Dim0Grouper, (Shard(0), Replicate()), ProxGroupLasso, False),
+            (Dim1Grouper, (Shard(1), Replicate()), ProxGroupLasso, False),
+            (Dim1Grouper, (Shard(0), Replicate()), ProxLasso, True),
+            (Dim1Grouper, (Shard(0), Replicate()), ProxGroupLasso, True),
+            (Dim0Grouper, (Shard(1), Replicate()), ProxLasso, True),
+            (Dim0Grouper, (Shard(1), Replicate()), ProxGroupLasso, True),
         ],
     )
-    def test_dtensor_placement_mismatch_writes_back(
-        self, GrouperCls, placements, prox_cls
+    def test_dtensor_matches_regular(
+        self, GrouperCls, placements, prox_cls, requires_redistribution
     ):
-        """DTensor _apply_prox propagates in-place sparsity updates when
-        parameter placements differ from grouper's required p_in_placements.
-        Regression test for silent sparsity drop on local_map redistribute.
-        """
-        reg_lambda = 0.5
-        gamma = 2.0
-        prox_map = prox_cls(reg_lambda)
-
         p_regular = torch.randn(4, 6)
         p_dtensor = distribute_tensor(
             p_regular.clone(), device_mesh=self.mesh, placements=placements
         )
+        prox_map = prox_cls(reg_lambda=0.5)
+        prox_kwargs = make_prox_kwargs(gamma=2.0)
 
-        # Run regular tensor path
-        grouper_reg = GrouperCls(p_regular)
-        prox_kwargs = make_prox_kwargs(gamma)
-        zero_reg, group_norm_reg, summed_reg = apply_prox(
-            grouper_reg, prox_map, p_regular, **prox_kwargs
+        zero_reg, _, summed_reg = apply_prox(
+            GrouperCls(p_regular), prox_map, p_regular, **prox_kwargs
+        )
+        zero_dt, _, summed_dt = apply_prox(
+            GrouperCls(p_dtensor), prox_map, p_dtensor, **prox_kwargs
         )
 
-        # Run DTensor path with mismatched placements. Without write-back,
-        # p_dtensor.full_tensor() would still hold the pre-prox values.
-        grouper_dt = GrouperCls(p_dtensor)
-        zero_dt, group_norm_dt, summed_dt = apply_prox(
-            grouper_dt, prox_map, p_dtensor, **prox_kwargs
+        self.assertEqual(
+            requires_redistribution, placements[0].dim != GrouperCls(p_regular).in_dims
         )
-
         self.assertTrue(summed_reg)
         self.assertTrue(summed_dt)
         self.assertEqual(zero_reg, zero_dt)
-        # Mutation must be visible on the original DTensor.
-        self.assertEqual(p_regular, p_dtensor.full_tensor())
-
-    @common_utils.parametrize(
-        "GrouperCls,placements,prox_cls",
-        [
-            (Dim0Grouper, (Shard(0), Replicate()), ProxLasso),
-            (Dim1Grouper, (Shard(1), Replicate()), ProxLasso),
-            (Dim0Grouper, (Shard(0), Replicate()), ProxGroupLasso),
-            (Dim1Grouper, (Shard(1), Replicate()), ProxGroupLasso),
-        ],
-    )
-    def test_dtensor_matches_regular(self, GrouperCls, placements, prox_cls):
-        reg_lambda = 0.5
-        gamma = 2.0
-        prox_map = prox_cls(reg_lambda)
-
-        p_regular = torch.randn(4, 6)
-        p_dtensor = distribute_tensor(
-            p_regular.clone(), device_mesh=self.mesh, placements=placements
-        )
-
-        grouper_reg = GrouperCls(p_regular)
-        prox_kwargs = make_prox_kwargs(gamma)
-        zero_reg, group_norm_reg, summed_reg = apply_prox(
-            grouper_reg, prox_map, p_regular, **prox_kwargs
-        )
-
-        grouper_dt = GrouperCls(p_dtensor)
-        zero_dt, group_norm_dt, summed_dt = apply_prox(
-            grouper_dt, prox_map, p_dtensor, **prox_kwargs
-        )
-
-        self.assertTrue(summed_reg)
-        self.assertTrue(summed_dt)
-        self.assertEqual(zero_reg, zero_dt)
+        # Mismatch rows regress the explicit redistribute + write-back path.
         self.assertEqual(p_regular, p_dtensor.full_tensor())
 
     @common_utils.parametrize(

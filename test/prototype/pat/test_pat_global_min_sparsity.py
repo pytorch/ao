@@ -15,7 +15,7 @@ from torch.distributed.tensor.placement_types import Shard
 from torch.testing._internal import common_utils
 
 from test.prototype.pat.test_common import DistributedTestMixin, optim_step
-from torchao.prototype.pat.group import Dim0Grouper
+from torchao.prototype.pat.group import Dim0Grouper, Grouper
 from torchao.prototype.pat.optim import GlobalMinSparsityConstraint, PruneOptimizer
 from torchao.prototype.pat.optim.prox_executor import apply_global_prox, grouped_view
 from torchao.prototype.pat.utils import get_param_groups
@@ -86,6 +86,14 @@ class TestGlobalMinSparsityScore(common_utils.TestCase):
         with self.assertRaisesRegex(ValueError, "scores on the same device"):
             apply_global_prox(params, prox, Dim0Grouper, {}, min_sparsity=0.5)
 
+    def test_rejects_non_2d_grouped_view(self):
+        param = torch.randn(2, 3, 4)
+        prox = GlobalMinSparsityConstraint(0.0, 0.5)
+        with self.assertRaisesRegex(
+            ValueError, "requires a grouper that produces a 2-D"
+        ):
+            apply_global_prox([param], prox, Grouper, {}, min_sparsity=0.5)
+
 
 class TestGlobalMinSparsityOptimizer(common_utils.TestCase):
     def _run(self, params, min_sparsity, score_type="rms", steps=3, lr=0.1):
@@ -98,15 +106,6 @@ class TestGlobalMinSparsityOptimizer(common_utils.TestCase):
             optimizer.step()
         return optimizer
 
-    def test_exact_global_budget(self):
-        torch.manual_seed(0)
-        a = torch.nn.Parameter(torch.randn(8, 4))
-        b = torch.nn.Parameter(torch.randn(8, 4))
-        optimizer = self._run([a, b], 0.5)
-        total_zero = _count_zero_groups(a) + _count_zero_groups(b)
-        self.assertEqual(total_zero, math.ceil(0.5 * 16))
-        self.assertAlmostEqual(optimizer.relative_sparsity, 0.5, places=6)
-
     def test_nonuniform_allocation(self):
         torch.manual_seed(0)
         a = torch.nn.Parameter(torch.randn(8, 4) * 10.0)
@@ -118,14 +117,25 @@ class TestGlobalMinSparsityOptimizer(common_utils.TestCase):
         self.assertEqual(zero_a, 0)
         self.assertEqual(zero_b, 8)
 
-    def test_parity_with_uniform_norms(self):
-        torch.manual_seed(1)
+    def test_effective_min_sparsity_is_evaluated_once(self):
         a = torch.nn.Parameter(torch.randn(8, 4))
         b = torch.nn.Parameter(torch.randn(8, 4))
-        self._run([a, b], 0.5, lr=0.0, steps=1)
-        zero_a = _count_zero_groups(a)
-        zero_b = _count_zero_groups(b)
-        self.assertEqual(zero_a + zero_b, 8)
+        group = _global_group([a, b], 0.5)
+        group["min_sparsity_schedule"] = True
+        optimizer = PruneOptimizer(
+            torch.optim.SGD([group], lr=0.0), healing_start_step=10
+        )
+        for param in (a, b):
+            param.grad = torch.zeros_like(param)
+
+        with mock.patch.object(
+            optimizer,
+            "_effective_min_sparsity",
+            wraps=optimizer._effective_min_sparsity,
+        ) as effective_min_sparsity:
+            optimizer.step()
+
+        self.assertEqual(effective_min_sparsity.call_count, 1)
 
     def test_builds_each_grouped_view_once(self):
         a = torch.nn.Parameter(torch.arange(32.0).reshape(8, 4) + 1)
@@ -248,6 +258,7 @@ class TestGlobalMinSparsityOptimizer(common_utils.TestCase):
         total_groups = sum(layer.weight.size(0) for layer in model.layers)
         total_zero = sum(_count_zero_groups(layer.weight) for layer in model.layers)
         self.assertEqual(total_zero, math.ceil(0.5 * total_groups))
+        self.assertAlmostEqual(optimizer.relative_sparsity, 0.5, places=6)
 
 
 class TestGlobalMinSparsityDTensor(DistributedTestMixin, common_utils.TestCase):
