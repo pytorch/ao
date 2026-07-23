@@ -3969,5 +3969,6 @@ class TestConstantFold(unittest.TestCase):
         torch.testing.assert_close(folded_out, -torch.arange(4.0))
         torch.testing.assert_close(live_out, torch.ones(4) + torch.arange(4.0))
 
+
 if __name__ == "__main__":
     run_tests()
