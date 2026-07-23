@@ -49,6 +49,15 @@ class TestKElementGrouper(common_utils.TestCase):
         self.assertEqual(p.shape, orig_shape)
         torch.testing.assert_close(p.data, orig_data)
 
+    def test_noncontiguous_padded_write_back(self):
+        p = torch.arange(30.0).reshape(2, 3, 5).transpose(1, 2)
+        self.assertFalse(p.is_contiguous())
+
+        with KElementGrouper(p, k=4) as grouper:
+            grouper.p.zero_()
+
+        self.assertTrue(p.eq(0).all())
+
     @common_utils.parametrize(
         "shape,k",
         [
