@@ -54,6 +54,13 @@ from torchao.prototype.moe_training.kernels.mxfp8 import (
     triton_mx_block_rearrange_2d_M_groups,
     triton_mx_block_rearrange_per_group_3d,
 )
+from torchao.prototype.moe_training.kernels.mxfp8.cutedsl_pad_token_groups import (
+    pad_token_groups_cutedsl,
+    unpad_token_groups_cutedsl,
+)
+from torchao.prototype.moe_training.kernels.mxfp8.cutedsl_rearrange_2d_m_groups import (
+    mx_block_rearrange_2d_m_groups_cutedsl,
+)
 from torchao.prototype.moe_training.kernels.mxfp8.quant import (
     _mxfp8_cuda_kernels_available,
     _mxfp8_cutedsl_kernels_available,
@@ -68,7 +75,7 @@ from torchao.prototype.moe_training.utils import (
 )
 from torchao.prototype.mx_formats.kernels import triton_mx_block_rearrange
 from torchao.prototype.mx_formats.mx_tensor import ScaleCalculationMode, to_mx
-from torchao.prototype.mx_formats.utils import from_blocked
+from torchao.prototype.mx_formats.utils import from_blocked, to_blocked
 from torchao.testing.utils import skip_if_rocm
 
 
@@ -267,6 +274,64 @@ def test_triton_mx_block_rearrange_2d_M_groups(
     assert torch.allclose(ref_out_scales, triton_out_scales, atol=0, rtol=0), (
         "blocked scales not equal"
     )
+
+
+@pytest.mark.skipif(
+    not _is_sm_10x(),
+    reason="MXFP8 requires CUDA SM 10.x",
+)
+@pytest.mark.skipif(
+    not _mxfp8_cutedsl_kernels_available,
+    reason="MXFP8 cutedsl kernels not available",
+)
+@skip_if_rocm("ROCm enablement in progress")
+@pytest.mark.parametrize(
+    "scale_rows,scale_cols,n_groups",
+    [
+        (256, 37, 8),
+        (256, 45, 8),
+        (512, 64, 8),
+        (1024, 224, 8),
+        (1024, 512, 8),
+        (1024, 1025, 8),
+    ],
+)
+def test_cutedsl_mx_block_rearrange_2d_M_groups(
+    scale_rows: int,
+    scale_cols: int,
+    n_groups: int,
+):
+    device = "cuda"
+    block_size = 32
+    e8m0_scales = torch.randint(
+        0,
+        255,
+        (scale_rows, scale_cols),
+        device=device,
+        dtype=torch.uint8,
+    ).view(torch.float8_e8m0fnu)
+    input_group_offsets = generate_jagged_offs(
+        n_groups, scale_rows, multiple_of=block_size, device=device
+    )
+
+    padded_cols = ((scale_cols + 3) // 4) * 4
+    ref_out_scales = e8m0_scales.new_zeros((scale_rows + n_groups * 128, padded_cols))
+    input_group_start = 0
+    output_group_start = 0
+    for input_group_end in input_group_offsets.tolist():
+        group_scales = e8m0_scales[input_group_start:input_group_end]
+        group_rows_padded = ((group_scales.shape[0] + 127) // 128) * 128
+        ref_out_scales[output_group_start : output_group_start + group_rows_padded] = (
+            to_blocked(group_scales).view(-1, padded_cols)
+        )
+        input_group_start = input_group_end
+        output_group_start += group_rows_padded
+
+    cutedsl_out_scales = mx_block_rearrange_2d_m_groups_cutedsl(
+        e8m0_scales,
+        input_group_offsets,
+    )
+    assert torch.equal(ref_out_scales, cutedsl_out_scales), "blocked scales not equal"
 
 
 @pytest.mark.skipif(
@@ -819,6 +884,78 @@ def test_cuda_fused_unpad_token_groups(
     assert torch.allclose(inputs, kernel_unpadded_tokens, rtol=0, atol=1e-5), (
         "Unpadded tokens should match original inputs"
     )
+
+
+@pytest.mark.skipif(
+    not _mxfp8_cutedsl_kernels_available,
+    reason="MXFP8 cutedsl kernels not available",
+)
+@skip_if_rocm("ROCm enablement in progress")
+@pytest.mark.parametrize("num_tokens", [128, 157, 4096])
+@pytest.mark.parametrize("dim", [32, 7168])
+@pytest.mark.parametrize("num_groups", [1, 8])
+@pytest.mark.parametrize("alignment_size", [32])
+@pytest.mark.parametrize("dtype", [torch.bfloat16])
+def test_cutedsl_pad_token_groups(
+    num_tokens: int, dim: int, num_groups: int, alignment_size: int, dtype: torch.dtype
+):
+    device = "cuda"
+    inputs = torch.randn(num_tokens, dim, dtype=dtype, device=device)
+    group_offsets = generate_jagged_offs(
+        num_groups, num_tokens, multiple_of=1, device=device
+    )
+
+    ref_padded_tokens, ref_start_offsets, ref_end_offsets = torch_pad_token_groups(
+        inputs, group_offsets, alignment_size
+    )
+    cutedsl_padded_tokens, cutedsl_start_offsets, cutedsl_end_offsets = (
+        pad_token_groups_cutedsl(inputs, group_offsets, alignment_size)
+    )
+
+    assert torch.equal(ref_padded_tokens, cutedsl_padded_tokens)
+    assert torch.equal(ref_start_offsets, cutedsl_start_offsets)
+    assert torch.equal(ref_end_offsets, cutedsl_end_offsets)
+
+
+@pytest.mark.skipif(
+    not _mxfp8_cutedsl_kernels_available,
+    reason="MXFP8 cutedsl kernels not available",
+)
+@skip_if_rocm("ROCm enablement in progress")
+@pytest.mark.parametrize("num_tokens", [128, 157, 4096])
+@pytest.mark.parametrize("dim", [32, 7168])
+@pytest.mark.parametrize("num_groups", [1, 8])
+@pytest.mark.parametrize("alignment_size", [32])
+@pytest.mark.parametrize("dtype", [torch.bfloat16])
+def test_cutedsl_unpad_token_groups(
+    num_tokens: int, dim: int, num_groups: int, alignment_size: int, dtype: torch.dtype
+):
+    device = "cuda"
+    inputs = torch.randn(num_tokens, dim, dtype=dtype, device=device)
+    group_offsets = generate_jagged_offs(
+        num_groups, num_tokens, multiple_of=1, device=device
+    )
+    padded_tokens, padded_group_start_offsets, _ = torch_pad_token_groups(
+        inputs, group_offsets, alignment_size
+    )
+
+    ref_unpadded_tokens = torch_unpad_token_groups(
+        padded_tokens,
+        group_offsets,
+        padded_group_start_offsets,
+        num_tokens,
+        alignment_size,
+    )
+    cutedsl_unpadded_tokens = unpad_token_groups_cutedsl(
+        padded_tokens,
+        group_offsets,
+        padded_group_start_offsets,
+        num_tokens,
+        alignment_size,
+    )
+
+    assert torch.equal(ref_unpadded_tokens, cutedsl_unpadded_tokens)
+    assert torch.equal(inputs, cutedsl_unpadded_tokens)
 
 
 @pytest.mark.parametrize("round_scales_to_power_of_2", [True, False])
