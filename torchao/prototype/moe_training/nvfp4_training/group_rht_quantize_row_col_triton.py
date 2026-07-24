@@ -47,19 +47,25 @@ if torch_version_at_least("2.10.0") and has_triton():
 
     # BLOCK_M/BLOCK_N are held at 128 (group offsets are only 128-aligned, so a
     # larger row tile could straddle two experts and apply the wrong amax). Only
-    # num_warps/num_stages are autotuned; the shipped default (w8/s3) is in the set,
-    # so autotune never regresses. Measured ~1.4x from num_warps=4 (register-heavy
-    # quantize body over-subscribes at 8 warps). Body is straight-line (no tl.range),
-    # so num_stages is purely the launch-time pipeliner and the grid is unaffected.
+    # num_stages is autotuned; num_warps is pinned at 4 because the register-heavy
+    # quantize body over-subscribes at 8 warps. num_warps=8 is also M-dependent
+    # (sweep: ~tied at small M but +42% at large M), and since M is dropped from
+    # the autotune key a single config is cached across all M, so an 8-warp win at
+    # a small first-seen M would silently poison large-M steps. The remaining
+    # num_stages 2/3/4 are within ~4% across all M. Body is straight-line (no
+    # tl.range), so num_stages is purely the launch-time pipeliner.
     _GROUP_QUANTIZE_CONFIGS: list[triton.Config] = [
-        triton.Config({}, num_warps=nw, num_stages=ns)
-        for ns in (2, 3, 4)
-        for nw in (4, 8)
+        triton.Config({}, num_warps=4, num_stages=ns) for ns in (2, 3, 4)
     ]
 
+    # M (total packed token count) is intentionally excluded from the key: the
+    # body is straight-line per 128x128 tile, so M only sets the grid size, not
+    # the per-tile num_warps/num_stages optimum. Keying on M would re-benchmark
+    # every step under variable token counts (and break CUDA-graph capture on a
+    # cold key), for no config gain. Sweep-validated stable across M at fixed N.
     @triton.autotune(
         configs=_GROUP_QUANTIZE_CONFIGS,
-        key=["M", "N", "STOCHASTIC_ROUNDING"],
+        key=["N", "STOCHASTIC_ROUNDING"],
     )
     @triton.jit
     def _group_rht_quantize_row_col_kernel(

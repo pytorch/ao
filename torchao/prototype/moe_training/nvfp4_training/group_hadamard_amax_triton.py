@@ -132,7 +132,12 @@ if torch_version_at_least("2.10.0") and has_triton():
 
     # The output buffers start at zero, and repeated atomic_max launches are
     # idempotent, so autotuning does not need reset_to_zero.
-    @triton.autotune(configs=_PERSISTENT_CONFIGS, key=["M", "N"])
+    # M (total packed token count) is excluded from the key: the winning tile
+    # shape / num_warps / num_stages tracks per-tile occupancy (a function of N),
+    # not the total tile count, so keying on M would re-benchmark every step under
+    # variable token counts (and break CUDA-graph capture on a cold key) for no
+    # config gain. Sweep-validated stable across M at fixed N.
+    @triton.autotune(configs=_PERSISTENT_CONFIGS, key=["N"])
     @triton.jit
     def _pergroup_cta_rht_amax_kernel(
         a_ptr,
