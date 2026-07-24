@@ -42,18 +42,12 @@ class KernelPreference(str, Enum):
     """
 
     TRITON = "triton"
-    """Use pure-triton RHT + stochastic rounding kernels already in TorchAO.
-    Full NVFP4 training recipe: RHT on forward activations,
-    stochastic rounding + RHT on backward gradients.
-    Requires bfloat16 input; M, K, N all divisible by 128.
+    """Use quantize and quantized mm kernels written in Triton, requires triton
     """
 
     CUTEDSL = "cutedsl"
-    """Use CuTeDSL kernels for the full NVFP4-training quantize path: RHT amax,
-    forward RTNE quantize, stochastic-rounding backward quantize, and the 2D
-    weight quantize (no Triton fallback).
-    Requires SM100 (Blackwell) and bfloat16 input; M divisible by 256, K by 128,
-    and N (out_features) by 256.
+    """Use quantize and quantized mm kernels written in CuTeDSL, requires the
+    nvidia-cutlass-dsl library
     """
 
 
