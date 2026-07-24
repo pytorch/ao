@@ -7,6 +7,11 @@ from torch.utils._triton import has_triton
 from benchmarks.prototype.nvfp4_training.deepseek_v3_shapes import (
     get_deepseek_v3_weight_shapes,
 )
+from torchao.prototype.mx_formats.nvfp4_tensor import (
+    nvfp4_quantize,
+    per_tensor_amax_to_scale,
+)
+from torchao.prototype.mx_formats.utils import to_blocked
 from torchao.utils import is_sm_at_least_100, torch_version_at_least
 
 if has_triton() and is_sm_at_least_100() and torch_version_at_least("2.10.0"):
@@ -53,6 +58,46 @@ def test_group_quantize_2d_matches_independent_experts(shape):
     for output_idx, grouped_output in enumerate(actual):
         expected = torch.stack([outputs[output_idx] for outputs in expected_by_expert])
         torch.testing.assert_close(grouped_output, expected, atol=0, rtol=0)
+
+
+@requires_grouped_kernel
+@torch.no_grad()
+def test_group_quantize_2d_matches_torch_oracle():
+    """Rowwise codes and scales match nvfp4_quantize on aligned 16x16 blocks."""
+    torch.manual_seed(42)
+    E, M, N = 2, 128, 256
+    weights = torch.randn(
+        (E, M // 16, N), dtype=torch.bfloat16, device="cuda"
+    ).repeat_interleave(16, dim=1)
+    global_amax = weights.float().abs().amax(dim=(1, 2))
+
+    actual_codes, actual_scales, _, _ = triton_group_weight_quantize_2d(
+        weights, global_amax, num_tensors=E
+    )
+
+    for expert in range(E):
+        expected_scales, expected_codes = nvfp4_quantize(
+            weights[expert],
+            per_tensor_scale=per_tensor_amax_to_scale(global_amax[expert]),
+        )
+        expected_scales = to_blocked(expected_scales).view_as(actual_scales[expert])
+        torch.testing.assert_close(
+            actual_scales[expert], expected_scales, atol=0, rtol=0
+        )
+        actual_unpacked = torch.stack(
+            (actual_codes[expert] & 0xF, actual_codes[expert] >> 4), dim=-1
+        )
+        expected_unpacked = torch.stack(
+            (expected_codes & 0xF, expected_codes >> 4), dim=-1
+        )
+        torch.testing.assert_close(
+            actual_unpacked >> 3, expected_unpacked >> 3, atol=0, rtol=0
+        )
+        magnitude_diff = (
+            (actual_unpacked & 0x7).to(torch.int16)
+            - (expected_unpacked & 0x7).to(torch.int16)
+        ).abs()
+        assert magnitude_diff.max().item() <= 1
 
 
 @requires_grouped_kernel

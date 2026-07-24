@@ -27,6 +27,9 @@ if has_triton() and is_sm_at_least_100() and torch_version_at_least("2.10.0"):
     from torchao.prototype.moe_training.nvfp4_training.hadamard_amax_triton import (
         triton_rht_amax,
     )
+    from torchao.prototype.moe_training.nvfp4_training.hadamard_utils import (
+        get_rht_matrix,
+    )
 
 _HARDCODED_SIGN_VECTOR = (
     1,
@@ -100,11 +103,25 @@ def test_group_rht_amax_matches_per_group_kernel_bitwise():
     device = torch.device("cuda", 0)
     groups = (128, 256)
     hidden_size = 256
-    A, offsets, _ = _build_packed(groups, hidden_size, device, seed=223)
+    A, offsets, group_tensors = _build_packed(groups, hidden_size, device, seed=223)
 
     expected_col, expected_row = _group_rht_amax_reference(
         A, offsets, len(groups), _HARDCODED_SIGN_VECTOR
     )
+    rht = get_rht_matrix(
+        _HARDCODED_SIGN_VECTOR, device, torch.bfloat16, len(_HARDCODED_SIGN_VECTOR)
+    )
+    torch_col = torch.stack(
+        [
+            (A_g.t().reshape(-1, 16) @ rht)
+            .to(torch.bfloat16)
+            .abs()
+            .amax()
+            .float()
+            for A_g in group_tensors
+        ]
+    )
+    torch_row = torch.stack([A_g.abs().amax().float() for A_g in group_tensors])
 
     actual_col, actual_row = triton_group_rht_amax(
         A,
@@ -118,6 +135,8 @@ def test_group_rht_amax_matches_per_group_kernel_bitwise():
 
     assert torch.equal(actual_col, expected_col)
     assert torch.equal(actual_row, expected_row)
+    torch.testing.assert_close(actual_col, torch_col, atol=0, rtol=0)
+    torch.testing.assert_close(actual_row, torch_row, atol=0, rtol=0)
 
 
 @_maybe_sm100
