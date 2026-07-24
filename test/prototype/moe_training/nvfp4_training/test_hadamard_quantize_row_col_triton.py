@@ -51,7 +51,6 @@ if has_triton() and is_sm_at_least_100() and torch_version_at_least("2.10.0"):
 _M_VALUES = [128, 160, 256, 512]
 # N must be ≥ 128 (BLOCK_N fixed=128). N=100 excluded.
 _N_VALUES = [128, 200, 256, 384, 512, 1024]
-_FP8_E4M3_EPS = torch.finfo(torch.float8_e4m3fn).tiny
 _NEAR_ZERO = 1.0e-10
 _HARDCODED_SIGN_VECTOR = (
     1,
@@ -175,23 +174,25 @@ def _quantize_row_col(
     return col_codes, col_sf, row_codes, row_sf, col_amax, row_amax
 
 
-def _unpack_fp4_magnitudes(codes: torch.Tensor) -> torch.Tensor:
-    lo = (codes & 0xF).long()
-    hi = (codes >> 4).long()
-    out = torch.empty(
-        codes.shape[0], codes.shape[1] * 2, dtype=torch.long, device=codes.device
+def _assert_scales_adjacent(got: torch.Tensor, ref: torch.Tensor, label: str) -> None:
+    """Kernel uses TE-exact div_rn for the per-vector scale; the mx_formats
+    reference multiplies by a reciprocal and applies an E4M3_EPS floor. The two
+    agree mathematically, so fp8 scale bytes are equal or land on adjacent
+    representable values (|Δ raw uint8| <= 1, since positive e4m3 bytes are
+    magnitude-monotonic)."""
+    got_b = got.flatten().contiguous().view(torch.uint8).to(torch.int16)
+    ref_b = ref.flatten().contiguous().view(torch.uint8).to(torch.int16)
+    assert got_b.shape == ref_b.shape, f"{label}: shape mismatch"
+    diff = (got_b - ref_b).abs()
+    assert (diff <= 1).all(), (
+        f"{label}: {(diff > 1).sum().item()}/{diff.numel()} fp8 scale bytes "
+        f"differ by >1 ULP (max {diff.max().item()})"
     )
-    out[:, ::2] = lo
-    out[:, 1::2] = hi
-    return out & 0x7
 
 
-def _assert_scales_finite_and_nonzero(scales: torch.Tensor) -> None:
+def _assert_scales_finite(scales: torch.Tensor) -> None:
     scales_f32 = scales.to(torch.float32)
     assert torch.isfinite(scales_f32).all(), "scale factors must be finite"
-    assert (scales_f32 >= _FP8_E4M3_EPS).all(), (
-        f"scale factors must be clamped to at least {_FP8_E4M3_EPS}"
-    )
 
 
 def _assert_zero_quantized(
@@ -201,25 +202,16 @@ def _assert_zero_quantized(
 ) -> None:
     assert torch.count_nonzero(codes).item() == 0, "all-zero input must pack to zero"
     scales_f32 = scales.to(torch.float32)
+    # TE emits a zero per-vector scale for zero/near-zero vectors (no lower clamp).
     torch.testing.assert_close(
         scales_f32,
-        torch.full_like(scales_f32, _FP8_E4M3_EPS),
+        torch.zeros_like(scales_f32),
         atol=0,
         rtol=0,
     )
     assert torch.isfinite(dequantized).all(), "dequantized zero input must be finite"
     torch.testing.assert_close(
         dequantized, torch.zeros_like(dequantized), atol=0, rtol=0
-    )
-
-
-def _assert_near_zero_values_do_not_saturate(
-    codes: torch.Tensor, near_zero_mask: torch.Tensor
-) -> None:
-    magnitudes = _unpack_fp4_magnitudes(codes)
-    near_zero_magnitudes = magnitudes[near_zero_mask]
-    assert (near_zero_magnitudes <= 1).all(), (
-        "near-zero values must not saturate to large FP4 magnitudes"
     )
 
 
@@ -262,14 +254,16 @@ def test_triton_rht_amax_propagates_nan():
 @pytest.mark.parametrize("M", _M_VALUES, ids=lambda m: f"M{m}")
 @torch.no_grad()
 def test_triton_rht_quantize_rtne_scales_vs_reference(M, N):
-    """FP8 scale factors must match the PyTorch reference bitwise.
+    """FP8 scale factors must match the PyTorch reference within 1 fp8 ULP.
 
     Columnwise: RHT + quantize of A.T. Rowwise: quantize raw A.
 
-    Note: packed FP4 codes are NOT checked bitwise — the kernel uses an approximate
-    reciprocal (rcp.approx.f32, ≤2 ULP) while the reference uses correctly-rounded
-    div.rn.f32, causing ~0.2% nibble differences at FP4 midpoints. Use the SQNR
-    test for quantization quality validation.
+    The kernel computes the per-vector scale with TE-exact correctly-rounded
+    division (tl.div_rn) and no lower clamp, while the mx_formats reference uses a
+    reciprocal multiply and an E4M3_EPS floor. The two agree mathematically, so the
+    fp8 scale bytes are equal or adjacent. Packed FP4 codes are NOT checked bitwise
+    (the encode-scale reciprocal causes ~0.2% nibble differences at FP4 midpoints);
+    use the SQNR test for quantization-quality validation.
     """
     if M % 128 != 0 or N % 128 != 0:
         pytest.skip("swizzled scales require M % 128 == 0 and N % 128 == 0")
@@ -288,15 +282,11 @@ def test_triton_rht_quantize_rtne_scales_vs_reference(M, N):
     )
 
     # Columnwise scale check
-    torch.testing.assert_close(
-        tri_col_sf.flatten(), to_blocked(ref_col_sf), atol=0, rtol=0
-    )
+    _assert_scales_adjacent(tri_col_sf, to_blocked(ref_col_sf), "col scale")
 
     # Rowwise scale check
     _, ref_row_sf, _ = _rht_quantize_rowwise_reference(A)
-    torch.testing.assert_close(
-        tri_row_sf.flatten(), to_blocked(ref_row_sf), atol=0, rtol=0
-    )
+    _assert_scales_adjacent(tri_row_sf, to_blocked(ref_row_sf), "row scale")
 
 
 @pytest.mark.skipif(not has_triton(), reason="unsupported without triton")
@@ -375,31 +365,25 @@ def test_triton_rht_quantize_row_col_zero_and_near_zero_no_nan_or_saturation(
     A_row = torch.full((M, N), _NEAR_ZERO, dtype=torch.bfloat16, device="cuda")
     A_row[0, 0] = 1.0
     _, _, row_codes, row_sf, _, row_amax = _quantize_row_col(A_row, stochastic_rounding)
-    _assert_scales_finite_and_nonzero(row_sf)
+    _assert_scales_finite(row_sf)
     row_dequant = _dequantize(row_codes, row_sf, row_amax)
     assert torch.isfinite(row_dequant).all(), (
         "rowwise dequantized values must be finite"
     )
+    # No lower scale clamp (TE semantics): near-zero blocks flush to a zero scale,
+    # so their dequantized output is zero and cannot saturate.
     assert row_dequant.abs().max() <= 1.0
-
-    row_near_zero_mask = torch.ones(M, N, dtype=torch.bool, device="cuda")
-    row_near_zero_mask[0, 0] = False
-    _assert_near_zero_values_do_not_saturate(row_codes, row_near_zero_mask)
 
     col_target = torch.full((N, M), _NEAR_ZERO, dtype=torch.float32, device="cuda")
     col_target[0, 0] = 1.0
     A_col = _input_from_rht_target(col_target)
     col_codes, col_sf, _, _, col_amax, _ = _quantize_row_col(A_col, stochastic_rounding)
-    _assert_scales_finite_and_nonzero(col_sf)
+    _assert_scales_finite(col_sf)
     col_dequant = _dequantize(col_codes, col_sf, col_amax)
     assert torch.isfinite(col_dequant).all(), (
         "colwise dequantized values must be finite"
     )
     assert col_dequant.abs().max() <= 1.0
-
-    col_near_zero_mask = torch.ones(N, M, dtype=torch.bool, device="cuda")
-    col_near_zero_mask[0, 0] = False
-    _assert_near_zero_values_do_not_saturate(col_codes, col_near_zero_mask)
 
 
 # ---------------------------------------------------------------------------

@@ -148,3 +148,41 @@ Run environment: NVIDIA GB200, PyTorch 2.13.0a0+git1f19af4, Triton 3.7.0.
 | Llama 3 8B | mlp.down input | 2048 | 14336 | 123.616 | 742.221 |
 | Llama 3 70B | hidden-state input | 2048 | 8192 | 78.304 | 669.555 |
 | Llama 3 70B | mlp.down input | 2048 | 28672 | 232.160 | 790.407 |
+
+## Grouped 2D Quantize Benchmark
+
+Benchmarks the dense-expert grouped kernel on BF16 weights shaped `(E, M, N)`.
+The timed region launches a three-dimensional grid over M tiles, N tiles, and
+experts; global-amax reduction and output allocation are excluded.
+
+```bash
+python -m benchmarks.prototype.nvfp4_training.bench_group_quantize_2d
+```
+
+The benchmark reports median kernel runtime and effective bandwidth including
+the BF16 input read plus rowwise and transposed FP4 codes and scale writes.
+
+## Grouped DeepSeek-V3 Shape Sets
+
+The grouped amax, 1D row+column quantization, and 2D weight quantization
+benchmarks share TorchTitan's `debugmodel`, `16B`, `236B`, and `671B` expert
+shapes. Each model runs `w1/w3` as `(E, moe_hidden_dim, dim)` and `w2` as
+`(E, dim, moe_hidden_dim)`.
+
+```bash
+python -m benchmarks.prototype.nvfp4_training.bench_group_hadamard_amax
+python -m benchmarks.prototype.nvfp4_training.bench_group_rht_quantize_row_col \
+  --rounding rtne
+python -m benchmarks.prototype.nvfp4_training.bench_group_quantize_2d
+```
+
+| Model | Global E | EP | Local E/GPU | dim | moe_hidden_dim |
+|---|---:|---:|---:|---:|---:|
+| debugmodel | 8 | 1 | 8 | 256 | 256 |
+| 16B | 64 | 8 | 8 | 2048 | 1408 |
+| 236B | 160 | 8 (assumed) | 20 | 5120 | 1536 |
+| 671B | 256 | 2 | 128 | 7168 | 2048 |
+
+EP degrees come from TorchTitan's registered training recipes except for 236B,
+which has model dimensions but no registered trainer recipe; its EP=8 value is
+an explicit one-node assumption.
