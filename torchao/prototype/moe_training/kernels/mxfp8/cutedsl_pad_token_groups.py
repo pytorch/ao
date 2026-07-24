@@ -15,6 +15,7 @@ def _compile_copy_token_groups_cutedsl(
     element_size: int,
     is_pad: bool,
     row_bytes_aligned: bool,
+    alignment_size: int,
 ):
     import cuda.bindings.driver as cuda
     import cutlass
@@ -25,6 +26,8 @@ def _compile_copy_token_groups_cutedsl(
     ELEMENT_SIZE = element_size
     IS_PAD = is_pad
     ROW_BYTES_ALIGNED = row_bytes_aligned
+    ALIGNMENT_SIZE = alignment_size
+    ALIGNMENT_MASK = alignment_size - 1
     VEC_ELEMS = 16 // ELEMENT_SIZE
     WARP_SIZE = 32
     WARPS_PER_BLOCK = 8
@@ -76,8 +79,9 @@ def _compile_copy_token_groups_cutedsl(
                 group_end = cutlass.Int32((group_end_offsets.iterator + g).load())
                 group_size = group_end - previous
                 padded_size = (
-                    (group_size + cutlass.Int32(31)) // cutlass.Int32(32)
-                ) * cutlass.Int32(32)
+                    (group_size + cutlass.Int32(ALIGNMENT_MASK))
+                    // cutlass.Int32(ALIGNMENT_SIZE)
+                ) * cutlass.Int32(ALIGNMENT_SIZE)
                 if g < group:
                     cumulative = cumulative + padded_size
                 previous = group_end
@@ -97,8 +101,9 @@ def _compile_copy_token_groups_cutedsl(
                 group_end = cutlass.Int32((group_end_offsets.iterator + group).load())
                 group_size = group_end - group_start
                 padded_size = (
-                    (group_size + cutlass.Int32(31)) // cutlass.Int32(32)
-                ) * cutlass.Int32(32)
+                    (group_size + cutlass.Int32(ALIGNMENT_MASK))
+                    // cutlass.Int32(ALIGNMENT_SIZE)
+                ) * cutlass.Int32(ALIGNMENT_SIZE)
                 padded_start = self._padded_start(group, group_end_offsets)
                 (padded_group_start_offsets.iterator + group).store(padded_start)
                 (padded_group_end_offsets.iterator + group).store(
@@ -169,8 +174,9 @@ def _compile_copy_token_groups_cutedsl(
                             )
                             group_size = group_end - previous
                             padded_size = (
-                                (group_size + cutlass.Int32(31)) // cutlass.Int32(32)
-                            ) * cutlass.Int32(32)
+                                (group_size + cutlass.Int32(ALIGNMENT_MASK))
+                                // cutlass.Int32(ALIGNMENT_SIZE)
+                            ) * cutlass.Int32(ALIGNMENT_SIZE)
                             if row < group_end:
                                 group_start = previous
                                 padded_start = cumulative
@@ -323,7 +329,7 @@ def pad_token_groups_cutedsl(
     assert group_end_offsets.ndim == 1
     assert group_end_offsets.is_cuda
     assert group_end_offsets.dtype == torch.int32
-    assert alignment_size == 32
+    assert alignment_size in (32, 128)
     num_tokens, dim = inputs.shape
     num_groups = group_end_offsets.shape[0]
     assert num_groups <= 32
@@ -351,6 +357,7 @@ def pad_token_groups_cutedsl(
         inputs.element_size(),
         True,
         dim * inputs.element_size() % 16 == 0,
+        alignment_size,
     )
     import cuda.bindings.driver as cuda
 
@@ -386,7 +393,7 @@ def unpad_token_groups_cutedsl(
     assert padded_group_start_offsets.ndim == 1
     assert padded_group_start_offsets.is_cuda
     assert padded_group_start_offsets.dtype == torch.int32
-    assert alignment_size == 32
+    assert alignment_size in (32, 128)
     dim = padded_inputs.shape[1]
     num_groups = group_end_offsets.shape[0]
     assert num_groups <= 32
@@ -400,6 +407,7 @@ def unpad_token_groups_cutedsl(
         padded_inputs.element_size(),
         False,
         dim * padded_inputs.element_size() % 16 == 0,
+        alignment_size,
     )
     import cuda.bindings.driver as cuda
 
