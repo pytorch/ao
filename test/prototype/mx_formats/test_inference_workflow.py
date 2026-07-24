@@ -17,6 +17,7 @@ from torchao.prototype.mx_formats.inference_workflow import (
     NVFP4DynamicActivationNVFP4WeightConfig,
     NVFP4WeightOnlyConfig,
 )
+from torchao.prototype.mx_formats.mx_tensor import MXTensor, ScaleCalculationMode
 from torchao.prototype.mx_formats.nvfp4_tensor import NVFP4Tensor
 from torchao.quantization import quantize_
 from torchao.quantization.quantize_.common import KernelPreference
@@ -445,8 +446,9 @@ def test_grouped_mm_nvfp4():
         NVFP4DynamicActivationNVFP4WeightConfig(
             use_triton_kernel=False,
         ),
-        filter_fn=lambda mod, *args: isinstance(mod, GroupedMMModel)
-        and hasattr(mod, "weight"),
+        filter_fn=lambda mod, *args: (
+            isinstance(mod, GroupedMMModel) and hasattr(mod, "weight")
+        ),
     )
     assert isinstance(model.weight, NVFP4Tensor), (
         f"Expected NVFP4Tensor weight, got {type(model.weight)}"
@@ -462,6 +464,84 @@ def test_grouped_mm_nvfp4():
     y = model(x, offs)
     y_sqnr = compute_error(y_ref, y)
     assert y_sqnr > 15.0
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+@pytest.mark.skipif(not is_sm_at_least_100(), reason="Need sm100+")
+@pytest.mark.parametrize(
+    "E,K,N,m_per_group",
+    [
+        (4, 128, 256, [32, 64, 16, 48]),
+        (8, 256, 512, [16, 16, 16, 16, 16, 16, 16, 16]),
+    ],
+)
+@pytest.mark.parametrize(
+    "kernel_preference",
+    [KernelPreference.EMULATED, KernelPreference.AUTO],
+)
+@pytest.mark.parametrize(
+    "scaling_mode",
+    [ScaleCalculationMode.FLOOR, ScaleCalculationMode.RCEIL],
+)
+@pytest.mark.parametrize(
+    "elem_dtype",
+    [
+        torch.float8_e4m3fn,
+        torch.float4_e2m1fn_x2,
+    ],
+)
+@torch.no_grad()
+def test_grouped_mm_mx_dynamic_activation(
+    E, K, N, m_per_group, kernel_preference, scaling_mode, elem_dtype
+):
+    """Test MXDynamicActivationMXWeightConfig with grouped_mm dispatch."""
+    device = torch.accelerator.current_accelerator()
+    use_swizzled = device.type == "cuda"
+    dtype = torch.bfloat16
+    total_m = sum(m_per_group)
+
+    model_ref = GroupedMMModel(E, K, N, device=device, dtype=dtype)
+    model = copy.deepcopy(model_ref)
+
+    x = torch.randn(total_m, K, device=device, dtype=dtype)
+    offs = torch.tensor(
+        [sum(m_per_group[: i + 1]) for i in range(E)],
+        device=device,
+        dtype=torch.int32,
+    )
+
+    y_ref = model_ref(x, offs)
+
+    config = MXDynamicActivationMXWeightConfig(
+        activation_dtype=elem_dtype,
+        weight_dtype=elem_dtype,
+        kernel_preference=kernel_preference,
+        scaling_mode=scaling_mode,
+        is_swizzled_scales=use_swizzled,
+    )
+    quantize_(
+        model,
+        config,
+        filter_fn=lambda mod, fqn: (
+            isinstance(mod, GroupedMMModel) and hasattr(mod, "weight")
+        ),
+    )
+
+    assert isinstance(model.weight, MXTensor)
+
+    # FP4 has lower precision than FP8: use dtype-appropriate thresholds
+    is_fp4 = elem_dtype == torch.float4_e2m1fn_x2
+    w_sqnr_threshold = 13.0 if is_fp4 else 18.0
+    y_sqnr_threshold = 12.0 if is_fp4 else 15.0
+
+    w_sqnr = compute_error(
+        model_ref.weight, model.weight.dequantize(model.weight.orig_dtype)
+    )
+    assert w_sqnr > w_sqnr_threshold, f"Weight SQNR too low: {w_sqnr:.2f}"
+
+    y = model(x, offs)
+    y_sqnr = compute_error(y_ref, y)
+    assert y_sqnr > y_sqnr_threshold, f"Output SQNR too low: {y_sqnr:.2f}"
 
 
 class BatchedMMModel(nn.Module):
@@ -505,8 +585,9 @@ def test_bmm_nvfp4():
         NVFP4DynamicActivationNVFP4WeightConfig(
             use_triton_kernel=False,
         ),
-        filter_fn=lambda mod, *args: isinstance(mod, BatchedMMModel)
-        and hasattr(mod, "weight"),
+        filter_fn=lambda mod, *args: (
+            isinstance(mod, BatchedMMModel) and hasattr(mod, "weight")
+        ),
     )
     assert isinstance(model.weight, NVFP4Tensor), (
         f"Expected NVFP4Tensor weight, got {type(model.weight)}"
