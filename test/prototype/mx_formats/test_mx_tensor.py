@@ -572,6 +572,131 @@ def test_clone():
     )
 
 
+@pytest.mark.parametrize("elem_dtype", SUPPORTED_ELEM_DTYPES)
+@pytest.mark.parametrize(
+    "shapes,dim",
+    [
+        (((4, 64), (8, 64)), 0),
+        (((4, 64), (4, 96)), 1),
+        (((4, 64), (4, 96)), -1),
+        (((2, 4, 64), (3, 4, 64)), 0),
+        (((2, 4, 64), (2, 4, 32)), -1),
+    ],
+)
+def test_cat(elem_dtype, shapes, dim):
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    block_size = 32
+    tensors_hp = [
+        torch.randn(*shape, device=device, dtype=torch.bfloat16) for shape in shapes
+    ]
+    tensors_mx = [MXTensor.to_mx(t, elem_dtype, block_size) for t in tensors_hp]
+
+    res = torch.cat(tensors_mx, dim=dim)
+    assert isinstance(res, MXTensor)
+
+    # since every input contributes whole blocks, the concatenation is exact
+    res_ref = torch.cat([t.dequantize() for t in tensors_mx], dim=dim)
+    torch.testing.assert_close(res.dequantize(), res_ref, atol=0, rtol=0)
+
+
+def test_cat_unsupported():
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    block_size = 32
+    x_hp = torch.randn(64, 64, device=device, dtype=torch.bfloat16)
+
+    # the scaled dim of a transposed MXTensor is not last
+    x_mx_t = MXTensor.to_mx(x_hp, torch.float8_e4m3fn, block_size).t()
+    with pytest.raises(AssertionError, match="not yet supported"):
+        torch.cat([x_mx_t, x_mx_t], dim=0)
+
+    x_mx_swizzled = MXTensor.to_mx(
+        x_hp, torch.float8_e4m3fn, block_size, is_swizzled_scales=True
+    )
+    with pytest.raises(AssertionError, match="swizzled"):
+        torch.cat([x_mx_swizzled, x_mx_swizzled], dim=0)
+
+
+@pytest.mark.parametrize("elem_dtype", SUPPORTED_ELEM_DTYPES)
+@pytest.mark.parametrize("dim", [0, -1])
+def test_split(elem_dtype, dim):
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    block_size = 32
+    x_hp = torch.randn(8, 128, device=device, dtype=torch.bfloat16)
+    x_mx = MXTensor.to_mx(x_hp, elem_dtype, block_size)
+    # use a split size which does not evenly divide the dim being split, to
+    # also exercise a smaller last split
+    split_size = 3 if dim == 0 else 96
+
+    if dim == -1 and elem_dtype == torch.float4_e2m1fn_x2:
+        # splitting the packed dim of fp4 qdata creates non-contiguous views,
+        # which `MXTensor.__new__` does not yet handle
+        with pytest.raises(AssertionError, match="packed fp4"):
+            torch.split(x_mx, split_size, dim=dim)
+        return
+
+    res = torch.split(x_mx, split_size, dim=dim)
+    res_ref = torch.split(x_mx.dequantize(), split_size, dim=dim)
+    assert len(res) == len(res_ref)
+    for chunk, chunk_ref in zip(res, res_ref):
+        assert isinstance(chunk, MXTensor)
+        assert chunk.shape == chunk_ref.shape
+        # blocks are preserved intact, so the split is exact. Note:
+        # `dequantize` does not yet support non-contiguous qdata (also true
+        # for the output of `aten.slice` along the last dim today), so
+        # make the chunk contiguous first
+        torch.testing.assert_close(
+            chunk.contiguous().dequantize(), chunk_ref, atol=0, rtol=0
+        )
+
+
+def test_split_unsupported():
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    block_size = 32
+    x_hp = torch.randn(8, 128, device=device, dtype=torch.bfloat16)
+    x_mx = MXTensor.to_mx(x_hp, torch.float8_e4m3fn, block_size)
+
+    # split size not aligned with block boundaries on the scaled dim
+    with pytest.raises(AssertionError, match="multiple of"):
+        torch.split(x_mx, 16, dim=-1)
+
+    # the scaled dim of a transposed MXTensor is not last
+    with pytest.raises(AssertionError, match="not yet supported"):
+        torch.split(x_mx.t(), 32, dim=0)
+
+    x_mx_swizzled = MXTensor.to_mx(
+        torch.randn(64, 64, device=device, dtype=torch.bfloat16),
+        torch.float8_e4m3fn,
+        block_size,
+        is_swizzled_scales=True,
+    )
+    with pytest.raises(AssertionError, match="swizzled"):
+        torch.split(x_mx_swizzled, 32, dim=0)
+
+
+@pytest.mark.parametrize("elem_dtype", SUPPORTED_ELEM_DTYPES)
+@pytest.mark.parametrize("dim", [0, -2])
+def test_chunk(elem_dtype, dim):
+    # `torch.chunk(t, n, dim=d)` lands in `aten.split.Tensor` with `dim` in
+    # `kwargs` (the path FSDP2's `_chunk_with_empty` takes)
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    block_size = 32
+    x_hp = torch.randn(8, 4, 64, device=device, dtype=torch.bfloat16)
+    x_mx = MXTensor.to_mx(x_hp, elem_dtype, block_size)
+
+    if dim == -2 and elem_dtype == torch.float4_e2m1fn_x2:
+        # chunking fp4 qdata along a middle dim creates non-contiguous views,
+        # which `MXTensor.__new__` does not yet handle
+        with pytest.raises(AssertionError, match="packed fp4"):
+            torch.chunk(x_mx, 2, dim=dim)
+        return
+
+    chunks = torch.chunk(x_mx, 2, dim=dim)
+    recombined = torch.cat(chunks, dim=dim)
+    torch.testing.assert_close(
+        x_mx.dequantize(), recombined.dequantize(), atol=0, rtol=0
+    )
+
+
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 @pytest.mark.parametrize("elem_dtype", SUPPORTED_ELEM_DTYPES)
 @pytest.mark.parametrize("hp_dtype", [torch.float32, torch.bfloat16])

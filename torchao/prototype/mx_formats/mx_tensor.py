@@ -997,6 +997,125 @@ def mx_select(func, types, args, kwargs):
     return return_and_correct_aliasing(func, args, kwargs, new_mx_tensor)
 
 
+def _has_blocked_last_dim_layout(t: "MXTensor") -> bool:
+    """
+    Returns True if `t.scale` holds one scale per `block_size` elements of
+    the last dim of `t`, with all other dims matching, which is the layout
+    `MXTensor.to_mx` creates. Returns False for other layouts, for example
+    the layout of a transposed MXTensor, where the scaled dim is not last.
+    """
+    if t.qdata.ndim != t.scale.ndim:
+        return False
+    return (
+        t.scale.shape[:-1] == t.shape[:-1]
+        and t.scale.shape[-1] * t.block_size == t.shape[-1]
+    )
+
+
+@implements([aten.cat.default])
+def mx_cat(func, types, args, kwargs):
+    tensors, dim = fill_defaults(args, 2, [[], 0])
+    if "dim" in kwargs:
+        dim = kwargs["dim"]
+    tensor_0 = tensors[0]
+    dim = dim % tensor_0.ndim
+
+    for t in tensors:
+        assert isinstance(t, MXTensor), "unsupported"
+        assert not t.is_swizzled_scales, (
+            "aten.cat with swizzled scales is not yet supported"
+        )
+        assert _has_blocked_last_dim_layout(t), (
+            f"aten.cat with {t.shape=} and {t.scale.shape=} is not yet supported"
+        )
+        assert t.elem_dtype == tensor_0.elem_dtype
+        assert t.block_size == tensor_0.block_size
+        assert t.orig_dtype == tensor_0.orig_dtype
+        assert t.kernel_preference == tensor_0.kernel_preference
+        assert t.act_quant_kwargs == tensor_0.act_quant_kwargs
+
+    # Since each tensor's last dim is a multiple of `block_size`, every input
+    # contributes whole blocks and the concatenation is exact for any `dim`:
+    # for the scaled (last) dim the scale columns of each input stay aligned
+    # with its qdata columns, and for other dims qdata and scale concatenate
+    # in lockstep. Note that for packed fp4 the qdata dim sizes are half of
+    # the corresponding MXTensor dim sizes, which `aten.cat` handles fine.
+    cat_qdata = func([t.qdata for t in tensors], dim)
+    cat_scale = func([t.scale for t in tensors], dim)
+
+    new = MXTensor(
+        cat_qdata,
+        cat_scale,
+        tensor_0.elem_dtype,
+        tensor_0.block_size,
+        tensor_0.orig_dtype,
+        tensor_0.kernel_preference,
+        tensor_0.act_quant_kwargs,
+        tensor_0.is_swizzled_scales,
+    )
+    return return_and_correct_aliasing(func, args, kwargs, new)
+
+
+@implements([aten.split.Tensor])
+def mx_split(func, types, args, kwargs):
+    # `dim` may arrive positionally or as a kwarg depending on the caller
+    # (e.g. `torch.chunk(t, n, dim=d)` keeps it in kwargs).
+    tensor, split_size = args[0], args[1]
+    dim = args[2] if len(args) > 2 else kwargs.get("dim", 0)
+    assert isinstance(split_size, int), "unsupported"
+    assert not tensor.is_swizzled_scales, (
+        "aten.split with swizzled scales is not yet supported"
+    )
+    assert _has_blocked_last_dim_layout(tensor), (
+        f"aten.split with {tensor.shape=} and {tensor.scale.shape=} is not yet supported"
+    )
+    dim = dim % tensor.ndim
+
+    if dim == tensor.ndim - 1:
+        # splitting the scaled dim, require split boundaries to be aligned
+        # with the block boundaries so each split keeps whole blocks
+        assert split_size % tensor.block_size == 0, (
+            f"aten.split along the scaled dim requires {split_size=} to be a "
+            f"multiple of {tensor.block_size=}"
+        )
+        qdata_split_size = split_size
+        if tensor.elem_dtype == torch.float4_e2m1fn_x2:
+            # qdata holds two fp4 values per byte in the last dim
+            qdata_split_size = qdata_split_size // 2
+        scale_split_size = split_size // tensor.block_size
+    else:
+        qdata_split_size = split_size
+        scale_split_size = split_size
+
+    new_qdatas = func(tensor.qdata, qdata_split_size, dim)
+    new_scales = func(tensor.scale, scale_split_size, dim)
+
+    if tensor.elem_dtype == torch.float4_e2m1fn_x2:
+        # `MXTensor.__new__` infers the unpacked fp4x2 size from
+        # `qdata.is_contiguous()`, which is only correct for contiguous qdata
+        # (see the note in `MXTensor.__new__`)
+        assert all(x.is_contiguous() for x in new_qdatas), (
+            "aten.split of a packed fp4 MXTensor is only supported when the "
+            "split outputs are contiguous"
+        )
+
+    new_tensors = []
+    for new_qdata, new_scale in zip(new_qdatas, new_scales):
+        new_tensor = MXTensor(
+            new_qdata,
+            new_scale,
+            tensor.elem_dtype,
+            tensor.block_size,
+            tensor.orig_dtype,
+            tensor.kernel_preference,
+            tensor.act_quant_kwargs,
+            tensor.is_swizzled_scales,
+        )
+        new_tensor = return_and_correct_aliasing(func, args, kwargs, new_tensor)
+        new_tensors.append(new_tensor)
+    return tuple(new_tensors)
+
+
 @implements([torch.ops._c10d_functional.all_gather_into_tensor.default])
 def mx_all_gather(func, types, args, kwargs):
     """
