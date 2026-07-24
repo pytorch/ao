@@ -40,6 +40,8 @@ def generate_model_profile(model, input_data, profile_file_path):
     device = next(model.parameters()).device
     if device.type == "cuda" and torch.cuda.is_available():
         activities.append(ProfilerActivity.CUDA)
+    if device.type == "xpu" and torch.xpu.is_available():
+        activities.append(ProfilerActivity.XPU)
 
     # Warm up
     with torch.no_grad():
@@ -47,6 +49,8 @@ def generate_model_profile(model, input_data, profile_file_path):
             _ = model(input_data)
             if device.type == "cuda":
                 torch.cuda.synchronize()
+            if device.type == "xpu":
+                torch.xpu.synchronize()
 
     # Run profiler with minimal settings to ensure compatibility
     with torch.profiler.profile(
@@ -61,6 +65,8 @@ def generate_model_profile(model, input_data, profile_file_path):
                 _ = model(input_data)
                 if device.type == "cuda":
                     torch.cuda.synchronize()
+                if device.type == "xpu":
+                    torch.xpu.synchronize()
 
     # Save profiling details
     prof.export_chrome_trace(profile_file_path)
@@ -73,7 +79,7 @@ def generate_model_profile(model, input_data, profile_file_path):
 
 
 def generate_memory_profile(model, input_data, profile_file_path):
-    """Function to generate CUDA memory profile.
+    """Function to generate CUDA/XPU memory profile.
 
     Args:
         model: The model to profile
@@ -83,8 +89,18 @@ def generate_memory_profile(model, input_data, profile_file_path):
     Returns:
         str: Path to the saved profile file.
     """
-    if not torch.cuda.is_available():
-        print("Warning: CUDA is not available. Memory profiling requires CUDA.")
+    if torch.cuda.is_available():
+        import torch.cuda as torch_accelerator
+
+        record_memory_enabled = False
+    elif torch.xpu.is_available():
+        import torch.xpu as torch_accelerator
+
+        record_memory_enabled = None
+    else:
+        print(
+            "Warning: CUDA or XPU is not available. Memory profiling requires CUDA or XPU."
+        )
         return None
     if model is None or input_data is None:
         raise ValueError("Model and input_data must not be None.")
@@ -94,33 +110,34 @@ def generate_memory_profile(model, input_data, profile_file_path):
     memory_stats = dict()
 
     try:
-        torch.cuda.empty_cache()
-        torch.cuda.reset_peak_memory_stats()
+        torch_accelerator.empty_cache()
+        torch_accelerator.reset_peak_memory_stats()
 
         # Reset memory history to ensure clean slate
-        torch.cuda.memory._record_memory_history(enabled=False)
-        torch.cuda.memory._record_memory_history(max_entries=100000)
-
+        torch_accelerator.memory._record_memory_history(enabled=record_memory_enabled)
+        torch_accelerator.memory._record_memory_history(max_entries=100000)
         # Warm-up
         with torch.no_grad():
             for _ in range(3):
                 _ = model(input_data)
-                torch.cuda.synchronize()
+                torch_accelerator.synchronize()
 
         for i in range(5):
             try:
                 # Reset again to avoid warm-up effects in final stats
-                torch.cuda.reset_peak_memory_stats()
-                torch.cuda.memory._record_memory_history(enabled=False)
-                torch.cuda.memory._record_memory_history(max_entries=100000)
+                torch_accelerator.reset_peak_memory_stats()
+                torch_accelerator.memory._record_memory_history(
+                    enabled=record_memory_enabled
+                )
+                torch_accelerator.memory._record_memory_history(max_entries=100000)
 
                 # Run actual profiled inference
                 with torch.no_grad():
                     _ = model(input_data)
-                    torch.cuda.synchronize()
+                    torch_accelerator.synchronize()
 
                 # Take memory snapshot after inference and save to temporary pickle file
-                torch.cuda.memory._dump_snapshot(profile_file_path)
+                torch_accelerator.memory._dump_snapshot(profile_file_path)
 
                 if _validate_pickle_file(profile_file_path):
                     print(f"Saved memory profile to {profile_file_path}")
@@ -132,7 +149,7 @@ def generate_memory_profile(model, input_data, profile_file_path):
                 time.sleep(3.0)
 
         # Record memory stats
-        _memory_stats = torch.cuda.memory_stats()
+        _memory_stats = torch_accelerator.memory_stats()
         memory_stats = {
             "allocated_bytes.all.peak": _memory_stats["allocated_bytes.all.peak"] / 1e6,
             "active_bytes.all.peak": _memory_stats["active_bytes.all.peak"] / 1e6,
