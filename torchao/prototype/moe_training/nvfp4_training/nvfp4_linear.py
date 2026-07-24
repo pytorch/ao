@@ -22,11 +22,25 @@ from typing import Optional
 import torch
 import torch.nn.functional as F
 
+from torchao.prototype.moe_training.nvfp4_training.hadamard_amax_cutedsl import (
+    cutedsl_rht_amax,
+)
 from torchao.prototype.moe_training.nvfp4_training.hadamard_amax_triton import (
     triton_rht_amax,
 )
+from torchao.prototype.moe_training.nvfp4_training.hadamard_cutedsl_utils import (
+    CUTEDSL_NVFP4_REQUIREMENTS,
+    cutedsl_nvfp4_kernels_available,
+    cutedsl_nvfp4_unavailable_reason,
+)
+from torchao.prototype.moe_training.nvfp4_training.hadamard_quantize_row_col_cutedsl import (
+    cutedsl_rht_quantize_row_col,
+)
 from torchao.prototype.moe_training.nvfp4_training.hadamard_quantize_row_col_triton import (
     triton_rht_quantize_row_col,
+)
+from torchao.prototype.moe_training.nvfp4_training.quantize_2d_cutedsl import (
+    cutedsl_weight_quantize_2d,
 )
 from torchao.prototype.moe_training.nvfp4_training.quantize_2d_triton import (
     triton_weight_quantize_2d,
@@ -35,15 +49,76 @@ from torchao.prototype.mx_formats.nvfp4_tensor import per_tensor_amax_to_scale
 from torchao.quantization.quantize_.common.kernel_preference import KernelPreference
 
 
-def _triton_weight_quantize_2d(x: torch.Tensor):
-    """Triton 2D NVFP4 weight quantization producing both rowwise and colwise outputs.
+def _rht_amax(x: torch.Tensor, sign_vector_list: list[int], use_cutedsl: bool):
+    """(col_amax, row_amax) global amaxes on the selected backend."""
+    if use_cutedsl:
+        return cutedsl_rht_amax(x, sign_vector_list)
+    return triton_rht_amax(x, sign_vector=sign_vector_list)
+
+
+def _rht_quantize_row_col(
+    x: torch.Tensor,
+    col_amax: torch.Tensor,
+    row_amax: torch.Tensor,
+    sign_vector_list: list[int],
+    use_cutedsl: bool,
+    sr_seed: Optional[torch.Tensor] = None,
+):
+    """Fused columnwise-RHT + rowwise NVFP4 quantize on the selected backend.
+
+    RTNE when sr_seed is None; stochastic rounding otherwise, with fresh offsets
+    drawn from the default CUDA RNG (a first-class CUDA-graph side input — see
+    the nvfp4_mm_triton docstring). CuteDSL derives its col/row streams from a
+    single (seed, offset) base internally; Triton takes separate col/row bases.
+    """
+    if sr_seed is None:
+        if use_cutedsl:
+            return cutedsl_rht_quantize_row_col(x, col_amax, row_amax, sign_vector_list)
+        return triton_rht_quantize_row_col(
+            x,
+            stochastic_rounding=False,
+            sign_vector=sign_vector_list,
+            col_global_amax=col_amax,
+            row_global_amax=row_amax,
+        )
+    offset_col = torch.randint(0, 2**32, (1,), dtype=torch.int64, device=x.device)
+    if use_cutedsl:
+        return cutedsl_rht_quantize_row_col(
+            x,
+            col_amax,
+            row_amax,
+            sign_vector_list,
+            stochastic_rounding=True,
+            seed=sr_seed,
+            offset=offset_col,
+        )
+    offset_row = torch.randint(0, 2**32, (1,), dtype=torch.int64, device=x.device)
+    return triton_rht_quantize_row_col(
+        x,
+        stochastic_rounding=True,
+        sign_vector=sign_vector_list,
+        col_seed_base=sr_seed,
+        row_seed_base=sr_seed ^ 1,
+        col_offset_base=offset_col,
+        row_offset_base=offset_row,
+        col_global_amax=col_amax,
+        row_global_amax=row_amax,
+    )
+
+
+def _weight_quantize_2d(x: torch.Tensor, use_cutedsl: bool):
+    """2D NVFP4 weight quantization producing both rowwise and colwise outputs.
 
     Returns (W_fp4_x2, W_bs, W_gs, Wt_fp4_x2, Wt_sf, W_amax) where:
       W_*  = rowwise quantized x (for forward GEMM)
       Wt_* = colwise quantized x = rowwise quantized x.T (for dgrad GEMM)
+
+    use_cutedsl selects the CuteDSL kernel (plain transpose-quantize via an identity Hadamard)
+    over the Triton 2D weight kernel. Neither path applies RHT or SR.
     """
     global_amax = x.float().abs().max()
-    codes, sf, t_codes, t_sf = triton_weight_quantize_2d(x, global_amax)
+    quantize = cutedsl_weight_quantize_2d if use_cutedsl else triton_weight_quantize_2d
+    codes, sf, t_codes, t_sf = quantize(x, global_amax)
     return (
         codes.view(torch.float4_e2m1fn_x2),
         sf.flatten(),
@@ -81,6 +156,7 @@ class nvfp4_mm_triton(torch.autograd.Function):
         bias: Optional[torch.Tensor],
         sr_seed: torch.Tensor,
         sign_vector: tuple[int, ...] | list[int],
+        use_cutedsl: bool = False,
     ):
         sign_vector = tuple(sign_vector)
         sign_vector_list = list(sign_vector)
@@ -96,20 +172,24 @@ class nvfp4_mm_triton(torch.autograd.Function):
                 f"nvfp4_mm_triton requires M, K, N all divisible by 128; "
                 f"got M={M}, K={K}, N={N}"
             )
+        if use_cutedsl and M % 256 != 0:
+            # The outer M % 128 gate is too coarse for CuteDSL: M=128 reaches the amax
+            # kernel and silently returns zero amaxes.
+            raise ValueError(
+                f"kernel_preference=CUTEDSL requires M divisible by 256, got M={M}"
+            )
+        if use_cutedsl and N % 256 != 0:
+            # The CuteDSL weight quantize maps the weight as (out=N, in=K) into the fused kernel,
+            # whose M tiler needs out_features % 256 (stricter than the Triton weight kernel's %128).
+            raise ValueError(
+                f"kernel_preference=CUTEDSL requires N (out_features) divisible by 256, got N={N}"
+            )
         input_2d = input_hp.reshape(-1, K).contiguous()
 
-        # Compute columnwise and rowwise amaxes before quantization so callers
-        # can all-reduce across TP ranks before passing them in.
-        x_col_amax, x_row_amax = triton_rht_amax(input_2d, sign_vector=sign_vector_list)
-
-        # RHT + columnwise + rowwise quantization of input in one fused kernel.
-        # SR=False in forward — sr_seed value is not consumed here.
-        x_col_codes, x_col_sf, x_row_codes, x_row_sf = triton_rht_quantize_row_col(
-            input_2d,
-            stochastic_rounding=False,
-            sign_vector=sign_vector_list,
-            col_global_amax=x_col_amax,
-            row_global_amax=x_row_amax,
+        # Amaxes are separate ops so TP callers can all-reduce them before quantizing.
+        x_col_amax, x_row_amax = _rht_amax(input_2d, sign_vector_list, use_cutedsl)
+        x_col_codes, x_col_sf, x_row_codes, x_row_sf = _rht_quantize_row_col(
+            input_2d, x_col_amax, x_row_amax, sign_vector_list, use_cutedsl
         )
 
         # Fused weight quantization: rowwise for forward GEMM, colwise saved for dgrad
@@ -120,7 +200,7 @@ class nvfp4_mm_triton(torch.autograd.Function):
             Wt_fp4_x2,
             Wt_sf,
             W_amax,
-        ) = _triton_weight_quantize_2d(weight_hp)
+        ) = _weight_quantize_2d(weight_hp, use_cutedsl)
         x_gs = per_tensor_amax_to_scale(x_row_amax)
 
         output = torch.nn.functional.scaled_mm(
@@ -150,6 +230,7 @@ class nvfp4_mm_triton(torch.autograd.Function):
         ctx.input_orig_shape = input_hp.shape
         ctx.has_bias = bias is not None
         ctx.sign_vector = sign_vector
+        ctx.use_cutedsl = use_cutedsl
         return output
 
     @staticmethod
@@ -165,30 +246,19 @@ class nvfp4_mm_triton(torch.autograd.Function):
         ) = ctx.saved_tensors
         grad_output = grad_output.contiguous()
         grad_output_2d = grad_output.reshape(-1, grad_output.shape[-1])
-        dev = grad_output.device
 
-        # Default CUDA RNG: torch.compile/reduce-overhead advances the default generator
-        # between CUDA graph replays — same mechanism as dropout/randn in CUDA graphs.
-        # Two independent calls give GEMM 2 and GEMM 3 different positions in the RNG stream.
-        offset_rowwise = torch.randint(0, 2**32, (1,), dtype=torch.int64, device=dev)
-        offset_colwise = torch.randint(0, 2**32, (1,), dtype=torch.int64, device=dev)
-
-        # Quantize grad_output for GEMM 2 (dgrad) -- rowwise + sr and GEMM 3 (wgrad) --
-        # colwise rht + sr.
+        # Quantize grad_output with SR for GEMM 2 (dgrad, rowwise) and GEMM 3 (wgrad, col RHT).
         sign_vector_list = list(ctx.sign_vector)
-        dy_col_amax, dy_row_amax = triton_rht_amax(
-            grad_output_2d, sign_vector=sign_vector_list
+        dy_col_amax, dy_row_amax = _rht_amax(
+            grad_output_2d, sign_vector_list, ctx.use_cutedsl
         )
-        dy_col_fp4, dy_col_sf, dy_row_fp4, dy_row_sf = triton_rht_quantize_row_col(
+        dy_col_fp4, dy_col_sf, dy_row_fp4, dy_row_sf = _rht_quantize_row_col(
             grad_output_2d,
-            stochastic_rounding=True,
-            sign_vector=sign_vector_list,
-            col_seed_base=sr_seed,
-            row_seed_base=sr_seed ^ 1,
-            col_offset_base=offset_colwise,
-            row_offset_base=offset_rowwise,
-            col_global_amax=dy_col_amax,
-            row_global_amax=dy_row_amax,
+            dy_col_amax,
+            dy_row_amax,
+            sign_vector_list,
+            ctx.use_cutedsl,
+            sr_seed=sr_seed,
         )
 
         # -----------------------------------------------------------
@@ -233,8 +303,8 @@ class nvfp4_mm_triton(torch.autograd.Function):
             if ctx.has_bias
             else None
         )
-        # Extra Nones: sr_seed, sign_vector
-        return grad_input, grad_weight, grad_bias, None, None
+        # Extra Nones: sr_seed, sign_vector, use_cutedsl
+        return grad_input, grad_weight, grad_bias, None, None, None
 
 
 def nvfp4_linear(
@@ -256,14 +326,22 @@ def nvfp4_linear(
         weight_hp: High precision weight [out_features, in_features]
         bias: Optional bias [out_features]
         sign_vector: RHT sign vector used for amax and quantization.
-        kernel_preference: Backend for quantization. Only TRITON is supported.
+        kernel_preference: Backend for quantization, TRITON (default) or CUTEDSL.
+            CUTEDSL runs the full path on CuteDSL — the amax, the forward RTNE quantize, the
+            backward SR (cvt.rs) quantize, and the 2D weight quantize (requires out_features % 256).
         sr_seed: Fixed int64 seed tensor (size=(1,)) for SR Philox key. Allocated
             fresh if None. For reproducibility, pass a pre-allocated module buffer.
     """
-    if kernel_preference != KernelPreference.TRITON:
+    if kernel_preference not in (KernelPreference.TRITON, KernelPreference.CUTEDSL):
         raise ValueError(
-            "NVFP4 training linear only supports "
-            "kernel_preference=KernelPreference.TRITON"
+            "NVFP4 training linear only supports kernel_preference TRITON or CUTEDSL, "
+            f"got {kernel_preference!r}"
+        )
+    use_cutedsl = kernel_preference == KernelPreference.CUTEDSL
+    if use_cutedsl and not cutedsl_nvfp4_kernels_available():
+        raise RuntimeError(
+            f"kernel_preference=CUTEDSL requires {CUTEDSL_NVFP4_REQUIREMENTS} "
+            f"({cutedsl_nvfp4_unavailable_reason()})."
         )
 
     if sr_seed is None:
@@ -276,4 +354,5 @@ def nvfp4_linear(
         bias,
         sr_seed,
         sign_vector,
+        use_cutedsl,
     )

@@ -33,6 +33,10 @@ from torch.distributed.tensor import DTensor
 from torch.distributed.tensor.parallel import parallelize_module
 from torch.utils._triton import has_triton
 
+from torchao.prototype.moe_training.nvfp4_training.hadamard_cutedsl_utils import (
+    cutedsl_nvfp4_kernels_available,
+    cutedsl_prepare_for_cuda_graph,
+)
 from torchao.prototype.moe_training.nvfp4_training.hadamard_utils import (
     prepare_for_cuda_graph,
 )
@@ -64,13 +68,14 @@ class NVFP4MLP(nn.Module):
         *,
         device: str | torch.device,
         dtype: torch.dtype,
+        kernel_preference: KernelPreference = KernelPreference.TRITON,
     ):
         super().__init__()
         self.w1 = NVFP4Linear(
             size,
             hidden_size,
             bias=True,
-            kernel_preference=KernelPreference.TRITON,
+            kernel_preference=kernel_preference,
             device=device,
             dtype=dtype,
         )
@@ -78,7 +83,7 @@ class NVFP4MLP(nn.Module):
             size,
             hidden_size,
             bias=True,
-            kernel_preference=KernelPreference.TRITON,
+            kernel_preference=kernel_preference,
             device=device,
             dtype=dtype,
         )
@@ -86,7 +91,7 @@ class NVFP4MLP(nn.Module):
             hidden_size,
             size,
             bias=True,
-            kernel_preference=KernelPreference.TRITON,
+            kernel_preference=kernel_preference,
             device=device,
             dtype=dtype,
         )
@@ -165,25 +170,36 @@ def _test_nvfp4_mlp_fsdp2_tp_smoke(
     distributed_env: DeviceMesh,
     *,
     compile_model: bool,
+    kernel_preference: KernelPreference = KernelPreference.TRITON,
 ) -> None:
     mesh = distributed_env
     dp_mesh = mesh["dp"]
     tp_mesh = mesh["tp"]
     dp_rank, tp_rank = mesh.get_coordinate()
     device = mesh.device_type
-    M, K, H = 512, 256, 512
+    M, K, H = (
+        512,
+        256,
+        512,
+    )  # per-TP shards (M//2=256, K=256, out//2=256) satisfy CuteDSL's %256/%128
 
-    model = NVFP4MLP(K, H, device=device, dtype=torch.bfloat16)
+    model = NVFP4MLP(
+        K, H, device=device, dtype=torch.bfloat16, kernel_preference=kernel_preference
+    )
     model = _parallelize_nvfp4_mlp(model, tp_mesh)
     if compile_model:
-        prepare_for_cuda_graph(
-            torch.device(device),
-            sign_vectors=(
-                model.w1.rht_sign_vector,
-                model.w2.rht_sign_vector,
-                model.out_proj.rht_sign_vector,
-            ),
+        sign_vectors = (
+            model.w1.rht_sign_vector,
+            model.w2.rht_sign_vector,
+            model.out_proj.rht_sign_vector,
         )
+        # Pre-allocate per-device state outside the cudagraph pool (per-backend).
+        if kernel_preference == KernelPreference.CUTEDSL:
+            cutedsl_prepare_for_cuda_graph(
+                torch.device(device), sign_vectors=sign_vectors
+            )
+        else:
+            prepare_for_cuda_graph(torch.device(device), sign_vectors=sign_vectors)
         model = torch.compile(model, mode="reduce-overhead")
     model = fully_shard(model, mesh=dp_mesh)
 
@@ -236,3 +252,30 @@ def test_nvfp4_mlp_fsdp2_tp_smoke(distributed_env: DeviceMesh):
 )
 def test_nvfp4_mlp_fsdp2_tp_cuda_graph_compile_smoke(distributed_env: DeviceMesh):
     _test_nvfp4_mlp_fsdp2_tp_smoke(distributed_env, compile_model=True)
+
+
+@pytest.mark.skipif(
+    not cutedsl_nvfp4_kernels_available(),
+    reason="requires SM100 + CuteDSL runtime (cuda-python, nvidia-cutlass-dsl, apache-tvm-ffi)",
+)
+def test_nvfp4_mlp_fsdp2_tp_cutedsl_smoke(distributed_env: DeviceMesh):
+    """FSDP2 + TP (eager) with the CuteDSL backend. The per-TP weight/activation shards satisfy
+    CuteDSL's out_features % 256 / M % 256 / K % 128."""
+    _test_nvfp4_mlp_fsdp2_tp_smoke(
+        distributed_env, compile_model=False, kernel_preference=KernelPreference.CUTEDSL
+    )
+
+
+@pytest.mark.skipif(
+    not cutedsl_nvfp4_kernels_available(),
+    reason="requires SM100 + CuteDSL runtime (cuda-python, nvidia-cutlass-dsl, apache-tvm-ffi)",
+)
+@pytest.mark.skipif(
+    not torch_version_at_least("2.10.0"), reason="torch.compile requires PyTorch 2.10+"
+)
+def test_nvfp4_mlp_fsdp2_tp_cutedsl_cuda_graph_smoke(distributed_env: DeviceMesh):
+    """FSDP2 + TP + CUDA graphs (torch.compile mode='reduce-overhead') on the CuteDSL backend,
+    enabled by cutedsl_prepare_for_cuda_graph (called inside the smoke helper)."""
+    _test_nvfp4_mlp_fsdp2_tp_smoke(
+        distributed_env, compile_model=True, kernel_preference=KernelPreference.CUTEDSL
+    )
