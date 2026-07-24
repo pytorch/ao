@@ -17,6 +17,7 @@ python -c "import torch; import torchao; print(f'Torch version: {torch.__version
 python -m pip install pytest expecttest parameterized accelerate hf_transfer 'modelscope!=1.15.0' transformers tabulate fire
 
 pytest -v -s --ignore=torchao/test/quantization/pt2e/test_x86inductor_fusion.py \
+        torchao/test/test_low_bit_optim.py \
         torchao/test/quantization/pt2e/ \
         torchao/test/quantization/*.py \
         torchao/test/dtypes/ \
