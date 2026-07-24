@@ -136,6 +136,62 @@ def choose_qparams_and_quantize_codebook_coreml(
     return final_luts, final_codes
 
 
+def assign_codebook_codes(
+    input_tensor: torch.Tensor,
+    codebook: torch.Tensor,
+    block_size: List[int],
+) -> torch.Tensor:
+    """
+    Assign each element of ``input_tensor`` to the index of the nearest entry in
+    its block's codebook (lookup table). This is exactly the k-means assignment
+    step against a fixed codebook, and mirrors the block-to-lookup-table mapping
+    used by :func:`dequantize_codebook`.
+
+    Args:
+        input_tensor (torch.Tensor): the (rank-2) tensor to quantize.
+        codebook (torch.Tensor): the codebook, shape
+            ``(g0, g1, 2 ** nbits, 1)`` where ``gi = input_tensor.shape[i] // block_size[i]``.
+        block_size (List[int]): block sizes (``-1`` means the entire dimension).
+
+    Returns:
+        torch.Tensor: the codes (nearest-entry indices), torch.uint8, same shape
+        as ``input_tensor``.
+    """
+    assert input_tensor.dim() == 2, "Currently only rank 2 tensors are supported"
+    N, K = input_tensor.shape
+
+    processed_block_size = list(block_size)
+    assert len(processed_block_size) == 2
+    if processed_block_size[0] == -1:
+        processed_block_size[0] = N
+    if processed_block_size[1] == -1:
+        processed_block_size[1] = K
+    row_block_size, col_block_size = processed_block_size
+    assert N % row_block_size == 0 and K % col_block_size == 0
+    g0, g1 = N // row_block_size, K // col_block_size
+
+    codebook = codebook.to(input_tensor.device)
+    # centroids per group, shape (g0, g1, num_levels); the last codebook dim
+    # (vec_dim) is 1 for scalar lookup values
+    num_levels = codebook.shape[-2]
+    centroids = codebook.reshape(g0, g1, num_levels)
+
+    row_group = torch.arange(N, device=input_tensor.device) // row_block_size
+    col_group = torch.arange(K, device=input_tensor.device) // col_block_size
+
+    codes = torch.empty(N, K, dtype=torch.uint8, device=input_tensor.device)
+    # Chunk over rows to bound the (rows, K, num_levels) distance tensor's memory
+    max_elems = 8 * 1024 * 1024
+    row_chunk = max(1, max_elems // max(1, K * num_levels))
+    for n0 in range(0, N, row_chunk):
+        n1 = min(n0 + row_chunk, N)
+        # centroids for this row chunk, expanded across columns: (r, K, num_levels)
+        c = centroids[row_group[n0:n1]][:, col_group, :]
+        dist = (input_tensor[n0:n1].unsqueeze(-1) - c).abs()
+        codes[n0:n1] = dist.argmin(dim=-1).to(torch.uint8)
+    return codes
+
+
 @register_custom_op
 def dequantize_codebook(
     codes: torch.Tensor,
