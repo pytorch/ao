@@ -21,6 +21,7 @@ from test.prototype.pat.test_common import (
 )
 from torchao.prototype.pat.group import KElementGrouper
 from torchao.prototype.pat.optim import NMSparseConstraint, PruneOptimizer
+from torchao.prototype.pat.optim.prox_executor import apply_prox
 from torchao.prototype.pat.utils import get_param_groups
 
 
@@ -37,6 +38,7 @@ class TestNMSparseConstraint(common_utils.TestCase):
         self.assertEqual(p.ne(0).sum().item(), n_nonzero)
         self.assertEqual(zeros_count.item(), p.numel() - n_nonzero)
         self.assertEqual(p.ne(0).tolist(), [False, True, True, False])
+        self.assertEqual(group_norm.dim(), 0)
 
     def test_n_nonzero_equals_zero(self):
         """Keep nothing: all elements are zeroed."""
@@ -47,13 +49,6 @@ class TestNMSparseConstraint(common_utils.TestCase):
         self.assertEqual(zeros_count.item(), 4)
         self.assertTrue(p.eq(0).all())
         self.assertEqual(group_norm.item(), 0.0)
-
-    def test_group_norm_is_scalar(self):
-        """group_norm must be a 0-dim tensor (scalar)."""
-        p = torch.tensor([1.0, -3.0, 2.0, -0.5])
-        prox = NMSparseConstraint(reg_lambda=0.0, n_nonzero=2)
-        _, group_norm = prox.apply_(p, gamma=1.0)
-        self.assertEqual(group_norm.dim(), 0)
 
 
 class TestNMSparseWithKElementGrouper(common_utils.TestCase):
@@ -78,7 +73,7 @@ class TestNMSparseWithKElementGrouper(common_utils.TestCase):
 
     @common_utils.parametrize(
         "n_nonzero,k",
-        [(2, 4), (1, 4), (3, 4)],
+        [(2, 4), (1, 4), (3, 4), (0, 1)],
     )
     def test_nm_sparsity(self, n_nonzero, k):
         """Each block of k elements has exactly n_nonzero non-zeros."""
@@ -89,29 +84,14 @@ class TestNMSparseWithKElementGrouper(common_utils.TestCase):
 
         grouper = KElementGrouper(p, k=k)
         prox_kwargs = make_prox_kwargs(gamma=1.0, zero_elts_are_counts=True)
-        zero_elts, group_norm, zeros_are_summed = PruneOptimizer._apply_prox(
+        zero_elts, group_norm, zeros_are_summed = apply_prox(
             grouper, prox, p, **prox_kwargs
         )
 
         self.assert_nm_pattern(p, k, n_nonzero, exact=True)
         n_groups = M * N // k
         self.assertEqual(zero_elts, (k - n_nonzero) * n_groups)
-
-    def test_k_equals_one_elementwise(self):
-        """k=1 makes each element its own group; n_nonzero=0 zeroes everything."""
-        torch.manual_seed(42)
-        M, N = 3, 5
-        p = torch.randn(M, N)
-        prox = NMSparseConstraint(reg_lambda=0.0, n_nonzero=0)
-
-        grouper = KElementGrouper(p, k=1)
-        prox_kwargs = make_prox_kwargs(gamma=1.0, zero_elts_are_counts=True)
-        zero_elts, _, zeros_are_summed = PruneOptimizer._apply_prox(
-            grouper, prox, p, **prox_kwargs
-        )
-
-        self.assertTrue(p.eq(0).all())
-        self.assertEqual(zero_elts, M * N)
+        self.assertEqual(group_norm.shape, (n_groups,))
         self.assertTrue(zeros_are_summed)
 
     def test_nm_sparsity_with_padding(self):
@@ -123,27 +103,11 @@ class TestNMSparseWithKElementGrouper(common_utils.TestCase):
 
         grouper = KElementGrouper(p, k=k)
         prox_kwargs = make_prox_kwargs(gamma=1.0, zero_elts_are_counts=True)
-        _, _, zeros_are_summed = PruneOptimizer._apply_prox(
-            grouper, prox, p, **prox_kwargs
-        )
+        _, _, zeros_are_summed = apply_prox(grouper, prox, p, **prox_kwargs)
 
         # Padded blocks may have <= n_nonzero (partial last block).
         self.assert_nm_pattern(p, k, n_nonzero, exact=False)
         self.assertTrue(zeros_are_summed)
-
-    def test_group_norm_is_scalar_per_group(self):
-        """group_norm shape should be (n_groups,), not (n_groups, k)."""
-        torch.manual_seed(42)
-        M, N, k, n_nonzero = 4, 8, 4, 2
-        p = torch.randn(M, N)
-        prox = NMSparseConstraint(reg_lambda=0.0, n_nonzero=n_nonzero)
-
-        grouper = KElementGrouper(p, k=k)
-        prox_kwargs = make_prox_kwargs(gamma=1.0, zero_elts_are_counts=True)
-        _, group_norm, _ = PruneOptimizer._apply_prox(grouper, prox, p, **prox_kwargs)
-
-        n_groups = M * N // k
-        self.assertEqual(group_norm.shape, (n_groups,))
 
 
 @unittest.skipUnless(dist.is_available(), "torch.distributed not available")
@@ -167,7 +131,7 @@ class TestNMSparseDTensor(DistributedTestMixin, common_utils.TestCase):
 
         # Regular path
         grouper_reg = KElementGrouper(p_regular, k=k)
-        z_reg, gn_reg, _ = PruneOptimizer._apply_prox(
+        z_reg, gn_reg, _ = apply_prox(
             grouper_reg,
             NMSparseConstraint(reg_lambda, n_nonzero=n_nonzero),
             p_regular,
@@ -176,7 +140,7 @@ class TestNMSparseDTensor(DistributedTestMixin, common_utils.TestCase):
 
         # DTensor path
         grouper_dt = KElementGrouper(p_dtensor, k=k)
-        z_dt, gn_dt, _ = PruneOptimizer._apply_prox(
+        z_dt, gn_dt, _ = apply_prox(
             grouper_dt,
             NMSparseConstraint(reg_lambda, n_nonzero=n_nonzero),
             p_dtensor,

@@ -14,6 +14,7 @@ from torch.testing._internal import common_utils
 from torchao.prototype.pat.group import (
     AttentionHeadGrouperDim0,
     AttentionHeadGrouperDim1,
+    Dim0Grouper,
     PackedSVDGrouper,
     SVDGrouper,
 )
@@ -82,6 +83,18 @@ class TestAttentionHeadGrouper(common_utils.TestCase):
         self._test_post_prune(p, p_orig, head_pack_dim, view_shape, reduce_dim, gamma)
 
 
+class TestDimGrouper(common_utils.TestCase):
+    def test_noncontiguous_flatten_writes_back(self):
+        param = torch.arange(24.0).reshape(2, 3, 4).transpose(1, 2)
+        self.assertFalse(param.is_contiguous())
+
+        with Dim0Grouper(param) as grouper:
+            self.assertEqual(grouper.p.shape, (2, 12))
+            grouper.p.zero_()
+
+        self.assertTrue(param.eq(0).all())
+
+
 class TestSVDGrouper(common_utils.TestCase):
     def __init__(self, methodName):
         super(TestSVDGrouper, self).__init__(methodName)
@@ -121,6 +134,7 @@ class TestSVDGrouper(common_utils.TestCase):
 
 
 common_utils.instantiate_parametrized_tests(TestAttentionHeadGrouper)
+common_utils.instantiate_parametrized_tests(TestDimGrouper)
 common_utils.instantiate_parametrized_tests(TestSVDGrouper)
 
 if __name__ == "__main__":
