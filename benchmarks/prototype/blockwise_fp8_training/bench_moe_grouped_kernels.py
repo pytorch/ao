@@ -43,9 +43,7 @@ from triton.testing import do_bench
 
 from torchao.float8.config import e4m3_dtype
 from torchao.prototype.blockwise_fp8_training.deepgemm_grouped_kernels import (
-    _quantize_wgrad_lhs,
-    _quantize_wgrad_rhs,
-    _should_quantize_k_grouped_directly,
+    _quantize_wgrad_operand,
     deepgemm_blockwise_scaled_grouped_mm,
     deepgemm_blockwise_scaled_grouped_mm_wgrad,
     is_deep_gemm_available,
@@ -54,9 +52,9 @@ from torchao.prototype.blockwise_fp8_training.deepgemm_grouped_kernels import (
 from torchao.prototype.blockwise_fp8_training.deepgemm_metadata import (
     build_deepgemm_grouped_offset_plan,
 )
-from torchao.prototype.blockwise_fp8_training.deepgemm_quant import (
-    triton_fp8_blockwise_weight_quant_grouped_rhs_deepgemm,
-    triton_fp8_blockwise_weight_quant_grouped_transposed_rhs_deepgemm,
+from torchao.prototype.blockwise_fp8_training.grouped_weight_quant import (
+    triton_fp8_blockwise_weight_quant_grouped_dgrad_rhs,
+    triton_fp8_blockwise_weight_quant_grouped_forward_rhs,
 )
 from torchao.prototype.blockwise_fp8_training.kernels import (
     BLOCKWISE_1X128_SCALING_TYPE,
@@ -180,14 +178,12 @@ def _bench_shape(
         A_scale,
     )
 
-    B_fwd_fp8, B_fwd_scale = (
-        triton_fp8_blockwise_weight_quant_grouped_transposed_rhs_deepgemm(
-            B_t, block_size=block_size, dtype=fp8
-        )
+    B_fwd_fp8, B_fwd_scale = triton_fp8_blockwise_weight_quant_grouped_forward_rhs(
+        B_t, block_size=block_size, dtype=fp8
     )
     time_mem(
         "fwd: weight_quant_forward_rhs",
-        lambda: triton_fp8_blockwise_weight_quant_grouped_transposed_rhs_deepgemm(
+        lambda: triton_fp8_blockwise_weight_quant_grouped_forward_rhs(
             B_t, block_size=block_size, dtype=fp8
         ),
         _io_bytes(B_t),
@@ -231,12 +227,12 @@ def _bench_shape(
         gout_scale,
     )
 
-    B_dgrad_fp8, B_dgrad_scale = triton_fp8_blockwise_weight_quant_grouped_rhs_deepgemm(
+    B_dgrad_fp8, B_dgrad_scale = triton_fp8_blockwise_weight_quant_grouped_dgrad_rhs(
         B_t, block_size=block_size, dtype=fp8
     )
     time_mem(
         "bwd: weight_quant_dgrad_rhs",
-        lambda: triton_fp8_blockwise_weight_quant_grouped_rhs_deepgemm(
+        lambda: triton_fp8_blockwise_weight_quant_grouped_dgrad_rhs(
             B_t, block_size=block_size, dtype=fp8
         ),
         _io_bytes(B_t),
@@ -266,31 +262,19 @@ def _bench_shape(
     )
 
     # ---- backward: wgrad (K-grouped) ----
-    # Build the per-block quant metadata once, outside the timed region (it is a
-    # host-side python loop, not a kernel), so each quant row times only its
-    # kernel. Each operand picks the direct K-grouped quant for wide dims and
-    # TorchAO's transposed quant otherwise (see _DEEPGEMM_DIRECT..._MIN_DIM).
-    lhs_md = (
-        offset_plan.k_quant_metadata(block_size, N)
-        if _should_quantize_k_grouped_directly(N)
-        else None
-    )
-    rhs_md = (
-        offset_plan.k_quant_metadata(block_size, K)
-        if _should_quantize_k_grouped_directly(K)
-        else None
-    )
-    lhs_op = _quantize_wgrad_lhs(
+    # Build per-block metadata outside the timed region so each row measures
+    # only direct quantization into DeepGEMM's flat K-grouped layout.
+    lhs_md = offset_plan.k_quant_metadata(block_size, N)
+    rhs_md = offset_plan.k_quant_metadata(block_size, K)
+    lhs_op = _quantize_wgrad_operand(
         grad_out, offset_plan.group_end_offsets, group_sizes, block_size, fp8, lhs_md
     )
-    rhs_op = _quantize_wgrad_rhs(
+    rhs_op = _quantize_wgrad_operand(
         A, offset_plan.group_end_offsets, group_sizes, block_size, fp8, rhs_md
     )
-    lhs_path = "direct" if _should_quantize_k_grouped_directly(N) else "transposed"
-    rhs_path = "direct" if _should_quantize_k_grouped_directly(K) else "transposed"
     time_mem(
-        f"bwd: wgrad_quant_lhs(grad_out) [{lhs_path}]",
-        lambda: _quantize_wgrad_lhs(
+        "bwd: wgrad_quant_lhs(grad_out) [direct]",
+        lambda: _quantize_wgrad_operand(
             grad_out,
             offset_plan.group_end_offsets,
             group_sizes,
@@ -303,8 +287,8 @@ def _bench_shape(
         lhs_op.scale,
     )
     time_mem(
-        f"bwd: wgrad_quant_rhs(A) [{rhs_path}]",
-        lambda: _quantize_wgrad_rhs(
+        "bwd: wgrad_quant_rhs(A) [direct]",
+        lambda: _quantize_wgrad_operand(
             A, offset_plan.group_end_offsets, group_sizes, block_size, fp8, rhs_md
         ),
         _io_bytes(A),
@@ -314,17 +298,14 @@ def _bench_shape(
 
     wgrad_plan = prepare_deepgemm_wgrad_plan(grad_out, A, offset_plan, block_size, fp8)
     assert wgrad_plan is not None, "wgrad plan requires block-aligned groups"
-    # wgrad mem traffic: read lhs + rhs fp8 data + scales, read FP32 accum seed,
-    # write FP32 (E,N,K) output. The two FP32 (E,N,K) buffers dominate.
-    wgrad_gemm_bytes = (
-        _io_bytes(
-            wgrad_plan.lhs.data,
-            wgrad_plan.lhs.scale,
-            wgrad_plan.rhs.data,
-            wgrad_plan.rhs.scale,
-        )
-        + 2 * E * N * K * 4  # FP32 accum read + FP32 out write
-    )
+    # The wrapper zeroes the FP32 accumulator, DeepGEMM reads it and writes an
+    # FP32 result, then the wrapper reads that result and writes the bf16 output.
+    wgrad_gemm_bytes = _io_bytes(
+        wgrad_plan.lhs.data,
+        wgrad_plan.lhs.scale,
+        wgrad_plan.rhs.data,
+        wgrad_plan.rhs.scale,
+    ) + E * N * K * (4 + 4 + 4 + 4 + 2)
     time_gemm(
         "bwd: deepgemm_grouped_mm_wgrad",
         lambda: deepgemm_blockwise_scaled_grouped_mm_wgrad(
