@@ -88,7 +88,11 @@ def test_fp8_hp_to_fp8_row_major(input_shape: tuple[int, int], algo: KernelAlgor
 )
 @pytest.mark.parametrize(
     "input_shape",
-    [(2, 4), (32, 16), (512, 512)],
+    # (129, 16) is deliberately not a multiple of the 128-wide block: it makes the
+    # row and column block starts differ, which is exactly what the swapped-axis
+    # bounds mask got wrong. The other shapes are single-block or square and pass
+    # under both the old and the new mask.
+    [(2, 4), (32, 16), (129, 16), (512, 512)],
 )
 def test_fp8_hp_to_fp8_row_major_t(input_shape: tuple[int, int], algo: KernelAlgorithm):
     assert torch.cuda.is_available()
