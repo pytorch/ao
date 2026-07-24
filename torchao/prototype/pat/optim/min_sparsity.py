@@ -78,6 +78,52 @@ class MinSparsityConstraint(ProxMap, _TopKZeroMixin):
         return self._topk_zero_(p, scores, n_zero)
 
 
+class MinRankConstraint(ProxMap, _TopKZeroMixin):
+    """Zeros the smallest ``ceil(min_sparsity * k)`` singular values of an
+    SVD-grouped tensor. Here the shared ``min_sparsity`` key is the fraction of
+    singular values zeroed, so each matrix retains
+    ``k - ceil(min_sparsity * k)`` singular values. Pair with ``SVDGrouper`` or
+    ``PackedSVDGrouper``. ``reg_lambda``, ``gamma``, and ``tau_reweight`` are
+    ignored; the count is optionally resolved on the cubic schedule by
+    ``PruneOptimizer._effective_min_sparsity``.
+
+    ``whole_tensor = True`` routes the optimizer around ``torch.vmap`` so
+    ``apply_`` sees the complete singular-value vector for each matrix.
+    """
+
+    whole_tensor = True
+
+    def __init__(self, reg_lambda: float, min_sparsity: float) -> None:
+        super().__init__(reg_lambda)
+        assert 0.0 <= min_sparsity <= 1.0, (
+            f"min_sparsity must be in [0, 1], but got {min_sparsity}"
+        )
+        self.min_sparsity = min_sparsity
+
+    def _get_norm(self, p: Tensor) -> Tensor:
+        return p
+
+    def tau(self, p: Tensor) -> float:
+        return 1.0
+
+    def apply_(
+        self,
+        p: Tensor,
+        gamma: Union[Tensor, float],
+        tau_reweight: Union[Tensor, float] = 1.0,
+    ) -> tuple[Tensor, Tensor]:
+        # SVDGrouper.p is (k,); PackedSVDGrouper.p is (npack, k).
+        n_zero = math.ceil(self.min_sparsity * p.shape[-1])
+        if p.dim() == 1:
+            return self._topk_zero_(p, self._get_norm(p), n_zero)
+
+        zeros_total = torch.zeros((), dtype=torch.long, device=p.device)
+        for i in range(p.size(0)):
+            zeros, _ = self._topk_zero_(p[i], self._get_norm(p[i]), n_zero)
+            zeros_total += zeros
+        return zeros_total, torch.linalg.vector_norm(p)
+
+
 class NMSparseConstraint(ProxMap, _TopKZeroMixin):
     """Keeps at most ``n_nonzero`` largest-magnitude elements per group.
     Vmapped per group, so ``apply_`` receives one 1-D group at a time.

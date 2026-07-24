@@ -14,7 +14,14 @@ from tabulate import tabulate
 from tqdm import tqdm
 
 from benchmarks.utils import benchmark_cuda_function_in_microseconds
-from torchao.prototype.moe_training.kernels.mxfp8 import mxfp8_quantize_cuda_3d
+from torchao.prototype.moe_training.kernels.mxfp8 import (
+    _mxfp8_cuda_kernels_available,
+    _mxfp8_flydsl_kernels_available,
+    mxfp8_quantize_cuda_3d,
+)
+from torchao.prototype.moe_training.kernels.mxfp8.quant import (
+    mxfp8_quantize_3d_flydsl,
+)
 from torchao.prototype.moe_training.mxfp8_grouped_mm import (
     _to_mxfp8_dim1_3d,
 )
@@ -40,10 +47,12 @@ class ExperimentResult:
     to_mx_us: float
     cuda_2d_us: float
     cutedsl_3d_us: float
+    flydsl_3d_us: float
     # mem bw
     to_mx_gbps: float
     cuda_2d_gbps: float
     cutedsl_3d_gbps: float
+    flydsl_3d_gbps: float
 
 
 @dataclass(frozen=True)
@@ -173,8 +182,8 @@ def run_experiment(config: ExperimentConfig) -> ExperimentResult:
         input_tensor,
     )
 
-    if variant == "32x1_n":
-        # bench 2d dim1 kernel then transforming to col major
+    if variant == "32x1_n" and _mxfp8_cuda_kernels_available:
+        # bench 2d dim1 kernel then transforming to col major — CUDA cuTeDSL only.
         using_cuda_2d_c = torch.compile(_to_mxfp8_dim1_3d)
         using_cuda_2d_c(input_tensor)
         time_cuda_2d_us = benchmark_cuda_function_in_microseconds(
@@ -190,22 +199,50 @@ def run_experiment(config: ExperimentConfig) -> ExperimentResult:
     scale_block_dim1 = block_size
     scale_block_dim2 = 1 if variant in ("32x1_t", "32x1_n") else block_size
 
-    # bench 3d CuTeDSL kernel
-    data_cuda_3d, scales_cuda_3d = mxfp8_quantize_cuda_3d(
-        quant_input,
-        block_size=block_size,
-        scale_block_dim1=scale_block_dim1,
-        scale_block_dim2=scale_block_dim2,
-        scaling_mode=str(config.scaling_mode.value),
-    )
-    time_cutedsl_3d_us = benchmark_cuda_function_in_microseconds(
-        mxfp8_quantize_cuda_3d,
-        quant_input,
-        block_size=block_size,
-        scale_block_dim1=scale_block_dim1,
-        scale_block_dim2=scale_block_dim2,
-        scaling_mode=str(config.scaling_mode.value),
-    )
+    # bench 3d CuTeDSL kernel — CUDA only (SM 10.0+).
+    if _mxfp8_cuda_kernels_available:
+        mxfp8_quantize_cuda_3d(
+            quant_input,
+            block_size=block_size,
+            scale_block_dim1=scale_block_dim1,
+            scale_block_dim2=scale_block_dim2,
+            scaling_mode=str(config.scaling_mode.value),
+        )
+        time_cutedsl_3d_us = benchmark_cuda_function_in_microseconds(
+            mxfp8_quantize_cuda_3d,
+            quant_input,
+            block_size=block_size,
+            scale_block_dim1=scale_block_dim1,
+            scale_block_dim2=scale_block_dim2,
+            scaling_mode=str(config.scaling_mode.value),
+        )
+    else:
+        time_cutedsl_3d_us = float("nan")
+
+    # bench 3d FlyDSL kernel — AMD (CDNA3+) only; supports FLOOR and RCEIL.
+    # Same interface as mxfp8_quantize_cuda_3d. FlyDSL requires a contiguous
+    # row-major input, so the transposed "*_t" rows are made contiguous first.
+    if _mxfp8_flydsl_kernels_available:
+        flydsl_input = quant_input.contiguous()
+        mxfp8_quantize_3d_flydsl(
+            flydsl_input,
+            block_size=block_size,
+            scale_block_dim1=scale_block_dim1,
+            scale_block_dim2=scale_block_dim2,
+            scaling_mode=str(config.scaling_mode.value),
+            blocked_scale_output=False,
+        )
+        time_flydsl_3d_us = benchmark_cuda_function_in_microseconds(
+            mxfp8_quantize_3d_flydsl,
+            flydsl_input,
+            block_size=block_size,
+            scale_block_dim1=scale_block_dim1,
+            scale_block_dim2=scale_block_dim2,
+            scaling_mode=str(config.scaling_mode.value),
+            blocked_scale_output=False,
+        )
+    else:
+        time_flydsl_3d_us = float("nan")
 
     # mem bw calculations
     bytes_per_input_el = torch.finfo(torch.bfloat16).bits / 8
@@ -213,23 +250,28 @@ def run_experiment(config: ExperimentConfig) -> ExperimentResult:
     bytes_per_scale_el = torch.finfo(torch.float8_e8m0fnu).bits / 8
 
     read_bytes = quant_input.numel() * bytes_per_input_el
+    # Use to_mx outputs as the byte-count reference (always available); the
+    # cuda_3d outputs may be None on AMD where the cuTeDSL kernel is unavailable.
     write_bytes = (
-        data_cuda_3d.numel() * bytes_per_output_el
-        + scales_cuda_3d.numel() * bytes_per_scale_el
+        data_to_mx.numel() * bytes_per_output_el
+        + scales_to_mx.numel() * bytes_per_scale_el
     )
 
     cutedsl_3d_gbps = ((read_bytes + write_bytes) / 1e9) / (time_cutedsl_3d_us / 1e6)
     to_mx_gbps = ((read_bytes + write_bytes) / 1e9) / (to_mx_time_us / 1e6)
     cuda_2d_gbps = ((read_bytes + write_bytes) / 1e9) / (time_cuda_2d_us / 1e6)
+    flydsl_3d_gbps = ((read_bytes + write_bytes) / 1e9) / (time_flydsl_3d_us / 1e6)
     return ExperimentResult(
         # time
         to_mx_us=to_mx_time_us,
         cuda_2d_us=time_cuda_2d_us,
         cutedsl_3d_us=time_cutedsl_3d_us,
+        flydsl_3d_us=time_flydsl_3d_us,
         # mem bw
         to_mx_gbps=to_mx_gbps,
         cuda_2d_gbps=cuda_2d_gbps,
         cutedsl_3d_gbps=cutedsl_3d_gbps,
+        flydsl_3d_gbps=flydsl_3d_gbps,
     )
 
 
@@ -240,9 +282,11 @@ def print_results(experiments: List[Experiment]):
         "variant",
         "cuda_2d_us",
         "cutedsl_3d_us",
+        "flydsl_3d_us",
         "to_mx_us",
         "cuda_2d_gbps",
         "cutedsl_3d_gbps",
+        "flydsl_3d_gbps",
         "to_mx_gbps",
     ]
     rows = []
@@ -254,9 +298,11 @@ def print_results(experiments: List[Experiment]):
                 experiment.config.variant,
                 experiment.result.cuda_2d_us,
                 experiment.result.cutedsl_3d_us,
+                experiment.result.flydsl_3d_us,
                 experiment.result.to_mx_us,
                 round(experiment.result.cuda_2d_gbps, 3),
                 round(experiment.result.cutedsl_3d_gbps, 3),
+                round(experiment.result.flydsl_3d_gbps, 3),
                 round(experiment.result.to_mx_gbps, 3),
             ]
         )
