@@ -172,8 +172,6 @@ def run_experiment(
             BLOCK_M=BLOCK_M,
             BLOCK_N=BLOCK_N,
             logical_packed_length_ptr=logical_packed_length,
-            num_warps=8,
-            num_stages=3,
         )
 
     time_us = benchmark_cuda_function_in_microseconds(run_kernel)
