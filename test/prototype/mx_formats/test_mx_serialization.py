@@ -21,16 +21,22 @@ from torchao.quantization.quantize_.common import KernelPreference
 from torchao.utils import is_sm_at_least_100
 
 
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
-@pytest.mark.skipif(not is_sm_at_least_100(), reason="needs CUDA capability 10.0+")
+@pytest.mark.skipif(
+    not torch.accelerator.is_available(), reason="Accelerator not available"
+)
 @pytest.mark.parametrize("recipe_name", ["mxfp8", "nvfp4"])
 def test_serialization(recipe_name):
+    device = torch.accelerator.current_accelerator().type
+    if device == "cuda" and not is_sm_at_least_100():
+        pytest.skip("needs CUDA capability 10.0+")
+    if recipe_name == "nvfp4" and device == "xpu":
+        pytest.skip("NVFP4 is not supported on XPU")
     """
     Ensure that only `import torchao.prototype.mx_formats` is needed to load MX
     and NV checkpoints.
     """
 
-    m = nn.Linear(32, 128, bias=False, dtype=torch.bfloat16, device="cuda")
+    m = nn.Linear(32, 128, bias=False, dtype=torch.bfloat16, device=device)
     fname = None
     with tempfile.NamedTemporaryFile(delete=False, mode="w") as f:
         if recipe_name == "mxfp8":
