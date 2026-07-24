@@ -26,6 +26,11 @@ from torchao.prototype.moe_training.kernels.mxfp8.comms import (
     mxfp8_on_device_all_to_all_v,
     to_mxfp8_a2a_dequant,
 )
+from torchao.prototype.mx_formats.config import ScaleCalculationMode
+from torchao.prototype.mx_formats.kernels import (
+    triton_mxfp8_dequant_dim0,
+    triton_to_mxfp8_dim0,
+)
 
 from ..testing_utils import generate_split_sizes
 
@@ -141,6 +146,78 @@ class MXFP8OnDeviceAllToAllVTest(MultiProcessTestCase):
                 f"grad_sqnr={grad_sqnr} is less than min_grad_sqnr={min_grad_sqnr}"
             )
 
+        finally:
+            dist.destroy_process_group()
+
+    def test_scaling_mode_semantics(self):
+        self._init_process()
+        try:
+            self._init_device()
+            group_name = dist.group.WORLD.group_name
+            symm_mem.enable_symm_mem_for_group(group_name)
+
+            tokens = 4
+            dim = 64
+            input_splits = torch.zeros(
+                self.world_size, dtype=torch.int64, device=self.device
+            )
+            input_splits[self.rank] = tokens
+            x = torch.full(
+                (tokens, dim),
+                500.0,
+                dtype=torch.bfloat16,
+                device=self.device,
+            )
+
+            def quantize_dequantize(mode):
+                qdata, scales = triton_to_mxfp8_dim0(
+                    x, inner_block_size=32, scaling_mode=mode.value
+                )
+                return triton_mxfp8_dequant_dim0(
+                    qdata, scales.view(torch.uint8), x.dtype, 32
+                )
+
+            expected = {
+                mode: quantize_dequantize(mode)
+                for mode in (ScaleCalculationMode.RCEIL, ScaleCalculationMode.FLOOR)
+            }
+            assert not torch.equal(
+                expected[ScaleCalculationMode.RCEIL],
+                expected[ScaleCalculationMode.FLOOR],
+            )
+
+            max_output_tokens_per_rank = tokens * self.world_size
+            x_default = x.clone().requires_grad_(True)
+            output_default, output_splits = mxfp8_on_device_all_to_all_v(
+                x_default,
+                input_splits,
+                max_output_tokens_per_rank,
+                group_name,
+            )
+            assert torch.equal(output_splits, input_splits)
+            assert torch.equal(
+                output_default, expected[ScaleCalculationMode.RCEIL]
+            )
+
+            for mode in (ScaleCalculationMode.RCEIL, ScaleCalculationMode.FLOOR):
+                output, output_splits = mxfp8_on_device_all_to_all_v(
+                    x,
+                    input_splits,
+                    max_output_tokens_per_rank,
+                    group_name,
+                    scaling_mode=mode,
+                )
+                assert torch.equal(output_splits, input_splits)
+                assert torch.equal(output, expected[mode])
+
+            grad = torch.full_like(output_default, 500.0)
+            actual_grad = torch.autograd.grad(
+                output_default, x_default, grad_outputs=grad
+            )[0]
+            assert torch.equal(
+                actual_grad,
+                expected[ScaleCalculationMode.RCEIL],
+            )
         finally:
             dist.destroy_process_group()
 

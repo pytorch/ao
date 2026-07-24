@@ -11,6 +11,7 @@ from torchao.prototype.moe_training.kernels.triton_utils import (
     blockwise_barrier,
     sync_threads,
 )
+from torchao.prototype.mx_formats.config import ScaleCalculationMode
 from torchao.prototype.mx_formats.kernels import (
     triton_mxfp8_dequant_dim0,
     triton_to_mxfp8_dim0,
@@ -54,7 +55,8 @@ class MXFP8OnDeviceAllToAllV(torch.autograd.Function):
         input: torch.Tensor,
         input_splits: torch.Tensor,
         max_output_rows_per_rank: int,
-        group: dist.ProcessGroup = dist.group.WORLD,
+        group: dist.ProcessGroup,
+        scaling_mode: ScaleCalculationMode,
     ):
         """
         Args:
@@ -63,6 +65,7 @@ class MXFP8OnDeviceAllToAllV(torch.autograd.Function):
             input_splits: input splits of shape (group.world_size,)
             max_output_rows_per_rank: maximum output rows/tokens per rank.
             group: process group to scope the collective.
+            scaling_mode: mode used to calculate MXFP8 scales.
         """
         assert input.dtype in (torch.float32, torch.bfloat16)
 
@@ -79,6 +82,7 @@ class MXFP8OnDeviceAllToAllV(torch.autograd.Function):
             input,
             elem_dtype=torch.float8_e4m3fn,
             block_size=block_size,
+            scaling_mode=scaling_mode,
         )
 
         # Triton doesn't support float8_e8m0fnu yet, view as uint8
@@ -161,6 +165,7 @@ class MXFP8OnDeviceAllToAllV(torch.autograd.Function):
         ctx.input_scales_shape = input_scales.shape
         ctx.hp_dtype = hp_dtype
         ctx.max_output_rows_per_rank = max_output_rows_per_rank
+        ctx.scaling_mode = scaling_mode
         ctx.save_for_backward(output_splits)
         tokens_on_device_after_a2a_fwd = output_splits.sum()
         hp_output_no_padding = hp_output[:tokens_on_device_after_a2a_fwd]
@@ -194,6 +199,7 @@ class MXFP8OnDeviceAllToAllV(torch.autograd.Function):
             grad_output,
             elem_dtype=torch.float8_e4m3fn,
             block_size=block_size,
+            scaling_mode=ctx.scaling_mode,
         )
 
         # Triton doesn't support float8_e8m0fnu yet, view as uint8
@@ -255,11 +261,29 @@ class MXFP8OnDeviceAllToAllV(torch.autograd.Function):
         tokens_on_device_after_a2a_bwd = (
             MXFP8OnDeviceAllToAllV.grad_input_splits_buf.sum()
         )
-        return grad_input_hp[:tokens_on_device_after_a2a_bwd], None, None, None
+        return grad_input_hp[:tokens_on_device_after_a2a_bwd], None, None, None, None
 
 
-# Alias
-mxfp8_on_device_all_to_all_v = MXFP8OnDeviceAllToAllV.apply
+def mxfp8_on_device_all_to_all_v(
+    input: torch.Tensor,
+    input_splits: torch.Tensor,
+    max_output_rows_per_rank: int,
+    group: dist.ProcessGroup = dist.group.WORLD,
+    scaling_mode: ScaleCalculationMode = ScaleCalculationMode.RCEIL,
+):
+    """
+    Quantize, exchange, and dequantize rows with an on-device all-to-all-v.
+
+    RCEIL is the training-safe default. Pass ``ScaleCalculationMode.FLOOR``
+    explicitly when OCP MX 1.0 floor scaling semantics are required.
+    """
+    return MXFP8OnDeviceAllToAllV.apply(
+        input,
+        input_splits,
+        max_output_rows_per_rank,
+        group,
+        scaling_mode,
+    )
 
 
 # Triton launcher function
