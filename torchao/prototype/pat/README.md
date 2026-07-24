@@ -1,65 +1,96 @@
 # PAT: Pruning-Aware Training
 
-PAT is a library based on group Lasso regularization. It directly induces structured sparsity during training, removing the need for custom pruning metrics and/or multiple rounds of training.
+PAT is a library based on proximal gradient methods. It directly induces structured sparsity or low-rank structure during training, removing the need for custom pruning metrics and multiple rounds of training.
 
-PAT's simple optimizer-only interface supports easy integration into existing training pipelines. The code is organized into two main components:
-* grouper: defines the granularity of pruning (e.g., filter, channel, layer)
-* proximal mapping: projects groups of weights onto sparse values
+PAT's optimizer-only interface supports integration into existing training pipelines. The code is organized around two components:
+
+* grouper: defines how a parameter is viewed as groups of weights or singular values
+* proximal map: projects those groups toward sparse or low-rank values
 
 ## Optimizer-only interface
 
-This package provides a `PruneOptimizer` that simply wraps around a base optimizer inheriting from `torch.optim.Optimizer`. The following code snippet illustrates how to set up PAT:
+This package provides a `PruneOptimizer` that wraps a base optimizer inheriting from `torch.optim.Optimizer`. The following code illustrates how to set up PAT:
 
 ```python
-from pat.optim import PruneOptimizer
+from torchao.prototype.pat.optim import PruneOptimizer
 
 model = torchvision.models.resnet18().cuda()
 
-# split params into prunable and non-prunable groups
+# Split parameters into prunable and non-prunable groups.
 weights = [p for name, p in model.named_parameters() if name.endswith("weight")]
 others = [p for name, p in model.named_parameters() if not name.endswith("weight")]
 
-# apply row-wise group Lasso regularization to the weights
+# Apply row-wise group Lasso regularization to the weights.
 param_groups = [
     {
-        "params": weights",
+        "params": weights,
         "group_type": "Dim0Grouper",
         "prox_type": "ProxGroupLasso",
+        "reg_lambda": 2e-4,
     },
     {"params": others},
 ]
 
-# create base optimizer (SGD, Adam or AdamW)
 base_optimizer = torch.optim.SGD(
     param_groups, lr=0.1, momentum=0.9, weight_decay=1e-4
 )
-
-# create PruneOptimizer
-optimizer = PruneOptimizer(base_optimizer, warmup_steps=10, reg_lambda=2e-4)
+optimizer = PruneOptimizer(base_optimizer)
 ```
 
-After creating `PruneOptimizer`, one can use it as a regular PyTorch optimizer.
-
-## Grouper and proximal mapping combinations
-
-PAT supports various combinations of groupers and proximal mappings. The following table summarizes the available options:
-| grouper | proximal mapping | description |
-|---|---|---|
-| `AttentionHeadGrouperDim{0,1}` | `ProxGroupLasso` | Structured pruning of attention heads. |
-| `ConvFilterGrouper` | `ProxGroupLasso` | Structured pruning of convolutional filters. |
-| `Dim0Grouper` | `ProxGroupLasso` | Row-wise group Lasso regularization. |
-| `Dim1Grouper` | `ProxGroupLasso` | Column-wise group Lasso regularization. |
-| `ElemGrouper` | ProxLasso | Unstructured pruning that induces elementwise sparsity. |
-| `LayerGrouper` | `ProxGroupLasso` | Structured pruning that induces layer-wise sparsity. |
-| `SVDGrouper` | `ProxNuclearNorm` | Induces low-rank structure in weight matrices with an SVD-based proximal mapping. |
+After creating `PruneOptimizer`, use it as a regular PyTorch optimizer.
 
 ## Pruning configuration
 
-Pruning configs are dictionaries that define which parameter groups to prune and how to prune them. Each key-value pair in the config maps to a prunable parameter group of `PruneOptimizer`. The keys are used to match model parameters, while the values specify the pruning granularity and proximal map. The key can be one of the following types:
+Pruning configs are dictionaries that define which parameter groups to prune and how to prune them. Each key-value pair maps to a prunable parameter group of `PruneOptimizer`. The keys match model parameters, while the values specify the pruning granularity and proximal map. A key can be one of the following types:
 
-- parameter name (string): e.g., `blocks.0.attn.qkv.weight`
-- regex pattern (string): e.g., `:.*attn\.qkv\.weight`
-- module type and parameter name suffix ((class, string) tuple): e.g., `(torch.nn.Linear, 'weight')`
+- parameter name (string): for example, `blocks.0.attn.qkv.weight`
+- regex pattern (string): for example, `:.*attn\.qkv\.weight`
+- module type and parameter name suffix (`(class, string)` tuple): for example, `(torch.nn.Linear, "weight")`
+
+## Groupers and proximal maps
+
+A pruning entry pairs a **grouper** with a **proximal map**. The grouper reshapes a tensor into `(n_groups, group_size)`, or exposes singular values for an SVD grouper, and the proximal map is then applied to that view.
+
+### Groupers (`torchao.prototype.pat.group`)
+
+| Grouper | Group structure |
+| --- | --- |
+| `Dim0Grouper` / `Dim1Grouper` | One group per row or column of a 2-D weight |
+| `ElemGrouper` | Whole tensor as one group with per-element pruning |
+| `LayerGrouper` | Whole tensor as one group for layer-level pruning |
+| `KElementGrouper(k)` | `(numel / k, k)` blocks of `k` consecutive elements |
+| `ConvFilterGrouper` | One group per `(c_out, c_in)` filter slice of a Conv2d kernel |
+| `AttentionHeadGrouperDim0(num_heads)` | One group per attention head along dimension 0 |
+| `AttentionHeadGrouperDim1(num_heads)` | One group per attention head along dimension 1 |
+| `SVDGrouper` | Decompose `W = U diag(s) Vh` and expose its singular values |
+| `PackedSVDGrouper(npack)` | Apply SVD independently to each of `npack` sub-tensors |
+
+### Proximal maps (`torchao.prototype.pat.optim`)
+
+| Proximal map | Behavior |
+| --- | --- |
+| `ProxLasso` | Soft-threshold each element for magnitude-based sparsity |
+| `ProxGroupLasso` | Soft-threshold each group's L2 norm to zero whole groups |
+| `ProxNuclearNorm` | Soft-threshold singular values to shrink rank smoothly |
+| `MinSparsityConstraint(min_sparsity)` | Hard-zero the smallest-L2 `ceil(min_sparsity * n_groups)` groups |
+| `MinRankConstraint(min_sparsity)` | Hard-zero the smallest `ceil(min_sparsity * k)` singular values in each matrix |
+| `NMSparseConstraint(n_nonzero)` | Keep the largest-magnitude `n_nonzero` elements per group |
+
+### Recipes
+
+| Goal | Grouper | Proximal map | Notes |
+| --- | --- | --- | --- |
+| **2:4 sparsity** | `KElementGrouper(k=4)` | `NMSparseConstraint(n_nonzero=2)` | Keeps two nonzero elements in each four-element block |
+| **Row sparsity** | `Dim0Grouper` | `MinSparsityConstraint` or `ProxGroupLasso` | Use the hard constraint for an exact target or group Lasso for a smooth regularization knob |
+| **Column sparsity** | `Dim1Grouper` | `MinSparsityConstraint` or `ProxGroupLasso` | Drops input channels of a Linear layer |
+| **Conv filter sparsity** | `ConvFilterGrouper` | `MinSparsityConstraint` or `ProxGroupLasso` | Drops complete `(c_out, c_in)` filter slices |
+| **Attention head sparsity** | `AttentionHeadGrouperDim0` and/or `AttentionHeadGrouperDim1` | `MinSparsityConstraint` | Configure matching `num_heads` for the selected projections |
+| **Low-rank approximation, smooth** | `SVDGrouper` or `PackedSVDGrouper` | `ProxNuclearNorm` | Uses regularization-controlled rank decay |
+| **Low-rank approximation, exact target** | `SVDGrouper` or `PackedSVDGrouper` | `MinRankConstraint(min_sparsity)` | Zeros `ceil(min_sparsity * k)` and retains `k - ceil(min_sparsity * k)` singular values per matrix |
+
+`MinSparsityConstraint`, `MinRankConstraint`, and `NMSparseConstraint` are hard-zero maps: they ignore `reg_lambda` and `gamma` and are driven by their target argument. Set `min_sparsity_schedule: true` to ramp a minimum-sparsity or minimum-rank target cubically from the end of warmup to `healing_start_step`.
+
+SVD decompositions can dominate optimizer cost on wide tensors. Set `prox_freq: N` on a parameter group to run its grouper and proximal map every `N` optimizer steps. SVD groups using the hard `MinRankConstraint` reapply the proximal map during healing by default so the base optimizer cannot refill removed singular values. Soft SVD maps such as `ProxNuclearNorm` retain their existing behavior unless `prox_through_heal: true` is set explicitly, while `MinRankConstraint` can opt out with `prox_through_heal: false`. Setting `prox_through_heal: true` on a non-SVD grouper is invalid and rejected during optimizer construction.
 
 ## Unstructured pruning on 1.3B OLMo models
 
@@ -71,4 +102,3 @@ We borrowed the setup from AllenAI's OLMo models. The table below is Table 1 of 
 The two plots show that the PAT pruned 1.3B models (blue curve) reach much better training loss and mean test accuracy on 8 reasoning benchmarks (ARC-Challenge, ARC-Easy, BoolQ, HellaSwag, OpenBookQA, PIQA, Social IQa, WinoGrande) across different sparsity levels.
 ![](https://github.com/user-attachments/assets/b04347bd-6f16-44ca-85b9-8591349a9b31)
 ![](https://github.com/user-attachments/assets/91820a7f-519b-4415-ba68-f510df1e18e9)
-
