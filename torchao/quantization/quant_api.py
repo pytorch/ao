@@ -1613,21 +1613,22 @@ def _fqn_to_config_handler(
     """
     parameter_config_found = False
     top_level_params = []
-    for i, (parameter_name, param) in enumerate(list(module.named_parameters())):
+    for parameter_name, param in module.named_parameters():
         if parameter_name in dir(module):
             parameter_fqn = (
                 f"{fqn}.{parameter_name}" if len(fqn) > 0 else parameter_name
             )
-            top_level_params.append((i, parameter_name, param, parameter_fqn))
+            top_level_params.append((parameter_name, param, parameter_fqn))
 
     # First we see if any parameter fqn matches with FqnToConfig, if so, we apply the appropriate transform
-    for i, parameter_name, param, parameter_fqn in list(top_level_params):
+    for entry in list(top_level_params):
+        parameter_name, param, parameter_fqn = entry
         if parameter_fqn in config.fqn_to_config:
             parameter_config_found = True
             c = config.fqn_to_config[parameter_fqn]
             # if None, remove from subsequent regex check
             if c is None:
-                top_level_params.pop(i)
+                top_level_params.remove(entry)
             else:
                 handler = _QUANTIZE_CONFIG_HANDLER[type(c)]
                 if _handler_supports_fqn_quantization(handler):
@@ -1648,7 +1649,7 @@ def _fqn_to_config_handler(
             return module
 
     # Next try to match parameters on regex patterns
-    for i, parameter_name, param, parameter_fqn in top_level_params:
+    for parameter_name, param, parameter_fqn in top_level_params:
         for pattern in config.fqn_to_config:
             if pattern.startswith("re:") and re.fullmatch(pattern[3:], parameter_fqn):
                 parameter_config_found = True

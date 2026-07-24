@@ -1113,5 +1113,66 @@ class TestFqnToConfig(TestCase):
             )
 
 
+class TestFqnToConfigNoneParams(TestCase):
+    """Regression tests for FqnToConfig entries mapped to None (param exclusion).
+
+    Excluding a parameter used to remove entries from ``top_level_params`` by a
+    stale enumeration index, so excluding more than one parameter of the same
+    module either raised an IndexError or silently dropped the wrong entry
+    before the regex-matching pass. These tests are device-independent, so they
+    run on CPU as well.
+    """
+
+    def test_multiple_none_params_with_regex(self):
+        """Two None-configured params on one module + a regex default used to
+        raise `IndexError: pop index out of range`."""
+        model = torch.nn.Sequential(
+            torch.nn.Linear(16, 16), torch.nn.Linear(16, 16)
+        ).eval()
+        quant_config = FqnToConfig(
+            {
+                "0.weight": None,
+                "0.bias": None,
+                "re:1\\.weight": Int8WeightOnlyConfig(),
+            }
+        )
+        quantize_(model, quant_config, filter_fn=None)
+
+        assert not isinstance(model[0].weight, Int8Tensor)
+        assert not isinstance(model[0].bias, Int8Tensor)
+        assert isinstance(model[1].weight, Int8Tensor)
+
+    def test_none_params_do_not_shift_regex_match(self):
+        """None-configured params must not shift which sibling entry is removed,
+        otherwise a regex-targeted param is silently left unquantized."""
+
+        class TestModule(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.w1 = torch.nn.Parameter(torch.randn(16, 16))
+                self.w2 = torch.nn.Parameter(torch.randn(16, 16))
+                self.w3 = torch.nn.Parameter(torch.randn(16, 16))
+
+            def forward(self, x):
+                return x @ self.w3.t()
+
+        model = TestModule().eval()
+        quant_config = FqnToConfig(
+            {
+                "w1": None,
+                "w2": None,
+                "re:w3": Int8WeightOnlyConfig(),
+            }
+        )
+        quantize_(model, quant_config, filter_fn=None)
+
+        # w1/w2 are deliberately bare, unrelated params configured with None (skip);
+        # only the regex-targeted w3 should be quantized. This asserts the None entries
+        # don't shift which sibling entry is removed.
+        assert not isinstance(model.w1, Int8Tensor)
+        assert not isinstance(model.w2, Int8Tensor)
+        assert isinstance(model.w3, Int8Tensor)
+
+
 if __name__ == "__main__":
     unittest.main()
