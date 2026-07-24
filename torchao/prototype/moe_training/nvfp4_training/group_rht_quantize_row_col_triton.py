@@ -97,7 +97,10 @@ if torch_version_at_least("2.10.0") and has_triton():
         tile_idx = tl.program_id(0)
         num_tiles_token = tl.cdiv(M, BLOCK_M)
         num_tiles_hidden = tl.cdiv(N, BLOCK_N)
-        pid_m = tile_idx // num_tiles_hidden
+        # int64 tile indices: the A load (offs_m * N) and the packed-store offsets
+        # (outer * N//2, outer_t * M//2) overflow int32 once the packed token count
+        # times N exceeds 2**31, silently wrapping to bad addresses.
+        pid_m = (tile_idx // num_tiles_hidden).to(tl.int64)
         pid_n = tile_idx - pid_m * num_tiles_hidden
 
         if SHAPE_REP == VARYING_FIRST_DIM:
