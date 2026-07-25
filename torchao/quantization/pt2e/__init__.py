@@ -1,5 +1,3 @@
-# mypy: allow-untyped-defs
-
 import sys
 from typing import Callable, Optional, Union
 
@@ -184,7 +182,7 @@ class DerivedObserverOrFakeQuantize(ObserverBase):
         quant_max: Optional[int] = None,
         qscheme: Optional[torch.qscheme] = None,
         ch_axis: Optional[int] = None,
-    ):
+    ) -> None:
         super().__init__(dtype)
         self.obs_or_fqs = obs_or_fqs
         self.derive_qparams_fn = derive_qparams_fn
@@ -203,5 +201,6 @@ class DerivedObserverOrFakeQuantize(ObserverBase):
     def forward(self, x: Tensor) -> Tensor:
         return x
 
-    def calculate_qparams(self):  # type:ignore[override]
+    def calculate_qparams(self) -> tuple[Tensor, Tensor]:  # type:ignore[override]
         return self.derive_qparams_fn(self.obs_or_fqs)
+
