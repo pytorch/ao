@@ -31,10 +31,29 @@ except ImportError:
 
 AUTOTUNER_ENABLE = bool(int(os.getenv("TORCHAO_AUTOTUNER_ENABLE", 0)))
 
+lib = torch.library.Library("torchao", "FRAGMENT")
+lib.define("int_matmul(Tensor a, Tensor b) -> Tensor")
+lib.define("int_scaled_matmul(Tensor a, Tensor b, Tensor scales1) -> Tensor")
+
+
+@torch.library.impl(lib, "int_matmul", "Meta")
+def int_matmul_meta(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
+    M, K = a.shape
+    K, N = b.shape
+    return torch.empty((M, N), device=a.device, dtype=torch.int32)
+
+
+@torch.library.impl(lib, "int_scaled_matmul", "Meta")
+def int_scaled_matmul_meta(
+    a: torch.Tensor, b: torch.Tensor, scales1: torch.Tensor
+) -> torch.Tensor:
+    M, K = a.shape
+    K, N = b.shape
+    return torch.empty((M, N), device=a.device, dtype=scales1.dtype)
+
 
 def safe_int_mm(input: torch.Tensor, mat2: torch.Tensor) -> torch.Tensor:
-    """
-    Performs a safe integer matrix multiplication, considering different paths for
+    """Performs a safe integer matrix multiplication, considering different paths for
     torch.compile, cublas, and fallback cases.
 
     Args:
@@ -93,10 +112,22 @@ def safe_int_mm(input: torch.Tensor, mat2: torch.Tensor) -> torch.Tensor:
         )
 
 
+@torch.library.impl(lib, "int_matmul", "CompositeImplicitAutograd")
+def int_matmul_decomposition(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
+    return safe_int_mm(a, b)
+
+
+@torch.library.impl(lib, "int_scaled_matmul", "CompositeImplicitAutograd")
+def int_scaled_matmul_decomposition(
+    a: torch.Tensor, b: torch.Tensor, scales1: torch.Tensor
+) -> torch.Tensor:
+    c = safe_int_mm(a, b)
+    return c * scales1
+
+
 def int_matmul(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
-    """
-    Performs integer matrix multiplication using intmm_triton if available and autotuner is enabled,
-    otherwise falls back to safe_int_mm.
+    """Performs integer matrix multiplication using intmm_triton if available and autotuner is enabled,
+    otherwise falls back to safe_int_mm or dispatches through torch.ops.torchao.int_matmul for non-CUDA accelerators.
 
     Args:
         a (torch.Tensor): The first matrix to multiply.
@@ -105,16 +136,21 @@ def int_matmul(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
     Returns:
         torch.Tensor: The result of the matrix multiplication.
     """
-    if intmm_triton is not None and AUTOTUNER_ENABLE:
-        return torch.ops.torchao.int_matmul(a, b)
-    return safe_int_mm(a, b)
+    if _is_device("cuda", a.device):
+        if intmm_triton is not None and AUTOTUNER_ENABLE:
+            return torch.ops.torchao.int_matmul(a, b)
+        return safe_int_mm(a, b)
+
+    if _is_device("cpu", a.device):
+        return safe_int_mm(a, b)
+
+    return torch.ops.torchao.int_matmul(a, b)
 
 
 def _int_scaled_matmul_cpu(
     a: torch.Tensor, b: torch.Tensor, scales1: torch.Tensor
 ) -> torch.Tensor:
-    """
-    CPU-optimized path for scaled integer matrix multiplication.
+    """CPU-optimized path for scaled integer matrix multiplication.
     CPU prefers decomposed version to leverage the fusion capability of Inductor.
     It goes to u8s8 or s8s8 path based on ISA support for hardware. The selection
     is for performance only and both paths should work regardless of ISA support.
@@ -148,8 +184,7 @@ def _int_scaled_matmul_cpu(
 def int_scaled_matmul(
     a: torch.Tensor, b: torch.Tensor, scales1: torch.Tensor
 ) -> torch.Tensor:
-    """
-    Performs scaled integer matrix multiplication.
+    """Performs scaled integer matrix multiplication.
 
     Args:
         a (torch.Tensor): The first matrix to multiply.
@@ -176,8 +211,11 @@ def int_scaled_matmul(
 
     scales1 = scales1.expand((M, N))
 
-    if intmm_triton is not None and AUTOTUNER_ENABLE:
-        return torch.ops.torchao.int_scaled_matmul(a, b, scales1)
+    if _is_device("cuda", a.device):
+        if intmm_triton is not None and AUTOTUNER_ENABLE:
+            return torch.ops.torchao.int_scaled_matmul(a, b, scales1)
+        c = safe_int_mm(a, b)
+        return c * scales1
 
-    c = safe_int_mm(a, b)
-    return c * scales1
+    return torch.ops.torchao.int_scaled_matmul(a, b, scales1)
+
