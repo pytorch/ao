@@ -498,6 +498,10 @@ class PruneOptimizer(Optimizer):
         for group in self.regularized_param_groups():
             if not self._prox_through_heal(group):
                 continue
+            # Global prox types build per-batch (see step()); the per-param path
+            # below can't build them and would raise a confusing TypeError.
+            if group["prox_type"] == "GlobalMinSparsityConstraint":
+                continue
             if not self.should_prune(group, self.num_steps):
                 continue
             prox_map, grouper_cls, grouper_kwargs, prox_kwargs = (
