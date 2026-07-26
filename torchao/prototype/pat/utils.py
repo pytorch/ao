@@ -133,6 +133,21 @@ def latent_svd(self, name=""):
     return ((U * S) @ Vh).view(orig_shape)
 
 
+def _isolate_module_class(module: nn.Module) -> type:
+    """Return a per-instance subclass so descriptor patches don't leak.
+
+    Patching the SVD descriptor onto ``module.__class__`` would mutate the
+    shared class (e.g. ``nn.Linear``) for every module in the process; a
+    private subclass isolates it to this instance.
+    """
+    cls = module.__class__
+    if cls.__dict__.get("_pat_svd_isolated", False):
+        return cls
+    private_cls = type(cls.__name__, (cls,), {"_pat_svd_isolated": True})
+    module.__class__ = private_cls
+    return private_cls
+
+
 def insert_svd_modules_(model: nn.Module, optimizer: torch.optim.Optimizer):
     """Replaces dense parameters with their SVD decompositions.
 
@@ -184,7 +199,7 @@ def insert_svd_modules_(model: nn.Module, optimizer: torch.optim.Optimizer):
 
                 module.__dict__.pop(pn, None)  # delete the original parameter
                 setattr(
-                    module.__class__,
+                    _isolate_module_class(module),
                     pn,
                     FuncDescriptor(partial(latent_svd, name=pn)),
                 )
