@@ -72,7 +72,8 @@ A pruning entry pairs a **grouper** with a **proximal map**. The grouper reshape
 | `ProxLasso` | Soft-threshold each element for magnitude-based sparsity |
 | `ProxGroupLasso` | Soft-threshold each group's L2 norm to zero whole groups |
 | `ProxNuclearNorm` | Soft-threshold singular values to shrink rank smoothly |
-| `MinSparsityConstraint(min_sparsity)` | Hard-zero the smallest-L2 `ceil(min_sparsity * n_groups)` groups |
+| `MinSparsityConstraint(min_sparsity)` | Hard-zero the smallest-L2 `ceil(min_sparsity * n_groups)` groups in each tensor |
+| `GlobalMinSparsityConstraint(min_sparsity)` | Hard-zero one jointly scored group-count budget across all tensors in an optimizer parameter group |
 | `MinRankConstraint(min_sparsity)` | Hard-zero the smallest `ceil(min_sparsity * k)` singular values in each matrix |
 | `NMSparseConstraint(n_nonzero)` | Keep the largest-magnitude `n_nonzero` elements per group |
 
@@ -85,10 +86,15 @@ A pruning entry pairs a **grouper** with a **proximal map**. The grouper reshape
 | **Column sparsity** | `Dim1Grouper` | `MinSparsityConstraint` or `ProxGroupLasso` | Drops input channels of a Linear layer |
 | **Conv filter sparsity** | `ConvFilterGrouper` | `MinSparsityConstraint` or `ProxGroupLasso` | Drops complete `(c_out, c_in)` filter slices |
 | **Attention head sparsity** | `AttentionHeadGrouperDim0` and/or `AttentionHeadGrouperDim1` | `MinSparsityConstraint` | Configure matching `num_heads` for the selected projections |
+| **Global structured sparsity** | Any supported non-SVD grouper | `GlobalMinSparsityConstraint` | Shares one group-count budget across every tensor in the optimizer parameter group; `score_type: rms` is the recommended default |
 | **Low-rank approximation, smooth** | `SVDGrouper` or `PackedSVDGrouper` | `ProxNuclearNorm` | Uses regularization-controlled rank decay |
 | **Low-rank approximation, exact target** | `SVDGrouper` or `PackedSVDGrouper` | `MinRankConstraint(min_sparsity)` | Zeros `ceil(min_sparsity * k)` and retains `k - ceil(min_sparsity * k)` singular values per matrix |
 
-`MinSparsityConstraint`, `MinRankConstraint`, and `NMSparseConstraint` are hard-zero maps: they ignore `reg_lambda` and `gamma` and are driven by their target argument. Set `min_sparsity_schedule: true` to ramp a minimum-sparsity or minimum-rank target cubically from the end of warmup to `healing_start_step`.
+`MinSparsityConstraint`, `GlobalMinSparsityConstraint`, `MinRankConstraint`, and `NMSparseConstraint` are hard-zero maps: they ignore `reg_lambda` and `gamma` and are driven by their target argument. Set `min_sparsity_schedule: true` to ramp a minimum-sparsity or minimum-rank target cubically from the end of warmup to `healing_start_step`. Regardless of `prox_freq` alignment, PAT applies a hard constraint once at `healing_start_step - 1` so healing freezes the final target mask rather than an earlier mask.
+
+`GlobalMinSparsityConstraint` computes one budget as `ceil(min_sparsity * total_groups)` for each optimizer parameter group, not one budget per tensor and not a parameter-count budget. It jointly ranks the groups exposed by the configured grouper, and all parameters in that optimizer group must produce scores on the same device. Use `score_type: rms` by default when tensors have different group sizes because it normalizes L2 magnitude by `sqrt(group_size)`. Raw `l2` tends to favor retaining larger groups because their norms grow with group size, while `param_cost` divides by the full group size and more strongly favors removing groups that save more parameters. Padded `KElementGrouper` views are rejected because padding would distort both scoring and accounting; choose a `k` that divides every grouped dimension.
+
+For DTensor parameters, global selection requires full materialization of every grouped tensor on every rank before the shared top-k decision, followed by scattering the selected masks back to the original placements. The current internal `CACHE_FULL_TENSORS` policy gathers each DTensor once and retains all dense copies until selection and write-back finish, so peak dense memory is the sum of the tensors in the optimizer parameter group. A future lower-memory policy could release each copy after scoring, but would need to gather each DTensor again to apply the selected mask. Every rank gathers the same tensors and performs the same deterministic selection, so masks are expected to agree, but current PAT CI covers the DTensor API only at world size one rather than exercising true multi-rank execution.
 
 SVD decompositions can dominate optimizer cost on wide tensors. Set `prox_freq: N` on a parameter group to run its grouper and proximal map every `N` optimizer steps. SVD groups using the hard `MinRankConstraint` reapply the proximal map during healing by default so the base optimizer cannot refill removed singular values. Soft SVD maps such as `ProxNuclearNorm` retain their existing behavior unless `prox_through_heal: true` is set explicitly, while `MinRankConstraint` can opt out with `prox_through_heal: false`. Setting `prox_through_heal: true` on a non-SVD grouper is invalid and rejected during optimizer construction.
 
