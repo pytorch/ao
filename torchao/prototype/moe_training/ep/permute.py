@@ -201,11 +201,107 @@ def permute_and_pad(
             alignment,
         )
 
-    x = torch.vstack((x, x.new_zeros((1, x.shape[-1]))))
-    input_shape = x.shape
-    x = x[permuted_indices, :]
+    # `permuted_indices` holds -1 in padding slots. Rather than appending a zero
+    # row to x so those land on it, which copies the whole activation, have the
+    # gather emit zeros for -1 directly. `input_shape` still reports the padded
+    # (rows + 1, cols) that the caller's unpermute allocates.
+    input_rows, input_cols = x.shape
+    input_shape = torch.Size((input_rows + 1, input_cols))
+    x = _PermutePadGather.apply(x, permuted_indices)
 
     return input_shape, x, permuted_indices, num_tokens_per_expert_padded, group_offsets
+
+
+class _PermutePadGather(torch.autograd.Function):
+    """x[permuted_indices], with -1 gathering a zero row instead of a real one.
+
+    Backward is `_triton_permute_bwd`, the exact transpose of this gather: it
+    skips -1 rows and scatters into the unpadded row count.
+    """
+
+    @staticmethod
+    def forward(ctx, x: torch.Tensor, permuted_indices: torch.Tensor):
+        ctx.save_for_backward(permuted_indices)
+        ctx.input_shape = x.shape
+        return _triton_permute_fwd(x, permuted_indices)
+
+    @staticmethod
+    def backward(ctx, grad_output: torch.Tensor):
+        (permuted_indices,) = ctx.saved_tensors
+        input_rows, input_cols = ctx.input_shape
+        grad_input = _triton_permute_bwd(
+            grad_output.contiguous(), permuted_indices, input_rows, input_cols
+        )
+        return grad_input, None
+
+
+@triton_op("torchao::_triton_permute_fwd", mutates_args={})
+def _triton_permute_fwd(
+    x: torch.Tensor,
+    permuted_indices: torch.Tensor,
+) -> torch.Tensor:
+    """Gather rows of x per permuted_indices, writing zeros where the index is -1."""
+    src_rows, cols = x.shape
+    out_rows = permuted_indices.shape[0]
+    out = x.new_empty((out_rows, cols))
+    grid = lambda meta: (  # noqa: E731
+        triton.cdiv(out_rows, meta["BLOCK_ROWS"]),
+        triton.cdiv(cols, meta["BLOCK_COLS"]),
+    )
+    wrap_triton(_triton_permute_fwd_kernel)[grid](
+        x,
+        permuted_indices,
+        out,
+        src_rows,
+        cols,
+        out_rows,
+        BLOCK_ROWS=8,
+        BLOCK_COLS=512,
+        PADDING_VALUE=-1,
+    )
+    return out
+
+
+@triton.jit
+def _triton_permute_fwd_kernel(
+    x_ptr,
+    permuted_indices_ptr,
+    out_ptr,
+    src_rows,
+    cols,
+    out_rows,
+    BLOCK_ROWS: tl.constexpr,
+    BLOCK_COLS: tl.constexpr,
+    PADDING_VALUE: tl.constexpr = -1,
+):
+    row_pid = tl.program_id(0)
+    col_pid = tl.program_id(1)
+    row_offsets = row_pid * BLOCK_ROWS + tl.arange(0, BLOCK_ROWS)
+    col_offsets = col_pid * BLOCK_COLS + tl.arange(0, BLOCK_COLS)
+
+    src = tl.load(
+        permuted_indices_ptr + row_offsets,
+        mask=row_offsets < out_rows,
+        other=PADDING_VALUE,
+    ).to(tl.int64)
+
+    # Padding slots read nothing and land as 0.0 via `other`, which is exactly what
+    # the appended zero row used to supply.
+    read_mask = (
+        (src[:, None] != PADDING_VALUE)
+        & (src[:, None] < src_rows)
+        & (col_offsets[None, :] < cols)
+    )
+    vals = tl.load(
+        x_ptr + src[:, None] * cols + col_offsets[None, :], mask=read_mask, other=0.0
+    )
+
+    write_mask = (row_offsets[:, None] < out_rows) & (col_offsets[None, :] < cols)
+    tl.store(
+        out_ptr + row_offsets[:, None] * cols + col_offsets[None, :],
+        vals,
+        mask=write_mask,
+    )
 
 
 @conditional_nostrict_trace
