@@ -13,7 +13,7 @@ from typing import Any, Optional
 import torch
 from torch import nn
 
-from .distributed_utils import _is_main_process
+from .distributed_utils import _is_dtensor, _is_main_process
 
 RE_PREFIX = ":"
 
@@ -133,14 +133,40 @@ def latent_svd(self, name=""):
     return ((U * S) @ Vh).view(orig_shape)
 
 
+def _isolate_module_class(module: nn.Module) -> type:
+    """Return a per-instance subclass so descriptor patches don't leak.
+
+    Patching the SVD descriptor onto ``module.__class__`` would mutate the
+    shared class (e.g. ``nn.Linear``) for every module in the process; a
+    private subclass isolates it to this instance.
+    """
+    cls = module.__class__
+    if cls.__dict__.get("_pat_svd_isolated", False):
+        return cls
+    private_cls = type(cls.__name__, (cls,), {"_pat_svd_isolated": True})
+    module.__class__ = private_cls
+    return private_cls
+
+
 def insert_svd_modules_(model: nn.Module, optimizer: torch.optim.Optimizer):
-    """Replaces the parameters of the model with their SVD decompositions."""
-    param_set = {
-        p.data_ptr()
+    """Replaces dense parameters with their SVD decompositions.
+
+    DTensor conversion is intentionally unsupported because this function
+    replaces model parameters with dense U/S/Vh tensors and has no placement or
+    mesh policy for the resulting modules.
+    """
+    svd_params = [
+        p
         for group in optimizer.regularized_param_groups()
         for p in group["params"]
         if group["group_type"] == "SVDGrouper"
-    }
+    ]
+    if any(_is_dtensor(p) for p in svd_params):
+        raise TypeError(
+            "insert_svd_modules_ does not support DTensor parameters; convert "
+            "the model to dense parameters before inserting SVD modules."
+        )
+    param_set = {p.data_ptr() for p in svd_params}
 
     def insert_inner_(model):
         for mn, module in model.named_children():
@@ -173,7 +199,7 @@ def insert_svd_modules_(model: nn.Module, optimizer: torch.optim.Optimizer):
 
                 module.__dict__.pop(pn, None)  # delete the original parameter
                 setattr(
-                    module.__class__,
+                    _isolate_module_class(module),
                     pn,
                     FuncDescriptor(partial(latent_svd, name=pn)),
                 )
