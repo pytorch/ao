@@ -39,7 +39,7 @@ class MinSparsityConstraint(ProxMap, _TopKZeroMixin):
     """Drops the smallest-L2-norm ``ceil(min_sparsity * n_groups)`` whole
     groups of a 2-D ``(n_groups, group_size)`` view. ``whole_tensor = True``
     routes the optimizer around ``torch.vmap`` so the prox sees all groups
-    at once. ``reg_lambda``, ``gamma``, and ``tau_reweight`` are ignored.
+    at once. ``reg_lambda`` and ``gamma`` are ignored.
 
     Pair with ``Dim0Grouper`` / ``Dim1Grouper`` / ``ConvFilterGrouper`` for
     row/column/filter pruning, or with ``KElementGrouper(k=1)`` for global
@@ -66,7 +66,6 @@ class MinSparsityConstraint(ProxMap, _TopKZeroMixin):
         self,
         p: Tensor,
         gamma: Union[Tensor, float],
-        tau_reweight: Union[Tensor, float] = 1.0,
     ) -> tuple[Tensor, Tensor]:
         assert p.dim() == 2, (
             f"MinSparsityConstraint expects a 2-D (n_groups, group_size) view, "
@@ -78,13 +77,69 @@ class MinSparsityConstraint(ProxMap, _TopKZeroMixin):
         return self._topk_zero_(p, scores, n_zero)
 
 
+class GlobalMinSparsityConstraint(MinSparsityConstraint):
+    """Allocate one structured sparsity budget across a parameter group.
+
+    Unlike ``MinSparsityConstraint``, which applies the target independently to
+    each tensor, this constraint ranks groups from every tensor jointly. The
+    optimizer collects scores with :meth:`score`, selects the globally smallest
+    ``ceil(min_sparsity * total_groups)`` groups, and applies the selection with
+    :meth:`zero_groups_`. The inherited ``min_sparsity`` attribute is retained
+    for constructor validation and API consistency; ``PruneOptimizer`` owns the
+    scheduled global budget computation.
+
+    ``score_type`` controls comparisons across different group sizes:
+
+    - ``"rms"``: L2 norm divided by ``sqrt(group_size)``.
+    - ``"l2"``: raw L2 norm.
+    - ``"param_cost"``: L2 norm divided by ``group_size``.
+    """
+
+    whole_tensor = True
+
+    def __init__(
+        self, reg_lambda: float, min_sparsity: float, score_type: str = "rms"
+    ) -> None:
+        super().__init__(reg_lambda, min_sparsity)
+        assert score_type in ("rms", "l2", "param_cost"), (
+            f"score_type must be one of rms/l2/param_cost, got {score_type!r}"
+        )
+        self.score_type = score_type
+
+    def score(self, p: Tensor) -> Tensor:
+        """Return one importance score per leading-dimension group."""
+        assert p.dim() == 2, (
+            "GlobalMinSparsityConstraint.score expects a 2-D "
+            f"(n_groups, group_size) view, got shape {tuple(p.shape)}."
+        )
+        norm = torch.linalg.vector_norm(p, dim=1)
+        group_size = p.size(1)
+        if self.score_type == "rms":
+            return norm / math.sqrt(group_size)
+        if self.score_type == "param_cost":
+            return norm / group_size
+        return norm
+
+    @staticmethod
+    def zero_groups_(p: Tensor, zero_idx: Tensor) -> Tensor:
+        """Zero selected leading-dimension groups and return element count."""
+        assert p.dim() == 2, (
+            "GlobalMinSparsityConstraint.zero_groups_ expects a 2-D view, "
+            f"got shape {tuple(p.shape)}."
+        )
+        if zero_idx.numel() > 0:
+            p[zero_idx] = 0.0
+        zeros = zero_idx.numel() * p.size(1)
+        return torch.tensor(zeros, device=p.device, dtype=torch.long)
+
+
 class MinRankConstraint(ProxMap, _TopKZeroMixin):
     """Zeros the smallest ``ceil(min_sparsity * k)`` singular values of an
     SVD-grouped tensor. Here the shared ``min_sparsity`` key is the fraction of
     singular values zeroed, so each matrix retains
     ``k - ceil(min_sparsity * k)`` singular values. Pair with ``SVDGrouper`` or
-    ``PackedSVDGrouper``. ``reg_lambda``, ``gamma``, and ``tau_reweight`` are
-    ignored; the count is optionally resolved on the cubic schedule by
+    ``PackedSVDGrouper``. ``reg_lambda`` and ``gamma`` are ignored; the count
+    is optionally resolved on the cubic schedule by
     ``PruneOptimizer._effective_min_sparsity``.
 
     ``whole_tensor = True`` routes the optimizer around ``torch.vmap`` so
@@ -110,7 +165,6 @@ class MinRankConstraint(ProxMap, _TopKZeroMixin):
         self,
         p: Tensor,
         gamma: Union[Tensor, float],
-        tau_reweight: Union[Tensor, float] = 1.0,
     ) -> tuple[Tensor, Tensor]:
         # SVDGrouper.p is (k,); PackedSVDGrouper.p is (npack, k).
         n_zero = math.ceil(self.min_sparsity * p.shape[-1])
@@ -145,7 +199,6 @@ class NMSparseConstraint(ProxMap, _TopKZeroMixin):
         self,
         p: Tensor,
         gamma: Union[Tensor, float],
-        tau_reweight: Union[Tensor, float] = 1.0,
     ) -> tuple[Tensor, Tensor]:
         assert self.n_nonzero <= p.numel(), (
             f"n_nonzero ({self.n_nonzero}) must be at most group_size ({p.numel()})"
