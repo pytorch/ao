@@ -22,9 +22,8 @@ class ProxNuclearNorm(ProxMap):
         self,
         p: Tensor,
         gamma: Union[Tensor, float],
-        tau_reweight: Union[Tensor, float] = 1.0,
     ) -> tuple[Tensor, Tensor]:
-        thresh = self.threshold(p, gamma, tau_reweight)
+        thresh = self.threshold(p, gamma)
         # Soft-threshold non-negative singular values to zero: equivalent to
         # relu(p - thresh) for p >= 0. Avoids a torch.where intermediate and
         # composes under torch.vmap (relu_ has a batching rule; clamp_ does

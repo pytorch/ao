@@ -43,6 +43,7 @@ class KElementGrouper(DimGrouperMixin, Grouper):
             N_padded = self._unpadded_shape[1] + self._pad_size
             unpadded = self.p.reshape(M, N_padded)[:, : self._unpadded_shape[1]]
             self._param.data.copy_(unpadded.contiguous().view(self.orig_shape))
+            self._write_back = False
             del self._pad_size, self._unpadded_shape
         super().__exit__(exc_type, exc_val, exc_tb)
 
