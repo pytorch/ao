@@ -10,12 +10,21 @@ import unittest
 from unittest.mock import patch
 
 import torch
+import torch.distributed as dist
+from torch.distributed.tensor import distribute_tensor
+from torch.distributed.tensor.placement_types import Replicate, Shard
 from torch.testing._internal import common_utils
 
-from test.prototype.pat.test_common import TwoLayerMLP, make_prox_kwargs, optim_step
+from test.prototype.pat.test_common import (
+    DistributedTestMixin,
+    TwoLayerMLP,
+    make_prox_kwargs,
+    optim_step,
+)
 from torchao.prototype.pat.group import PackedSVDGrouper, SVDGrouper
 from torchao.prototype.pat.optim import MinRankConstraint, PruneOptimizer
-from torchao.prototype.pat.utils import get_param_groups
+from torchao.prototype.pat.optim.prox_executor import apply_prox, apply_prox_to_param
+from torchao.prototype.pat.utils import get_param_groups, insert_svd_modules_
 
 
 class TestMinRankConstraintApply(common_utils.TestCase):
@@ -76,7 +85,7 @@ class TestMinRankWithSVDGrouper(common_utils.TestCase):
         prox_kwargs = make_prox_kwargs(
             gamma=1.0, zero_elts_are_counts=True, is_svd_grouper=True
         )
-        zero_elts, _, zeros_are_summed = PruneOptimizer._apply_prox(
+        zero_elts, _, zeros_are_summed = apply_prox(
             grouper,
             prox,
             model.weight,
@@ -99,7 +108,7 @@ class TestMinRankWithSVDGrouper(common_utils.TestCase):
             gamma=1.0, zero_elts_are_counts=True, is_svd_grouper=True
         )
         sv_count = torch.zeros(npack, dtype=torch.int)
-        zero_elts, _, _ = PruneOptimizer._apply_prox(
+        zero_elts, _, _ = apply_prox(
             grouper,
             prox,
             model.weight,
@@ -115,6 +124,105 @@ class TestMinRankWithSVDGrouper(common_utils.TestCase):
             self.assertEqual(
                 self._effective_rank(packed_weight), embed_dim - n_killed_per_pack
             )
+
+
+@unittest.skipUnless(dist.is_available(), "torch.distributed not available")
+class TestMinRankDTensor(DistributedTestMixin, common_utils.TestCase):
+    def test_nonparticipant_does_not_create_sv_count(self):
+        p = distribute_tensor(
+            torch.randn(8, 8),
+            device_mesh=self.mesh,
+            placements=(Shard(0), Replicate()),
+        )
+        state = {}
+        prox_kwargs = make_prox_kwargs(gamma=1.0, is_svd_grouper=True)
+        with patch.object(p.device_mesh, "get_coordinate", return_value=None):
+            sv_count = PruneOptimizer._get_sv_count(p, state, {}, prox_kwargs)
+        self.assertIsNone(sv_count)
+        self.assertNotIn("sv_count", state)
+
+    def test_svd_dtensor_avoids_world_collectives(self):
+        torch.manual_seed(0)
+        full = torch.randn(8, 8)
+        p = torch.nn.Parameter(
+            distribute_tensor(
+                full,
+                device_mesh=self.mesh,
+                placements=(Shard(0), Replicate()),
+            )
+        )
+        sv_count = torch.zeros(1, dtype=torch.int)
+        prox_kwargs = make_prox_kwargs(
+            gamma=1.0,
+            zero_elts_are_counts=True,
+            is_svd_grouper=True,
+        )
+        with (
+            torch.no_grad(),
+            patch.object(
+                torch.distributed,
+                "barrier",
+                side_effect=AssertionError("unexpected WORLD barrier"),
+            ),
+            patch.object(
+                torch.distributed,
+                "broadcast",
+                side_effect=AssertionError("unexpected WORLD broadcast"),
+            ),
+        ):
+            result = apply_prox_to_param(
+                p,
+                MinRankConstraint(reg_lambda=0.0, min_sparsity=0.5),
+                SVDGrouper,
+                {},
+                prox_kwargs,
+                sv_count=sv_count,
+            )
+
+        self.assertIsNotNone(result)
+        self.assertEqual(sv_count.item(), 4)
+        singular_values = torch.linalg.svdvals(p.full_tensor().to(torch.float32))
+        self.assertEqual(int((singular_values > 1e-5).sum().item()), 4)
+
+
+class TestSVDModuleInsertion(DistributedTestMixin, common_utils.TestCase):
+    def test_dense_conversion_preserves_output(self):
+        torch.manual_seed(0)
+        model = torch.nn.Sequential(torch.nn.Linear(8, 8, bias=False))
+        group = {
+            "params": [model[0].weight],
+            "group_type": "SVDGrouper",
+            "prox_type": "MinRankConstraint",
+            "min_sparsity": 0.5,
+        }
+        optimizer = PruneOptimizer(torch.optim.SGD([group], lr=0.0))
+        model[0].weight.grad = torch.zeros_like(model[0].weight)
+        optimizer.step()
+        sample = torch.randn(2, 8)
+        expected = model(sample).detach()
+
+        insert_svd_modules_(model, optimizer)
+
+        self.assertEqual(model(sample), expected)
+
+    def test_dtensor_conversion_is_rejected(self):
+        mesh = self.mesh
+        p = torch.nn.Parameter(
+            distribute_tensor(
+                torch.randn(8, 8),
+                device_mesh=mesh,
+                placements=(Shard(0), Replicate()),
+            )
+        )
+        group = {
+            "params": [p],
+            "group_type": "SVDGrouper",
+            "prox_type": "MinRankConstraint",
+            "min_sparsity": 0.5,
+        }
+        optimizer = PruneOptimizer(torch.optim.SGD([group], lr=0.0))
+        with self.assertRaisesRegex(TypeError, "does not support DTensor parameters"):
+            insert_svd_modules_(torch.nn.Module(), optimizer)
 
 
 class TestProxFreqGate(common_utils.TestCase):
@@ -305,9 +413,28 @@ class TestPackedFactorizationMetrics(common_utils.TestCase):
         self.assertEqual(optimizer.param_groups[0]["factored_frac"], expected_frac)
         self.assertEqual(optimizer.relative_factored_frac, expected_frac)
 
+    def test_complete_metrics_update_on_non_main_participant(self):
+        param = torch.nn.Parameter(torch.randn(8, 8))
+        group = {
+            "params": [param],
+            "group_type": "SVDGrouper",
+            "prox_type": "MinRankConstraint",
+            "min_sparsity": 0.75,
+        }
+        optimizer = PruneOptimizer(torch.optim.SGD([group], lr=0.0))
+        param.grad = torch.zeros_like(param)
+        with patch(
+            "torchao.prototype.pat.optim.pruneopt._is_main_process",
+            return_value=False,
+        ):
+            optimizer.step()
+        self.assertGreater(optimizer.relative_factored_frac, 0.0)
+
 
 common_utils.instantiate_parametrized_tests(TestMinRankConstraintApply)
 common_utils.instantiate_parametrized_tests(TestMinRankWithSVDGrouper)
+common_utils.instantiate_parametrized_tests(TestMinRankDTensor)
+common_utils.instantiate_parametrized_tests(TestSVDModuleInsertion)
 common_utils.instantiate_parametrized_tests(TestProxFreqGate)
 common_utils.instantiate_parametrized_tests(TestProxThroughHeal)
 common_utils.instantiate_parametrized_tests(TestPackedFactorizationMetrics)
