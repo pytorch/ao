@@ -46,6 +46,16 @@ lib.define(
 lib.define(
     "float8_linear_cpu(Tensor input, Tensor input_scales, Tensor weight, Tensor weight_scales, Tensor? bias, ScalarType output_dtype) -> Tensor"
 )
+# FP8 scaled matmul op for third-party backend extensibility.
+# CUDA gets the CompositeImplicitAutograd decomposition (registered in
+# torchao/float8/inference.py) which calls torch._scaled_mm — behavior
+# is unchanged.  Third-party backends register a PrivateUse1 impl.
+lib.define(
+    "float8_scaled_mm(Tensor a, Tensor a_scale, Tensor b, Tensor b_scale, "
+    "Tensor? bias, ScalarType output_dtype, bool use_fast_accum, "
+    "Tensor? output_scale=None) -> Tensor",
+    tags=[torch._C.Tag.needs_fixed_stride_order],
+)
 
 
 def register_custom_op(name):
@@ -315,6 +325,21 @@ def _check_scale_dtypes(A_scale, B_scale):
 def meta_mx_fp8_bf16(A: Tensor, B: Tensor, A_scale: Tensor, B_scale: Tensor):
     """Meta impl for mx_fp8_bf16"""
     return torch.empty((A.size(0), B.size(1)), dtype=torch.bfloat16, device=A.device)
+
+
+@register_custom_op("torchao::float8_scaled_mm")
+def meta_float8_scaled_mm(
+    a: Tensor,
+    a_scale: Tensor,
+    b: Tensor,
+    b_scale: Tensor,
+    bias: Optional[Tensor],
+    output_dtype: torch.dtype,
+    use_fast_accum: bool,
+    output_scale: Optional[Tensor] = None,
+):
+    """Meta impl for float8_scaled_mm"""
+    return torch.empty((a.size(0), b.size(1)), dtype=output_dtype, device=a.device)
 
 
 def da8w4_linear_prepack_cpu(
