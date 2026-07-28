@@ -5,14 +5,11 @@
 # LICENSE file in the root directory of this source tree.
 
 import tempfile
+import unittest
 
 import torch
 from parameterized import param, parameterized
 from torch.testing import FileCheck
-from torch.testing._internal.common_utils import (
-    TestCase,
-    run_tests,
-)
 
 from torchao.quantization import (
     Int8DynamicActivationIntxWeightConfig,
@@ -24,10 +21,20 @@ from torchao.quantization.granularity import PerAxis, PerGroup
 from torchao.quantization.qat import IntxFakeQuantizeConfig, QATConfig
 from torchao.quantization.quantize_.workflows import IntxPackingFormat
 from torchao.quantization.utils import compute_error
-from torchao.utils import unwrap_tensor_subclass
+from torchao.utils import torch_version_at_least, unwrap_tensor_subclass
+
+try:
+    from transformers.integrations.gemma_quant import (
+        QuantizedLinear,
+        QuantizedEmbedding,
+    )
+    HAS_TRANSFORMERS = True
+except ImportError:
+    HAS_TRANSFORMERS = False
 
 
-class TestIntxUnpackedToInt8Tensor(TestCase):
+@unittest.skipIf(not torch_version_at_least("2.7.0"), "Need pytorch 2.7+")
+class TestIntxUnpackedToInt8Tensor(unittest.TestCase):
     def setUp(self):
         self.config = IntxWeightOnlyConfig(
             weight_dtype=torch.int4,
@@ -41,9 +48,11 @@ class TestIntxUnpackedToInt8Tensor(TestCase):
         input = torch.randint(low=0, high=128, size=(10,), device=device)
         embedding = torch.nn.Embedding(128, 256, dtype=dtype, device=device)
         original = embedding(input)
-        quantize_(embedding, self.config)
+        is_embedding = lambda n, _: isinstance(n, torch.nn.Embedding)
+        quantize_(embedding, self.config, filter_fn=is_embedding)
         quantized = embedding(input)
         error = compute_error(original, quantized)
+        self.assertTrue(torch.isfinite(error))
         self.assertTrue(error > 20)
 
     def test_linear(self):
@@ -120,11 +129,11 @@ class TestIntxUnpackedToInt8Tensor(TestCase):
         weight1 = dummy.weight.narrow(0, 0, 64)
         weight2 = dummy.weight.narrow(1, 0, 128)
 
-        self.assertEqual(weight1.qdata, dummy.weight.qdata.narrow(0, 0, 64))
-        self.assertEqual(weight1.scale, dummy.weight.scale.narrow(0, 0, 64))
+        self.assertTrue(torch.equal(weight1.qdata, dummy.weight.qdata.narrow(0, 0, 64)))
+        self.assertTrue(torch.equal(weight1.scale, dummy.weight.scale.narrow(0, 0, 64)))
 
-        self.assertEqual(weight2.qdata, dummy.weight.qdata.narrow(1, 0, 128))
-        self.assertEqual(weight2.scale, dummy.weight.scale.narrow(1, 0, 4))
+        self.assertTrue(torch.equal(weight2.qdata, dummy.weight.qdata.narrow(1, 0, 128)))
+        self.assertTrue(torch.equal(weight2.scale, dummy.weight.scale.narrow(1, 0, 4)))
 
         # check for sliced weight, before and after float8 quantization
         # does not differ too much
@@ -139,6 +148,23 @@ class TestIntxUnpackedToInt8Tensor(TestCase):
         dummy.weight = torch.nn.Parameter(weight2, requires_grad=False)
         res = dummy(input)
         assert compute_error(res, res_ref) > 15
+
+    def test_select(self):
+        dtype = torch.bfloat16
+        device = "cpu"
+        dummy = torch.nn.Linear(256, 256, bias=False, dtype=dtype, device=device)
+        
+        quantize_(dummy, self.config)
+        
+        # Test select row (index = 5)
+        index = 5
+        selected_row = dummy.weight[index, :] # calls select dim=0
+        
+        # Expected row dequantized
+        dequantized_weight = dummy.weight.dequantize()
+        expected_row = dequantized_weight[index, :]
+        
+        self.assertTrue(torch.allclose(selected_row, expected_row, rtol=1e-3, atol=1e-3))
 
     def test_slice_and_copy_(self):
         device = "cpu"
@@ -406,5 +432,63 @@ class TestIntxUnpackedToInt8Tensor(TestCase):
             )
 
 
+    def test_int8_static_activation_intx_weight_config(self):
+        from torchao.quantization import Int8StaticActivationIntxWeightConfig
+        
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+        dtype = torch.bfloat16
+        input_tensor = torch.randn(1, 128, dtype=dtype, device=device)
+        linear = torch.nn.Linear(128, 256, dtype=dtype, device=device)
+        
+        act_quant_scale = torch.tensor(0.5, dtype=dtype, device=device)
+        
+        config_group = Int8StaticActivationIntxWeightConfig(
+            act_quant_scale=act_quant_scale,
+            weight_dtype=torch.int4,
+            weight_granularity=PerGroup(32),
+        )
+        linear_copy = torch.nn.Linear(128, 256, dtype=dtype, device=device)
+        linear_copy.load_state_dict(linear.state_dict())
+        quantize_(linear_copy, config_group)
+        out_group = linear_copy(input_tensor)
+        
+        config_axis = Int8StaticActivationIntxWeightConfig(
+            act_quant_scale=act_quant_scale,
+            weight_dtype=torch.int4,
+            weight_granularity=PerAxis(0),
+        )
+        linear_copy2 = torch.nn.Linear(128, 256, dtype=dtype, device=device)
+        linear_copy2.load_state_dict(linear.state_dict())
+        quantize_(linear_copy2, config_axis)
+        out_axis = linear_copy2(input_tensor)
+        
+        self.assertEqual(out_group.shape, (1, 256))
+        self.assertEqual(out_axis.shape, (1, 256))
+
+    def test_intx_unpacked_embedding_sliced(self):
+        dtype = torch.bfloat16
+        device = "cpu"
+        embedding = torch.nn.Embedding(128, 256, dtype=dtype, device=device)
+        
+        config = IntxWeightOnlyConfig(
+            weight_dtype=torch.int4,
+            granularity=PerGroup(32),
+            version=2,
+        )
+        is_embedding = lambda n, _: isinstance(n, torch.nn.Embedding)
+        quantize_(embedding, config, filter_fn=is_embedding)
+        
+        from torchao.quantization import IntxUnpackedToInt8Tensor
+        self.assertTrue(isinstance(embedding.weight, IntxUnpackedToInt8Tensor))
+        
+        indices = torch.tensor([1, 5, 10], device=device)
+        output = embedding(indices)
+        
+        dequantized_weight = embedding.weight.dequantize()
+        expected_output = torch.nn.functional.embedding(indices, dequantized_weight)
+        
+        self.assertTrue(torch.allclose(output, expected_output, atol=1e-5))
+
+
 if __name__ == "__main__":
-    run_tests()
+    unittest.main()

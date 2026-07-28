@@ -66,6 +66,7 @@ from torchao.quantization.quantize_.workflows import (
     IntxOpaqueTensor,
     IntxPackingFormat,
     IntxUnpackedToInt8Tensor,
+    IntxUnpackedToInt8TensorActivationQuantization,
     QuantizeTensorToFloat8Kwargs,
     QuantizeTensorToInt8Kwargs,
 )
@@ -78,6 +79,7 @@ from torchao.quantization.utils import (
     _linear_extra_repr,
     _module_extra_repr,
     _quantization_type,
+    get_block_size,
 )
 from torchao.utils import (
     is_MI300,
@@ -965,6 +967,7 @@ class Int8StaticActivationInt8WeightConfig(AOBaseConfig):
     granularity: Optional[Union[Granularity, list[Granularity]]] = PerRow()
     act_mapping_type: Optional[MappingType] = MappingType.SYMMETRIC
     set_inductor_config: bool = True
+    output_quant_scale: Optional[torch.Tensor] = None
     version: int = 1
     reduce_range: Optional[bool] = False
 
@@ -1025,6 +1028,10 @@ def _int8_static_activation_int8_weight_transform(
     if config.act_quant_zero_point is not None:
         act_quant_zero_point = config.act_quant_zero_point.detach()
 
+    output_quant_scale = None
+    if config.output_quant_scale is not None:
+        output_quant_scale = config.output_quant_scale.detach()
+
     quantized_tensor = Int8Tensor.from_hp(
         getattr(module, parameter_name),
         granularity=weight_granularity,
@@ -1033,8 +1040,9 @@ def _int8_static_activation_int8_weight_transform(
             mapping_type=config.act_mapping_type,
             reduce_range=config.reduce_range,
         ),
-        act_quant_scale=config.act_quant_scale.detach(),
+        act_quant_scale=config.act_quant_scale.detach() if config.act_quant_scale is not None else None,
         act_quant_zero_point=act_quant_zero_point,
+        output_quant_scale=output_quant_scale,
         reduce_range=config.reduce_range,
     )
 
@@ -1042,6 +1050,132 @@ def _int8_static_activation_int8_weight_transform(
         module,
         parameter_name,
         torch.nn.Parameter(quantized_tensor, requires_grad=False),
+    )
+    module.extra_repr = types.MethodType(
+        partial(
+            _module_extra_repr,
+            original_extra_repr=module.extra_repr,
+            parameter_name=parameter_name,
+        ),
+        module,
+    )
+    return module
+
+
+@dataclass
+class Int8StaticActivationIntxWeightConfig(AOBaseConfig):
+    """
+    Configuration for static int8 activation quantization and intx weight quantization.
+    """
+    act_quant_scale: Optional[torch.Tensor] = None
+    act_quant_zero_point: Optional[torch.Tensor] = None
+    weight_dtype: torch.dtype = torch.int8
+    weight_granularity: Granularity = PerGroup(32)
+    weight_mapping_type: MappingType = MappingType.SYMMETRIC
+    weight_scale_dtype: Optional[torch.dtype] = None
+    act_mapping_type: MappingType = MappingType.SYMMETRIC
+    intx_packing_format: IntxPackingFormat = IntxPackingFormat.UNPACKED_TO_INT8
+    intx_choose_qparams_algorithm: IntxChooseQParamsAlgorithm = (
+        IntxChooseQParamsAlgorithm.AFFINE
+    )
+    output_quant_scale: Optional[torch.Tensor] = None
+    custom_weight_scale: Optional[torch.Tensor] = None
+    custom_weight_zero_point: Optional[torch.Tensor] = None
+    version: int = 1
+
+    def __post_init__(self):
+        torch._C._log_api_usage_once(
+            "torchao.quantization.Int8StaticActivationIntxWeightConfig"
+        )
+        if isinstance(self.act_quant_scale, list):
+            self.act_quant_scale = torch.tensor(self.act_quant_scale)
+        if isinstance(self.output_quant_scale, list):
+            self.output_quant_scale = torch.tensor(self.output_quant_scale)
+        assert self.weight_dtype in [getattr(torch, f"int{b}") for b in range(1, 9)], (
+            f"weight_dtype must be torch.intx, where 1 <= x <= 8, but got {self.weight_dtype}"
+        )
+        assert isinstance(self.weight_granularity, (PerAxis, PerGroup)), (
+            f"weight_granularity must be PerAxis or PerGroup, but got {self.weight_granularity}"
+        )
+        if isinstance(self.weight_granularity, PerAxis):
+            assert self.weight_granularity.axis == 0, (
+                f"axis must be 0, but got {self.weight_granularity.axis}"
+            )
+        assert self.weight_mapping_type in [
+            MappingType.ASYMMETRIC,
+            MappingType.SYMMETRIC,
+            MappingType.SYMMETRIC_NO_CLIPPING_ERR,
+        ], (
+            f"weight_mapping_type must be MappingType.ASYMMETRIC or MappingType.SYMMETRIC or MappingType.SYMMETRIC_NO_CLIPPING_ERR, but got {self.weight_mapping_type}"
+        )
+        assert self.act_mapping_type in [
+            MappingType.ASYMMETRIC,
+            MappingType.SYMMETRIC,
+        ], (
+            f"act_mapping_type must be MappingType.ASYMMETRIC or MappingType.SYMMETRIC, but got {self.act_mapping_type}"
+        )
+
+
+@register_quantize_module_handler(Int8StaticActivationIntxWeightConfig)
+def _int8_static_activation_intx_weight_transform(
+    module: torch.nn.Module,
+    config: Int8StaticActivationIntxWeightConfig,
+    *,
+    parameter_name: str = "weight",
+    custom_scale: Optional[torch.Tensor] = None,
+    custom_zero_point: Optional[torch.Tensor] = None,
+) -> torch.nn.Module:
+    weight = getattr(module, parameter_name)
+    assert weight.dim() == 2, (
+        f"Int8StaticActivationIntxWeightConfig only works for 2-d Tensor, got: {weight.dim()}"
+    )
+
+    block_size = get_block_size(weight.shape, config.weight_granularity)
+
+    act_quant_zero_point = None
+    if config.act_quant_zero_point is not None:
+        act_quant_zero_point = config.act_quant_zero_point.detach()
+
+    output_quant_scale = None
+    if config.output_quant_scale is not None:
+        output_quant_scale = config.output_quant_scale.detach()
+
+    c_scale = custom_scale if custom_scale is not None else config.custom_weight_scale
+    c_zp = custom_zero_point if custom_zero_point is not None else config.custom_weight_zero_point
+
+    choose_qparams_algo = config.intx_choose_qparams_algorithm
+    if c_scale is not None:
+        choose_qparams_algo = None
+        if c_zp is None:
+            c_zp = torch.zeros_like(c_scale, dtype=torch.int8)
+
+    new_weight = IntxUnpackedToInt8Tensor.from_hp(
+        weight,
+        block_size,
+        config.weight_dtype,
+        mapping_type=config.weight_mapping_type,
+        activation_quantization=IntxUnpackedToInt8TensorActivationQuantization.INT8_SYM_STATIC,
+        intx_choose_qparams_algorithm=choose_qparams_algo,
+        custom_scale=c_scale,
+        custom_zero_point=c_zp,
+        act_quant_scale=config.act_quant_scale.detach() if config.act_quant_scale is not None else None,
+        act_quant_zero_point=act_quant_zero_point,
+        output_quant_scale=output_quant_scale,
+    )
+
+    if config.weight_scale_dtype is not None and config.weight_scale_dtype != weight.dtype:
+        _adjust_scale_dtype_in_intx_unpacked_tensor(
+            new_weight, weight, config.weight_scale_dtype
+        )
+
+    assert config.intx_packing_format == IntxPackingFormat.UNPACKED_TO_INT8, (
+        f"Only UNPACKED_TO_INT8 is supported, got: {config.intx_packing_format}"
+    )
+
+    setattr(
+        module,
+        parameter_name,
+        torch.nn.Parameter(new_weight, requires_grad=False),
     )
     module.extra_repr = types.MethodType(
         partial(
