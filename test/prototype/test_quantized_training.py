@@ -36,6 +36,7 @@ from torchao.prototype.quantized_training import (
 from torchao.quantization.quant_api import quantize_
 from torchao.utils import (
     get_available_devices,
+    get_current_accelerator_device,
     torch_version_at_least,
 )
 
@@ -241,12 +242,14 @@ class TestQuantizedTraining(TestCase):
         ],
     )
     @parametrize("module_swap", [False, True])
-    @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+    @pytest.mark.skipif(
+        not torch.accelerator.is_available(), reason="GPU not available"
+    )
     def test_int8_mixed_precision_training(self, compile, config, module_swap):
         _reset()
         bsize = 64
         embed_dim = 64
-        device = "cuda"
+        device = get_current_accelerator_device()
 
         linear = nn.Linear(embed_dim, embed_dim, device=device)
         linear_int8mp = copy.deepcopy(linear)
@@ -280,7 +283,9 @@ class TestQuantizedTraining(TestCase):
 
     @pytest.mark.skip("Flaky on CI")
     @parametrize("compile", [False, True])
-    @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+    @pytest.mark.skipif(
+        not torch.accelerator.is_available(), reason="GPU not available"
+    )
     def test_bitnet_training(self, compile):
         # reference implementation
         # https://github.com/microsoft/unilm/blob/master/bitnet/The-Era-of-1-bit-LLMs__Training_Tips_Code_FAQ.pdf
@@ -305,7 +310,7 @@ class TestQuantizedTraining(TestCase):
         _reset()
         bsize = 4
         embed_dim = 32
-        device = "cuda"
+        device = get_current_accelerator_device()
 
         # only use 1 matmul shape to reduce triton autotune time
         model_ref = nn.Sequential(
