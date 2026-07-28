@@ -721,9 +721,16 @@ if _triton_kernels_available:
         # shape: (COL_TILE_SIZE * BLOCKS_PER_ROW_TILE,) -> (COL_TILE_SIZE, BLOCKS_PER_ROW_TILE,)
         col_scale_e8m0 = col_scale_e8m0_r.reshape(COL_TILE_SIZE * BLOCKS_PER_ROW_TILE)
 
+        # Number of scale blocks in one column of the scale tensor, i.e. the
+        # stride between adjacent columns. Note that this has to be derived from
+        # INNER_BLOCK_SIZE rather than from ROW_TILE_SIZE: ROW_TILE_SIZE is
+        # autotuned and is not guaranteed to divide n_rows, and
+        # `(n_rows // ROW_TILE_SIZE) * BLOCKS_PER_ROW_TILE` silently truncates
+        # (down to zero, if ROW_TILE_SIZE > n_rows) when it does not.
+        blocks_per_col = n_rows // INNER_BLOCK_SIZE
+
         col_scale_start_offsets = (
-            (pid_col * COL_TILE_SIZE * (n_rows // ROW_TILE_SIZE))
-            * BLOCKS_PER_ROW_TILE  # number of blocks seen so far
+            pid_col * COL_TILE_SIZE * blocks_per_col  # number of blocks seen so far
             + pid_row * BLOCKS_PER_ROW_TILE  # increment BLOCKS_PER_ROW_TILE
         )
 
@@ -732,18 +739,33 @@ if _triton_kernels_available:
         # calculate col_scale_indices
         col_scale_indices = tl.arange(0, COL_TILE_SIZE * BLOCKS_PER_ROW_TILE)
 
+        # position of each scale within this tile: which column it belongs to, and
+        # which block of that column
+        tile_col_idx = col_scale_indices // BLOCKS_PER_ROW_TILE
+        tile_block_idx = col_scale_indices % BLOCKS_PER_ROW_TILE
+
         # How many values are in all the other columns for this row_pid, need to jump
         # over them for every BLOCKS_PER_ROW_TILE values
-        jump_vals_per_col = (n_rows - ROW_TILE_SIZE) // INNER_BLOCK_SIZE
+        jump_vals_per_col = blocks_per_col - BLOCKS_PER_ROW_TILE
 
         # example transformation (specifics depend on tile sizes):
         # [0, 1, 2, 3, 4, 5, 6, 7] -> [0, 1, 4, 5, 8, 9, 12, 13]
-        col_scale_indices = col_scale_indices + (
-            (col_scale_indices // BLOCKS_PER_ROW_TILE) * jump_vals_per_col
+        col_scale_indices = col_scale_indices + (tile_col_idx * jump_vals_per_col)
+
+        # Mask out the part of a tile which overhangs the end of the tensor.
+        # Without this, the scales computed for the zero-padded region are still
+        # stored, and (since the jump above is relative to the real column
+        # stride) they land on the scales of the following columns, or past the
+        # end of the scale tensor entirely.
+        col_scale_mask = (start_col + tile_col_idx < n_cols) & (
+            pid_row * BLOCKS_PER_ROW_TILE + tile_block_idx < blocks_per_col
         )
 
-        # TODO(future): mask this store
-        tl.store(col_scale_start_ptr + col_scale_indices, col_scale_e8m0)
+        tl.store(
+            col_scale_start_ptr + col_scale_indices,
+            col_scale_e8m0,
+            mask=col_scale_mask,
+        )
 
     @triton.autotune(
         configs=_get_mxfp8_quant_autotune_configs(),
@@ -931,14 +953,18 @@ if _triton_kernels_available:
         # Get tensor shape
         n_rows, n_cols = x.shape
 
-        # Masking of loads and stores is not well tested yet, so for now enforce
-        # shapes which do not need masking. Note that this condition depends on max values of
-        # ROW_TILE_SIZE and COL_TILE_SIZE, which are autotuned above.
-        # TODO(future): implement and test masking and remove this restriction
-        max_row_tile_size = 128
-        max_col_tile_size = 128
-        assert n_rows % max_row_tile_size == 0, "unsupported"
-        assert n_cols % max_col_tile_size == 0, "unsupported"
+        # Shapes which do not divide evenly into tiles are handled by masking in
+        # the kernel, but are not well tested yet, so for now enforce shapes
+        # which are a multiple of the smallest autotuned tile size. Note that
+        # this deliberately does not depend on the *max* autotuned
+        # ROW_TILE_SIZE/COL_TILE_SIZE: the kernel masks the overhang of a partial
+        # tile, so a shape which the selected tile size does not divide is still
+        # handled correctly.
+        # TODO(future): test the remaining shapes and remove this restriction
+        row_size_multiple = 128
+        col_size_multiple = 128
+        assert n_rows % row_size_multiple == 0, "unsupported"
+        assert n_cols % col_size_multiple == 0, "unsupported"
 
         # Create output tensors
         output_col_major = torch.empty(
