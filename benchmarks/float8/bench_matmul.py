@@ -53,6 +53,7 @@ def run(
     print(
         f"peak tops: bf16 {bf16_peak_tops:.2e}, fp8 {fp8_peak_tops:.2e}, fp4 {fp4_peak_tops:.2e}"
     )
+    speedup_col = "fp4_speedup" if use_fp4 else "fp8_speedup"
     headers = (
         "fast_accum",
         "name",
@@ -63,7 +64,7 @@ def run(
         "pct_top_peak",
         "ref_time_s",
         "time_s",
-        "fp8_speedup",
+        speedup_col,
     )
     results = []
 
