@@ -9,7 +9,7 @@ export SCCACHE_DISABLE=1
 
 python -m pip install --upgrade pip setuptools wheel
 
-python -m pip install torch torchvision torchaudio pytorch-triton-xpu --index-url https://download.pytorch.org/whl/nightly/xpu --force-reinstall --no-cache-dir 
+python -m pip install torch torchvision pytorch-triton-xpu --index-url https://download.pytorch.org/whl/nightly/xpu --force-reinstall --no-cache-dir
 cd torchao && python -m pip install . --no-build-isolation && cd ..
 
 python -c "import torch; import torchao; print(f'Torch version: {torch.__version__}')"
