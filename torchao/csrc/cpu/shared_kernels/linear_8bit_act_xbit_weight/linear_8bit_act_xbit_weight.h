@@ -74,5 +74,10 @@ void linear_operator(
     float clamp_min,
     float clamp_max);
 
+// Number of threads the linked linear kernel uses internally (1 for the
+// single-threaded / thread-pool-free build). Lets a caller that adds its own
+// parallelism avoid nesting it on top of the kernel's.
+int linear_operator_num_threads();
+
 } // namespace
   // torchao::ops::linear_8bit_act_xbit_weight
