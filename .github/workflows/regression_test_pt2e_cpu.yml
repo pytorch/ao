@@ -1,0 +1,70 @@
+# Dedicated CI for PT2E (PyTorch 2 Export) quantization tests on CPU.
+#
+# Why this workflow exists:
+#   The PT2E test suite (test/quantization/pt2e) is slow -- ~40+ minutes, almost
+#   entirely torch.export / torch.compile / Inductor codegen time -- and it is
+#   CPU/x86-centric. To keep the main regression jobs fast, PT2E is excluded from
+#   regression_test.yml and run here instead.
+#
+# This is the CPU leg: it runs the FULL PT2E suite, including the x86 Inductor
+# fusion/quantizer tests. Those tests gate on CPU ISA features (AMX tile, AVX512
+# VNNI, mkldnn bf16/fp16), so an Intel CPU runner is where they actually get
+# exercised -- a GPU runner's CPU typically lacks these instructions and would
+# silently skip large portions of the suite.
+name: Run PT2E CPU Tests
+
+on:
+  push:
+    branches:
+      - main
+      - 'gh/**'
+  pull_request:
+    branches:
+      - main
+      - 'gh/**'
+
+concurrency:
+  group: regression_test-${{ github.workflow }}-${{ github.ref == 'refs/heads/main' && github.run_number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  HF_TOKEN: ${{ secrets.HF_TOKEN }}
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # PyTorch nightly -- catches breakages from upstream PT2E/Inductor
+          # changes early.
+          - name: CPU Nightly
+            runs-on: linux.4xlarge
+            torch-spec: '--pre torch torchvision --index-url https://download.pytorch.org/whl/nightly/cpu'
+          # Pinned release -- validates PT2E against the currently supported
+          # stable PyTorch.
+          - name: CPU 2.13
+            runs-on: linux.4xlarge
+            torch-spec: 'torch==2.13.0 torchvision==0.28.0 --index-url https://download.pytorch.org/whl/cpu'
+
+    permissions:
+      id-token: write
+      contents: read
+    uses: pytorch/test-infra/.github/workflows/linux_job_v2.yml@main
+    with:
+      timeout: 120
+      runner: ${{ matrix.runs-on }}
+      gpu-arch-type: "cpu"
+      gpu-arch-version: ""
+      submodules: recursive
+      script: |
+        conda create -n venv python=3.10 libgcc-ng=11.2.0 libstdcxx-ng=11.2.0 -y
+        conda activate venv
+        python -m pip install --upgrade pip
+        pip install ${{ matrix.torch-spec }}
+        pip install -r dev-requirements.txt
+        pip install . --no-build-isolation
+        export CONDA=$(dirname $(dirname $(which conda)))
+        export LD_LIBRARY_PATH=$CONDA/lib/:$LD_LIBRARY_PATH
+        # Run the full PT2E suite, including the slow x86 Inductor tests.
+        pytest test/quantization/pt2e --verbose -s
