@@ -51,6 +51,19 @@ def _reset():
 
 
 class TestQuantizedTraining(TestCase):
+    def setUp(self):
+        super().setUp()
+        # _reset() calls torch.set_float32_matmul_precision("highest"), which mutates
+        # the process wide fp32 precision flags; snapshot them so tearDown can restore
+        # and torch's TestCase.tearDown does not flag a "fp32 precision flag leak".
+        self._prev_cuda_matmul_fp32 = torch.backends.cuda.matmul.fp32_precision
+        self._prev_mkldnn_matmul_fp32 = torch.backends.mkldnn.matmul.fp32_precision
+
+    def tearDown(self):
+        torch.backends.cuda.matmul.fp32_precision = self._prev_cuda_matmul_fp32
+        torch.backends.mkldnn.matmul.fp32_precision = self._prev_mkldnn_matmul_fp32
+        super().tearDown()
+
     @parametrize("device", _DEVICES)
     def test_int8_stochastic_rounding(self, device):
         x = torch.randn(32, device=device)
