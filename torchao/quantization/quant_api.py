@@ -1287,7 +1287,9 @@ def _maybe_warn_rowwise_fp8_cuda_12_9(
 ) -> None:
     if not torch.cuda.is_available():
         return
-    if not torch.version.cuda.startswith("12.9"):
+    # torch.version.cuda is None on ROCm/HIP builds (where torch.cuda.is_available()
+    # is still True); the CUDA 12.9 regression does not apply there.
+    if torch.version.cuda is None or not torch.version.cuda.startswith("12.9"):
         return
     # config.granularity is normalized to [activation, weight] in __post_init__.
     if not any(isinstance(g, PerRow) for g in config.granularity):
