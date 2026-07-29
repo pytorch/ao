@@ -86,6 +86,17 @@ device_config_pairs = [
 
 
 class TestAWQ(TestCase):
+    def setUp(self):
+        super().setUp()
+        # quantize_() sets a global float32 matmul precision; snapshot fp32_precision
+        self._prev_cuda_matmul_fp32 = torch.backends.cuda.matmul.fp32_precision
+        self._prev_mkldnn_matmul_fp32 = torch.backends.mkldnn.matmul.fp32_precision
+
+    def tearDown(self):
+        torch.backends.cuda.matmul.fp32_precision = self._prev_cuda_matmul_fp32
+        torch.backends.mkldnn.matmul.fp32_precision = self._prev_mkldnn_matmul_fp32
+        super().tearDown()
+
     def test_awq_config(self):
         base_config = Int4WeightOnlyConfig()
         AWQConfig(base_config, step=QuantizationStep.PREPARE)
