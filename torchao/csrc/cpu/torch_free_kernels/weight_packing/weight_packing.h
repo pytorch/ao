@@ -12,7 +12,7 @@
 
 #include <torchao/csrc/cpu/torch_free_kernels/macro.h>
 
-#if defined(__aarch64__) || defined(__ARM_NEON)
+#if defined(__aarch64__)
 #include <torchao/csrc/cpu/torch_free_kernels/aarch64/weight_packing_internals.h>
 #else
 #include <torchao/csrc/cpu/torch_free_kernels/fallback/weight_packing_internals.h>
@@ -26,7 +26,7 @@
 
 namespace torchao::weight_packing {
 
-#if defined(__aarch64__) || defined(__ARM_NEON)
+#if defined(__aarch64__)
 namespace impl = torchao::weight_packing::aarch64;
 #else
 namespace impl = torchao::weight_packing::fallback;
