@@ -143,14 +143,9 @@ For benchmark helper functions, right now we have `1 <https://github.com/pytorch
 Model Benchmarks and Eval
 ~~~~~~~~~~~~~~~~~~~~~~~~~
 
-After you have the quantization flow implemented, you can run benchmark and eval on llama (llama2/llama3) or sam models that are already modified to be friendly to torch.compile, and compare with existing techniques in torchao.
+After you have the quantization flow implemented, you can run benchmark and eval on the sam model, which is already modified to be friendly to torch.compile, and compare with existing techniques in torchao. For quantization microbenchmarks, see the ``benchmarks/`` directory.
 
-Note: llama model (llama2/llama3) is our representative model for memory bound models and sam is our representative model for compute bound models.
-
-* `llama <https://github.com/pytorch/ao/tree/main/torchao/_models/llama>`__
-
-  * `benchmark <https://github.com/pytorch/ao/blob/main/torchao/_models/llama/generate.py>`__
-  * `eval <https://github.com/pytorch/ao/blob/main/torchao/_models/llama/eval.py>`__
+Note: sam is our representative model for compute bound models.
 
 * `sam <https://github.com/pytorch/ao/tree/main/torchao/_models/sam>`__
 
