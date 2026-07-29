@@ -48,4 +48,8 @@ jobs:
         pip install . --no-build-isolation
         export CONDA=$(dirname $(dirname $(which conda)))
         export LD_LIBRARY_PATH=$CONDA/lib/:$LD_LIBRARY_PATH
-        pytest test --verbose -s
+        # PT2E tests (test/quantization/pt2e) are excluded here -- they are slow
+        # and CPU/x86-centric (the x86 Inductor tests self-skip on ROCm anyway).
+        # PT2E now runs in dedicated workflows: regression_test_pt2e_cpu.yml and
+        # regression_test_pt2e_gpu.yml.
+        pytest test --verbose -s --ignore=test/quantization/pt2e
