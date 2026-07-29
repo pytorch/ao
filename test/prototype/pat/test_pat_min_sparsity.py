@@ -23,6 +23,7 @@ from test.prototype.pat.test_common import (
 )
 from torchao.prototype.pat.group import Dim0Grouper, Dim1Grouper, KElementGrouper
 from torchao.prototype.pat.optim import MinSparsityConstraint, PruneOptimizer
+from torchao.prototype.pat.optim.prox_executor import apply_prox
 from torchao.prototype.pat.utils import get_param_groups
 
 
@@ -74,7 +75,7 @@ class TestMinSparsityWithGrouper(common_utils.TestCase):
     @common_utils.parametrize("grouper_cls,axis", [(Dim0Grouper, 0), (Dim1Grouper, 1)])
     def test_dim_grouper(self, grouper_cls, axis):
         """Dim{0,1}Grouper kills whole rows/columns. Dim1 exercises the
-        whole_tensor transpose branch in PruneOptimizer._apply_prox."""
+        whole_tensor transpose branch in the prox executor."""
         torch.manual_seed(0)
         M, N, min_sparsity = 8, 4, 0.5
         n_total = M if axis == 0 else N
@@ -89,9 +90,7 @@ class TestMinSparsityWithGrouper(common_utils.TestCase):
         prox = MinSparsityConstraint(reg_lambda=0.0, min_sparsity=min_sparsity)
         grouper = grouper_cls(p)
         prox_kwargs = make_prox_kwargs(gamma=1.0, zero_elts_are_counts=True)
-        zero_elts, _, zeros_are_summed = PruneOptimizer._apply_prox(
-            grouper, prox, p, **prox_kwargs
-        )
+        zero_elts, _, zeros_are_summed = apply_prox(grouper, prox, p, **prox_kwargs)
 
         n_killed = math.ceil(min_sparsity * n_total)
         view = p if axis == 0 else p.transpose(0, 1)
@@ -117,9 +116,7 @@ class TestMinSparsityWithGrouper(common_utils.TestCase):
 
         grouper = KElementGrouper(p, k=1)
         prox_kwargs = make_prox_kwargs(gamma=1.0, zero_elts_are_counts=True)
-        zero_elts, _, zeros_are_summed = PruneOptimizer._apply_prox(
-            grouper, prox, p, **prox_kwargs
-        )
+        zero_elts, _, zeros_are_summed = apply_prox(grouper, prox, p, **prox_kwargs)
 
         n_zero = math.ceil(min_sparsity * p.numel())
         self.assertEqual(p.eq(0).sum().item(), n_zero)
@@ -133,7 +130,7 @@ class TestMinSparsityWithGrouper(common_utils.TestCase):
 
 
 class TestMinSparsityDTensor(DistributedTestMixin, common_utils.TestCase):
-    """Whole-tensor DTensor branch in PruneOptimizer._apply_prox: gather,
+    """Whole-tensor DTensor branch in the prox executor: gather,
     mutate, scatter. Covers both Dim0Grouper (no transpose) and Dim1Grouper
     (transpose round-trip)."""
 
@@ -157,9 +154,7 @@ class TestMinSparsityDTensor(DistributedTestMixin, common_utils.TestCase):
         prox = MinSparsityConstraint(reg_lambda=0.0, min_sparsity=min_sparsity)
         grouper = grouper_cls(p_dt)
         prox_kwargs = make_prox_kwargs(gamma=1.0, zero_elts_are_counts=True)
-        _, _, zeros_are_summed = PruneOptimizer._apply_prox(
-            grouper, prox, p_dt, **prox_kwargs
-        )
+        _, _, zeros_are_summed = apply_prox(grouper, prox, p_dt, **prox_kwargs)
 
         result = p_dt.full_tensor()
         n_killed = math.ceil(min_sparsity * n_total)
@@ -308,9 +303,86 @@ class TestMinSparsitySchedule(common_utils.TestCase):
             opt._effective_min_sparsity(g), target * (1 - 0.5**3), places=6
         )
 
+    def test_healing_boundary_forces_final_scheduled_mask(self):
+        param = torch.nn.Parameter(torch.arange(1.0, 45.0).reshape(11, 4).clone())
+        group = {
+            "params": [param],
+            "group_type": "Dim0Grouper",
+            "prox_type": "MinSparsityConstraint",
+            "min_sparsity": 0.8,
+            "min_sparsity_schedule": True,
+            "prox_freq": 3,
+        }
+        optimizer = PruneOptimizer(
+            torch.optim.SGD([group], lr=0.0),
+            warmup_steps=0,
+            healing_start_step=6,
+        )
+        regularized_group = next(optimizer.regularized_param_groups())
+        optimizer.state[param]["latent"] = param.detach().clone()
+
+        optimizer.num_steps = 3
+        self.assertAlmostEqual(
+            optimizer._effective_min_sparsity(regularized_group),
+            0.8 * (1 - (1 - 3 / 6) ** 3),
+        )
+        param.grad = torch.zeros_like(param)
+        optimizer.step()
+        self.assertEqual(
+            sum(param[i].eq(0).all().item() for i in range(param.size(0))), 8
+        )
+
+        self.assertEqual(optimizer.num_steps, 4)
+        self.assertAlmostEqual(
+            optimizer._effective_min_sparsity(regularized_group),
+            0.8 * (1 - (1 - 4 / 6) ** 3),
+        )
+        self.assertFalse(optimizer.should_prune(regularized_group, optimizer.num_steps))
+        param.grad = torch.zeros_like(param)
+        optimizer.step()
+        self.assertEqual(optimizer.num_steps, 5)
+        self.assertEqual(
+            sum(param[i].eq(0).all().item() for i in range(param.size(0))), 0
+        )
+        self.assertEqual(optimizer._effective_min_sparsity(regularized_group), 0.8)
+        self.assertTrue(optimizer.should_prune(regularized_group, optimizer.num_steps))
+        param.grad = torch.zeros_like(param)
+        optimizer.step()
+        self.assertEqual(
+            sum(param[i].eq(0).all().item() for i in range(param.size(0))), 9
+        )
+
     def test_schedule_requires_finite_healing(self):
         with self.assertRaises(AssertionError):
             self._make_optimizer(True, warmup=2, healing=sys.maxsize, target=0.5)
+
+    def test_patch_state_dict_with_interleaved_unregularized_group(self):
+        unregularized = torch.nn.Parameter(torch.randn(2, 2))
+        regularized = torch.nn.Parameter(torch.randn(4, 4))
+        groups = [
+            {"params": [unregularized]},
+            {
+                "params": [regularized],
+                "group_type": "Dim0Grouper",
+                "prox_type": "MinSparsityConstraint",
+                "min_sparsity": 0.5,
+            },
+        ]
+        optimizer = PruneOptimizer(torch.optim.SGD(groups, lr=0.1))
+        state_dict = optimizer.state_dict()
+        state_dict["param_groups"][0].update(
+            {"reg_lambda": 11.0, "gamma": 12.0, "num_steps": 13}
+        )
+        state_dict["param_groups"][1].update(
+            {"reg_lambda": 21.0, "gamma": 22.0, "num_steps": 23}
+        )
+
+        optimizer.patch_state_dict(state_dict)
+
+        self.assertNotIn("gamma", optimizer.param_groups[0])
+        self.assertEqual(optimizer.param_groups[1]["reg_lambda"], 21.0)
+        self.assertEqual(optimizer.param_groups[1]["gamma"], 22.0)
+        self.assertEqual(optimizer.param_groups[1]["num_steps"], 23)
 
     def test_resume_via_patch_state_dict(self):
         """Drive opt_a forward with real step() calls, snapshot via state_dict(),

@@ -29,12 +29,12 @@ from functools import lru_cache
 
 @lru_cache(maxsize=1)
 def get_qmap_signed():
-    return create_dynamic_map(signed=True)
+    return tuple(create_dynamic_map(signed=True))
 
 
 @lru_cache(maxsize=1)
 def get_qmap_unsigned():
-    return create_dynamic_map(signed=False)
+    return tuple(create_dynamic_map(signed=False))
 
 
 class OptimState8bit(TorchAOBaseTensor):

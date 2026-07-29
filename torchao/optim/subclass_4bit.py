@@ -33,12 +33,12 @@ from functools import lru_cache
 
 @lru_cache(maxsize=1)
 def get_qmap_signed():
-    return create_dynamic_map(True, 3, 4)
+    return tuple(create_dynamic_map(True, 3, 4))
 
 
 @lru_cache(maxsize=1)
 def get_qmap_unsigned():
-    return torch.linspace(0, 1, 17, device="cpu")[1:].tolist()  # no zero
+    return tuple(torch.linspace(0, 1, 17, device="cpu")[1:].tolist())  # no zero
 
 
 class OptimState4bit(TorchAOBaseTensor):

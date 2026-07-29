@@ -8,35 +8,6 @@
 from torch import Tensor
 
 from .dim import Dim0Grouper, Dim1Grouper
-from .packed import PackedGrouperMixin
-
-
-class QKGrouper(PackedGrouperMixin, Dim1Grouper):
-    """Grouper applied only to query and key weights. Assumes that query, key,
-    value weights are packed along `qk_pack_dim` dimension.
-
-    Args:
-        p (Tensor): The packed query, key, value weights.
-        qk_pack_dim (int): Dimension along which query and key are packed.
-        qk_reg_index (int, optional): 0 for query, 1 for key. Default: 0.
-    """
-
-    def __init__(
-        self,
-        p: Tensor,
-        qk_pack_dim: int = 0,
-        qk_reg_index: int = 0,
-    ):
-        super().__init__(p, 3, qk_pack_dim)
-
-        if qk_reg_index == 0:  # query
-            start, end = 0, self.embed_dim
-        else:  # key
-            start, end = self.embed_dim, self.embed_dim * 2
-
-        super(PackedGrouperMixin, self).__init__(
-            p[start:end] if qk_pack_dim == 0 else p[:, start:end]
-        )
 
 
 class AttentionHeadGrouperDim0(Dim0Grouper):

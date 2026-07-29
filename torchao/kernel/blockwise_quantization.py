@@ -5,38 +5,43 @@
 # LICENSE file in the root directory of this source tree.
 
 import math
-from typing import Tuple
+from dataclasses import dataclass
+from threading import Lock
+from typing import Callable, Optional, Tuple
 
 import torch
 
-# Lazy initialization state
-_triton_initialized = False
-_triton_available = None
-_blockwise_fp8_gemm_impl = None
-_fp8_blockwise_act_quant_kernel = None
-_fp8_blockwise_weight_quant_kernel = None
-_fp8_blockwise_weight_dequant_kernel = None
+
+@dataclass(frozen=True)
+class _BlockwiseFp8Impls:
+    available: bool
+    gemm: Optional[Callable]
+    act_quant: Optional[Callable]
+    weight_quant: Optional[Callable]
+    weight_dequant: Optional[Callable]
 
 
-def _lazy_init_triton():
-    global _triton_initialized, _triton_available
-    global _blockwise_fp8_gemm_impl
-    global _fp8_blockwise_act_quant_kernel
-    global _fp8_blockwise_weight_quant_kernel
-    global _fp8_blockwise_weight_dequant_kernel
+_triton_impls: Optional[_BlockwiseFp8Impls] = None
+_triton_impls_lock = Lock()
 
-    if _triton_initialized:
-        return
 
-    _triton_initialized = True
+def _get_triton_impls() -> _BlockwiseFp8Impls:
+    global _triton_impls
+    impls = _triton_impls
+    if impls is None:
+        with _triton_impls_lock:
+            impls = _triton_impls
+            if impls is None:
+                impls = _build_triton_impls()
+                _triton_impls = impls
+    return impls
 
+
+def _build_triton_impls() -> _BlockwiseFp8Impls:
     from torch.utils._triton import has_triton
 
     if not has_triton():
-        _triton_available = False
-        return
-
-    _triton_available = True
+        return _BlockwiseFp8Impls(False, None, None, None, None)
 
     import triton
     import triton.language as tl
@@ -135,8 +140,6 @@ def _lazy_init_triton():
         c = a.new_empty(*a.size()[:-1], N, dtype=torch.bfloat16)
         return c
 
-    _blockwise_fp8_gemm_impl = _blockwise_fp8_gemm_op
-
     @triton.jit
     def _fp8_blockwise_act_quant_kernel_impl(
         x_ptr, y_ptr, s_ptr, BLOCK_SIZE: tl.constexpr
@@ -161,8 +164,6 @@ def _lazy_init_triton():
         y = y.to(y_ptr.dtype.element_ty)
         tl.store(y_ptr + offs, y)
         tl.store(s_ptr + pid, s)
-
-    _fp8_blockwise_act_quant_kernel = _fp8_blockwise_act_quant_kernel_impl
 
     @triton.jit
     def _fp8_blockwise_weight_quant_kernel_impl(
@@ -192,8 +193,6 @@ def _lazy_init_triton():
         y = y.to(y_ptr.dtype.element_ty)
         tl.store(y_ptr + offs, y, mask=mask)
         tl.store(s_ptr + pid_m * n + pid_n, s)
-
-    _fp8_blockwise_weight_quant_kernel = _fp8_blockwise_weight_quant_kernel_impl
 
     @triton.jit
     def _fp8_blockwise_weight_dequant_kernel_impl(
@@ -225,7 +224,13 @@ def _lazy_init_triton():
         y = x * s
         tl.store(y_ptr + offs, y, mask=mask)
 
-    _fp8_blockwise_weight_dequant_kernel = _fp8_blockwise_weight_dequant_kernel_impl
+    return _BlockwiseFp8Impls(
+        available=True,
+        gemm=_blockwise_fp8_gemm_op,
+        act_quant=_fp8_blockwise_act_quant_kernel_impl,
+        weight_quant=_fp8_blockwise_weight_quant_kernel_impl,
+        weight_dequant=_fp8_blockwise_weight_dequant_kernel_impl,
+    )
 
 
 def blockwise_fp8_gemm(
@@ -235,10 +240,10 @@ def blockwise_fp8_gemm(
     b_s: torch.Tensor,
     block_size: int = 128,
 ) -> torch.Tensor:
-    _lazy_init_triton()
-    if not _triton_available:
+    impls = _get_triton_impls()
+    if not impls.available:
         raise AssertionError("unsupported without triton")
-    return _blockwise_fp8_gemm_impl(a, a_s, b, b_s, block_size)
+    return impls.gemm(a, a_s, b, b_s, block_size)
 
 
 def fp8_blockwise_act_quant(
@@ -258,8 +263,8 @@ def fp8_blockwise_act_quant(
             - The quantized tensor with dtype `dtype`.
             - A tensor of scaling factors with dtype `torch.float32`.
     """
-    _lazy_init_triton()
-    if not _triton_available:
+    impls = _get_triton_impls()
+    if not impls.available:
         raise AssertionError("unsupported without triton")
 
     import triton
@@ -275,7 +280,7 @@ def fp8_blockwise_act_quant(
     y = torch.empty_like(x, dtype=dtype)
     s = x.new_empty(*x.size()[:-1], x.size(-1) // block_size, dtype=torch.float32)
     grid = lambda meta: (triton.cdiv(x.numel(), meta["BLOCK_SIZE"]),)
-    _fp8_blockwise_act_quant_kernel[grid](x, y, s, BLOCK_SIZE=block_size)
+    impls.act_quant[grid](x, y, s, BLOCK_SIZE=block_size)
     return y, s
 
 
@@ -295,8 +300,8 @@ def fp8_blockwise_weight_quant(
             - The quantized weight tensor with dtype `dtype`.
             - A tensor of scaling factors with dtype `torch.float32`.
     """
-    _lazy_init_triton()
-    if not _triton_available:
+    impls = _get_triton_impls()
+    if not impls.available:
         raise AssertionError("unsupported without triton")
 
     import triton
@@ -317,7 +322,7 @@ def fp8_blockwise_weight_quant(
         triton.cdiv(M, meta["BLOCK_SIZE"]),
         triton.cdiv(N, meta["BLOCK_SIZE"]),
     )
-    _fp8_blockwise_weight_quant_kernel[grid](x, y, s, M, N, BLOCK_SIZE=block_size)
+    impls.weight_quant[grid](x, y, s, M, N, BLOCK_SIZE=block_size)
     return y, s
 
 
@@ -338,8 +343,8 @@ def fp8_blockwise_weight_dequant(
     Raises:
         AssertionError: If `x` or `s` are not contiguous or if their dimensions are not 2.
     """
-    _lazy_init_triton()
-    if not _triton_available:
+    impls = _get_triton_impls()
+    if not impls.available:
         raise AssertionError("unsupported without triton")
 
     import triton
@@ -352,5 +357,5 @@ def fp8_blockwise_weight_dequant(
         triton.cdiv(M, meta["BLOCK_SIZE"]),
         triton.cdiv(N, meta["BLOCK_SIZE"]),
     )
-    _fp8_blockwise_weight_dequant_kernel[grid](x, s, y, M, N, BLOCK_SIZE=block_size)
+    impls.weight_dequant[grid](x, s, y, M, N, BLOCK_SIZE=block_size)
     return y

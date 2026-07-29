@@ -6,7 +6,9 @@
 # mypy: allow-untyped-decorators
 # mypy: allow-untyped-defs
 import os
-from typing import Optional
+from dataclasses import dataclass
+from threading import Lock
+from typing import Callable, Optional
 
 import torch
 from torch._dynamo.utils import warn_once
@@ -271,8 +273,9 @@ def bsr_dense_addmm(
     specified, otherwise, these are treated as tensors filled with
     ones.
     """
-    global _bsr_strided_addmm_kernel
-    _lazy_init_triton()
+    impls = _get_triton_impls()
+    if not impls.available:
+        raise AssertionError("unsupported without triton")
 
     f_name = "bsr_dense_addmm"
     values = bsr.values()
@@ -419,7 +422,7 @@ def bsr_dense_addmm(
     assert alpha != 0
 
     def kernel(grid, *sliced_tensors):
-        _bsr_strided_addmm_kernel[grid](
+        impls.kernel[grid](
             *ptr_stride_extractor(*sliced_tensors),
             beta,
             alpha,
@@ -446,19 +449,31 @@ def bsr_dense_addmm(
     return out_backup
 
 
-# Lazy initialization for triton kernel to avoid CUDA init at import time
-_triton_initialized = False
-_bsr_strided_addmm_kernel = None
+@dataclass(frozen=True)
+class _BsrTritonImpls:
+    available: bool
+    kernel: Optional[Callable]
 
 
-def _lazy_init_triton():
-    global _triton_initialized, _bsr_strided_addmm_kernel
-    if _triton_initialized:
-        return
-    _triton_initialized = True
+_triton_impls: Optional[_BsrTritonImpls] = None
+_triton_impls_lock = Lock()
 
+
+def _get_triton_impls() -> _BsrTritonImpls:
+    global _triton_impls
+    impls = _triton_impls
+    if impls is None:
+        with _triton_impls_lock:
+            impls = _triton_impls
+            if impls is None:
+                impls = _build_triton_impls()
+                _triton_impls = impls
+    return impls
+
+
+def _build_triton_impls() -> _BsrTritonImpls:
     if not has_triton():
-        return
+        return _BsrTritonImpls(False, None)
 
     import triton
     import triton.language as tl
@@ -679,4 +694,4 @@ def _lazy_init_triton():
             mask=col_block_arange[None, :] < BLOCKSIZE_COL,
         )
 
-    _bsr_strided_addmm_kernel = _bsr_strided_addmm_kernel_impl
+    return _BsrTritonImpls(True, _bsr_strided_addmm_kernel_impl)
