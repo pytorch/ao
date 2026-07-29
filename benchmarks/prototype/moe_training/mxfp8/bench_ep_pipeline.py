@@ -40,6 +40,7 @@ from torchao.prototype.moe_training.ep.permute import permute_and_pad
 from torchao.prototype.moe_training.ep.unpermute import _unpermute_bf16
 from torchao.prototype.moe_training.mxfp8_grouped_mm import (
     _to_mxfp8_then_scaled_grouped_mm,
+    set_mxfp8_grouped_mm_backend,
 )
 
 device = torch.device("cuda")
@@ -554,6 +555,7 @@ def print_results(experiments: List[Experiment]):
 def main(args: argparse.Namespace):
     """Main benchmark entry point."""
     torch.random.manual_seed(123)
+    set_mxfp8_grouped_mm_backend(args.backend)
 
     # Set up process group
     setup_distributed()
@@ -596,6 +598,12 @@ if __name__ == "__main__":
         "--compile",
         action="store_true",
         help="Use torch.compile",
+    )
+    parser.add_argument(
+        "--backend",
+        choices=("legacy", "cutedsl"),
+        default="cutedsl",
+        help="MXFP8 grouped-mm backend",
     )
     args = parser.parse_args()
     main(args)
