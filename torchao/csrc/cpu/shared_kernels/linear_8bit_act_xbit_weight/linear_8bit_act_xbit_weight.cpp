@@ -16,6 +16,12 @@
 
 namespace torchao::ops::linear_8bit_act_xbit_weight {
 
+// TODO: Weak-symbol coexistence is wired up for the linear kernel only, since it
+// is currently the only shared kernel that can be linked into the same binary as
+// its registered ExecuTorch operator (via quantized_moe_ffn). If another shared
+// kernel later needs a single-threaded torch_free variant co-linked with its
+// threaded build, apply the same weak/strong operator-symbol treatment to that
+// kernel's operators.
 #if defined(TORCHAO_WEAK_LINEAR_OPERATOR_SYMBOLS)
 #define TORCHAO_LINEAR_OPERATOR_SYMBOL __attribute__((weak))
 #else
