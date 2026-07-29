@@ -55,7 +55,13 @@ class TestQuantizedTraining(TestCase):
         super().setUp()
         # _reset() calls torch.set_float32_matmul_precision("highest"), which mutates
         # the process wide fp32 precision; snapshot it so tearDown can restore it and
-        # torch's TestCase.tearDown does not flag a "fp32 precision flag leak".
+        # torch's TestCase.tearDown does not flag a "fp32 precision flag leak" (on the
+        # torch versions that check but do not themselves restore).
+        #
+        # Do NOT name this attribute self._prev_fp32_precision: recent torch nightlies
+        # reserve that name on TestCase (setUp stores a 6-tuple snapshot there and
+        # tearDown feeds it to _restore_fp32_precision). Shadowing it with our value
+        # makes torch's own tearDown raise "fp32 precision snapshot must be a 6-tuple".
         #
         # Snapshot/restore via the *generic* API (get/set_float32_matmul_precision)
         # rather than the per-backend torch.backends.*.matmul.fp32_precision attrs.
@@ -63,10 +69,10 @@ class TestQuantizedTraining(TestCase):
         # attrs back on top would leave the process in a mixed legacy+new API state;
         # a later torch.compile(mode="max-autotune") queries the generic precision
         # and raises "checking the matmul precision without a specific backend name".
-        self._prev_fp32_precision = torch.get_float32_matmul_precision()
+        self._prev_fp32_matmul_precision = torch.get_float32_matmul_precision()
 
     def tearDown(self):
-        torch.set_float32_matmul_precision(self._prev_fp32_precision)
+        torch.set_float32_matmul_precision(self._prev_fp32_matmul_precision)
         super().tearDown()
 
     @parametrize("device", _DEVICES)
