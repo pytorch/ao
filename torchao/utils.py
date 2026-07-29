@@ -1223,6 +1223,7 @@ def is_package_at_least(package_name: str, min_version: str):
     return version(package_name) >= min_version
 
 
+@functools.lru_cache(maxsize=None)
 def _is_mslk_available():
     has_mslk = importlib.util.find_spec("mslk") is not None or is_fbcode()
     if not has_mslk:
@@ -1231,7 +1232,7 @@ def _is_mslk_available():
     if not torch.cuda.is_available():
         warnings.warn(
             "mslk is installed but no CUDA/ROCm runtime is available. "
-            "mslk requires GPU drivers to load — skipping.",
+            "mslk requires GPU drivers to load, skipping.",
             stacklevel=2,
         )
         return False
