@@ -49,6 +49,7 @@ from torchao.prototype.mx_formats.kernels import triton_to_mxfp8_dim0
 from torchao.prototype.mx_formats.utils import _to_mxfp8_dim1_kernel_wrapper
 from torchao.quantization.quantize_.common import KernelPreference
 from torchao.testing.training.roofline_utils import (
+    calibrate_specs,
     gpu_name_to_specs,
 )
 
@@ -56,7 +57,12 @@ from torchao.testing.training.roofline_utils import (
 class RooflineModel:
     """Roofline model for grouped GEMM on B200 GPU"""
 
-    def __init__(self, gpu_name="NVIDIA B200", power_limit_percent=100.0):
+    def __init__(
+        self,
+        gpu_name="NVIDIA B200",
+        power_limit_percent=100.0,
+        gpu_specs=None,
+    ):
         """
         Args:
             gpu_name: GPU model name
@@ -64,16 +70,30 @@ class RooflineModel:
         """
         power_multiplier = power_limit_percent / 100.0
 
-        if gpu_name in gpu_name_to_specs:
+        if gpu_specs is not None:
+            self.gpu_specs = gpu_specs
+        elif gpu_name in gpu_name_to_specs:
             self.gpu_specs = gpu_name_to_specs[gpu_name]
+        else:
+            raise ValueError(f"Unsupported GPU: {gpu_name}")
+
+        if self.gpu_specs is not None:
+            bf16_gemm_pct = self.gpu_specs.get(
+                "pct_achievable_bf16_gemm_tops",
+                self.gpu_specs["pct_achievable_gemm_tops"],
+            )
+            fp8_gemm_pct = self.gpu_specs.get(
+                "pct_achievable_fp8_gemm_tops",
+                self.gpu_specs["pct_achievable_gemm_tops"],
+            )
             self.bf16_tflops = (
                 (self.gpu_specs["bf16_peak_tops"] / 1e12)
-                * self.gpu_specs["pct_achievable_gemm_tops"]
+                * bf16_gemm_pct
                 * power_multiplier
             )
             self.mxfp8_tflops = (
                 (self.gpu_specs["fp8_peak_tops"] / 1e12)
-                * self.gpu_specs["pct_achievable_gemm_tops"]
+                * fp8_gemm_pct
                 * power_multiplier
             )
             self.memory_bandwidth_gbs = (
@@ -81,8 +101,6 @@ class RooflineModel:
                 * self.gpu_specs["pct_achievable_mem_bw"]
                 * power_multiplier
             )
-        else:
-            raise ValueError(f"Unsupported GPU: {gpu_name}")
 
     def compute_bf16_2d_3d_gemm_flops(self, M, K, N):
         """
@@ -558,6 +576,11 @@ def run(
     plot_file: str = "roofline_unified.png",
     gpu_name: str = "NVIDIA B200",
     power_limit_percent: float = 100.0,
+    calibrate_roofline: bool = False,
+    calibration_m: int = 16384,
+    calibration_n: int = 8192,
+    calibration_k: int = 8192,
+    calibration_copy_numel: int = 256 * 1024 * 1024,
 ):
     """
     Generate unified roofline analysis for MXFP8 grouped GEMM.
@@ -574,6 +597,11 @@ def run(
         plot_file: PNG file to save unified plot
         gpu_name: GPU model (default: B200)
         power_limit_percent: Power limit as percentage (0-100, default: 100.0)
+        calibrate_roofline: Measure achievable GEMM and memory ceilings on this GPU
+        calibration_m: M dimension for GEMM calibration
+        calibration_n: N dimension for GEMM calibration
+        calibration_k: K dimension for GEMM calibration
+        calibration_copy_numel: Number of bf16 elements for memory calibration
     """
     K = 4096 if K == "" else int(K)
     N = 4096 if N == "" else int(N)
@@ -582,6 +610,12 @@ def run(
     power_limit_percent = (
         100.0 if power_limit_percent == "" else float(power_limit_percent)
     )
+    if isinstance(calibrate_roofline, str):
+        calibrate_roofline = calibrate_roofline.lower() in ("1", "true", "yes")
+    calibration_m = int(calibration_m)
+    calibration_n = int(calibration_n)
+    calibration_k = int(calibration_k)
+    calibration_copy_numel = int(calibration_copy_numel)
 
     print(f"GPU: {gpu_name}")
     print(f"Torch version: {torch.__version__}")
@@ -591,7 +625,32 @@ def run(
     print(f"MXFP8 backend: {backend}")
     print(f"Power limit: {power_limit_percent}%")
 
-    model = RooflineModel(gpu_name=gpu_name, power_limit_percent=power_limit_percent)
+    gpu_specs = None
+    if calibrate_roofline:
+        print("\nCalibrating roofline on current GPU...")
+        gpu_specs = calibrate_specs(
+            gpu_name=gpu_name,
+            mm_shape=(calibration_m, calibration_n, calibration_k),
+            copy_numel=calibration_copy_numel,
+        )
+        print(
+            "  copy bandwidth: "
+            f"{gpu_specs['calibrated_copy_bandwidth_bytes_sec'] / 1e9:.1f} GB/s"
+        )
+        print(f"  BF16 GEMM: {gpu_specs['calibrated_bf16_tops'] / 1e12:.1f} TFLOP/s")
+        print(f"  FP8 GEMM: {gpu_specs['calibrated_fp8_tops'] / 1e12:.1f} TFLOP/s")
+        print(
+            "  measured fractions: "
+            f"mem={gpu_specs['pct_achievable_mem_bw']:.3f}, "
+            f"bf16={gpu_specs['pct_achievable_bf16_gemm_tops']:.3f}, "
+            f"fp8={gpu_specs['pct_achievable_fp8_gemm_tops']:.3f}"
+        )
+
+    model = RooflineModel(
+        gpu_name=gpu_name,
+        power_limit_percent=power_limit_percent,
+        gpu_specs=gpu_specs,
+    )
 
     print("\nGPU Specs:")
     print(f"  BF16 TFLOPS: {model.bf16_tflops}")
@@ -1965,9 +2024,9 @@ Grouped GEMM Kernel:
 Configuration:
   K={K}, N={N}, G={G}
   Power Limit: {power_limit_percent}%
-  Peak BW: {model.memory_bandwidth_gbs:.1f} GB/s
-  Peak BF16 TFLOPS: {model.bf16_tflops:.1f} TFLOPS
-  Peak MXFP8 TFLOPS: {model.mxfp8_tflops:.1f} TFLOPS
+  Achievable BW roofline: {model.memory_bandwidth_gbs:.1f} GB/s
+  Achievable BF16 roofline: {model.bf16_tflops:.1f} TFLOPS
+  Achievable MXFP8 roofline: {model.mxfp8_tflops:.1f} TFLOPS
 """
     )
     print("=" * 80)
