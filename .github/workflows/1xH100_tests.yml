@@ -25,7 +25,12 @@ jobs:
         include:
           - name: H100
             runs-on: mt-l-x86iamx-22-225-h100
-            torch-spec: '--pre torch torchvision torchaudio mslk --index-url https://download.pytorch.org/whl/nightly/cu130'
+            torch-spec: '--pre torch torchvision mslk --index-url https://download.pytorch.org/whl/nightly/cu130'
+            gpu-arch-type: "cuda"
+            gpu-arch-version: "13.0"
+          - name: H100 2.13
+            runs-on: mt-l-x86iamx-22-225-h100
+            torch-spec: 'torch==2.13.0 torchvision==0.28.0 mslk==1.3.0 --index-url https://download.pytorch.org/whl/cu130'
             gpu-arch-type: "cuda"
             gpu-arch-version: "13.0"
     permissions:
