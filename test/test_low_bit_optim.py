@@ -117,7 +117,11 @@ class TestQuantize(TestCase):
         assert x_rep_bf16.dtype is torch.bfloat16
 
         # must cast BF16 tensor back to FP32 so that .mean() is accurate
-        torch.testing.assert_close(x_rep_bf16.float().mean(1), x, atol=5e-3, rtol=5e-5)
+        # Use the same tolerance PyTorch uses for FP32 -> BF16 conversion.
+        # The stochastic-rounding estimator's sampling variance can exceed a
+        # tighter tolerance (~2-3% flake rate on CPU/CUDA/XPU alike), while its
+        # bias stays ~0, so this tolerance still catches a genuinely broken SR.
+        torch.testing.assert_close(x_rep_bf16.float().mean(1), x, atol=1e-5, rtol=1.6e-2)
 
     @parametrize("device", _DEVICES)
     @parametrize("compile", [False, True])
