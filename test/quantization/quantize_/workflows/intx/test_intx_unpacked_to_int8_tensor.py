@@ -10,6 +10,7 @@ import unittest
 import torch
 from parameterized import param, parameterized
 from torch.testing import FileCheck
+from torch.testing._internal.common_utils import TestCase, run_tests
 
 from torchao.quantization import (
     Int8DynamicActivationIntxWeightConfig,
@@ -34,7 +35,7 @@ except ImportError:
 
 
 @unittest.skipIf(not torch_version_at_least("2.7.0"), "Need pytorch 2.7+")
-class TestIntxUnpackedToInt8Tensor(unittest.TestCase):
+class TestIntxUnpackedToInt8Tensor(TestCase):
     def setUp(self):
         self.config = IntxWeightOnlyConfig(
             weight_dtype=torch.int4,
@@ -129,11 +130,11 @@ class TestIntxUnpackedToInt8Tensor(unittest.TestCase):
         weight1 = dummy.weight.narrow(0, 0, 64)
         weight2 = dummy.weight.narrow(1, 0, 128)
 
-        self.assertTrue(torch.equal(weight1.qdata, dummy.weight.qdata.narrow(0, 0, 64)))
-        self.assertTrue(torch.equal(weight1.scale, dummy.weight.scale.narrow(0, 0, 64)))
+        self.assertEqual(weight1.qdata, dummy.weight.qdata.narrow(0, 0, 64))
+        self.assertEqual(weight1.scale, dummy.weight.scale.narrow(0, 0, 64))
 
-        self.assertTrue(torch.equal(weight2.qdata, dummy.weight.qdata.narrow(1, 0, 128)))
-        self.assertTrue(torch.equal(weight2.scale, dummy.weight.scale.narrow(1, 0, 4)))
+        self.assertEqual(weight2.qdata, dummy.weight.qdata.narrow(1, 0, 128))
+        self.assertEqual(weight2.scale, dummy.weight.scale.narrow(1, 0, 4))
 
         # check for sliced weight, before and after float8 quantization
         # does not differ too much
@@ -489,6 +490,89 @@ class TestIntxUnpackedToInt8Tensor(unittest.TestCase):
         
         self.assertTrue(torch.allclose(output, expected_output, atol=1e-5))
 
+    @unittest.skipIf(not HAS_TRANSFORMERS, "transformers not available")
+    def test_convert_gemma_quantized_to_torchao(self):
+        from torchao.quantization.gemma import convert_gemma_quantized_to_torchao
+        from torchao.quantization.quantize_.workflows.intx.intx_unpacked_to_int8_tensor import IntxUnpackedToInt8Tensor
+        from transformers.models.gemma.modeling_gemma import GemmaTextScaledWordEmbedding
+
+        vocab_size = 128
+        hidden_size = 64
+        num_bits = 4
+
+        # Create mock model with QuantizedLinear and QuantizedEmbedding
+        class MockGemmaModel(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.config = type("Config", (), {"pad_token_id": 3})()
+                self.embed_tokens = QuantizedEmbedding(
+                    num_embeddings=vocab_size,
+                    embedding_dim=hidden_size,
+                    output_dtype=torch.bfloat16,
+                    embed_scale=1.0,
+                    num_bits=num_bits,
+                )
+                self.linear = QuantizedLinear(
+                    in_features=hidden_size,
+                    out_features=hidden_size,
+                    bias=False,
+                    num_bits=num_bits,
+                )
+                self.lm_head = QuantizedLinear(
+                    in_features=hidden_size,
+                    out_features=vocab_size,
+                    bias=False,
+                    num_bits=num_bits,
+                )
+
+            def forward(self, input_ids):
+                x = self.embed_tokens(input_ids)
+                x = self.linear(x)
+                x = self.lm_head(x)
+                return x
+
+            def tie_weights(self):
+                if isinstance(self.embed_tokens.weight, torch.nn.Parameter):
+                    self.lm_head.weight = self.embed_tokens.weight
+
+        model = MockGemmaModel()
+        model.tie_weights()
+
+        # Check model structure before conversion
+        self.assertTrue(isinstance(model.embed_tokens, QuantizedEmbedding))
+        self.assertTrue(isinstance(model.linear, QuantizedLinear))
+        self.assertTrue(isinstance(model.lm_head, QuantizedLinear))
+
+        # Convert the model
+        convert_gemma_quantized_to_torchao(model)
+
+        # Assertions
+        # 1. Swapped module types
+        self.assertTrue(isinstance(model.embed_tokens, GemmaTextScaledWordEmbedding))
+        self.assertTrue(isinstance(model.linear, torch.nn.Linear))
+        self.assertTrue(isinstance(model.lm_head, torch.nn.Linear))
+
+        # 2. Subclass weight checks
+        self.assertTrue(isinstance(model.embed_tokens.weight, IntxUnpackedToInt8Tensor))
+        self.assertTrue(isinstance(model.linear.weight, IntxUnpackedToInt8Tensor))
+        self.assertTrue(isinstance(model.lm_head.weight, IntxUnpackedToInt8Tensor))
+
+        # 3. Tied weights assertion: lm_head.weight must be the same instance as embed_tokens.weight
+        self.assertTrue(model.lm_head.weight is model.embed_tokens.weight)
+
+        # 4. Target dtypes
+        self.assertEqual(model.embed_tokens.weight.target_dtype, torch.int4)
+        self.assertEqual(model.linear.weight.target_dtype, torch.int4)
+
+        # 5. Check padding_idx preservation
+        self.assertEqual(model.embed_tokens.padding_idx, 3)
+
+        # Verify forward execution
+        input_ids = torch.randint(0, vocab_size, (2, 8))
+        out = model(input_ids)
+        self.assertEqual(out.shape, (2, 8, vocab_size))
+        self.assertEqual(out.dtype, torch.bfloat16)
+
 
 if __name__ == "__main__":
-    unittest.main()
+    run_tests()
