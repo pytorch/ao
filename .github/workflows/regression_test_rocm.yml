@@ -45,7 +45,15 @@ jobs:
         python -m pip install --upgrade pip
         pip install ${{ matrix.torch-spec }}
         pip install -r dev-requirements.txt
-        pip install . --no-build-isolation
+        # Editable install so build_ext --inplace drops the compiled extensions
+        # (e.g. the hipified torchao/_C*.so providing torchao::swizzle_mm) into the
+        # in-tree torchao/ dir. pytest is run from the repo root and, because test/ is
+        # a package with a conftest.py, prepends the repo root to sys.path -- so
+        # `import torchao` resolves to the source tree, which shadows the installed
+        # wheel. A non-editable `pip install .` leaves that source tree without the
+        # .so, so compiled ops (e.g. swizzle_mm) never register and their tests fail.
+        # Editable keeps the extensions available in the shadowing source tree.
+        pip install -e . --no-build-isolation
         export CONDA=$(dirname $(dirname $(which conda)))
         export LD_LIBRARY_PATH=$CONDA/lib/:$LD_LIBRARY_PATH
         # PT2E tests (test/quantization/pt2e) are excluded here -- they are slow
