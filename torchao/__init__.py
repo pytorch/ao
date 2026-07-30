@@ -93,26 +93,7 @@ else:
                 try:
                     torch.ops.load_library(str(file))
                 except Exception as e:
-                    # `torch.ops.load_library` masks the underlying dlopen error
-                    # with a generic "Could not load this library" message. A
-                    # failed load here silently leaves the C++ ops in that
-                    # extension unregistered, which surfaces much later as a
-                    # confusing "Could not run 'torchao::...' with arguments from
-                    # the 'CUDA' backend". Probe with ctypes to recover the real
-                    # reason (e.g. undefined symbol / missing dependency) and log
-                    # it loudly so the failure is diagnosable.
-                    detail = ""
-                    try:
-                        import ctypes
-
-                        ctypes.CDLL(str(file))
-                    except OSError as ose:
-                        detail = f": {ose}"
-                    logger.warning(
-                        f"Failed to load torchao C++ extension {file}: {e}{detail}. "
-                        "Ops provided by this extension will be unavailable; "
-                        "calls to them will fail with a missing-backend error."
-                    )
+                    logger.warning(f"Failed to load {file}: {e}")
             from . import ops
 
         # The following registers meta kernels for some CPU kernels
