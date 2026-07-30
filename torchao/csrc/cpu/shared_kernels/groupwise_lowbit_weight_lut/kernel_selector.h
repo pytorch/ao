@@ -8,6 +8,7 @@
 #include <cpuinfo.h>
 #include <torchao/csrc/cpu/shared_kernels/groupwise_lowbit_weight_lut/kernel_config.h>
 #include <torchao/csrc/cpu/shared_kernels/groupwise_lowbit_weight_lut/packed_weights_format.h>
+#include <mutex>
 #include <optional>
 #include <stdexcept>
 #include <unordered_map>
@@ -19,10 +20,12 @@
 namespace torchao::ops::groupwise_lowbit_weight_lut {
 
 /**
- * @brief A thread-unsafe registration table for kernel configurations.
+ * @brief A thread-safe registration table for kernel configurations.
  *
  * This table maps a combination of a weight format (header) and a CPU
- * microarchitecture to a specific UKernelConfig.
+ * microarchitecture to a specific UKernelConfig. Concurrent access is
+ * guarded by an internal mutex so callers under free-threaded CPython do
+ * not race on insert/lookup.
  */
 struct UKernelConfigRegistrationTable {
  private:
@@ -34,6 +37,7 @@ struct UKernelConfigRegistrationTable {
     }
   };
   std::unordered_map<Key, UKernelConfig, KeyHasher> registration_table_;
+  mutable std::mutex mu_;
   inline Key make_key(
       torchao::ops::PackedWeightsHeader header,
       cpuinfo_uarch uarch) const {
@@ -48,6 +52,7 @@ struct UKernelConfigRegistrationTable {
       UKernelConfig config) {
     auto header = format.to_packed_weights_header();
     auto key = make_key(header, uarch);
+    std::lock_guard<std::mutex> guard(mu_);
     if (registration_table_.find(key) != registration_table_.end()) {
       throw std::runtime_error(
           "UKernelConfig is already registered for this format");
@@ -60,6 +65,7 @@ struct UKernelConfigRegistrationTable {
       torchao::ops::PackedWeightsHeader header,
       cpuinfo_uarch uarch) const {
     auto key = make_key(header, uarch);
+    std::lock_guard<std::mutex> guard(mu_);
     auto it = registration_table_.find(key);
     if (it == registration_table_.end()) {
       return std::nullopt;

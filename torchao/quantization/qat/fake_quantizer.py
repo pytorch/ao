@@ -78,9 +78,12 @@ class Float8FakeQuantizer(FakeQuantizerBase):
     def __init__(self, config: Float8FakeQuantizeConfig):
         super().__init__()
         self.config = config
+        self.enabled = True
         torch._C._log_api_usage_once("torchao.quantization.qat.Float8FakeQuantizer")
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+        if not self.enabled:
+            return x
         original_dtype = x.dtype
         block_size = get_block_size(x.shape, self.config.granularity)
         scale = _choose_scale_float8(
@@ -107,9 +110,12 @@ class Int4WeightFakeQuantizer(FakeQuantizerBase):
     def __init__(self, config: Int4WeightFakeQuantizeConfig):
         super().__init__()
         self.config = config
+        self.enabled = True
         torch._C._log_api_usage_once("torchao.quantization.qat.Int4WeightFakeQuantizer")
 
     def forward(self, w: torch.Tensor) -> torch.Tensor:
+        if not self.enabled:
+            return w
         if self.config.activation_dtype == torch.float8_e4m3fn:
             return self._fp8_activations_forward(w)
         elif self.config.activation_dtype == torch.bfloat16:

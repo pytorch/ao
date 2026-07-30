@@ -3328,7 +3328,12 @@ class TestQuantizePT2E(PT2EQuantizationTestCase):
         result = m(*example_inputs)
         self.assertIsNotNone(result)
 
-    def test_quantize_in_place_index_put(self):
+    def _test_quantize_in_place_index_put_buffers_to_mutate(
+        self,
+        module: torch.nn.Module,
+        example_inputs: tuple[torch.Tensor, torch.Tensor],
+        expected_buffers_to_mutate: dict[str, str],
+    ) -> None:
         class IndexPutQuantizer(Quantizer):
             def __init__(self) -> None:
                 super().__init__()
@@ -3367,21 +3372,8 @@ class TestQuantizePT2E(PT2EQuantizationTestCase):
             def validate(self, model: torch.fx.GraphModule) -> None:
                 return None
 
-        class M(torch.nn.Module):
-            def __init__(self) -> None:
-                super().__init__()
-                self.register_buffer("buf", torch.zeros(4, dtype=torch.float32))
-
-            def forward(self, x: torch.Tensor, idx: torch.Tensor) -> torch.Tensor:
-                updated = self.buf.index_put_((idx,), x)
-                return updated.clone()
-
-        m = M().eval()
+        m = module.eval()
         quantizer = IndexPutQuantizer()
-        example_inputs = (
-            torch.tensor([1.0, 2.0], dtype=torch.float32),
-            torch.tensor([1, 3], dtype=torch.int64),
-        )
         m = torch.export.export(m, example_inputs, strict=True).module()
 
         m = prepare_pt2e(m, quantizer)
@@ -3392,9 +3384,56 @@ class TestQuantizePT2E(PT2EQuantizationTestCase):
         # If it folded it will be named _frozen_param0
         self.assertTrue("buf" in dict(m.named_buffers()))
 
+        # Downstream consumers rely on export metadata to identify mutated buffers.
+        exported = torch.export.export(m, example_inputs, strict=True)
+        exported = exported.run_decompositions({})
+        self.assertEqual(
+            exported.graph_signature.buffers_to_mutate,
+            expected_buffers_to_mutate,
+        )
+
         # Verify the quantized model works
         result = m(*example_inputs)
         self.assertIsNotNone(result)
+
+    def test_quantize_in_place_index_put(self):
+        class M(torch.nn.Module):
+            def __init__(self) -> None:
+                super().__init__()
+                self.register_buffer("buf", torch.zeros(4, dtype=torch.float32))
+
+            def forward(self, x: torch.Tensor, idx: torch.Tensor) -> torch.Tensor:
+                updated = self.buf.index_put_((idx,), x)
+                return updated.clone()
+
+        example_inputs = (
+            torch.tensor([1.0, 2.0], dtype=torch.float32),
+            torch.tensor([1, 3], dtype=torch.int64),
+        )
+
+        self._test_quantize_in_place_index_put_buffers_to_mutate(
+            M(), example_inputs, {"index_put": "buf"}
+        )
+
+    def test_quantize_in_place_index_put_view(self):
+        class ViewM(torch.nn.Module):
+            def __init__(self) -> None:
+                super().__init__()
+                self.register_buffer("buf", torch.zeros(2, 4, dtype=torch.float32))
+
+            def forward(self, x: torch.Tensor, idx: torch.Tensor) -> torch.Tensor:
+                row = self.buf.select(0, 0)
+                updated = row.index_put_((idx,), x)
+                return updated.clone()
+
+        example_inputs = (
+            torch.tensor([1.0, 2.0], dtype=torch.float32),
+            torch.tensor([1, 3], dtype=torch.int64),
+        )
+
+        self._test_quantize_in_place_index_put_buffers_to_mutate(
+            ViewM(), example_inputs, {"select_scatter": "buf"}
+        )
 
     def test_scan_op_quantization(self):
         """Test that prepare_pt2e and convert_pt2e correctly quantize ops

@@ -90,7 +90,7 @@ To reproduce these benchmarks, run
 // on an h100
 SKIP_LM_EVAL=1 ./benchmarks/quantization/measure_accuracy_and_performance.sh h100
 // on a b200
-SKIP_LM_EVAL=1 ./benchmarks/quantization/measure_accuracy_and_performance.sh h100
+SKIP_LM_EVAL=1 ./benchmarks/quantization/measure_accuracy_and_performance.sh b200
 
 // under the hood, the actual vllm benchmark is doing the following:
 // 1. prefill
@@ -221,7 +221,7 @@ We have kernels that do 8-bit dynamic quantization of activations and uintx grou
 |               | int8_dynamic_activation_intx_weight-4-256-false  |  16.03        |  65.81                  |  NA              | 4.11            |
 |               | int8_dynamic_activation_intx_weight-3-256-false  |  18.94        |  59.97                  |  NA              | 3.17            |
 
-You can try out these apis with the `quantize_` api as above alongside the config `Int8DynamicActivationIntxWeightConfig`.  An example can be found in `torchao/_models/llama/generate.py`.
+You can try out these apis with the `quantize_` api as above alongside the config `Int8DynamicActivationIntxWeightConfig`.
 
 ### Codebook Quantization
 The benchmarks below were run on a single NVIDIA-A6000 GPU.
@@ -233,7 +233,7 @@ The benchmarks below were run on a single NVIDIA-A6000 GPU.
 | Llama-3.1-8B| Base (bfloat16)         |  7.713              |  32.16        |  482.70                 | 16.35            | 15.01           |
 |             | codebook-4-64           |  10.095             |  1.73         |  8.63                   | 23.11            |  4.98           |
 
-You try can out these apis with the `quantize_` api as above alongside the config `CodebookWeightOnlyConfig` an example can be found in  in `torchao/_models/llama/generate.py`.
+You try can out these apis with the `quantize_` api as above alongside the config `CodebookWeightOnlyConfig`.
 
 ### Low-Precision FP8 Attention (Prototype)
 

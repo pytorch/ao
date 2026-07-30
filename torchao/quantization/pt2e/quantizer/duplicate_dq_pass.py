@@ -4,7 +4,15 @@
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
 
-# mypy: allow-untyped-defs
+"""FX pass that duplicates shared dequantize nodes so each consumer owns one.
+
+When a single ``dequantize`` node feeds several downstream users, those users
+cannot be annotated and lowered independently. :class:`DuplicateDQPass` clones
+such a ``dequantize`` node once per annotated user (skipping the dynamic
+quantization ``choose_qparams -> getitem -> q -> dq`` pattern) so that the
+subsequent quantization lowering can rewrite each branch on its own.
+"""
+
 import logging
 import operator
 
@@ -37,7 +45,14 @@ _DEQUANTIZE_OPS = [
 
 def _maybe_duplicate_dq(
     gm: torch.fx.GraphModule, dq_node: torch.fx.Node, user: torch.fx.Node
-):
+) -> None:
+    """Clone ``dq_node`` for ``user`` if ``user`` carries a valid annotation.
+
+    The freshly copied dequantize node is inserted right after ``dq_node`` and
+    ``user``'s args/kwargs are rewired to reference the copy, leaving the
+    original ``dq_node`` for its remaining consumers. Users without a valid
+    quantization annotation are left untouched.
+    """
     annotation = user.meta.get(Q_ANNOTATION_KEY, None)
     if not is_valid_annotation(annotation):
         return
@@ -57,7 +72,16 @@ def _maybe_duplicate_dq(
 
 
 class DuplicateDQPass(PassBase):
+    """Duplicate shared dequantize nodes so each user owns a private copy."""
+
     def call(self, graph_module: torch.fx.GraphModule) -> PassResult:
+        """Run the duplication pass over ``graph_module`` and return the result.
+
+        Each ``dequantize`` node with more than one (non ``sym_size``) user is
+        cloned per user, except for the dynamic-quantization
+        ``choose_qparams -> getitem -> q -> dq`` pattern which is left shared.
+        Dead code is eliminated and the module is recompiled before returning.
+        """
         for node in graph_module.graph.nodes:
             if node.op == "call_function" and node.target in _DEQUANTIZE_OPS:
                 dq_users = _filter_sym_size_users(node)

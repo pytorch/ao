@@ -158,6 +158,33 @@ class TestQuantFlow(TestCase):
         ["xpu"] if torch.xpu.is_available() else []
     )
 
+    def setUp(self):
+        super().setUp()
+        # quantize_() sets a global float32 matmul precision; snapshot fp32_precision
+        self._prev_cuda_matmul_fp32 = torch.backends.cuda.matmul.fp32_precision
+        self._prev_mkldnn_matmul_fp32 = torch.backends.mkldnn.matmul.fp32_precision
+
+    def tearDown(self):
+        torch.backends.cuda.matmul.fp32_precision = self._prev_cuda_matmul_fp32
+        torch.backends.mkldnn.matmul.fp32_precision = self._prev_mkldnn_matmul_fp32
+        super().tearDown()
+
+    def test_quantize_does_not_leak_fp32_precision(self):
+        # quantize_() must not mutate the process wide fp32 precision flags, torch's
+        # TestCase.tearDown reports any change as "fp32 precision flag leak detected"
+        backends = (
+            torch.backends.cuda.matmul,
+            torch.backends.cudnn.conv,
+            torch.backends.cudnn.rnn,
+            torch.backends.mkldnn.matmul,
+            torch.backends.mkldnn.conv,
+            torch.backends.mkldnn.rnn,
+        )
+        before = [b.fp32_precision for b in backends]
+        m = ToyLinearModel().eval()
+        quantize_(m, Int8WeightOnlyConfig())
+        self.assertEqual([b.fp32_precision for b in backends], before)
+
     def test_dynamic_quant_gpu_singleline(self):
         if is_ROCM():
             self.skipTest("Don't test CPU for ROCM version of torch")
