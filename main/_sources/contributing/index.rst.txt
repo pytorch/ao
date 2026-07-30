@@ -9,4 +9,3 @@ Technical documentation for contributors working on torchao.
    quantization_overview
    contributor_guide
    sparsity
-   benchmarking_api_guide
