@@ -18,11 +18,18 @@ correct, but the transposed store writes garbage bytes that decode as NaN/Inf in
 fp8. See https://github.com/triton-lang/triton/issues/11111.
 
 This monkeypatch reverts the inductor min/max codegen to the numerically-identical
-``triton_helpers`` (``tl.where``) form, which does not emit the ``min.NaN``/
-``max.NaN`` instructions and so avoids tripping the Triton store bug. It is applied
-from ``convert_to_float8_training`` so it only affects callers who actually use the
-float8 training product, not every ``import torchao``. The reverted form is always
-correct, so this is a no-op on numerics even once Triton fixes the underlying bug.
+``tl.where`` form, which does not emit the ``min.NaN``/``max.NaN`` instructions and
+so avoids tripping the Triton store bug. It is applied from
+``convert_to_float8_training`` so it only affects callers who actually use the
+float8 training product, not every ``import torchao``. The ``tl.where`` form is
+always correct, so this is a no-op on numerics even once Triton fixes the
+underlying bug.
+
+Note: we must emit the ``tl.where`` expression *inline* rather than delegate to
+``triton_helpers.{minimum,maximum}``. #186933's follow-up also rewrote those helper
+functions to ``tl.{minimum,maximum}(..., propagate_nan=tl.PropagateNan.ALL)``, so
+routing through them would still emit ``min.NaN``/``max.NaN`` and fail to work
+around the bug (confirmed against torch 2.14.0.dev / triton 3.8.0).
 """
 
 import logging
@@ -49,15 +56,19 @@ def _patch_inductor_min_max_codegen() -> None:
         return
 
     # Numerically-identical replacements for the post-pytorch/pytorch#186933
-    # `tl.{minimum,maximum}(a, b, tl.PropagateNan.ALL)` codegen. `triton_helpers`
-    # is always imported into inductor-generated Triton kernels.
+    # `tl.{minimum,maximum}(a, b, tl.PropagateNan.ALL)` codegen. `(a != a)`
+    # propagates NaN from `a`; NaN in `b` is preserved because the comparison is
+    # false, so `b` is selected. `a` and `b` are already-CSE'd operands, so
+    # referencing `a` twice is free. This matches the pre-#186933 codegen
+    # semantics without routing through the (now also NaN-propagating)
+    # `triton_helpers.{minimum,maximum}` helpers.
     @staticmethod
     def minimum(a, b):
-        return f"triton_helpers.minimum({a}, {b})"
+        return f"tl.where(({a} < {b}) | ({a} != {a}), {a}, {b})"
 
     @staticmethod
     def maximum(a, b):
-        return f"triton_helpers.maximum({a}, {b})"
+        return f"tl.where(({a} > {b}) | ({a} != {a}), {a}, {b})"
 
     TritonOverrides.minimum = minimum
     TritonOverrides.maximum = maximum
