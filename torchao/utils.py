@@ -11,7 +11,7 @@ import time
 from functools import reduce
 from importlib.metadata import version
 from math import gcd
-from typing import Any, Optional, Union
+from typing import Any, List, Optional, Union
 
 import torch
 import torch.nn.utils.parametrize as parametrize
@@ -536,55 +536,72 @@ def _implements_common_tensor_ops(cls):
             args[0]._apply_fn_to_data(lambda x: func(x, *args[1:], **kwargs)),
         )
 
-    def _same_metadata(self: TorchAOBaseTensor, src: TorchAOBaseTensor) -> bool:
-        _tensor_shape_match = all(
-            getattr(self, t_name).shape == getattr(src, t_name).shape
-            for t_name in self.tensor_data_names
-        )
-        _optional_tensor_shape_match = True
+    def _metadata_mismatch_details(
+        self: TorchAOBaseTensor, src: TorchAOBaseTensor
+    ) -> List[str]:
+        """Returns human readable descriptions of the metadata differences
+        between `self` and `src` (an empty list means the metadata matches),
+        using the same comparisons as `_same_metadata`
+        """
+        if type(self) != type(src):
+            return [f"type: {type(self).__name__} vs {type(src).__name__}"]
+
+        details = []
+        if self.shape != src.shape:
+            details.append(f"shape: {self.shape} vs {src.shape}")
+
+        for t_name in self.tensor_data_names:
+            self_shape = getattr(self, t_name).shape
+            src_shape = getattr(src, t_name).shape
+            if self_shape != src_shape:
+                details.append(f"{t_name}.shape: {self_shape} vs {src_shape}")
+
         if hasattr(self, "optional_tensor_data_names"):
-            # either both are None or both are not Tensors and the shape match
-            _optional_tensor_shape_match = all(
-                (
-                    getattr(self, t_name).shape == getattr(src, t_name).shape
-                    if getattr(self, t_name) is not None
-                    else getattr(src, t_name) is None
-                )
-                for t_name in self.optional_tensor_data_names
-            )
+            for t_name in self.optional_tensor_data_names:
+                self_tensor = getattr(self, t_name)
+                src_tensor = getattr(src, t_name)
+                # either both should be None or both should be Tensors
+                # with the same shape
+                if (self_tensor is None) != (src_tensor is None):
+                    self_presence = "None" if self_tensor is None else "Tensor"
+                    src_presence = "None" if src_tensor is None else "Tensor"
+                    details.append(f"{t_name}: {self_presence} vs {src_presence}")
+                elif self_tensor is not None and self_tensor.shape != src_tensor.shape:
+                    details.append(
+                        f"{t_name}.shape: {self_tensor.shape} vs {src_tensor.shape}"
+                    )
 
-        _attr_match = all(
-            getattr(self, a_name) == getattr(src, a_name)
-            for a_name in self.tensor_attribute_names
-        )
+        for a_name in self.tensor_attribute_names:
+            self_attr = getattr(self, a_name)
+            src_attr = getattr(src, a_name)
+            if self_attr != src_attr:
+                details.append(f"{a_name}: {self_attr!r} vs {src_attr!r}")
 
-        _optional_attr_match = True
         if hasattr(self, "optional_tensor_attribute_names"):
-            _optional_attr_match = all(
-                getattr(self, a_name) == getattr(src, a_name)
-                for a_name in self.optional_tensor_attribute_names
-            )
+            for a_name in self.optional_tensor_attribute_names:
+                self_attr = getattr(self, a_name)
+                src_attr = getattr(src, a_name)
+                if self_attr != src_attr:
+                    details.append(f"{a_name}: {self_attr!r} vs {src_attr!r}")
 
-        return (
-            type(self) == type(src)
-            and self.shape == src.shape
-            and _tensor_shape_match
-            and _optional_tensor_shape_match
-            and _attr_match
-            and _optional_attr_match
-        )
+        return details
+
+    def _same_metadata(self: TorchAOBaseTensor, src: TorchAOBaseTensor) -> bool:
+        return not _metadata_mismatch_details(self, src)
 
     @implements(aten.copy_.default)
     def _(func, types, args, kwargs):
         self = args[0]
         src = args[1]
-        if _same_metadata(self, src):
+        mismatch_details = _metadata_mismatch_details(self, src)
+        if not mismatch_details:
             self_tensors = self.__tensor_flatten__()[0]
             for tensor_name in self_tensors:
                 getattr(self, tensor_name).copy_(getattr(src, tensor_name))
             return
         raise ValueError(
-            f"Not supported args for copy_ due to metadata mismatch: {args[0], args[1]}"
+            f"Not supported args for copy_ due to metadata mismatch: "
+            f"{'; '.join(mismatch_details)}"
         )
 
     @implements(aten._to_copy.default)
