@@ -680,14 +680,16 @@ def recommended_inductor_config_setter():
         force_fuse_int_mm_with_mul = True
         fx_graph_cache = True
         triton.unique_kernel_names = True
-        torch.set_float32_matmul_precision("high")
+
+    This used to also call `torch.set_float32_matmul_precision("high")`. That is not an
+    inductor config, it is process wide state that changes the numerics of every fp32
+    matmul in the process and is never restored, so it is left to the caller.
     """
     torch._inductor.config.coordinate_descent_tuning = True
     torch._inductor.config.coordinate_descent_check_all_directions = True
     torch._inductor.config.force_fuse_int_mm_with_mul = True
     torch._inductor.config.fx_graph_cache = True
     torch._inductor.config.triton.unique_kernel_names = True
-    torch.set_float32_matmul_precision("high")
 
 
 def get_block_size(
