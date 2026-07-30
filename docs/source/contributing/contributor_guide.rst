@@ -154,5 +154,3 @@ Note: sam is our representative model for compute bound models.
 Please checkout the ``--help`` option for each of the script to understand the supported options, e.g. you can use ``--profile=profile_path`` to get the chrome trace of the run to understand detailed `chrome trace <https://pytorch.org/tutorials/recipes/recipes/profiler_recipe.html#using-tracing-functionality>`__.
 
 Please let us know if there are any new important models that makes sense to be added to torchao model benchmark/eval folder.
-
-Please also check out `Benchmarking User Guide <https://docs.pytorch.org/ao/main/benchmarking_user_guide.html>`__ and `Benchmarking API Guide <https://docs.pytorch.org/ao/main/benchmarking_api_guide.html>`__ to understand how to use our benchmarking framework.
