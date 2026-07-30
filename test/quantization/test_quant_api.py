@@ -580,29 +580,22 @@ class TestQuantFlow(TestCase):
     @common_utils.parametrize("bias", [True, False])
     def test_swap_conv2d_1x1_to_linear(self, bias):
         from torchao.quantization.quant_api import swap_conv2d_1x1_to_linear
-
         class M(torch.nn.Module):
             def __init__(self):
                 super().__init__()
                 self.conv = torch.nn.Conv2d(8, 16, kernel_size=1, bias=bias)
-
             def forward(self, x):
                 return self.conv(x)
-
         m = M().eval()
         x = torch.randn(2, 8, 4, 4)
         ref = m(x)
-
         swap_conv2d_1x1_to_linear(m)
-
         lin = m.conv.mod
         self.assertIsInstance(lin, torch.nn.Linear)
-
         if bias:
             self.assertIsNotNone(lin.bias)
         else:
             self.assertIsNone(lin.bias)
-
         torch.testing.assert_close(m(x), ref, atol=1e-5, rtol=1e-5)
 
 
