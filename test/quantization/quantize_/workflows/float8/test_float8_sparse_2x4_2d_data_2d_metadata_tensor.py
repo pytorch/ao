@@ -23,16 +23,28 @@ from torchao.quantization.quantize_.workflows import (
 )
 from torchao.quantization.utils import compute_error
 from torchao.sparsity import apply_fake_sparsity
-from torchao.utils import is_sm_at_least_90
+from torchao.utils import is_sm_at_least_90, torchao_op_has_kernel_for
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
+)
+
+# The sparse kernel's CUDA implementation is provided by the compiled
+# `_C_cutlass_90a` extension. Its Python schema is always present, so gate on the
+# actual CUDA kernel being registered: if the extension failed to build/load we
+# want to skip rather than raise a confusing "Could not run ... 'CUDA' backend".
+_HAS_CUTLASS_SPARSE_CUDA_OP = torchao_op_has_kernel_for(
+    "to_sparse_semi_structured_cutlass_sm9x_f8", "CUDA"
 )
 
 
 class TestFloat8Sparse2x4_2DData2DMetadataTensor(common_utils.TestCase):
     @unittest.skipIf(not is_sm_at_least_90(), "Need H100 to run")
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
+    @unittest.skipIf(
+        not _HAS_CUTLASS_SPARSE_CUDA_OP,
+        "torchao _C_cutlass_90a extension (CUDA sparse op) not loaded",
+    )
     @common_utils.parametrize("compile", [True, False])
     def test_fp8_cutlass_sparse(self, compile):
         with torch.inference_mode():
@@ -74,6 +86,10 @@ class TestFloat8Sparse2x4_2DData2DMetadataTensor(common_utils.TestCase):
 
     @unittest.skipIf(not is_sm_at_least_90(), "Need H100 to run")
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
+    @unittest.skipIf(
+        not _HAS_CUTLASS_SPARSE_CUDA_OP,
+        "torchao _C_cutlass_90a extension (CUDA sparse op) not loaded",
+    )
     def test_fp8_cutlass_sparse_lowering_op_clone(self):
         with torch.inference_mode():
             model = nn.Linear(256, 1024).half().cuda().eval()
@@ -95,6 +111,10 @@ class TestFloat8Sparse2x4_2DData2DMetadataTensor(common_utils.TestCase):
 
     @unittest.skipIf(not is_sm_at_least_90(), "Need H100 to run")
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
+    @unittest.skipIf(
+        not _HAS_CUTLASS_SPARSE_CUDA_OP,
+        "torchao _C_cutlass_90a extension (CUDA sparse op) not loaded",
+    )
     def test_fp8_cutlass_sparse_lowering_op_to(self):
         # Need to run with inference mode to avoid dispatching to `aten.to_copy`
         with torch.inference_mode():

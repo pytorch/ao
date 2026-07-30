@@ -1162,6 +1162,25 @@ def is_sm_at_least_100():
     )
 
 
+def torchao_op_has_kernel_for(op_name: str, dispatch_key: str = "CUDA") -> bool:
+    """Return True if the ``torchao::<op_name>`` custom op has a real kernel
+    registered for ``dispatch_key``.
+
+    The Python schema for a custom op (defined in ``torchao/ops.py``) is always
+    present once ``torchao`` is imported, so ``hasattr(torch.ops.torchao, ...)``
+    is True even when the compiled C++ extension that provides the backend
+    kernel failed to load. Tests that exercise a C++ op should gate on this so a
+    missing/failed extension load skips the test rather than raising a confusing
+    ``NotImplementedError: Could not run ... with arguments from the 'CUDA'
+    backend``.
+    """
+    qualname = f"torchao::{op_name}"
+    try:
+        return torch._C._dispatch_has_kernel_for_dispatch_key(qualname, dispatch_key)
+    except Exception:
+        return False
+
+
 def is_cuda_version_at_least(major: int, minor: int) -> bool:
     if not torch.cuda.is_available():
         return False
