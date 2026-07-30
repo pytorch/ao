@@ -829,7 +829,10 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
         sqnr = compute_error(res, res_ref)
         self.assertTrue(sqnr > 15, f"sqnr: {sqnr}")
 
-    @common_utils.parametrize("granularity", [PerTensor(), PerRow()])
+    @common_utils.parametrize(
+        "granularity",
+        [PerTensor(), PerRow(), (PerBlock([1, 128]), PerBlock([128, 128]))],
+    )
     # Inputs are (M,..), K, N
     @common_utils.parametrize(
         "sizes",
