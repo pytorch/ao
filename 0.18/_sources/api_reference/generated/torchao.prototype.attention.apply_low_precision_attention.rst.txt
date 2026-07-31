@@ -1,0 +1,9 @@
+﻿.. role:: hidden
+    :class: hidden-section
+.. currentmodule:: torchao.prototype.attention
+
+
+apply_low_precision_attention
+=============================
+
+.. autofunction:: apply_low_precision_attention

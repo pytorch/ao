@@ -1,0 +1,9 @@
+﻿.. role:: hidden
+    :class: hidden-section
+.. currentmodule:: torchao.prototype.quant_logger
+
+
+enable_log_tensor_save_tensors_to_disk
+======================================
+
+.. autofunction:: enable_log_tensor_save_tensors_to_disk

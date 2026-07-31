@@ -1,0 +1,43 @@
+# TorchAO
+
+> PyTorch-native library for quantization, sparsity, and low-precision training. Provides the quantize_() API with Config classes for int4/int8/float8/MX weight and activation quantization, composable with torch.compile.
+
+## Docs
+
+- [Quick Start](https://docs.pytorch.org/ao/stable/quick_start.html)
+- [Workflows Matrix](https://docs.pytorch.org/ao/main/workflows.html): Status of every dtype x hardware combination
+- [API Reference](https://docs.pytorch.org/ao/stable/api_reference/index.html)
+- [Inference Quantization](https://docs.pytorch.org/ao/main/workflows/inference.html)
+- [Float8 Training](https://docs.pytorch.org/ao/main/workflows/training.html)
+- [QAT](https://docs.pytorch.org/ao/main/workflows/qat.html)
+- [Quantization Overview](https://docs.pytorch.org/ao/main/contributing/quantization_overview.html): Architecture and internals
+- [Contributor Guide](https://docs.pytorch.org/ao/main/contributing/contributor_guide.html): How to add tensors, kernels, configs
+- [PT2E Quantization](https://docs.pytorch.org/ao/main/pt2e_quantization/index.html): PyTorch 2 Export quantization for deployment backends (X86, XPU, ExecuTorch)
+
+## Code
+
+- [quantize_() and Config classes](https://github.com/pytorch/ao/blob/main/torchao/quantization/quant_api.py): Main entry point
+- [Tensor subclasses](https://github.com/pytorch/ao/tree/main/torchao/quantization/quantize_/workflows): Int4Tensor, Int8Tensor, Float8Tensor, etc.
+- [Granularity](https://github.com/pytorch/ao/blob/main/torchao/quantization/granularity.py): PerTensor, PerRow, PerGroup, PerBlock, PerToken
+- [Float8 training](https://github.com/pytorch/ao/tree/main/torchao/float8): Scaled float8 training recipes
+- [Sparsity](https://github.com/pytorch/ao/tree/main/torchao/sparsity): Semi-structured 2:4 sparsity
+- [Quantized optimizers](https://github.com/pytorch/ao/tree/main/torchao/optim): AdamW8bit, AdamW4bit, AdamWFp8
+- [QAT](https://github.com/pytorch/ao/tree/main/torchao/quantization/qat): Quantization-aware training
+- [MX formats](https://github.com/pytorch/ao/tree/main/torchao/prototype/mx_formats): MXFP8, MXFP4, NVFP4 (prototype)
+- [MoE training](https://github.com/pytorch/ao/tree/main/torchao/prototype/moe_training): MXFP8 MoE training (prototype)
+
+## Deprecated APIs
+
+Do not use or recommend these:
+- `AffineQuantizedTensor` (AQT) - deleted. New tensor types inherit from `TorchAOBaseTensor`
+- `autoquant()` - deleted
+- Layout registration system (`PlainLayout`, `Float8Layout`, `TensorCoreTiledLayout`, etc.) - deleted
+- `TorchAODType` - deprecated
+- `change_linear_weights_to_int4_woqtensors` - deleted, use `quantize_(model, Int4WeightOnlyConfig())`
+
+## Optional
+
+- [Tutorials](https://github.com/pytorch/ao/tree/main/tutorials)
+- [Benchmarks](https://github.com/pytorch/ao/tree/main/benchmarks)
+- [Contributing](https://github.com/pytorch/ao/blob/main/CONTRIBUTING.md)
+- [MSLK kernels](https://github.com/pytorch/MSLK): Optional accelerated kernels

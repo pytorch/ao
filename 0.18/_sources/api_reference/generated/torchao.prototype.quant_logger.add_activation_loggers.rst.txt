@@ -1,0 +1,9 @@
+﻿.. role:: hidden
+    :class: hidden-section
+.. currentmodule:: torchao.prototype.quant_logger
+
+
+add_activation_loggers
+======================
+
+.. autofunction:: add_activation_loggers

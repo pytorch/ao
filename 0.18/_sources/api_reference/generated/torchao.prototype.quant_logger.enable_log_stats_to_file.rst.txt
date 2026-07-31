@@ -1,0 +1,9 @@
+﻿.. role:: hidden
+    :class: hidden-section
+.. currentmodule:: torchao.prototype.quant_logger
+
+
+enable_log_stats_to_file
+========================
+
+.. autofunction:: enable_log_stats_to_file

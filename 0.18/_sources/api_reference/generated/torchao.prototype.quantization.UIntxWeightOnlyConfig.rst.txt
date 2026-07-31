@@ -1,0 +1,10 @@
+﻿.. role:: hidden
+    :class: hidden-section
+.. currentmodule:: torchao.prototype.quantization
+
+
+UIntxWeightOnlyConfig
+=====================
+
+.. autoclass:: UIntxWeightOnlyConfig
+    :members:
