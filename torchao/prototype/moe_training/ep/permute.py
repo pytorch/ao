@@ -297,8 +297,13 @@ def _triton_permute_fwd_kernel(
     )
 
     write_mask = (row_offsets[:, None] < out_rows) & (col_offsets[None, :] < cols)
+    # int64: `row_offsets` is int32 (program_id * BLOCK + arange), so
+    # `row_offsets * cols` wraps once out_rows*cols >= 2**31 and the store lands
+    # at a negative/aliased address. The READ path above was already widened via
+    # `.to(tl.int64)` on `src`; the write was not. At DSV3-16B under ragged
+    # routing this is reachable: 1,141,504 rows x 2048 cols = 2,337,800,192.
     tl.store(
-        out_ptr + row_offsets[:, None] * cols + col_offsets[None, :],
+        out_ptr + row_offsets[:, None].to(tl.int64) * cols + col_offsets[None, :],
         vals,
         mask=write_mask,
     )
@@ -399,15 +404,20 @@ def _triton_permute_bwd_kernel(
     row_offsets = row_pid * BLOCK_ROWS + tl.arange(0, BLOCK_ROWS)
     col_offsets = col_pid * BLOCK_COLS + tl.arange(0, BLOCK_COLS)
 
+    # int64 on every address term. The backward had NO widening at all -- neither
+    # the gather of `grad` nor the scatter into `output_buffer` -- so both wrap
+    # once rows*cols >= 2**31, and the scatter writes to aliased addresses, which
+    # is silent memory corruption rather than a fault. See the forward's store
+    # for the reachable magnitude.
     dest_rows = tl.load(
         permuted_indices_ptr + row_offsets,
         mask=row_offsets < grad_rows,
         other=PADDING_VALUE,
-    )
+    ).to(tl.int64)
 
     read_mask = (row_offsets[:, None] < grad_rows) & (col_offsets[None, :] < grad_cols)
     grad_values = tl.load(
-        grad_ptr + row_offsets[:, None] * grad_cols + col_offsets[None, :],
+        grad_ptr + row_offsets[:, None].to(tl.int64) * grad_cols + col_offsets[None, :],
         mask=read_mask,
         other=PADDING_VALUE,
     )
