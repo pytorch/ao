@@ -9,6 +9,24 @@ from typing import Optional
 import torch
 
 from torchao.float8.config import e4m3_dtype
+from torchao.prototype.blockwise_fp8_training.dtensor_utils import (
+    dtensor_from_local_like as _dtensor_from_local_like,
+)
+from torchao.prototype.blockwise_fp8_training.dtensor_utils import (
+    is_dtensor as _is_dtensor,
+)
+from torchao.prototype.blockwise_fp8_training.dtensor_utils import (
+    local_tensor as _local_tensor,
+)
+from torchao.prototype.blockwise_fp8_training.dtensor_utils import (
+    replicate_like_dtensor as _replicate_like_dtensor,
+)
+from torchao.prototype.blockwise_fp8_training.dtensor_utils import (
+    require_dtensor_not_sharded_on_dim as _require_dtensor_not_sharded_on_dim,
+)
+from torchao.prototype.blockwise_fp8_training.dtensor_utils import (
+    require_dtensor_replicated as _require_dtensor_replicated,
+)
 from torchao.prototype.blockwise_fp8_training.kernels import (
     BLOCKWISE_1X128_SCALING_TYPE,
     BLOCKWISE_128X128_SCALING_TYPE,
@@ -26,6 +44,104 @@ from torchao.prototype.moe_training.utils import (
     unpad_token_groups,
 )
 from torchao.quantization.quantize_.common import KernelPreference
+
+_TOKEN_GROUP_PADDING_REASON = "when padding token groups"
+
+
+def _pad_token_groups_preserve_dtensor(
+    input_act: torch.Tensor,
+    group_end_offsets: torch.Tensor,
+    *,
+    alignment_size: int,
+    kernel_preference: KernelPreference,
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    if not _is_dtensor(input_act) and not _is_dtensor(group_end_offsets):
+        return pad_token_groups(
+            input_act,
+            group_end_offsets,
+            alignment_size=alignment_size,
+            kernel_preference=kernel_preference,
+        )
+
+    _require_dtensor_not_sharded_on_dim(
+        input_act,
+        "input_act",
+        0,
+        dim_name="token dimension",
+        allow_partial=True,
+        reason=_TOKEN_GROUP_PADDING_REASON,
+    )
+    _require_dtensor_replicated(
+        group_end_offsets,
+        "group_end_offsets",
+        reason=_TOKEN_GROUP_PADDING_REASON,
+    )
+    local_padded, local_starts, local_ends = pad_token_groups(
+        _local_tensor(input_act),
+        _local_tensor(group_end_offsets),
+        alignment_size=alignment_size,
+        kernel_preference=kernel_preference,
+    )
+    padded = _dtensor_from_local_like(local_padded, input_act)
+    if not _is_dtensor(padded):
+        padded = _replicate_like_dtensor(padded, group_end_offsets)
+    return (
+        padded,
+        _replicate_like_dtensor(local_starts, group_end_offsets, input_act),
+        _replicate_like_dtensor(local_ends, group_end_offsets, input_act),
+    )
+
+
+def _unpad_token_groups_preserve_dtensor(
+    padded_output: torch.Tensor,
+    original_group_end_offsets: torch.Tensor,
+    padded_group_start_offsets: torch.Tensor,
+    num_tokens: int,
+    *,
+    alignment_size: int,
+    kernel_preference: KernelPreference,
+) -> torch.Tensor:
+    if (
+        not _is_dtensor(padded_output)
+        and not _is_dtensor(original_group_end_offsets)
+        and not _is_dtensor(padded_group_start_offsets)
+    ):
+        return unpad_token_groups(
+            padded_output,
+            original_group_end_offsets,
+            padded_group_start_offsets,
+            num_tokens,
+            alignment_size=alignment_size,
+            kernel_preference=kernel_preference,
+        )
+
+    _require_dtensor_not_sharded_on_dim(
+        padded_output,
+        "padded_output",
+        0,
+        dim_name="token dimension",
+        allow_partial=True,
+        reason=_TOKEN_GROUP_PADDING_REASON,
+    )
+    _require_dtensor_replicated(
+        original_group_end_offsets,
+        "original_group_end_offsets",
+        reason=_TOKEN_GROUP_PADDING_REASON,
+    )
+    _require_dtensor_replicated(
+        padded_group_start_offsets,
+        "padded_group_start_offsets",
+        reason=_TOKEN_GROUP_PADDING_REASON,
+    )
+    local_unpadded = unpad_token_groups(
+        _local_tensor(padded_output),
+        _local_tensor(original_group_end_offsets),
+        _local_tensor(padded_group_start_offsets),
+        num_tokens,
+        alignment_size=alignment_size,
+        kernel_preference=kernel_preference,
+    )
+    return _dtensor_from_local_like(local_unpadded, padded_output)
 
 
 @conditional_nostrict_trace
@@ -114,26 +230,44 @@ class _Float8BlockwiseGroupedMM(torch.autograd.Function):
         assert _is_row_major(A), "A must be row-major"
         assert _is_column_major(B_t), "B_t must be per-expert column-major"
 
+        # DTensor custom ops require every tensor argument to be a DTensor.
+        # TP commonly shards only the expert weights, so lift replicated
+        # activations/metadata onto the same mesh before dispatch.
+        A = _replicate_like_dtensor(A, B_t)
+        B_t = _replicate_like_dtensor(B_t, A)
         num_tokens = A.shape[0]
+        offs = _replicate_like_dtensor(offs, A, B_t)
         padded_group_start_offsets = None
         padded_group_end_offsets = offs
         if pad_token_groups_for_grouped_mm:
             padded_A, padded_group_start_offsets, padded_group_end_offsets = (
-                pad_token_groups(A, offs, alignment_size=block_size)
+                _pad_token_groups_preserve_dtensor(
+                    A,
+                    offs,
+                    alignment_size=block_size,
+                    kernel_preference=kernel_preference,
+                )
             )
         else:
             padded_A = A
 
+        local_group_end_offsets = _local_tensor(padded_group_end_offsets)
+        local_original_group_end_offsets = _local_tensor(offs)
+        local_padded_group_start_offsets = (
+            _local_tensor(padded_group_start_offsets)
+            if padded_group_start_offsets is not None
+            else None
+        )
         backend = _select_fp8_blockwise_grouped_mm_backend(
             kernel_preference,
             A,
             out_dtype,
             block_size,
-            padded_group_end_offsets,
-            original_group_end_offsets=offs
+            local_group_end_offsets,
+            original_group_end_offsets=local_original_group_end_offsets
             if pad_token_groups_for_grouped_mm
             else None,
-            padded_group_start_offsets=padded_group_start_offsets,
+            padded_group_start_offsets=local_padded_group_start_offsets,
             num_rows=padded_A.shape[0],
         )
 
@@ -159,12 +293,13 @@ class _Float8BlockwiseGroupedMM(torch.autograd.Function):
             block_size,
         )
         if pad_token_groups_for_grouped_mm:
-            out = unpad_token_groups(
+            out = _unpad_token_groups_preserve_dtensor(
                 out,
                 offs,
                 padded_group_start_offsets,
                 num_tokens,
                 alignment_size=block_size,
+                kernel_preference=kernel_preference,
             )
 
         ctx.save_for_backward(
@@ -178,6 +313,7 @@ class _Float8BlockwiseGroupedMM(torch.autograd.Function):
         ctx.float8_dtype = float8_dtype
         ctx.block_size = block_size
         ctx.pad_token_groups_for_grouped_mm = pad_token_groups_for_grouped_mm
+        ctx.kernel_preference = kernel_preference
         ctx.num_tokens = num_tokens
         ctx.backend = backend
         return out
@@ -195,14 +331,17 @@ class _Float8BlockwiseGroupedMM(torch.autograd.Function):
         float8_dtype = ctx.float8_dtype
         block_size = ctx.block_size
         pad_token_groups_for_grouped_mm = ctx.pad_token_groups_for_grouped_mm
+        kernel_preference = ctx.kernel_preference
         num_tokens = ctx.num_tokens
         backend = ctx.backend
 
+        grad_output = _replicate_like_dtensor(grad_output, padded_A, B_t)
         if pad_token_groups_for_grouped_mm:
-            padded_grad_output, _, _ = pad_token_groups(
+            padded_grad_output, _, _ = _pad_token_groups_preserve_dtensor(
                 grad_output,
                 original_group_end_offsets,
                 alignment_size=block_size,
+                kernel_preference=kernel_preference,
             )
         else:
             padded_grad_output = grad_output
@@ -229,12 +368,13 @@ class _Float8BlockwiseGroupedMM(torch.autograd.Function):
             block_size,
         )
         if pad_token_groups_for_grouped_mm:
-            grad_A = unpad_token_groups(
+            grad_A = _unpad_token_groups_preserve_dtensor(
                 grad_A,
                 original_group_end_offsets,
                 padded_group_start_offsets,
                 num_tokens,
                 alignment_size=block_size,
+                kernel_preference=kernel_preference,
             )
 
         grad_B = backend.wgrad(

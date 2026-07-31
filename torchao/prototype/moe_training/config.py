@@ -24,6 +24,7 @@ class Float8TrainingRecipe(Enum):
     """FP8 recipes for grouped matrix multiplication."""
 
     FP8_ROWWISE = "fp8_rowwise"
+    FP8_BLOCKWISE = "fp8_blockwise"
 
 
 class MXFP8TrainingRecipe(Enum):
@@ -66,12 +67,30 @@ class Float8TrainingOpConfig(TrainingOpBaseConfig):
     # causes a D2H sync that breaks torch.compile.
     pad_token_groups_for_grouped_mm: bool = False
 
+    # Dynamic grouped GEMM recipe for routed experts. The rowwise path preserves
+    # existing behavior; the blockwise path uses the DeepGEMM-capable 128x128
+    # grouped kernels under torchao.prototype.moe_training.blockwise_fp8.
+    fp8_grouped_mm_recipe: Literal["rowwise", "blockwise"] = "rowwise"
+
+    # Kernel preference for blockwise grouped GEMM. Rowwise FP8 ignores this.
+    kernel_preference: KernelPreference = KernelPreference.AUTO
+
     # Recipe for the float8 linear op override ("tensorwise" or "rowwise").
     float8_linear_recipe: Literal["tensorwise", "rowwise", "rowwise_with_gw_hp"] = (
         "rowwise"
     )
 
     def __post_init__(self):
+        if self.fp8_grouped_mm_recipe == "blockwise" and self.kernel_preference not in (
+            KernelPreference.AUTO,
+            KernelPreference.EMULATED,
+        ):
+            raise ValueError(
+                "Float8TrainingOpConfig with fp8_grouped_mm_recipe='blockwise' "
+                "supports only KernelPreference.AUTO or KernelPreference.EMULATED, "
+                f"got {self.kernel_preference}."
+            )
+
         # Pre-build internal configs for the linear op override.
         self._float8_linear_config = Float8LinearConfig.from_recipe_name(
             self.float8_linear_recipe
@@ -109,6 +128,12 @@ class Float8TrainingOpConfig(TrainingOpBaseConfig):
         """Factory method to create a Float8TrainingOpConfig from a Float8TrainingRecipe."""
         if recipe == Float8TrainingRecipe.FP8_ROWWISE:
             return cls()
+        elif recipe == Float8TrainingRecipe.FP8_BLOCKWISE:
+            return cls(
+                pad_token_groups_for_grouped_mm=True,
+                fp8_grouped_mm_recipe="blockwise",
+                kernel_preference=KernelPreference.AUTO,
+            )
         else:
             raise ValueError(f"Unsupported FP8 recipe: {recipe}")
 
@@ -119,6 +144,8 @@ class Float8TrainingOpConfig(TrainingOpBaseConfig):
                 and self.out_dtype == other.out_dtype
                 and self.pad_token_groups_for_grouped_mm
                 == other.pad_token_groups_for_grouped_mm
+                and self.fp8_grouped_mm_recipe == other.fp8_grouped_mm_recipe
+                and self.kernel_preference == other.kernel_preference
                 and self.float8_linear_recipe == other.float8_linear_recipe
             )
         return NotImplemented
@@ -129,6 +156,8 @@ class Float8TrainingOpConfig(TrainingOpBaseConfig):
                 self.float8_dtype,
                 self.out_dtype,
                 self.pad_token_groups_for_grouped_mm,
+                self.fp8_grouped_mm_recipe,
+                self.kernel_preference,
                 self.float8_linear_recipe,
             )
         )
