@@ -63,19 +63,18 @@ Check out our [docs](https://docs.pytorch.org/ao/main/) for more details!
 First, install TorchAO. We recommend installing the latest stable version:
 ```bash
 pip install torchao
+# optional - install MSLK for float8 and nvfp4 inference kernels
+pip install mslk --index-url https://download.pytorch.org/whl/cu130
+# optional - install apache-tvm-ffi and cutedsl for mxfp8 MoE training kernels
+pip install apache-tvm-ffi
+pip install nvidia-cutlass-dsl==4.5.2 nvidia-cutlass-dsl-libs-base==4.5.2 nvidia-cutlass-dsl-libs-cu13==4.5.2
 ```
 
 Quantize your model weights to int4!
 ```python
 import torch
 from torchao.quantization import Int4WeightOnlyConfig, quantize_
-if torch.cuda.is_available():
-  # quantize on CUDA
-  quantize_(model, Int4WeightOnlyConfig(group_size=32, int4_packing_format="tile_packed_to_4d", int4_choose_qparams_algorithm="hqq"))
-elif torch.xpu.is_available():
-  # quantize on XPU
-  quantize_(model, Int4WeightOnlyConfig(group_size=32, int4_packing_format="plain_int32"))
-
+quantize_(model, Int4WeightOnlyConfig(group_size=32, int4_packing_format="tile_packed_to_4d", int4_choose_qparams_algorithm="hqq"))
 ```
 See our [quick start guide](https://docs.pytorch.org/ao/stable/quick_start.html) for more details.
 
@@ -115,10 +114,17 @@ Please see the [torchao compability table](https://github.com/pytorch/ao/issues/
 [MSLK](https://github.com/meta-pytorch/mslk) is an optional runtime dependency that provides accelerated kernels for some of the workflows in torchao. Stable MSLK should be used with stable torchao, and nightly MSLK with nightly torchao.
 ```bash
 # Stable
-pip install mslk-cuda==1.0.0
+pip install mslk --index-url https://download.pytorch.org/whl/cu130
 
 # Nightly
-pip install --pre mslk --index-url https://download.pytorch.org/whl/nightly/cu128
+pip install --pre mslk --index-url https://download.pytorch.org/whl/nightly/cu130
+```
+
+`apache-tvm-ffi` and `nvidia-cutlass-dsl` are used for MoE mxfp8 training kernels.
+
+```bash
+pip install apache-tvm-ffi
+pip install nvidia-cutlass-dsl==4.5.2 nvidia-cutlass-dsl-libs-base==4.5.2 nvidia-cutlass-dsl-libs-cu13==4.5.2
 ```
 
 ## 🔎 Inference
