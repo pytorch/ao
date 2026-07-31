@@ -878,11 +878,14 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
         ]
         # MSLK no longer supports tensorwise-scaled gemm (torch.ops.mslk.f8f8bf16),
         # so it is only exercised for non-PerTensor granularities here.
+        # PerBlock([1,128],[128,128]) is also unsupported by MSLK (quant_api.py asserts
+        # only AUTO/TORCH for this granularity pair).
         if (
             _is_mslk_available()
             and torch.cuda.is_available()
             and is_sm_at_least_90()
             and not isinstance(granularity, PerTensor)
+            and granularity != (PerBlock([1, 128]), PerBlock([128, 128]))
         ):
             other_kernel_preferences.append(KernelPreference.MSLK)
 
