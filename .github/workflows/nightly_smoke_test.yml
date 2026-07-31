@@ -39,4 +39,7 @@ jobs:
         pip install ${{ matrix.torch-spec }}
         pip install -r dev-requirements.txt
         pip install . --no-build-isolation
-        pytest test --verbose -s
+        # PT2E tests (test/quantization/pt2e) are excluded here and run in the
+        # dedicated regression_test_pt2e_cpu.yml / regression_test_pt2e_gpu.yml
+        # workflows instead.
+        pytest test --verbose -s --ignore=test/quantization/pt2e

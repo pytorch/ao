@@ -143,14 +143,9 @@ For benchmark helper functions, right now we have `1 <https://github.com/pytorch
 Model Benchmarks and Eval
 ~~~~~~~~~~~~~~~~~~~~~~~~~
 
-After you have the quantization flow implemented, you can run benchmark and eval on llama (llama2/llama3) or sam models that are already modified to be friendly to torch.compile, and compare with existing techniques in torchao.
+After you have the quantization flow implemented, you can run benchmark and eval on the sam model, which is already modified to be friendly to torch.compile, and compare with existing techniques in torchao. For quantization microbenchmarks, see the ``benchmarks/`` directory.
 
-Note: llama model (llama2/llama3) is our representative model for memory bound models and sam is our representative model for compute bound models.
-
-* `llama <https://github.com/pytorch/ao/tree/main/torchao/_models/llama>`__
-
-  * `benchmark <https://github.com/pytorch/ao/blob/main/torchao/_models/llama/generate.py>`__
-  * `eval <https://github.com/pytorch/ao/blob/main/torchao/_models/llama/eval.py>`__
+Note: sam is our representative model for compute bound models.
 
 * `sam <https://github.com/pytorch/ao/tree/main/torchao/_models/sam>`__
 
@@ -159,5 +154,3 @@ Note: llama model (llama2/llama3) is our representative model for memory bound m
 Please checkout the ``--help`` option for each of the script to understand the supported options, e.g. you can use ``--profile=profile_path`` to get the chrome trace of the run to understand detailed `chrome trace <https://pytorch.org/tutorials/recipes/recipes/profiler_recipe.html#using-tracing-functionality>`__.
 
 Please let us know if there are any new important models that makes sense to be added to torchao model benchmark/eval folder.
-
-Please also check out `Benchmarking User Guide <https://docs.pytorch.org/ao/main/benchmarking_user_guide.html>`__ and `Benchmarking API Guide <https://docs.pytorch.org/ao/main/benchmarking_api_guide.html>`__ to understand how to use our benchmarking framework.

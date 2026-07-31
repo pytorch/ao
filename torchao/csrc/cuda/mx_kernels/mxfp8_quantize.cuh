@@ -364,8 +364,13 @@ void* get_driver_ptr() {
   static void *driver_ptr = nullptr;
   if (!driver_ptr) {
     cudaDriverEntryPointQueryResult result;
+#if defined(CUDA_VERSION) && CUDA_VERSION >= 13000
+    CUDA_CHECK(cudaGetDriverEntryPointByVersion(
+        "cuTensorMapEncodeTiled", &driver_ptr, 12000, cudaEnableDefault, &result));
+#else
     CUDA_CHECK(cudaGetDriverEntryPoint("cuTensorMapEncodeTiled", &driver_ptr,
                             cudaEnableDefault, &result));
+#endif
   }
   return driver_ptr;
 }

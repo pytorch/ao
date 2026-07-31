@@ -185,7 +185,11 @@ def _to_mx_rceil(
     # Ref: https://github.com/NVIDIA/TransformerEngine/blob/b7598aa887eb7d619d64c90692980009669379bf/transformer_engine/common/util/ptx.cuh#L332-L341
     rcp_fp32 = torch.where(
         exponent == 255,  # NaN case -> stays NaN
-        float("nan"),
+        # exponent is 255 exactly when descale is NaN. Reusing descale avoids
+        # materializing distinct NaN constants that prevent graph CSE when the
+        # same activation is quantized for multiple linear projections.
+        # See https://github.com/pytorch/pytorch/issues/191013.
+        descale,
         torch.where(
             exponent == 254,  # Inf case -> return 2^-127
             2**-127,

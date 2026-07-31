@@ -116,7 +116,6 @@ def undo_recommended_configs():
     torch._inductor.config.force_fuse_int_mm_with_mul = False
     torch._inductor.config.fx_graph_cache = False
     torch._inductor.config.triton.unique_kernel_names = False
-    torch.set_float32_matmul_precision("highest")
 
 
 def combine_parameters(a, b):
