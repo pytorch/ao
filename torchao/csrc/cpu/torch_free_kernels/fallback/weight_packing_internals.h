@@ -9,7 +9,7 @@
 
 #pragma once
 
-#if !defined(__aarch64__) && !defined(__ARM_NEON)
+#if !defined(__aarch64__)
 
 #include <torchao/csrc/cpu/torch_free_kernels/fallback/bitpacking/bitpack.h>
 #include <torchao/csrc/cpu/torch_free_kernels/macro.h>
@@ -77,4 +77,4 @@ inline int32_t compute_sum(const int8_t* vals, int count) {
 
 } // namespace torchao::weight_packing::fallback
 
-#endif // !defined(__aarch64__) && !defined(__ARM_NEON)
+#endif // !defined(__aarch64__)
