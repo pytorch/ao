@@ -5,6 +5,7 @@
 # LICENSE file in the root directory of this source tree.
 
 import copy
+from unittest.mock import patch
 
 import pytest
 import torch
@@ -377,6 +378,30 @@ class TestGPTQObserverTensor:
 
 
 class TestGPTQFlow:
+    def test_gptq_quantize_supports_non_cuda_device(self):
+        torch.manual_seed(44)
+
+        out_features = 8
+        in_features = 16
+        weight = torch.randn(out_features, in_features, dtype=torch.float32)
+
+        A = torch.randn(in_features, in_features, dtype=torch.float32)
+        H = A.t() @ A
+        H = H + torch.eye(in_features) * 0.1
+
+        config = GPTQConfig(
+            step="convert",
+            base_config=Int8WeightOnlyConfig(granularity=PerRow(), version=2),
+            gptq_quantize_block_size=8,
+        )
+
+        with patch("torch.cuda.synchronize") as synchronize:
+            quantized_weight = gptq_quantize(H, weight, config)
+
+        synchronize.assert_not_called()
+        assert quantized_weight.device == weight.device
+        assert quantized_weight.shape == weight.shape
+
     @pytest.mark.skipif(not torch.cuda.is_available(), reason="Need CUDA available")
     @pytest.mark.parametrize(
         "base_config",
