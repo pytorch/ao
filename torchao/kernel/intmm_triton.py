@@ -308,7 +308,7 @@ def int_scaled_matmul_kernel(a, b, scales1, c, config):
         num_warps=config.num_warps,
         num_stages=config.num_stages,
         num_ctas=config.num_ctas,
-        EVEN_K=(K % 2 == 0),
+        EVEN_K=(K % config.kwargs["BLOCK_K"] == 0),
         **config.kwargs,
     )
     return c
