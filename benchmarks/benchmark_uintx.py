@@ -3,15 +3,13 @@
 #
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
-from copy import deepcopy
-
 import torch
 
-from torchao.prototype.uintx import (
-    uintx_affine_weight_only,
-    unpack_cpu,
+raise ImportError(
+    "This benchmark is broken: torchao.prototype.uintx module no longer exists. "
+    "The uintx functionality has been moved. "
+    "See torchao/prototype/dtypes/uintx/bitpacking.py for unpack_cpu."
 )
-from torchao.quantization.quant_api import quantize_
 
 
 class Linear16(torch.nn.Module):

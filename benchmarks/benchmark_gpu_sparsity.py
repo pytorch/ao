@@ -28,7 +28,7 @@ torch.set_printoptions(
 )
 
 
-def benchmark_model_with_warmup(func, x, N_WARMUP=3):
+def benchmark_model_with_warmup(func, N_WARMUP=3):
     benchmark_model(func, N_WARMUP, device_type="cuda")
     return benchmark_model(func, 10, device_type="cuda")
 
@@ -106,18 +106,14 @@ def run_gpu_sparse_benchmark(m, k, n, args):
         else:
             raise ValueError(f"Unknown eval_fn: {args.eval_fn}")
 
-        dense_time = benchmark_model_with_warmup(dense_func, "dense.json.gz")
-        sparse_time = benchmark_model_with_warmup(sparse_func, "sparse.json.gz")
+        dense_time = benchmark_model_with_warmup(dense_func)
+        sparse_time = benchmark_model_with_warmup(sparse_func)
 
         dense_func_c = torch.compile(dense_func, mode="max-autotune")
-        dense_time_c = benchmark_model_with_warmup(
-            dense_func_c, "dense_compile.json.gz"
-        )
+        dense_time_c = benchmark_model_with_warmup(dense_func_c)
 
         sparse_func_c = torch.compile(sparse_func, mode="max-autotune")
-        sparse_time_c = benchmark_model_with_warmup(
-            sparse_func_c, "sparse_compile.json.gz"
-        )
+        sparse_time_c = benchmark_model_with_warmup(sparse_func_c)
 
         torch._dynamo.reset()
 
