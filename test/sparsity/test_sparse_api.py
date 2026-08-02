@@ -9,6 +9,7 @@ import unittest
 import torch
 from torch import nn
 from torch.testing._internal import common_utils
+from torch.testing._internal.common_cuda import SM80OrLater
 from torch.testing._internal.common_utils import skipIfRocmVersionLessThan
 
 from torchao.sparsity import apply_fake_sparsity, semi_sparse_weight, sparsify_
@@ -21,6 +22,7 @@ logging.basicConfig(
 
 class TestSemiStructuredSparse(common_utils.TestCase):
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
+    @unittest.skipIf(not SM80OrLater, "Need Ampere or newer (SM 8.0+) for 2:4 sparsity")
     @skipIfRocmVersionLessThan((7, 0))
     def test_sparse(self):
         if not torch.backends.cusparselt.is_available():
