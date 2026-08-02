@@ -162,7 +162,15 @@ class TestQuantize(TestCase):
 class TestOptim(TestCase):
     @parametrize(
         "optim_name",
-        ["Adam8bit", "AdamW8bit", "Adam4bit", "AdamW4bit", "AdamFp8", "AdamWFp8"],
+        [
+            "Adam8bit",
+            "AdamW8bit",
+            "Adam4bit",
+            "AdamW4bit",
+            "AdamFp8",
+            "AdamWFp8",
+            "GrokAdamW8bit",
+        ],
     )
     @parametrize("dtype", [torch.float32, torch.bfloat16])
     @parametrize("device", _DEVICES)
@@ -204,6 +212,49 @@ class TestOptim(TestCase):
 
         for p1, p2 in zip(model.parameters(), model2.parameters()):
             torch.testing.assert_close(p2, p1)
+
+    @parametrize("device", _DEVICES)
+    def test_grokadamw8bit_smoke(self, device):
+        torch.manual_seed(common_utils.SEED)
+        model = nn.Sequential(nn.Linear(32, 256), nn.ReLU(), nn.Linear(256, 32))
+        model.to(device=device)
+        optimizer = optim.GrokAdamW8bit(
+            [
+                {"params": list(model[0].parameters())},
+                {"params": list(model[2].parameters())},
+            ],
+            grokking_signal_fns=[lambda: 0.5],
+        )
+
+        x = torch.randn(4, 32, device=device)
+        loss = model(x).sum()
+        loss.backward()
+        optimizer.step()
+        optimizer.zero_grad()
+
+    @parametrize("device", _DEVICES)
+    def test_grokadamw8bit_loss_decreases(self, device):
+        torch.manual_seed(common_utils.SEED)
+        model = nn.Sequential(nn.Linear(32, 256), nn.ReLU(), nn.Linear(256, 32))
+        model.to(device=device)
+        optimizer = optim.GrokAdamW8bit(
+            model.parameters(),
+            lr=1e-2,
+            weight_decay=0,
+        )
+
+        x = torch.randn(16, 32, device=device)
+        target = torch.randn(16, 32, device=device)
+
+        losses = []
+        for _ in range(10):
+            loss = torch.nn.functional.mse_loss(model(x), target)
+            losses.append(loss.detach().item())
+            loss.backward()
+            optimizer.step()
+            optimizer.zero_grad()
+
+        self.assertLess(losses[-1], losses[0])
 
     @parametrize("optim_name", ["Adam8bit", "Adam4bit", "AdamFp8"])
     @parametrize("device", _DEVICES)
