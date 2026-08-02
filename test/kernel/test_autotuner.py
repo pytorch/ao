@@ -9,6 +9,7 @@
 import logging
 import os
 import unittest
+from unittest import mock
 
 import torch
 from parameterized import parameterized
@@ -16,6 +17,45 @@ from parameterized import parameterized
 from torchao.utils import is_ROCM, is_sm_at_least_90, torch_version_at_least
 
 logging.basicConfig(level=logging.INFO)
+
+
+class TestIntmmOpRegistration(unittest.TestCase):
+    def test_schemas_exist_without_intmm_triton(self):
+        import torchao.kernel.intmm as intmm_mod
+
+        orig_intmm_triton = intmm_mod.intmm_triton
+        try:
+            intmm_mod.intmm_triton = None
+            self.assertTrue(hasattr(torch.ops.torchao, "int_matmul"))
+            self.assertTrue(hasattr(torch.ops.torchao, "int_scaled_matmul"))
+
+            a = torch.empty((2, 3), device="meta", dtype=torch.int8)
+            b = torch.empty((3, 4), device="meta", dtype=torch.int8)
+            scales = torch.empty((2, 4), device="meta", dtype=torch.bfloat16)
+
+            self.assertEqual(torch.ops.torchao.int_matmul(a, b).shape, (2, 4))
+            self.assertEqual(
+                torch.ops.torchao.int_scaled_matmul(a, b, scales).shape, (2, 4)
+            )
+        finally:
+            intmm_mod.intmm_triton = orig_intmm_triton
+
+    def test_non_cpu_non_cuda_wrappers_dispatch_to_ops(self):
+        import torchao.kernel.intmm as intmm_mod
+
+        a = torch.empty((2, 3), device="meta", dtype=torch.int8)
+        b = torch.empty((3, 4), device="meta", dtype=torch.int8)
+        scales = torch.empty((2, 1), device="meta", dtype=torch.bfloat16)
+
+        with mock.patch.object(
+            intmm_mod, "_is_device", return_value=False
+        ), mock.patch.object(
+            intmm_mod,
+            "safe_int_mm",
+            side_effect=AssertionError("unexpected fallback"),
+        ):
+            self.assertEqual(intmm_mod.int_matmul(a, b).shape, (2, 4))
+            self.assertEqual(intmm_mod.int_scaled_matmul(a, b, scales).shape, (2, 4))
 
 
 class TestQuantFlow(unittest.TestCase):
