@@ -1185,6 +1185,10 @@ def _cpu_is_amx_tile_supported() -> bool:
     return False
 
 
+def is_XPU():
+    return hasattr(torch, "xpu") and torch.xpu.is_available()
+
+
 def _cpu_is_vnni_supported() -> bool:
     """
     Safely query AVX512_VNNI support, guarding against private API absence.

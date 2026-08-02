@@ -25,6 +25,7 @@ from torchao.utils import (
     is_mslk_version_at_least,
     is_ROCM,
     is_sm_at_least_100,
+    is_XPU,
 )
 
 logger = logging.getLogger(__name__)
@@ -455,11 +456,13 @@ else:
         raise AssertionError("needs triton")
 
 
-_triton_kernels_available = (
-    has_triton()
-    and torch.cuda.is_available()
-    and (is_sm_at_least_100() and is_cuda_version_at_least(12, 8))
+_triton_kernels_available = has_triton() and (
+    (
+        torch.cuda.is_available()
+        and (is_sm_at_least_100() and is_cuda_version_at_least(12, 8))
+    )
     or (is_ROCM() and is_MI350())
+    or is_XPU()
 )
 
 if _triton_kernels_available:
@@ -468,6 +471,7 @@ if _triton_kernels_available:
     from torch.library import triton_op, wrap_triton
 
     IS_ROCM = tl.constexpr(is_ROCM())
+    IS_XPU = tl.constexpr(is_XPU())
 
     @triton.jit
     def _calculate_reciprocal_scale(scale_e8m0_biased):
@@ -510,12 +514,9 @@ if _triton_kernels_available:
         max_abs = tl.max(x, axis=axis)
 
         # Check for NaN presence: if ANY element in each row is NaN,
-        # set that row's max_abs to NaN (per-axis NaN detection)
+        # flag that row for post-chain correction (see below).
         nan_mask = x != x
         has_nan_per_axis = tl.max(nan_mask, axis=axis)
-
-        # If any element in a row was NaN, set that row's max_abs to NaN
-        max_abs = tl.where(has_nan_per_axis > 0, float("nan"), max_abs)
 
         F8E4M3_MAX_RCP: tl.constexpr = 1.0 / 448.0
 
@@ -542,6 +543,15 @@ if _triton_kernels_available:
             scale_e8m0_biased = (scale_e8m0_unbiased + 127).to(tl.uint8)
 
         descale_fp = _calculate_reciprocal_scale(scale_e8m0_biased)
+
+        # Overwrite scale and descale for NaN rows. This is done after the
+        # chain rather than by injecting NaN into max_abs, because .to(uint8)
+        # silently destroys NaN on SPIR-V backends (XPU):  fptoui(NaN) is
+        # undefined behavior per LLVM spec, returning 0 on XPU instead of
+        # the expected 255. 255 is the E8M0 NaN encoding; NaN descale ensures
+        # NaN propagation.
+        scale_e8m0_biased = tl.where(has_nan_per_axis > 0, 255, scale_e8m0_biased)
+        descale_fp = tl.where(has_nan_per_axis > 0, float("nan"), descale_fp)
 
         return descale_fp, scale_e8m0_biased
 
@@ -689,7 +699,7 @@ if _triton_kernels_available:
             col_rcp_scale_fp32, col_scale_e8m0_r = _triton_calculate_scale_rceil(
                 x_block_abs_t_r,
                 axis=1,
-                USE_PTX=not IS_ROCM,
+                USE_PTX=(not IS_ROCM and not IS_XPU),
             )
         else:
             tl.static_assert(SCALING_MODE == "floor")
@@ -800,7 +810,7 @@ if _triton_kernels_available:
             descale_fp32_r, scale_e8m0_r = _triton_calculate_scale_rceil(
                 x_block_abs_r,
                 axis=1,
-                USE_PTX=not IS_ROCM,
+                USE_PTX=(not IS_ROCM and not IS_XPU),
             )
         else:
             tl.static_assert(SCALING_MODE == "floor")
