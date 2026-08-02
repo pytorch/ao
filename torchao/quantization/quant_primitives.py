@@ -431,6 +431,46 @@ def _quantize_affine(
     ).to(output_dtype)
 
 
+def _validate_scale_zero_point(
+    input: torch.Tensor,
+    block_size: Union[List[int], Tuple[int, ...]],
+    scale: torch.Tensor,
+    zero_point: Optional[torch.Tensor],
+) -> None:
+    """Validate that scale and zero_point dimensions are compatible with block_size and input tensor."""
+    assert isinstance(input, torch.Tensor), "input must be a torch.Tensor"
+    assert isinstance(scale, torch.Tensor), "scale must be a torch.Tensor"
+    assert len(block_size) == input.dim(), (
+        f"block_size length {len(block_size)} must match input dimensions {input.dim()}"
+    )
+
+    expected_numel = 1
+    for i, (s, b) in enumerate(zip(input.shape, block_size)):
+        if b == 1:
+            expected_numel *= s
+        elif b > 1:
+            assert s % b == 0, (
+                f"Dimension {i} of input ({s}) must be divisible by block_size ({b})"
+            )
+            expected_numel *= s // b
+        else:
+            raise ValueError(f"block_size elements must be >= 1, got {b} at index {i}")
+
+    if scale.numel() != expected_numel:
+        raise ValueError(
+            f"scale must have exactly {expected_numel} elements to be compatible with "
+            f"input shape {list(input.shape)} and block_size {list(block_size)}, but got {scale.numel()} elements."
+        )
+
+    if zero_point is not None and zero_point.numel() > 0:
+        assert isinstance(zero_point, torch.Tensor), "zero_point must be a torch.Tensor"
+        if zero_point.numel() != expected_numel:
+            raise ValueError(
+                f"zero_point must have exactly {expected_numel} elements to be compatible with "
+                f"input shape {list(input.shape)} and block_size {list(block_size)}, but got {zero_point.numel()} elements."
+            )
+
+
 def _quantize_affine_no_dtype_cast(
     input: torch.Tensor,
     block_size: List[int],
@@ -460,16 +500,12 @@ def _quantize_affine_no_dtype_cast(
     2. Quantize the input based on the quantization parameters scale and zero_point with zero_point_domain = INT
     3. Reshape the quantized result to original shape
     """
-    # TODO: validations
-    # TODO: validate scale/zero_point dimensions are compatible with block_size
+    _validate_scale_zero_point(input, block_size, scale, zero_point)
     assert input.dtype in [
         torch.float32,
         torch.float16,
         torch.bfloat16,
     ], f"Unsupported input dtype: {input.dtype}"
-    assert len(block_size) == input.dim(), (
-        f"Got input dim:{input.dim()}, block_size: {block_size}"
-    )
     shape_for_reduction, reduction_dims = _get_reduction_params(
         block_size, input.size()
     )
@@ -574,16 +610,12 @@ def _quantize_affine_tinygemm_no_dtype_cast(
     2. Quantize the input based on the quantization parameters scale and zero_point with zero_point_domain = FLOAT
     3. Reshape the quantized result to original shape
     """
-    # TODO: validations
-    # TODO: validate scale/zero_point dimensions are compatible with block_size
+    _validate_scale_zero_point(input, block_size, scale, zero_point)
     assert input.dtype in [
         torch.float32,
         torch.float16,
         torch.bfloat16,
     ], f"Unsupported input dtype: {input.dtype}"
-    assert len(block_size) == input.dim(), (
-        f"Got input dim:{input.dim()}, block_size: {block_size}"
-    )
     shape_for_reduction, reduction_dims = _get_reduction_params(
         block_size, input.size()
     )
@@ -689,16 +721,12 @@ def _quantize_affine_no_zero_point_no_dtype_cast(
     2. Quantize the input based on the quantization parameters scale with zero_point_domain = NONE
     3. Reshape the quantized result to original shape
     """
-    # TODO: validations
-    # TODO: validate scale/zero_point dimensions are compatible with block_size
+    _validate_scale_zero_point(input, block_size, scale, zero_point)
     assert input.dtype in [
         torch.float32,
         torch.float16,
         torch.bfloat16,
     ], f"Unsupported input dtype: {input.dtype}"
-    assert len(block_size) == input.dim(), (
-        f"Got input dim:{input.dim()}, block_size: {block_size}"
-    )
     shape_for_reduction, reduction_dims = _get_reduction_params(
         block_size, input.size()
     )
@@ -843,9 +871,7 @@ def _dequantize_affine_no_dtype_check(
     2. Dequantize the input based on the quantization parameters scale and zero_point
     3. Reshape the quantized result to original shape and change dtype to the output_dtype
     """
-    assert len(block_size) == input.dim(), (
-        f"Got input dim:{input.dim()}, block_size: {block_size}"
-    )
+    _validate_scale_zero_point(input, block_size, scale, zero_point)
     shape_for_reduction, reduction_dims = _get_reduction_params(
         block_size, input.size()
     )
@@ -900,9 +926,7 @@ def _dequantize_affine_no_zero_point_no_dtype_check(
     2. Dequantize the input based on the quantization parameters scale (no zero point)
     3. Reshape the quantized result to original shape and change dtype to the output_dtype
     """
-    assert len(block_size) == input.dim(), (
-        f"Got input dim:{input.dim()}, block_size: {block_size}"
-    )
+    _validate_scale_zero_point(input, block_size, scale, zero_point)
     shape_for_reduction, reduction_dims = _get_reduction_params(
         block_size, input.size()
     )
@@ -989,9 +1013,7 @@ def _dequantize_affine_tinygemm_no_dtype_check(
     2. dequantize the input based on the quantization parameters scale and zero_point and args like zero_point_domain
     3. reshape the quantized result to origianl shape and change dtype to the output_dtype
     """
-    assert len(block_size) == input.dim(), (
-        f"Got input dim:{input.dim()}, block_size: {block_size}"
-    )
+    _validate_scale_zero_point(input, block_size, scale, zero_point)
     shape_for_reduction, reduction_dims = _get_reduction_params(
         block_size, input.size()
     )
