@@ -6,6 +6,7 @@
 
 
 import enum
+import math
 from typing import List, Optional, Tuple
 
 import torch
@@ -14,6 +15,7 @@ from torch.utils._python_dispatch import return_and_correct_aliasing
 from torchao.quantization.quant_primitives import (
     _DTYPE_TO_QVALUE_BOUNDS,
     MappingType,
+    _choose_qparams_and_quantize_affine_hqq,
     _choose_qparams_and_quantize_scale_only_hqq,
     choose_qparams_affine,
     dequantize_affine,
@@ -214,6 +216,20 @@ class IntxUnpackedToInt8Tensor(TorchAOBaseTensor):
                 quant_min=qmin,
                 quant_max=qmax,
             )
+        elif intx_choose_qparams_algorithm == IntxChooseQParamsAlgorithm.HQQ:
+            nbits = int(math.log2(qmax - qmin + 1))
+            W_q, scale, zero, _shape = _choose_qparams_and_quantize_affine_hqq(
+                hp_tensor,
+                nbits=nbits,
+                group_size=block_size[1],
+                axis=1,
+                compute_dtype=hp_tensor.dtype,
+                device=str(hp_tensor.device),
+                raw_output=True,
+            )
+            qdata = (W_q.to(torch.int32) + qmin).to(torch.int8)
+            scale = scale.to(hp_tensor.dtype)
+            zero_point = (zero + qmin).to(hp_tensor.dtype)
         elif intx_choose_qparams_algorithm == IntxChooseQParamsAlgorithm.HQQ_SCALE_ONLY:
             qdata, scale = _choose_qparams_and_quantize_scale_only_hqq(
                 hp_tensor, block_size, qmin, qmax
