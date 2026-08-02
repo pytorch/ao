@@ -4,14 +4,11 @@
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
 
-# mypy: allow-untyped-defs
 """
 Utils shared by different modes of quantization (eager/graph)
 """
 
 import functools
-
-# mypy: allow-untyped-defs
 import operator
 import types
 import warnings
@@ -66,11 +63,13 @@ __all__ = [
 
 
 # TODO: remove unused
-def is_per_tensor(qscheme):
+def is_per_tensor(qscheme: Optional[torch.qscheme]) -> bool:
+    """Return True if the qscheme represents per-tensor quantization."""
     return qscheme == torch.per_tensor_affine or qscheme == torch.per_tensor_symmetric
 
 
-def is_per_channel(qscheme):
+def is_per_channel(qscheme: Optional[torch.qscheme]) -> bool:
+    """Return True if the qscheme represents per-channel quantization."""
     return qscheme in [
         torch.per_channel_affine,
         torch.per_channel_affine_float_qparams,
@@ -79,13 +78,12 @@ def is_per_channel(qscheme):
 
 
 def getattr_from_fqn(obj: Any, fqn: str) -> Any:
-    """
-    Given an obj and a fqn such as "foo.bar.baz", returns gm.foo.bar.baz.
-    """
+    """Given an obj and a fqn such as "foo.bar.baz", returns gm.foo.bar.baz."""
     return functools.reduce(getattr, fqn.split("."), obj)
 
 
-def to_underlying_dtype(qdtype):
+def to_underlying_dtype(qdtype: torch.dtype) -> torch.dtype:
+    """Map a quantized dtype or standard dtype to its underlying unquantized tensor representation dtype."""
     DTYPE_MAPPING = {
         torch.quint8: torch.uint8,
         torch.qint8: torch.int8,
@@ -104,12 +102,13 @@ def to_underlying_dtype(qdtype):
     return DTYPE_MAPPING[qdtype]
 
 
-def get_qparam_dict(observer_or_fake_quant):
+def get_qparam_dict(observer_or_fake_quant: Any) -> dict[str, Any]:
+    """Extract a dictionary of quantization parameters (qscheme, scale, zero_point, dtype, etc.) from an observer or fake quantize instance."""
     from torchao.quantization.pt2e.observer import PlaceholderObserver
 
     qscheme = getattr(observer_or_fake_quant, "qscheme", None)
     dtype = observer_or_fake_quant.dtype
-    qparams = {"qscheme": qscheme, "dtype": dtype}
+    qparams: dict[str, Any] = {"qscheme": qscheme, "dtype": dtype}
 
     if not qscheme or isinstance(observer_or_fake_quant, PlaceholderObserver):
         return {"qscheme": None, "dtype": dtype}
@@ -138,6 +137,7 @@ def get_qparam_dict(observer_or_fake_quant):
         qparams["quant_max"] = observer_or_fake_quant.quant_max
 
     return qparams
+
 
 
 def check_min_max_valid(min_val: torch.Tensor, max_val: torch.Tensor) -> bool:

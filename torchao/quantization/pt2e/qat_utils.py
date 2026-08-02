@@ -4,7 +4,6 @@
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
 
-# mypy: allow-untyped-defs
 import copy
 import dataclasses
 import itertools
@@ -44,8 +43,7 @@ def _get_quantized_conv_bn_example_inputs_kwargs(
     bias_is_quantized: bool,
     is_cuda: bool,
 ) -> dict[str, Any]:
-    """
-    Optional example inputs for quantized and folded conv-bn patterns
+    """Optional example inputs for quantized and folded conv-bn patterns
     used in convert, expressed as kwargs.
     """
     kwargs = {}
@@ -66,7 +64,8 @@ def _get_quantized_conv_bn_example_inputs_kwargs(
     return kwargs
 
 
-def _get_conv_bn_pattern(conv_fn: Callable) -> Callable:
+def _get_conv_bn_pattern(conv_fn: Callable[..., Any]) -> Callable[..., Any]:
+    """Create a standard conv + batchnorm pattern callable wrapped in WrapperModule."""
     def _conv_bn_pattern(
         x: torch.Tensor,
         conv_weight: torch.Tensor,
@@ -86,7 +85,8 @@ def _get_conv_bn_pattern(conv_fn: Callable) -> Callable:
 
 
 # TODO: merge this with the `no_conv_bias` case
-def _get_qat_conv_bn_pattern(conv_fn: Callable) -> Callable:
+def _get_qat_conv_bn_pattern(conv_fn: Callable[..., Any]) -> Callable[..., Any]:
+    """Create an approximated QAT conv + batchnorm pattern callable wrapped in WrapperModule."""
     def _qat_conv_bn_pattern(
         x: torch.Tensor,
         conv_weight: torch.Tensor,
@@ -96,8 +96,7 @@ def _get_qat_conv_bn_pattern(conv_fn: Callable) -> Callable:
         bn_running_mean: torch.Tensor,
         bn_running_var: torch.Tensor,
     ) -> torch.Tensor:
-        """
-        Approximated method to fuse conv and bn. It requires only one forward pass.
+        """Approximated method to fuse conv and bn. It requires only one forward pass.
         conv_orig = conv / scale_factor where scale_factor = bn.weight / running_std.
         This is based on `nniqat.ConvBn2d._forward_approximate`.
         """
@@ -129,7 +128,8 @@ def _get_qat_conv_bn_pattern(conv_fn: Callable) -> Callable:
     return WrapperModule(_qat_conv_bn_pattern)
 
 
-def _get_qat_conv_bn_pattern_no_conv_bias(conv_fn: Callable) -> Callable:
+def _get_qat_conv_bn_pattern_no_conv_bias(conv_fn: Callable[..., Any]) -> Callable[..., Any]:
+    """Create a QAT conv + batchnorm pattern callable without conv bias wrapped in WrapperModule."""
     def _qat_conv_bn_pattern_no_conv_bias(
         x: torch.Tensor,
         conv_weight: torch.Tensor,
@@ -140,9 +140,7 @@ def _get_qat_conv_bn_pattern_no_conv_bias(conv_fn: Callable) -> Callable:
         bn_running_mean: torch.Tensor,
         bn_running_var: torch.Tensor,
     ) -> torch.Tensor:
-        """
-        Same as `_get_qat_conv_bn_pattern`, but handles the case with no conv bias.
-        """
+        """Same as `_get_qat_conv_bn_pattern`, but handles the case with no conv bias."""
         # TODO: allow setting eps
         bn_eps = 1e-5
         running_std = torch.sqrt(bn_running_var + bn_eps)
@@ -169,9 +167,13 @@ def _get_qat_conv_bn_pattern_no_conv_bias(conv_fn: Callable) -> Callable:
     return WrapperModule(_qat_conv_bn_pattern_no_conv_bias)
 
 
-def _append_qdq(x, is_per_channel, is_bias, kwargs):
-    """
-    Helper function to append q-dq ops after `x`, using dummy values for the qparams
+def _append_qdq(
+    x: torch.Tensor,
+    is_per_channel: bool,
+    is_bias: bool,
+    kwargs: dict[str, Any],
+) -> torch.Tensor:
+    """Helper function to append q-dq ops after `x`, using dummy values for the qparams
     and qmin/qmax. We use dummy values here because we match with `ignore_literals=True`
     and will manually replace these values after subgraph rewriting.
 
@@ -195,6 +197,7 @@ def _append_qdq(x, is_per_channel, is_bias, kwargs):
         x = qd.quantize_per_tensor(x, scale, zp, qmin, qmax, dtype)
         x = qd.dequantize_per_tensor(x, scale, zp, qmin, qmax, dtype)
     return x
+
 
 
 def _get_quantized_qat_conv_bn_pattern(
