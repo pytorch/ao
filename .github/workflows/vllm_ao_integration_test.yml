@@ -1,0 +1,91 @@
+name: Run Integration Test against vLLM main
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}-${{ github.event_name == 'workflow_dispatch' }}
+  cancel-in-progress: true
+
+env:
+  HF_TOKEN: ${{ secrets.HF_TOKEN }}
+
+jobs:
+  test:
+    name: Run vLLM tests
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: sm89
+            runs-on: linux.g6.4xlarge.experimental.nvidia.gpu
+          - name: H100
+            runs-on: linux.aws.h100
+    permissions:
+      id-token: write
+      contents: read
+    runs-on: ${{ matrix.runs-on }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Checkout vLLM repo
+        uses: actions/checkout@v4
+        with:
+          repository: vllm-project/vllm
+          path: vllm
+          ref: main
+          fetch-depth: 0
+
+      - name: Check for available Docker image
+        id: find-vllm-docker-image
+        working-directory: vllm
+        shell: bash
+        env:
+          DOCKER_IMAGE_PREFIX: public.ecr.aws/q9t5s3a7/vllm-ci-postmerge-repo
+        run: |
+          set -eux
+
+          # Looking back the latest 100 commits is enough
+          for i in {0..99}
+          do
+            # Check if the image is there, if it doesn't then check an older one
+            # because the commit is too recent
+            HEAD_SHA=$(git rev-parse --verify HEAD~${i})
+            DOCKER_IMAGE="${DOCKER_IMAGE_PREFIX}:${HEAD_SHA}"
+
+            # No Docker image available yet because the commit is too recent
+            if docker manifest inspect "${DOCKER_IMAGE}"; then
+              break
+            fi
+          done
+
+          echo "DOCKER_IMAGE=${DOCKER_IMAGE}" >> "${GITHUB_ENV}"
+
+      - name: Setup CUDA GPU_FLAG for docker run
+        run: |
+          echo "GPU_FLAG=--gpus all -e NVIDIA_DRIVER_CAPABILITIES=all" >> "${GITHUB_ENV}"
+
+      - name: Test against vLLM main
+        shell: bash
+        run: |
+          set -eux
+
+          container_name=$(docker run \
+            ${GPU_FLAG:-} \
+            --ipc=host \
+            --tty \
+            --detach \
+            --security-opt seccomp=unconfined \
+            --shm-size=4g \
+            -v "${GITHUB_WORKSPACE}:/tmp/workspace" \
+            -w /tmp/workspace \
+            "${DOCKER_IMAGE}"
+          )
+          docker exec -t "${container_name}" bash -c "bash .github/scripts/run_vllm_tests.sh"
