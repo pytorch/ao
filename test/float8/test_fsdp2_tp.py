@@ -32,17 +32,18 @@ torch.set_float32_matmul_precision("high")
 
 def setup_distributed():
     world_size = int(os.environ.get("WORLD_SIZE", -1))
+    device = str(torch.accelerator.current_accelerator())
 
     # https://pytorch.org/tutorials/recipes/distributed_device_mesh.html
     device_mesh = init_device_mesh(
-        "cuda",
+        device,
         (world_size // 2, 2),
         mesh_dim_names=("dp", "tp"),
     )
     # seed must be the same in all processes
     torch.manual_seed(1)
     local_rank = torch.distributed.get_rank()
-    torch.cuda.set_device(local_rank)
+    torch.get_device_module(device).set_device(local_rank)
     return device_mesh
 
 
@@ -84,7 +85,7 @@ def _test_fp8_mlp_tensor_parallelism_base(
 
     tp_out = tp_model(x_fp32_tp_input)
     tp_out.sum().backward()
-    torch.cuda.synchronize()
+    torch.get_device_module(device).synchronize()
 
     # TODO(future PR): test numerics, and add more cases
 
