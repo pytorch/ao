@@ -618,6 +618,13 @@ def _maybe_insert_output_observer_for_node(
 ) -> Optional[Node]:
     if node in obs_or_fq_map:
         output_act_obs_or_fq = obs_or_fq_map[node]
+        # A None observer means this output is intentionally left unquantized
+        # (e.g. weight-only PTQ recipes that set output_activation=None). Mirror
+        # the input-edge handling in
+        # _maybe_insert_input_observer_for_arg_or_kwarg and skip insertion rather
+        # than crashing inside _insert_obs_or_fq on `None.to(model_device)`.
+        if output_act_obs_or_fq is None:
+            return None
         # TODO: pass in model_device here after https://github.com/pytorch/pytorch/pull/159901
         new_output = _insert_obs_or_fq(
             node, output_act_obs_or_fq, model, named_modules, graph
