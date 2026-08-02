@@ -293,6 +293,151 @@ def _annotate_linear_relu(
     return annotated_partitions
 
 
+@register_annotator("linear_bn")
+def _annotate_linear_bn(
+    gm: torch.fx.GraphModule,
+    quantization_config: Optional[QuantizationConfig],
+    filter_fn: Optional[Callable[[Node], bool]] = None,
+) -> Optional[list[list[Node]]]:
+    """
+    Find linear + batchnorm parititions
+    Note: This is only used for QAT. In PTQ, batchnorm should already be fused into the linear.
+    """
+    return _do_annotate_linear_bn(gm, quantization_config, filter_fn, has_relu=False)
+
+
+@register_annotator("linear_bn_relu")
+def _annotate_linear_bn_relu(
+    gm: torch.fx.GraphModule,
+    quantization_config: Optional[QuantizationConfig],
+    filter_fn: Optional[Callable[[Node], bool]] = None,
+) -> Optional[list[list[Node]]]:
+    """
+    Find linear + batchnorm + relu parititions
+    Note: This is only used for QAT. In PTQ, batchnorm should already be fused into the linear.
+    """
+    return _do_annotate_linear_bn(gm, quantization_config, filter_fn, has_relu=True)
+
+
+def _do_annotate_linear_bn(
+    gm: torch.fx.GraphModule,
+    quantization_config: Optional[QuantizationConfig],
+    filter_fn: Optional[Callable[[Node], bool]],
+    has_relu: bool,
+) -> list[list[Node]]:
+    """
+    Find linear + batchnorm [+ relu] partitions and annotate them, mirroring
+    `_do_annotate_conv_bn` below.
+
+    Linear + BN is only fused when the linear input is 2-D, since Linear
+    operates on the last dim while BatchNorm1d operates on dim 1, and the
+    two only coincide for 2-D (N, C) inputs.
+    See https://github.com/pytorch/ao/issues/4116
+    """
+
+    # Example inputs for linear-bn1d patterns
+    _linear_bn_example_inputs = (
+        torch.randn(2, 1),  # x
+        torch.randn(1, 1),  # linear_weight
+        torch.randn(1),  # linear_bias
+        torch.randn(1),  # bn_weight
+        torch.randn(1),  # bn_bias
+        torch.randn(1),  # bn_running_mean
+        torch.randn(1),  # bn_running_var
+    )
+
+    def get_pattern(relu_is_inplace: bool):
+        def _linear_bn(x, linear_weight, linear_bias, bn_weight, bn_bias, bn_rm, bn_rv):
+            linear = F.linear(x, linear_weight, linear_bias)
+            bn = F.batch_norm(linear, bn_rm, bn_rv, bn_weight, bn_bias, training=True)
+            if has_relu:
+                output = F.relu_(bn) if relu_is_inplace else F.relu(bn)
+            else:
+                output = bn
+            return output, {
+                "input": x,
+                "linear": linear,
+                "weight": linear_weight,
+                "bias": linear_bias,
+                "output": output,
+            }
+
+        return WrapperModule(_linear_bn)
+
+    # Needed for matching, otherwise the matches gets filtered out due to unused
+    # nodes returned by batch norm
+    gm.graph.eliminate_dead_code()
+    gm.recompile()
+
+    matches = []
+    combinations = itertools.product(
+        [True, False] if torch.cuda.is_available() else [False],  # is_cuda
+        [True, False] if has_relu else [False],  # relu_is_inplace
+    )
+
+    for is_cuda, relu_is_inplace in combinations:
+        pattern = get_pattern(relu_is_inplace)
+        pattern = _get_aten_graph_module_for_pattern(
+            pattern, _linear_bn_example_inputs, is_cuda
+        )
+        pattern.graph.eliminate_dead_code()
+        pattern.recompile()
+        matcher = SubgraphMatcherWithNameNodeMap(pattern, ignore_literals=True)
+        matches.extend(matcher.match(gm.graph))
+
+    # Annotate nodes returned in the matches
+    annotated_partitions = []
+    for match in matches:
+        name_node_map = match.name_node_map
+        input_node = name_node_map["input"]
+        linear_node = name_node_map["linear"]
+        weight_node = name_node_map["weight"]
+        bias_node = name_node_map["bias"]
+        output_node = name_node_map["output"]
+
+        # Validate linear args
+        if linear_node.args[0] is not input_node:
+            raise ValueError("Linear arg did not contain input node ", input_node)
+        if linear_node.args[1] is not weight_node:
+            raise ValueError("Linear arg did not contain weight node ", weight_node)
+        if len(linear_node.args) > 2 and linear_node.args[2] is not bias_node:
+            raise ValueError("Linear arg did not contain bias node ", bias_node)
+
+        # Skip if the linear input is not 2-D, since linear + bn won't be
+        # fused in this case (see above), and the pattern should instead be
+        # annotated by the plain "linear" annotator
+        input_val = input_node.meta.get("val")
+        if isinstance(input_val, torch.Tensor) and input_val.ndim != 2:
+            continue
+
+        # Skip if the partition is already annotated or is filtered out by the user
+        partition = [linear_node, weight_node]
+        if bias_node is not None:
+            partition.append(bias_node)
+        if _is_annotated(partition):
+            continue
+        if filter_fn and any(not filter_fn(n) for n in partition):
+            continue
+
+        # Annotate linear inputs and pattern output
+        input_qspec_map = {}
+        input_qspec_map[input_node] = get_input_act_qspec(quantization_config)
+        input_qspec_map[weight_node] = get_weight_qspec(quantization_config)
+        if bias_node is not None:
+            input_qspec_map[bias_node] = get_bias_qspec(quantization_config)
+        linear_node.meta["quantization_annotation"] = QuantizationAnnotation(
+            input_qspec_map=input_qspec_map,
+            _annotated=True,
+        )
+        output_node.meta["quantization_annotation"] = QuantizationAnnotation(
+            output_qspec=get_output_act_qspec(quantization_config),  # type: ignore[arg-type]
+            _annotated=True,
+        )
+        _mark_nodes_as_annotated(partition)
+        annotated_partitions.append(partition)
+    return annotated_partitions
+
+
 @register_annotator("conv")
 def _annotate_conv(
     gm: torch.fx.GraphModule,
