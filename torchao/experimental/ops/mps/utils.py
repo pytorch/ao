@@ -6,8 +6,18 @@
 
 import glob
 import os
+import sys
 
 import torch
+
+
+def _should_load_torchao_mps_lib():
+    """Return True when this process can plausibly execute MPS ops."""
+    return (
+        sys.platform == "darwin"
+        and hasattr(torch.backends, "mps")
+        and torch.backends.mps.is_available()
+    )
 
 
 def _get_torchao_mps_lib_path():
