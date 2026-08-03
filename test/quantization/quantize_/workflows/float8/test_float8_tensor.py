@@ -846,17 +846,6 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
         and float8 weight config
         """
         M, N, K = sizes
-
-        # PerBlock(128,128) requires N and K to be divisible by 128
-        if isinstance(granularity, tuple) and granularity == (
-            PerBlock([1, 128]),
-            PerBlock([128, 128]),
-        ):
-            if N % 128 != 0 or K % 128 != 0:
-                self.skipTest(
-                    f"PerBlock requires N and K divisible by 128, got {N=} {K=}"
-                )
-
         dtype = torch.bfloat16
         device = get_current_accelerator_device()
         input_tensor = torch.randn(*M, K, dtype=dtype, device=device)
