@@ -145,6 +145,7 @@ class Float8Sparse2x4_2DData2DMetadataTensor(TorchAOBaseTensor):
         hp_value_lb: Optional[float] = None,
         hp_value_ub: Optional[float] = None,
         act_quant_kwargs: Optional[QuantizeTensorToFloat8Kwargs] = None,
+        sparse_conversion_backend: str = "legacy",
     ):
         block_size = get_block_size(hp_tensor.shape, granularity)
         block_size = list(block_size)
@@ -173,8 +174,10 @@ class Float8Sparse2x4_2DData2DMetadataTensor(TorchAOBaseTensor):
         )
         assert hp_value_lb is None, "CUTLASS sparse kernel does not support hp_value_lb"
 
-        # Use CUTLASS rowwise fp8 + 2:4 sparse mm kernel
-        qdata, sparse_metadata = to_sparse_semi_structured_cutlass_sm9x_f8(data)
+        qdata, sparse_metadata = to_sparse_semi_structured_cutlass_sm9x_f8(
+            data,
+            backend=sparse_conversion_backend,
+        )
 
         return Float8Sparse2x4_2DData2DMetadataTensor(
             qdata,

@@ -11,6 +11,7 @@ import torch
 from torch import nn
 from torch.testing._internal import common_utils
 
+from torchao.ops import to_sparse_semi_structured_cutlass_sm9x_f8
 from torchao.quantization import (
     Float8DynamicActivationFloat8WeightConfig,
 )
@@ -23,6 +24,7 @@ from torchao.quantization.quantize_.workflows import (
 )
 from torchao.quantization.utils import compute_error
 from torchao.sparsity import apply_fake_sparsity
+from torchao.sparsity.utils import create_semi_structured_tensor
 from torchao.utils import is_sm_at_least_90
 
 logging.basicConfig(
@@ -31,6 +33,36 @@ logging.basicConfig(
 
 
 class TestFloat8Sparse2x4_2DData2DMetadataTensor(common_utils.TestCase):
+    @unittest.skipIf(not is_sm_at_least_90(), "Need H100 to run")
+    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
+    @common_utils.parametrize(
+        "rows, cols",
+        [
+            (128, 64),
+            (256, 128),
+            (1024, 1024),
+            (2048, 8192),
+        ],
+    )
+    def test_cutedsl_sparse_conversion(self, rows, cols):
+        weight = create_semi_structured_tensor(
+            rows,
+            cols,
+            dtype=torch.float8_e4m3fn,
+        ).cuda()
+
+        legacy_data, legacy_meta = to_sparse_semi_structured_cutlass_sm9x_f8(
+            weight,
+            backend="legacy",
+        )
+        cutedsl_data, cutedsl_meta = to_sparse_semi_structured_cutlass_sm9x_f8(
+            weight,
+            backend="cutedsl",
+        )
+
+        self.assertEqual(legacy_data, cutedsl_data)
+        self.assertEqual(legacy_meta, cutedsl_meta)
+
     @unittest.skipIf(not is_sm_at_least_90(), "Need H100 to run")
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     @common_utils.parametrize("compile", [True, False])
