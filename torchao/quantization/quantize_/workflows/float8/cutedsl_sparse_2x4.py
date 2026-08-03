@@ -21,9 +21,7 @@ def _compile_to_sparse_semi_structured_cutedsl(
 
     THREADS_PER_BLOCK = 256
     float8_element_type = (
-        cutlass.Float8E5M2
-        if float8_dtype == "e5m2"
-        else cutlass.Float8E4M3FN
+        cutlass.Float8E5M2 if float8_dtype == "e5m2" else cutlass.Float8E4M3FN
     )
     HAS_PADDING = has_padding
 
@@ -181,9 +179,7 @@ def _compile_to_sparse_semi_structured_cutedsl(
                     metadata_row_pad_linear >= 0
                     and metadata_row_pad_linear < total_metadata_row_padding
                 ):
-                    metadata_pad_row = (
-                        metadata_row_pad_linear // metadata_cols + rows
-                    )
+                    metadata_pad_row = metadata_row_pad_linear // metadata_cols + rows
                     metadata_pad_col = (
                         metadata_row_pad_linear
                         - (metadata_pad_row - rows) * metadata_cols
