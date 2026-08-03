@@ -4,6 +4,7 @@
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
 import copy
+import importlib.util
 import logging
 import unittest
 
@@ -32,9 +33,28 @@ logging.basicConfig(
 )
 
 
+def _cutedsl_runtime_available():
+    for module in ("cutlass", "cutlass.cute", "tvm_ffi"):
+        try:
+            if importlib.util.find_spec(module) is None:
+                return False
+        except ModuleNotFoundError:
+            return False
+    return True
+
+
+def _is_sm90a():
+    return (
+        torch.cuda.is_available()
+        and torch.version.cuda
+        and torch.cuda.get_device_capability() == (9, 0)
+    )
+
+
 class TestFloat8Sparse2x4_2DData2DMetadataTensor(common_utils.TestCase):
-    @unittest.skipIf(not is_sm_at_least_90(), "Need H100 to run")
+    @unittest.skipIf(not _is_sm90a(), "Need SM90a to run")
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
+    @unittest.skipIf(not _cutedsl_runtime_available(), "CuTeDSL runtime unavailable")
     @common_utils.parametrize(
         "rows, cols",
         [
