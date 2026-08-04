@@ -82,6 +82,25 @@ class Int4TilePackedTo4dTensor(TorchAOBaseTensor):
         shape: torch.Size,
         act_pre_scale: Optional[torch.Tensor] = None,
     ):
+        assert len(block_size) == len(shape), (
+            "Expecting the length of block_size to be equal to the dimension of "
+            f"the weight, got {block_size=} and {len(shape)=}"
+        )
+        assert all(x == 1 for x in block_size[:-1]), (
+            f"Only per group quantization is supported, got block_size: {block_size}"
+        )
+        groupsize = block_size[-1]
+        assert groupsize in [32, 64, 128, 256], (
+            f"Unsupported groupsize for Int4TilePackedTo4dTensor: {groupsize}"
+        )
+        expected_k_groups = find_multiple(shape[-1], 1024) // groupsize
+        actual_k_groups = scale_and_zero.shape[-3]
+        assert expected_k_groups == actual_k_groups, (
+            "Inconsistent scale_and_zero and block_size for "
+            f"Int4TilePackedTo4dTensor: expected {expected_k_groups} K groups "
+            f"from shape {shape} and block_size {block_size}, got "
+            f"{actual_k_groups} from scale_and_zero shape {scale_and_zero.shape}"
+        )
         self.qdata = qdata
         self.scale_and_zero = scale_and_zero
         self.block_size = block_size

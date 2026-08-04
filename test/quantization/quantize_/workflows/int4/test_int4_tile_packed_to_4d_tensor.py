@@ -325,6 +325,17 @@ class TestInt4TilePackedTo4dTensor(TorchAOIntegrationTestCase):
                 hp_tensor, (2, 64)
             )  # first element should be 1
 
+        tensor = Int4TilePackedTo4dTensor.from_hp(hp_tensor, (1, 128))
+        with self.assertRaisesRegex(
+            AssertionError, "Inconsistent scale_and_zero and block_size"
+        ):
+            Int4TilePackedTo4dTensor(
+                tensor.qdata,
+                tensor.scale_and_zero,
+                (1, 32),
+                tensor.shape,
+            )
+
 
 instantiate_parametrized_tests(TestInt4TilePackedTo4dTensor)
 
