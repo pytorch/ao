@@ -1,3 +1,4 @@
+import pkgutil
 import unittest
 
 import torch
@@ -18,6 +19,13 @@ class TestLeanImport(unittest.TestCase):
         import torchao  # noqa: F401
 
         torch.cuda.current_device = old_current_device
+
+
+class TestPackageDiscovery(unittest.TestCase):
+    def test_torchao_package_discovery_does_not_raise_runtimeerror(self):
+        import torchao
+
+        list(pkgutil.walk_packages(torchao.__path__, torchao.__name__ + "."))
 
 
 if __name__ == "__main__":
