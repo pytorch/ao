@@ -16,7 +16,6 @@ from .cute_utils import (
     F8_MAX,
     compute_amax,
     compute_scale_from_amax,
-    load_vals_chunk_full,
     load_vals_chunk_tail,
 )
 
@@ -146,6 +145,8 @@ def _compile_mxfp8_quantize_3d_cutedsl(
     STAGE_COUNT_VALUE = min(requested_stage_count, K_TILES_PER_CTA)
 
     input_elem_bytes = 4 if input_dtype_name == "torch.float32" else 2
+    SMEM_STORE_VEC = 16
+    assert SCALE_DIM_N_VALUE % SMEM_STORE_VEC == 0
     TILE_COPY_BYTES = TILE_N * TILE_K * input_elem_bytes
     K_THREADS = COMPUTE_WARPS * 32
     K_ITERS_PER_LANE = ceil_div(TILE_K, K_THREADS)
@@ -172,8 +173,20 @@ def _compile_mxfp8_quantize_3d_cutedsl(
             k_rel: cutlass.Int32,
         ):
             vals_block = cute.make_rmem_tensor((SCALE_DIM_N_VALUE,), cutlass.Float32)
-            for i in range(SCALE_DIM_N_VALUE):
-                vals_block[i] = cutlass.Float32(sIN_tile[0, n_base + i, k_rel])
+            if cutlass.const_expr(INPUT_TRANSPOSED_VALUE):
+                raw = cute.make_rmem_tensor((SCALE_DIM_N_VALUE,), INPUT_CUTLASS_DTYPE)
+                cute.autovec_copy(
+                    cute.make_tensor(
+                        (sIN_tile.iterator + (k_rel * TILE_N + n_base)).align(16),
+                        cute.make_layout(SCALE_DIM_N_VALUE),
+                    ),
+                    raw,
+                )
+                for i in range(SCALE_DIM_N_VALUE):
+                    vals_block[i] = cutlass.Float32(raw[i])
+            else:
+                for i in range(SCALE_DIM_N_VALUE):
+                    vals_block[i] = cutlass.Float32(sIN_tile[0, n_base + i, k_rel])
             return vals_block
 
         @cute.jit
@@ -186,12 +199,28 @@ def _compile_mxfp8_quantize_3d_cutedsl(
             N: cutlass.Int64,
         ):
             vals_block = cute.make_rmem_tensor((SCALE_DIM_N_VALUE,), cutlass.Float32)
-            for i in range(SCALE_DIM_N_VALUE):
-                n = n0 + n_base + i
-                if n < N:
-                    vals_block[i] = cutlass.Float32(sIN_tile[0, n_base + i, k_rel])
-                else:
-                    vals_block[i] = cutlass.Float32(0.0)
+            if cutlass.const_expr(INPUT_TRANSPOSED_VALUE):
+                raw = cute.make_rmem_tensor((SCALE_DIM_N_VALUE,), INPUT_CUTLASS_DTYPE)
+                cute.autovec_copy(
+                    cute.make_tensor(
+                        (sIN_tile.iterator + (k_rel * TILE_N + n_base)).align(16),
+                        cute.make_layout(SCALE_DIM_N_VALUE),
+                    ),
+                    raw,
+                )
+                for i in range(SCALE_DIM_N_VALUE):
+                    n = n0 + n_base + i
+                    if n < N:
+                        vals_block[i] = cutlass.Float32(raw[i])
+                    else:
+                        vals_block[i] = cutlass.Float32(0.0)
+            else:
+                for i in range(SCALE_DIM_N_VALUE):
+                    n = n0 + n_base + i
+                    if n < N:
+                        vals_block[i] = cutlass.Float32(sIN_tile[0, n_base + i, k_rel])
+                    else:
+                        vals_block[i] = cutlass.Float32(0.0)
             return vals_block
 
         @cute.jit
@@ -311,35 +340,31 @@ def _compile_mxfp8_quantize_3d_cutedsl(
             return inv_scale
 
         @cute.jit
-        def _store_q_fp8_chunk(
-            self,
-            q_fp8_vals4: cute.Tensor,
-            sOUT_tile: cute.Tensor,
-            sout_base: cutlass.Int32,
-            k_rel: cutlass.Int32,
-        ):
-            sOUT_tile_u32 = cute.recast_tensor(sOUT_tile, cutlass.Uint32)
-            q_fp8_vals4_u32 = cute.recast_tensor(q_fp8_vals4, cutlass.Uint32)
-            sOUT_tile_u32[0, sout_base // cutlass.Int32(4), k_rel] = q_fp8_vals4_u32[0]
-
-        @cute.jit
         def _quantize_store_chunk(
             self,
-            vals_chunk: cute.Tensor,
+            vals_group: cute.Tensor,
             inv_scale: cutlass.Float32,
             sOUT_tile: cute.Tensor,
             sout_base: cutlass.Int32,
             k_rel: cutlass.Int32,
             USE_RCEIL: cutlass.Constexpr[bool],
         ):
-            q_vals4_vec = vals_chunk.load() * inv_scale
+            q_vec = vals_group.load() * inv_scale
             if not cutlass.const_expr(USE_RCEIL):
-                q_vals4_vec = cute.where(q_vals4_vec > F8_MAX, F8_MAX, q_vals4_vec)
-                q_vals4_vec = cute.where(q_vals4_vec < -F8_MAX, -F8_MAX, q_vals4_vec)
-            q_fp8_vec4 = q_vals4_vec.to(cutlass.Float8E4M3FN)
-            q_fp8_vals4 = cute.make_rmem_tensor((4,), cutlass.Float8E4M3FN)
-            q_fp8_vals4.store(q_fp8_vec4)
-            self._store_q_fp8_chunk(q_fp8_vals4, sOUT_tile, sout_base, k_rel)
+                q_vec = cute.where(q_vec > F8_MAX, F8_MAX, q_vec)
+                q_vec = cute.where(q_vec < -F8_MAX, -F8_MAX, q_vec)
+            q_fp8 = cute.make_rmem_tensor((SMEM_STORE_VEC,), cutlass.Float8E4M3FN)
+            q_fp8.store(q_vec.to(cutlass.Float8E4M3FN))
+            cute.autovec_copy(
+                q_fp8,
+                cute.make_tensor(
+                    (
+                        sOUT_tile.iterator
+                        + cute.crd2idx((0, sout_base, k_rel), sOUT_tile.layout)
+                    ).align(16),
+                    cute.make_layout(SMEM_STORE_VEC),
+                ),
+            )
 
         @cute.jit
         def _quantize_store_full(
@@ -351,14 +376,18 @@ def _compile_mxfp8_quantize_3d_cutedsl(
             k_rel: cutlass.Int32,
             USE_RCEIL: cutlass.Constexpr[bool],
         ):
-            chunk_vec = 4
-            num_chunks = SCALE_DIM_N_VALUE // chunk_vec
-            for c in range(num_chunks):
-                local_base = c * chunk_vec
-                sout_base = n_base + local_base
-                vals_chunk = load_vals_chunk_full(vals_block, local_base)
+            for g in range(SCALE_DIM_N_VALUE // SMEM_STORE_VEC):
+                local_base = g * SMEM_STORE_VEC
+                vals_group = cute.make_rmem_tensor((SMEM_STORE_VEC,), cutlass.Float32)
+                for i in range(SMEM_STORE_VEC):
+                    vals_group[i] = vals_block[local_base + i]
                 self._quantize_store_chunk(
-                    vals_chunk, inv_scale, sOUT_tile, sout_base, k_rel, USE_RCEIL
+                    vals_group,
+                    inv_scale,
+                    sOUT_tile,
+                    n_base + local_base,
+                    k_rel,
+                    USE_RCEIL,
                 )
 
         @cute.jit
@@ -373,16 +402,26 @@ def _compile_mxfp8_quantize_3d_cutedsl(
             N: cutlass.Int64,
             USE_RCEIL: cutlass.Constexpr[bool],
         ):
-            chunk_vec = 4
-            num_chunks = SCALE_DIM_N_VALUE // chunk_vec
-            for c in range(num_chunks):
-                local_base = c * chunk_vec
-                sout_base = n_base + local_base
-                vals_chunk = load_vals_chunk_tail(
-                    vals_block, n0, sout_base, local_base, N
-                )
+            for g in range(SCALE_DIM_N_VALUE // SMEM_STORE_VEC):
+                local_base = g * SMEM_STORE_VEC
+                vals_group = cute.make_rmem_tensor((SMEM_STORE_VEC,), cutlass.Float32)
+                for c in range(SMEM_STORE_VEC // 4):
+                    chunk = load_vals_chunk_tail(
+                        vals_block,
+                        n0,
+                        n_base + local_base + c * 4,
+                        local_base + c * 4,
+                        N,
+                    )
+                    for i in range(4):
+                        vals_group[c * 4 + i] = chunk[i]
                 self._quantize_store_chunk(
-                    vals_chunk, inv_scale, sOUT_tile, sout_base, k_rel, USE_RCEIL
+                    vals_group,
+                    inv_scale,
+                    sOUT_tile,
+                    n_base + local_base,
+                    k_rel,
+                    USE_RCEIL,
                 )
 
         @cute.jit
@@ -396,8 +435,8 @@ def _compile_mxfp8_quantize_3d_cutedsl(
         ):
             if warp_idx == 0:
                 cta_layout = cute.make_layout((1,))
-                sIN_for_tma_partition = cute.group_modes(sIN_tile, 0, 2)
-                gIN_for_tma_partition = cute.group_modes(gIN_tile, 0, 2)
+                sIN_for_tma_partition = cute.group_modes(sIN_tile, 0, 3)
+                gIN_for_tma_partition = cute.group_modes(gIN_tile, 0, 3)
                 tINs, tINg = cpasync.tma_partition(
                     tma_atom_in,
                     0,
@@ -405,8 +444,8 @@ def _compile_mxfp8_quantize_3d_cutedsl(
                     sIN_for_tma_partition,
                     gIN_for_tma_partition,
                 )
-                tINg_stage0 = tINg[(None, 0)]
-                tINs_stage0 = tINs[(None, 0)]
+                tINg_stage0 = tINg[None]
+                tINs_stage0 = tINs[None]
                 with cute.arch.elect_one():
                     cute.arch.mbarrier_arrive_and_expect_tx(
                         tma_mbar_ptr, TILE_COPY_BYTES
@@ -433,8 +472,8 @@ def _compile_mxfp8_quantize_3d_cutedsl(
             cute.arch.sync_threads()
             if warp_idx == 0:
                 cta_layout = cute.make_layout((1,))
-                sOUT_for_tma_partition = cute.group_modes(sOUT_tile, 0, 2)
-                gOUT_for_tma_partition = cute.group_modes(gOUT_tile, 0, 2)
+                sOUT_for_tma_partition = cute.group_modes(sOUT_tile, 0, 3)
+                gOUT_for_tma_partition = cute.group_modes(gOUT_tile, 0, 3)
                 tOUTs, tOUTg = cpasync.tma_partition(
                     tma_atom_out,
                     0,
@@ -442,8 +481,8 @@ def _compile_mxfp8_quantize_3d_cutedsl(
                     sOUT_for_tma_partition,
                     gOUT_for_tma_partition,
                 )
-                tOUTs_stage0 = tOUTs[(None, 0)]
-                tOUTg_stage0 = tOUTg[(None, 0)]
+                tOUTs_stage0 = tOUTs[None]
+                tOUTg_stage0 = tOUTg[None]
                 cute.copy(
                     tma_atom_out,
                     tOUTs_stage0,
