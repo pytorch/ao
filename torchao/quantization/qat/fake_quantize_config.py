@@ -359,8 +359,12 @@ def _infer_fake_quantize_configs(
         NVFP4DynamicActivationNVFP4WeightConfig,
     )
     from torchao.prototype.qat import (
+        CodebookFakeQuantizeConfig,
         MXFakeQuantizeConfig,
         NVFP4FakeQuantizeConfig,
+    )
+    from torchao.prototype.quantization.codebook_coreml import (
+        CodebookWeightOnlyConfig,
     )
     from torchao.quantization import (
         Float8DynamicActivationFloat8WeightConfig,
@@ -483,6 +487,12 @@ def _infer_fake_quantize_configs(
             granularity=base_config.granularity,
             mapping_type=base_config.mapping_type,
             scale_precision=base_config.scale_dtype,
+        )
+    elif isinstance(base_config, CodebookWeightOnlyConfig):
+        act_config = None
+        weight_config = CodebookFakeQuantizeConfig(
+            dtype=base_config.dtype,
+            block_size=base_config.block_size,
         )
     else:
         raise ValueError("Unexpected base config: %s" % base_config)

@@ -67,6 +67,15 @@ class FakeQuantizerBase(torch.nn.Module):
         elif isinstance(config, Float8FakeQuantizeConfig):
             return Float8FakeQuantizer(config)
         else:
+            # Prototype configs, imported lazily to avoid importing prototype
+            # code (and its optional dependencies) at module load time
+            from torchao.prototype.qat import (
+                CodebookFakeQuantizeConfig,
+                CodebookFakeQuantizer,
+            )
+
+            if isinstance(config, CodebookFakeQuantizeConfig):
+                return CodebookFakeQuantizer(config)
             raise ValueError(f"Unknown config type: {config}")
 
 
