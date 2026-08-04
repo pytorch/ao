@@ -41,6 +41,9 @@ class KernelPreference(str, Enum):
     2. Debugging kernel numerics issues.
     """
 
+    DEEPGEMM = "deepgemm"
+    """Use kernels from the optional DeepGEMM library."""
+
     TRITON = "triton"
     """Use pure-triton RHT + stochastic rounding kernels already in TorchAO.
     Full NVFP4 training recipe: RHT on forward activations,
