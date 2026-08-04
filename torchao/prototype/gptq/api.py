@@ -387,8 +387,6 @@ def gptq_quantize(H: torch.Tensor, W_t: torch.Tensor, config: GPTQConfig):
     columns = W_t.shape[1]
     device = W_t.device
 
-    assert device.type == "cuda", "GPTQ only supports CUDA currently"
-
     dead = torch.diag(H) == 0
     H[dead, dead] = 1
     W_t[:, dead] = 0
@@ -531,7 +529,8 @@ def gptq_quantize(H: torch.Tensor, W_t: torch.Tensor, config: GPTQConfig):
             Hinv[B_cur_k_start:B_cur_k_end, B_cur_k_end:]
         )
 
-    torch.cuda.synchronize()
+    if device.type == "cuda":
+        torch.cuda.synchronize()
 
     # Create the final quantized tensor, which has the same qparams (scale, zero_point), but different qdata
     if isinstance(base_config, Int4WeightOnlyConfig):
