@@ -81,9 +81,12 @@ def test_deepgemm_backend_reports_broken_install(monkeypatch, exc):
         deepgemm_grouped_kernels._require_deep_gemm()
 
 
-def test_auto_backend_selection_falls_back_without_deepgemm(monkeypatch):
+@pytest.mark.parametrize(
+    "kernel_preference",
+    [KernelPreference.AUTO, KernelPreference.DEEPGEMM],
+)
+def test_real_backend_selection_fails_without_deepgemm(monkeypatch, kernel_preference):
     from torchao.prototype.moe_training.blockwise_fp8.grouped_mm_backend import (
-        _GroupedMMBackendKind,
         _select_fp8_blockwise_grouped_mm_backend,
     )
 
@@ -92,20 +95,18 @@ def test_auto_backend_selection_falls_back_without_deepgemm(monkeypatch):
     class CudaLikeTensor:
         is_cuda = True
 
-    backend = _select_fp8_blockwise_grouped_mm_backend(
-        KernelPreference.AUTO,
-        CudaLikeTensor(),
-        torch.bfloat16,
-        128,
-        torch.tensor([128], dtype=torch.int32),
-    )
-
-    assert backend.kind == _GroupedMMBackendKind.EMULATED
+    with pytest.raises(RuntimeError, match="could not select a supported non-emulated"):
+        _select_fp8_blockwise_grouped_mm_backend(
+            kernel_preference,
+            CudaLikeTensor(),
+            torch.bfloat16,
+            128,
+            torch.tensor([128], dtype=torch.int32),
+        )
 
 
 def test_auto_backend_selection_requires_full_deepgemm_training_symbols(monkeypatch):
     from torchao.prototype.moe_training.blockwise_fp8.grouped_mm_backend import (
-        _GroupedMMBackendKind,
         _select_fp8_blockwise_grouped_mm_backend,
     )
 
@@ -125,18 +126,23 @@ def test_auto_backend_selection_requires_full_deepgemm_training_symbols(monkeypa
     class CudaLikeTensor:
         is_cuda = True
 
-    backend = _select_fp8_blockwise_grouped_mm_backend(
-        KernelPreference.AUTO,
-        CudaLikeTensor(),
-        torch.bfloat16,
-        128,
-        torch.tensor([128], dtype=torch.int32),
-    )
+    with pytest.raises(RuntimeError, match="could not select a supported non-emulated"):
+        _select_fp8_blockwise_grouped_mm_backend(
+            KernelPreference.AUTO,
+            CudaLikeTensor(),
+            torch.bfloat16,
+            128,
+            torch.tensor([128], dtype=torch.int32),
+        )
 
-    assert backend.kind == _GroupedMMBackendKind.EMULATED
 
-
-def test_auto_backend_selection_prefers_deepgemm_when_training_supported(monkeypatch):
+@pytest.mark.parametrize(
+    "kernel_preference",
+    [KernelPreference.AUTO, KernelPreference.DEEPGEMM],
+)
+def test_real_backend_selection_uses_deepgemm_when_training_supported(
+    monkeypatch, kernel_preference
+):
     from torchao.prototype.moe_training.blockwise_fp8.grouped_mm_backend import (
         _GroupedMMBackendKind,
         _select_fp8_blockwise_grouped_mm_backend,
@@ -164,7 +170,7 @@ def test_auto_backend_selection_prefers_deepgemm_when_training_supported(monkeyp
     )
 
     backend = _select_fp8_blockwise_grouped_mm_backend(
-        KernelPreference.AUTO,
+        kernel_preference,
         torch.empty(1),
         torch.bfloat16,
         128,
@@ -177,6 +183,32 @@ def test_auto_backend_selection_prefers_deepgemm_when_training_supported(monkeyp
     assert torch.equal(layout[:128], torch.full((128,), 0, dtype=torch.int32))
     assert torch.equal(layout[128:256], torch.full((128,), 1, dtype=torch.int32))
     assert torch.equal(layout[256:], torch.full((128,), -1, dtype=torch.int32))
+
+    with pytest.raises(RuntimeError, match="every expert token count"):
+        _select_fp8_blockwise_grouped_mm_backend(
+            kernel_preference,
+            torch.empty(1),
+            torch.bfloat16,
+            128,
+            torch.tensor([127], dtype=torch.int32),
+        )
+
+
+def test_emulated_backend_selection_is_explicit():
+    from torchao.prototype.moe_training.blockwise_fp8.grouped_mm_backend import (
+        _GroupedMMBackendKind,
+        _select_fp8_blockwise_grouped_mm_backend,
+    )
+
+    backend = _select_fp8_blockwise_grouped_mm_backend(
+        KernelPreference.EMULATED,
+        torch.empty(1),
+        torch.bfloat16,
+        128,
+        torch.tensor([1], dtype=torch.int32),
+    )
+
+    assert backend.kind == _GroupedMMBackendKind.EMULATED
 
 
 def test_deepgemm_grouped_layout_from_padded_offsets():

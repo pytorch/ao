@@ -309,10 +309,11 @@ def _select_fp8_blockwise_grouped_mm_backend(
     """Select the grouped GEMM backend for one forward/backward pass.
 
     ``KernelPreference.EMULATED`` always selects the TorchAO emulated backend.
-    ``KernelPreference.AUTO`` selects DeepGEMM only when the optional dependency
-    exposes both M-grouped and K-grouped training kernels, the input is on
-    CUDA SM90+, ``out_dtype`` is bf16, ``block_size`` is 128, and every expert
-    group is block-aligned. Any unsupported AUTO case falls back to emulated.
+    ``KernelPreference.AUTO`` and ``KernelPreference.DEEPGEMM`` select DeepGEMM
+    when the optional dependency exposes both M-grouped and K-grouped training
+    kernels, the input is on CUDA SM90+, ``out_dtype`` is bf16, ``block_size``
+    is 128, and every expert group is block-aligned. Unsupported cases fail;
+    emulation must be selected explicitly.
     When DeepGEMM is selected, the returned backend owns the offset/layout plan
     reused by forward, dgrad, and wgrad. The autograd function saves this
     backend, so wgrad cannot independently choose a different layout or kernel.
@@ -321,11 +322,18 @@ def _select_fp8_blockwise_grouped_mm_backend(
     if kernel_preference == KernelPreference.EMULATED:
         return _EMULATED_GROUPED_MM_BACKEND
 
-    assert kernel_preference == KernelPreference.AUTO, (
-        "kernel_preference must be AUTO or EMULATED"
-    )
+    assert kernel_preference in (
+        KernelPreference.AUTO,
+        KernelPreference.DEEPGEMM,
+    ), "kernel_preference must be AUTO, DEEPGEMM, or EMULATED"
     if not can_use_deepgemm_grouped_training(A, out_dtype, block_size):
-        return _EMULATED_GROUPED_MM_BACKEND
+        raise RuntimeError(
+            f"KernelPreference.{kernel_preference.name} could not select a supported "
+            "non-emulated FP8 blockwise grouped GEMM backend. DeepGEMM requires "
+            "CUDA SM90+, bfloat16 output, block_size=128, and an installed "
+            "`deep_gemm` package with M-grouped and K-grouped training kernels. "
+            "Select KernelPreference.EMULATED to use emulation."
+        )
 
     groups_block_aligned_by_construction = original_group_end_offsets is not None
     offset_plan = build_deepgemm_grouped_offset_plan(
@@ -336,6 +344,10 @@ def _select_fp8_blockwise_grouped_mm_backend(
         groups_block_aligned_by_construction=groups_block_aligned_by_construction,
     )
     if not offset_plan.groups_are_block_aligned(block_size):
-        return _EMULATED_GROUPED_MM_BACKEND
+        raise RuntimeError(
+            "DeepGEMM FP8 blockwise grouped GEMM requires every expert token "
+            f"count to be divisible by {block_size}. Enable "
+            "pad_token_groups_for_grouped_mm or select KernelPreference.EMULATED."
+        )
 
     return _DeepGemmGroupedMMBackend(offset_plan=offset_plan)
