@@ -625,8 +625,16 @@ class TestQuantPrimitives(unittest.TestCase):
 
         # block_size and scale/zero_point shape mismatch
         block_size = (1, 1)
-        with self.assertRaisesRegex(RuntimeError, "is invalid for input of size 1"):
+        with self.assertRaisesRegex(AssertionError, "Expected scale numel"):
             _ = quantize_affine(input, block_size, scale, zero_point, dtype)
+        scale = torch.ones(input.shape)
+        with self.assertRaisesRegex(AssertionError, "Expected zero_point numel"):
+            _ = quantize_affine(input, block_size, scale, zero_point, dtype)
+        quantized = torch.zeros(input.shape, dtype=dtype)
+        with self.assertRaisesRegex(AssertionError, "Expected scale numel"):
+            _ = dequantize_affine(quantized, block_size, zero_point, zero_point, dtype)
+        with self.assertRaisesRegex(AssertionError, "Expected zero_point numel"):
+            _ = dequantize_affine(quantized, block_size, scale, zero_point, dtype)
 
     def test_get_groupwise_affine_qparams(self):
         input = torch.randn(10, 256)

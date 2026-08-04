@@ -338,6 +338,19 @@ def _get_reduction_params(block_size, input_size):
     return shape_for_reduction, reduction_dims
 
 
+def _validate_scale_zero_point(scale, zero_point, shape_after_reduction):
+    expected_numel = math.prod(shape_after_reduction)
+    assert scale.numel() == expected_numel, (
+        f"Expected scale numel to be {expected_numel} for qparam shape "
+        f"{shape_after_reduction}, got {scale.numel()}"
+    )
+    if zero_point is not None and zero_point.numel() > 0:
+        assert zero_point.numel() == expected_numel, (
+            f"Expected zero_point numel to be {expected_numel} for qparam shape "
+            f"{shape_after_reduction}, got {zero_point.numel()}"
+        )
+
+
 @torch.no_grad()
 def quantize_affine(
     input: torch.Tensor,
@@ -478,6 +491,7 @@ def _quantize_affine_no_dtype_cast(
     shape_after_reduction = shape_for_reduction
     for i in reduction_dims:
         shape_after_reduction[i] = 1
+    _validate_scale_zero_point(scale, zero_point, shape_after_reduction)
     scale = scale.view(shape_after_reduction)
 
     if zero_point is not None and zero_point.numel() > 0:
@@ -592,6 +606,7 @@ def _quantize_affine_tinygemm_no_dtype_cast(
     shape_after_reduction = shape_for_reduction
     for i in reduction_dims:
         shape_after_reduction[i] = 1
+    _validate_scale_zero_point(scale, zero_point, shape_after_reduction)
     scale = scale.view(shape_after_reduction)
 
     if zero_point is not None and zero_point.numel() > 0:
@@ -707,6 +722,7 @@ def _quantize_affine_no_zero_point_no_dtype_cast(
     shape_after_reduction = shape_for_reduction
     for i in reduction_dims:
         shape_after_reduction[i] = 1
+    _validate_scale_zero_point(scale, zero_point, shape_after_reduction)
     scale = scale.view(shape_after_reduction)
 
     if zero_point is not None and zero_point.numel() > 0:
@@ -854,6 +870,7 @@ def _dequantize_affine_no_dtype_check(
     shape_after_reduction = shape_for_reduction
     for i in reduction_dims:
         shape_after_reduction[i] = 1
+    _validate_scale_zero_point(scale, zero_point, shape_after_reduction)
     scale = scale.view(shape_after_reduction)
 
     if zero_point is not None:
@@ -911,6 +928,7 @@ def _dequantize_affine_no_zero_point_no_dtype_check(
     shape_after_reduction = shape_for_reduction
     for i in reduction_dims:
         shape_after_reduction[i] = 1
+    _validate_scale_zero_point(scale, None, shape_after_reduction)
     scale = scale.view(shape_after_reduction)
 
     assert zero_point is None, (
@@ -1000,6 +1018,7 @@ def _dequantize_affine_tinygemm_no_dtype_check(
     shape_after_reduction = shape_for_reduction
     for i in reduction_dims:
         shape_after_reduction[i] = 1
+    _validate_scale_zero_point(scale, zero_point, shape_after_reduction)
     scale = scale.view(shape_after_reduction)
 
     if zero_point is not None:
