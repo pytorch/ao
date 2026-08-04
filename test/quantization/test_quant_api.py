@@ -10,6 +10,7 @@ import copy
 import gc
 import tempfile
 import unittest
+from unittest.mock import patch
 
 import torch
 from torch.testing._internal import common_utils
@@ -48,6 +49,7 @@ from torchao.quantization.quant_api import (
     PerRow,
     PerTensor,
     _replace_with_custom_fn_if_matches_filter,
+    swap_conv2d_1x1_to_linear,
 )
 from torchao.quantization.quant_primitives import MappingType
 from torchao.quantization.utils import compute_error
@@ -310,6 +312,31 @@ class TestQuantFlow(TestCase):
             self.assertEqual(mod.precision, torch.float32)
             self.assertEqual(mod.bias.dtype, torch.float32)
         m(*example_inputs)
+
+    def test_swap_conv2d_1x1_to_linear_preserves_bias_state(self):
+        orig_linear = torch.nn.Linear
+
+        for bias in (False, True):
+            linear_bias_args = []
+
+            class RecordingLinear(orig_linear):
+                def __init__(self, in_features, out_features, bias=True, **kwargs):
+                    linear_bias_args.append(bias)
+                    super().__init__(in_features, out_features, bias=bias, **kwargs)
+
+            conv = torch.nn.Conv2d(3, 5, 1, bias=bias)
+            model = torch.nn.Sequential(conv).eval()
+            x = torch.randn(2, 3, 4, 4)
+            ref = model(x)
+
+            with patch("torch.nn.Linear", RecordingLinear):
+                swap_conv2d_1x1_to_linear(model)
+            lin = model[0].mod
+
+            self.assertEqual(linear_bias_args, [bias])
+            self.assertIsInstance(lin, orig_linear)
+            self.assertEqual(lin.bias is not None, bias)
+            torch.testing.assert_close(model(x), ref)
 
     @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
     def test_quantized_tensor_subclass_save_load(self):
