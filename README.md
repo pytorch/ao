@@ -105,6 +105,10 @@ pip install torchao
   USE_CPP=0 pip install -e . --no-build-isolation
   ```
 
+  If a GitHub Actions checkout fails while fetching `third_party/cutlass`
+  with a transient RPC, connection reset, or early EOF error, rerun the failed
+  job before treating it as a torchao source regression.
+
 </details>
 
 Please see the [torchao compability table](https://github.com/pytorch/ao/issues/2919) for version requirements for dependencies.
