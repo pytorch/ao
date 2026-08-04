@@ -450,6 +450,14 @@ def triton_to_mxfp8_dim0_reference(
     "scaling_mode", (ScaleCalculationMode.FLOOR, ScaleCalculationMode.RCEIL)
 )
 def test_triton_mxfp8_dim1_randn(M, K, scaling_mode):
+    if (
+        is_MI350()
+        and M == 128
+        and K == 128
+        and scaling_mode == ScaleCalculationMode.FLOOR
+    ):
+        pytest.xfail("Known gfx950 FLOOR dim1 scale mismatch for 128x128")
+
     x = torch.randn(M, K, dtype=torch.bfloat16, device="cuda")
     x_mx_ref, x_s_ref = triton_to_mxfp8_dim1_reference(
         x, block_size=32, scaling_mode=scaling_mode

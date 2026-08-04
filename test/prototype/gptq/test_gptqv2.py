@@ -204,11 +204,16 @@ class TestGPTQObserverTensor:
             for e in range(num_experts):
                 F.linear(x[e], observers_2d[e])
 
-        # Verify per-expert hessians match bitwise to calculating each expert's
-        # hessian individually
+        # Verify per-expert hessians match calculating each expert's hessian
+        # individually. ROCm can differ slightly across equivalent accumulation
+        # paths, so keep this exact for counts and close for floating-point data.
         for e in range(num_experts):
-            assert torch.equal(observer_3d.hessian[e], observers_2d[e].hessian), (
-                f"Expert {e} hessian mismatch"
+            torch.testing.assert_close(
+                observer_3d.hessian[e],
+                observers_2d[e].hessian,
+                rtol=1e-5,
+                atol=1e-6,
+                msg=f"Expert {e} hessian mismatch",
             )
             assert torch.equal(
                 observer_3d.total_batches[e : e + 1], observers_2d[e].total_batches

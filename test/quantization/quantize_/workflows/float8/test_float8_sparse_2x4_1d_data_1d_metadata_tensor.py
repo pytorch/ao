@@ -33,6 +33,27 @@ logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
 )
 
+_HIPSPARSELT_COMPRESS_SUPPORTED = None
+
+
+def _hipsparselt_compress_supported():
+    global _HIPSPARSELT_COMPRESS_SUPPORTED
+    if _HIPSPARSELT_COMPRESS_SUPPORTED is not None:
+        return _HIPSPARSELT_COMPRESS_SUPPORTED
+
+    try:
+        data = torch.zeros((16, 16), dtype=torch.float8_e4m3fn, device="cuda")
+        torch._cslt_compress(data)
+    except AttributeError:
+        _HIPSPARSELT_COMPRESS_SUPPORTED = False
+    except RuntimeError as exc:
+        if "hipSPARSELt not supported" not in str(exc):
+            raise
+        _HIPSPARSELT_COMPRESS_SUPPORTED = False
+    else:
+        _HIPSPARSELT_COMPRESS_SUPPORTED = True
+    return _HIPSPARSELT_COMPRESS_SUPPORTED
+
 
 class TestFloat8Sparse2x4_1DData1DMetadataTensor(common_utils.TestCase):
     def setUp(self):
@@ -40,6 +61,8 @@ class TestFloat8Sparse2x4_1DData1DMetadataTensor(common_utils.TestCase):
             self.skipTest("hipSPARSELt path requires ROCm")
         if not PLATFORM_SUPPORTS_FP8_SPARSE:
             self.skipTest("Need platform with FP8 sparse support (hipSPARSELt)")
+        if not _hipsparselt_compress_supported():
+            self.skipTest("hipSPARSELt compress is not supported on this machine")
 
     @common_utils.parametrize("compile", [True, False])
     def test_fp8_hipsparselt_sparse(self, compile):
