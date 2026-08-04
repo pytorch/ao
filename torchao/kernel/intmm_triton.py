@@ -10,6 +10,7 @@ import triton
 import triton.language as tl
 
 from torchao.kernel.autotuner import get_best_config_fn
+from torchao.kernel.intmm import lib
 
 # TORCHINDUCTOR_MAX_AUTOTUNE_GEMM_SEARCH_SPACE=EXHAUSTIVE to enable exhaustive option
 int8_mm_kernel_configs = sum(
@@ -314,18 +315,6 @@ def int_scaled_matmul_kernel(a, b, scales1, c, config):
     return c
 
 
-lib = torch.library.Library("torchao", "FRAGMENT")
-lib.define("int_matmul(Tensor a, Tensor b) -> Tensor")
-lib.define("int_scaled_matmul(Tensor a, Tensor b, Tensor scales1) -> Tensor")
-
-
-@torch.library.impl(lib, "int_matmul", "Meta")
-def int_matmul_meta(a, b):
-    M, K = a.shape
-    K, N = b.shape
-    return torch.empty((M, N), device=a.device, dtype=torch.int32)
-
-
 @torch.library.impl(lib, "int_matmul", "CUDA")
 def int_matmul_cuda(a, b):
     # Check constraints.
@@ -344,13 +333,6 @@ def int_matmul_cuda(a, b):
         # Fall back to decomposition
         return torch.tensor([])
     return int_matmul_kernel(a, b, c, best_config)
-
-
-@torch.library.impl(lib, "int_scaled_matmul", "Meta")
-def int_scaled_matmul_meta(a, b, scales1):
-    M, K = a.shape
-    K, N = b.shape
-    return torch.empty((M, N), device=a.device, dtype=scales1.dtype)
 
 
 @torch.library.impl(lib, "int_scaled_matmul", "CUDA")

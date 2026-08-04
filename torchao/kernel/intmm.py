@@ -20,6 +20,25 @@ from torchao.utils import (
 logger = logging.getLogger(__name__)
 logger.addHandler(logging.NullHandler())
 
+lib = torch.library.Library("torchao", "FRAGMENT")
+lib.define("int_matmul(Tensor a, Tensor b) -> Tensor")
+lib.define("int_scaled_matmul(Tensor a, Tensor b, Tensor scales1) -> Tensor")
+
+
+@torch.library.impl(lib, "int_matmul", "Meta")
+def int_matmul_meta(a, b):
+    M, K = a.shape
+    K, N = b.shape
+    return torch.empty((M, N), device=a.device, dtype=torch.int32)
+
+
+@torch.library.impl(lib, "int_scaled_matmul", "Meta")
+def int_scaled_matmul_meta(a, b, scales1):
+    M, K = a.shape
+    K, N = b.shape
+    return torch.empty((M, N), device=a.device, dtype=scales1.dtype)
+
+
 try:
     from torchao.kernel import intmm_triton
 except ImportError:
@@ -93,6 +112,11 @@ def safe_int_mm(input: torch.Tensor, mat2: torch.Tensor) -> torch.Tensor:
         )
 
 
+@torch.library.impl(lib, "int_matmul", "CompositeImplicitAutograd")
+def int_matmul_composite(a, b):
+    return safe_int_mm(a, b)
+
+
 def int_matmul(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
     """
     Performs integer matrix multiplication using intmm_triton if available and autotuner is enabled,
@@ -105,7 +129,11 @@ def int_matmul(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
     Returns:
         torch.Tensor: The result of the matrix multiplication.
     """
-    if intmm_triton is not None and AUTOTUNER_ENABLE:
+    if _is_device("cuda", a.device):
+        if intmm_triton is not None and AUTOTUNER_ENABLE:
+            return torch.ops.torchao.int_matmul(a, b)
+        return safe_int_mm(a, b)
+    if not _is_device("cpu", a.device):
         return torch.ops.torchao.int_matmul(a, b)
     return safe_int_mm(a, b)
 
@@ -145,6 +173,11 @@ def _int_scaled_matmul_cpu(
         return c.to(scales1.dtype) * scales1
 
 
+@torch.library.impl(lib, "int_scaled_matmul", "CompositeImplicitAutograd")
+def int_scaled_matmul_composite(a, b, scales1):
+    return safe_int_mm(a, b) * scales1
+
+
 def int_scaled_matmul(
     a: torch.Tensor, b: torch.Tensor, scales1: torch.Tensor
 ) -> torch.Tensor:
@@ -176,7 +209,13 @@ def int_scaled_matmul(
 
     scales1 = scales1.expand((M, N))
 
-    if intmm_triton is not None and AUTOTUNER_ENABLE:
+    if _is_device("cuda", a.device):
+        if intmm_triton is not None and AUTOTUNER_ENABLE:
+            return torch.ops.torchao.int_scaled_matmul(a, b, scales1)
+        c = safe_int_mm(a, b)
+        return c * scales1
+
+    if not _is_device("cpu", a.device):
         return torch.ops.torchao.int_scaled_matmul(a, b, scales1)
 
     c = safe_int_mm(a, b)
