@@ -98,6 +98,34 @@ class TestQuantFlow(unittest.TestCase):
         assert out32_2.dtype == out32_1.dtype
         torch.testing.assert_allclose(out32_1, out32_2)
 
+    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
+    def test_int_scaled_mm_even_k_not_multiple_of_block_k(self):
+        import triton
+
+        from torchao.kernel.intmm_triton import int_scaled_matmul_kernel
+
+        m, k, n = (64, 34, 64)
+        block_k = 32
+        sentinel = 11
+        a_pad = torch.full((m, k + block_k), sentinel, dtype=torch.int8, device="cuda")
+        b_pad = torch.full((k + block_k, n), sentinel, dtype=torch.int8, device="cuda")
+        a = a_pad[:, :k]
+        b = b_pad[:k, :]
+        a.copy_(torch.randint(-8, 8, (m, k), dtype=torch.int8, device="cuda"))
+        b.copy_(torch.randint(-8, 8, (k, n), dtype=torch.int8, device="cuda"))
+        scales = torch.randn(m, 1, dtype=torch.float32, device="cuda")
+        out = torch.empty((m, n), dtype=scales.dtype, device="cuda")
+        config = triton.Config(
+            {"BLOCK_M": 64, "BLOCK_N": 64, "BLOCK_K": block_k, "GROUP_M": 8},
+            num_stages=3,
+            num_warps=4,
+        )
+
+        actual = int_scaled_matmul_kernel(a, b, scales, out, config)
+        expected = (a.float() @ b.float()) * scales
+
+        torch.testing.assert_close(actual, expected)
+
 
 class TestIntScaledMatmulCPUPaths(unittest.TestCase):
     """
