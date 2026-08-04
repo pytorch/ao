@@ -449,7 +449,10 @@ class TestFloat8Linear:
         # autocast on
         with torch.autocast(str(device)):
             y = m(x)
-        assert y.dtype == torch.half, f"y.dtype is {y.dtype}, expected {torch.half}"
+        expected_dtype = torch.get_autocast_dtype(device.type)
+        assert y.dtype == expected_dtype, (
+            f"y.dtype is {y.dtype}, expected {expected_dtype}"
+        )
 
         with torch.autocast(str(device), dtype=torch.bfloat16):
             y = m(x)

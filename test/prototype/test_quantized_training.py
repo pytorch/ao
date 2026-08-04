@@ -4,6 +4,7 @@
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
 import copy
+from unittest.mock import patch
 
 import pytest
 import torch
@@ -274,6 +275,42 @@ class TestQuantizedTraining(TestCase):
         assert snr(outputs_ref, outputs_int8mp) > 20
         assert snr(inputs_ref.grad, inputs_int8mp.grad) > 20
         assert snr(linear.weight.grad, linear_int8mp.weight.grad) > 20
+
+    def test_int8_mixed_precision_training_autocast_uses_input_device(self):
+        from torchao.prototype.quantized_training.int8_mixed_precision import (
+            _Int8MixedPrecisionTrainingLinearFunction,
+        )
+
+        linear = nn.Linear(8, 8)
+        quantize_(linear, int8_mixed_precision_training())
+        inputs = torch.randn(2, 8)
+
+        with patch.object(
+            _Int8MixedPrecisionTrainingLinearFunction,
+            "apply",
+            side_effect=lambda input, *args, **kwargs: input,
+        ):
+            with torch.autocast("cpu", dtype=torch.bfloat16):
+                out = linear(inputs)
+
+        self.assertEqual(out.dtype, torch.bfloat16)
+
+    def test_bitnet_training_autocast_uses_input_device(self):
+        from torchao.prototype.quantized_training.bitnet import _BitNetTrainingLinear
+
+        linear = nn.Linear(8, 8)
+        quantize_(linear, bitnet_training())
+        inputs = torch.randn(2, 8)
+
+        with patch.object(
+            _BitNetTrainingLinear,
+            "apply",
+            side_effect=lambda input, *args, **kwargs: input,
+        ):
+            with torch.autocast("cpu", dtype=torch.bfloat16):
+                out = linear(inputs)
+
+        self.assertEqual(out.dtype, torch.bfloat16)
 
     @pytest.mark.skip("Flaky on CI")
     @parametrize("compile", [False, True])
