@@ -149,6 +149,12 @@ def _compile_mxfp8_quantize_2d_32x1_cutedsl(
     STAGE_COUNT_VALUE = min(requested_stage_count, M_TILES_PER_CTA)
 
     input_elem_bytes = 4 if input_dtype_name == "torch.float32" else 2
+    # SMEM_STORE_VEC is used both as an element count (make_layout) and as a byte
+    # count (.align(16)); these coincide only because the output is 1-byte
+    # Float8E4M3FN. The stores and the vectorized loads also index SMEM by raw
+    # iterator arithmetic, which assumes the contiguous row-/col-major layouts
+    # built in _make_tile_smem_layouts. Revisit both if the output dtype changes
+    # or a swizzled SMEM layout is introduced.
     SMEM_STORE_VEC = 16
     assert SCALE_DIM_M_VALUE % SMEM_STORE_VEC == 0
     TILE_COPY_BYTES = TILE_M * TILE_K * input_elem_bytes
