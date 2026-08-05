@@ -8,7 +8,7 @@ import pytest
 import torch
 
 # FP8 MoE kernels require FP8-capable hardware (SM 10.x on CUDA, MI300+ on ROCm)
-from torchao.utils import is_MI300, is_MI350
+from torchao.utils import ceil_div, is_MI300, is_MI350
 
 
 def _is_sm_10x() -> bool:
@@ -57,6 +57,9 @@ from torchao.prototype.moe_training.kernels.mxfp8 import (
 from torchao.prototype.moe_training.kernels.mxfp8.cutedsl_pad_token_groups import (
     pad_token_groups_cutedsl,
     unpad_token_groups_cutedsl,
+)
+from torchao.prototype.moe_training.kernels.mxfp8.cutedsl_rearrange_2d_k_groups import (
+    mx_block_rearrange_2d_k_groups_cutedsl,
 )
 from torchao.prototype.moe_training.kernels.mxfp8.cutedsl_rearrange_2d_m_groups import (
     mx_block_rearrange_2d_m_groups_cutedsl,
@@ -448,6 +451,55 @@ def test_triton_mx_block_rearrange_2d_K_groups(
         scale_group_offsets,
     )
     assert torch.equal(ref_out_scales, triton_out_scales), "blocked scales not equal"
+
+
+@skip_if_rocm("ROCm enablement in progress")
+@pytest.mark.skipif(
+    not _mxfp8_cutedsl_kernels_available,
+    reason="CuteDSL MXFP8 kernels are unavailable",
+)
+@pytest.mark.parametrize(
+    ("m", "total_k", "n_groups"),
+    [
+        (256, 512, 1),
+        (256, 1024, 4),
+        (512, 2048, 8),
+        (1024, 4096, 8),
+        (1024, 4097, 8),
+    ],
+)
+def test_cutedsl_mx_block_rearrange_2d_K_groups(
+    m: int,
+    total_k: int,
+    n_groups: int,
+):
+    device = "cuda"
+    block_size = 32
+    scale_cols = ceil_div(total_k, block_size)
+    e8m0_scales = (
+        torch.arange(m * scale_cols, device=device, dtype=torch.int32)
+        .remainder(251)
+        .to(torch.uint8)
+        .reshape(m, scale_cols)
+        .view(torch.float8_e8m0fnu)
+    )
+    scale_group_offsets = generate_jagged_offs(
+        n_groups,
+        scale_cols,
+        multiple_of=1,
+        device=device,
+        dtype=torch.int32,
+    )
+
+    ref_out_scales, _ = torch_to_blocked_2d_K_groups(
+        e8m0_scales,
+        scale_group_offsets,
+    )
+    cutedsl_out_scales = mx_block_rearrange_2d_k_groups_cutedsl(
+        e8m0_scales,
+        scale_group_offsets,
+    )
+    assert torch.equal(ref_out_scales, cutedsl_out_scales)
 
 
 @pytest.mark.skipif(
