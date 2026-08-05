@@ -691,7 +691,7 @@ class TestAOTI(unittest.TestCase):
     )
     def test_aoti(self, api, test_device, test_dtype):
         if (
-            test_device == get_current_accelerator_device()
+            test_device == torch.accelerator.current_accelerator()
             and torch.cuda.is_available()
             and test_dtype == torch.bfloat16
             and torch.cuda.get_device_capability() < (8, 0)
@@ -748,7 +748,7 @@ class TestExport(unittest.TestCase):
     )
     def test_export(self, api, test_device, test_dtype):
         if (
-            test_device == get_current_accelerator_device()
+            test_device == torch.accelerator.current_accelerator()
             and torch.cuda.is_available()
             and test_dtype == torch.bfloat16
             and torch.cuda.get_device_capability() < (8, 0)
