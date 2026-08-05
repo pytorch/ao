@@ -11,23 +11,6 @@ from typing import Optional
 import torch
 
 from torchao.float8.config import e4m3_dtype
-from torchao.prototype.blockwise_fp8_training.deepgemm_grouped_kernels import (
-    can_use_deepgemm_grouped_training,
-    deepgemm_blockwise_scaled_grouped_mm,
-    deepgemm_blockwise_scaled_grouped_mm_wgrad,
-    prepare_deepgemm_wgrad_plan,
-)
-from torchao.prototype.blockwise_fp8_training.deepgemm_metadata import (
-    DeepGemmGroupedOffsetPlan,
-    build_deepgemm_grouped_offset_plan,
-)
-from torchao.prototype.blockwise_fp8_training.grouped_kernels import (
-    emulated_blockwise_scaled_grouped_mm,
-)
-from torchao.prototype.blockwise_fp8_training.grouped_weight_quant import (
-    triton_fp8_blockwise_weight_quant_grouped_dgrad_rhs,
-    triton_fp8_blockwise_weight_quant_grouped_forward_rhs,
-)
 from torchao.prototype.blockwise_fp8_training.kernels import (
     BLOCKWISE_1X128_SCALING_TYPE,
     BLOCKWISE_128X128_SCALING_TYPE,
@@ -42,6 +25,17 @@ from torchao.prototype.moe_training.kernels import (
     triton_fp8_per_group_colwise_scales_dual,
     triton_fp8_rowwise_2d_scale_and_cast,
     triton_fp8_rowwise_3d_transpose_rhs,
+)
+from torchao.prototype.moe_training.kernels.fp8_blockwise import (
+    DeepGemmGroupedOffsetPlan,
+    build_deepgemm_grouped_offset_plan,
+    can_use_deepgemm_grouped_training,
+    deepgemm_blockwise_scaled_grouped_mm,
+    deepgemm_blockwise_scaled_grouped_mm_wgrad,
+    emulated_blockwise_scaled_grouped_mm,
+    prepare_deepgemm_wgrad_plan,
+    triton_fp8_blockwise_weight_quant_grouped_dgrad_rhs,
+    triton_fp8_blockwise_weight_quant_grouped_forward_rhs,
 )
 from torchao.prototype.moe_training.utils import (
     _is_column_major,
