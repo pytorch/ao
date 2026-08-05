@@ -203,17 +203,19 @@ def _(
 
 def to_sparse_semi_structured_cutlass_sm9x_f8(
     weight: Tensor,
+    backend: str = "legacy",
 ) -> (Tensor, Tensor):
-    """
-    CUTLASS-based conversion from sparsified input tensor to corresponding compressed tensor, along with corresponding metadata tensor.
-    Args:
-        weight: input tensor, in row-major layout.
-    Returns:
-        weight_compressed: compressed weight tensor, with sparsity eliminated, in row-major layout.
-        weight_meta: metadata tensor, describing the sparsity structure of the input tensor, also in row-major layout.
-    """
+    if backend == "legacy":
+        return torch.ops.torchao.to_sparse_semi_structured_cutlass_sm9x_f8.default(
+            weight
+        )
+    if backend == "cutedsl":
+        from torchao.quantization.quantize_.workflows.float8.cutedsl_sparse_2x4 import (
+            to_sparse_semi_structured_cutedsl,
+        )
 
-    return torch.ops.torchao.to_sparse_semi_structured_cutlass_sm9x_f8.default(weight)
+        return to_sparse_semi_structured_cutedsl(weight)
+    raise ValueError(f"Unsupported sparse conversion backend: {backend}")
 
 
 @register_custom_op("torchao::to_sparse_semi_structured_cutlass_sm9x_f8")
@@ -223,9 +225,13 @@ def _(
     # No checks here, as detailed checks are performed by the
     # operator itself.
 
+    rows, cols = weight.shape
+    compressed_cols = (((cols + 31) // 32) * 32) // 2
+    metadata_rows = ((rows + 63) // 64) * 64
+    metadata_cols = (((cols + 127) // 128) * 128) // 8
     return (
-        weight.new_empty(weight[0], weight[1] // 2),
-        weight.new_empty(weight[0], max(weight[1] // 8, 16), dtype=torch.char),
+        weight.new_empty((rows, compressed_cols)),
+        weight.new_empty((metadata_rows, metadata_cols), dtype=torch.uint8),
     )
 
 
