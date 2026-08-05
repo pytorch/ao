@@ -110,10 +110,6 @@ def f6_e3m2_unpacked_to_f32(x: torch.Tensor):
     return _floatx_unpacked_to_f32(x, EBITS_F6_E3M2, MBITS_F6_E3M2)
 
 
-# pack/unpack code copy-pasted from
-# https://github.com/pytorch-labs/ao/blob/main/torchao/dtypes/uint4.py
-
-
 def down_size(size):
     assert size[-1] % 2 == 0, f"{size} last dim not divisible by two"
     return (*size[:-1], size[-1] // 2)
