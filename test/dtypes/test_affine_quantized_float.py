@@ -86,7 +86,7 @@ class TestAffineQuantizedFloat8Compile(InductorTestCase):
         "Requires GPU with compute capability >= 8.9",
     )
     def test_per_row_with_float32(self):
-        device = get_current_accelerator_device()
+        device = torch.accelerator.current_accelerator()
         with pytest.raises(
             AssertionError,
             match="PerRow quantization only works for bfloat16 precision",
