@@ -37,31 +37,8 @@ _SCALE_RECIPE = [F.ScalingType.BlockWise1x16, F.ScalingType.TensorWise]
 _SWIZZLE = [F.SwizzleType.SWIZZLE_32_4_4, F.SwizzleType.NO_SWIZZLE]
 
 
-def _scaled_grouped_mm(
-    mat_a: torch.Tensor,
-    mat_b: torch.Tensor,
-    block_scale_a: torch.Tensor,
-    global_amax_a: torch.Tensor,
-    block_scale_b: torch.Tensor,
-    global_amax_b: torch.Tensor,
-    group_end_offsets: torch.Tensor,
-) -> torch.Tensor:
-    return F.scaled_grouped_mm(
-        mat_a,
-        mat_b,
-        scale_a=[block_scale_a, per_tensor_amax_to_scale(global_amax_a)],
-        scale_recipe_a=_SCALE_RECIPE,
-        scale_b=[block_scale_b, per_tensor_amax_to_scale(global_amax_b)],
-        scale_recipe_b=_SCALE_RECIPE,
-        swizzle_a=_SWIZZLE,
-        swizzle_b=_SWIZZLE,
-        offs=group_end_offsets,
-        output_dtype=torch.bfloat16,
-    )
-
-
 @conditional_nostrict_trace
-def _to_nvfp4_then_scaled_grouped_mm(
+def _to_nvfp4_rht_rs_then_scaled_grouped_mm(
     A: torch.Tensor,
     B: torch.Tensor,
     sign_vector: tuple[int, ...] | list[int],
@@ -213,15 +190,18 @@ class _NVFP4GroupedMM(torch.autograd.Function):
         weight_codes, weight_sf, weight_t_codes, weight_t_sf = (
             triton_group_weight_quantize_2d(weight, weight_amax, num_experts)
         )
-        output = _scaled_grouped_mm(
+        output = F.scaled_grouped_mm(
             x_row_codes.view(torch.float4_e2m1fn_x2),
             # Transpose rowwise W codes to the grouped-GEMM RHS layout (E, K, N).
             weight_codes.view(torch.float4_e2m1fn_x2).transpose(-2, -1),
-            x_row_sf,
-            x_row_amax,
-            weight_sf.flatten(1),
-            weight_amax,
-            padded_group_end_offsets,
+            scale_a=[x_row_sf, per_tensor_amax_to_scale(x_row_amax)],
+            scale_recipe_a=_SCALE_RECIPE,
+            scale_b=[weight_sf.flatten(1), per_tensor_amax_to_scale(weight_amax)],
+            scale_recipe_b=_SCALE_RECIPE,
+            swizzle_a=_SWIZZLE,
+            swizzle_b=_SWIZZLE,
+            offs=padded_group_end_offsets,
+            output_dtype=torch.bfloat16,
         )
 
         if pad_token_groups_for_grouped_mm:
@@ -314,24 +294,30 @@ class _NVFP4GroupedMM(torch.autograd.Function):
             )
         )
 
-        grad_input = _scaled_grouped_mm(
+        grad_input = F.scaled_grouped_mm(
             dy_row_codes.view(torch.float4_e2m1fn_x2),
             # Transpose rowwise W.T codes to the dgrad RHS layout (E, N, K).
             weight_t_codes.view(torch.float4_e2m1fn_x2).transpose(-2, -1),
-            dy_row_sf,
-            dy_row_amax,
-            weight_t_sf.flatten(1),
-            weight_amax,
-            padded_group_end_offsets,
+            scale_a=[dy_row_sf, per_tensor_amax_to_scale(dy_row_amax)],
+            scale_recipe_a=_SCALE_RECIPE,
+            scale_b=[weight_t_sf.flatten(1), per_tensor_amax_to_scale(weight_amax)],
+            scale_recipe_b=_SCALE_RECIPE,
+            swizzle_a=_SWIZZLE,
+            swizzle_b=_SWIZZLE,
+            offs=padded_group_end_offsets,
+            output_dtype=torch.bfloat16,
         )
-        grad_weight = _scaled_grouped_mm(
+        grad_weight = F.scaled_grouped_mm(
             dy_col_codes.view(torch.float4_e2m1fn_x2),
             x_col_codes.view(torch.float4_e2m1fn_x2).transpose(-2, -1),
-            dy_col_sf,
-            dy_col_amax,
-            x_col_sf,
-            x_col_amax,
-            padded_group_end_offsets,
+            scale_a=[dy_col_sf, per_tensor_amax_to_scale(dy_col_amax)],
+            scale_recipe_a=_SCALE_RECIPE,
+            scale_b=[x_col_sf, per_tensor_amax_to_scale(x_col_amax)],
+            scale_recipe_b=_SCALE_RECIPE,
+            swizzle_a=_SWIZZLE,
+            swizzle_b=_SWIZZLE,
+            offs=padded_group_end_offsets,
+            output_dtype=torch.bfloat16,
         )
         if ctx.pad_token_groups_for_grouped_mm:
             grad_input = unpad_token_groups(

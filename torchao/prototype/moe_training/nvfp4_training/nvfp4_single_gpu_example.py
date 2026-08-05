@@ -85,11 +85,11 @@ class GroupedExperts(nn.Module):
         self, x: torch.Tensor, num_tokens_per_expert: torch.Tensor
     ) -> torch.Tensor:
         from torchao.prototype.moe_training.nvfp4_training.nvfp4_grouped_mm import (
-            _to_nvfp4_then_scaled_grouped_mm,
+            _to_nvfp4_rht_rs_then_scaled_grouped_mm,
         )
 
         offsets = torch.cumsum(num_tokens_per_expert, dim=0, dtype=torch.int32)
-        gate = _to_nvfp4_then_scaled_grouped_mm(
+        gate = _to_nvfp4_rht_rs_then_scaled_grouped_mm(
             x,
             self.w1,
             RHT_SIGN_VECTOR,
@@ -97,7 +97,7 @@ class GroupedExperts(nn.Module):
             offs=offsets,
             pad_token_groups_for_grouped_mm=False,
         )
-        up = _to_nvfp4_then_scaled_grouped_mm(
+        up = _to_nvfp4_rht_rs_then_scaled_grouped_mm(
             x,
             self.w3,
             RHT_SIGN_VECTOR,
@@ -106,7 +106,7 @@ class GroupedExperts(nn.Module):
             pad_token_groups_for_grouped_mm=False,
         )
         hidden = F.silu(gate) * up
-        return _to_nvfp4_then_scaled_grouped_mm(
+        return _to_nvfp4_rht_rs_then_scaled_grouped_mm(
             hidden,
             self.w2,
             RHT_SIGN_VECTOR,
@@ -123,8 +123,8 @@ def main() -> None:
     if not has_triton():
         print("Skipping NVFP4 example: Triton is not available.")
         return
-    if not torch_version_at_least("2.10.0"):
-        print("Skipping NVFP4 example: PyTorch 2.10 or newer is required.")
+    if not torch_version_at_least("2.13.0"):
+        print("Skipping NVFP4 example: PyTorch 2.13 or newer is required.")
         return
 
     device = torch.device("cuda:0")

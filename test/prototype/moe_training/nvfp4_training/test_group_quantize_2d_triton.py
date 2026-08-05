@@ -41,6 +41,20 @@ _CORRECTNESS_SHAPES = [
 ]
 
 
+def group_weight_quantize_2d_ref(weights, global_amax, scale_shape):
+    """PyTorch NVFP4 reference for grouped 2D weight quantization."""
+    expected_codes = []
+    expected_scales = []
+    for expert in range(weights.shape[0]):
+        scales, codes = nvfp4_quantize(
+            weights[expert],
+            per_tensor_scale=per_tensor_amax_to_scale(global_amax[expert]),
+        )
+        expected_codes.append(codes)
+        expected_scales.append(to_blocked(scales).view(scale_shape))
+    return torch.stack(expected_codes), torch.stack(expected_scales)
+
+
 @requires_grouped_kernel
 @pytest.mark.parametrize("shape", _CORRECTNESS_SHAPES)
 @torch.no_grad()
@@ -74,21 +88,19 @@ def test_group_quantize_2d_matches_torch_oracle():
     actual_codes, actual_scales, _, _ = triton_group_weight_quantize_2d(
         weights, global_amax, num_tensors=E
     )
+    expected_codes, expected_scales = group_weight_quantize_2d_ref(
+        weights, global_amax, actual_scales.shape[1:]
+    )
 
     for expert in range(E):
-        expected_scales, expected_codes = nvfp4_quantize(
-            weights[expert],
-            per_tensor_scale=per_tensor_amax_to_scale(global_amax[expert]),
-        )
-        expected_scales = to_blocked(expected_scales).view_as(actual_scales[expert])
         torch.testing.assert_close(
-            actual_scales[expert], expected_scales, atol=0, rtol=0
+            actual_scales[expert], expected_scales[expert], atol=0, rtol=0
         )
         actual_unpacked = torch.stack(
             (actual_codes[expert] & 0xF, actual_codes[expert] >> 4), dim=-1
         )
         expected_unpacked = torch.stack(
-            (expected_codes & 0xF, expected_codes >> 4), dim=-1
+            (expected_codes[expert] & 0xF, expected_codes[expert] >> 4), dim=-1
         )
         torch.testing.assert_close(
             actual_unpacked >> 3, expected_unpacked >> 3, atol=0, rtol=0

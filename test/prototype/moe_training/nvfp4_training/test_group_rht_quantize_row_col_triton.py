@@ -213,26 +213,20 @@ def _check_output_shapes(spec, qa, sfa, qd, sfd):
     assert qd.dtype == torch.uint8 and sfd.dtype == torch.float8_e4m3fn
 
 
-def _assert_group_rht_correctness(graph_case):
-    spec, A, B, offsets, amax_row, amax_col, group_tensors, rht_groups = graph_case
+def triton_group_rht_quantize_row_col_ref(
+    spec,
+    A,
+    amax_row,
+    amax_col,
+    group_tensors,
+    rht_groups,
+    qa,
+    sfa,
+    qd,
+    sfd,
+):
+    """Compare Triton outputs with the per-group PyTorch NVFP4 reference."""
     psl, hs = A.shape
-    num_groups = len(spec.groups)
-
-    qa, sfa, qd, sfd = triton_group_rht_quantize_row_col(
-        A,
-        list(_HARDCODED_SIGN_VECTOR),
-        offsets,
-        num_groups,
-        psl,
-        hs,
-        spec.shape_rep,
-        amax_row,
-        amax_col,
-        None,
-        False,
-    )
-    _check_output_shapes(spec, qa, sfa, qd, sfd)
-
     expected_col_sf = torch.empty(
         (hs, psl // 16), dtype=torch.float8_e4m3fn, device=A.device
     )
@@ -275,6 +269,39 @@ def _assert_group_rht_correctness(graph_case):
 
     _assert_scales_adjacent(sfd, to_blocked(expected_col_sf), "col sf swizzled")
     _assert_scales_adjacent(sfa, to_blocked(expected_row_sf), "row sf swizzled")
+
+
+def _assert_group_rht_correctness(graph_case):
+    spec, A, B, offsets, amax_row, amax_col, group_tensors, rht_groups = graph_case
+    psl, hs = A.shape
+    num_groups = len(spec.groups)
+
+    qa, sfa, qd, sfd = triton_group_rht_quantize_row_col(
+        A,
+        list(_HARDCODED_SIGN_VECTOR),
+        offsets,
+        num_groups,
+        psl,
+        hs,
+        spec.shape_rep,
+        amax_row,
+        amax_col,
+        None,
+        False,
+    )
+    _check_output_shapes(spec, qa, sfa, qd, sfd)
+    triton_group_rht_quantize_row_col_ref(
+        spec,
+        A,
+        amax_row,
+        amax_col,
+        group_tensors,
+        rht_groups,
+        qa,
+        sfa,
+        qd,
+        sfd,
+    )
 
 
 @_maybe_sm100
