@@ -1871,7 +1871,7 @@ class TestQAT(TestCase):
     @unittest.skipIf(
         torch.cuda.is_available()
         and not (is_sm_at_least_89() or is_MI300() or is_MI350()),
-        "Need sm89+ or MI300/MI350",
+        "Need CUDA sm89+ or ROCm MI300/MI350",
     )
     def test_quantize_api_fp8_fp8(self, granularity: Granularity):
         """
