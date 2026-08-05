@@ -67,6 +67,7 @@ jobs:
         PIP_EXTRA_INDEX_URL= pip install ${{ matrix.torch-spec }}
         pip install -U --pre flashinfer-python --index-url https://flashinfer.ai/whl/nightly/ --no-deps
         pip install apache-tvm-ffi
+        pip install nvidia-cutlass-dsl
         pip install nvidia-ml-py
         uv pip install -r dev-requirements.txt
         # Editable install so build_ext --inplace drops the compiled extensions
