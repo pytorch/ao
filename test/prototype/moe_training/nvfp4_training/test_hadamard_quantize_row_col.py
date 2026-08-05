@@ -345,6 +345,7 @@ def _assert_near_zero_values_do_not_saturate(
 # Tests — both backends
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.parametrize("kernel", _KERNELS)
 @pytest.mark.parametrize("N", _N_VALUES, ids=lambda n: f"N{n}")
 @pytest.mark.parametrize("M", _M_VALUES, ids=lambda m: f"M{m}")
