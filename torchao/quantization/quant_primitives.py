@@ -1323,8 +1323,12 @@ def _choose_qparams_affine_tinygemm(
     )
     input = input.view(shape_for_reduction)
 
-    min_val = torch.amin(input, dim=reduction_dims, keepdim=False)
-    max_val = torch.amax(input, dim=reduction_dims, keepdim=False)
+    if len(reduction_dims) == 0:
+        min_val = input
+        max_val = input
+    else:
+        min_val = torch.amin(input, dim=reduction_dims, keepdim=False)
+        max_val = torch.amax(input, dim=reduction_dims, keepdim=False)
 
     # For preserve_zero=False, we don't ensure zero is exactly representable
     min_val_neg = min_val
@@ -1394,8 +1398,12 @@ def _choose_qparams_affine_dont_preserve_zero(
     )
     input = input.view(shape_for_reduction)
 
-    min_val = torch.amin(input, dim=reduction_dims, keepdim=False)
-    max_val = torch.amax(input, dim=reduction_dims, keepdim=False)
+    if len(reduction_dims) == 0:
+        min_val = input
+        max_val = input
+    else:
+        min_val = torch.amin(input, dim=reduction_dims, keepdim=False)
+        max_val = torch.amax(input, dim=reduction_dims, keepdim=False)
 
     # For no preserve zero, we don't ensure zero is exactly representable
     min_val_neg = min_val
@@ -1541,8 +1549,15 @@ def _choose_qparams_affine(
     )
     input = input.view(shape_for_reduction)
 
-    min_val = torch.amin(input, dim=reduction_dims, keepdim=keepdim)
-    max_val = torch.amax(input, dim=reduction_dims, keepdim=keepdim)
+    # When every block_size entry is 1 (e.g. PerRow on in_features=1), there are
+    # no dims to reduce over. torch.amin/amax with dim=[] reduce over *all* dims,
+    # which collapses the tensor to a single value and breaks the later reshape.
+    if len(reduction_dims) == 0:
+        min_val = input
+        max_val = input
+    else:
+        min_val = torch.amin(input, dim=reduction_dims, keepdim=keepdim)
+        max_val = torch.amax(input, dim=reduction_dims, keepdim=keepdim)
 
     min_val_neg = torch.min(min_val, torch.zeros_like(min_val))
     max_val_pos = torch.max(max_val, torch.zeros_like(max_val))
@@ -1617,8 +1632,12 @@ def _choose_qparams_gguf(
         block_size, input.size()
     )
     input = input.view(shape_for_reduction)
-    min_val = torch.amin(input, dim=reduction_dims, keepdim=False)
-    max_val = torch.amax(input, dim=reduction_dims, keepdim=False)
+    if len(reduction_dims) == 0:
+        min_val = input
+        max_val = input
+    else:
+        min_val = torch.amin(input, dim=reduction_dims, keepdim=False)
+        max_val = torch.amax(input, dim=reduction_dims, keepdim=False)
     quant_max = 15
     quant_min = 0
     # asymmetric quant to fully utilize the range
@@ -2264,7 +2283,12 @@ def _choose_scale_float8(
         block_size, tensor.shape
     )
     tensor_reshaped = tensor.view(shape_for_reduction)
-    max_abs = tensor_reshaped.abs().amax(dim=reduction_dims, keepdim=True)
+    # Same empty-reduction edge case as _choose_qparams_affine: dim=[] would
+    # incorrectly reduce over all dims (e.g. PerRow on in_features=1).
+    if len(reduction_dims) == 0:
+        max_abs = tensor_reshaped.abs()
+    else:
+        max_abs = tensor_reshaped.abs().amax(dim=reduction_dims, keepdim=True)
     if hp_value_lb is not None or hp_value_ub is not None:
         max_abs = torch.clamp(max_abs, min=hp_value_lb, max=hp_value_ub)
     scale = max_abs / quant_max

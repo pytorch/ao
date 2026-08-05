@@ -510,6 +510,19 @@ class TestInt8StaticQuant(TorchAOIntegrationTestCase):
         sqnr = compute_error(output_baseline, output)
         self.assertGreater(sqnr, 40, f"SQNR too low: {sqnr}")
 
+    def test_int8_weight_only_in_features_one(self):
+        """Per-row int8 weight-only must work when in_features=1.
+
+        Regression for https://github.com/pytorch/ao/issues/761
+        """
+        torch.manual_seed(0)
+        model = torch.nn.Linear(1, 4)
+        ref = model(torch.randn(8, 1)).detach().clone()
+        quantize_(model, Int8WeightOnlyConfig(version=2, granularity=PerRow()))
+        self.assertEqual(model.weight.scale.shape, torch.Size([4, 1]))
+        out = model(torch.randn(8, 1))
+        self.assertEqual(out.shape, ref.shape)
+
 
 if __name__ == "__main__":
     common_utils.run_tests()
