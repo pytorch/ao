@@ -10,6 +10,12 @@ from typing import Optional
 
 import torch
 
+from torchao.float8.config import e4m3_dtype
+from torchao.prototype.blockwise_fp8_training.cutedsl_grouped_gemm import (
+    _can_use_cutedsl_fp8_blockwise_grouped_mm_training,
+    _is_cutedsl_2d_2d_supported,
+    _is_cutedsl_2d_3d_supported,
+)
 from torchao.prototype.blockwise_fp8_training.deepgemm_grouped_kernels import (
     can_use_deepgemm_grouped_training,
     deepgemm_blockwise_scaled_grouped_mm,
@@ -21,6 +27,7 @@ from torchao.prototype.blockwise_fp8_training.deepgemm_metadata import (
     build_deepgemm_grouped_offset_plan,
 )
 from torchao.prototype.blockwise_fp8_training.grouped_kernels import (
+    blockwise_scaled_grouped_mm,
     emulated_blockwise_scaled_grouped_mm,
 )
 from torchao.prototype.blockwise_fp8_training.grouped_weight_quant import (
@@ -39,6 +46,7 @@ from torchao.quantization.quantize_.common import KernelPreference
 class _GroupedMMBackendKind(str, Enum):
     """Grouped GEMM backend selected for the FP8 MoE training op."""
 
+    CUTEDSL = "cutedsl"
     DEEPGEMM = "deepgemm"
     EMULATED = "emulated"
 
@@ -194,6 +202,100 @@ class _EmulatedGroupedMMBackend(_GroupedMMBackend):
         )
 
 
+class _CuteDslGroupedMMBackend(_EmulatedGroupedMMBackend):
+    """CuTeDSL quantization layouts and grouped GEMM dispatch."""
+
+    kind = _GroupedMMBackendKind.CUTEDSL
+
+    def grouped_mm(
+        self,
+        a: torch.Tensor,
+        b: torch.Tensor,
+        a_s: torch.Tensor,
+        scale_recipe_a: int,
+        b_s: torch.Tensor,
+        scale_recipe_b: int,
+        offs: torch.Tensor,
+        out_dtype: torch.dtype,
+        block_size: int,
+    ) -> torch.Tensor:
+        if not _is_cutedsl_2d_3d_supported(
+            a,
+            b,
+            a_s,
+            scale_recipe_a,
+            b_s,
+            scale_recipe_b,
+            offs,
+            out_dtype,
+            block_size,
+        ):
+            raise RuntimeError(
+                "CuTeDSL grouped MM backend was selected, but the forward/dgrad "
+                "operation is not supported; refusing to fall back to another backend"
+            )
+        return blockwise_scaled_grouped_mm(
+            a,
+            b,
+            a_s,
+            scale_recipe_a,
+            b_s,
+            scale_recipe_b,
+            offs,
+            out_dtype,
+            block_size,
+        )
+
+    def wgrad(
+        self,
+        padded_grad_output: torch.Tensor,
+        padded_a: torch.Tensor,
+        group_end_offsets: torch.Tensor,
+        out_dtype: torch.dtype,
+        block_size: int,
+        dtype: torch.dtype,
+    ) -> torch.Tensor:
+        grad_output_t_fp8, grad_output_t_scale = (
+            triton_fp8_blockwise_act_quant_transposed_lhs(
+                padded_grad_output.contiguous(),
+                block_size=block_size,
+                dtype=dtype,
+            )
+        )
+        a_rhs_fp8, a_rhs_scale = triton_fp8_blockwise_act_quant_rhs(
+            padded_a.contiguous(),
+            block_size=block_size,
+            dtype=dtype,
+        )
+        scale_recipe = _scaling_type_value(BLOCKWISE_1X128_SCALING_TYPE)
+        if not _is_cutedsl_2d_2d_supported(
+            grad_output_t_fp8,
+            a_rhs_fp8,
+            grad_output_t_scale,
+            scale_recipe,
+            a_rhs_scale,
+            scale_recipe,
+            group_end_offsets,
+            out_dtype,
+            block_size,
+        ):
+            raise RuntimeError(
+                "CuTeDSL grouped MM backend was selected, but wgrad is not "
+                "supported; refusing to fall back to another backend"
+            )
+        return blockwise_scaled_grouped_mm(
+            grad_output_t_fp8,
+            a_rhs_fp8,
+            grad_output_t_scale,
+            scale_recipe,
+            a_rhs_scale,
+            scale_recipe,
+            group_end_offsets,
+            out_dtype,
+            block_size,
+        )
+
+
 @dataclass(frozen=True)
 class _DeepGemmGroupedMMBackend(_GroupedMMBackend):
     """DeepGEMM backend plus the offset metadata shared by its kernels."""
@@ -293,6 +395,7 @@ class _DeepGemmGroupedMMBackend(_GroupedMMBackend):
 
 
 _EMULATED_GROUPED_MM_BACKEND = _EmulatedGroupedMMBackend()
+_CUTEDSL_GROUPED_MM_BACKEND = _CuteDslGroupedMMBackend()
 
 
 def _select_fp8_blockwise_grouped_mm_backend(
@@ -305,15 +408,16 @@ def _select_fp8_blockwise_grouped_mm_backend(
     original_group_end_offsets: Optional[torch.Tensor] = None,
     padded_group_start_offsets: Optional[torch.Tensor] = None,
     num_rows: Optional[int] = None,
+    B_t: Optional[torch.Tensor] = None,
+    float8_dtype: torch.dtype = e4m3_dtype,
 ) -> _GroupedMMBackend:
     """Select the grouped GEMM backend for one forward/backward pass.
 
     ``KernelPreference.EMULATED`` always selects the TorchAO emulated backend.
-    ``KernelPreference.AUTO`` and ``KernelPreference.DEEPGEMM`` select DeepGEMM
-    when the optional dependency exposes both M-grouped and K-grouped training
-    kernels, the input is on CUDA SM90+, ``out_dtype`` is bf16, ``block_size``
-    is 128, and every expert group is block-aligned. Unsupported cases fail;
-    emulation must be selected explicitly.
+    ``KernelPreference.AUTO`` selects the opt-in CuTeDSL backend when all three
+    training operations are supported, then otherwise follows the existing
+    DeepGEMM selection. ``KernelPreference.DEEPGEMM`` selects only DeepGEMM.
+    Unsupported cases fail; emulation must be selected explicitly.
     When DeepGEMM is selected, the returned backend owns the offset/layout plan
     reused by forward, dgrad, and wgrad. The autograd function saves this
     backend, so wgrad cannot independently choose a different layout or kernel.
@@ -326,6 +430,22 @@ def _select_fp8_blockwise_grouped_mm_backend(
         KernelPreference.AUTO,
         KernelPreference.DEEPGEMM,
     ), "kernel_preference must be AUTO, DEEPGEMM, or EMULATED"
+    if (
+        kernel_preference == KernelPreference.AUTO
+        and B_t is not None
+        and num_rows is not None
+        and _can_use_cutedsl_fp8_blockwise_grouped_mm_training(
+            A,
+            B_t,
+            group_end_offsets,
+            out_dtype,
+            float8_dtype,
+            block_size,
+            num_rows,
+        )
+    ):
+        return _CUTEDSL_GROUPED_MM_BACKEND
+
     if not can_use_deepgemm_grouped_training(A, out_dtype, block_size):
         raise RuntimeError(
             f"KernelPreference.{kernel_preference.name} could not select a supported "
