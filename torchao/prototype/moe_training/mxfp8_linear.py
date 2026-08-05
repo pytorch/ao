@@ -13,6 +13,9 @@ from typing import Any
 import torch
 from torch import nn
 
+from torchao.prototype.moe_training.kernels.mxfp8 import (
+    mxfp8_quantize_2d_1x32_cutedsl,
+)
 from torchao.prototype.mx_formats.config import (
     MXFP8Dim0CastKernelChoice,
     MXFP8Dim1CastKernelChoice,
@@ -22,6 +25,54 @@ from torchao.prototype.mx_formats.mx_tensor import MXTensor
 from torchao.prototype.mx_formats.utils import _to_mxfp8_dim1_kernel_wrapper
 from torchao.quantization.quantize_.common.kernel_preference import KernelPreference
 
+_MXFP8_LINEAR_BACKEND = "cutedsl"
+
+
+def set_mxfp8_linear_backend(backend: str) -> None:
+    assert backend in ("legacy", "cutedsl")
+    global _MXFP8_LINEAR_BACKEND
+    _MXFP8_LINEAR_BACKEND = backend
+
+
+def get_mxfp8_linear_backend() -> str:
+    return _MXFP8_LINEAR_BACKEND
+
+
+def _to_mxfp8_dim0(
+    data_hp: torch.Tensor,
+    elem_dtype: torch.dtype,
+    block_size: int,
+    scale_calculation_mode: ScaleCalculationMode,
+    kernel_preference: KernelPreference,
+    mxfp8_dim0_cast_kernel_choice: MXFP8Dim0CastKernelChoice,
+    backend: str,
+) -> MXTensor:
+    if kernel_preference == KernelPreference.AUTO and backend == "cutedsl":
+        qdata, scale = mxfp8_quantize_2d_1x32_cutedsl(
+            data_hp,
+            block_size=block_size,
+            scaling_mode=scale_calculation_mode.value,
+        )
+        return MXTensor(
+            qdata,
+            scale,
+            elem_dtype,
+            block_size,
+            data_hp.dtype,
+            kernel_preference,
+            None,
+            True,
+        )
+
+    return MXTensor.to_mx(
+        data_hp,
+        elem_dtype,
+        block_size,
+        scale_calculation_mode,
+        kernel_preference,
+        mxfp8_dim0_cast_kernel_choice=mxfp8_dim0_cast_kernel_choice,
+    )
+
 
 # convenience wrapper
 def _to_mxfp8_then_scaled_mm(
@@ -30,6 +81,7 @@ def _to_mxfp8_then_scaled_mm(
     kernel_preference: KernelPreference,
     scale_calculation_mode: ScaleCalculationMode,
     wgrad_with_hp: bool = False,
+    backend: str | None = None,
 ) -> torch.Tensor:
     """
     Performs a matrix multiplication with MXFP8 quantization on both forward and backward passes.
@@ -63,7 +115,13 @@ def _to_mxfp8_then_scaled_mm(
     grad_elem_dtype = torch.float8_e4m3fn
     block_size = 32
     mxfp8_dim0_cast_kernel_choice = MXFP8Dim0CastKernelChoice.TRITON
-    mxfp8_dim1_cast_kernel_choice = MXFP8Dim1CastKernelChoice.CUDA
+    backend = get_mxfp8_linear_backend() if backend is None else backend
+    assert backend in ("legacy", "cutedsl")
+    mxfp8_dim1_cast_kernel_choice = (
+        MXFP8Dim1CastKernelChoice.CUTEDSL
+        if backend == "cutedsl"
+        else MXFP8Dim1CastKernelChoice.CUDA
+    )
 
     return mx_mm.apply(
         input_hp,
@@ -77,6 +135,7 @@ def _to_mxfp8_then_scaled_mm(
         mxfp8_dim1_cast_kernel_choice,
         scale_calculation_mode,
         wgrad_with_hp,
+        backend,
     )
 
 
@@ -104,6 +163,7 @@ class mx_mm(torch.autograd.Function):
         mxfp8_dim1_cast_kernel_choice: MXFP8Dim1CastKernelChoice,
         scale_calculation_mode: ScaleCalculationMode,
         wgrad_with_hp: bool,
+        backend: str,
     ):
         ctx.save_for_backward(input_hp, weight_hp)
         ctx.in_elem_dtype = in_elem_dtype
@@ -115,26 +175,29 @@ class mx_mm(torch.autograd.Function):
         ctx.mxfp8_dim0_cast_kernel_choice = mxfp8_dim0_cast_kernel_choice
         ctx.mxfp8_dim1_cast_kernel_choice = mxfp8_dim1_cast_kernel_choice
         ctx.scale_calculation_mode = scale_calculation_mode
+        ctx.backend = backend
 
         # input @ weight_t = output
         input_orig_shape = input_hp.shape
         input_hp_r = input_hp.reshape(-1, input_orig_shape[-1])
 
-        input_mx_r_dim0 = MXTensor.to_mx(
+        input_mx_r_dim0 = _to_mxfp8_dim0(
             input_hp_r,
             in_elem_dtype,
             block_size,
             scale_calculation_mode,
             kernel_preference,
-            mxfp8_dim0_cast_kernel_choice=mxfp8_dim0_cast_kernel_choice,
+            mxfp8_dim0_cast_kernel_choice,
+            backend,
         )
-        weight_mx_dim0 = MXTensor.to_mx(
+        weight_mx_dim0 = _to_mxfp8_dim0(
             weight_hp,
             w_elem_dtype,
             block_size,
             scale_calculation_mode,
             kernel_preference,
-            mxfp8_dim0_cast_kernel_choice=mxfp8_dim0_cast_kernel_choice,
+            mxfp8_dim0_cast_kernel_choice,
+            backend,
         )
         output = torch.mm(input_mx_r_dim0, weight_mx_dim0.t())
         output = output.reshape(*input_orig_shape[:-1], output.shape[-1])
@@ -153,6 +216,7 @@ class mx_mm(torch.autograd.Function):
         mxfp8_dim1_cast_kernel_choice = ctx.mxfp8_dim1_cast_kernel_choice
         scale_calculation_mode = ctx.scale_calculation_mode
         wgrad_with_hp = ctx.wgrad_with_hp
+        backend = ctx.backend
 
         # grad_output may be non-contiguous (e.g. produced by a transposed or
         # otherwise strided downstream op). Both the dim0 cast (MXTensor.to_mx /
@@ -167,13 +231,14 @@ class mx_mm(torch.autograd.Function):
         input_hp_r = input_hp.reshape(-1, input_hp_orig_shape[-1])
 
         # grad_output @ weight = grad_input
-        grad_output_mx_dim0 = MXTensor.to_mx(
+        grad_output_mx_dim0 = _to_mxfp8_dim0(
             grad_output_hp_r,
             grad_elem_dtype,
             block_size,
             scale_calculation_mode,
             kernel_preference,
-            mxfp8_dim0_cast_kernel_choice=mxfp8_dim0_cast_kernel_choice,
+            mxfp8_dim0_cast_kernel_choice,
+            backend,
         )
 
         if (
@@ -266,6 +331,7 @@ class mx_mm(torch.autograd.Function):
             None,
             None,
             None,
+            None,
         )
 
 
@@ -280,6 +346,7 @@ class MXFP8Linear(nn.Linear):
         kernel_preference: KernelPreference = KernelPreference.AUTO,
         scale_calculation_mode: ScaleCalculationMode = ScaleCalculationMode.RCEIL,
         wgrad_with_hp: bool = False,
+        backend: str | None = None,
         **kwargs,
     ):
         """
@@ -292,6 +359,7 @@ class MXFP8Linear(nn.Linear):
         self.kernel_preference = kernel_preference
         self.scale_calculation_mode = scale_calculation_mode
         self.wgrad_with_hp = wgrad_with_hp
+        self.backend = backend
 
     def forward(self, input: torch.Tensor) -> torch.Tensor:
         output = _to_mxfp8_then_scaled_mm(
@@ -300,6 +368,7 @@ class MXFP8Linear(nn.Linear):
             kernel_preference=self.kernel_preference,
             scale_calculation_mode=self.scale_calculation_mode,
             wgrad_with_hp=self.wgrad_with_hp,
+            backend=self.backend,
         )
         if self.bias is not None:
             output = output + self.bias.to(output.dtype)

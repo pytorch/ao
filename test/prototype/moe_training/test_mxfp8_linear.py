@@ -14,7 +14,10 @@ from torchao.utils import is_sm_at_least_100
 if not torch.cuda.is_available():
     pytest.skip("CUDA required", allow_module_level=True)
 
-from torchao.prototype.moe_training.mxfp8_linear import MXFP8Linear
+from torchao.prototype.moe_training.mxfp8_linear import (
+    MXFP8Linear,
+    set_mxfp8_linear_backend,
+)
 from torchao.quantization.quantize_.common.kernel_preference import KernelPreference
 
 
@@ -53,18 +56,29 @@ def _build_linear_pair(
 @pytest.mark.parametrize(
     "kernel_preference", [KernelPreference.EMULATED, KernelPreference.AUTO]
 )
-def test_mxfp8_linear_fwd_bwd_sqnr(bias, wgrad_with_hp, kernel_preference):
+@pytest.mark.parametrize("backend", ("legacy", "cutedsl"))
+def test_mxfp8_linear_fwd_bwd_sqnr(bias, wgrad_with_hp, kernel_preference, backend):
     if kernel_preference == KernelPreference.AUTO and not is_sm_at_least_100():
         pytest.skip("Real MXFP8 kernels require SM100+")
 
     M, K, N = 1024, 1024, 2048
-    ref, mxfp8 = _build_linear_pair(K, N, bias, kernel_preference, wgrad_with_hp)
+    ref, mxfp8 = _build_linear_pair(
+        K,
+        N,
+        bias,
+        kernel_preference,
+        wgrad_with_hp,
+    )
 
     x_ref = torch.randn(M, K, dtype=torch.bfloat16, device="cuda", requires_grad=True)
     x_mxfp8 = x_ref.clone().detach().requires_grad_(True)
 
     out_ref = ref(x_ref)
-    out_mxfp8 = mxfp8(x_mxfp8)
+    set_mxfp8_linear_backend(backend)
+    try:
+        out_mxfp8 = mxfp8(x_mxfp8)
+    finally:
+        set_mxfp8_linear_backend("cutedsl")
 
     # Forward checks
     assert out_mxfp8.shape == out_ref.shape
