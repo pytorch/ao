@@ -36,7 +36,6 @@ from torchao.prototype.quantized_training import (
 from torchao.quantization.quant_api import quantize_
 from torchao.utils import (
     get_available_devices,
-    get_current_accelerator_device,
     torch_version_at_least,
 )
 
@@ -249,7 +248,7 @@ class TestQuantizedTraining(TestCase):
         _reset()
         bsize = 64
         embed_dim = 64
-        device = get_current_accelerator_device()
+        device = torch.accelerator.current_accelerator()
 
         linear = nn.Linear(embed_dim, embed_dim, device=device)
         linear_int8mp = copy.deepcopy(linear)
@@ -310,7 +309,7 @@ class TestQuantizedTraining(TestCase):
         _reset()
         bsize = 4
         embed_dim = 32
-        device = get_current_accelerator_device()
+        device = torch.accelerator.current_accelerator()
 
         # only use 1 matmul shape to reduce triton autotune time
         model_ref = nn.Sequential(
