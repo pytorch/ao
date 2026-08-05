@@ -8,9 +8,9 @@ try:
     import triton
 
     if int(triton.__version__.split(".")[0]) < 3:
-        raise "triton >= 3.0.0 is required to run this test"
-except ImportError:
-    raise "triton and hqq required to run this benchmark"
+        raise RuntimeError("triton >= 3.0.0 is required to run this test")
+except ImportError as e:
+    raise RuntimeError("triton and hqq required to run this benchmark") from e
 
 from io import StringIO
 
