@@ -2411,7 +2411,7 @@ class TestQAT(TestCase):
         from torchao.prototype.qat import MXFakeQuantizeConfig, MXFakeQuantizedLinear
 
         K, N = 256, 128
-        device = get_current_accelerator_device()
+        device = torch.accelerator.current_accelerator()
 
         activation_config = MXFakeQuantizeConfig(
             dtype=dtype,
@@ -2451,7 +2451,7 @@ class TestQAT(TestCase):
         from torchao.prototype.qat import MXFakeQuantizeConfig, MXFakeQuantizedLinear
 
         M, K, N = 128, 256, 128
-        device = get_current_accelerator_device()
+        device = torch.accelerator.current_accelerator()
 
         activation_config = MXFakeQuantizeConfig(block_size=32)
         weight_config = MXFakeQuantizeConfig(block_size=32)
@@ -2505,7 +2505,7 @@ class TestQAT(TestCase):
         from torchao.prototype.qat import MXFakeQuantizeConfig, MXFakeQuantizedLinear
 
         K, N = 256, 128
-        device = get_current_accelerator_device()
+        device = torch.accelerator.current_accelerator()
 
         activation_config = MXFakeQuantizeConfig(block_size=32)
         weight_config = MXFakeQuantizeConfig(block_size=32)
@@ -2567,7 +2567,7 @@ class TestQAT(TestCase):
         from torchao.prototype.qat import MXFakeQuantizeConfig, MXFakeQuantizedLinear
 
         M, K, N = shapes
-        device = get_current_accelerator_device()
+        device = torch.accelerator.current_accelerator()
 
         activation_config = MXFakeQuantizeConfig(block_size=32)
         weight_config = MXFakeQuantizeConfig(block_size=32)
@@ -2595,7 +2595,7 @@ class TestQAT(TestCase):
 
         M, K, N = 128, 256, 128
         num_steps = 5
-        device = get_current_accelerator_device()
+        device = torch.accelerator.current_accelerator()
 
         activation_config = MXFakeQuantizeConfig(block_size=32)
         weight_config = MXFakeQuantizeConfig(block_size=32)
