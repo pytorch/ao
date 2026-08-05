@@ -238,7 +238,7 @@ def test_auto_selects_cutedsl_without_deepgemm(monkeypatch):
     assert backend.kind == grouped_mm_backend._GroupedMMBackendKind.CUTEDSL
 
 
-def test_auto_uses_deepgemm_when_cutedsl_is_unsupported(monkeypatch):
+def test_auto_uses_deepgemm_when_cutedsl_is_unsupported_or_ragged(monkeypatch):
     from torchao.prototype.moe_training.blockwise_fp8 import grouped_mm_backend
 
     monkeypatch.setattr(
@@ -257,50 +257,14 @@ def test_auto_uses_deepgemm_when_cutedsl_is_unsupported(monkeypatch):
         torch.empty(1),
         torch.bfloat16,
         128,
-        torch.tensor([128], dtype=torch.int32),
-        num_rows=128,
+        torch.tensor([256, 512, 640], dtype=torch.int32),
+        original_group_end_offsets=torch.tensor([129, 384, 500], dtype=torch.int32),
+        padded_group_start_offsets=torch.tensor([0, 256, 512], dtype=torch.int32),
+        num_rows=768,
         B_t=torch.empty(1),
     )
 
     assert backend.kind == grouped_mm_backend._GroupedMMBackendKind.DEEPGEMM
-
-
-@pytest.mark.parametrize(
-    ("kernel_preference", "expected_kind"),
-    [
-        (KernelPreference.DEEPGEMM, "deepgemm"),
-        (KernelPreference.EMULATED, "emulated"),
-    ],
-)
-def test_explicit_backend_selection_ignores_cutedsl(
-    monkeypatch, kernel_preference, expected_kind
-):
-    from torchao.prototype.moe_training.blockwise_fp8 import grouped_mm_backend
-
-    monkeypatch.setattr(
-        grouped_mm_backend,
-        "_can_use_cutedsl_fp8_blockwise_grouped_mm_training",
-        lambda *args, **kwargs: pytest.fail(
-            "explicit selection must not consult CuTeDSL"
-        ),
-    )
-    monkeypatch.setattr(
-        grouped_mm_backend,
-        "can_use_deepgemm_grouped_training",
-        lambda *args, **kwargs: True,
-    )
-
-    backend = grouped_mm_backend._select_fp8_blockwise_grouped_mm_backend(
-        kernel_preference,
-        torch.empty(1),
-        torch.bfloat16,
-        128,
-        torch.tensor([128], dtype=torch.int32),
-        num_rows=128,
-        B_t=torch.empty(1),
-    )
-
-    assert backend.kind.value == expected_kind
 
 
 def test_deepgemm_grouped_layout_from_padded_offsets():

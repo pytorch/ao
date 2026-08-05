@@ -438,6 +438,9 @@ def _select_fp8_blockwise_grouped_mm_backend(
             A,
             B_t,
             group_end_offsets,
+            original_group_end_offsets
+            if original_group_end_offsets is not None
+            else group_end_offsets,
             out_dtype,
             float8_dtype,
             block_size,
