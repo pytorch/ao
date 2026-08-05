@@ -696,6 +696,19 @@ class TestQuantPrimitives(unittest.TestCase):
 
             self.assertTrue(torch.equal(w_int4x8, w_int4x8_ref))
 
+    def test_groupwise_affine_quantize_tensor_from_qparams_none_domain(self):
+        """Regression test: ZeroPointDomain.NONE was unreachable due to typo (uppercase Z)."""
+        input = torch.randn(10, 256)
+        scales = torch.randn(10, 2)
+        zeros = torch.zeros(10, 2)
+        n_bit = 4
+        groupsize = 128
+
+        w_int4x8 = groupwise_affine_quantize_tensor_from_qparams(
+            input, scales, zeros, n_bit, groupsize, ZeroPointDomain.NONE,
+        )
+        self.assertEqual(w_int4x8.shape[-1], input.shape[-1])
+
     def test_groupwise_affine_dequantize_tensor_from_qparams(self):
         input = torch.randint(0, 15, (10, 256), dtype=torch.int32)
         scales = torch.randn(10, 2).bfloat16()
