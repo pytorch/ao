@@ -16,7 +16,6 @@ from torch.testing._internal.common_utils import (
     instantiate_parametrized_tests,
     parametrize,
 )
-from torch.testing._internal.optests import opcheck
 
 IS_CUDA = torch.cuda.is_available() and torch.version.cuda
 
