@@ -35,6 +35,7 @@ from torchao.prototype.moe_training.mxfp8_grouped_mm import (
     _emulated_mxfp8_scaled_grouped_mm_2d_2d,
     _emulated_mxfp8_scaled_grouped_mm_2d_3d,
     _to_mxfp8_then_scaled_grouped_mm,
+    set_mxfp8_grouped_mm_backend,
 )
 from torchao.prototype.moe_training.utils import (
     _to_mxfp8_per_group_colwise,
@@ -339,6 +340,190 @@ def test_mxfp8_grouped_gemm_with_dq_fwd_bwd(
     assert sqnr >= min_weight_grad_sqnr, (
         f"Weight grad sqnr {sqnr} is too low, must be >= {min_weight_grad_sqnr}"
     )
+
+
+@skip_if_rocm("ROCm not supported")
+@pytest.mark.skipif(
+    not is_sm_version(10, 0),
+    reason="MXFP8 grouped GEMM requires SM100",
+)
+@pytest.mark.parametrize("backend", ("legacy", "cutedsl"))
+def test_mxfp8_grouped_gemm_backend_fwd_bwd(backend):
+    M, K, N, num_experts = 4096, 1024, 2048, 8
+    x = torch.randn(M, K, dtype=torch.bfloat16, device="cuda", requires_grad=True)
+    w = torch.randn(num_experts, N, K, dtype=torch.bfloat16, device="cuda")
+    w_t = w.transpose(-2, -1).requires_grad_(True)
+    offs = generate_jagged_offs(num_experts, M, multiple_of=128)
+
+    x_ref = x.detach().clone().requires_grad_(True)
+    w_t_ref = w_t.detach().clone().requires_grad_(True)
+
+    set_mxfp8_grouped_mm_backend(backend)
+    try:
+        out = _to_mxfp8_then_scaled_grouped_mm(
+            x,
+            w_t,
+            offs=offs,
+            out_dtype=torch.bfloat16,
+            kernel_preference=KernelPreference.AUTO,
+            wgrad_with_hp=False,
+            scale_calculation_mode=ScaleCalculationMode.RCEIL,
+            pad_token_groups_for_grouped_mm=False,
+        )
+
+        ref_out = torch._grouped_mm(x_ref, w_t_ref, offs=offs, out_dtype=torch.bfloat16)
+        sqnr = compute_error(ref_out, out)
+        min_sqnr = 27.0
+        assert sqnr >= min_sqnr, f"Output sqnr {sqnr} is too low, must be >= {min_sqnr}"
+
+        labels = torch.ones_like(ref_out)
+        F.mse_loss(ref_out, labels).backward()
+        F.mse_loss(out, labels).backward()
+
+        input_grad_sqnr = compute_error(x_ref.grad, x.grad)
+        min_input_grad_sqnr = 25.0
+        assert input_grad_sqnr >= min_input_grad_sqnr, (
+            f"Input grad sqnr {input_grad_sqnr} is too low, "
+            f"must be >= {min_input_grad_sqnr}"
+        )
+
+        weight_grad_sqnr = compute_error(w_t_ref.grad, w_t.grad)
+        min_weight_grad_sqnr = 24.0
+        assert weight_grad_sqnr >= min_weight_grad_sqnr, (
+            f"Weight grad sqnr {weight_grad_sqnr} is too low, "
+            f"must be >= {min_weight_grad_sqnr}"
+        )
+    finally:
+        set_mxfp8_grouped_mm_backend("cutedsl")
+
+
+@skip_if_rocm("ROCm not supported")
+@pytest.mark.skipif(
+    not is_sm_version(10, 0),
+    reason="MXFP8 grouped GEMM requires SM100",
+)
+@pytest.mark.parametrize("backend", ("legacy", "cutedsl"))
+def test_mxfp8_grouped_gemm_padded_backend_fwd_bwd(backend):
+    K, N, num_experts = 1024, 2048, 8
+    group_sizes = [97, 113, 121, 99, 111, 123, 109, 123]
+    M = sum(group_sizes)
+    offs = torch.tensor(group_sizes, dtype=torch.int32, device="cuda").cumsum(
+        0, dtype=torch.int32
+    )
+    x = torch.randn(M, K, dtype=torch.bfloat16, device="cuda", requires_grad=True)
+    w = torch.randn(num_experts, N, K, dtype=torch.bfloat16, device="cuda")
+    w_t = w.transpose(-2, -1).requires_grad_(True)
+
+    x_ref = x.detach().clone().requires_grad_(True)
+    w_t_ref = w_t.detach().clone().requires_grad_(True)
+
+    set_mxfp8_grouped_mm_backend(backend)
+    try:
+        out = _to_mxfp8_then_scaled_grouped_mm(
+            x,
+            w_t,
+            offs=offs,
+            out_dtype=torch.bfloat16,
+            kernel_preference=KernelPreference.AUTO,
+            wgrad_with_hp=True,
+            scale_calculation_mode=ScaleCalculationMode.RCEIL,
+            pad_token_groups_for_grouped_mm=True,
+        )
+
+        ref_out = _to_mxfp8_then_scaled_grouped_mm(
+            x_ref,
+            w_t_ref,
+            offs=offs,
+            out_dtype=torch.bfloat16,
+            kernel_preference=KernelPreference.EMULATED,
+            wgrad_with_hp=True,
+            scale_calculation_mode=ScaleCalculationMode.RCEIL,
+            pad_token_groups_for_grouped_mm=True,
+        )
+
+        output_sqnr = compute_error(ref_out, out)
+        min_output_sqnr = 27.0
+        assert output_sqnr >= min_output_sqnr, (
+            f"Output sqnr {output_sqnr} is too low, must be >= {min_output_sqnr}"
+        )
+
+        labels = torch.ones_like(ref_out)
+        F.mse_loss(ref_out, labels).backward()
+        F.mse_loss(out, labels).backward()
+
+        input_grad_sqnr = compute_error(x_ref.grad, x.grad)
+        min_input_grad_sqnr = 25.0
+        assert input_grad_sqnr >= min_input_grad_sqnr, (
+            f"Input grad sqnr {input_grad_sqnr} is too low, "
+            f"must be >= {min_input_grad_sqnr}"
+        )
+
+        weight_grad_sqnr = compute_error(w_t_ref.grad, w_t.grad)
+        min_weight_grad_sqnr = 24.0
+        assert weight_grad_sqnr >= min_weight_grad_sqnr, (
+            f"Weight grad sqnr {weight_grad_sqnr} is too low, "
+            f"must be >= {min_weight_grad_sqnr}"
+        )
+    finally:
+        set_mxfp8_grouped_mm_backend("cutedsl")
+
+
+@skip_if_rocm("ROCm not supported")
+@pytest.mark.skipif(
+    not is_sm_version(10, 0),
+    reason="MXFP8 grouped GEMM requires SM100",
+)
+@pytest.mark.parametrize("backend", ("legacy", "cutedsl"))
+def test_mxfp8_grouped_gemm_mxtensor_backend_forward(backend):
+    block_size = 32
+    M, K, N, num_experts = 4096, 1024, 2048, 8
+    x = torch.randn(M, K, dtype=torch.bfloat16, device="cuda")
+    w = torch.randn(num_experts, N, K, dtype=torch.bfloat16, device="cuda")
+    w_t = w.transpose(-2, -1)
+    offs = generate_jagged_offs(num_experts, M, multiple_of=128)
+
+    x_scale, x_qdata = to_mx(
+        x,
+        elem_dtype=torch.float8_e4m3fn,
+        block_size=block_size,
+        scaling_mode=ScaleCalculationMode.RCEIL,
+    )
+    x_mx = MXTensor.from_qdata_and_scales(
+        x_qdata,
+        x_scale,
+        orig_dtype=x.dtype,
+        block_size=block_size,
+        is_swizzled_scales=False,
+    )
+
+    set_mxfp8_grouped_mm_backend(backend)
+    try:
+        out = _to_mxfp8_then_scaled_grouped_mm(
+            x_mx,
+            w_t,
+            offs=offs,
+            out_dtype=torch.bfloat16,
+            kernel_preference=KernelPreference.AUTO,
+            wgrad_with_hp=True,
+            scale_calculation_mode=ScaleCalculationMode.RCEIL,
+            pad_token_groups_for_grouped_mm=False,
+        )
+    finally:
+        set_mxfp8_grouped_mm_backend("cutedsl")
+
+    ref_out = _to_mxfp8_then_scaled_grouped_mm(
+        x,
+        w_t,
+        offs=offs,
+        out_dtype=torch.bfloat16,
+        kernel_preference=KernelPreference.EMULATED,
+        wgrad_with_hp=True,
+        scale_calculation_mode=ScaleCalculationMode.RCEIL,
+        pad_token_groups_for_grouped_mm=False,
+    )
+    sqnr = compute_error(ref_out, out)
+    min_sqnr = 27.0
+    assert sqnr >= min_sqnr, f"Output sqnr {sqnr} is too low, must be >= {min_sqnr}"
 
 
 @skip_if_rocm("ROCm not supported")
