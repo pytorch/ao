@@ -211,7 +211,7 @@ def test_emulated_backend_selection_is_explicit():
     assert backend.kind == _GroupedMMBackendKind.EMULATED
 
 
-def test_auto_selects_cutedsl_without_deepgemm(monkeypatch):
+def test_auto_selects_cutedsl_for_supported_ragged_geometry(monkeypatch):
     from torchao.prototype.moe_training.blockwise_fp8 import grouped_mm_backend
 
     monkeypatch.setattr(
@@ -230,15 +230,19 @@ def test_auto_selects_cutedsl_without_deepgemm(monkeypatch):
         torch.empty(1),
         torch.bfloat16,
         128,
-        torch.tensor([128], dtype=torch.int32),
-        num_rows=128,
+        torch.tensor([256, 512, 640, 896], dtype=torch.int32),
+        original_group_end_offsets=torch.tensor(
+            [129, 384, 500, 640], dtype=torch.int32
+        ),
+        padded_group_start_offsets=torch.tensor([0, 256, 512, 640], dtype=torch.int32),
+        num_rows=1152,
         B_t=torch.empty(1),
     )
 
     assert backend.kind == grouped_mm_backend._GroupedMMBackendKind.CUTEDSL
 
 
-def test_auto_uses_deepgemm_when_cutedsl_is_unsupported_or_ragged(monkeypatch):
+def test_auto_uses_deepgemm_when_cutedsl_geometry_is_unsupported(monkeypatch):
     from torchao.prototype.moe_training.blockwise_fp8 import grouped_mm_backend
 
     monkeypatch.setattr(

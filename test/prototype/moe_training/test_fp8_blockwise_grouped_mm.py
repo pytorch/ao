@@ -25,6 +25,7 @@ pytest.importorskip("triton", reason="Triton required to run this test")
 
 from torchao.prototype.blockwise_fp8_training.cutedsl_grouped_gemm import (
     _HOPPER_BLOCKWISE_SCALED_PERSISTENT_GEMM_COMPILED,
+    _block_aligned_group_metadata,
     _cutedsl_runtime_available,
     _load_cutedsl_hopper_gemm_module,
     cutedsl_fp8_blockwise_scaled_grouped_mm_2d_2d,
@@ -217,6 +218,50 @@ def test_cutedsl_fused_2d_3d_correctness_and_cache(monkeypatch, K, N, tile_shape
     not _cutedsl_runtime_available(),
     reason="CuTeDSL runtime packages are not available",
 )
+def test_cutedsl_fused_2d_3d_ragged_with_trailing_slack(monkeypatch):
+    monkeypatch.setenv("TORCHAO_ENABLE_CUTEDSL_FP8_BLOCKWISE_GROUPED_MM", "1")
+    torch.manual_seed(1)
+    group_sizes = (128, 256, 128, 256)
+    E, K, N = len(group_sizes), 7168, 2048
+    logical_m = sum(group_sizes)
+    physical_m = logical_m + 128
+    A = torch.randn(physical_m, K, dtype=torch.bfloat16, device="cuda")
+    B_t = _make_column_major_weight_t(E, N, K)
+    offs = torch.tensor(group_sizes, device="cuda", dtype=torch.int32).cumsum(
+        0, dtype=torch.int32
+    )
+    A_fp8, A_scale = triton_fp8_blockwise_act_quant_lhs(A)
+    B_t_fp8, B_t_scale = _quantize_column_major_weight_t(B_t)
+
+    out = cutedsl_fp8_blockwise_scaled_grouped_mm_2d_3d(
+        A_fp8,
+        B_t_fp8,
+        A_scale,
+        B_t_scale,
+        offs,
+        torch.bfloat16,
+    )
+    ref = emulated_blockwise_scaled_grouped_mm(
+        A_fp8[:logical_m],
+        B_t_fp8,
+        A_scale[:logical_m],
+        _scaling_type_value(BLOCKWISE_1X128_SCALING_TYPE),
+        B_t_scale,
+        _scaling_type_value(BLOCKWISE_128X128_SCALING_TYPE),
+        offs,
+        torch.bfloat16,
+    )
+
+    assert out.shape == (physical_m, N)
+    torch.testing.assert_close(out[:logical_m], ref, atol=4.0, rtol=0.0)
+    assert torch.count_nonzero(out[logical_m:]).item() == 0
+
+
+@skip_if_rocm("ROCm not supported")
+@pytest.mark.skipif(
+    not _cutedsl_runtime_available(),
+    reason="CuTeDSL runtime packages are not available",
+)
 @pytest.mark.parametrize("group_blocks", [16, 17])
 def test_cutedsl_fused_wgrad_correctness_and_cache(monkeypatch, group_blocks):
     monkeypatch.setenv("TORCHAO_ENABLE_CUTEDSL_FP8_BLOCKWISE_GROUPED_MM", "1")
@@ -278,6 +323,60 @@ def test_cutedsl_fused_wgrad_correctness_and_cache(monkeypatch, group_blocks):
     not _cutedsl_runtime_available(),
     reason="CuTeDSL runtime packages are not available",
 )
+def test_cutedsl_fused_wgrad_ragged_uses_prefix_scale_blocks(monkeypatch):
+    monkeypatch.setenv("TORCHAO_ENABLE_CUTEDSL_FP8_BLOCKWISE_GROUPED_MM", "1")
+    torch.manual_seed(2)
+    group_blocks = (16, 17, 16, 18)
+    group_sizes = tuple(blocks * 128 for blocks in group_blocks)
+    E, N, K = len(group_sizes), 256, 256
+    M = sum(group_sizes)
+    offs = torch.tensor(group_sizes, device="cuda", dtype=torch.int32).cumsum(
+        0, dtype=torch.int32
+    )
+    grad_output = torch.randn(M, N, dtype=torch.bfloat16, device="cuda")
+    activation = torch.randn(M, K, dtype=torch.bfloat16, device="cuda")
+    grad_output_t_fp8, grad_output_t_scale = (
+        triton_fp8_blockwise_act_quant_transposed_lhs(grad_output.contiguous())
+    )
+    activation_rhs_fp8, activation_rhs_scale = triton_fp8_blockwise_act_quant_rhs(
+        activation.contiguous()
+    )
+
+    out = cutedsl_fp8_blockwise_scaled_grouped_mm_2d_2d(
+        grad_output_t_fp8,
+        activation_rhs_fp8,
+        grad_output_t_scale,
+        activation_rhs_scale,
+        offs,
+        torch.bfloat16,
+    )
+    ref = emulated_blockwise_scaled_grouped_mm(
+        grad_output_t_fp8,
+        activation_rhs_fp8,
+        grad_output_t_scale,
+        _scaling_type_value(BLOCKWISE_1X128_SCALING_TYPE),
+        activation_rhs_scale,
+        _scaling_type_value(BLOCKWISE_1X128_SCALING_TYPE),
+        offs,
+        torch.bfloat16,
+    )
+
+    assert out.shape == (E, N, K)
+    torch.testing.assert_close(out, ref, atol=1.0, rtol=0.0)
+
+
+@skip_if_rocm("ROCm not supported")
+def test_cutedsl_direct_offsets_reject_non_block_aligned_group():
+    offs = torch.tensor([128, 257, 385, 513], device="cuda", dtype=torch.int32)
+
+    assert _block_aligned_group_metadata(offs, 640, 128) is None
+
+
+@skip_if_rocm("ROCm not supported")
+@pytest.mark.skipif(
+    not _cutedsl_runtime_available(),
+    reason="CuTeDSL runtime packages are not available",
+)
 def test_cutedsl_auto_fused_fwd_bwd_never_emulates(monkeypatch):
     from torchao.prototype.blockwise_fp8_training import grouped_kernels
     from torchao.prototype.moe_training.blockwise_fp8 import grouped_mm_backend
@@ -295,15 +394,9 @@ def test_cutedsl_auto_fused_fwd_bwd_never_emulates(monkeypatch):
     )
 
     torch.manual_seed(0)
-    E, M_per_group, K, N = 4, 128, 7168, 2048
-    M = E * M_per_group
-    offs = torch.arange(
-        M_per_group,
-        M + 1,
-        M_per_group,
-        device="cuda",
-        dtype=torch.int32,
-    )
+    E, K, N = 4, 7168, 2048
+    offs = torch.tensor([129, 384, 500, 640], device="cuda", dtype=torch.int32)
+    M = int(offs[-1].item())
     A = torch.randn(M, K, dtype=torch.bfloat16, device="cuda", requires_grad=True)
     B_t = _make_column_major_weight_t(E, N, K).requires_grad_(True)
 
@@ -311,7 +404,7 @@ def test_cutedsl_auto_fused_fwd_bwd_never_emulates(monkeypatch):
         A,
         B_t,
         offs,
-        pad_token_groups_for_grouped_mm=False,
+        pad_token_groups_for_grouped_mm=True,
         kernel_preference=KernelPreference.AUTO,
     )
     out.float().square().mean().backward()

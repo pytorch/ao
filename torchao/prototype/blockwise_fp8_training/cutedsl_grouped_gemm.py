@@ -7,6 +7,7 @@
 import functools
 import os
 import weakref
+from collections import OrderedDict
 
 import torch
 
@@ -20,7 +21,8 @@ _CUTEDSL_FP8_BLOCKWISE_GROUPED_MM_ENV = (
 )
 _HOPPER_BLOCKWISE_SCALED_PERSISTENT_GEMM_COMPILED = {}
 _CUDA_STREAM_CACHE = {}
-_EQUAL_GROUP_OFFSETS_CACHE = {}
+_GROUP_METADATA_CACHE = OrderedDict()
+_GROUP_METADATA_CACHE_MAX_SIZE = 64
 _HOPPER_DENSE_TILE_SHAPE_MN = (128, 128)
 _HOPPER_DENSE_WIDE_N_TILE_SHAPE_MN = (128, 256)
 _HOPPER_DENSE_FWD_TILE_SHAPE_MN = (128, 192)
@@ -44,9 +46,18 @@ def _load_hopper_dense_gemm_persistent_module():
     return _load_cutedsl_hopper_gemm_module()
 
 
-def _equal_group_size_from_offsets(offs: torch.Tensor, M: int) -> int | None:
-    E = offs.numel()
-    if E == 0 or M % E != 0:
+def _cumulative_group_metadata(
+    offs: torch.Tensor,
+    physical_m: int,
+    alignment: int | None,
+) -> tuple[tuple[int, ...], int, int] | None:
+    if not (
+        offs.is_cuda
+        and offs.dtype == torch.int32
+        and offs.ndim == 1
+        and offs.numel() >= 4
+        and physical_m >= 0
+    ):
         return None
 
     version = getattr(offs, "_version", None)
@@ -57,28 +68,50 @@ def _equal_group_size_from_offsets(offs: torch.Tensor, M: int) -> int | None:
         offs.storage_offset(),
         offs.dtype,
         offs.device,
-        M,
+        physical_m,
+        alignment,
         version,
     )
-    cached = _EQUAL_GROUP_OFFSETS_CACHE.get(cache_key)
+    cached = _GROUP_METADATA_CACHE.get(cache_key)
     if cached is not None:
-        cached_offs, cached_m_per_group = cached
+        cached_offs, metadata = cached
         if cached_offs() is offs:
-            return cached_m_per_group
+            _GROUP_METADATA_CACHE.move_to_end(cache_key)
+            return metadata
+        del _GROUP_METADATA_CACHE[cache_key]
 
-    M_per_group = M // E
-    expected = torch.arange(
-        M_per_group,
-        (E + 1) * M_per_group,
-        M_per_group,
-        device=offs.device,
-        dtype=offs.dtype,
-    )
-    if not torch.equal(offs, expected):
-        _EQUAL_GROUP_OFFSETS_CACHE[cache_key] = (weakref.ref(offs), None)
+    ends = offs.tolist()
+    previous = 0
+    sizes = []
+    metadata = None
+    for end in ends:
+        size = end - previous
+        if (
+            size <= 0
+            or end > physical_m
+            or (alignment is not None and size % alignment != 0)
+        ):
+            break
+        sizes.append(size)
+        previous = end
+    else:
+        metadata = (tuple(sizes), max(sizes), ends[-1])
+
+    _GROUP_METADATA_CACHE[cache_key] = (weakref.ref(offs), metadata)
+    _GROUP_METADATA_CACHE.move_to_end(cache_key)
+    while len(_GROUP_METADATA_CACHE) > _GROUP_METADATA_CACHE_MAX_SIZE:
+        _GROUP_METADATA_CACHE.popitem(last=False)
+    return metadata
+
+
+def _block_aligned_group_metadata(
+    offs: torch.Tensor,
+    physical_m: int,
+    block_size: int,
+) -> tuple[tuple[int, ...], int, int] | None:
+    if block_size != 128:
         return None
-    _EQUAL_GROUP_OFFSETS_CACHE[cache_key] = (weakref.ref(offs), M_per_group)
-    return M_per_group
+    return _cumulative_group_metadata(offs, physical_m, block_size)
 
 
 def _make_cutedsl_tensor(
@@ -202,15 +235,15 @@ def _is_cutedsl_2d_3d_supported(
 
     M, K = a.shape
     E, b_k, N = b.shape
-    M_per_group = _equal_group_size_from_offsets(offs, M)
+    metadata = _block_aligned_group_metadata(offs, M, block_size)
     k_blocks = K // block_size
     n_blocks = N // block_size
     return bool(
         E == offs.numel()
         and K == b_k
-        and M_per_group is not None
+        and metadata is not None
         and N % block_size == 0
-        and _fused_2d_3d_geometry_supported(M_per_group, K, N)
+        and _fused_2d_3d_geometry_supported(metadata[1], K, N)
         and a.stride() == (K, 1)
         and b.stride() == (K * N, 1, K)
         and a_s.shape == (M, k_blocks)
@@ -248,12 +281,13 @@ def _is_cutedsl_2d_2d_supported(
 
     N, M = a.shape
     b_m, K = b.shape
-    M_per_group = _equal_group_size_from_offsets(offs, M)
+    metadata = _block_aligned_group_metadata(offs, M, block_size)
     m_blocks = M // block_size
     return bool(
         M == b_m
-        and M_per_group is not None
-        and M_per_group % block_size == 0
+        and M % block_size == 0
+        and metadata is not None
+        and metadata[1] % block_size == 0
         and N % block_size == 0
         and K % block_size == 0
         and a.stride() == (M, 1)
@@ -291,22 +325,30 @@ def _can_use_cutedsl_fp8_blockwise_grouped_mm_training(
         and b_t.stride(-2) == 1
         and a.shape[-1] == b_t.shape[-2]
         and b_t.shape[0] == group_end_offsets.numel()
-        and num_rows == a.shape[0]
+        and num_rows >= 0
     ):
         return False
 
     E, K, N = b_t.shape
-    M_per_group = _equal_group_size_from_offsets(group_end_offsets, num_rows)
-    original_M_per_group = _equal_group_size_from_offsets(
-        original_group_end_offsets, a.shape[0]
+    padded_metadata = _block_aligned_group_metadata(
+        group_end_offsets, num_rows, block_size
+    )
+    original_metadata = _cumulative_group_metadata(
+        original_group_end_offsets, a.shape[0], None
+    )
+    if padded_metadata is None or original_metadata is None:
+        return False
+
+    padded_sizes, capacity, _ = padded_metadata
+    original_sizes, _, _ = original_metadata
+    expected_padded_sizes = tuple(
+        ((size + block_size - 1) // block_size) * block_size for size in original_sizes
     )
     return bool(
         E >= 4
-        and M_per_group is not None
-        and M_per_group == original_M_per_group
-        and M_per_group % block_size == 0
-        and _fused_2d_3d_geometry_supported(M_per_group, K, N)
-        and _fused_2d_3d_geometry_supported(M_per_group, N, K)
+        and padded_sizes == expected_padded_sizes
+        and _fused_2d_3d_geometry_supported(capacity, K, N)
+        and _fused_2d_3d_geometry_supported(capacity, N, K)
         and N % block_size == 0
         and K % block_size == 0
     )
@@ -2377,13 +2419,147 @@ def _cutedsl_fused_equal_group_wgrad(
     return out
 
 
+def _cutedsl_fused_block_aligned_wgrad(
+    a: torch.Tensor,
+    b: torch.Tensor,
+    a_s: torch.Tensor,
+    b_s: torch.Tensor,
+    offs: torch.Tensor,
+    out_dtype: torch.dtype,
+    block_size: int,
+) -> torch.Tensor:
+    N, physical_m = a.shape
+    metadata = _block_aligned_group_metadata(offs, physical_m, block_size)
+    assert metadata is not None
+    group_sizes, capacity, logical_m = metadata
+    if all(size == capacity for size in group_sizes) and logical_m == physical_m:
+        return _cutedsl_fused_equal_group_wgrad(
+            a, b, a_s, b_s, offs, out_dtype, block_size
+        )
+
+    E = len(group_sizes)
+    K = b.shape[1]
+    staged_m = E * capacity
+    capacity_blocks = capacity // block_size
+    staged_a = torch.zeros((N, staged_m), dtype=a.dtype, device=a.device)
+    staged_b = torch.zeros((K, staged_m), dtype=b.dtype, device=b.device).t()
+    staged_a_s = torch.ones(
+        (E * capacity_blocks, N), dtype=a_s.dtype, device=a_s.device
+    ).t()
+    staged_b_s = torch.ones(
+        (E * capacity_blocks, K), dtype=b_s.dtype, device=b_s.device
+    )
+
+    source_start = 0
+    for expert, group_size in enumerate(group_sizes):
+        source_end = source_start + group_size
+        destination_start = expert * capacity
+        destination_end = destination_start + group_size
+        source_block_start = source_start // block_size
+        source_block_end = source_end // block_size
+        destination_block_start = expert * capacity_blocks
+        destination_block_end = destination_block_start + group_size // block_size
+        staged_a[:, destination_start:destination_end].copy_(
+            a[:, source_start:source_end]
+        )
+        staged_b[destination_start:destination_end].copy_(b[source_start:source_end])
+        staged_a_s[:, destination_block_start:destination_block_end].copy_(
+            a_s[:, source_block_start:source_block_end]
+        )
+        staged_b_s[destination_block_start:destination_block_end].copy_(
+            b_s[source_block_start:source_block_end]
+        )
+        source_start = source_end
+
+    equal_offs = torch.arange(
+        capacity,
+        staged_m + 1,
+        capacity,
+        dtype=torch.int32,
+        device=offs.device,
+    )
+    return _cutedsl_fused_equal_group_wgrad(
+        staged_a,
+        staged_b,
+        staged_a_s,
+        staged_b_s,
+        equal_offs,
+        out_dtype,
+        block_size,
+    )
+
+
+def _cutedsl_fused_block_aligned_scaled_gemm(
+    a: torch.Tensor,
+    b: torch.Tensor,
+    a_s: torch.Tensor,
+    b_s: torch.Tensor,
+    offs: torch.Tensor,
+    out_dtype: torch.dtype,
+    block_size: int,
+) -> torch.Tensor:
+    physical_m, K = a.shape
+    metadata = _block_aligned_group_metadata(offs, physical_m, block_size)
+    assert metadata is not None
+    group_sizes, capacity, logical_m = metadata
+    if all(size == capacity for size in group_sizes) and logical_m == physical_m:
+        return _cutedsl_fused_equal_group_scaled_gemm(
+            a, b, a_s, b_s, offs, out_dtype, block_size
+        )
+
+    E = len(group_sizes)
+    staged_m = E * capacity
+    staged_a = torch.zeros((staged_m, K), dtype=a.dtype, device=a.device)
+    staged_a_s = torch.ones(
+        (a_s.shape[1], staged_m), dtype=a_s.dtype, device=a_s.device
+    ).t()
+
+    source_start = 0
+    for expert, group_size in enumerate(group_sizes):
+        source_end = source_start + group_size
+        destination_start = expert * capacity
+        destination_end = destination_start + group_size
+        staged_a[destination_start:destination_end].copy_(a[source_start:source_end])
+        staged_a_s[destination_start:destination_end].copy_(
+            a_s[source_start:source_end]
+        )
+        source_start = source_end
+
+    equal_offs = torch.arange(
+        capacity,
+        staged_m + 1,
+        capacity,
+        dtype=torch.int32,
+        device=offs.device,
+    )
+    staged_out = _cutedsl_fused_equal_group_scaled_gemm(
+        staged_a,
+        b,
+        staged_a_s,
+        b_s,
+        equal_offs,
+        out_dtype,
+        block_size,
+    )
+    out = torch.zeros((physical_m, b.shape[2]), dtype=out_dtype, device=a.device)
+    source_start = 0
+    for expert, group_size in enumerate(group_sizes):
+        source_end = source_start + group_size
+        staged_start = expert * capacity
+        out[source_start:source_end].copy_(
+            staged_out[staged_start : staged_start + group_size]
+        )
+        source_start = source_end
+    return out
+
+
 def _unsupported_cutedsl_message(operation: str) -> str:
     if not _cutedsl_runtime_available():
         missing = ", ".join(_missing_cutedsl_runtime_packages())
         return f"CuTeDSL runtime packages are not available: {missing}"
     return (
-        f"CuTeDSL {operation} only supports opt-in CUDA Hopper+ fused equal-group "
-        "FP8 blockwise GEMM with bfloat16 output and block_size=128"
+        f"CuTeDSL {operation} only supports opt-in CUDA Hopper+ fused block-aligned "
+        "ragged/equal FP8 blockwise GEMM with bfloat16 output and block_size=128"
     )
 
 
@@ -2412,7 +2588,7 @@ def cutedsl_fp8_blockwise_scaled_grouped_mm_2d_2d(
         block_size,
     ):
         raise NotImplementedError(_unsupported_cutedsl_message("2D x 2D grouped GEMM"))
-    return _cutedsl_fused_equal_group_wgrad(
+    return _cutedsl_fused_block_aligned_wgrad(
         a,
         b,
         a_s,
@@ -2467,7 +2643,7 @@ def cutedsl_fp8_blockwise_scaled_grouped_mm_2d_3d(
         block_size,
     ):
         raise NotImplementedError(_unsupported_cutedsl_message("2D x 3D grouped GEMM"))
-    return _cutedsl_fused_equal_group_scaled_gemm(
+    return _cutedsl_fused_block_aligned_scaled_gemm(
         a,
         b,
         a_s,
