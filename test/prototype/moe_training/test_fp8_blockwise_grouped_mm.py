@@ -19,7 +19,7 @@ if not (
 
 pytest.importorskip("triton", reason="Triton required to run this test")
 
-from torchao.prototype.moe_training.blockwise_fp8.grouped_mm import (
+from torchao.prototype.moe_training.fp8_grouped_mm import (
     _to_fp8_blockwise_then_emulated_scaled_grouped_mm,
 )
 from torchao.quantization.utils import compute_error

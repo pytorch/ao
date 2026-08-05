@@ -17,7 +17,7 @@ accumulators) are visible.
 Byte accounting for the cast kernels counts the high-precision input read plus
 the FP8 data and FP32 scale writes (the actual operand tensors produced).
 
-Kernels timed, matching torchao.prototype.moe_training.blockwise_fp8.grouped_mm:
+Kernels timed, matching torchao.prototype.moe_training.fp8_grouped_mm:
 
   forward
     - act_quant_lhs                 (activations -> FP8 1x128)

@@ -86,7 +86,7 @@ def test_deepgemm_backend_reports_broken_install(monkeypatch, exc):
     [KernelPreference.AUTO, KernelPreference.DEEPGEMM],
 )
 def test_real_backend_selection_fails_without_deepgemm(monkeypatch, kernel_preference):
-    from torchao.prototype.moe_training.blockwise_fp8.grouped_mm_backend import (
+    from torchao.prototype.moe_training.fp8_grouped_mm import (
         _select_fp8_blockwise_grouped_mm_backend,
     )
 
@@ -106,7 +106,7 @@ def test_real_backend_selection_fails_without_deepgemm(monkeypatch, kernel_prefe
 
 
 def test_auto_backend_selection_requires_full_deepgemm_training_symbols(monkeypatch):
-    from torchao.prototype.moe_training.blockwise_fp8.grouped_mm_backend import (
+    from torchao.prototype.moe_training.fp8_grouped_mm import (
         _select_fp8_blockwise_grouped_mm_backend,
     )
 
@@ -143,7 +143,7 @@ def test_auto_backend_selection_requires_full_deepgemm_training_symbols(monkeypa
 def test_real_backend_selection_uses_deepgemm_when_training_supported(
     monkeypatch, kernel_preference
 ):
-    from torchao.prototype.moe_training.blockwise_fp8.grouped_mm_backend import (
+    from torchao.prototype.moe_training.fp8_grouped_mm import (
         _GroupedMMBackendKind,
         _select_fp8_blockwise_grouped_mm_backend,
     )
@@ -195,7 +195,7 @@ def test_real_backend_selection_uses_deepgemm_when_training_supported(
 
 
 def test_emulated_backend_selection_is_explicit():
-    from torchao.prototype.moe_training.blockwise_fp8.grouped_mm_backend import (
+    from torchao.prototype.moe_training.fp8_grouped_mm import (
         _GroupedMMBackendKind,
         _select_fp8_blockwise_grouped_mm_backend,
     )
@@ -517,7 +517,7 @@ def test_deepgemm_matches_emulated_fp8_grouped_mm(
 ):
     pytest.importorskip("deep_gemm", reason="DeepGEMM is an optional dependency")
 
-    from torchao.prototype.moe_training.blockwise_fp8.grouped_mm import (
+    from torchao.prototype.moe_training.fp8_grouped_mm import (
         _to_fp8_blockwise_then_emulated_scaled_grouped_mm,
         _to_fp8_blockwise_then_scaled_grouped_mm,
     )
