@@ -101,9 +101,6 @@ else:
     except Exception as e:
         logger.debug(f"Skipping import of cpp extensions: {e}")
 
-# must import dtypes before quantization
-from . import dtypes  # noqa: I001
-
 from torchao.quantization import (
     quantize_,
 )
@@ -111,7 +108,6 @@ from torchao.quantization import (
 from . import optim, quantization, testing
 
 __all__ = [
-    "dtypes",
     "optim",
     "quantize_",
     "testing",
