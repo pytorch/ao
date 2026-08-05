@@ -783,7 +783,7 @@ class TestExport(unittest.TestCase):
             def forward(self, x):
                 return self.linear(x)
 
-        device = get_current_accelerator_device()
+        device = torch.accelerator.current_accelerator()
         model = SimpleNetwork().eval().to(device)
         inp = torch.randn(2, 32).to(device)
         config = Float8DynamicActivationFloat8WeightConfig()
