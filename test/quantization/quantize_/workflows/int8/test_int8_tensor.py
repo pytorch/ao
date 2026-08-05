@@ -280,6 +280,8 @@ class TestInt8Tensor(TorchAOIntegrationTestCase):
     @common_utils.parametrize("device", get_available_devices())
     @common_utils.parametrize("config", INT8_TEST_CONFIGS)
     def test_pin_memory(self, config, device):
+        if device == "cpu":
+            self.skipTest("pin_memory requires an accelerator")
         linear = torch.nn.Linear(
             256, 512, bias=False, dtype=torch.bfloat16, device=device
         )

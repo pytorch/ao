@@ -134,7 +134,7 @@ class TestNF4Linear(TestCase):
     def test_reconstruction_qlora_vs_bnb(self, dtype: torch.dtype):
         # From https://github.com/drisspg/transformer_nuggets/blob/f05afad68ad9086d342268f46a7f344617a02314/test/test_qlora.py#L65C1-L81C47
         torch.manual_seed(0)
-        device = torch.acceraltor.get_current_accelerator()
+        device = torch.accelerator.current_accelerator()
         embed_dim = 512
         input_weight = _build_input_weight(embed_dim, device, dtype)
         nf4_weight = to_nf4(input_weight)
@@ -236,7 +236,7 @@ class TestNF4Linear(TestCase):
                 input_tensor, nf4_to_dtype, atol=0.13, rtol=0.13
             )
 
-    @unittest.skipIf(not torch.accelerator.is_available(), "Need gpu for test")
+    @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU for test")
     def test_to_copy_device(self):
         device = torch.accelerator.current_accelerator()
         input_tensor = torch.rand(128, device="cpu")
@@ -269,7 +269,7 @@ class TestNF4Linear(TestCase):
         _ = torch.nn.functional.linear(inp, a)
         _ = torch.nn.functional.linear(inp, a_nf4)
 
-    @unittest.skipIf(not torch.accelerator.is_available(), "Need CUDA available")
+    @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
     @parametrize("dtype", [torch.bfloat16, torch.float16, torch.float32])
     def test_smoketest_linear_compile(self, dtype: torch.dtype):
         if (
