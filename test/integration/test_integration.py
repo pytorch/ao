@@ -796,7 +796,8 @@ class TestExport(unittest.TestCase):
         self.assertTrue(torch.equal(after_export, ref))
 
     @unittest.skipIf(
-        not is_sm_at_least_89(), "Requires GPU with compute capability >= 8.9"
+        torch.cuda.is_available() and not is_sm_at_least_89(),
+        "CUDA capability >= 8.9 required for native float8 support",
     )
     def test_export_float8(self):
         class SimpleNetwork(torch.nn.Module):
@@ -809,8 +810,9 @@ class TestExport(unittest.TestCase):
             def forward(self, x):
                 return self.linear(x)
 
-        model = SimpleNetwork().eval().to("cuda")
-        inp = torch.randn(2, 32).to("cuda")
+        device = torch.accelerator.current_accelerator()
+        model = SimpleNetwork().eval().to(device)
+        inp = torch.randn(2, 32).to(device)
         config = Float8DynamicActivationFloat8WeightConfig()
         quantize_(model, config)
 
