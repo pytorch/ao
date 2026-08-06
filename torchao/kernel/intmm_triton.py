@@ -314,16 +314,11 @@ def int_scaled_matmul_kernel(a, b, scales1, c, config):
     return c
 
 
-lib = torch.library.Library("torchao", "FRAGMENT")
-lib.define("int_matmul(Tensor a, Tensor b) -> Tensor")
-lib.define("int_scaled_matmul(Tensor a, Tensor b, Tensor scales1) -> Tensor")
+from torchao.kernel.intmm import lib
 
 
-@torch.library.impl(lib, "int_matmul", "Meta")
-def int_matmul_meta(a, b):
-    M, K = a.shape
-    K, N = b.shape
-    return torch.empty((M, N), device=a.device, dtype=torch.int32)
+
+
 
 
 @torch.library.impl(lib, "int_matmul", "CUDA")
@@ -346,13 +341,6 @@ def int_matmul_cuda(a, b):
     return int_matmul_kernel(a, b, c, best_config)
 
 
-@torch.library.impl(lib, "int_scaled_matmul", "Meta")
-def int_scaled_matmul_meta(a, b, scales1):
-    M, K = a.shape
-    K, N = b.shape
-    return torch.empty((M, N), device=a.device, dtype=scales1.dtype)
-
-
 @torch.library.impl(lib, "int_scaled_matmul", "CUDA")
 def int_scaled_matmul_cuda(a, b, scales1):
     # Check constraints.
@@ -368,3 +356,4 @@ def int_scaled_matmul_cuda(a, b, scales1):
         int_scaled_matmul_kernel, [a, b, scales1, c], int8_mm_kernel_configs
     )
     return int_scaled_matmul_kernel(a, b, scales1, c, best_config)
+
