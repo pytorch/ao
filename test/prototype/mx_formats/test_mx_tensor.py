@@ -9,7 +9,9 @@ import math
 
 import pytest
 import torch
+from torch._functorch.compile_utils import fx_graph_cse
 from torch._inductor.utils import run_and_get_code
+from torch.fx.experimental.proxy_tensor import make_fx
 from torch.testing import FileCheck
 
 from torchao.prototype.mx_formats.constants import (
@@ -21,6 +23,7 @@ from torchao.prototype.mx_formats.kernels import pack_uint4
 from torchao.prototype.mx_formats.mx_tensor import (
     MXTensor,
     ScaleCalculationMode,
+    _to_mx_rceil,
     to_dtype,
 )
 from torchao.prototype.mx_formats.utils import from_blocked, to_blocked
@@ -326,6 +329,34 @@ def test_to_mx_rceil():
     )
     torch.testing.assert_close(data_mx.scale, ground_truth_scale)
     torch.testing.assert_close(data_mx.qdata, ground_truth_fp8)
+
+
+def test_to_mx_rceil_nan_branch_is_cse_compatible():
+    def repeated_rceil(data_hp, max_abs):
+        first = _to_mx_rceil(data_hp, max_abs, 448.0)
+        second = _to_mx_rceil(data_hp, max_abs, 448.0)
+        return *first, *second
+
+    data_hp = torch.randn(4, 32)
+    max_abs = data_hp.abs().amax(dim=-1, keepdim=True)
+    gm = make_fx(repeated_rceil)(data_hp, max_abs)
+    gm.graph = fx_graph_cse(gm.graph)
+
+    nan_branches = []
+    for node in gm.graph.nodes:
+        if node.target != torch.ops.aten.where.self:
+            continue
+        condition = node.args[0]
+        if (
+            isinstance(condition, torch.fx.Node)
+            and condition.target == torch.ops.aten.eq.Scalar
+            and condition.args[1] == 255
+        ):
+            nan_branches.append(node.args[1])
+
+    assert len(nan_branches) == 2
+    assert nan_branches[0] is nan_branches[1]
+    assert nan_branches[0].target == torch.ops.aten.div.Tensor
 
 
 @pytest.mark.skipif(
@@ -689,14 +720,16 @@ def test_to_mx_from_mx_compile_numerics(elem_dtype, hp_dtype, all_zeros):
     not (torch.cuda.is_available() or torch.xpu.is_available()),
     reason="CUDA or XPU not available",
 )
+@pytest.mark.skipif(
+    torch.cuda.is_available() and not is_sm_at_least_89(),
+    reason="float8 in triton requires CUDA capability 8.9 or greater",
+)
 def test_to_mx_inductor_single_kernel():
     """
     Verify that inductor can fuse the cast of a high precision tensor to mx
     into a single kernel
     """
     device = torch.accelerator.current_accelerator().type
-    if device == "cuda" and not is_sm_at_least_89():
-        pytest.skip("float8 in triton requires CUDA capability 8.9 or greater")
     # TODO(future PR): add fp4 and fp6 here
     # TODO(#1773): add swizzled scale format here
     x = torch.randn(2048, 2048, dtype=torch.bfloat16, device=device)
@@ -737,12 +770,12 @@ def test_index_select():
     reason="CUDA or XPU not available",
 )
 @pytest.mark.skipif(
-    not torch_version_at_least("2.12.0.dev0"),
-    reason="eager float8_e4m3fn casts saturate in PyTorch 2.12+",
-)
-@pytest.mark.skipif(
     torch.cuda.is_available() and not is_sm_at_least_89(),
     reason="float8 in triton requires CUDA capability 8.9 or greater",
+)
+@pytest.mark.skipif(
+    not torch_version_at_least("2.12.0.dev0"),
+    reason="eager float8_e4m3fn casts saturate in PyTorch 2.12+",
 )
 def test_cast_to_float8_e4m3fn_saturation_behavior():
     device = torch.accelerator.current_accelerator().type
