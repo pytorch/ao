@@ -22,7 +22,7 @@ from torchao.utils import is_sm_at_least_100
 
 
 @pytest.mark.skipif(
-    not torch.accelerator.is_available(), reason="Accelerator not available"
+    not (torch.cuda.is_available() or torch.xpu.is_available()), reason="CUDA or XPU required"
 )
 @pytest.mark.parametrize("recipe_name", ["mxfp8", "nvfp4"])
 def test_serialization(recipe_name):
