@@ -85,7 +85,7 @@ class MXDynamicActivationMXWeightConfig(AOBaseConfig):
     This module provides support for running inference with float8 quantization using MX formats.
 
     Requirements:
-    - NVIDIA SM100+ hardware (Blackwell or newer) is required for execution
+    - NVIDIA SM100+ hardware (Blackwell or newer) or Intel XPU (BMG or newer)
     - PyTorch 2.5+ for proper serialization support
 
     Example (mxfp8):
@@ -111,6 +111,10 @@ class MXDynamicActivationMXWeightConfig(AOBaseConfig):
     # How to calculate the block scales
     scaling_mode: ScaleCalculationMode = ScaleCalculationMode.RCEIL
 
+    # Whether to store scales in swizzled (blocked) format.
+    # CUDA uses True (SWIZZLE_32_4_4 layout), XPU uses False (row-major 2D).
+    swizzle_scales: bool = True
+
     def __post_init__(self):
         assert self.activation_dtype == self.weight_dtype, (
             "For now - we only support matching input/weight dtypes."
@@ -131,6 +135,7 @@ def _mx_inference_linear_transform(
     parameter_name: str = "weight",
 ):
     weight = getattr(module, parameter_name)
+    is_swizzled_scales = config.swizzle_scales
 
     assert weight.dtype == torch.bfloat16, (
         f"Only supporting bf16 out dtype for now, got {weight.dtype}"
@@ -139,7 +144,7 @@ def _mx_inference_linear_transform(
         elem_dtype=config.activation_dtype,
         block_size=config.block_size,
         kernel_preference=config.kernel_preference,
-        is_swizzled_scales=True,
+        is_swizzled_scales=is_swizzled_scales,
         scaling_mode=config.scaling_mode,
     )
 
@@ -150,7 +155,7 @@ def _mx_inference_linear_transform(
         block_size=config.block_size,
         kernel_preference=config.kernel_preference,
         act_quant_kwargs=act_quant_kwargs,
-        is_swizzled_scales=True,
+        is_swizzled_scales=is_swizzled_scales,
         scaling_mode=config.scaling_mode,
     )
 
