@@ -78,7 +78,8 @@ def run_matrix_test(M: int, K: int, N: int, format) -> float:
 
 
 @pytest.mark.skipif(
-    not (torch.cuda.is_available() or torch.xpu.is_available()), reason="CUDA or XPU required"
+    not (torch.cuda.is_available() or torch.xpu.is_available()),
+    reason="CUDA or XPU not available",
 )
 @pytest.mark.parametrize(
     "size",
@@ -97,11 +98,12 @@ def run_matrix_test(M: int, K: int, N: int, format) -> float:
     ],
     ids=lambda x: f"{x[0]}x{x[1]}x{x[2]}",
 )
+@pytest.mark.skipif(
+    torch.cuda.is_available() and not is_sm_at_least_100(),
+    reason="CUDA capability >= 10.0 required for mxfloat8",
+)
 @pytest.mark.parametrize("format", ["fp8", "fp4"])
 def test_matrix_multiplication(size, format):
-    device = torch.accelerator.current_accelerator().type
-    if device == "cuda" and not is_sm_at_least_100():
-        pytest.skip("CUDA capability >= 10.0 required for mxfloat8")
     M, K, N = size
     sqnr = run_matrix_test(M, K, N, format)
     threshold = 80.0

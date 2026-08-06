@@ -58,7 +58,8 @@ def cuda_kernel_profiler(kernel_pattern):
 
 
 @pytest.mark.skipif(
-    not (torch.cuda.is_available() or torch.xpu.is_available()), reason="CUDA or XPU required"
+    not (torch.cuda.is_available() or torch.xpu.is_available()),
+    reason="CUDA or XPU not available",
 )
 @pytest.mark.parametrize("elem_dtype", [torch.float8_e4m3fn, torch.float4_e2m1fn_x2])
 @pytest.mark.parametrize("bias", [True, False])
@@ -84,10 +85,7 @@ def test_inference_workflow_mx(
     device = torch.accelerator.current_accelerator().type
     # TODO(future): figure out why these CUDA capability conditions are not properly
     # applied when inside `pytest.mark.skipif` for this test
-    if (
-        elem_dtype in (torch.float8_e4m3fn, torch.float8_e5m2)
-        and device == "cuda"
-    ):
+    if elem_dtype in (torch.float8_e4m3fn, torch.float8_e5m2) and device == "cuda":
         if not is_sm_at_least_89():
             pytest.skip("CUDA capability >= 8.9 required for float8 in triton")
         elif not is_sm_at_least_100() and not emulate:
