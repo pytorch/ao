@@ -40,6 +40,11 @@ class TestFloat8Sparse2x4_1DData1DMetadataTensor(common_utils.TestCase):
             self.skipTest("hipSPARSELt path requires ROCm")
         if not PLATFORM_SUPPORTS_FP8_SPARSE:
             self.skipTest("Need platform with FP8 sparse support (hipSPARSELt)")
+        # PLATFORM_SUPPORTS_FP8_SPARSE only checks for gfx950 on ROCm, so it is
+        # True on builds without hipSPARSELt, where torch._cslt_compress raises
+        # "hipSPARSELt not supported on your machine".
+        if not torch.backends.cusparselt.is_available():
+            self.skipTest("torch was built without hipSPARSELt")
 
     @common_utils.parametrize("compile", [True, False])
     def test_fp8_hipsparselt_sparse(self, compile):
