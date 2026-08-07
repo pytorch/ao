@@ -169,29 +169,6 @@ if _cutedsl_runtime_available():
         return scale_biased, inv_scale
 
     @cute.jit
-    def load_vals_chunk_full(
-        vals_block: cute.Tensor,
-        local_base: cutlass.Int32,
-    ):
-        """Load a full chunk of 4 values from a values block.
-
-        This helper loads 4 consecutive float32 values from a register tensor
-        starting at the given local base index.
-
-        Args:
-            vals_block: Register tensor containing values to load from
-            local_base: Starting index within vals_block for the chunk
-
-        Returns:
-            Register tensor of shape (4,) containing the loaded float32 values
-        """
-        chunk_vec = 4
-        vals_chunk = cute.make_rmem_tensor((chunk_vec,), cutlass.Float32)
-        for j in range(chunk_vec):
-            vals_chunk[j] = vals_block[local_base + j]
-        return vals_chunk
-
-    @cute.jit
     def load_vals_chunk_tail(
         vals_block: cute.Tensor,
         dim0: cutlass.Int64,
