@@ -20,7 +20,6 @@ from torch._inductor.utils import run_and_get_code
 from torch.testing import FileCheck
 
 import torchao
-from torchao.quantization import safe_int_mm
 from torchao.quantization.granularity import PerGroup
 
 # APIs to be deprecated (used for torch 2.2.2 and 2.3)
@@ -38,11 +37,11 @@ from torchao.quantization.quant_primitives import (
 from torchao.quantization.quantize_.workflows.int4.int4_packing_format import (
     Int4PackingFormat,
 )
+from torchao.quantization.quantize_.workflows.int8.kernels import safe_int_mm
 from torchao.quantization.utils import (
     LoggingTensorMode,
     _apply_logging_hook,
     _fqn_to_op_to_shape_to_count,
-    _quant_int8_dynamic_per_token_linear,
     _quantize_activation_per_token_absmax,
     compute_error,
     dequantize_per_channel,
@@ -242,32 +241,6 @@ class PythonQuantUtilOpUnitTest(unittest.TestCase):
         device = get_current_accelerator_device()
         for dtype in (torch.float32, torch.float16, torch.bfloat16):
             self._test_quantize_per_token_impl(device, dtype)
-
-    def _test_per_token_linear_impl(self, device, dtype):
-        x = torch.randn(2, 16, 8, device=device, dtype=dtype)
-        w = torch.randn(16, 8, device=device, dtype=dtype)
-        wq, w_scales, _w_zp = dynamically_quantize_per_channel(w, -127, 127, torch.int8)
-        # Note: need to make the weight contiguous because we are
-        # testing in eager mode and cuBlas will not give correct results
-        # for a transposed weight
-        y = _quant_int8_dynamic_per_token_linear(
-            x, wq.t().contiguous(), w_scales, None, dtype
-        )
-        y_ref = torch.matmul(x, w.t())
-        sqnr = compute_error(y_ref, y)
-        self.assertTrue(sqnr >= 39.0, f"{sqnr=} too low")
-
-    @unittest.skipIf(is_ROCM(), "Don't test CPU for ROCM version of torch")
-    def test_per_token_linear_cpu(self):
-        for dtype in (torch.float32,):
-            self._test_per_token_linear_impl("cpu", dtype)
-
-    @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
-    @skip_if_rocm("ROCm enablement in progress")
-    def test_per_token_linear_cuda(self):
-        device = get_current_accelerator_device()
-        for dtype in (torch.float32, torch.float16, torch.bfloat16):
-            self._test_per_token_linear_impl(device, dtype)
 
     @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
     def test__int_mm(self):
