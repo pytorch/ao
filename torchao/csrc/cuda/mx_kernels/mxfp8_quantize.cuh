@@ -836,7 +836,12 @@ __global__ void __launch_bounds__(MXFP8_THREADS_PER_CHUNK)
             const int scale_idx =
                 global_scales_offset_Y * scales_rowwise_stride_dim0 +
                 global_scales_offset_X;
-            scales_rowwise[scale_idx] = e8m0_biased_scale;
+            const bool scale_out_of_bounds =
+                global_scales_offset_Y >= rows ||
+                global_scales_offset_X * SCALE_DIM_X >= cols;
+            if (!scale_out_of_bounds) {
+              scales_rowwise[scale_idx] = e8m0_biased_scale;
+            }
           }
 
           // Store quantized values
@@ -897,7 +902,7 @@ __global__ void __launch_bounds__(MXFP8_THREADS_PER_CHUNK)
         const int global_scales_offset_X =
             scales_colwise_chunk_offset_X + tid_colwise_X;
 
-        // Write scale in column major memory layout, shape (cols, num_row_blocks, 1).
+        // Write scale in column major memory layout, shape (cols, num_row_blocks).
         // Stride along `cols` dim must be 1, for coalesced writes to global memory.
         const int scale_idx =
             global_scales_offset_Y * scales_colwise_stride_dim1 +
