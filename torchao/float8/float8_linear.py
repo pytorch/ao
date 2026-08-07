@@ -255,10 +255,11 @@ class Float8Linear(torch.nn.Linear):
     def forward(self, input: torch.Tensor) -> torch.Tensor:
         # Duplicate the autocast logic for F.linear, so that the output
         # of our module has the right original precision
-        if torch.is_autocast_enabled():
-            # For now, hardcode to GPU's autocast dtype
-            # if we need CPU support in the future, we can add it
-            autocast_dtype = torch.get_autocast_gpu_dtype()
+        device_type = input.device.type
+        if torch.amp.is_autocast_available(device_type) and torch.is_autocast_enabled(
+            device_type
+        ):
+            autocast_dtype = torch.get_autocast_dtype(device_type)
             input = input.to(autocast_dtype)
 
         output = matmul_with_hp_or_float8_args.apply(
