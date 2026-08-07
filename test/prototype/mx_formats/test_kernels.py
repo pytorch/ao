@@ -566,38 +566,62 @@ def test_rearrange(shape):
 @pytest.mark.parametrize(
     "scaling_mode", (ScaleCalculationMode.FLOOR, ScaleCalculationMode.RCEIL)
 )
-def test_cuda_mx_dim1_numerics(M, K, input_dtype, scaling_mode):
+@pytest.mark.parametrize(
+    "rowwise,colwise", ((True, False), (False, True), (True, True))
+)
+def test_cuda_mx_numerics(M, K, input_dtype, scaling_mode, rowwise, colwise):
     scaling_mode_str = (
         "floor" if scaling_mode == ScaleCalculationMode.FLOOR else "rceil"
     )
     block_size = 32
 
-    # Use disinct incrementing values from 0 to M*K-1 to make debugging easier.
+    # Use distinct incrementing values from 0 to M*K-1 to make debugging easier.
     x = (
         torch.arange(0, M * K, dtype=input_dtype, device="cuda")
         .reshape(M, K)
         .contiguous()
     )
 
-    y_d1_ref, s_d1_ref = to_mx_dim1_reference(
-        x,
-        block_size=block_size,
-        scaling_mode=scaling_mode,
-    )
+    if rowwise:
+        s_d0_ref, y_d0_ref = to_mx(
+            x,
+            torch.float8_e4m3fn,
+            block_size,
+            scaling_mode=scaling_mode,
+        )
+    if colwise:
+        y_d1_ref, s_d1_ref = to_mx_dim1_reference(
+            x,
+            block_size=block_size,
+            scaling_mode=scaling_mode,
+        )
 
-    _, y_d1, _, s_d1 = mxfp8_quantize_cuda(
+    y_d0, y_d1, s_d0, s_d1 = mxfp8_quantize_cuda(
         x,
-        rowwise=False,
-        colwise=True,
+        rowwise=rowwise,
+        colwise=colwise,
         scaling_mode=scaling_mode_str,
     )
 
-    # check scales
-    torch.testing.assert_close(s_d1, s_d1_ref, rtol=0, atol=0)
+    if rowwise:
+        # Rowwise uses independent 1x32 groups, including when colwise is also
+        # requested from the fused kernel.
+        torch.testing.assert_close(s_d0, s_d0_ref, rtol=0, atol=0)
+        torch.testing.assert_close(y_d0, y_d0_ref, rtol=0, atol=0)
+        assert y_d0.stride() == y_d0_ref.stride()
+    else:
+        assert y_d0.numel() == 0
+        assert s_d0.numel() == 0
 
-    # check quantized values
-    torch.testing.assert_close(y_d1, y_d1_ref, rtol=0, atol=0)
-    assert y_d1.stride() == y_d1_ref.stride(), "quantized tensor strides do not match"
+    if colwise:
+        # Colwise uses independent 32x1 groups, including when rowwise is also
+        # requested from the fused kernel.
+        torch.testing.assert_close(s_d1, s_d1_ref, rtol=0, atol=0)
+        torch.testing.assert_close(y_d1, y_d1_ref, rtol=0, atol=0)
+        assert y_d1.stride() == y_d1_ref.stride()
+    else:
+        assert y_d1.numel() == 0
+        assert s_d1.numel() == 0
 
 
 @pytest.mark.skipif(
@@ -608,19 +632,168 @@ def test_cuda_mx_dim1_numerics(M, K, input_dtype, scaling_mode):
     not is_cuda_version_at_least(12, 8),
     reason="CUDA version >= 12.8 required for MXFP8 CUDA kernels",
 )
-def test_cuda_mx_dim0_not_supported():
+@pytest.mark.parametrize(
+    "rowwise,colwise,scale_dim_x,scale_dim_y,error",
+    (
+        (True, False, 1, 1, "rowwise output requires scale_dim_x == 32"),
+        (False, True, 1, 1, "colwise output requires scale_dim_y == 32"),
+    ),
+)
+def test_cuda_mx_rejects_invalid_scale_dimensions(
+    rowwise, colwise, scale_dim_x, scale_dim_y, error
+):
     M, K = 64, 64
     x = (
         torch.arange(0, M * K, dtype=torch.bfloat16, device="cuda")
         .reshape(M, K)
         .contiguous()
     )
-    with pytest.raises(RuntimeError):
-        _, y_d1, _, s_d1 = mxfp8_quantize_cuda(
+    with pytest.raises(RuntimeError, match=error):
+        torch.ops.torchao.mxfp8_quantize.default(
             x,
-            rowwise=True,
-            colwise=False,
+            rowwise,
+            colwise,
+            scale_dim_x,
+            scale_dim_y,
+            "e4m3",
+            "rceil",
         )
+
+
+@pytest.mark.skipif(
+    not is_sm_at_least_100(),
+    reason="MXFP8 requires CUDA capability 10.0 or greater",
+)
+@pytest.mark.skipif(
+    not is_cuda_version_at_least(12, 8),
+    reason="CUDA version >= 12.8 required for MXFP8 CUDA kernels",
+)
+@pytest.mark.parametrize(
+    "rowwise,colwise", ((True, False), (False, True), (True, True))
+)
+def test_cuda_mx_fake_shapes_and_strides(rowwise, colwise):
+    rows, cols = 64, 96
+    block_size = 32
+    output_rowwise, output_colwise, scales_rowwise, scales_colwise = (
+        torch.ops.torchao.mxfp8_quantize.default(
+            torch.empty((rows, cols), device="meta"),
+            rowwise,
+            colwise,
+            block_size if rowwise else 1,
+            block_size if colwise else 1,
+            "e4m3",
+            "rceil",
+        )
+    )
+
+    if rowwise:
+        torch._assert_tensor_metadata(
+            output_rowwise,
+            size=(rows, cols),
+            stride=(cols, 1),
+        )
+        torch._assert_tensor_metadata(
+            scales_rowwise,
+            size=(rows, cols // block_size),
+            stride=(cols // block_size, 1),
+        )
+    else:
+        torch._assert_tensor_metadata(output_rowwise, size=(0,), stride=(1,))
+        torch._assert_tensor_metadata(scales_rowwise, size=(0,), stride=(1,))
+
+    if colwise:
+        torch._assert_tensor_metadata(
+            output_colwise,
+            size=(rows, cols),
+            stride=(1, rows),
+        )
+        torch._assert_tensor_metadata(
+            scales_colwise,
+            size=(cols, rows // block_size),
+            stride=(1, cols),
+        )
+    else:
+        torch._assert_tensor_metadata(output_colwise, size=(0,), stride=(1,))
+        torch._assert_tensor_metadata(scales_colwise, size=(0,), stride=(1,))
+
+
+@pytest.mark.skipif(
+    not is_sm_at_least_100(),
+    reason="MXFP8 requires CUDA capability 10.0 or greater",
+)
+@pytest.mark.skipif(
+    not is_cuda_version_at_least(12, 8),
+    reason="CUDA version >= 12.8 required for MXFP8 CUDA kernels",
+)
+@pytest.mark.parametrize(
+    "rowwise,colwise", ((True, False), (False, True), (True, True))
+)
+@pytest.mark.parametrize(
+    "shard_dims",
+    ((0,), (1,), (0, 1), (1, 0)),
+    ids=("S0", "S1", "S0_S1", "S1_S0"),
+)
+def test_cuda_mx_dtensor_sharding_commutes_with_quantization(
+    rowwise, colwise, shard_dims
+):
+    import torch.distributed as dist
+    from torch.distributed._local_tensor import LocalTensorMode
+    from torch.distributed.device_mesh import init_device_mesh
+    from torch.distributed.tensor import Replicate, Shard, distribute_tensor
+    from torch.distributed.tensor.debug import CommDebugMode
+
+    mesh_shape = (2,) * len(shard_dims)
+    world_size = 2 ** len(shard_dims)
+    placements = [Shard(dim) for dim in shard_dims]
+    replicated_placements = [Replicate()] * len(shard_dims)
+
+    assert not dist.is_initialized()
+    dist.init_process_group(
+        "fake",
+        store=dist.HashStore(),
+        rank=0,
+        world_size=world_size,
+    )
+    try:
+        mesh = init_device_mesh("cuda", mesh_shape)
+        full_input = torch.randn(
+            128, 128, device="cuda", dtype=torch.bfloat16
+        ).contiguous()
+
+        with LocalTensorMode(world_size):
+            sharded_input = distribute_tensor(full_input, mesh, placements)
+            replicated_input = sharded_input.redistribute(
+                placements=replicated_placements
+            )
+
+            with CommDebugMode() as replicated_quantize_comm:
+                expected_outputs = mxfp8_quantize_cuda(
+                    replicated_input,
+                    rowwise=rowwise,
+                    colwise=colwise,
+                )
+
+            with CommDebugMode() as sharded_quantize_comm:
+                sharded_outputs = mxfp8_quantize_cuda(
+                    sharded_input,
+                    rowwise=rowwise,
+                    colwise=colwise,
+                )
+
+            actual_outputs = tuple(
+                output.redistribute(placements=replicated_placements)
+                for output in sharded_outputs
+            )
+
+            assert replicated_quantize_comm.get_total_counts() == 0
+            assert sharded_quantize_comm.get_total_counts() == 0
+            for expected, actual in zip(expected_outputs, actual_outputs):
+                assert expected.shape == actual.shape
+                torch.testing.assert_close(
+                    expected.to_local(), actual.to_local(), rtol=0, atol=0
+                )
+    finally:
+        dist.destroy_process_group()
 
 
 @pytest.mark.skipif(not has_triton(), reason="unsupported without triton")
