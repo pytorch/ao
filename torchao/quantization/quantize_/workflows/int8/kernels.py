@@ -3,8 +3,6 @@
 #
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
-import logging
-
 import torch
 from torch._dynamo import is_compiling as dynamo_is_compiling
 from torch._higher_order_ops.out_dtype import out_dtype
@@ -15,9 +13,6 @@ from torchao.utils import (
     _is_device,
     torch_version_at_least,
 )
-
-logger = logging.getLogger(__name__)
-logger.addHandler(logging.NullHandler())
 
 
 def safe_int_mm(input: torch.Tensor, mat2: torch.Tensor) -> torch.Tensor:
@@ -116,7 +111,7 @@ def _int_scaled_matmul_cpu(
         return c.to(scales1.dtype) * scales1
 
 
-def int_scaled_matmul(
+def _int_scaled_matmul(
     a: torch.Tensor, b: torch.Tensor, scales1: torch.Tensor
 ) -> torch.Tensor:
     """

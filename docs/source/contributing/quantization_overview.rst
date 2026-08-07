@@ -54,7 +54,7 @@ We'll also have efficient kernels that works with the low precision tensors, for
 
 * `torch.ops.mslk.f8f8bf16_rowwise <https://github.com/pytorch/ao/blob/6cfa47705f60ea614695b52b4b120ac5fd84d1cb/torchao/quantization/quantize_/workflows/float8/float8_tensor.py#L280>`__ (rowwise float8 activation and float8 weight matrix multiplication kernel in MSLK library)
 * `torch._scaled_mm <https://github.com/pytorch/ao/blob/6cfa47705f60ea614695b52b4b120ac5fd84d1cb/torchao/float8/inference.py#L116>`__ (float8 activation and float8 weight matrix multiplication kernel in PyTorch for both rowwise and tensorwise)
-* `int_scaled_matmul <https://github.com/pytorch/ao/blob/3e9746cf636e39e3c1ec0de6e0ef2e31f75c4c02/torchao/kernel/intmm.py#L107>`__ that does matmul and also applies a scale to the result.
+* `_int_scaled_matmul <https://github.com/pytorch/ao/blob/main/torchao/quantization/quantize_/workflows/int8/kernels.py>`__ that does matmul and also applies a scale to the result.
 
 .. note::
    We can also rely on torch.compile to generate kernels (through triton), for example the int8 weight only quantization kernel just relies on torch.compile to get speedup. In this case there is no custom handwritten "efficient kernel" that's corresponding to the type of quantization.
