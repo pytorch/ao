@@ -682,7 +682,9 @@ def quantize_and_upload(
         torchao_config_kwargs["modules_to_not_convert"] = []
         torchao_config_kwargs["include_input_output_embeddings"] = True
 
-    quantization_config = TorchAoConfig(quant_type=quant_config, **torchao_config_kwargs)
+    quantization_config = TorchAoConfig(
+        quant_type=quant_config, **torchao_config_kwargs
+    )
     quantized_model = AutoModelForCausalLM.from_pretrained(
         model_to_quantize,
         device_map="cuda:0",
