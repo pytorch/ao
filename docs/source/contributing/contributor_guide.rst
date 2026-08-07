@@ -35,12 +35,7 @@ Adding Efficient Kernels
 
 Custom triton kernels
 #####################
-Custom triton kernels can be implemented and registered in `torchao/kernel <https://github.com/pytorch/ao/tree/main/torchao/kernel>`__
-
-* `Implementation Example <https://github.com/pytorch/ao/blob/0bdde92114b470823aa24725bf3b0811e980c8ce/torchao/kernel/intmm_triton.py#L270-L302>`__
-* `Register as a custom op <https://github.com/pytorch/ao/blob/0bdde92114b470823aa24725bf3b0811e980c8ce/torchao/kernel/intmm_triton.py#L337-L364>`__
-
-You may need to define you own `autotuner <https://github.com/pytorch/ao/blob/main/torchao/kernel/autotuner.py>`__ as well.
+Custom triton kernels can be implemented and registered in `torchao/kernel <https://github.com/pytorch/ao/tree/main/torchao/kernel>`__, see `bsr_triton_ops.py <https://github.com/pytorch/ao/blob/main/torchao/kernel/bsr_triton_ops.py>`__ for an example of a triton kernel that is exposed as a custom op.
 
 Custom hand written kernels
 ###########################
