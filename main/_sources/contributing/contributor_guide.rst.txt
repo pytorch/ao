@@ -135,17 +135,4 @@ The output of all linear shapes can be copy pasted to microbenchmarking script c
 
 For benchmark helper functions, right now we have `1 <https://github.com/pytorch/ao/blob/0bdde92114b470823aa24725bf3b0811e980c8ce/torchao/utils.py#L55>`__ and `2 <https://github.com/pytorch/ao/blob/0bdde92114b470823aa24725bf3b0811e980c8ce/torchao/utils.py#L139>`__, feel free to use either one for now, but we'll probably keep one in the future.
 
-Model Benchmarks and Eval
-~~~~~~~~~~~~~~~~~~~~~~~~~
-
-After you have the quantization flow implemented, you can run benchmark and eval on the sam model, which is already modified to be friendly to torch.compile, and compare with existing techniques in torchao. For quantization microbenchmarks, see the ``benchmarks/`` directory.
-
-Note: sam is our representative model for compute bound models.
-
-* `sam <https://github.com/pytorch/ao/tree/main/torchao/_models/sam>`__
-
-  * `benchmark and eval <https://github.com/pytorch/ao/blob/main/torchao/_models/sam/eval_combo.py>`__
-
-Please checkout the ``--help`` option for each of the script to understand the supported options, e.g. you can use ``--profile=profile_path`` to get the chrome trace of the run to understand detailed `chrome trace <https://pytorch.org/tutorials/recipes/recipes/profiler_recipe.html#using-tracing-functionality>`__.
-
-Please let us know if there are any new important models that makes sense to be added to torchao model benchmark/eval folder.
+For quantization microbenchmarks, see the ``benchmarks/`` directory.
