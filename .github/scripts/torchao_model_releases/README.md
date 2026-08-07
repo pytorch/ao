@@ -20,15 +20,7 @@ sh eval.sh --eval_type latency --batch_size 256 "$QMODEL_PREFIX-FP8"
 sh eval.sh --eval_type quality --batch_size 256 "$QMODEL_PREFIX-INT8-INT4"
 
 # Summarize all results
-sh summarize_results.sh --model_ids $MODEL "$QMODEL_PREFIX-FP8" "$QMODEL_PREFIX-INT4" "$QMODEL_PREFIX-INT8-INT4" "$QMODEL_PREFIX-AWQ-INT4"
-```
-
-### AWQ Release and Eval
-```
-MODEL=Qwen/Qwen3-8B
-TASK=mmlu_abstract_algebra
-python quantize_and_upload.py --model_id $MODEL --quant AWQ-INT4 --push_to_hub --task $TASK --calibration_limit 10 --populate_model_card_template
-sh eval.sh --model_ids $MODEL "$QMODEL_PREFIX-AWQ-INT4"
+sh summarize_results.sh --model_ids $MODEL "$QMODEL_PREFIX-FP8" "$QMODEL_PREFIX-INT4" "$QMODEL_PREFIX-INT8-INT4"
 ```
 
 ### Update Released Checkpoints in PyTorch
@@ -36,13 +28,6 @@ Sometimes we may have to update the checkpoints under a different user name (org
 ```
 MODEL=Qwen/Qwen3-8B
 sh release.sh --model $MODEL --quants INT4 --push_to_hub --push_to_user_id pytorch
-```
-
-Or AWQ checkpoint:
-```
-MODEL=Qwen/Qwen3-8B
-TASK=mmlu_abstract_algebra
-python quantize_and_upload.py --model_id $MODEL --quant AWQ-INT4--task $TASK --calibration_limit 10 --push_to_hub --push_to_user_id pytorch
 ```
 
 ## Release Scripts
@@ -61,27 +46,6 @@ Examples:
 ```
 
 Note: for initial release, please include `--populate_model_card_template` to populate model card template.
-
-### SmoothQuant-INT8-INT8
-[SmoothQuant](https://arxiv.org/abs/2211.10438) smooths activation outliers by migrating quantization difficulty from activations to weights through a mathematically equivalent per-channel scaling transformation. That means SmoothQuant observes activation distribution before applying quantization.
-
-Examples:
-```
-# release SmoothQuant-INT8-INT8 model, calibrated with a specific task
-python quantize_and_upload.py --model_id Qwen/Qwen3-8B --quant SmoothQuant-INT8-INT8 --push_to_hub --task bbh --populate_model_card_template
-```
-
-### AWQ-INT4
-Similar to SmoothQuant, [AWQ](https://arxiv.org/abs/2306.00978) improves accuracy by preserving "salient" weight channels that has high impact on the accuracy of output. The notable point is that AWQ uses activation distribution to find salient weights, not weight distribution, multiplying the weight channel by a scale, and doing the reverse for the corresponding activation. Since activation is not quantized, there is no additional loss from activation, while the quantization loss from weight can be reduced.
-
-After eval for INT4 checkpoint is done, we might find some task have a large accuracy drop compared to high precision baseline, in that case we can do a calibration for that task, with a few samples, tasks are selected from [lm-eval](https://github.com/EleutherAI/lm-eval\uation-harness/blob/main/lm_eval/tasks/README.md). You can follow [new task guide](https://github.com/EleutherAI/lm-evaluation-harness/blob/main/docs/new_task_guide.md) to add new tasks to lm-eval.
-
-Examples:
-```
-# release AWQ-INT4 model, calibrated with a specific task
-# with some calibration_limit (number of samples)
-python quantize_and_upload.py --model_id Qwen/Qwen3-8B --quant AWQ-INT4 --push_to_hub --task bbh --calibration_limit 2
-```
 
 ### Update checkpoints for a different user_id (e.g. pytorch)
 Sometimes we may want to update the checkpoints for a different user id, without changing model card. For this we can use `--push_to_user_id`, e.g.
