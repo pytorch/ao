@@ -4,17 +4,11 @@
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
 
-# TODO: migrate off AffineQuantizedTensor, see https://github.com/pytorch/ao/pull/4245
-
 from dataclasses import dataclass
 
 import torch
 
-import torchao
 from torchao.core.config import AOBaseConfig
-from torchao.quantization.quant_primitives import (
-    MappingType,
-)
 from torchao.quantization.transform_module import (
     register_quantize_module_handler,
 )
@@ -52,75 +46,3 @@ def _intN_weight_only_transform(
         "This feature is currently broken, see https://github.com/pytorch/ao/pull/4151"
         " and https://github.com/pytorch/ao/pull/4245 for more details"
     )
-
-    group_size = config.group_size
-    n = config.n
-    symmetric = config.symmetric
-    weight = module.weight
-    if config.set_inductor_config:
-        torchao.quantization.utils.recommended_inductor_config_setter()
-
-    # for asymmetric quantization
-    def apply_intN_weight_only_quant_asym(weight):
-        # avoid circular dependency
-        from torchao.dtypes import to_affine_quantized_intx
-
-        mapping_type = MappingType.ASYMMETRIC
-        block_size = (1, group_size)
-        target_dtype = torch.uint8
-        quant_min = 0
-        quant_max = 2**n - 1
-        eps = 1e-6
-        zero_point_dtype = torch.int64
-        return to_affine_quantized_intx(
-            weight,
-            mapping_type,
-            block_size,
-            target_dtype,
-            quant_min,
-            quant_max,
-            eps,
-            zero_point_dtype=zero_point_dtype,
-            _layout=Layout(),  # noqa: F821
-        )  # , preserve_zero=preserve_zero,zero_point_domain=zero_point_domain)
-
-    # for symmetric quantization
-    def apply_intN_weight_only_quant_sym(weight):
-        # avoid circular dependency
-        from torchao.dtypes import to_affine_quantized_intx
-
-        mapping_type = MappingType.SYMMETRIC
-        block_size = (1, group_size)
-        target_dtype = torch.int8
-        quant_min = -(2 ** (n - 1))
-        quant_max = 2 ** (n - 1) - 1
-        eps = 1e-6
-        zero_point_dtype = torch.int64
-        return to_affine_quantized_intx(
-            weight,
-            mapping_type,
-            block_size,
-            target_dtype,
-            quant_min,
-            quant_max,
-            eps=eps,
-            zero_point_dtype=zero_point_dtype,
-            _layout=Layout(),  # noqa: F821
-        )
-
-    assert n in [8, 6, 5, 4, 3, 2], "n must be one of [8, 6, 5, 4, 3, 2]"
-    if n == 8:
-        raise AssertionError(
-            "Someone needs to refactor this code to handle Int8WeightOnlyConfig again"
-        )
-    elif n == 4:
-        raise AssertionError(
-            "Someone needs to refactor this code to handle Int4WeightOnlyConfig again"
-        )
-    else:
-        if symmetric:
-            new_weight = apply_intN_weight_only_quant_sym(weight)
-        else:
-            new_weight = apply_intN_weight_only_quant_asym(weight)
-        module.weight = torch.nn.Parameter(new_weight, requires_grad=False)
-    return module
