@@ -12,7 +12,6 @@ import torch
 from torchao.utils import ceil_div
 
 from .cute_utils import (
-    F8_MAX,
     compute_amax,
     compute_scale_from_amax,
     load_vals_chunk_tail,
@@ -112,13 +111,6 @@ def _compile_mxfp8_quantize_2d_cutedsl(
     import cutlass.utils as utils
     from cutlass.cute.nvgpu import cpasync, tcgen05
     from cutlass.cute.runtime import make_fake_stream, make_fake_tensor
-
-    # PTX lowering note:
-    # - RCEIL uses inline PTX on Blackwell-family targets because
-    #   CuTeDSL does not currently lower this conversion to
-    #   `cvt.rp.satfinite.ue8m0x2.f32` on its own.
-    # - FLOOR still uses a different lowered sequence than C++
-    #   helper routines.
 
     if input_dtype_name == "torch.float32":
         INPUT_CUTLASS_DTYPE = cutlass.Float32
@@ -321,7 +313,7 @@ def _compile_mxfp8_quantize_2d_cutedsl(
         ):
             """Quantize SMEM_STORE_VEC elements to FP8 and store them as one vector.
 
-            Applies inverse scale, optional clamping (FLOOR mode), and converts to FP8.
+            Applies inverse scale and converts to FP8 with saturation.
             The whole group is one vector op so no per-chunk register staging is
             needed, and the shared store is a single SMEM_STORE_VEC-byte access.
 
@@ -331,16 +323,13 @@ def _compile_mxfp8_quantize_2d_cutedsl(
                 sOUT_tile: Output tile in shared memory (TILE_M, TILE_K)
                 m_rel: Row index within tile
                 sout_base: Starting K index for this group within tile
-                USE_RCEIL: Whether using RCEIL mode (no clamping) or FLOOR mode (clamp to ±448)
+                USE_RCEIL: Scale calculation mode (kept for the shared call signature)
 
             Storage locations:
                 Inputs: vals_group, inv_scale (registers)
                 Output: sOUT_tile (shared memory)
             """
             q_vec = vals_group.load() * inv_scale
-            if not cutlass.const_expr(USE_RCEIL):
-                q_vec = cute.where(q_vec > F8_MAX, F8_MAX, q_vec)
-                q_vec = cute.where(q_vec < -F8_MAX, -F8_MAX, q_vec)
             q_fp8 = cute.make_rmem_tensor((SMEM_STORE_VEC,), cutlass.Float8E4M3FN)
             q_fp8.store(q_vec.to(cutlass.Float8E4M3FN))
             cute.autovec_copy(
@@ -743,7 +732,7 @@ def _compile_mxfp8_quantize_2d_cutedsl(
                                     scale_biased, inv_scale = compute_scale_from_amax(
                                         amax, USE_RCEIL
                                     )
-                                    scale_buffer[kb] = cutlass.Uint8(scale_biased)
+                                    scale_buffer[kb] = scale_biased
 
                                     self._quantize_block_then_store_reg_to_smem_full(
                                         vals_block,
@@ -790,9 +779,7 @@ def _compile_mxfp8_quantize_2d_cutedsl(
                                         scale_biased, inv_scale = (
                                             compute_scale_from_amax(amax, USE_RCEIL)
                                         )
-                                        scale_buffer[num_valid_scales] = cutlass.Uint8(
-                                            scale_biased
-                                        )
+                                        scale_buffer[num_valid_scales] = scale_biased
                                         num_valid_scales = num_valid_scales + 1
 
                                         self._quantize_block_then_store_reg_to_smem_tail(
