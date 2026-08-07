@@ -23,6 +23,7 @@ from torchao.quantization import (
 )
 from torchao.quantization.quantize_.common import KernelPreference
 from torchao.quantization.quantize_.workflows import (
+    IntxUnpackedToInt8TensorActivationQuantization,
     QuantizeTensorToFloat8Kwargs,
     QuantizeTensorToInt8Kwargs,
 )
@@ -46,6 +47,7 @@ ALLOWED_CLASSES = {
     "ScaleCalculationMode": ScaleCalculationMode,
     "NVFP4Tensor": NVFP4Tensor,
     "QuantizeTensorToNVFP4Kwargs": QuantizeTensorToNVFP4Kwargs,
+    "IntxUnpackedToInt8TensorActivationQuantization": IntxUnpackedToInt8TensorActivationQuantization,
 }
 
 ALLOWED_TENSORS_SUBCLASSES = [
