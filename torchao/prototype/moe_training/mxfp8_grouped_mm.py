@@ -487,6 +487,90 @@ class _MXFP8GroupedMMFwdBF16Bwd(torch.autograd.Function):
         )
 
 
+def quantize_grouped_weight_for_cache(
+    weight_t: torch.Tensor,
+    scale_calculation_mode: ScaleCalculationMode = ScaleCalculationMode.RCEIL,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Pre-quantize grouped expert weights to the MXFP8 tensors the forward consumes.
+
+    Produces exactly the ``(weight_e4m3, weight_scales_blocked)`` that
+    ``_compute_fwd_sm100`` computes per forward, so a caller can quantize static
+    weights once (e.g. per inference weight update) and reuse them across forwards
+    via ``mxfp8_scaled_grouped_mm_cached_weight``. Bitwise-identical to the dynamic
+    path for the same weights.
+
+    Args:
+        weight_t: expert weights, shape (E, K, N), per-group column-major layout.
+        scale_calculation_mode: scale mode (must match the forward's).
+
+    Returns:
+        weight_e4m3: shape (E, N, K), the quantized weight qdata.
+        weight_scales_blocked: the per-group blocked e8m0 scales.
+    """
+    block_size = 32
+    weight_e4m3, weight_scales = triton_to_mxfp8_dim0(
+        weight_t.transpose(-2, -1), block_size, scale_calculation_mode.value.lower()
+    )
+    weight_scales_blocked = triton_mx_block_rearrange_per_group_3d(weight_scales)
+    return weight_e4m3, weight_scales_blocked
+
+
+def mxfp8_scaled_grouped_mm_cached_weight(
+    input_act: torch.Tensor,
+    weight_e4m3: torch.Tensor,
+    weight_scales_blocked: torch.Tensor,
+    offs: torch.Tensor,
+    out_dtype: torch.dtype = torch.bfloat16,
+    scale_calculation_mode: ScaleCalculationMode = ScaleCalculationMode.RCEIL,
+    kernel_preference: KernelPreference = KernelPreference.TRITON,
+) -> torch.Tensor:
+    """Forward-only mxfp8 grouped GEMM against a pre-quantized weight.
+
+    Quantizes only the activation (the weight is already quantized, see
+    ``quantize_grouped_weight_for_cache``) and runs the same
+    ``torch._scaled_grouped_mm`` as ``_compute_fwd_sm100``. Inference-only: builds
+    no autograd graph. Token groups must already be padded to ``block_size``.
+
+    Args:
+        input_act: high-precision activations, shape (M, K), 2D and pre-padded.
+        weight_e4m3: cached quantized weight, shape (E, N, K).
+        weight_scales_blocked: cached per-group blocked weight scales.
+        offs: (padded) group end offsets along dim0 of input_act.
+        out_dtype: bfloat16 or float32.
+        scale_calculation_mode: scale mode (must match the cached weight's).
+        kernel_preference: TRITON or AUTO for the activation quant kernel.
+    """
+    block_size = 32
+    assert input_act.ndim == 2, "input_act must be 2D"
+    assert not isinstance(input_act, MXTensor), "cached-weight path expects hp activations"
+    assert _SM100_KERNELS_AVAILABLE, (
+        "SM100 kernels not available. Please use a torchao CUDA 12.8+ build on "
+        "SM100/100a device(s)."
+    )
+
+    # Quantize the activation along dim0 (identical to _compute_fwd_sm100).
+    if kernel_preference == KernelPreference.TRITON:
+        input_act_e4m3, _act_scales = triton_to_mxfp8_dim0(
+            input_act.contiguous(), block_size, scale_calculation_mode.value.lower()
+        )
+        input_act_scales_blocked = mx_block_rearrange_2d_M_groups_cuda(
+            _act_scales, offs
+        )
+    else:
+        input_act_e4m3, input_act_scales_blocked = mxfp8_quantize_2d_1x32_cutedsl(
+            input_act, scaling_mode=scale_calculation_mode.value.lower(), offs=offs
+        )
+
+    return torch._scaled_grouped_mm(
+        input_act_e4m3,
+        weight_e4m3.transpose(-2, -1),  # (E, N, K) -> (E, K, N)
+        input_act_scales_blocked,
+        weight_scales_blocked,
+        offs=offs,
+        out_dtype=out_dtype,
+    )
+
+
 def _compute_fwd(
     padded_input_act: torch.Tensor,
     weight_t: torch.Tensor,
