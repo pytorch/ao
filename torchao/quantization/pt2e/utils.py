@@ -17,7 +17,7 @@ import types
 import warnings
 from collections import OrderedDict
 from inspect import getfullargspec, signature
-from typing import Any, Callable, Optional, Union
+from typing import Any, Callable, Optional, TypeVar, Union, cast
 
 import torch
 import torch.nn.functional as F
@@ -46,6 +46,7 @@ from torchao.utils import _assert_and_get_unique_device
 __all__ = [
     "is_per_tensor",
     "is_per_channel",
+    "get_arg",
     "getattr_from_fqn",
     "get_qparam_dict",
     "check_min_max_valid",
@@ -63,6 +64,8 @@ __all__ = [
     "_is_sym_size_node",
     "_filter_sym_size_users",
 ]
+
+_T = TypeVar("_T")
 
 
 # TODO: remove unused
@@ -83,6 +86,22 @@ def getattr_from_fqn(obj: Any, fqn: str) -> Any:
     Given an obj and a fqn such as "foo.bar.baz", returns gm.foo.bar.baz.
     """
     return functools.reduce(getattr, fqn.split("."), obj)
+
+
+def get_arg(node: Node, name: str, expected_type: type[_T]) -> _T:
+    """Get a normalized FX node argument and validate its type."""
+    normalized_args = node.normalized_arguments(
+        node.graph.owning_module,
+        normalize_to_only_use_kwargs=True,
+    )
+    if normalized_args is None:
+        raise RuntimeError(f"Cannot normalize arguments for {node}")
+    value = normalized_args.kwargs[name]
+    if not isinstance(value, expected_type):
+        raise TypeError(
+            f"Expected {name!r} to have type {expected_type}, got {type(value)}"
+        )
+    return cast(_T, value)
 
 
 def to_underlying_dtype(qdtype):

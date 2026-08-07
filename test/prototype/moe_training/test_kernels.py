@@ -68,7 +68,7 @@ from torchao.prototype.moe_training.utils import (
 )
 from torchao.prototype.mx_formats.kernels import triton_mx_block_rearrange
 from torchao.prototype.mx_formats.mx_tensor import ScaleCalculationMode, to_mx
-from torchao.prototype.mx_formats.utils import from_blocked
+from torchao.prototype.mx_formats.utils import from_blocked, to_blocked
 from torchao.testing.utils import skip_if_rocm
 
 
@@ -714,6 +714,298 @@ def test_cuda_mx_dim1_2d_numerics_32x1(
 
     # Check quantized values - no padding needed for data
     torch.testing.assert_close(y_d1, y_d1_ref, rtol=0, atol=0)
+
+
+def _make_mxfp8_edge_input(shape, dtype, device, pattern: str) -> torch.Tensor:
+    numel = 1
+    for dim in shape:
+        numel *= dim
+
+    if pattern == "zeros":
+        x = torch.zeros(numel, dtype=torch.float32, device=device)
+    elif pattern == "arange_signed":
+        x = (torch.arange(numel, dtype=torch.float32, device=device) % 257) - 128
+    elif pattern == "wide_dynamic":
+        base = torch.arange(numel, dtype=torch.float32, device=device)
+        signs = torch.where(base.to(torch.int64) % 2 == 0, 1.0, -1.0)
+        magnitudes = torch.pow(2.0, (base % 17) - 8)
+        x = signs * magnitudes
+    else:
+        raise AssertionError(f"unknown pattern: {pattern}")
+
+    return x.reshape(shape).to(dtype)
+
+
+@pytest.mark.skipif(
+    not _is_sm_10x(),
+    reason="MXFP8 requires CUDA SM 10.x",
+)
+@pytest.mark.skipif(
+    not _mxfp8_cutedsl_kernels_available,
+    reason="MXFP8 cutedsl kernels not available",
+)
+@pytest.mark.parametrize(
+    "M,K,input_dtype,scaling_mode,stage_count,pattern",
+    (
+        (128, 128, torch.bfloat16, ScaleCalculationMode.RCEIL, 1, "zeros"),
+        (384, 1408, torch.bfloat16, ScaleCalculationMode.FLOOR, 2, "wide_dynamic"),
+        (128, 256, torch.float32, ScaleCalculationMode.RCEIL, 1, "arange_signed"),
+        (256, 384, torch.float32, ScaleCalculationMode.FLOOR, 2, "wide_dynamic"),
+    ),
+)
+def test_cuda_mx_dim0_2d_cutedsl_edge_inputs(
+    M, K, input_dtype, scaling_mode, stage_count, pattern
+):
+    block_size = 32
+    x = _make_mxfp8_edge_input((M, K), input_dtype, "cuda", pattern)
+
+    s_ref, y_ref = to_mx(
+        x,
+        elem_dtype=torch.float8_e4m3fn,
+        block_size=block_size,
+        scaling_mode=scaling_mode,
+    )
+    s_ref = triton_mx_block_rearrange(s_ref)
+
+    y, s = mxfp8_quantize_2d_1x32_cutedsl(
+        x,
+        block_size=block_size,
+        scaling_mode=scaling_mode.value.lower(),
+        stage_count=stage_count,
+    )
+
+    torch.testing.assert_close(s, s_ref, rtol=0, atol=0)
+    torch.testing.assert_close(y, y_ref, rtol=0, atol=0)
+    assert y.stride() == (K, 1)
+
+
+@pytest.mark.skipif(
+    not _is_sm_10x(),
+    reason="MXFP8 requires CUDA SM 10.x",
+)
+@pytest.mark.skipif(
+    not _mxfp8_cutedsl_kernels_available,
+    reason="MXFP8 cutedsl kernels not available",
+)
+@pytest.mark.parametrize(
+    "M,K,input_dtype,scaling_mode,stage_count,blocked_scale_output,pattern",
+    (
+        (128, 128, torch.bfloat16, ScaleCalculationMode.RCEIL, 1, False, "zeros"),
+        (
+            384,
+            1408,
+            torch.bfloat16,
+            ScaleCalculationMode.FLOOR,
+            2,
+            True,
+            "wide_dynamic",
+        ),
+        (128, 256, torch.float32, ScaleCalculationMode.RCEIL, 1, True, "arange_signed"),
+        (256, 384, torch.float32, ScaleCalculationMode.FLOOR, 2, False, "wide_dynamic"),
+    ),
+)
+def test_cuda_mx_dim1_2d_cutedsl_edge_inputs(
+    M, K, input_dtype, scaling_mode, stage_count, blocked_scale_output, pattern
+):
+    block_size = 32
+    x = _make_mxfp8_edge_input((M, K), input_dtype, "cuda", pattern)
+
+    x_t = x.transpose(-2, -1).contiguous()
+    s_ref, y_ref = to_mx(
+        x_t,
+        elem_dtype=torch.float8_e4m3fn,
+        block_size=block_size,
+        scaling_mode=scaling_mode,
+    )
+    y_ref = y_ref.transpose(-2, -1).contiguous()
+    if blocked_scale_output:
+        s_ref = to_blocked(s_ref)
+
+    y, s = mxfp8_quantize_2d_32x1_cutedsl(
+        x,
+        block_size=block_size,
+        scaling_mode=scaling_mode.value.lower(),
+        stage_count=stage_count,
+        blocked_scale_output=blocked_scale_output,
+    )
+
+    torch.testing.assert_close(s, s_ref, rtol=0, atol=0)
+    torch.testing.assert_close(y, y_ref, rtol=0, atol=0)
+    assert y.stride() == (1, M)
+
+
+def _mxfp8_3d_edge_reference(
+    x: torch.Tensor,
+    variant: str,
+    scaling_mode: ScaleCalculationMode,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    block_size = 32
+    if variant == "32x1_t":
+        s_ref, y_ref = to_mx(
+            x.contiguous(),
+            elem_dtype=torch.float8_e4m3fn,
+            block_size=block_size,
+            scaling_mode=scaling_mode,
+        )
+        return y_ref.transpose(-2, -1), s_ref.transpose(-2, -1)
+
+    if variant == "32x1_n":
+        s_ref, y_ref = to_mx(
+            x.transpose(-2, -1).contiguous(),
+            elem_dtype=torch.float8_e4m3fn,
+            block_size=block_size,
+            scaling_mode=scaling_mode,
+        )
+        return y_ref.transpose(-2, -1), s_ref.transpose(-2, -1)
+
+    E, N, K = x.shape
+    x_tiles = (
+        x.view(E, N // block_size, block_size, K // block_size, block_size)
+        .permute(0, 1, 3, 2, 4)
+        .contiguous()
+        .view(E, N // block_size, K // block_size, block_size * block_size)
+    )
+    s_ref, y_tiles_ref = to_mx(
+        x_tiles,
+        elem_dtype=torch.float8_e4m3fn,
+        block_size=block_size * block_size,
+        scaling_mode=scaling_mode,
+    )
+    y_ref = (
+        y_tiles_ref.view(E, N // block_size, K // block_size, block_size, block_size)
+        .permute(0, 1, 3, 2, 4)
+        .contiguous()
+        .view(E, N, K)
+    )
+    if variant == "32x32_t":
+        return y_ref.transpose(-2, -1), s_ref.squeeze(-1).transpose(-2, -1)
+
+    assert variant == "32x32_n"
+    y_ref = y_ref.transpose(-2, -1).contiguous().transpose(-2, -1)
+    return y_ref, s_ref.squeeze(-1)
+
+
+def _mxfp8_3d_logical_scales_from_blocked(
+    scales_blocked: torch.Tensor,
+    quant_input: torch.Tensor,
+    scale_block_dim2: int,
+) -> torch.Tensor:
+    block_size = 32
+    s_rows = quant_input.shape[-1]
+    s_cols = quant_input.shape[-2] // block_size
+    s_blocked_full = (
+        torch.stack(
+            [
+                from_blocked(scales_blocked[e], s_rows, s_cols).view(torch.uint8)
+                for e in range(quant_input.shape[0])
+            ],
+            dim=0,
+        )
+        .view(torch.float8_e8m0fnu)
+        .to(torch.float32)
+    )
+    if scale_block_dim2 == 32:
+        return s_blocked_full[:, ::block_size, :].transpose(-2, -1).contiguous()
+    return s_blocked_full.transpose(-2, -1).contiguous()
+
+
+@pytest.mark.skipif(
+    not _is_sm_10x(),
+    reason="MXFP8 requires CUDA SM 10.x",
+)
+@pytest.mark.skipif(
+    not _mxfp8_cutedsl_kernels_available,
+    reason="MXFP8 cutedsl kernels not available",
+)
+@pytest.mark.parametrize(
+    "E,N,K,input_dtype,variant,scaling_mode,stage_count,blocked_scale_output,pattern",
+    (
+        (
+            1,
+            32,
+            128,
+            torch.bfloat16,
+            "32x1_n",
+            ScaleCalculationMode.RCEIL,
+            1,
+            False,
+            "zeros",
+        ),
+        (
+            2,
+            64,
+            416,
+            torch.bfloat16,
+            "32x32_t",
+            ScaleCalculationMode.FLOOR,
+            2,
+            True,
+            "wide_dynamic",
+        ),
+        (
+            1,
+            32,
+            128,
+            torch.float32,
+            "32x1_t",
+            ScaleCalculationMode.RCEIL,
+            1,
+            True,
+            "arange_signed",
+        ),
+        (
+            2,
+            96,
+            416,
+            torch.float32,
+            "32x32_n",
+            ScaleCalculationMode.FLOOR,
+            2,
+            False,
+            "wide_dynamic",
+        ),
+    ),
+)
+def test_cuda_mx_3d_cutedsl_edge_inputs(
+    E,
+    N,
+    K,
+    input_dtype,
+    variant,
+    scaling_mode,
+    stage_count,
+    blocked_scale_output,
+    pattern,
+):
+    block_size = 32
+    x = _make_mxfp8_edge_input((E, N, K), input_dtype, "cuda", pattern)
+    quant_input = x.transpose(-2, -1) if variant.endswith("_t") else x
+    ref_input = x if not variant.endswith("_t") else quant_input.transpose(-2, -1)
+    y_ref, s_ref = _mxfp8_3d_edge_reference(ref_input, variant, scaling_mode)
+    scale_block_dim2 = 32 if "32x32" in variant else 1
+
+    y, s = mxfp8_quantize_cuda_3d(
+        quant_input,
+        block_size=block_size,
+        scale_block_dim1=block_size,
+        scale_block_dim2=scale_block_dim2,
+        scaling_mode=scaling_mode.value.lower(),
+        stage_count=stage_count,
+        blocked_scale_output=blocked_scale_output,
+    )
+
+    if blocked_scale_output:
+        s = _mxfp8_3d_logical_scales_from_blocked(
+            s,
+            quant_input,
+            scale_block_dim2,
+        ).to(s_ref.dtype)
+    else:
+        s = s.to(s_ref.dtype)
+
+    torch.testing.assert_close(s, s_ref, rtol=0, atol=0)
+    torch.testing.assert_close(y, y_ref, rtol=0, atol=0)
+    assert y.stride() == y_ref.stride()
 
 
 @pytest.mark.skipif(
