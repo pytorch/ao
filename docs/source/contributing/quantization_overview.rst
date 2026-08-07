@@ -140,7 +140,7 @@ We'll skip the instruction for now since we haven't seen many use cases for stat
 Other Quantization Flows
 ########################
 
-For other quantization flow/algorithms that does not fit into any of the above, we also intend to provide examples for common patterns. For example, `Autoround <https://github.com/pytorch/ao/blob/main/torchao/prototype/autoround/README.md>`__ uses `MultiTensor <https://gist.github.com/HDCharles/a1b575bbf8875f994af8a01b225e1227>`__ and module hooks to optimize the module.
+For other quantization flow/algorithms that does not fit into any of the above, we also intend to provide examples for common patterns.
 
 If you are working on a new quantization algorithm/flow and not sure how to implement it in a PyTorch native way, please feel free to open an issue to describe how your algorithm works and we can help advise on the implementation details.
 
