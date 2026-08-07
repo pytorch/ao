@@ -34,3 +34,10 @@ torchao/prototype/inductor/ @Xia-Weiwen @Valentine233 @jerryzh168 @vkuzo @andrew
 torchao/prototype/quantization/int4/ @Xia-Weiwen @jerryzh168 @vkuzo @andrewor14
 torchao/quantization/pt2e/inductor_passes/ @Xia-Weiwen @jerryzh168 @vkuzo @andrewor14
 torchao/quantization/pt2e/quantizer/x86_inductor_quantizer.py @Xia-Weiwen @jerryzh168 @vkuzo @andrewor14
+
+# XPU
+/torchao/quantization/quantize_/workflows/int4/int4_plain_int32_tensor.py @liangan1
+/.github/scripts/ci_test_xpu.sh @liangan1
+/.github/workflows/xpu_test.yml @liangan1
+/torchao/quantization/pt2e/quantizer/xpu_inductor_quantizer.py @liangan1
+/docs/source/pt2e_quantization/pt2e_quant_xpu_inductor.rst @liangan1
