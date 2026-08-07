@@ -14,33 +14,24 @@ from huggingface_hub import ModelCard, get_token, whoami
 from transformers import AutoModelForCausalLM, AutoTokenizer, TorchAoConfig
 
 _transformers_version = str(transformers.__version__)
-if _transformers_version >= "5":
-    from transformers.quantizers.auto import get_hf_quantizer
 
 _huggingface_hub_version = str(huggingface_hub.__version__)
 
-from torchao.prototype.awq import (
-    AWQConfig,
-)
 from torchao.prototype.mx_formats.inference_workflow import (
     MXDynamicActivationMXWeightConfig,
     NVFP4DynamicActivationNVFP4WeightConfig,
 )
-from torchao.prototype.smoothquant import SmoothQuantConfig
 from torchao.quantization import (
     Float8DynamicActivationFloat8WeightConfig,
     Float8DynamicActivationInt4WeightConfig,
     Int4WeightOnlyConfig,
-    Int8DynamicActivationInt8WeightConfig,
     Int8DynamicActivationIntxWeightConfig,
     IntxWeightOnlyConfig,
     ModuleFqnToConfig,
     PerAxis,
     PerGroup,
     PerRow,
-    quantize_,
 )
-from torchao.quantization.quant_api import _is_linear
 
 safe_serialization = _transformers_version >= "5"
 
@@ -293,76 +284,6 @@ quantized_model = AutoModelForCausalLM.from_pretrained(model_to_quantize, device
 tokenizer = AutoTokenizer.from_pretrained(model_id)
 """
 
-
-_smoothquant_int8_int8_quant_code = """
-from torchao.quantization import Int8DynamicActivationInt8WeightConfig, quantize_
-from torchao.prototype.smoothquant import SmoothQuantConfig
-
-from torchao._models._eval import TransformerEvalWrapper
-model = AutoModelForCausalLM.from_pretrained(
-    model_to_quantize,
-    device_map="auto",
-    torch_dtype=torch.bfloat16,
-)
-tokenizer = AutoTokenizer.from_pretrained(model_id)
-
-base_config = Int8DynamicActivationInt8WeightConfig()
-quant_config = SmoothQuantConfig(base_config, step="prepare")
-quantize_(
-    model,
-    quant_config,
-)
-TransformerEvalWrapper(
-    model=model,
-    tokenizer=tokenizer,
-    max_seq_length=max_seq_length,
-).run_eval(
-    tasks=tasks,
-    limit=calibration_limit,
-)
-quant_config = SmoothQuantConfig(base_config, step="convert")
-quantize_(model, quant_config)
-
-quantized_model = model
-quant_config = SmoothQuantConfig(base_config, step="prepare_for_loading")
-quantized_model.config.quantization_config = TorchAoConfig(quant_config)
-"""
-
-
-_awq_int4_quant_code = """
-from torchao.quantization import Int4WeightOnlyConfig, quantize_
-from torchao.prototype.awq import (
-    AWQConfig,
-)
-from torchao._models._eval import TransformerEvalWrapper
-model = AutoModelForCausalLM.from_pretrained(
-    model_to_quantize,
-    device_map="{device}",
-    torch_dtype=torch.bfloat16,
-)
-tokenizer = AutoTokenizer.from_pretrained(model_id)
-
-base_config = Int4WeightOnlyConfig(group_size=128, int4_packing_format="tile_packed_to_4d", int4_choose_qparams_algorithm="hqq")
-quant_config = AWQConfig(base_config, step="prepare")
-quantize_(
-    model,
-    quant_config,
-)
-TransformerEvalWrapper(
-    model=model,
-    tokenizer=tokenizer,
-    max_seq_length=max_seq_length,
-).run_eval(
-    tasks=tasks,
-    limit=calibration_limit,
-)
-quant_config = AWQConfig(base_config, step="convert")
-quantize_(model, quant_config)
-
-quantized_model = model
-quant_config = AWQConfig(base_config, step="prepare_for_loading")
-quantized_model.config.quantization_config = TorchAoConfig(quant_config)
-"""
 
 _mxfp8_quant_code = """
 from torchao.prototype.mx_formats.inference_workflow import MXDynamicActivationMXWeightConfig
@@ -732,7 +653,6 @@ def quantize_and_upload(
                 ),
             }
         ),
-        "SmoothQuant-INT8-INT8": Int8DynamicActivationInt8WeightConfig(),
         "MXFP8": MXDynamicActivationMXWeightConfig(),
         "NVFP4": NVFP4DynamicActivationNVFP4WeightConfig(),
     }
@@ -743,8 +663,6 @@ def quantize_and_upload(
         "INT4": _int4_quant_code,
         "INT8-INT4": _int8_int4_quant_code,
         "INT8-INT4-HQQ": _int8_int4_hqq_quant_code,
-        "AWQ-INT4": _awq_int4_quant_code,
-        "SmoothQuant-INT8-INT8": _smoothquant_int8_int8_quant_code,
         "MXFP8": _mxfp8_quant_code,
         "NVFP4": _nvfp4_quant_code,
     }
@@ -754,120 +672,26 @@ def quantize_and_upload(
     if is_mobile:
         model_to_quantize = _untie_weights_and_save_locally(model_to_quantize, device)
 
-    # quantization
-    if "AWQ" in quant:
-        # awq will use torchao API directly
-        assert quant == "AWQ-INT4", "Only support AWQ-INT4 for now"
-        model = AutoModelForCausalLM.from_pretrained(
-            model_to_quantize,
-            device_map=device,
-            torch_dtype=torch.bfloat16,
-        )
-        tokenizer = AutoTokenizer.from_pretrained(model_id)
+    # quantization: all quant types are integrated with `from_pretrained` in
+    # huggingface transformers
+    assert quant in quant_to_config, f"Unsupported quant option: {quant}"
+    quant_config = quant_to_config[quant]
 
-        base_config = Int4WeightOnlyConfig(
-            group_size=128,
-            int4_packing_format="tile_packed_to_4d",
-            int4_choose_qparams_algorithm="hqq",
-        )
+    torchao_config_kwargs = {}
+    if is_mobile:
+        torchao_config_kwargs["modules_to_not_convert"] = []
+        torchao_config_kwargs["include_input_output_embeddings"] = True
 
-        def filter_fn_skip_lmhead(module, fqn):
-            if fqn == "lm_head":
-                return False
-            return _is_linear(module, fqn)
-
-        awq_config = AWQConfig(base_config, step="prepare")
-        if safe_serialization:
-            quantize_(model, awq_config, filter_fn=filter_fn_skip_lmhead)
-        else:
-            quantize_(model, awq_config)
-
-        from torchao._models._eval import TransformerEvalWrapper
-
-        TransformerEvalWrapper(
-            model=model,
-            tokenizer=tokenizer,
-            max_seq_length=max_seq_length,
-        ).run_eval(
-            tasks=tasks,
-            limit=calibration_limit,
-        )
-        awq_config = AWQConfig(base_config, step="convert")
-        if safe_serialization:
-            quantize_(model, awq_config, filter_fn=filter_fn_skip_lmhead)
-        else:
-            quantize_(model, awq_config)
-
-        quantized_model = model
-        quant_config = AWQConfig(base_config, step="prepare_for_loading")
-        if safe_serialization:
-            quantization_config = TorchAoConfig(quant_config).to_dict()
-            quantized_model.config.quantization_config = quantization_config
-
-            hf_quantizer, _, _, _ = get_hf_quantizer(
-                config=quantized_model.config,
-                quantization_config=None,
-                dtype=torch.bfloat16,
-                device_map=device,
-                weights_only=True,
-                user_agent={
-                    "file_type": "model",
-                    "framework": "pytorch",
-                    "from_auto_class": False,
-                },
-            )
-            quantized_model.hf_quantizer = hf_quantizer
-        else:
-            quantized_model.config.quantization_config = TorchAoConfig(quant_config)
-    elif quant == "SmoothQuant-INT8-INT8":
-        model = AutoModelForCausalLM.from_pretrained(
-            model_to_quantize,
-            device_map="auto",
-            torch_dtype=torch.bfloat16,
-        )
-        tokenizer = AutoTokenizer.from_pretrained(model_id)
-
-        base_config = Int8DynamicActivationInt8WeightConfig()
-        quant_config = SmoothQuantConfig(base_config, step="prepare")
-        quantize_(
-            model,
-            quant_config,
-        )
-        TransformerEvalWrapper(
-            model=model,
-            tokenizer=tokenizer,
-            max_seq_length=max_seq_length,
-        ).run_eval(
-            tasks=tasks,
-            limit=calibration_limit,
-        )
-        quant_config = SmoothQuantConfig(base_config, step="convert")
-        quantize_(model, quant_config)
-
-        quantized_model = model
-
-        load_config = SmoothQuantConfig(base_config, step="prepare_for_loading")
-        quantized_model.config.quantization_config = TorchAoConfig(load_config)
-    else:
-        # other quantization are integrated with `from_pretrained` in huggingface transformers
-        assert quant in quant_to_config, f"Unsupported quant option: {quant}"
-        quant_config = quant_to_config[quant]
-
-        torchao_config_kwargs = {}
-        if is_mobile:
-            torchao_config_kwargs["modules_to_not_convert"] = []
-            torchao_config_kwargs["include_input_output_embeddings"] = True
-
-        quantization_config = TorchAoConfig(
-            quant_type=quant_config, **torchao_config_kwargs
-        )
-        quantized_model = AutoModelForCausalLM.from_pretrained(
-            model_to_quantize,
-            device_map="cuda:0",
-            torch_dtype=torch.bfloat16,
-            quantization_config=quantization_config,
-        )
-        tokenizer = AutoTokenizer.from_pretrained(model_id)
+    quantization_config = TorchAoConfig(
+        quant_type=quant_config, **torchao_config_kwargs
+    )
+    quantized_model = AutoModelForCausalLM.from_pretrained(
+        model_to_quantize,
+        device_map="cuda:0",
+        torch_dtype=torch.bfloat16,
+        quantization_config=quantization_config,
+    )
+    tokenizer = AutoTokenizer.from_pretrained(model_id)
 
     username = _get_username()
 
@@ -985,13 +809,13 @@ if __name__ == "__main__":
     parser.add_argument(
         "--quant",
         type=str,
-        help="Quantization method. Options are FP8, FP8-INT4, INT4, INT8-INT4, INT8-INT4-HQQ, AWQ-INT4, SmoothQuant-INT8-INT8, MXFP8, NVFP4",
+        help="Quantization method. Options are FP8, FP8-INT4, INT4, INT8-INT4, INT8-INT4-HQQ, MXFP8, NVFP4",
     )
     parser.add_argument(
         "--tasks",
         nargs="+",
         type=str,
-        help="lm-eval task to optimize for in awq, we'll select a sample from the task dataset and run awq calibration based on that",
+        help="lm-eval task(s) to select calibration samples from.",
         default=["gsm8k"],
     )
     parser.add_argument(

@@ -18,8 +18,6 @@ There are 3 main benefits of using low-precision dtype for training (the extent 
 - **Speed**: speedup compute-bound ops with low-precision hardware instructions (e.g. INT8 Tensor Cores) and speedup memory-bound ops with quantized inputs/outputs.
 - [What you train is what you serve](https://github.com/google/aqt?tab=readme-ov-file#features).
 
-[`benchmarks/quantized_training/pretrain_llama2.py`](../../../benchmarks/quantized_training/pretrain_llama2.py) demonstrates an end-to-end Llama2 pre-training on single GPU for strategies implemented in this folder.
-
 All features in this folder are tested to work with PyTorch 2.4+ unless otherwise stated. Training with FSDP2 is also supported, but if you use FDSP2 mixed-precision with `param_dtype` != model dtype, PyTorch 2.6+ is required.
 
 ## INT8 quantized training
@@ -122,7 +120,7 @@ model = ...
 quantize_(model, bitnet_training())
 ```
 
-Note: following the [BitNet Training Tips, Code and FAQ](https://github.com/microsoft/unilm/blob/master/bitnet/The-Era-of-1-bit-LLMs__Training_Tips_Code_FAQ.pdf), user should insert extra RMSNorm before each `nn.Linear` layers and also remove the original RMSNorm before attention and MLP modules. Calling `quantize_(model, bitnet_training())` will NOT perform this for you. You can take a look at our example training script [`benchmarks/quantized_training/pretrain_llama2.py`](../../../benchmarks/quantized_training/pretrain_llama2.py) on how to do this for our Llama model.
+Note: following the [BitNet Training Tips, Code and FAQ](https://github.com/microsoft/unilm/blob/master/bitnet/The-Era-of-1-bit-LLMs__Training_Tips_Code_FAQ.pdf), user should insert extra RMSNorm before each `nn.Linear` layers and also remove the original RMSNorm before attention and MLP modules. Calling `quantize_(model, bitnet_training())` will NOT perform this for you.
 
 When used with FSDP2 training, you can pre-compute BitNet weight scales for the next iteration to synchronize all scales with a single all-reduce operation. This should be done after optimizer step.
 
