@@ -227,7 +227,6 @@ if has_triton():
         a_t_rht, global_amax, BLOCK_N: tl.constexpr, BLOCK_M: tl.constexpr
     ):
         """Compute per-vector FP8 scale factors and scaled FP32 values ready for FP4 packing."""
-        FP8_E4M3_EPS: tl.constexpr = torch.finfo(torch.float8_e4m3fn).tiny
         FP8_E4M3_MAX: tl.constexpr = 448.0
         FP4_E2M1_MAX: tl.constexpr = 6.0
         FP32_MAX: tl.constexpr = torch.finfo(torch.float32).max
@@ -237,13 +236,25 @@ if has_triton():
 
         is_global_amax = global_amax == 0
         safe_global_amax = tl.where(is_global_amax, 1.0, global_amax)
-        candidate = tl.minimum(FP8_E4M3_MAX * FP4_E2M1_MAX / safe_global_amax, FP32_MAX)
+        # TE's scale bytes follow correctly-rounded FP32 division; Triton's normal
+        # "/" lowers through a reciprocal path that can flip FP8 midpoint ties.
+        global_scale_num = tl.full(
+            safe_global_amax.shape,
+            FP8_E4M3_MAX * FP4_E2M1_MAX,
+            safe_global_amax.dtype,
+        )
+        candidate = tl.div_rn(global_scale_num, safe_global_amax)
+        candidate = tl.minimum(candidate, FP32_MAX)
         candidate = tl.where(candidate == 0, 1.0, candidate)
         global_encode_scale = tl.where(is_global_amax, 1.0, candidate)
         global_decode_scale = 1.0 / global_encode_scale
 
-        pvscale = (vec_max / FP4_E2M1_MAX) * global_encode_scale
-        pvscale = tl.clamp(pvscale, FP8_E4M3_EPS, FP8_E4M3_MAX)
+        # Cap at FP8_E4M3_MAX only, no lower clamp: pvscale is non-negative and TE
+        # emits a zero per-vector scale for zero/near-zero vectors, so pinning small
+        # scales to a nonzero floor would diverge from the TE ground truth.
+        global_encode_scale_over_fp4max = global_encode_scale * (1.0 / FP4_E2M1_MAX)
+        pvscale = vec_max.to(tl.float32) * global_encode_scale_over_fp4max
+        pvscale = tl.minimum(pvscale, FP8_E4M3_MAX)
         pvscale_fp8 = pvscale.to(tl.float8e4nv)
         scale_inv = tl.reshape(pvscale_fp8, [BLOCK_N, BLOCK_M // 16])
 
