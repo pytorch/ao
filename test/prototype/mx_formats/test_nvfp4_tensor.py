@@ -386,7 +386,12 @@ def test_triton_nvfp4_quantize_equivalence(M, N, use_per_tensor_scale, dtype):
 
 
 @pytest.mark.skipif(
-    not torch.accelerator.is_available(), reason="Accelerator not available"
+    not (torch.cuda.is_available() or torch.xpu.is_available()),
+    reason="CUDA or XPU not available",
+)
+@pytest.mark.skipif(
+    torch.cuda.is_available() and not is_sm_at_least_100(),
+    reason="CUDA capability >= 10.0 required for fp4",
 )
 @pytest.mark.parametrize("use_gelu", [True, False])
 @pytest.mark.parametrize(
@@ -423,13 +428,6 @@ def test_nvfp4_matmul_with_amax(
 ):
     device = torch.accelerator.current_accelerator()
     is_cuda = device.type == "cuda"
-
-    # DYNAMIC mode requires SM100+ on CUDA, but works on XPU
-    if is_cuda and quant_type == "dynamic" and not is_sm_at_least_100():
-        pytest.skip("CUDA capability >= 10.0 required for DYNAMIC float4 gemm")
-
-    if is_cuda and not is_sm_at_least_100():
-        pytest.skip("CUDA capability >= 10.0 required for fp4")
 
     if bias and inpt_dtype == torch.float32:
         pytest.xfail("Bias is not supported when module weight is in fp32")

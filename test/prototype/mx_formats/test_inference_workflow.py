@@ -127,7 +127,8 @@ def test_inference_workflow_mx(
 
 
 @pytest.mark.skipif(
-    not torch.accelerator.is_available(), reason="Accelerator not available"
+    not (torch.cuda.is_available() or torch.xpu.is_available()),
+    reason="CUDA or XPU not available",
 )
 @pytest.mark.parametrize("bias", [True, False])
 @pytest.mark.parametrize("compile", [True, False])
