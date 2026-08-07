@@ -183,22 +183,6 @@ def _torch_version_at_least(min_version):
     return _parse_version(torch.__version__) >= _parse_version(min_version)
 
 
-def detect_hipify_v2():
-    try:
-        from torch.utils.hipify import __version__
-
-        from packaging.version import Version
-
-        if Version(__version__) >= Version("2.0.0"):
-            return True
-    except Exception as e:
-        print(
-            "failed to detect pytorch hipify version, defaulting to version 1.0.0 behavior"
-        )
-        print(e)
-    return False
-
-
 class BuildOptions:
     def __init__(self):
         # TORCHAO_BUILD_CPU_AARCH64 is enabled by default on Arm-based Apple machines
@@ -535,10 +519,6 @@ def get_extensions():
         "-O3" if not debug_mode else "-O0",
         "-std=c++20",
     ]
-    maybe_hipify_v2_flag = []
-    if use_rocm and detect_hipify_v2():
-        maybe_hipify_v2_flag = ["-DHIPIFY_V2"]
-
     maybe_cpython_limited_api = []
     if not is_freethreaded():
         maybe_cpython_limited_api += [
@@ -547,8 +527,8 @@ def get_extensions():
 
     extra_link_args = []
     extra_compile_args = {
-        "cxx": maybe_cpython_limited_api + maybe_hipify_v2_flag,
-        "nvcc": nvcc_args if use_cuda else rocm_args + maybe_hipify_v2_flag,
+        "cxx": maybe_cpython_limited_api,
+        "nvcc": nvcc_args if use_cuda else rocm_args,
     }
 
     if not IS_WINDOWS:
@@ -572,39 +552,6 @@ def get_extensions():
             extra_compile_args["cxx"].append("/ZI")
             extra_compile_args["nvcc"].append("-g")
             extra_link_args.append("/DEBUG")
-
-    if use_rocm:
-        # naive search for hipblalst.h, if any found contain HIPBLASLT_ORDER_COL16 and VEC_EXT
-        found_col16 = False
-        found_vec_ext = False
-        found_outer_vec = False
-        print("ROCM_HOME", ROCM_HOME)
-        hipblaslt_headers = list(
-            glob.glob(os.path.join(ROCM_HOME, "include", "hipblaslt", "hipblaslt.h"))
-        )
-        print("hipblaslt_headers", hipblaslt_headers)
-        for header in hipblaslt_headers:
-            with open(header) as f:
-                text = f.read()
-                if "HIPBLASLT_ORDER_COL16" in text:
-                    found_col16 = True
-                if "HIPBLASLT_MATMUL_DESC_A_SCALE_POINTER_VEC_EXT" in text:
-                    found_vec_ext = True
-                if "HIPBLASLT_MATMUL_MATRIX_SCALE_OUTER_VEC_32F" in text:
-                    found_outer_vec = True
-        if found_col16:
-            extra_compile_args["cxx"].append("-DHIPBLASLT_HAS_ORDER_COL16")
-            print("hipblaslt found extended col order enums")
-        else:
-            print("hipblaslt does not have extended col order enums")
-        if found_outer_vec:
-            extra_compile_args["cxx"].append("-DHIPBLASLT_OUTER_VEC")
-            print("hipblaslt found outer vec")
-        elif found_vec_ext:
-            extra_compile_args["cxx"].append("-DHIPBLASLT_VEC_EXT")
-            print("hipblaslt found vec ext")
-        else:
-            print("hipblaslt does not have vec ext")
 
     # Get base directory and source paths
     curdir = os.path.dirname(os.path.curdir)
@@ -640,18 +587,6 @@ def get_extensions():
         glob.glob(os.path.join(extensions_cuda_dir, "**/*.cu"), recursive=True)
     )
 
-    # Define ROCm source directories
-    rocm_source_dirs = [
-        os.path.join(extensions_dir, "rocm", "swizzle"),
-    ]
-
-    # Collect all ROCm sources from the defined directories
-    rocm_sources = []
-    for rocm_dir in rocm_source_dirs:
-        rocm_sources.extend(glob.glob(os.path.join(rocm_dir, "*.cu"), recursive=True))
-        rocm_sources.extend(glob.glob(os.path.join(rocm_dir, "*.hip"), recursive=True))
-        rocm_sources.extend(glob.glob(os.path.join(rocm_dir, "*.cpp"), recursive=True))
-
     # Add CUDA source files if needed
     if use_cuda:
         sources += cuda_sources
@@ -662,19 +597,6 @@ def get_extensions():
         glob.glob(os.path.join(mxfp8_extension_dir, "**/*"), recursive=True)
     )
     sources = [s for s in sources if s not in mxfp8_sources_to_exclude]
-
-    # TOOD: Remove this and use what CUDA has once we fix all the builds.
-    # TODO: Add support for other ROCm GPUs
-    if use_rocm:
-        extra_compile_args["nvcc"].append("--offload-arch=gfx942")
-        sources += rocm_sources
-    else:
-        # Remove ROCm-based sources from the sources list.
-        extensions_rocm_dir = os.path.join(extensions_dir, "rocm")
-        rocm_sources = list(
-            glob.glob(os.path.join(extensions_rocm_dir, "**/*.cpp"), recursive=True)
-        )
-        sources = [s for s in sources if s not in rocm_sources]
 
     use_cutlass = False
     cutlass_90a_sources = None
