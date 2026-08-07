@@ -80,11 +80,11 @@ if _flydsl_runtime_available():
     from flydsl.expr import arith, buffer_ops, const_expr, gpu, range_constexpr, vector
     from flydsl.expr.arith import ArithValue
     from flydsl.expr.typing import T
-    from flydsl.expr.vector import ReductionOp
     from flydsl.runtime.device import get_rocm_arch
     from flydsl.utils.smem_allocator import SmemAllocator, SmemPtr
 
     from .flydsl_utils import (
+        abs_max_ignore_nan,
         floor_scale_and_inv_scale,
         make_fp8_clamp_vectors,
         quantize_pack_chunk_to_i32_floor,
@@ -251,7 +251,7 @@ if _flydsl_runtime_available():
                     lane_id * fx.Int32(VEC) + fx.Int32(k_local)
                 ).index_cast(T.index)
                 chunks_local = []
-                amax_local = fx.Float32(0.0)
+                amax_local = fx.Float32(-float("inf"))
                 for c in range_constexpr(0, CHUNKS_PER_BLOCK):
                     elems = []
                     for j in range_constexpr(0, VEC):
@@ -265,9 +265,7 @@ if _flydsl_runtime_available():
                     else:
                         vec_f32 = vector.from_elements(T.vec(VEC, T.f32), elems)
                     chunks_local.append(vec_f32)
-                    amax_local = amax_local.maximumf(
-                        fx.math.absf(vec_f32).reduce(ReductionOp.MAX)
-                    )
+                    amax_local = amax_local.maximumf(abs_max_ignore_nan(vec_f32))
                 return chunks_local, amax_local
 
             def _store_klocal(k_local: int, chunks_local, scale_u8, scale_arg):
@@ -355,7 +353,7 @@ if _flydsl_runtime_available():
                     # mis-handle since `for x in range(...)` becomes
                     # range_constexpr). Re-read chunks in the second pass
                     # to keep at most CHUNKS_PER_BLOCK live.
-                    block_amax = fx.Float32(0.0)
+                    block_amax = fx.Float32(-float("inf"))
                     for k_local in range_constexpr(0, VEC):
                         _, amax_local = _load_chunks_and_amax(k_local)
                         block_amax = block_amax.maximumf(amax_local)

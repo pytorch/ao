@@ -87,7 +87,12 @@ AMD_WAVE_SIZE = 64
 
 if _flydsl_runtime_available():
     import flydsl.expr as fx
-    from flydsl._mlir.dialects.arith import CmpIPredicate as _CmpIPredicate
+    from flydsl._mlir.dialects.arith import (
+        CmpFPredicate as _CmpFPredicate,
+    )
+    from flydsl._mlir.dialects.arith import (
+        CmpIPredicate as _CmpIPredicate,
+    )
 
     # Fused scaled fp8 cvt is not re-exported through flydsl.expr.rocdl yet.
     from flydsl._mlir.dialects.rocdl import (
@@ -118,6 +123,18 @@ if _flydsl_runtime_available():
         except AttributeError:
             return fx.Stream(torch.cuda.current_stream(device).cuda_stream)
 
+    def abs_max_ignore_nan(vec_f32):
+        """Return max(abs(vec)), replacing NaNs with -Inf for reduction."""
+        abs_vec = fx.math.absf(vec_f32)
+        ordered = arith.cmpf(
+            _CmpFPredicate.ORD, arith.unwrap(vec_f32), arith.unwrap(vec_f32)
+        )
+        neg_inf = vector.broadcast(
+            T.vec(VEC, T.f32), arith.unwrap(fx.Float32(-float("inf")))
+        )
+        sanitized = arith.select(ordered, arith.unwrap(abs_vec), neg_inf)
+        return ArithValue(sanitized).reduce(vector.ReductionOp.MAX)
+
     def rceil_scale_and_pos_scale(amax_f32):
         """Derive RCEIL-mode E8M0 byte and matching f32 scale magnitude.
 
@@ -137,9 +154,8 @@ if _flydsl_runtime_available():
         FLOOR mode uses the 2-op ``cvt_pk_fp8_f32`` path with an explicit
         ``±F8_MAX`` clamp instead — see ``quantize_pack_chunk_to_i32_floor``.
 
-        Special case: ``capped == 0`` (zero amax) → ``pos_scale_bits == 0`` →
-        bitcast to f32 = +0.0; division by zero is undefined, so we select
-        1.0 instead (matches TE's ``v_cndmask 1.0, v8, vcc`` pattern).
+        E8M0 byte zero denotes ``2^-127`` rather than numerical zero; byte
+        ``0xff`` denotes NaN.
 
         Returns:
             Tuple ``(scale_biased_u8, pos_scale_f32)``.
@@ -154,13 +170,16 @@ if _flydsl_runtime_available():
         )
         inc_i32 = arith.extui(T.i32, has_mantissa)
         biased_exp_rceil = arith.unwrap(ArithValue(biased_exp) + ArithValue(inc_i32))
-        capped = arith.minui(biased_exp_rceil, arith.unwrap(fx.Int32(0xFE)))
+        capped = arith.minui(biased_exp_rceil, arith.unwrap(fx.Int32(0xFF)))
         scale_u8 = arith.trunci(T.i8, capped)
 
         pos_scale_bits = arith.shli(capped, arith.unwrap(fx.Int32(23)))
         is_zero = arith.cmpi(_CmpIPredicate.eq, capped, arith.unwrap(fx.Int32(0)))
-        one_bits = arith.unwrap(fx.Int32(0x3F800000))
-        selected_bits = arith.select(is_zero, one_bits, pos_scale_bits)
+        is_nan = arith.cmpi(_CmpIPredicate.eq, capped, arith.unwrap(fx.Int32(0xFF)))
+        min_scale_bits = arith.unwrap(fx.Int32(0x00400000))
+        nan_bits = arith.unwrap(fx.Int32(0x7FC00000))
+        selected_bits = arith.select(is_zero, min_scale_bits, pos_scale_bits)
+        selected_bits = arith.select(is_nan, nan_bits, selected_bits)
         pos_scale = ArithValue(selected_bits).bitcast(T.f32)
         return scale_u8, pos_scale
 
@@ -200,10 +219,28 @@ if _flydsl_runtime_available():
         )
 
         scale_biased = ArithValue(scale_unb) + fx.Int32(E8M0_EXPONENT_BIAS)
+        is_special = arith.cmpi(
+            _CmpIPredicate.eq,
+            arith.unwrap(exp_biased),
+            arith.unwrap(fx.Int32(0xFF)),
+        )
+        scale_biased = ArithValue(
+            arith.select(
+                is_special,
+                arith.unwrap(fx.Int32(0xFF)),
+                arith.unwrap(scale_biased),
+            )
+        )
         scale_u8 = arith.trunci(T.i8, arith.unwrap(scale_biased))
 
-        neg_unb_f = arith.sitofp(T.f32, arith.unwrap(fx.Int32(0) - scale_unb))
-        inv_scale = fx.math.exp2(neg_unb_f)
+        reciprocal_bits = arith.shli(
+            arith.unwrap(fx.Int32(254) - scale_biased),
+            arith.unwrap(fx.Int32(23)),
+        )
+        reciprocal_bits = arith.select(
+            is_special, arith.unwrap(fx.Int32(0x7FC00000)), reciprocal_bits
+        )
+        inv_scale = ArithValue(reciprocal_bits).bitcast(T.f32)
         return scale_u8, inv_scale
 
     def make_fp8_clamp_vectors():
