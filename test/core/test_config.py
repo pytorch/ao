@@ -40,7 +40,6 @@ from torchao.quantization.quant_api import (
     quantize_,
 )
 from torchao.quantization.quantize_.common.quantization_step import QuantizationStep
-from torchao.sparsity.sparse_api import BlockSparseWeightConfig, SemiSparseWeightConfig
 from torchao.utils import is_sm_at_least_89
 
 # Define test configurations as fixtures
@@ -68,9 +67,6 @@ configs = [
     Int8WeightOnlyConfig(
         granularity=PerGroup(128),
     ),
-    # Sparsity configs
-    SemiSparseWeightConfig(),
-    BlockSparseWeightConfig(blocksize=128),
     ModuleFqnToConfig({}),
     ModuleFqnToConfig({"_default": Int4WeightOnlyConfig(), "linear1": None}),
     ModuleFqnToConfig(
