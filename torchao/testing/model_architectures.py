@@ -42,7 +42,6 @@ class ToySingleLinearModel(torch.nn.Module):
         return x
 
 
-# TODO: Refactor torchao and tests to use these models
 class ToyTwoLinearModel(torch.nn.Module):
     def __init__(
         self,
