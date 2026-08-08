@@ -10,6 +10,9 @@ on:
       - main
       - 'gh/**'
 
+permissions:
+  contents: read
+
 jobs:
   test-cpu-ops:
     strategy:
