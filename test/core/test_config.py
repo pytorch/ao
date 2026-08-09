@@ -17,6 +17,7 @@ import torch
 
 from torchao.core.config import (
     AOBaseConfig,
+    are_configs_equivalent,
     config_from_dict,
     config_to_dict,
 )
@@ -91,6 +92,34 @@ def get_config_ids(configs):
     if not isinstance(configs, list):
         configs = [configs]
     return [config.__class__.__name__ for config in configs]
+
+
+def test_are_configs_equivalent():
+    int4_config = Int4WeightOnlyConfig(group_size=32)
+    equivalent_int4_config = Int4WeightOnlyConfig(group_size=32)
+    different_int4_config = Int4WeightOnlyConfig(group_size=64)
+
+    assert are_configs_equivalent([])
+    assert are_configs_equivalent([int4_config])
+    assert are_configs_equivalent([int4_config, equivalent_int4_config])
+    assert are_configs_equivalent(iter([int4_config, equivalent_int4_config]))
+    assert not are_configs_equivalent([int4_config, different_int4_config])
+    assert not are_configs_equivalent(
+        [
+            int4_config,
+            Int8WeightOnlyConfig(granularity=PerGroup(32)),
+        ]
+    )
+
+    nested_config = ModuleFqnToConfig({"linear": Int4WeightOnlyConfig(group_size=32)})
+    equivalent_nested_config = ModuleFqnToConfig(
+        {"linear": Int4WeightOnlyConfig(group_size=32)}
+    )
+    different_nested_config = ModuleFqnToConfig(
+        {"linear": Int4WeightOnlyConfig(group_size=64)}
+    )
+    assert are_configs_equivalent([nested_config, equivalent_nested_config])
+    assert not are_configs_equivalent([nested_config, different_nested_config])
 
 
 @pytest.mark.parametrize("config", configs, ids=get_config_ids)
