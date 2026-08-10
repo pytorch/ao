@@ -87,7 +87,7 @@ def raise_if_cutedsl_nvfp4_unavailable(op_name: str) -> None:
         )
 
 
-def cutedsl_prepare_for_cuda_graph(device, *, sign_vectors=None) -> None:
+def cutedsl_prepare_for_cuda_graph(device, *, sign_vectors=None, moe_num_experts=None) -> None:
     """Pre-allocate per-device CuteDSL state before ``torch.compile(mode="reduce-overhead")``.
 
     The CuteDSL ops cache small per-device buffers (the RHT / identity Hadamard operands and the
@@ -125,3 +125,18 @@ def cutedsl_prepare_for_cuda_graph(device, *, sign_vectors=None) -> None:
         _compile_fused_kernel(
             idx, True, False, apply_rht=False, col_groups_per_supertile=col_groups
         )
+    # Grouped amax: 128-row supertile, group-search depth keyed on the expert
+    # count -- pass moe_num_experts when graphing the grouped MoE ops.
+    if moe_num_experts is not None:
+        search_iters = max(0, (int(moe_num_experts) - 1).bit_length())
+        _compile_amax_tc_kernel(idx, 8, grouped=True, search_iters=search_iters)
+        for sr in (False, True):
+            _compile_fused_kernel(
+                idx,
+                True,
+                sr,
+                apply_rht=True,
+                col_groups_per_supertile=8,
+                grouped=True,
+                search_iters=search_iters,
+            )

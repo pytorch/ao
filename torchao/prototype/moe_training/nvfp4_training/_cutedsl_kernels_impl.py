@@ -433,6 +433,8 @@ class _Tcgen05RowColFused:
         sr: bool = False,
         apply_rht: bool = True,
         col_groups_per_supertile: int = 16,
+        grouped: bool = False,
+        search_iters: int = 0,
     ):
         # swizzle_sf=True: cutlass NVFP4 swizzled SF (GEMM-ready, TMA-coalesced store).
         # False: plain (N,M//16)/(M,N//16) SF (row SF falls back to a strided SIMT store); its
@@ -448,9 +450,19 @@ class _Tcgen05RowColFused:
         assert not (col_groups_per_supertile < 16 and not swizzle_sf), (
             "swizzle_sf=False requires col_groups_per_supertile=16"
         )
+        # grouped=True: ragged per-expert activation quantize -- per-group scales from
+        # (E,) amax vectors selected by bisection over 128-aligned row-end offsets, and
+        # rows at or beyond logical_len_t[0] skipped (storage capacity, CUDA-graph-safe).
+        # Orthogonal to the L (expert) mode, which batches uniform stacked weights.
+        assert not (grouped and not apply_rht), "grouped requires apply_rht"
+        assert not (grouped and col_groups_per_supertile != 8), (
+            "grouped requires the 128-row supertile"
+        )
         self.swizzle_sf = swizzle_sf
         self.sr = sr
         self.apply_rht = apply_rht
+        self.grouped = grouped
+        self.search_iters = search_iters
         _set_supertile_geometry(self, col_groups_per_supertile)
 
     @cute.jit
@@ -465,6 +477,9 @@ class _Tcgen05RowColFused:
         row_amax_t: cute.Tensor,
         global_amax_t: cute.Tensor,
         sr_rng_t: cute.Tensor,
+        offsets_t: cute.Tensor,
+        logical_len_t: cute.Tensor,
+        num_experts: cutlass.Int32,
         M: cutlass.Int32,
         N: cutlass.Int32,
         GRID: cutlass.Int32,
@@ -599,7 +614,8 @@ class _Tcgen05RowColFused:
         num_tiles_ns = M // cutlass.Int32(
             N_TILE * self.col_groups_per_supertile
         )  # M contraction block-groups (K=16U)
-        num_super = num_tiles_m * num_tiles_ns
+        num_tiles_per_expert = num_tiles_m * num_tiles_ns
+        num_super = num_tiles_per_expert * cutlass.Int32(cute.size(mA, mode=[2]))
 
         self.kernel(
             tiled_mma,
@@ -618,6 +634,9 @@ class _Tcgen05RowColFused:
             mRowFP4,
             mRowSF,
             row_amax_t,
+            offsets_t,
+            logical_len_t,
+            num_experts,
             tma_atom_row_fp4,
             tma_tensor_row_fp4,
             row_fp4_smem_layout,
@@ -633,6 +652,7 @@ class _Tcgen05RowColFused:
             num_tmem_alloc_cols,
             num_tma_load_bytes,
             num_tiles_ns,
+            num_tiles_per_expert,
             num_super,
             GRID,
         ).launch(
@@ -664,6 +684,9 @@ class _Tcgen05RowColFused:
         mRowFP4: cute.Tensor,
         mRowSF: cute.Tensor,
         row_amax_t: cute.Tensor,
+        offsets_t: cute.Tensor,
+        logical_len_t: cute.Tensor,
+        num_experts: cutlass.Int32,
         tma_atom_row_fp4: cute.CopyAtom,
         mRowFP4_tma: cute.Tensor,
         row_fp4_smem_layout: cute.Layout,
@@ -679,6 +702,7 @@ class _Tcgen05RowColFused:
         num_tmem_alloc_cols: cutlass.Constexpr,
         num_tma_load_bytes: cutlass.Constexpr,
         num_tiles_ns: cutlass.Int32,
+        num_tiles_per_expert: cutlass.Int32,
         num_super: cutlass.Int32,
         GRID: cutlass.Int32,
     ):
@@ -898,13 +922,10 @@ class _Tcgen05RowColFused:
             dec = cutlass.Float32(1.0) / enc
             return enc, dec, enc * cutlass.Float32(1.0 / FP4_E2M1_MAX)
 
-        g_enc, g_dec, enc_over_fp4max = _global_scale(global_amax_t[0])  # col (RHT)
-        r_enc, r_dec, r_enc_over_fp4max = _global_scale(row_amax_t[0])  # row (plain)
         sr_rng = cutlass.Uint32(0)
         if cutlass.const_expr(self.sr):
-            sr_rng = cutlass.Uint32(
-                sr_rng_t[0]
-            )  # per-call stochastic-rounding RNG base
+            # Per-call stochastic-rounding RNG base.
+            sr_rng = cutlass.Uint32(sr_rng_t[0])
 
         pipeline_init_wait(cluster_shape_mn=cluster_layout_vmnk)
 
@@ -914,29 +935,41 @@ class _Tcgen05RowColFused:
             (rem + GRID - cutlass.Int32(1)) // GRID,
             cutlass.Int32(0),
         )
+        # Grouped: rows at or beyond the logical count are capacity only; every warp
+        # role skips their supertiles with the same predicate (pipelines stay in step).
+        logical_rows = cutlass.Int32(0)
+        if cutlass.const_expr(self.grouped):
+            logical_rows = cutlass.Int32(logical_len_t[0])
 
         # ==================== TMA warp (AB producer) ====================
         if warp_idx == _TMA_W:
             for local_iter in cutlass.range(num_iters):
                 super_id = start_pid + local_iter * GRID
-                pid_m = super_id // num_tiles_ns
-                pid_ns = super_id % num_tiles_ns
-                handle = ab_producer.acquire_and_advance()
-                cute.copy(
-                    tma_atom_a,
-                    tAgA[(None, pid_m, pid_ns, 0)],
-                    tAsA[(None, handle.index)],
-                    tma_bar_ptr=handle.barrier,
-                )
-                if cutlass.const_expr(
-                    self.apply_rht
-                ):  # B (Hadamard) only needed for the MMA
+                expert = super_id // num_tiles_per_expert
+                local_id = super_id % num_tiles_per_expert
+                pid_m = local_id // num_tiles_ns
+                pid_ns = local_id % num_tiles_ns
+                if cutlass.const_expr(self.grouped):
+                    do_tile = (pid_ns * cutlass.Int32(self.kw)) < logical_rows
+                else:
+                    do_tile = True
+                if do_tile:
+                    handle = ab_producer.acquire_and_advance()
                     cute.copy(
-                        tma_atom_b,
-                        tBgB[(None, 0)],
-                        tBsB[(None, handle.index)],
+                        tma_atom_a,
+                        tAgA[(None, pid_m, pid_ns, expert)],
+                        tAsA[(None, handle.index)],
                         tma_bar_ptr=handle.barrier,
                     )
+                    if cutlass.const_expr(
+                        self.apply_rht
+                    ):  # B (Hadamard) only needed for the MMA
+                        cute.copy(
+                            tma_atom_b,
+                            tBgB[(None, 0)],
+                            tBsB[(None, handle.index)],
+                            tma_bar_ptr=handle.barrier,
+                        )
             ab_producer.tail()
 
         # ==================== MMA warp (AB consumer, acc producer) ====================
@@ -949,20 +982,29 @@ class _Tcgen05RowColFused:
                 pipeline.PipelineUserType.Producer, NUM_ACC_STAGE
             )
             for local_iter in cutlass.range(num_iters):
-                ab_handle = ab_consumer.wait_and_advance()
-                acc_pipeline.producer_acquire(acc_producer_state)
-                for u in cutlass.range_constexpr(self.col_groups_per_supertile):
-                    tiled_mma.set(tcgen05.Field.ACCUMULATE, False)
-                    cute.gemm(
-                        tiled_mma,
-                        tCtAcc_base[(None, None, None, u, acc_producer_state.index)],
-                        tCrA[(None, None, u, ab_handle.index)],
-                        tCrB[(None, None, 0, ab_handle.index)],
-                        tCtAcc_base[(None, None, None, u, acc_producer_state.index)],
-                    )
-                acc_pipeline.producer_commit(acc_producer_state)
-                acc_producer_state.advance()
-                ab_handle.release()  # 1 UMMA arrive on AB empty barrier
+                if cutlass.const_expr(self.grouped):
+                    super_id = start_pid + local_iter * GRID
+                    do_tile = (
+                        ((super_id % num_tiles_per_expert) % num_tiles_ns)
+                        * cutlass.Int32(self.kw)
+                    ) < logical_rows
+                else:
+                    do_tile = True
+                if do_tile:
+                    ab_handle = ab_consumer.wait_and_advance()
+                    acc_pipeline.producer_acquire(acc_producer_state)
+                    for u in cutlass.range_constexpr(self.col_groups_per_supertile):
+                        tiled_mma.set(tcgen05.Field.ACCUMULATE, False)
+                        cute.gemm(
+                            tiled_mma,
+                            tCtAcc_base[(None, None, None, u, acc_producer_state.index)],
+                            tCrA[(None, None, u, ab_handle.index)],
+                            tCrB[(None, None, 0, ab_handle.index)],
+                            tCtAcc_base[(None, None, None, u, acc_producer_state.index)],
+                        )
+                    acc_pipeline.producer_commit(acc_producer_state)
+                    acc_producer_state.advance()
+                    ab_handle.release()  # 1 UMMA arrive on AB empty barrier
             acc_pipeline.producer_tail(acc_producer_state)
 
         # ==================== ROW warps (AB consumer, read raw sA) ====================
@@ -976,110 +1018,132 @@ class _Tcgen05RowColFused:
             row_ab_state = pipeline.make_pipeline_state(
                 pipeline.PipelineUserType.Consumer, NUM_AB_STAGE
             )
+            exec_iter = cutlass.Int32(0)
             for local_iter in cutlass.range(num_iters):
                 super_id = start_pid + local_iter * GRID
-                pid_m = super_id // num_tiles_ns
-                pid_ns = super_id % num_tiles_ns
+                expert = super_id // num_tiles_per_expert
+                local_id = super_id % num_tiles_per_expert
+                pid_m = local_id // num_tiles_ns
+                pid_ns = local_id % num_tiles_ns
+                if cutlass.const_expr(self.grouped):
+                    scale_group = _group_of_row(
+                        offsets_t,
+                        pid_ns * cutlass.Int32(self.kw),
+                        num_experts,
+                        self.search_iters,
+                    )
+                    do_tile = (pid_ns * cutlass.Int32(self.kw)) < logical_rows
+                else:
+                    scale_group = expert
+                    do_tile = True
                 m0 = pid_ns * cutlass.Int32(self.kw)  # global M-row base
-                buf = local_iter % ROW_FP4_STAGES  # double-buffer index
+                buf = exec_iter % ROW_FP4_STAGES  # double-buffer index
+                if do_tile:
 
-                ab_pipeline.consumer_wait(row_ab_state)  # wait sA full
-                stage = row_ab_state.index
+                    _, r_dec, r_enc_over_fp4max = _global_scale(
+                        row_amax_t[scale_group]
+                    )
+                    exec_iter = exec_iter + cutlass.Int32(1)
+                    ab_pipeline.consumer_wait(row_ab_state)  # wait sA full
+                    stage = row_ab_state.index
 
-                # read this thread's M-row (128 N values across the m_mma grain), 8 SF-blocks
-                kc = k_row % cutlass.Int32(8)
-                kd = k_row // cutlass.Int32(8)
-                for b in cutlass.range_constexpr(M_TILE // 16):  # 8 blocks of 16 N
-                    blk = cute.make_rmem_tensor((16,), cutlass.Float32)
-                    for j in cutlass.range_constexpr(16):
-                        m_mma = b * 16 + j  # N position (0..127), python int
-                        blk[j] = sA_clean[
-                            ((m_mma % 64, m_mma // 64), (kc, kd), (0, stage))
-                        ].to(cutlass.Float32)
-                    row_rng = None
-                    if cutlass.const_expr(self.sr):
-                        # row-stream RNG seed for this (global M-row, SF-col block); 0x00B0.. tags row.
-                        # The two fields are mixed multiplicatively rather than bit-packed: the SF-col
-                        # block index runs to N/16, so a (row << 8) ^ blk packing aliases as soon as
-                        # N > 4096 -- seed(r, 256+j) == seed(r^1, j) -- handing whole block pairs the
-                        # same SR stream on real shapes (N=14336/28672). Distinct odd multipliers
-                        # scatter each field across all 32 bits instead.
-                        row_rng = (
-                            sr_rng
-                            ^ (cutlass.Uint32(m0 + k_row) * cutlass.Uint32(0x9E3779B1))
-                            ^ (
-                                cutlass.Uint32(
-                                    pid_m * cutlass.Int32(M_TILE // 16)
-                                    + cutlass.Int32(b)
+                    # read this thread's M-row (128 N values across the m_mma grain), 8 SF-blocks
+                    kc = k_row % cutlass.Int32(8)
+                    kd = k_row // cutlass.Int32(8)
+                    for b in cutlass.range_constexpr(M_TILE // 16):  # 8 blocks of 16 N
+                        blk = cute.make_rmem_tensor((16,), cutlass.Float32)
+                        for j in cutlass.range_constexpr(16):
+                            m_mma = b * 16 + j  # N position (0..127), python int
+                            blk[j] = sA_clean[
+                                ((m_mma % 64, m_mma // 64), (kc, kd), (0, stage))
+                            ].to(cutlass.Float32)
+                        row_rng = None
+                        if cutlass.const_expr(self.sr):
+                            # row-stream RNG seed for this (global M-row, SF-col block); 0x00B0.. tags row.
+                            # The two fields are mixed multiplicatively rather than bit-packed: the SF-col
+                            # block index runs to N/16, so a (row << 8) ^ blk packing aliases as soon as
+                            # N > 4096 -- seed(r, 256+j) == seed(r^1, j) -- handing whole block pairs the
+                            # same SR stream on real shapes (N=14336/28672). Distinct odd multipliers
+                            # scatter each field across all 32 bits instead.
+                            row_rng = (
+                                sr_rng
+                                ^ (cutlass.Uint32(m0 + k_row) * cutlass.Uint32(0x9E3779B1))
+                                ^ (
+                                    cutlass.Uint32(
+                                        pid_m * cutlass.Int32(M_TILE // 16)
+                                        + cutlass.Int32(b)
+                                    )
+                                    * cutlass.Uint32(0x85EBCA77)
                                 )
-                                * cutlass.Uint32(0x85EBCA77)
+                                ^ cutlass.Uint32(0x00B00200)
                             )
-                            ^ cutlass.Uint32(0x00B00200)
+                        amax = _abs_amax16(blk)
+                        if cutlass.const_expr(not self.apply_rht):
+                            amax = _group16_amax(amax)
+                        w0, w1, sf = _quant16_from_amax(
+                            blk, amax, r_enc_over_fp4max, r_dec, self.sr, row_rng
                         )
-                    amax = _abs_amax16(blk)
-                    if cutlass.const_expr(not self.apply_rht):
-                        amax = _group16_amax(amax)
-                    w0, w1, sf = _quant16_from_amax(
-                        blk, amax, r_enc_over_fp4max, r_dec, self.sr, row_rng
-                    )
-                    sRowFP4[k_row, b * 2, buf] = w0
-                    sRowFP4[k_row, b * 2 + 1, buf] = w1
-                    if cutlass.const_expr(self.swizzle_sf):
-                        # swizzled SF[r=m0+k_row, c=pid_m*8+b] -> [r//128, c//4, r%32, (r%128//32)*4 + c%4]
-                        sRowSF_w[
-                            k_row // cutlass.Int32(128),
-                            b // 4,
-                            k_row % cutlass.Int32(32),
-                            ((k_row // cutlass.Int32(32)) % cutlass.Int32(4))
-                            * cutlass.Int32(4)
-                            + (b % 4),
-                            buf,
-                        ] = sf
-                    else:
-                        mRowSF[
-                            m0 + k_row,
-                            pid_m * cutlass.Int32(M_TILE // 16) + cutlass.Int32(b),
-                        ] = sf
+                        sRowFP4[k_row, b * 2, buf] = w0
+                        sRowFP4[k_row, b * 2 + 1, buf] = w1
+                        if cutlass.const_expr(self.swizzle_sf):
+                            # swizzled SF[r=m0+k_row, c=pid_m*8+b] -> [r//128, c//4, r%32, (r%128//32)*4 + c%4]
+                            sRowSF_w[
+                                k_row // cutlass.Int32(128),
+                                b // 4,
+                                k_row % cutlass.Int32(32),
+                                ((k_row // cutlass.Int32(32)) % cutlass.Int32(4))
+                                * cutlass.Int32(4)
+                                + (b % 4),
+                                buf,
+                            ] = sf
+                        else:
+                            mRowSF[
+                                m0 + k_row,
+                                pid_m * cutlass.Int32(M_TILE // 16) + cutlass.Int32(b),
+                                expert,
+                            ] = sf
 
-                # all M-rows read -> release AB buffer (1 thread arrive each)
-                cute.arch.mbarrier_arrive(
-                    ab_pipeline.sync_object_empty.get_barrier(stage)
-                )
-                row_ab_state.advance()
+                    # all M-rows read -> release AB buffer (1 thread arrive each)
+                    cute.arch.mbarrier_arrive(
+                        ab_pipeline.sync_object_empty.get_barrier(stage)
+                    )
+                    row_ab_state.advance()
 
-                # TMA-store the (KW, M_TILE//8) row FP4 tile from buffer `buf`.
-                # wait_group(1) keeps <=1 store in flight -> this store overlaps the next
-                # iter's read/quant; the 2nd barrier makes its completion (via the *next*
-                # iter's wait_group) visible before buf is reused two iters later.
-                cute.arch.fence_proxy("async.shared", space="cta")
-                row_store_barrier.arrive_and_wait()
-                if warp_idx == cutlass.Int32(_ROW_BEG):
-                    gRowFP4 = cute.local_tile(
-                        mRowFP4_tma, (self.kw, M_TILE // 8), (pid_ns, pid_m)
-                    )
-                    tRs, tRg = cpasync.tma_partition(
-                        tma_atom_row_fp4,
-                        0,
-                        cta_layout,
-                        cute.group_modes(sRowFP4[(None, None, buf)], 0, 2),
-                        cute.group_modes(gRowFP4, 0, 2),
-                    )
-                    cute.copy(tma_atom_row_fp4, tRs, tRg)
-                    if cutlass.const_expr(self.swizzle_sf):
-                        gRowSF = cute.local_tile(
-                            mRowSF_tma, (self.sf_rblk, SF_RGRP * SF_BLK), (pid_ns, pid_m)
+                    # TMA-store the (KW, M_TILE//8) row FP4 tile from buffer `buf`.
+                    # wait_group(1) keeps <=1 store in flight -> this store overlaps the next
+                    # iter's read/quant; the 2nd barrier makes its completion (via the *next*
+                    # iter's wait_group) visible before buf is reused two iters later.
+                    cute.arch.fence_proxy("async.shared", space="cta")
+                    row_store_barrier.arrive_and_wait()
+                    if warp_idx == cutlass.Int32(_ROW_BEG):
+                        gRowFP4 = cute.local_tile(
+                            mRowFP4_tma, (self.kw, M_TILE // 8), (pid_ns, pid_m, expert)
                         )
-                        tRSs, tRSg = cpasync.tma_partition(
-                            tma_atom_row_sf,
+                        tRs, tRg = cpasync.tma_partition(
+                            tma_atom_row_fp4,
                             0,
                             cta_layout,
-                            cute.group_modes(sRowSF[(None, None, buf)], 0, 2),
-                            cute.group_modes(gRowSF, 0, 2),
+                            cute.group_modes(sRowFP4[(None, None, buf)], 0, 2),
+                            cute.group_modes(gRowFP4, 0, 2),
                         )
-                        cute.copy(tma_atom_row_sf, tRSs, tRSg)
-                    cute.arch.cp_async_bulk_commit_group()
-                    cute.arch.cp_async_bulk_wait_group(1, read=True)
-                row_store_barrier.arrive_and_wait()
+                        cute.copy(tma_atom_row_fp4, tRs, tRg)
+                        if cutlass.const_expr(self.swizzle_sf):
+                            gRowSF = cute.local_tile(
+                                mRowSF_tma,
+                                (self.sf_rblk, SF_RGRP * SF_BLK),
+                                (pid_ns, pid_m, expert),
+                            )
+                            tRSs, tRSg = cpasync.tma_partition(
+                                tma_atom_row_sf,
+                                0,
+                                cta_layout,
+                                cute.group_modes(sRowSF[(None, None, buf)], 0, 2),
+                                cute.group_modes(gRowSF, 0, 2),
+                            )
+                            cute.copy(tma_atom_row_sf, tRSs, tRSg)
+                        cute.arch.cp_async_bulk_commit_group()
+                        cute.arch.cp_async_bulk_wait_group(1, read=True)
+                    row_store_barrier.arrive_and_wait()
             if warp_idx == cutlass.Int32(_ROW_BEG):
                 cute.arch.cp_async_bulk_wait_group(0, read=True)  # drain last store
 
@@ -1115,80 +1179,105 @@ class _Tcgen05RowColFused:
             )
             for local_iter in cutlass.range(num_iters):
                 super_id = start_pid + local_iter * GRID
-                pid_m = super_id // num_tiles_ns
-                pid_ns = super_id % num_tiles_ns
-                acc_idx = acc_consumer_state.index
-
-                acc_pipeline.consumer_wait(acc_consumer_state)
-                for u in cutlass.range_constexpr(self.col_groups_per_supertile):
-                    cute.copy(
-                        tiled_copy_t2r,
-                        tTR_tAcc_base[(None, None, None, 0, 0, u, acc_idx)],
-                        tTR_rAcc,
+                expert = super_id // num_tiles_per_expert
+                local_id = super_id % num_tiles_per_expert
+                pid_m = local_id // num_tiles_ns
+                pid_ns = local_id % num_tiles_ns
+                if cutlass.const_expr(self.grouped):
+                    scale_group = _group_of_row(
+                        offsets_t,
+                        pid_ns * cutlass.Int32(self.kw),
+                        num_experts,
+                        self.search_iters,
                     )
-                    vals = tTR_rAcc.load().reshape((16,))
-                    col_rng = None
-                    if cutlass.const_expr(self.sr):
-                        col_rng = (
-                            sr_rng
-                            ^ (
-                                cutlass.Uint32(pid_m * cutlass.Int32(M_TILE) + tidx)
-                                << cutlass.Uint32(8)
+                    do_tile = (pid_ns * cutlass.Int32(self.kw)) < logical_rows
+                else:
+                    scale_group = expert
+                    do_tile = True
+                if do_tile:
+                    _, g_dec, enc_over_fp4max = _global_scale(
+                        global_amax_t[scale_group]
+                    )
+                    acc_idx = acc_consumer_state.index
+
+                    acc_pipeline.consumer_wait(acc_consumer_state)
+                    for u in cutlass.range_constexpr(self.col_groups_per_supertile):
+                        cute.copy(
+                            tiled_copy_t2r,
+                            tTR_tAcc_base[(None, None, None, 0, 0, u, acc_idx)],
+                            tTR_rAcc,
+                        )
+                        vals = tTR_rAcc.load().reshape((16,))
+                        col_rng = None
+                        if cutlass.const_expr(self.sr):
+                            col_rng = (
+                                sr_rng
+                                ^ (
+                                    cutlass.Uint32(pid_m * cutlass.Int32(M_TILE) + tidx)
+                                    << cutlass.Uint32(8)
+                                )
+                                ^ cutlass.Uint32(u)
+                                ^ cutlass.Uint32(0x00C01000)
                             )
-                            ^ cutlass.Uint32(u)
-                            ^ cutlass.Uint32(0x00C01000)
+                        w0, w1, pvscale_fp8 = _quant16(
+                            vals, enc_over_fp4max, g_dec, self.sr, col_rng
                         )
-                    w0, w1, pvscale_fp8 = _quant16(
-                        vals, enc_over_fp4max, g_dec, self.sr, col_rng
-                    )
 
-                    sFP4[tidx, u * 2] = w0
-                    sFP4[tidx, u * 2 + 1] = w1
-                    if cutlass.const_expr(self.swizzle_sf):
-                        # swizzled SF[r=pid_m*128+tidx, c=pid_ns*16+u] -> [r//128, c//4, r%32, (r%128//32)*4 + c%4]
-                        sSF_w[
+                        sFP4[tidx, u * 2] = w0
+                        sFP4[tidx, u * 2 + 1] = w1
+                        if cutlass.const_expr(self.swizzle_sf):
+                            # swizzled SF[r=pid_m*128+tidx, c=pid_ns*16+u] -> [r//128, c//4, r%32, (r%128//32)*4 + c%4]
+                            sSF_w[
+                                0,
+                                u // 4,
+                                tidx % cutlass.Int32(32),
+                                (tidx // cutlass.Int32(32)) * cutlass.Int32(4) + (u % 4),
+                            ] = pvscale_fp8
+                        else:
+                            sSF_w[tidx, u] = pvscale_fp8
+
+                    cute.arch.fence_view_async_tmem_load()
+                    with cute.arch.elect_one():
+                        acc_pipeline.consumer_release(acc_consumer_state)
+                    acc_consumer_state.advance()
+
+                    cute.arch.fence_proxy("async.shared", space="cta")
+                    epi_store_barrier.arrive_and_wait()
+                    if warp_idx == cutlass.Int32(0):
+                        gFP4 = cute.local_tile(
+                            mFP4_tma,
+                            (M_TILE, 2 * self.col_groups_per_supertile),
+                            (pid_m, pid_ns, expert),
+                        )
+                        tSs, tSg = cpasync.tma_partition(
+                            tma_atom_fp4,
                             0,
-                            u // 4,
-                            tidx % cutlass.Int32(32),
-                            (tidx // cutlass.Int32(32)) * cutlass.Int32(4) + (u % 4),
-                        ] = pvscale_fp8
-                    else:
-                        sSF_w[tidx, u] = pvscale_fp8
-
-                cute.arch.fence_view_async_tmem_load()
-                with cute.arch.elect_one():
-                    acc_pipeline.consumer_release(acc_consumer_state)
-                acc_consumer_state.advance()
-
-                cute.arch.fence_proxy("async.shared", space="cta")
-                epi_store_barrier.arrive_and_wait()
-                if warp_idx == cutlass.Int32(0):
-                    gFP4 = cute.local_tile(mFP4_tma, (M_TILE, 2 * self.col_groups_per_supertile), (pid_m, pid_ns))
-                    tSs, tSg = cpasync.tma_partition(
-                        tma_atom_fp4,
-                        0,
-                        cta_layout,
-                        cute.group_modes(sFP4, 0, 2),
-                        cute.group_modes(gFP4, 0, 2),
-                    )
-                    cute.copy(tma_atom_fp4, tSs, tSg)
-                    if cutlass.const_expr(self.swizzle_sf):
-                        gSF = cute.local_tile(
-                            mSF_tma, (1, self.sf_gcol * SF_BLK), (pid_m, pid_ns)
+                            cta_layout,
+                            cute.group_modes(sFP4, 0, 2),
+                            cute.group_modes(gFP4, 0, 2),
                         )
-                    else:
-                        gSF = cute.local_tile(mSF_tma, (M_TILE, self.col_groups_per_supertile), (pid_m, pid_ns))
-                    tSFs, tSFg = cpasync.tma_partition(
-                        tma_atom_sf,
-                        0,
-                        cta_layout,
-                        cute.group_modes(sSF, 0, 2),
-                        cute.group_modes(gSF, 0, 2),
-                    )
-                    cute.copy(tma_atom_sf, tSFs, tSFg)
-                    cute.arch.cp_async_bulk_commit_group()
-                    cute.arch.cp_async_bulk_wait_group(0, read=True)
-                epi_store_barrier.arrive_and_wait()
+                        cute.copy(tma_atom_fp4, tSs, tSg)
+                        if cutlass.const_expr(self.swizzle_sf):
+                            gSF = cute.local_tile(
+                                mSF_tma, (1, self.sf_gcol * SF_BLK), (pid_m, pid_ns, expert)
+                            )
+                        else:
+                            gSF = cute.local_tile(
+                                mSF_tma,
+                                (M_TILE, self.col_groups_per_supertile),
+                                (pid_m, pid_ns, expert),
+                            )
+                        tSFs, tSFg = cpasync.tma_partition(
+                            tma_atom_sf,
+                            0,
+                            cta_layout,
+                            cute.group_modes(sSF, 0, 2),
+                            cute.group_modes(gSF, 0, 2),
+                        )
+                        cute.copy(tma_atom_sf, tSFs, tSFg)
+                        cute.arch.cp_async_bulk_commit_group()
+                        cute.arch.cp_async_bulk_wait_group(0, read=True)
+                    epi_store_barrier.arrive_and_wait()
 
             tmem_dealloc_barrier.arrive_and_wait()
             tmem.relinquish_alloc_permit()
@@ -1210,8 +1299,11 @@ class _Tcgen05RowColFused:
             u_half = tidx // cutlass.Int32(M_TILE)
             for local_iter in cutlass.range(num_iters):
                 super_id = start_pid + local_iter * GRID
-                pid_m = super_id // num_tiles_ns
-                pid_ns = super_id % num_tiles_ns
+                expert = super_id // num_tiles_per_expert
+                local_id = super_id % num_tiles_per_expert
+                pid_m = local_id // num_tiles_ns
+                pid_ns = local_id % num_tiles_ns
+                _, g_dec, enc_over_fp4max = _global_scale(global_amax_t[expert])
 
                 ab_pipeline.consumer_wait(col_ab_state)  # wait sA full
                 stage = col_ab_state.index
@@ -1262,7 +1354,11 @@ class _Tcgen05RowColFused:
                 cute.arch.fence_proxy("async.shared", space="cta")
                 col_store_barrier.arrive_and_wait()
                 if warp_idx == cutlass.Int32(0):
-                    gFP4 = cute.local_tile(mFP4_tma, (M_TILE, 2 * self.col_groups_per_supertile), (pid_m, pid_ns))
+                    gFP4 = cute.local_tile(
+                        mFP4_tma,
+                        (M_TILE, 2 * self.col_groups_per_supertile),
+                        (pid_m, pid_ns, expert),
+                    )
                     tSs, tSg = cpasync.tma_partition(
                         tma_atom_fp4,
                         0,
@@ -1273,10 +1369,14 @@ class _Tcgen05RowColFused:
                     cute.copy(tma_atom_fp4, tSs, tSg)
                     if cutlass.const_expr(self.swizzle_sf):
                         gSF = cute.local_tile(
-                            mSF_tma, (1, self.sf_gcol * SF_BLK), (pid_m, pid_ns)
+                            mSF_tma, (1, self.sf_gcol * SF_BLK), (pid_m, pid_ns, expert)
                         )
                     else:
-                        gSF = cute.local_tile(mSF_tma, (M_TILE, self.col_groups_per_supertile), (pid_m, pid_ns))
+                        gSF = cute.local_tile(
+                            mSF_tma,
+                            (M_TILE, self.col_groups_per_supertile),
+                            (pid_m, pid_ns, expert),
+                        )
                     tSFs, tSFg = cpasync.tma_partition(
                         tma_atom_sf,
                         0,
@@ -1290,6 +1390,17 @@ class _Tcgen05RowColFused:
                 col_store_barrier.arrive_and_wait()
 
 
+def _group_of_row(offsets_t, row, num_experts, search_iters: int):
+    lo = cutlass.Int32(0)
+    hi = num_experts - cutlass.Int32(1)
+    for _ in range(search_iters):
+        mid = (lo + hi) // cutlass.Int32(2)
+        below = cutlass.Int32(offsets_t[mid]) <= row
+        lo = cutlass.Int32(cutlass.select_(below, mid + cutlass.Int32(1), lo))
+        hi = cutlass.Int32(cutlass.select_(below, hi, mid))
+    return lo
+
+
 class _Tcgen05RhtAmax:
     """One-pass tensor-core RHT amax over the dual-consumer A load.
 
@@ -1299,8 +1410,18 @@ class _Tcgen05RhtAmax:
     M % (16 * col_groups_per_supertile) == 0 (16 -> M % 256, 8 -> M % 128), N % 128 == 0.
     """
 
-    def __init__(self, col_groups_per_supertile: int = 16):
+    def __init__(
+        self,
+        col_groups_per_supertile: int = 16,
+        grouped: bool = False,
+        search_iters: int = 0,
+    ):
+        # grouped=True: per-expert amax over a row-packed ragged tensor. offsets_t holds
+        # cumulative 128-aligned row ends, amax outputs are (E,), rows at or beyond
+        # logical_len_t[0] are storage capacity and are skipped (CUDA-graph-safe).
         _set_supertile_geometry(self, col_groups_per_supertile)
+        self.grouped = grouped
+        self.search_iters = search_iters
 
     @cute.jit
     def __call__(
@@ -1309,6 +1430,9 @@ class _Tcgen05RhtAmax:
         mB: cute.Tensor,
         col_amax_t: cute.Tensor,
         row_amax_t: cute.Tensor,
+        offsets_t: cute.Tensor,
+        logical_len_t: cute.Tensor,
+        num_experts: cutlass.Int32,
         M: cutlass.Int32,
         N: cutlass.Int32,
         GRID: cutlass.Int32,
@@ -1389,6 +1513,9 @@ class _Tcgen05RhtAmax:
             tma_tensor_b,
             col_amax_t,
             row_amax_t,
+            offsets_t,
+            logical_len_t,
+            num_experts,
             cluster_layout_vmnk,
             a_smem_layout_staged,
             a_clean_layout,
@@ -1411,6 +1538,9 @@ class _Tcgen05RhtAmax:
         mB_nkl: cute.Tensor,
         col_amax_t: cute.Tensor,
         row_amax_t: cute.Tensor,
+        offsets_t: cute.Tensor,
+        logical_len_t: cute.Tensor,
+        num_experts: cutlass.Int32,
         cluster_layout_vmnk: cute.Layout,
         a_smem_layout_staged: cute.ComposedLayout,
         a_clean_layout: cute.ComposedLayout,
@@ -1541,25 +1671,34 @@ class _Tcgen05RhtAmax:
             cutlass.Int32(0),
         )
 
+        logical_rows = cutlass.Int32(0)
+        if cutlass.const_expr(self.grouped):
+            logical_rows = cutlass.Int32(logical_len_t[0])
+
         # ==================== TMA warp (AB producer) ====================
         if warp_idx == self.tma_warp:
             for local_iter in cutlass.range(num_iters):
                 super_id = start_pid + local_iter * GRID
                 pid_m = super_id // num_tiles_ns
                 pid_ns = super_id % num_tiles_ns
-                handle = ab_producer.acquire_and_advance()
-                cute.copy(
-                    tma_atom_a,
-                    tAgA[(None, pid_m, pid_ns, 0)],
-                    tAsA[(None, handle.index)],
-                    tma_bar_ptr=handle.barrier,
-                )
-                cute.copy(
-                    tma_atom_b,
-                    tBgB[(None, 0)],
-                    tBsB[(None, handle.index)],
-                    tma_bar_ptr=handle.barrier,
-                )
+                if cutlass.const_expr(self.grouped):
+                    do_tile = (pid_ns * cutlass.Int32(self.kw)) < logical_rows
+                else:
+                    do_tile = True
+                if do_tile:
+                    handle = ab_producer.acquire_and_advance()
+                    cute.copy(
+                        tma_atom_a,
+                        tAgA[(None, pid_m, pid_ns, 0)],
+                        tAsA[(None, handle.index)],
+                        tma_bar_ptr=handle.barrier,
+                    )
+                    cute.copy(
+                        tma_atom_b,
+                        tBgB[(None, 0)],
+                        tBsB[(None, handle.index)],
+                        tma_bar_ptr=handle.barrier,
+                    )
             ab_producer.tail()
 
         # ==================== MMA warp (AB consumer, acc producer) ====================
@@ -1571,20 +1710,28 @@ class _Tcgen05RhtAmax:
                 pipeline.PipelineUserType.Producer, NUM_ACC_STAGE
             )
             for local_iter in cutlass.range(num_iters):
-                ab_handle = ab_consumer.wait_and_advance()
-                acc_pipeline.producer_acquire(acc_producer_state)
-                for u in cutlass.range_constexpr(self.col_groups_per_supertile):
-                    tiled_mma.set(tcgen05.Field.ACCUMULATE, False)
-                    cute.gemm(
-                        tiled_mma,
-                        tCtAcc_base[(None, None, None, u, acc_producer_state.index)],
-                        tCrA[(None, None, u, ab_handle.index)],
-                        tCrB[(None, None, 0, ab_handle.index)],
-                        tCtAcc_base[(None, None, None, u, acc_producer_state.index)],
-                    )
-                acc_pipeline.producer_commit(acc_producer_state)
-                acc_producer_state.advance()
-                ab_handle.release()
+                if cutlass.const_expr(self.grouped):
+                    super_id = start_pid + local_iter * GRID
+                    do_tile = (
+                        (super_id % num_tiles_ns) * cutlass.Int32(self.kw)
+                    ) < logical_rows
+                else:
+                    do_tile = True
+                if do_tile:
+                    ab_handle = ab_consumer.wait_and_advance()
+                    acc_pipeline.producer_acquire(acc_producer_state)
+                    for u in cutlass.range_constexpr(self.col_groups_per_supertile):
+                        tiled_mma.set(tcgen05.Field.ACCUMULATE, False)
+                        cute.gemm(
+                            tiled_mma,
+                            tCtAcc_base[(None, None, None, u, acc_producer_state.index)],
+                            tCrA[(None, None, u, ab_handle.index)],
+                            tCrB[(None, None, 0, ab_handle.index)],
+                            tCtAcc_base[(None, None, None, u, acc_producer_state.index)],
+                        )
+                    acc_pipeline.producer_commit(acc_producer_state)
+                    acc_producer_state.advance()
+                    ab_handle.release()
             acc_pipeline.producer_tail(acc_producer_state)
 
         # ==================== ROW warps (AB consumer, read raw sA) -> row amax ====================
@@ -1599,25 +1746,49 @@ class _Tcgen05RhtAmax:
             kc = k_row % cutlass.Int32(8)
             kd = k_row // cutlass.Int32(8)
             for local_iter in cutlass.range(num_iters):
-                ab_pipeline.consumer_wait(row_ab_state)
-                stage = row_ab_state.index
-                for b in cutlass.range_constexpr(M_TILE // 16):  # 8 blocks of 16 N
-                    for j in cutlass.range_constexpr(16):
-                        m_mma = b * 16 + j  # N position (0..127)
-                        v = sA_clean[
-                            ((m_mma % 64, m_mma // 64), (kc, kd), (0, stage))
-                        ].to(cutlass.Float32)
-                        thread_row_max = _max_f32(thread_row_max, _abs_f32(v))
-                cute.arch.mbarrier_arrive(
-                    ab_pipeline.sync_object_empty.get_barrier(stage)
-                )
-                row_ab_state.advance()
-            for offset in [16, 8, 4, 2, 1]:
-                thread_row_max = _max_f32(
-                    thread_row_max, cute.arch.shuffle_sync_bfly(thread_row_max, offset)
-                )
-            if lane == cutlass.Int32(0):
-                _atom_max_f32_nonneg(row_amax_t.iterator, thread_row_max)
+                super_id = start_pid + local_iter * GRID
+                pid_ns = super_id % num_tiles_ns
+                row_base = pid_ns * cutlass.Int32(self.kw)
+                if cutlass.const_expr(self.grouped):
+                    do_tile = row_base < logical_rows
+                else:
+                    do_tile = True
+                if do_tile:
+                    ab_pipeline.consumer_wait(row_ab_state)
+                    stage = row_ab_state.index
+                    tile_max = cutlass.Float32(0.0)
+                    for b in cutlass.range_constexpr(M_TILE // 16):  # 8 blocks of 16 N
+                        for j in cutlass.range_constexpr(16):
+                            m_mma = b * 16 + j  # N position (0..127)
+                            v = sA_clean[
+                                ((m_mma % 64, m_mma // 64), (kc, kd), (0, stage))
+                            ].to(cutlass.Float32)
+                            tile_max = _max_f32(tile_max, _abs_f32(v))
+                    cute.arch.mbarrier_arrive(
+                        ab_pipeline.sync_object_empty.get_barrier(stage)
+                    )
+                    row_ab_state.advance()
+                    if cutlass.const_expr(self.grouped):
+                        # This supertile is one group's rows; commit its max now.
+                        for offset in [16, 8, 4, 2, 1]:
+                            tile_max = _max_f32(
+                                tile_max, cute.arch.shuffle_sync_bfly(tile_max, offset)
+                            )
+                        if lane == cutlass.Int32(0):
+                            g = _group_of_row(
+                                offsets_t, row_base, num_experts, self.search_iters
+                            )
+                            _atom_max_f32_nonneg(row_amax_t.iterator + g, tile_max)
+                    else:
+                        thread_row_max = _max_f32(thread_row_max, tile_max)
+            if cutlass.const_expr(not self.grouped):
+                for offset in [16, 8, 4, 2, 1]:
+                    thread_row_max = _max_f32(
+                        thread_row_max,
+                        cute.arch.shuffle_sync_bfly(thread_row_max, offset),
+                    )
+                if lane == cutlass.Int32(0):
+                    _atom_max_f32_nonneg(row_amax_t.iterator, thread_row_max)
 
         # ==================== COL epilogue warps (acc consumer, TMEM) -> col amax ====================
         if warp_idx < COL_WARP_END:
@@ -1648,28 +1819,51 @@ class _Tcgen05RhtAmax:
             )
             thread_col_max = cutlass.Float32(0.0)
             for local_iter in cutlass.range(num_iters):
-                acc_idx = acc_consumer_state.index
-                acc_pipeline.consumer_wait(acc_consumer_state)
-                for u in cutlass.range_constexpr(self.col_groups_per_supertile):
-                    cute.copy(
-                        tiled_copy_t2r,
-                        tTR_tAcc_base[(None, None, None, 0, 0, u, acc_idx)],
-                        tTR_rAcc,
-                    )
-                    vals = tTR_rAcc.load().reshape((16,))
-                    for i in cutlass.range_constexpr(16):
-                        thread_col_max = _max_f32(thread_col_max, _abs_f32(vals[i]))
-                cute.arch.fence_view_async_tmem_load()
-                with cute.arch.elect_one():
-                    acc_pipeline.consumer_release(acc_consumer_state)
-                acc_consumer_state.advance()
+                super_id = start_pid + local_iter * GRID
+                pid_ns = super_id % num_tiles_ns
+                row_base = pid_ns * cutlass.Int32(self.kw)
+                if cutlass.const_expr(self.grouped):
+                    do_tile = row_base < logical_rows
+                else:
+                    do_tile = True
+                if do_tile:
+                    acc_idx = acc_consumer_state.index
+                    acc_pipeline.consumer_wait(acc_consumer_state)
+                    tile_max = cutlass.Float32(0.0)
+                    for u in cutlass.range_constexpr(self.col_groups_per_supertile):
+                        cute.copy(
+                            tiled_copy_t2r,
+                            tTR_tAcc_base[(None, None, None, 0, 0, u, acc_idx)],
+                            tTR_rAcc,
+                        )
+                        vals = tTR_rAcc.load().reshape((16,))
+                        for i in cutlass.range_constexpr(16):
+                            tile_max = _max_f32(tile_max, _abs_f32(vals[i]))
+                    cute.arch.fence_view_async_tmem_load()
+                    with cute.arch.elect_one():
+                        acc_pipeline.consumer_release(acc_consumer_state)
+                    acc_consumer_state.advance()
+                    if cutlass.const_expr(self.grouped):
+                        for offset in [16, 8, 4, 2, 1]:
+                            tile_max = _max_f32(
+                                tile_max, cute.arch.shuffle_sync_bfly(tile_max, offset)
+                            )
+                        if lane == cutlass.Int32(0):
+                            g = _group_of_row(
+                                offsets_t, row_base, num_experts, self.search_iters
+                            )
+                            _atom_max_f32_nonneg(col_amax_t.iterator + g, tile_max)
+                    else:
+                        thread_col_max = _max_f32(thread_col_max, tile_max)
 
-            for offset in [16, 8, 4, 2, 1]:
-                thread_col_max = _max_f32(
-                    thread_col_max, cute.arch.shuffle_sync_bfly(thread_col_max, offset)
-                )
-            if lane == cutlass.Int32(0):
-                _atom_max_f32_nonneg(col_amax_t.iterator, thread_col_max)
+            if cutlass.const_expr(not self.grouped):
+                for offset in [16, 8, 4, 2, 1]:
+                    thread_col_max = _max_f32(
+                        thread_col_max,
+                        cute.arch.shuffle_sync_bfly(thread_col_max, offset),
+                    )
+                if lane == cutlass.Int32(0):
+                    _atom_max_f32_nonneg(col_amax_t.iterator, thread_col_max)
 
             tmem_dealloc_barrier.arrive_and_wait()
             tmem.relinquish_alloc_permit()
@@ -1723,7 +1917,9 @@ def _get_sr_rng_buffer(device_idx):
 
 
 @functools.lru_cache(maxsize=None)
-def _compile_amax_tc_kernel(device_idx, col_groups_per_supertile=16):
+def _compile_amax_tc_kernel(
+    device_idx, col_groups_per_supertile=16, grouped=False, search_iters=0
+):
     """Compile the tensor-core RHT amax with symbolic shapes (cached per device+u).
 
     The symbolic (sym_int) shapes make the compiled kernel serve any (M % (16*u), N % 128);
@@ -1740,9 +1936,15 @@ def _compile_amax_tc_kernel(device_idx, col_groups_per_supertile=16):
     fake_bT = make_fake_tensor(
         cutlass.BFloat16, (HADAMARD_DIM, HADAMARD_DIM, 1), stride=(HADAMARD_DIM, 1, 1)
     )
-    fake_col = make_fake_tensor(cutlass.Float32, (1,), stride=(1,))
-    fake_row = make_fake_tensor(cutlass.Float32, (1,), stride=(1,))
-    k = _Tcgen05RhtAmax(col_groups_per_supertile=col_groups_per_supertile)
+    fake_col = make_fake_tensor(cutlass.Float32, (cute.sym_int(),), stride=(1,))
+    fake_row = make_fake_tensor(cutlass.Float32, (cute.sym_int(),), stride=(1,))
+    fake_offsets = make_fake_tensor(cutlass.Int32, (cute.sym_int(),), stride=(1,))
+    fake_logical = make_fake_tensor(cutlass.Int32, (1,), stride=(1,))
+    k = _Tcgen05RhtAmax(
+        col_groups_per_supertile=col_groups_per_supertile,
+        grouped=grouped,
+        search_iters=search_iters,
+    )
     # c_layout for the TMEM->reg read = layout of the col FP4 output (row-major 2D); the enum
     # depends only on row/col-majorness, so a dummy contiguous tensor suffices.
     dummy = torch.empty((M_TILE, 16), dtype=torch.int32, device=device)
@@ -1753,6 +1955,9 @@ def _compile_amax_tc_kernel(device_idx, col_groups_per_supertile=16):
         fake_bT,
         fake_col,
         fake_row,
+        fake_offsets,
+        fake_logical,
+        cutlass.Int32(0),
         cutlass.Int32(0),
         cutlass.Int32(0),
         cutlass.Int32(0),
@@ -1800,11 +2005,15 @@ def _cutedsl_rht_amax_impl(A: torch.Tensor, sign_vector=DEFAULT_SIGN_VECTOR):
     stream = cuda.CUstream(int(torch.cuda.current_stream(dev).cuda_stream))
 
     amax_compiled = _compile_amax_tc_kernel(dev.index, col_groups_per_supertile)
+    dummy_i32 = _get_sr_rng_buffer(dev.index)  # grouped-only args; never read when grouped=False
     amax_compiled(
         A.t().unsqueeze(-1),
         rht_nk,
         col_amax,
         row_amax,
+        dummy_i32,
+        dummy_i32,
+        1,
         int(M),
         int(N),
         int(GRID),
@@ -1813,8 +2022,214 @@ def _cutedsl_rht_amax_impl(A: torch.Tensor, sign_vector=DEFAULT_SIGN_VECTOR):
     return col_amax, row_amax
 
 
+# Grouped shape representation supported by the grouped kernels
+VARYING_FIRST_DIM = 1
+
+
+def _cutedsl_group_rht_amax_impl(
+    A: torch.Tensor,
+    sign_vector,
+    offsets: torch.Tensor,
+    num_tensors: int,
+    packed_sequence_length: int,
+    hidden_size: int,
+    shape_rep: int,
+    logical_packed_length: Optional[torch.Tensor] = None,
+):
+    """Per-group (col_amax, row_amax) over a row-packed ragged tensor.
+
+    col_amax[g] = max|RHT(A_g.t())|, row_amax[g] = max|A_g| for rows
+    [offsets[g-1], offsets[g]). Group boundaries must be 128-aligned.
+    """
+    if A.dtype != torch.bfloat16:
+        raise ValueError(f"Expected bfloat16, got {A.dtype}")
+    if A.ndim != 2:
+        raise ValueError("A must be 2-D")
+    if not A.is_contiguous():
+        raise ValueError("A must be row-major (contiguous)")
+    M, N = A.shape
+    if (M, N) != (packed_sequence_length, hidden_size):
+        raise ValueError(
+            f"A shape {tuple(A.shape)} != (packed_sequence_length, hidden_size) "
+            f"({packed_sequence_length}, {hidden_size})"
+        )
+    if shape_rep != VARYING_FIRST_DIM:
+        raise ValueError("cutedsl_group_rht_amax supports only VARYING_FIRST_DIM")
+    if M % 128 != 0:
+        raise ValueError(f"packed row capacity must be divisible by 128, got {M}")
+    if N % 128 != 0:
+        raise ValueError(f"hidden_size must be divisible by 128, got {N}")
+    if offsets.dtype != torch.int32 or offsets.ndim != 1:
+        raise ValueError("offsets must be a 1-D int32 tensor")
+    if offsets.numel() != num_tensors:
+        raise ValueError(f"offsets must have {num_tensors} entries, got {offsets.numel()}")
+    if not offsets.is_contiguous() or not offsets.is_cuda:
+        raise ValueError("offsets must be a contiguous CUDA tensor")
+    if logical_packed_length is None:
+        logical_packed_length = offsets[num_tensors - 1 : num_tensors]
+    if (
+        logical_packed_length.dtype != torch.int32
+        or logical_packed_length.numel() != 1
+    ):
+        raise ValueError("logical_packed_length must be a one-element int32 tensor")
+    A = A.detach()
+    dev = A.device
+    col_amax = torch.zeros(num_tensors, dtype=torch.float32, device=dev)
+    row_amax = torch.zeros(num_tensors, dtype=torch.float32, device=dev)
+
+    rht_nk = _get_rht_buffer(tuple(sign_vector), dev.index)
+    # 128-row supertile: group boundaries are 128-aligned, so no supertile straddles one.
+    col_groups = 8
+    search_iters = max(0, (num_tensors - 1).bit_length())
+    NUM_SMS = _get_num_sms(dev.index)
+    GRID = min(NUM_SMS, (N // M_TILE) * (M // (N_TILE * col_groups)))
+    stream = cuda.CUstream(int(torch.cuda.current_stream(dev).cuda_stream))
+
+    amax_compiled = _compile_amax_tc_kernel(
+        dev.index, col_groups, grouped=True, search_iters=search_iters
+    )
+    amax_compiled(
+        A.t().unsqueeze(-1),
+        rht_nk,
+        col_amax,
+        row_amax,
+        offsets,
+        logical_packed_length,
+        int(num_tensors),
+        int(M),
+        int(N),
+        int(GRID),
+        stream,
+    )
+    return col_amax, row_amax
+
+
+def _cutedsl_group_rht_quantize_row_col_impl(
+    A: torch.Tensor,
+    sign_vector,
+    offsets: torch.Tensor,
+    num_tensors: int,
+    packed_sequence_length: int,
+    hidden_size: int,
+    shape_rep: int,
+    row_global_amax: torch.Tensor,
+    col_global_amax: torch.Tensor,
+    rng_state: Optional[torch.Tensor],
+    enable_stochastic_rounding: bool,
+    logical_packed_length: Optional[torch.Tensor] = None,
+):
+    """Grouped fused RHT columnwise + rowwise NVFP4 quantize over a row-packed
+    ragged tensor.
+    """
+    if A.dtype != torch.bfloat16:
+        raise ValueError(f"Expected bfloat16, got {A.dtype}")
+    if A.ndim != 2:
+        raise ValueError("A must be 2-D")
+    if not A.is_contiguous():
+        raise ValueError("A must be row-major (contiguous)")
+    M, N = A.shape
+    if (M, N) != (packed_sequence_length, hidden_size):
+        raise ValueError(
+            f"A shape {tuple(A.shape)} != (packed_sequence_length, hidden_size) "
+            f"({packed_sequence_length}, {hidden_size})"
+        )
+    if shape_rep != VARYING_FIRST_DIM:
+        raise ValueError(
+            "cutedsl_group_rht_quantize_row_col supports only VARYING_FIRST_DIM"
+        )
+    if M % 128 != 0:
+        raise ValueError(f"packed row capacity must be divisible by 128, got {M}")
+    if N % 128 != 0:
+        raise ValueError(f"hidden_size must be divisible by 128, got {N}")
+    if offsets.dtype != torch.int32 or offsets.ndim != 1:
+        raise ValueError("offsets must be a 1-D int32 tensor")
+    if offsets.numel() != num_tensors:
+        raise ValueError(f"offsets must have {num_tensors} entries, got {offsets.numel()}")
+    if not offsets.is_contiguous() or not offsets.is_cuda:
+        raise ValueError("offsets must be a contiguous CUDA tensor")
+    for name, t in (("row_global_amax", row_global_amax), ("col_global_amax", col_global_amax)):
+        if t.shape != (num_tensors,) or t.dtype != torch.float32:
+            raise ValueError(f"{name} must be a ({num_tensors},) float32 tensor")
+    if logical_packed_length is None:
+        logical_packed_length = offsets[num_tensors - 1 : num_tensors]
+    if (
+        logical_packed_length.dtype != torch.int32
+        or logical_packed_length.numel() != 1
+    ):
+        raise ValueError("logical_packed_length must be a one-element int32 tensor")
+    A = A.detach()
+    dev = A.device
+    sr = bool(enable_stochastic_rounding)
+    sr_rng_t = _get_sr_rng_buffer(dev.index)
+    if sr:
+        if rng_state is None or rng_state.numel() != 4 or rng_state.dtype != torch.int64:
+            raise ValueError(
+                "enable_stochastic_rounding=True requires rng_state, an int64 tensor "
+                "[col_seed, col_offset, row_seed, row_offset]"
+            )
+        # Single int32 base; the kernel decorrelates col/row and per-block internally.
+        sr_rng_t.copy_(((rng_state[0] ^ rng_state[1]) & 0x7FFFFFFF).to(torch.int32).reshape(1))
+
+    col_fp4 = torch.empty((N, M // 8), dtype=torch.uint32, device=dev)
+    row_fp4 = torch.empty((M, N // 8), dtype=torch.uint32, device=dev)
+    col_sf = torch.empty((N // 128, M // 64, 32, 16), dtype=torch.float8_e4m3fn, device=dev)
+    row_sf = torch.empty((M // 128, N // 64, 32, 16), dtype=torch.float8_e4m3fn, device=dev)
+    csf_g = col_sf.reshape(N // 128, (M // 64) * SF_BLK)
+    rsf_g = row_sf.reshape(M // 128, (N // 64) * SF_BLK)
+
+    rht_nk = _get_rht_buffer(tuple(sign_vector), dev.index)
+    col_groups = 8  # 128-row supertile: group boundaries are 128-aligned
+    search_iters = max(0, (num_tensors - 1).bit_length())
+    NUM_SMS = _get_num_sms(dev.index)
+    GRID = min(NUM_SMS, (N // M_TILE) * (M // (N_TILE * col_groups)))
+    stream = cuda.CUstream(int(torch.cuda.current_stream(dev).cuda_stream))
+
+    fused = _compile_fused_kernel(
+        dev.index,
+        True,
+        sr,
+        apply_rht=True,
+        col_groups_per_supertile=col_groups,
+        grouped=True,
+        search_iters=search_iters,
+    )
+    fused(
+        A.t().unsqueeze(-1),
+        rht_nk,
+        col_fp4.unsqueeze(-1),
+        csf_g.unsqueeze(-1),
+        row_fp4.unsqueeze(-1),
+        rsf_g.unsqueeze(-1),
+        row_global_amax,
+        col_global_amax,
+        sr_rng_t,
+        offsets,
+        logical_packed_length,
+        int(num_tensors),
+        int(M),
+        int(N),
+        int(GRID),
+        stream,
+    )
+    # Ryan's return order and shapes: row first, scale bytes viewed as logical 2D.
+    return (
+        row_fp4.view(torch.uint8),
+        row_sf.view(M, N // 16),
+        col_fp4.view(torch.uint8),
+        col_sf.view(N, M // 16),
+    )
+
+
 @functools.lru_cache(maxsize=None)
-def _compile_fused_kernel(device_idx, swizzle, sr, apply_rht=True, col_groups_per_supertile=16):
+def _compile_fused_kernel(
+    device_idx,
+    swizzle,
+    sr,
+    apply_rht=True,
+    col_groups_per_supertile=16,
+    grouped=False,
+    search_iters=0,
+):
     """Compile the fused kernel with symbolic shapes (cached per device+swizzle+sr+apply_rht+u).
 
     The symbolic (sym_int) shapes make the compiled kernel serve any (M % (16*u), N % 128); the
@@ -1828,9 +2243,10 @@ def _compile_fused_kernel(device_idx, swizzle, sr, apply_rht=True, col_groups_pe
     n_sym = cute.sym_int(divisibility=M_TILE)  # N % 128
     free = cute.sym_int  # a fresh dynamic stride per call
 
-    # aT = A.t().unsqueeze(-1): (N, M, 1), dim0 contiguous; output FP4 tensors row-major.
+    # aT: (N, M, L), dim0 contiguous; L = expert count (1 for the dense op). Output FP4
+    # tensors are row-major per expert with L as the outermost (last-mode) coordinate.
     fake_aT = make_fake_tensor(
-        cutlass.BFloat16, (n_sym, m_sym, 1), stride=(1, free(), 1)
+        cutlass.BFloat16, (n_sym, m_sym, cute.sym_int()), stride=(1, free(), free())
     )
     fake_bT = make_fake_tensor(
         cutlass.BFloat16, (HADAMARD_DIM, HADAMARD_DIM, 1), stride=(HADAMARD_DIM, 1, 1)
@@ -1838,13 +2254,13 @@ def _compile_fused_kernel(device_idx, swizzle, sr, apply_rht=True, col_groups_pe
     # col_fp4 (N, M//8) u32, store box inner = 2*col_groups; row_fp4 (M, N//8) u32, inner = 16.
     fake_cfp4 = make_fake_tensor(
         cutlass.Uint32,
-        (n_sym, cute.sym_int(divisibility=2 * col_groups_per_supertile)),
-        stride=(free(), 1),
+        (n_sym, cute.sym_int(divisibility=2 * col_groups_per_supertile), cute.sym_int()),
+        stride=(free(), 1, free()),
     )
     fake_rfp4 = make_fake_tensor(
         cutlass.Uint32,
-        (m_sym, cute.sym_int(divisibility=M_TILE // 8)),
-        stride=(free(), 1),
+        (m_sym, cute.sym_int(divisibility=M_TILE // 8), cute.sym_int()),
+        stride=(free(), 1, free()),
     )
     if swizzle:
         # SF flattened to 2D for the TMA atom: col_sf.reshape(N//128, (M//64)*512) has inner
@@ -1853,34 +2269,45 @@ def _compile_fused_kernel(device_idx, swizzle, sr, apply_rht=True, col_groups_pe
         # inner by 1024 (from N%128).
         fake_csf = make_fake_tensor(
             cutlass.Float8E4M3FN,
-            (cute.sym_int(divisibility=1), cute.sym_int(divisibility=(col_groups_per_supertile // 4) * SF_BLK)),
-            stride=(free(), 1),
+            (
+                cute.sym_int(divisibility=1),
+                cute.sym_int(divisibility=(col_groups_per_supertile // 4) * SF_BLK),
+                cute.sym_int(),
+            ),
+            stride=(free(), 1, free()),
         )
         fake_rsf = make_fake_tensor(
             cutlass.Float8E4M3FN,
             (
                 cute.sym_int(divisibility=(K * col_groups_per_supertile) // 128),
                 cute.sym_int(divisibility=1024),
+                cute.sym_int(),
             ),
-            stride=(free(), 1),
+            stride=(free(), 1, free()),
         )
     else:
         # plain SF: col (N, M//16), row (M, N//16). Requires col_groups=16 (col box is that many bytes wide).
         fake_csf = make_fake_tensor(
             cutlass.Float8E4M3FN,
-            (n_sym, cute.sym_int(divisibility=col_groups_per_supertile)),
-            stride=(free(), 1),
+            (n_sym, cute.sym_int(divisibility=col_groups_per_supertile), cute.sym_int()),
+            stride=(free(), 1, free()),
         )
         fake_rsf = make_fake_tensor(
             cutlass.Float8E4M3FN,
-            (m_sym, cute.sym_int(divisibility=M_TILE // 16)),
-            stride=(free(), 1),
+            (m_sym, cute.sym_int(divisibility=M_TILE // 16), cute.sym_int()),
+            stride=(free(), 1, free()),
         )
-    fake_amax = make_fake_tensor(cutlass.Float32, (1,), stride=(1,))
+    fake_amax = make_fake_tensor(cutlass.Float32, (cute.sym_int(),), stride=(1,))
     fake_sr_rng = make_fake_tensor(cutlass.Int32, (1,), stride=(1,))
+    fake_offsets = make_fake_tensor(cutlass.Int32, (cute.sym_int(),), stride=(1,))
+    fake_logical = make_fake_tensor(cutlass.Int32, (1,), stride=(1,))
     k = _Tcgen05RowColFused(
-        swizzle_sf=swizzle, sr=sr, apply_rht=apply_rht,
+        swizzle_sf=swizzle,
+        sr=sr,
+        apply_rht=apply_rht,
         col_groups_per_supertile=col_groups_per_supertile,
+        grouped=grouped,
+        search_iters=search_iters,
     )
     return cute.compile(
         k,
@@ -1893,6 +2320,9 @@ def _compile_fused_kernel(device_idx, swizzle, sr, apply_rht=True, col_groups_pe
         fake_amax,
         fake_amax,
         fake_sr_rng,
+        fake_offsets,
+        fake_logical,
+        cutlass.Int32(0),
         cutlass.Int32(0),
         cutlass.Int32(0),
         cutlass.Int32(0),
@@ -2032,13 +2462,16 @@ def _cutedsl_rht_quantize_row_col_impl(
     fused(
         A.t().unsqueeze(-1),
         rht_nk,
-        col_fp4,
-        csf_g,
-        row_fp4,
-        rsf_g,
+        col_fp4.unsqueeze(-1),
+        csf_g.unsqueeze(-1),
+        row_fp4.unsqueeze(-1),
+        rsf_g.unsqueeze(-1),
         row_amax_t,
         col_amax_t,
         sr_rng_t,
+        sr_rng_t,  # grouped-only args; never read when grouped=False
+        sr_rng_t,
+        1,
         int(M),
         int(N),
         int(GRID),
@@ -2049,3 +2482,80 @@ def _cutedsl_rht_quantize_row_col_impl(
     if compute_rowwise:
         return col_fp4_u8, col_sf, row_fp4.view(torch.uint8), row_sf
     return col_fp4_u8, col_sf, None, None
+
+
+def _cutedsl_group_weight_quantize_2d_impl(
+    A: torch.Tensor,
+    global_amax: torch.Tensor,
+) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    """Per-expert 2D (16x16) NVFP4 weight quantization over stacked (E, M, N) weights.
+
+    Returns (row codes, row sf, col codes = W.T, col sf) in the shapes:
+    (E, M, N//2) u8, (E, M//128, N//64, 32, 16) fp8,
+    (E, N, M//2) u8, (E, N//128, M//64, 32, 16) fp8.
+    """
+    if A.dtype != torch.bfloat16:
+        raise ValueError(f"Expected bfloat16, got {A.dtype}")
+    if A.ndim != 3:
+        raise ValueError("A must be 3-D (E, M, N)")
+    if not A.is_contiguous():
+        raise ValueError("A must be contiguous")
+    E, M, N = A.shape
+    if M % 128 != 0:
+        raise ValueError(f"M must be divisible by 128, got M={M}")
+    if N % 128 != 0:
+        raise ValueError(f"N must be divisible by 128, got N={N}")
+    if global_amax.shape != (E,):
+        raise ValueError(f"global_amax must have shape ({E},), got {tuple(global_amax.shape)}")
+    if global_amax.dtype != torch.float32:
+        raise ValueError(f"global_amax must be float32, got {global_amax.dtype}")
+    if not global_amax.is_contiguous():
+        raise ValueError("global_amax must be contiguous")
+    col_groups_per_supertile = 16 if M % 256 == 0 else 8
+    A = A.detach()
+    dev = A.device
+
+    row_fp4 = torch.empty((E, M, N // 8), dtype=torch.uint32, device=dev)
+    row_sf = torch.empty(
+        (E, M // 128, N // 64, 32, 16), dtype=torch.float8_e4m3fn, device=dev
+    )
+    col_fp4 = torch.empty((E, N, M // 8), dtype=torch.uint32, device=dev)
+    col_sf = torch.empty(
+        (E, N // 128, M // 64, 32, 16), dtype=torch.float8_e4m3fn, device=dev
+    )
+
+    identity_nk = _get_identity_buffer(dev.index)
+    sr_rng_t = _get_sr_rng_buffer(dev.index)
+    NUM_SMS = _get_num_sms(dev.index)
+
+    supers_per_expert = (N // M_TILE) * (M // (N_TILE * col_groups_per_supertile))
+    GRID = min(NUM_SMS, E * supers_per_expert)
+    stream = cuda.CUstream(int(torch.cuda.current_stream(dev).cuda_stream))
+    fused = _compile_fused_kernel(
+        dev.index, True, False, apply_rht=False,
+        col_groups_per_supertile=col_groups_per_supertile,
+    )
+    fused(
+        A.permute(2, 1, 0),
+        identity_nk,
+        col_fp4.permute(1, 2, 0),
+        col_sf.reshape(E, N // 128, (M // 64) * SF_BLK).permute(1, 2, 0),
+        row_fp4.permute(1, 2, 0),
+        row_sf.reshape(E, M // 128, (N // 64) * SF_BLK).permute(1, 2, 0),
+        global_amax,
+        global_amax,
+        sr_rng_t,
+        sr_rng_t,
+        sr_rng_t,
+        1,
+        int(M),
+        int(N),
+        int(GRID),
+        stream,
+    )
+    return (
+        row_fp4.view(torch.uint8),
+        row_sf,
+        col_fp4.view(torch.uint8),
+        col_sf,
+    )
