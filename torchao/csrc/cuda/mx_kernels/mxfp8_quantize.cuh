@@ -730,8 +730,6 @@ __global__ void __launch_bounds__(MXFP8_THREADS_PER_CHUNK)
 
       // Updated Row-wise scaling section:
       if constexpr (USE_ROWWISE_SCALING) {
-        Vec<IType, ELEMS_PER_THREAD> in;
-
         const int iteration_scale_rowwise_offset_Y =
             scales_rowwise_chunk_offset_Y + iter * MXFP8_BUFFER_DIM_Y;
 
@@ -741,9 +739,6 @@ __global__ void __launch_bounds__(MXFP8_THREADS_PER_CHUNK)
           const int shmem_offset_y = thread_offset_Y + stage_offset_Y;
           const int shmem_offset_x = thread_offset_X_rowwise;
 
-          // Load from shared memory into thread local registers
-          in.load_from(&in_sh[buff][shmem_offset_y][shmem_offset_x]);
-
           float thread_amax = 0;
           float in_compute[ELEMS_PER_THREAD];
 
@@ -751,7 +746,8 @@ __global__ void __launch_bounds__(MXFP8_THREADS_PER_CHUNK)
           // multiples of 32, padding never shares an MX block with valid data.
 #pragma unroll
           for (int j = 0; j < ELEMS_PER_THREAD; ++j) {
-            float elt = DataTypeTraits<IType>::to_float(in.data.elt[j]);
+            float elt = DataTypeTraits<IType>::to_float(
+                in_sh[buff][shmem_offset_y][shmem_offset_x + j]);
             in_compute[j] = elt;
           }
 
