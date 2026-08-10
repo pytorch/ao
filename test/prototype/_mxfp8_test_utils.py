@@ -92,19 +92,22 @@ def make_mxfp8_semantic_cases(
             expected_data[idx].fill_(0x40)  # 2.0
 
         elif name == "mixed_inf":
-            # Inf determines the scale and invalidates the block.
+            # Inf determines the scale and invalidates the block. This is the
+            # only case that distinguishes a no-saturation E8M0 conversion from
+            # a saturating one: NOSAT maps Inf to 0xff (NaN), making the descale
+            # and hence every output NaN, whereas SATFINITE would clamp it to
+            # 0xfe (2^127). NaN itself maps to 0xff under both modes.
             inputs[idx].fill_(1.0)
             inputs[idx, 0] = float("inf")
             expected_scales[idx] = 255  # NaN
             expected_data[idx].fill_(0x7F)  # NaN
 
         elif name == "mixed_nan":
-            # NaN is ignored by the amax reduction when numerical peers are present.
+            # Any NaN invalidates the block.
             inputs[idx].fill_(1.0)
             inputs[idx, 0] = float("nan")
-            expected_scales[idx] = 119  # 2^-8
-            expected_data[idx].fill_(0x78)  # 256.0
-            expected_data[idx, 0] = 0x7F  # NaN
+            expected_scales[idx] = 255  # NaN
+            expected_data[idx].fill_(0x7F)  # NaN
 
         elif name == "positive_fp8_max":
             inputs[idx].fill_(448.0)

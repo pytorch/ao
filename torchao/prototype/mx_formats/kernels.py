@@ -474,18 +474,18 @@ if _triton_kernels_available:
 
         # Handle special cases and normal values using nested tl.where
         descale_fp = tl.where(
-            scale_e8m0_biased == 255,  # NaN case -> return NaN
+            scale_e8m0_biased == 255,  # E8M0 NaN -> NaN
             float("nan"),
             tl.where(
-                scale_e8m0_biased == 254,  # Inf case -> return 2^-127
+                # The reciprocal of byte 254 (2^127) is the FP32 subnormal
+                # 2^-127, which the exponent-only shift below cannot produce.
+                scale_e8m0_biased == 254,
                 2**-127,
-                tl.where(
-                    scale_e8m0_biased == 0,  # Zero case -> return subnormal
-                    2.0**127,
-                    # Normal case: fast bit manipulation (254 - biased_exp) << 23
-                    ((254 - scale_e8m0_biased).to(tl.int32) << FP32_MANTISSA_BITS).to(
-                        tl.float32, bitcast=True
-                    ),
+                # Normal case: fast bit manipulation (254 - biased_exp) << 23.
+                # Byte 0 (2^-127) needs no special case: it yields 254 << 23,
+                # i.e. 2^127.
+                ((254 - scale_e8m0_biased).to(tl.int32) << FP32_MANTISSA_BITS).to(
+                    tl.float32, bitcast=True
                 ),
             ),
         )
@@ -509,12 +509,22 @@ if _triton_kernels_available:
         return tl.where(biased_exponent != 0xFF, e8m0_biased, 0xFF).to(tl.uint8)
 
     @triton.jit
+    def _triton_amax_nan_as_inf(x, axis):
+        # A custom tl.reduce using tl.maximum(...,
+        # propagate_nan=tl.PropagateNan.ALL) would express this directly, but
+        # currently risks a Triton FP8-store miscompile:
+        # https://github.com/triton-lang/triton/issues/11111
+        # See also torchao/float8/_inductor_patch.py.
+        x = tl.where(x == x, x, float("inf"))
+        return tl.max(x, axis=axis)
+
+    @triton.jit
     def _triton_calculate_scale_rceil(x, axis, USE_PTX: tl.constexpr):
         """
         Calculates and returns reciprocal scale using RCEIL rounding mode
         """
         # Find the maximum absolute value for each row
-        max_abs = tl.max(x, axis=axis)
+        max_abs = _triton_amax_nan_as_inf(x, axis)
 
         F8E4M3_MAX_RCP: tl.constexpr = 1.0 / 448.0
 
@@ -552,7 +562,7 @@ if _triton_kernels_available:
         fp32_exp_bias = 127
 
         # Find the maximum absolute value for each row
-        max_abs = tl.max(x, axis=axis)
+        max_abs = _triton_amax_nan_as_inf(x, axis)
 
         # Original floor implementation
         # Calculate the e8m0 scale by extracting the exponent (floor)

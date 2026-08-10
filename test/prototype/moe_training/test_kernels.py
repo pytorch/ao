@@ -921,13 +921,8 @@ def test_mxfp8_dsl_3d_special_value_semantics(backend, input_dtype, scaling_mode
         blocked_scale_output=False,
     )
 
-    is_floor = scaling_mode == "floor"
-    expected_scales = torch.tensor(
-        [[[127 if is_floor else 128, 255]]], dtype=torch.uint8
-    )
+    expected_scales = torch.full((1, 1, 2), 255, dtype=torch.uint8)
     expected_data = torch.full((1, 32, 64), 0x7F, dtype=torch.uint8)
-    expected_data[0, -1, :32] = 0x38 if is_floor else 0x30
-    expected_data[0, -1, 0] = 0x7E if is_floor else 0x77
     assert torch.equal(scales.view(torch.uint8).cpu(), expected_scales)
     assert torch.equal(qdata.view(torch.uint8).cpu(), expected_data)
 

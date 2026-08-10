@@ -145,15 +145,18 @@ if _cutedsl_runtime_available():
             return carrier(packed)
 
     @dsl_user_op
-    def _reduce_max_ignore_nans_f32(values, *, loc=None, ip=None):
-        """Reduce with maxNum semantics, preserving NaN for an all-NaN vector."""
-        init = cutlass.Float32(float("nan")).ir_value(loc=loc, ip=ip)
+    def fmax_nan_f32(a, b, *, loc=None, ip=None):
+        """Pairwise f32 maximum with NaN propagation."""
+
+        # CUTLASS 4.6 exposes this directly as
+        # `cute.arch.fmax(a, b, nan=True)`. Remove this low-level NVVM wrapper
+        # once TorchAO's minimum supported nvidia-cutlass-dsl is at least 4.6.
         return cutlass.Float32(
-            vector.reduction(
+            nvvm.fmax(
                 T.f32(),
-                vector.CombiningKind.MAXNUMF,
-                values,
-                acc=init,
+                cutlass.Float32(a).ir_value(loc=loc, ip=ip),
+                cutlass.Float32(b).ir_value(loc=loc, ip=ip),
+                nan=True,
                 loc=loc,
                 ip=ip,
             )
@@ -223,7 +226,14 @@ if _cutedsl_runtime_available():
         Returns:
             The absolute maximum value as Float32
         """
-        return _reduce_max_ignore_nans_f32(cute.absf(vals_block.load()))
+        abs_vals = cute.absf(vals_block.load())
+        return cutlass.Float32(
+            abs_vals.reduce(
+                cute.ReductionOp.MAX,
+                cutlass.Float32(0.0),
+                0,
+            )
+        )
 
     @cute.jit
     def compute_scale_rceil(amax: cutlass.Float32):
@@ -270,40 +280,6 @@ if _cutedsl_runtime_available():
         if cutlass.const_expr(USE_RCEIL):
             return compute_scale_rceil(amax)
         return compute_scale_floor(amax)
-
-    @cute.jit
-    def load_vals_chunk_tail(
-        vals_block: cute.Tensor,
-        dim0: cutlass.Int64,
-        sout_base: cutlass.Int32,
-        local_base: cutlass.Int32,
-        dim_size: cutlass.Int64,
-    ):
-        """Load a tail chunk of 4 values with bounds checking.
-
-        This helper loads 4 values from a values block, checking if each position
-        is within the dimension bounds. Out-of-bounds values are replaced with 0.0.
-
-        Args:
-            vals_block: Register tensor containing values to load from
-            dim0: Starting index in the dimension (e.g., k0 or n0)
-            sout_base: Base offset for output indexing
-            local_base: Starting index within vals_block for the chunk
-            dim_size: Total size of the dimension for bounds checking (e.g., K or N)
-
-        Returns:
-            Register tensor of shape (4,) containing the loaded float32 values,
-            with out-of-bounds positions set to 0.0
-        """
-        chunk_vec = 4
-        vals_chunk = cute.make_rmem_tensor((chunk_vec,), cutlass.Float32)
-        for j in range(chunk_vec):
-            idx = dim0 + sout_base + j
-            if idx < dim_size:
-                vals_chunk[j] = vals_block[local_base + j]
-            else:
-                vals_chunk[j] = cutlass.Float32(0.0)
-        return vals_chunk
 
     @cute.jit
     def validate_group_sizes(offs: cute.Tensor):

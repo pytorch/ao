@@ -257,13 +257,8 @@ def to_mx(
     # https://www.opencompute.org/documents/ocp-microscaling-formats-mx-v1-0-spec-final-pdf
     # section 6.3.
 
-    # torch.max propagates NaNs, but we want to ignore them. We thus temporarily
-    # replace NaNs with -Infs, as they are overcome by all other values. As all
-    # inputs are non-negative, we only end up with -Inf if we had all NaNs.
-    data_abs = torch.abs(data_hp)
-    data_abs = torch.where(torch.isnan(data_abs), -float("inf"), data_abs)
-    max_abs = torch.amax(data_abs, -1).unsqueeze(-1)
-    max_abs = torch.where(torch.isneginf(max_abs), float("nan"), max_abs)
+    # torch.amax propagates NaNs.
+    max_abs = torch.amax(torch.abs(data_hp), -1).unsqueeze(-1)
 
     # We cast to float32 here because
     # in the `max_abs_int32 = max_abs.view(hp_int_dtype)` line below,
@@ -367,7 +362,7 @@ def to_mx(
             elem_dtype == torch.float8_e4m3fn and not _TORCH_VERSION_AT_LEAST_2_13
         )
         if needs_eager_saturation and not torch._dynamo.is_compiling():
-            # Before PyTorch 2.13, eager casts did not saturate finite
+            # Before PyTorch 2.13, eager casts for e4m3 did not saturate finite
             # overflow values, so torchao clamps before casting. Triton
             # casts saturate, if we are compute bound we see a speedup if we remove
             # this redundant clamp (in the case of compiling to Triton)

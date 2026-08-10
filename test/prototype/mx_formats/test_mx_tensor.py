@@ -200,9 +200,8 @@ def test_to_mx_rceil():
     data_mx = MXTensor.to_mx(
         data_hp, torch.float8_e4m3fn, 32, ScaleCalculationMode.RCEIL
     )
-    assert not torch.isnan(data_mx.scale)
-    assert torch.isnan(data_mx.qdata[0])
-    assert not torch.any(torch.isnan(data_mx.qdata[1:]))
+    assert torch.isnan(data_mx.scale)
+    assert torch.all(torch.isnan(data_mx.qdata))
     # fp32 denorm
     # fmt: off
     data_hp = torch.tensor(
@@ -431,14 +430,15 @@ def test_to_mx_rceil_fallback_nan_branch_is_cse_compatible(monkeypatch):
 @pytest.mark.parametrize("elem_dtype", SUPPORTED_ELEM_DTYPES)
 def test_exponent_nan_in(elem_dtype):
     """
-    Individual NaNs do not poison the exponent of a block with finite values.
+    Any NaN poisons the exponent of its block.
     """
     tensor_hp = torch.tensor(
         [float("nan"), 1, 2, 3, 4, 5, 6, 7], device="cuda", dtype=torch.bfloat16
     )
     block_size = 4
     tensor_mx = MXTensor.to_mx(tensor_hp, elem_dtype, block_size)
-    assert not torch.any(torch.isnan(tensor_mx.scale))
+    assert torch.isnan(tensor_mx.scale[0])
+    assert not torch.any(torch.isnan(tensor_mx.scale[1:]))
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
@@ -446,7 +446,7 @@ def test_exponent_nan_in(elem_dtype):
 def test_all_nan_blocks(elem_dtype):
     """
     Test NaN handling for blocks with all NaN values vs mixed NaN + real values.
-    - Mixed real + NaN: scale is based on the real values
+    - Mixed real + NaN: scale = NaN
     - All NaN: scale = NaN
     """
     block_size = 4
@@ -459,8 +459,8 @@ def test_all_nan_blocks(elem_dtype):
     )
     mixed_mx = MXTensor.to_mx(mixed_tensor, elem_dtype, block_size)
 
-    # First block [NaN, 2.0, NaN, 4.0] uses amax=4.
-    assert not torch.isnan(mixed_mx.scale[0])
+    # First block [NaN, 2.0, NaN, 4.0] should have NaN scale.
+    assert torch.isnan(mixed_mx.scale[0])
 
     # Second block [1.0, 3.0, 5.0, 2.0] should have real scale
     assert not torch.isnan(mixed_mx.scale[1]), (

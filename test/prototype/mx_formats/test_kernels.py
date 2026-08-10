@@ -887,12 +887,6 @@ def test_cuda_mxfp8_special_value_semantics(input_dtype, scaling_mode, orientati
     scales = outputs[2] if orientation == "rowwise" else outputs[3]
     assert_mxfp8_semantics(data[:num_cases, :32], scales[:num_cases, :1], cases)
 
-    # Regression test for using __NV_NOSAT in the E8M0 conversion. NOSAT maps
-    # Inf to E8M0 NaN (0xFF), making the descale and every output NaN. With
-    # SATFINITE the scale would instead be 0xFE and these assertions would fail.
-    assert scales[2, 0].view(torch.uint8).item() == 0xFF
-    assert scales[14, 0].view(torch.uint8).item() == 0xFF
-
 
 @pytest.mark.skipif(not has_triton(), reason="unsupported without triton")
 @pytest.mark.skipif(

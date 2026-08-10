@@ -124,14 +124,8 @@ template <> struct DataTypeTraits<nv_bfloat16> {
   }
 };
 
-// Explicit NaN-propagating min/max helpers for callers that need those PTX
+// Explicit NaN-propagating max helpers for callers that need those PTX
 // semantics instead of the default CUDA behavior.
-__device__ __forceinline__ float min_nan_f32(float a, float b) {
-  float result;
-  asm("min.NaN.f32 %0, %1, %2;" : "=f"(result) : "f"(a), "f"(b));
-  return result;
-}
-
 __device__ __forceinline__ float max_nan_f32(float a, float b) {
   float result;
   asm("max.NaN.f32 %0, %1, %2;" : "=f"(result) : "f"(a), "f"(b));
@@ -142,15 +136,6 @@ __device__ __forceinline__ float max_nan_f32(float a, float b) {
 __device__ __forceinline__ float abs_max_nan_f32(float current, float a,
                                                  float b) {
   asm("max.NaN.abs.f32 %0, %1, %2, %3;"
-      : "=f"(current)
-      : "f"(current), "f"(a), "f"(b));
-  return current;
-}
-
-// CUDA max semantics ignore a single NaN operand and return NaN only when all
-// operands are NaN.
-__device__ __forceinline__ float abs_max_f32(float current, float a, float b) {
-  asm("max.abs.f32 %0, %1, %2, %3;"
       : "=f"(current)
       : "f"(current), "f"(a), "f"(b));
   return current;
@@ -234,7 +219,7 @@ __forceinline__ __device__ float subwarp_reduce_max_broadcast(const float val) {
   for (int offset = subwarp_width / 2; offset > 0; offset /= 2) {
     const float val_other =
         __shfl_down_sync(0xFFFFFFFF, val_tmp, offset, subwarp_width);
-    val_tmp = fmaxf(val_tmp, val_other);
+    val_tmp = max_nan_f32(val_tmp, val_other);
   }
   // Broadcast the amax to other threads of the subwarp from the zero subwarp
   // lane_id
@@ -462,38 +447,6 @@ quantize_block(float amax, e8m0_t &out_scale,
   }
 }
 
-/**
- * Bounds checking helper for IMA avoidance
- */
-struct BoundsChecker {
-  const size_t rows, cols;
-  const size_t chunk_offset_X, chunk_offset_Y;
-
-  __device__ __forceinline__ BoundsChecker(size_t r, size_t c, size_t cox,
-                                           size_t coy)
-      : rows(r), cols(c), chunk_offset_X(cox), chunk_offset_Y(coy) {}
-
-  __device__ __forceinline__ bool is_out_of_bounds(size_t row,
-                                                   size_t col) const {
-    return (row >= rows) || (col >= cols);
-  }
-
-  __device__ __forceinline__ bool
-  is_rowwise_out_of_bounds(size_t shmem_y, size_t shmem_x, int j,
-                           size_t row_base) const {
-    const size_t row = row_base + shmem_y;
-    const size_t col = chunk_offset_X + shmem_x + j;
-    return is_out_of_bounds(row, col);
-  }
-
-  __device__ __forceinline__ bool
-  is_colwise_out_of_bounds(size_t row_offset, size_t col,
-                           size_t row_base) const {
-    const size_t row = row_base + row_offset;
-    return is_out_of_bounds(row, col);
-  }
-};
-
 ////////////////////////////////////////////////////////////////////////////////
 // MXFP8 quantization kernel
 ////////////////////////////////////////////////////////////////////////////////
@@ -683,9 +636,6 @@ __global__ void __launch_bounds__(MXFP8_THREADS_PER_CHUNK)
         Vec<IType, ELEMS_PER_THREAD> in;
         Vec<OType, ELEMS_PER_THREAD> out_c;
 
-        // Create bounds checker for this chunk
-        BoundsChecker bounds(rows, cols, chunk_offset_X, chunk_offset_Y);
-
         const int iteration_scale_rowwise_offset_Y =
             scales_rowwise_chunk_offset_Y + iter * MXFP8_BUFFER_DIM_Y;
 
@@ -698,21 +648,20 @@ __global__ void __launch_bounds__(MXFP8_THREADS_PER_CHUNK)
           // Load from shared memory into thread local registers
           in.load_from(&in_sh[buff][shmem_offset_y][shmem_offset_x]);
 
-          float thread_amax = CUDART_NAN_F;
+          float thread_amax = 0.0f;
           float in_compute[ELEMS_PER_THREAD];
 
-          // Convert inputs and mask values outside the logical tensor.
+          // TMA zero-fills OOB tile padding. Since rows and columns are
+          // multiples of 32, padding never shares an MX block with valid data.
 #pragma unroll
           for (int j = 0; j < ELEMS_PER_THREAD; ++j) {
-            const bool out_of_bounds = bounds.is_rowwise_out_of_bounds(
-                shmem_offset_y, shmem_offset_x, j, row_base);
             const float elt = DataTypeTraits<IType>::to_float(in.data.elt[j]);
-            in_compute[j] = out_of_bounds ? 0.0f : elt;
+            in_compute[j] = elt;
           }
 
 #pragma unroll
           for (int j = 0; j < ELEMS_PER_THREAD; j += 2) {
-            thread_amax = abs_max_f32(
+            thread_amax = abs_max_nan_f32(
                 thread_amax, in_compute[j], in_compute[j + 1]);
           }
 
@@ -730,12 +679,7 @@ __global__ void __launch_bounds__(MXFP8_THREADS_PER_CHUNK)
 
           // Write scaling factor (only a single thread writes it to global
           // memory)
-          const bool row_out_of_bounds =
-              row_base + shmem_offset_y >= rows;
-          const bool scale_col_out_of_bounds =
-              chunk_offset_X + shmem_offset_x >= cols;
-          if (tid_rowwise_X % THREADS_PER_SCALE_X_ROWWISE == 0 &&
-              !row_out_of_bounds && !scale_col_out_of_bounds) {
+          if (tid_rowwise_X % THREADS_PER_SCALE_X_ROWWISE == 0) {
             const int global_scales_offset_Y =
                 iteration_scale_rowwise_offset_Y + stage_offset_Y +
                 tid_rowwise_Y;
@@ -774,25 +718,21 @@ __global__ void __launch_bounds__(MXFP8_THREADS_PER_CHUNK)
       // Column-wise scaling
 
       if constexpr (USE_COLWISE_SCALING) {
-        // Create bounds checker for this chunk
-        BoundsChecker bounds(rows, cols, chunk_offset_X, chunk_offset_Y);
-
         const size_t col = chunk_offset_X + tid_colwise_X;
         const bool col_out_of_bounds = (col >= cols);
 
         float in_compute[SCALE_DIM_Y];
-        float amax = CUDART_NAN_F;
+        float amax = 0.0f;
 
         // Calculate amax and prepare input values
 #pragma unroll
-        for (int i = 0; i < SCALE_DIM_Y; ++i) {
-          const bool out_of_bounds =
-              bounds.is_colwise_out_of_bounds(i, col, row_base);
-
-          const float elt =
+        for (int i = 0; i < SCALE_DIM_Y; i += 2) {
+          in_compute[i] =
               DataTypeTraits<IType>::to_float(in_sh[buff][i][tid_colwise_X]);
-          in_compute[i] = out_of_bounds ? 0.0f : elt;
-          amax = fmaxf(amax, fabsf(in_compute[i]));
+          in_compute[i + 1] = DataTypeTraits<IType>::to_float(
+              in_sh[buff][i + 1][tid_colwise_X]);
+          amax =
+              abs_max_nan_f32(amax, in_compute[i], in_compute[i + 1]);
         }
 
         // Apply quantization to the local block.
@@ -1012,25 +952,20 @@ __global__ void __launch_bounds__(MXFP8_THREADS_PER_CHUNK)
 
       // ======== 3d tensor column-wise scaling
 
-      // Create bounds checker for this chunk - using the full tensor dimensions (E*N, K)
-      BoundsChecker bounds(E * N, K, chunk_offset_X, chunk_offset_Y);
-
       const size_t col = chunk_offset_X + tid_colwise_X;
       const bool col_out_of_bounds = (col >= K);
 
       float in_compute[SCALE_DIM_Y];
-      float amax = CUDART_NAN_F;
+      float amax = 0.0f;
 
       // Calculate amax and prepare input values
 #pragma unroll
-      for (int i = 0; i < SCALE_DIM_Y; ++i) {
-        const bool out_of_bounds =
-            bounds.is_colwise_out_of_bounds(i, col, row_base);
-
-        const float elt =
+      for (int i = 0; i < SCALE_DIM_Y; i += 2) {
+        in_compute[i] =
             DataTypeTraits<IType>::to_float(in_sh[buff][i][tid_colwise_X]);
-        in_compute[i] = out_of_bounds ? 0.0f : elt;
-        amax = fmaxf(amax, fabsf(in_compute[i]));
+        in_compute[i + 1] = DataTypeTraits<IType>::to_float(
+            in_sh[buff][i + 1][tid_colwise_X]);
+        amax = abs_max_nan_f32(amax, in_compute[i], in_compute[i + 1]);
       }
 
       // Apply quantization to the local block.
@@ -1270,6 +1205,7 @@ public:
 
     // Check parameters
     assert(scale_dim_n == 32); // Only support 32 for now
+    assert(N % scale_dim_n == 0);
     assert(output_colwise != nullptr);
     assert(scales_colwise != nullptr);
 

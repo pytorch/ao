@@ -123,31 +123,35 @@ if _flydsl_runtime_available():
         except AttributeError:
             return fx.Stream(torch.cuda.current_stream(device).cuda_stream)
 
-    def abs_max_ignore_nan(vec_f32):
-        """Return max(abs(vec)), replacing NaNs with -Inf for reduction."""
+    def abs_max_nan_as_inf(vec_f32):
+        """Return max(abs(vec)), replacing NaNs with +Inf for propagation."""
         abs_vec = fx.math.absf(vec_f32)
         ordered = arith.cmpf(
             _CmpFPredicate.ORD, arith.unwrap(vec_f32), arith.unwrap(vec_f32)
         )
-        neg_inf = vector.broadcast(
-            T.vec(VEC, T.f32), arith.unwrap(fx.Float32(-float("inf")))
+        pos_inf = vector.broadcast(
+            T.vec(VEC, T.f32), arith.unwrap(fx.Float32(float("inf")))
         )
-        sanitized = arith.select(ordered, arith.unwrap(abs_vec), neg_inf)
+        sanitized = arith.select(ordered, arith.unwrap(abs_vec), pos_inf)
         return ArithValue(sanitized).reduce(vector.ReductionOp.MAX)
 
     def rceil_scale_and_pos_scale(amax_f32):
         """Derive RCEIL-mode E8M0 byte and matching f32 scale magnitude.
 
-        Matches TransformerEngine's ``ptx::float_to_e8m0(amax * (1/F8_MAX))``
-        and torchao's ``_to_mx_rceil`` for normal (non-denormal, non-NaN,
-        non-Inf) amax values:
+        Software equivalent of the Blackwell ``cvt.rp.ue8m0x2.f32`` conversion
+        with ``NOSAT``, i.e. of ``_f32_to_e8m0_rceil`` in
+        ``torchao/prototype/mx_formats/mx_tensor.py``. Keep the two in sync:
 
-            descale     = amax / F8_MAX
+            descale     = amax * (1/F8_MAX)
             biased_exp  = (descale_bits >> 23) & 0xFF
-            E8M0        = biased_exp + (mantissa > 0 ? 1 : 0)   # ceil(log2)
+            mantissa    = descale_bits & 0x7fffff
+            round_up    = biased_exp == 0 ? mantissa > 0x400000 : mantissa != 0
+            E8M0        = min(biased_exp + round_up, 0xff)      # ceil(log2)
             pos_scale   = bitcast(E8M0 << 23, f32)              # 2^(E8M0-127)
 
-        RCEIL guarantees ``amax / pos_scale ≤ F8_MAX`` exactly, so the gfx950
+        RCEIL keeps ``amax / pos_scale`` at or fractionally above ``F8_MAX``
+        (the descale rounding can overshoot by at most one FP32 ULP), which is
+        far below the (448, 464] round-to-448 window, so the gfx950
         ``v_cvt_scalef32_pk_fp8_f32`` instruction (which saturates overflow to
         NaN, not MAX) cannot produce NaN for finite inputs. Paired with
         ``quantize_pack_chunk_to_i32_rceil`` to lower to the 1-op fused cvt.
@@ -165,11 +169,27 @@ if _flydsl_runtime_available():
         bits = ArithValue(val).bitcast(T.i32)
         biased_exp = (bits.shrui(fx.Int32(23))) & fx.Int32(0xFF)
         mantissa = bits & fx.Int32(0x7FFFFF)
+        # Normal FP32 values round up whenever any mantissa bit is set. FP32
+        # subnormals all share biased exponent 0, but E8M0 byte 0 already
+        # encodes 2^-127 (mantissa 0x400000), so among subnormals only values
+        # strictly above 2^-127 round up to byte 1.
+        is_subnormal = arith.cmpi(
+            _CmpIPredicate.eq, arith.unwrap(biased_exp), arith.unwrap(fx.Int32(0))
+        )
         has_mantissa = arith.cmpi(
             _CmpIPredicate.ne, arith.unwrap(mantissa), arith.unwrap(fx.Int32(0))
         )
-        inc_i32 = arith.extui(T.i32, has_mantissa)
+        above_min_subnormal = arith.cmpi(
+            _CmpIPredicate.ugt,
+            arith.unwrap(mantissa),
+            arith.unwrap(fx.Int32(0x400000)),
+        )
+        needs_round_up = arith.select(is_subnormal, above_min_subnormal, has_mantissa)
+        inc_i32 = arith.extui(T.i32, needs_round_up)
         biased_exp_rceil = arith.unwrap(ArithValue(biased_exp) + ArithValue(inc_i32))
+        # Saturating at 0xff yields E8M0 NaN for Inf and NaN amax (both have
+        # biased exponent 0xff after `abs_max_nan_as_inf`) and for finite
+        # overflow past 2^127 (0xfe + 1), matching the NOSAT hardware.
         capped = arith.minui(biased_exp_rceil, arith.unwrap(fx.Int32(0xFF)))
         scale_u8 = arith.trunci(T.i8, capped)
 
@@ -193,9 +213,14 @@ if _flydsl_runtime_available():
             E_amax       = ((bits >> 23) & 0xFF) - 127
             scale_unb    = clamp(E_amax - 8, -127, 128)
             scale_biased = scale_unb + 127                  # uint8 E8M0 byte
-            inv_scale    = 2 ^ (-scale_unb)                 # f32
+            inv_scale    = e8m0_to_f32(254 - scale_biased)  # f32
 
-        Returns the *inverse* scale (``2^-scale_unb``) so the FLOOR pack path
+        The reciprocal is taken as ``254 - scale_biased`` in E8M0 space rather
+        than as ``2^-scale_unb``, matching ``_e8m0_scale_to_reciprocal_fp32``
+        in ``mx_tensor.py``; that keeps the two endpoints (2^-127 and NaN)
+        exact without an ``exp2``.
+
+        Returns the *inverse* scale so the FLOOR pack path
         (:func:`quantize_pack_chunk_to_i32_floor`) can multiply instead of
         divide before the non-fused ``v_cvt_pk_fp8_f32``. The RCEIL helper
         returns ``pos_scale`` instead because the fused
@@ -233,9 +258,17 @@ if _flydsl_runtime_available():
         )
         scale_u8 = arith.trunci(T.i8, arith.unwrap(scale_biased))
 
-        reciprocal_bits = arith.shli(
-            arith.unwrap(fx.Int32(254) - scale_biased),
-            arith.unwrap(fx.Int32(23)),
+        reciprocal_biased = arith.unwrap(fx.Int32(254) - scale_biased)
+        reciprocal_bits = arith.shli(reciprocal_biased, arith.unwrap(fx.Int32(23)))
+        # E8M0 byte 0 encodes the FP32 subnormal 2^-127, which the exponent-only
+        # shift above cannot build. Currently unreachable, since the clamp above
+        # keeps scale_biased <= 246 for finite amax, but every other backend
+        # special-cases it and the helper should be correct standalone.
+        is_min_reciprocal = arith.cmpi(
+            _CmpIPredicate.eq, reciprocal_biased, arith.unwrap(fx.Int32(0))
+        )
+        reciprocal_bits = arith.select(
+            is_min_reciprocal, arith.unwrap(fx.Int32(0x00400000)), reciprocal_bits
         )
         reciprocal_bits = arith.select(
             is_special, arith.unwrap(fx.Int32(0x7FC00000)), reciprocal_bits
