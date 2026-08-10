@@ -12,7 +12,6 @@
 #include <cudaTypedefs.h>
 #include <cuda_fp8.h>
 #include <cuda_runtime.h>
-#include <math_constants.h>
 #include <iostream>
 #include <stdexcept>
 #include <string>
@@ -438,12 +437,11 @@ quantize_block(float amax, e8m0_t &out_scale,
   static_assert(std::is_same_v<OType, fp8e4m3>);
 
   out_scale = calculate_scale<ScalingMode>(amax);
-  const float inv_scale = reciprocal_scale(out_scale);
+  float inv_scale_fp32 = reciprocal_scale(out_scale);
 
 #pragma unroll
   for (int i = 0; i < NUM_VALUES; ++i) {
-    float value = input_values[i] * inv_scale;
-    output_values[i] = static_cast<OType>(value);
+    output_values[i] = static_cast<OType>(input_values[i] * inv_scale_fp32);
   }
 }
 
@@ -648,14 +646,14 @@ __global__ void __launch_bounds__(MXFP8_THREADS_PER_CHUNK)
           // Load from shared memory into thread local registers
           in.load_from(&in_sh[buff][shmem_offset_y][shmem_offset_x]);
 
-          float thread_amax = 0.0f;
+          float thread_amax = 0;
           float in_compute[ELEMS_PER_THREAD];
 
           // TMA zero-fills OOB tile padding. Since rows and columns are
           // multiples of 32, padding never shares an MX block with valid data.
 #pragma unroll
           for (int j = 0; j < ELEMS_PER_THREAD; ++j) {
-            const float elt = DataTypeTraits<IType>::to_float(in.data.elt[j]);
+            float elt = DataTypeTraits<IType>::to_float(in.data.elt[j]);
             in_compute[j] = elt;
           }
 
@@ -722,7 +720,7 @@ __global__ void __launch_bounds__(MXFP8_THREADS_PER_CHUNK)
         const bool col_out_of_bounds = (col >= cols);
 
         float in_compute[SCALE_DIM_Y];
-        float amax = 0.0f;
+        float amax = 0;
 
         // Calculate amax and prepare input values
 #pragma unroll
@@ -956,7 +954,7 @@ __global__ void __launch_bounds__(MXFP8_THREADS_PER_CHUNK)
       const bool col_out_of_bounds = (col >= K);
 
       float in_compute[SCALE_DIM_Y];
-      float amax = 0.0f;
+      float amax = 0;
 
       // Calculate amax and prepare input values
 #pragma unroll

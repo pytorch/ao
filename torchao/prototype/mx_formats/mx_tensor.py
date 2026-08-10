@@ -257,7 +257,7 @@ def to_mx(
     # https://www.opencompute.org/documents/ocp-microscaling-formats-mx-v1-0-spec-final-pdf
     # section 6.3.
 
-    # torch.amax propagates NaNs.
+    # Calculate max_abs normally (torch.amax returns NaN if any input is NaN)
     max_abs = torch.amax(torch.abs(data_hp), -1).unsqueeze(-1)
 
     # We cast to float32 here because

@@ -251,7 +251,7 @@ if _flydsl_runtime_available():
                     lane_id * fx.Int32(VEC) + fx.Int32(k_local)
                 ).index_cast(T.index)
                 chunks_local = []
-                amax_local = fx.Float32(-float("inf"))
+                amax_local = fx.Float32(0.0)
                 for c in range_constexpr(0, CHUNKS_PER_BLOCK):
                     elems = []
                     for j in range_constexpr(0, VEC):
@@ -353,7 +353,7 @@ if _flydsl_runtime_available():
                     # mis-handle since `for x in range(...)` becomes
                     # range_constexpr). Re-read chunks in the second pass
                     # to keep at most CHUNKS_PER_BLOCK live.
-                    block_amax = fx.Float32(-float("inf"))
+                    block_amax = fx.Float32(0.0)
                     for k_local in range_constexpr(0, VEC):
                         _, amax_local = _load_chunks_and_amax(k_local)
                         block_amax = block_amax.maximumf(amax_local)

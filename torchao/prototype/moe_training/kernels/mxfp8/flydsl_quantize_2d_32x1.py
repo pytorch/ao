@@ -228,7 +228,7 @@ if _flydsl_runtime_available():
                     k_col_global = k_lane_base + fx.Int32(k_local)
 
                     chunks = []
-                    local_amax = fx.Float32(-float("inf"))
+                    local_amax = fx.Float32(0.0)
                     for c in range_constexpr(0, CHUNKS_PER_BLOCK):
                         elems = []
                         for j in range_constexpr(0, VEC):

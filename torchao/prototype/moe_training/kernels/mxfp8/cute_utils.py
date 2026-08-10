@@ -53,6 +53,7 @@ if _cutedsl_runtime_available():
     from cutlass._mlir.dialects import arith, llvm, nvvm, vector
     from cutlass.cutlass_dsl import T, dsl_user_op
 
+    # FP8 constants
     INV_F8_MAX = cutlass.Float32(1.0 / 448.0)
 
     @dsl_user_op
@@ -211,11 +212,10 @@ if _cutedsl_runtime_available():
     @cute.jit
     def _reciprocal_scale(scale_e8m0: cutlass.Float8E8M0FNU):
         scale_biased = view_as(scale_e8m0, cutlass.Uint8)
-        reciprocal_biased = cutlass.Uint8(
-            cutlass.Int32(254) - cutlass.Int32(scale_biased)
-        )
+        reciprocal_biased = cutlass.Uint8(254) - scale_biased
         return _cvt_ue8m0_to_f32(view_as(reciprocal_biased, cutlass.Float8E8M0FNU))
 
+    # Shared scale computation methods
     @cute.jit
     def compute_amax(vals_block: cute.Tensor):
         """Compute absolute maximum of a block of values.
@@ -226,13 +226,10 @@ if _cutedsl_runtime_available():
         Returns:
             The absolute maximum value as Float32
         """
-        abs_vals = cute.absf(vals_block.load())
+        vals_vec = vals_block.load()
+        abs_vec = cute.absf(vals_vec)
         return cutlass.Float32(
-            abs_vals.reduce(
-                cute.ReductionOp.MAX,
-                cutlass.Float32(0.0),
-                0,
-            )
+            abs_vec.reduce(cute.ReductionOp.MAX, cutlass.Float32(0.0), 0)
         )
 
     @cute.jit

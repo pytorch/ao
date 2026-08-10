@@ -108,7 +108,7 @@ if _flydsl_runtime_available():
             def _emit_block(elem_base, block_in_row):
                 # Pass 1: load 8 vec4 chunks of input, accumulate per-block amax.
                 chunks = []
-                local_amax = fx.Float32(-float("inf"))
+                local_amax = fx.Float32(0.0)
                 for c in range_constexpr(0, CHUNKS_PER_BLOCK):
                     off = elem_base + fx.Int32(c * VEC)
                     vec_in = buffer_ops.buffer_load(
