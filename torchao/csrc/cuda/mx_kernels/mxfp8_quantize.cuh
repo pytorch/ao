@@ -1040,6 +1040,75 @@ __global__ void __launch_bounds__(MXFP8_THREADS_PER_CHUNK)
   // #endif
 }
 
+template <typename IType, ScaleCalculationMode ScalingMode>
+void launch_mxfp8_quantize_kernel(
+    const dim3 grid, const dim3 block, const CUtensorMap &tensor_map_input,
+    fp8e4m3 *output_rowwise,
+    const CUtensorMap &tensor_map_output_colwise,
+    e8m0_t *scales_rowwise, e8m0_t *scales_colwise, size_t rows, size_t cols,
+    size_t scales_rowwise_stride_dim0, size_t scales_rowwise_stride_dim1,
+    size_t scales_colwise_stride_dim0, size_t scales_colwise_stride_dim1,
+    size_t scale_dim_x, size_t scale_dim_y, cudaStream_t stream) {
+#define LAUNCH_MXFP8_KERNEL(SCALE_Y, SCALE_X)                                 \
+  mxfp8_quantize_kernel<IType, fp8e4m3, SCALE_Y, SCALE_X, ScalingMode>        \
+      <<<grid, block, 0, stream>>>(                                           \
+          tensor_map_input, output_rowwise, tensor_map_output_colwise,        \
+          scales_rowwise, scales_colwise, rows, cols,                         \
+          scales_rowwise_stride_dim0, scales_rowwise_stride_dim1,             \
+          scales_colwise_stride_dim0, scales_colwise_stride_dim1)
+
+  if (scale_dim_x == 32 && scale_dim_y == 32) {
+    LAUNCH_MXFP8_KERNEL(32, 32);
+  } else if (scale_dim_x == 32) {
+    LAUNCH_MXFP8_KERNEL(1, 32);
+  } else {
+    LAUNCH_MXFP8_KERNEL(32, 1);
+  }
+
+#undef LAUNCH_MXFP8_KERNEL
+}
+
+inline void dispatch_mxfp8_quantize_kernel(
+    DType input_dtype, ScaleCalculationMode scaling_mode, const dim3 grid,
+    const dim3 block, const CUtensorMap &tensor_map_input,
+    fp8e4m3 *output_rowwise,
+    const CUtensorMap &tensor_map_output_colwise,
+    e8m0_t *scales_rowwise, e8m0_t *scales_colwise, size_t rows, size_t cols,
+    size_t scales_rowwise_stride_dim0, size_t scales_rowwise_stride_dim1,
+    size_t scales_colwise_stride_dim0, size_t scales_colwise_stride_dim1,
+    size_t scale_dim_x, size_t scale_dim_y, cudaStream_t stream) {
+#define DISPATCH_MXFP8_MODE(IType, ScalingMode)                               \
+  launch_mxfp8_quantize_kernel<IType, ScalingMode>(                          \
+      grid, block, tensor_map_input, output_rowwise,                         \
+      tensor_map_output_colwise, scales_rowwise, scales_colwise, rows, cols, \
+      scales_rowwise_stride_dim0, scales_rowwise_stride_dim1,                 \
+      scales_colwise_stride_dim0, scales_colwise_stride_dim1, scale_dim_x,    \
+      scale_dim_y, stream)
+
+#define DISPATCH_MXFP8_DTYPE(IType)                                           \
+  do {                                                                        \
+    if (scaling_mode == ScaleCalculationMode::FLOOR) {                        \
+      DISPATCH_MXFP8_MODE(IType, ScaleCalculationMode::FLOOR);                \
+    } else {                                                                  \
+      DISPATCH_MXFP8_MODE(IType, ScaleCalculationMode::RCEIL);                \
+    }                                                                         \
+  } while (0)
+
+  switch (input_dtype) {
+  case DType::kFloat32:
+    DISPATCH_MXFP8_DTYPE(float);
+    break;
+  case DType::kBFloat16:
+    DISPATCH_MXFP8_DTYPE(bfloat16);
+    break;
+  default:
+    throw std::invalid_argument("unsupported MXFP8 input dtype");
+  }
+
+#undef DISPATCH_MXFP8_DTYPE
+#undef DISPATCH_MXFP8_MODE
+}
+
 // Simple wrapper class for MXFP8 quantization
 class MXFP8Quantizer {
 public:
@@ -1073,6 +1142,10 @@ public:
       assert(scales_rowwise != nullptr);
     if (output_colwise)
       assert(scales_colwise != nullptr);
+
+    if (output_dtype != DType::kFloat8E4M3) {
+      throw std::invalid_argument("unsupported MXFP8 output dtype");
+    }
 
     // Calculate grid dimensions
     const size_t chunks_Y = DIVUP(rows, MXFP8_CHUNK_DIM_Y);
@@ -1109,70 +1182,12 @@ public:
 // Only compile kernel launches for SM90+
 #if defined(__CUDACC__) &&                                                     \
     (!defined(__CUDA_ARCH__) || __CUDA_ARCH__ >= MIN_CUDA_SM)
-
-    // Use TMA and mbarrier instructions
-#define LAUNCH_KERNEL(IType, OType, SCALE_Y, SCALE_X, ScalingMode)                          \
-  mxfp8_quantize_kernel<IType, OType, SCALE_Y, SCALE_X, ScalingMode>                        \
-      <<<grid, block, 0, stream>>>(                                            \
-          tensor_map_input, static_cast<OType *>(output_rowwise),              \
-          tensor_map_output_colwise, scales_rowwise, scales_colwise, rows,     \
-          cols, scales_rowwise_stride_dim0, scales_rowwise_stride_dim1,        \
-          scales_colwise_stride_dim0, scales_colwise_stride_dim1);
-
-    // Validate output dtype.
-    if (output_dtype != DType::kFloat8E4M3) {
-      printf("unsupported output dtype, must be fp8e4m3\n");
-      exit(1);
-    }
-
-    if (scaling_mode == ScaleCalculationMode::FLOOR) {
-      if (input_dtype == DType::kFloat32) {
-        if (scale_dim_x == 32 && scale_dim_y == 32) {
-          LAUNCH_KERNEL(float, fp8e4m3, 32, 32, ScaleCalculationMode::FLOOR);
-        } else if (scale_dim_x == 32 && scale_dim_y == 1) {
-          LAUNCH_KERNEL(float, fp8e4m3, 1, 32, ScaleCalculationMode::FLOOR);
-        } else if (scale_dim_x == 1 && scale_dim_y == 32) {
-          LAUNCH_KERNEL(float, fp8e4m3, 32, 1, ScaleCalculationMode::FLOOR);
-        }
-      } else if (input_dtype == DType::kBFloat16) {
-        if (scale_dim_x == 32 && scale_dim_y == 32) {
-          LAUNCH_KERNEL(bfloat16, fp8e4m3, 32, 32, ScaleCalculationMode::FLOOR);
-        } else if (scale_dim_x == 32 && scale_dim_y == 1) {
-          LAUNCH_KERNEL(bfloat16, fp8e4m3, 1, 32, ScaleCalculationMode::FLOOR);
-        } else if (scale_dim_x == 1 && scale_dim_y == 32) {
-          LAUNCH_KERNEL(bfloat16, fp8e4m3, 32, 1, ScaleCalculationMode::FLOOR);
-        }
-      } else {
-        printf("unsupported input dtype, must be float32 or bfloat16\n");
-        exit(1);
-      }
-    } else if (scaling_mode == ScaleCalculationMode::RCEIL) {
-        if (input_dtype == DType::kFloat32) {
-          if (scale_dim_x == 32 && scale_dim_y == 32) {
-            LAUNCH_KERNEL(float, fp8e4m3, 32, 32, ScaleCalculationMode::RCEIL);
-          } else if (scale_dim_x == 32 && scale_dim_y == 1) {
-            LAUNCH_KERNEL(float, fp8e4m3, 1, 32, ScaleCalculationMode::RCEIL);
-          } else if (scale_dim_x == 1 && scale_dim_y == 32) {
-            LAUNCH_KERNEL(float, fp8e4m3, 32, 1, ScaleCalculationMode::RCEIL);
-          }
-        } else if (input_dtype == DType::kBFloat16) {
-          if (scale_dim_x == 32 && scale_dim_y == 32) {
-            LAUNCH_KERNEL(bfloat16, fp8e4m3, 32, 32, ScaleCalculationMode::RCEIL);
-          } else if (scale_dim_x == 32 && scale_dim_y == 1) {
-            LAUNCH_KERNEL(bfloat16, fp8e4m3, 1, 32, ScaleCalculationMode::RCEIL);
-          } else if (scale_dim_x == 1 && scale_dim_y == 32) {
-            LAUNCH_KERNEL(bfloat16, fp8e4m3, 32, 1, ScaleCalculationMode::RCEIL);
-          }
-        } else {
-          printf("unsupported input dtype, must be float32 or bfloat16\n");
-          exit(1);
-        }
-    } else {
-      printf("unsupported scaling mode\n");
-      exit(1);
-    }
-
-#undef LAUNCH_KERNEL
+    dispatch_mxfp8_quantize_kernel(
+        input_dtype, scaling_mode, grid, block, tensor_map_input,
+        static_cast<fp8e4m3 *>(output_rowwise), tensor_map_output_colwise,
+        scales_rowwise, scales_colwise, rows, cols, scales_rowwise_stride_dim0,
+        scales_rowwise_stride_dim1, scales_colwise_stride_dim0,
+        scales_colwise_stride_dim1, scale_dim_x, scale_dim_y, stream);
 
 #endif
   }
