@@ -899,15 +899,29 @@ def test_mxfp8_dsl_special_value_semantics(
 @pytest.mark.parametrize("backend", ("cutedsl", "flydsl"))
 @pytest.mark.parametrize("input_dtype", (torch.float32, torch.bfloat16))
 @pytest.mark.parametrize("scaling_mode", ("floor", "rceil"))
-def test_mxfp8_dsl_3d_special_value_semantics(backend, input_dtype, scaling_mode):
+@pytest.mark.parametrize("broadcast", ("rows", "columns"))
+def test_mxfp8_dsl_3d_special_value_semantics(
+    backend, input_dtype, scaling_mode, broadcast
+):
     if backend == "cutedsl" and not _mxfp8_cutedsl_kernels_available:
         pytest.skip("MXFP8 CuTeDSL kernels not available")
     if backend == "flydsl" and not _mxfp8_flydsl_kernels_available:
         pytest.skip("MXFP8 FlyDSL kernels not available")
 
-    x = torch.full((1, 32, 64), float("nan"), dtype=input_dtype, device="cuda")
-    x[0, -1, :32] = 1.0
-    x[0, -1, 0] = 480.0
+    cases = make_mxfp8_semantic_cases(input_dtype, scaling_mode, device="cuda")
+    # Row-constant tiles exercise the per-lane N reduction; column-constant
+    # tiles distribute each case across the subsequent K-lane warp reduction.
+    if broadcast == "rows":
+        tiles = cases.inputs.unsqueeze(-1).expand(-1, 32, 32)
+        expected_tiles = cases.expected_data.unsqueeze(-1).expand(-1, 32, 32)
+    else:
+        tiles = cases.inputs.unsqueeze(1).expand(-1, 32, 32)
+        expected_tiles = cases.expected_data.unsqueeze(1).expand(-1, 32, 32)
+
+    # Pack one 32x32 tile per semantic case along K.
+    x = tiles.permute(1, 0, 2).reshape(1, 32, -1).contiguous()
+    expected_data = expected_tiles.permute(1, 0, 2).reshape(1, 32, -1)
+    expected_scales = cases.expected_scales.T.unsqueeze(0)
 
     quantize = (
         mxfp8_quantize_cuda_3d if backend == "cutedsl" else mxfp8_quantize_3d_flydsl
@@ -921,10 +935,16 @@ def test_mxfp8_dsl_3d_special_value_semantics(backend, input_dtype, scaling_mode
         blocked_scale_output=False,
     )
 
-    expected_scales = torch.full((1, 1, 2), 255, dtype=torch.uint8)
-    expected_data = torch.full((1, 32, 64), 0x7F, dtype=torch.uint8)
-    assert torch.equal(scales.view(torch.uint8).cpu(), expected_scales)
-    assert torch.equal(qdata.view(torch.uint8).cpu(), expected_data)
+    actual_scales = scales.view(torch.uint8).cpu()
+    actual_data = qdata.view(torch.uint8).cpu()
+    for case_idx, case_name in enumerate(cases.names):
+        assert torch.equal(
+            actual_scales[0, 0, case_idx], expected_scales[0, 0, case_idx]
+        ), f"scale mismatch for {broadcast}-broadcast {case_name}"
+        case_slice = slice(case_idx * 32, (case_idx + 1) * 32)
+        assert torch.equal(
+            actual_data[0, :, case_slice], expected_data[0, :, case_slice]
+        ), f"data mismatch for {broadcast}-broadcast {case_name}"
 
     y_ref, s_ref = _mxfp8_3d_edge_reference(
         x, "32x32_n", ScaleCalculationMode(scaling_mode)

@@ -218,15 +218,17 @@ def test_to_mx_rceil():
     ground_truth_scale = torch.tensor([0], dtype=torch.uint8).view(torch.float8_e8m0fnu)
     # E8M0 byte 0 is 2^-127, so these FP32 subnormals remain representable
     # after scaling instead of being flushed to zero.
+    # fmt: off
     ground_truth_fp8 = torch.tensor(
-        list(
-            bytes.fromhex(
-                "3c 3a 35 3c 3b 1d 2d 38 3b 3c 2d 04 37 36 3a 34 "
-                "3e 39 3e 2a 3b 39 30 3c 08 3e 39 39 3c 39 3b 3d"
-            )
-        ),
+        [
+        60, 58, 53, 60, 59, 29, 45, 56,
+        59, 60, 45, 4, 55, 54, 58, 52,
+        62, 57, 62, 42, 59, 57, 48, 60,
+        8, 62, 57, 57, 60, 57, 59, 61,
+        ],
         dtype=torch.uint8,
     ).view(torch.float8_e4m3fn)
+    # fmt: on
     data_mx = MXTensor.to_mx(
         data_hp, torch.float8_e4m3fn, 32, ScaleCalculationMode.RCEIL
     )
@@ -245,15 +247,17 @@ def test_to_mx_rceil():
     ).view(torch.bfloat16)
     # fmt: on
     ground_truth_scale = torch.tensor([0], dtype=torch.uint8).view(torch.float8_e8m0fnu)
+    # fmt: off
     ground_truth_fp8 = torch.tensor(
-        list(
-            bytes.fromhex(
-                "3d 14 34 36 31 2a 39 3a 31 3c 2e 3f 3a 3c 2a 3c "
-                "29 32 3c 36 14 2d 38 3b 37 3b 35 2c 37 39 37 39"
-            )
-        ),
+        [
+        61, 20, 52, 54, 49, 42, 57, 58,
+        49, 60, 46, 63, 58, 60, 42, 60,
+        41, 50, 60, 54, 20, 45, 56, 59,
+        55, 59, 53, 44, 55, 57, 55, 57,
+        ],
         dtype=torch.uint8,
     ).view(torch.float8_e4m3fn)
+    # fmt: on
     data_mx = MXTensor.to_mx(
         data_hp, torch.float8_e4m3fn, 32, ScaleCalculationMode.RCEIL
     )

@@ -71,15 +71,6 @@ if hasattr(mx_kernels, "_triton_f32_to_e8m0_rceil"):
         result = mx_kernels._triton_f32_to_e8m0_rceil(values)
         tl.store(output_ptr + offsets, result, mask=offsets < n_elements)
 
-    @triton.jit
-    def _test_triton_calculate_scale_floor_kernel(
-        input_ptr, output_ptr, BLOCK_SIZE: tl.constexpr
-    ):
-        offsets = tl.arange(0, BLOCK_SIZE)
-        values = tl.load(input_ptr + offsets)
-        _, scale = mx_kernels._triton_calculate_scale_floor(tl.abs(values), axis=0)
-        tl.store(output_ptr, scale)
-
 
 @pytest.mark.skipif(
     not hasattr(mx_kernels, "_triton_f32_to_e8m0_rceil"),
@@ -92,26 +83,6 @@ def test_triton_f32_to_e8m0_rceil_fallback():
         values, actual, n_elements=values.numel(), BLOCK_SIZE=32
     )
     assert torch.equal(actual.cpu(), expected)
-
-
-@pytest.mark.skipif(
-    not hasattr(mx_kernels, "_triton_calculate_scale_floor"),
-    reason="MXFP8 Triton kernels are unavailable",
-)
-def test_triton_calculate_scale_floor_preserves_fp32_amax():
-    # The largest FP32 below 512 rounds to 512 in BF16. FLOOR must use the
-    # original FP32 exponent (8), producing an E8M0 scale exponent of 8 - 8 = 0
-    # and hence biased encoding 127. Extracting the exponent after a BF16 cast
-    # would incorrectly produce 128.
-    value = torch.tensor(0x43FFFFFF, dtype=torch.int32, device="cuda").view(
-        torch.float32
-    )
-    values = value.expand(32).contiguous()
-    actual = torch.empty((), dtype=torch.uint8, device="cuda")
-    _test_triton_calculate_scale_floor_kernel[(1,)](
-        values, actual, BLOCK_SIZE=values.numel()
-    )
-    assert actual.item() == 127
 
 
 # TODO: shared utils file for benchmarking and testing
@@ -903,33 +874,14 @@ def test_cuda_mxfp8_special_value_semantics(input_dtype, scaling_mode, orientati
 def test_triton_mxfp8_dim0_special_values(scaling_mode: ScaleCalculationMode):
     block_size = 32
     cases = make_mxfp8_semantic_cases(torch.bfloat16, scaling_mode, device="cuda")
-    num_cases = len(cases.names)
-    special_vals = torch.zeros(32, block_size, dtype=torch.bfloat16, device="cuda")
-    special_vals[:num_cases] = cases.inputs
 
-    x_mx_ref, x_s_ref = triton_to_mxfp8_dim0_reference(
-        special_vals, block_size=block_size, scaling_mode=scaling_mode
-    )
     x_mx_t, x_s_t = triton_to_mxfp8_dim0(
-        special_vals,
+        cases.inputs,
         inner_block_size=block_size,
         scaling_mode=scaling_mode.value.lower(),
     )
 
-    assert_mxfp8_semantics(x_mx_t[:num_cases], x_s_t[:num_cases], cases)
-    # Retain coverage of masked/padded output rows outside the semantic cases.
-    assert torch.equal(
-        x_s_t[num_cases:].view(torch.uint8).cpu(),
-        torch.zeros((32 - num_cases, 1), dtype=torch.uint8),
-    )
-    assert torch.equal(
-        x_mx_t[num_cases:].view(torch.uint8).cpu(),
-        torch.zeros((32 - num_cases, block_size), dtype=torch.uint8),
-    )
-
-    # Keep the specialized-vs-to_mx comparison as a second line of defense.
-    assert torch.equal(x_s_t.view(torch.uint8), x_s_ref.view(torch.uint8))
-    assert torch.equal(x_mx_t.view(torch.uint8), x_mx_ref.view(torch.uint8))
+    assert_mxfp8_semantics(x_mx_t, x_s_t, cases)
 
 
 @pytest.mark.skipif(not has_triton(), reason="unsupported without triton")

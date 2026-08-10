@@ -43,7 +43,8 @@ def make_mxfp8_semantic_cases(
         "mixed_positive_underflow",
         "mixed_negative_underflow",
         "mixed_saturation_and_underflow",
-        "scale_rounding_boundary",
+        "rceil_premature_bf16_lowers_scale",
+        "floor_premature_bf16_raises_scale",
         "all_nan",
         "positive_satfinite",
         "negative_satfinite",
@@ -165,17 +166,17 @@ def make_mxfp8_semantic_cases(
             expected_scales[idx] = max_scale
             expected_data[idx, 0] = max_data
 
-        elif name == "scale_rounding_boundary":
+        elif name == "rceil_premature_bf16_lowers_scale":
             # This guards against a regression where a fp32 -> bf16 -> ue8m0
             # chain would cause us to round the other way wrt fp32 -> ue8m0.
             # As 448 is 3.5*2^7, we choose 3.5 plus one FP32 ULP, because it
             # becomes exactly 3.5 when cast to BF16.
-            scale_rounding_boundary = (
+            boundary = (
                 torch.tensor(0x40600001, dtype=torch.uint32, device=device)
                 .view(torch.float32)
                 .to(input_dtype)
             )
-            inputs[idx].fill_(scale_rounding_boundary)
+            inputs[idx].fill_(boundary)
             if not is_floor and input_dtype == torch.float32:
                 expected_scales[idx] = 121  # (3.5+eps)/448 = 2^-7+eps -> 2^-6
                 expected_data[idx].fill_(0x76)  # 224.0
@@ -184,6 +185,25 @@ def make_mxfp8_semantic_cases(
                 # where that 1 ULP eps was erased, the scale is one less.
                 expected_scales[idx] = 120  # 2^-7
                 expected_data[idx].fill_(0x7E)  # 448.0
+
+        elif name == "floor_premature_bf16_raises_scale":
+            # The largest FP32 below 512 rounds to 512 in BF16. FLOOR must use
+            # the original FP32 exponent rather than extracting it after a
+            # premature BF16 cast.
+            boundary = (
+                torch.tensor(0x43FFFFFF, dtype=torch.uint32, device=device)
+                .view(torch.float32)
+                .to(input_dtype)
+            )
+            inputs[idx].fill_(boundary)
+            if is_floor and input_dtype == torch.float32:
+                expected_scales[idx] = 127  # 2^0
+                expected_data[idx].fill_(0x7E)  # 448.0 (saturated)
+            else:
+                # BF16 rounds the input to 512, while RCEIL selects 2 for both
+                # input dtypes.
+                expected_scales[idx] = 128  # 2^1
+                expected_data[idx].fill_(0x78)  # 256.0
 
         elif name == "all_nan":
             inputs[idx].fill_(float("nan"))
