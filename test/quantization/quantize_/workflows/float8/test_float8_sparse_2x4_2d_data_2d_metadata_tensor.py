@@ -12,7 +12,10 @@ import torch
 from torch import nn
 from torch.testing._internal import common_utils
 
-from torchao.ops import to_sparse_semi_structured_cutlass_sm9x_f8
+from torchao.ops import (
+    rowwise_scaled_linear_sparse_cutlass_f8f8,
+    to_sparse_semi_structured_cutlass_sm9x_f8,
+)
 from torchao.quantization import (
     Float8DynamicActivationFloat8WeightConfig,
 )
@@ -22,6 +25,9 @@ from torchao.quantization.quant_api import (
 )
 from torchao.quantization.quantize_.workflows import (
     Float8PackingFormat,
+)
+from torchao.quantization.quantize_.workflows.float8.float8_sparse_2x4_2d_data_2d_metadata_tensor import (
+    Float8Sparse2x4_2DData2DMetadataTensor,
 )
 from torchao.quantization.utils import compute_error
 from torchao.sparsity import apply_fake_sparsity
@@ -52,6 +58,28 @@ def _is_sm90a():
 
 
 class TestFloat8Sparse2x4_2DData2DMetadataTensor(common_utils.TestCase):
+    def test_tensor_unflatten_defaults_missing_sparse_linear_backend(self):
+        qdata = torch.empty((8, 16), dtype=torch.float8_e4m3fn)
+        sparse_metadata = torch.empty((64, 16), dtype=torch.uint8)
+        scale = torch.ones((8, 1), dtype=torch.bfloat16)
+
+        tensor = Float8Sparse2x4_2DData2DMetadataTensor.__tensor_unflatten__(
+            {
+                "qdata": qdata,
+                "sparse_metadata": sparse_metadata,
+                "scale": scale,
+            },
+            {
+                "block_size": [1, 32],
+                "act_quant_kwargs": None,
+                "dtype": torch.bfloat16,
+            },
+            None,
+            None,
+        )
+
+        self.assertEqual(tensor.sparse_linear_backend, "legacy")
+
     @unittest.skipIf(not _is_sm90a(), "Need SM90a to run")
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     @unittest.skipIf(not _cutedsl_runtime_available(), "CuTeDSL runtime unavailable")
@@ -82,6 +110,50 @@ class TestFloat8Sparse2x4_2DData2DMetadataTensor(common_utils.TestCase):
 
         self.assertEqual(legacy_data, cutedsl_data)
         self.assertEqual(legacy_meta, cutedsl_meta)
+
+    @unittest.skipIf(not _is_sm90a(), "Need SM90a to run")
+    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
+    @unittest.skipIf(not _cutedsl_runtime_available(), "CuTeDSL runtime unavailable")
+    @common_utils.parametrize("bias", [True, False])
+    @common_utils.parametrize("shape", [(16, 16, 32), (128, 256, 256)])
+    def test_cutedsl_sparse_linear(self, shape, bias):
+        m, n, k = shape
+        input = torch.randn((m, k), dtype=torch.bfloat16, device="cuda").to(
+            torch.float8_e4m3fn
+        )
+        weight_dense = create_semi_structured_tensor(
+            n,
+            k,
+            dtype=torch.float8_e4m3fn,
+        ).cuda()
+        weight, weight_meta = to_sparse_semi_structured_cutlass_sm9x_f8(weight_dense)
+        input_scale = torch.rand((m,), dtype=torch.bfloat16, device="cuda") + 0.5
+        weight_scale = torch.rand((n,), dtype=torch.bfloat16, device="cuda") + 0.5
+        bias_tensor = (
+            torch.randn((n,), dtype=torch.bfloat16, device="cuda") if bias else None
+        )
+
+        legacy = rowwise_scaled_linear_sparse_cutlass_f8f8(
+            input,
+            input_scale,
+            weight,
+            weight_meta,
+            weight_scale,
+            bias_tensor,
+            torch.bfloat16,
+            backend="legacy",
+        )
+        cutedsl = rowwise_scaled_linear_sparse_cutlass_f8f8(
+            input,
+            input_scale,
+            weight,
+            weight_meta,
+            weight_scale,
+            bias_tensor,
+            torch.bfloat16,
+            backend="cutedsl",
+        )
+        torch.testing.assert_close(legacy, cutedsl, atol=1e-1, rtol=1e-2)
 
     @unittest.skipIf(not is_sm_at_least_90(), "Need H100 to run")
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")

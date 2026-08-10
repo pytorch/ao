@@ -157,6 +157,7 @@ def rowwise_scaled_linear_sparse_cutlass_f8f8(
     weight_scale: Tensor,
     bias: Optional[Tensor] = None,
     out_dtype: Optional[torch.dtype] = None,
+    backend: str = "legacy",
 ) -> Tensor:
     """
     CUTLASS-based row-wise scaled F8F8 linear operator, for sparsified weight case.
@@ -172,9 +173,25 @@ def rowwise_scaled_linear_sparse_cutlass_f8f8(
         output: result tensor, in row-major layout.
     """
 
-    return torch.ops.torchao.rowwise_scaled_linear_sparse_cutlass_f8f8.default(
-        input, input_scale, weight, weight_meta, weight_scale, bias, out_dtype
-    )
+    if backend == "legacy":
+        return torch.ops.torchao.rowwise_scaled_linear_sparse_cutlass_f8f8.default(
+            input, input_scale, weight, weight_meta, weight_scale, bias, out_dtype
+        )
+    if backend == "cutedsl":
+        from torchao.quantization.quantize_.workflows.float8.cutedsl_sparse_linear import (
+            rowwise_scaled_linear_sparse_cutedsl,
+        )
+
+        return rowwise_scaled_linear_sparse_cutedsl(
+            input,
+            input_scale,
+            weight,
+            weight_meta,
+            weight_scale,
+            bias,
+            out_dtype,
+        )
+    raise ValueError(f"Unsupported sparse linear backend: {backend}")
 
 
 @register_custom_op("torchao::rowwise_scaled_linear_sparse_cutlass_f8f8")
