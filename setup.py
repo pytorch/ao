@@ -699,6 +699,22 @@ def get_extensions():
             and _torch_version_at_least("2.11.0")
         ):
             print("Building mxfp8_cuda extension")
+            mxfp8_gencode_args = [
+                # Generic images retain deterministic conversion support.
+                "-gencode=arch=compute_100,code=sm_100",
+                "-gencode=arch=compute_120,code=compute_120",
+                # Stochastic FP8 conversion is architecture-specific.
+                "-gencode=arch=compute_100a,code=sm_100a",
+            ]
+            cuda_version = get_cuda_version_from_nvcc() or torch.version.cuda
+            try:
+                cuda_major, _ = map(int, cuda_version.split(".")[:2])
+                if cuda_major >= 13:
+                    mxfp8_gencode_args.append(
+                        "-gencode=arch=compute_103a,code=sm_103a"
+                    )
+            except (AttributeError, TypeError, ValueError):
+                pass
             ext_modules.append(
                 CUDAExtension(
                     name="torchao._C_mxfp8",
@@ -716,9 +732,8 @@ def get_extensions():
                         ]
                         + maybe_cpython_limited_api,
                         "nvcc": nvcc_args
+                        + mxfp8_gencode_args
                         + [
-                            "-gencode=arch=compute_100,code=sm_100",
-                            "-gencode=arch=compute_120,code=compute_120",
                             "-DUSE_CUDA",
                             "-DTORCH_TARGET_VERSION=0x020b000000000000",
                         ],

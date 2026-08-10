@@ -426,6 +426,63 @@ __device__ __forceinline__ float reciprocal_scale(e8m0_t scale) {
   return static_cast<float>(reciprocal);
 }
 
+constexpr uint32_t PHILOX_KEY_A = 0x9E3779B9;
+constexpr uint32_t PHILOX_KEY_B = 0xBB67AE85;
+constexpr uint32_t PHILOX_ROUND_A = 0xD2511F53;
+constexpr uint32_t PHILOX_ROUND_B = 0xCD9E8D57;
+
+// Reserve the high 16 counter bits for independent streams. Each logical
+// 32-value MX block consumes one counter per 16 values.
+__device__ __forceinline__ uint64_t stochastic_rounding_counter(
+    uint64_t domain, uint64_t logical_block, uint64_t half16) {
+  return (domain << 48) | (2 * logical_block + half16);
+}
+
+__device__ __forceinline__ void philox4x32_10(
+    uint32_t &c0, uint32_t &c1, uint32_t &c2, uint32_t &c3, uint32_t k0,
+    uint32_t k1) {
+#pragma unroll
+  for (int round = 0; round < 10; ++round) {
+    const uint32_t old_c0 = c0;
+    const uint32_t old_c2 = c2;
+    c0 = __umulhi(PHILOX_ROUND_B, old_c2) ^ c1 ^ k0;
+    c2 = __umulhi(PHILOX_ROUND_A, old_c0) ^ c3 ^ k1;
+    c1 = PHILOX_ROUND_B * old_c2;
+    c3 = PHILOX_ROUND_A * old_c0;
+    k0 += PHILOX_KEY_A;
+    k1 += PHILOX_KEY_B;
+  }
+}
+
+__device__ __forceinline__ void philox_randint4x(
+    uint64_t seed, uint64_t offset, uint32_t (&random_bits)[4]) {
+  uint32_t c0 = static_cast<uint32_t>(offset);
+  uint32_t c1 = static_cast<uint32_t>(offset >> 32);
+  uint32_t c2 = 0;
+  uint32_t c3 = 0;
+  philox4x32_10(c0, c1, c2, c3, static_cast<uint32_t>(seed),
+                static_cast<uint32_t>(seed >> 32));
+  random_bits[0] = c0;
+  random_bits[1] = c1;
+  random_bits[2] = c2;
+  random_bits[3] = c3;
+}
+
+// cvt.rs.satfinite.e4m3x4.f32 is available only in architecture-specific
+// sm_100a and sm_103a images. Generic images retain deterministic support.
+__device__ __forceinline__ uint32_t stochastic_round_fp8x4(
+    float x0, float x1, float x2, float x3, uint32_t random_bits) {
+  uint32_t packed = 0;
+#if __CUDA_HAS_ARCH_SPECIFIC(100) || __CUDA_HAS_ARCH_SPECIFIC(103)
+  asm volatile("cvt.rs.satfinite.e4m3x4.f32 %0, {%4, %3, %2, %1}, %5;"
+               : "=r"(packed)
+               : "f"(x0), "f"(x1), "f"(x2), "f"(x3), "r"(random_bits));
+#else
+  asm volatile("trap;");
+#endif
+  return packed;
+}
+
 template <typename OType, int NUM_VALUES> union PackedFp8Array {
   static_assert(NUM_VALUES % 4 == 0);
   OType values[NUM_VALUES];
@@ -465,6 +522,40 @@ quantize_block(float amax, e8m0_t &out_scale,
 #pragma unroll
   for (int i = 0; i < NUM_VALUES; ++i) {
     output_values[i] = static_cast<OType>(input_values[i] * inv_scale_fp32);
+  }
+}
+
+template <typename OType, int NUM_VALUES, ScaleCalculationMode ScalingMode>
+__device__ __forceinline__ void quantize_block_stochastic(
+    float amax, e8m0_t &out_scale, const float (&input_values)[NUM_VALUES],
+    OType (&output_values)[NUM_VALUES], uint64_t seed, uint64_t offset_base) {
+  static_assert(std::is_same_v<OType, fp8e4m3>);
+  static_assert(NUM_VALUES % 16 == 0);
+
+  out_scale = calculate_scale<ScalingMode>(amax);
+  const float inv_scale = reciprocal_scale(out_scale);
+
+#pragma unroll
+  for (int half16 = 0; half16 < NUM_VALUES / 16; ++half16) {
+    uint32_t random_bits[4];
+    philox_randint4x(seed, offset_base + half16, random_bits);
+#pragma unroll
+    for (int group4 = 0; group4 < 4; ++group4) {
+      const int base = half16 * 16 + group4 * 4;
+      union PackedFp8x4 {
+        uint32_t bits;
+        OType values[4];
+      } packed;
+      packed.bits = stochastic_round_fp8x4(
+          input_values[base] * inv_scale,
+          input_values[base + 1] * inv_scale,
+          input_values[base + 2] * inv_scale,
+          input_values[base + 3] * inv_scale, random_bits[group4]);
+#pragma unroll
+      for (int i = 0; i < 4; ++i) {
+        output_values[base + i] = packed.values[i];
+      }
+    }
   }
 }
 
@@ -552,7 +643,8 @@ void mxfp8_quantize_rowwise_kernel(const IType *__restrict__ input,
 
 // Main MXFP8 quantization kernel (with TMA)
 template <typename IType, typename OType, size_t SCALE_DIM_Y,
-          size_t SCALE_DIM_X, ScaleCalculationMode ScalingMode>
+          size_t SCALE_DIM_X, ScaleCalculationMode ScalingMode,
+          bool StochasticRounding = false>
 __global__ void __launch_bounds__(MXFP8_THREADS_PER_CHUNK)
     mxfp8_quantize_kernel(
         const __grid_constant__ CUtensorMap tensor_map_input,
@@ -563,7 +655,8 @@ __global__ void __launch_bounds__(MXFP8_THREADS_PER_CHUNK)
         const size_t scales_rowwise_stride_dim0,
         const size_t scales_rowwise_stride_dim1,
         const size_t scales_colwise_stride_dim0,
-        const size_t scales_colwise_stride_dim1) {
+        const size_t scales_colwise_stride_dim1, const uint64_t *sr_seed,
+        const uint64_t sr_domain) {
 
 #if defined(DEBUG)
   printf("mxfp8_quantize_kernel: rows=%llu, cols=%llu, "
@@ -590,6 +683,15 @@ __global__ void __launch_bounds__(MXFP8_THREADS_PER_CHUNK)
 
   constexpr bool USE_ROWWISE_SCALING = SCALE_DIM_X > 1;
   constexpr bool USE_COLWISE_SCALING = SCALE_DIM_Y > 1;
+  static_assert(!StochasticRounding ||
+                    (USE_ROWWISE_SCALING && USE_COLWISE_SCALING &&
+                     SCALE_DIM_X == 32 && SCALE_DIM_Y == 32),
+                "stochastic rounding requires rowwise and colwise outputs");
+
+  uint64_t sr_seed_value = 0;
+  if constexpr (StochasticRounding) {
+    sr_seed_value = *sr_seed;
+  }
 
   constexpr size_t SCALES_ROWWISE_PER_CHUNK_Y =
       MXFP8_CHUNK_DIM_Y; //   2 = 64 / 32
@@ -766,8 +868,24 @@ __global__ void __launch_bounds__(MXFP8_THREADS_PER_CHUNK)
           e8m0_t e8m0_biased_scale;
           PackedFp8Array<OType, ELEMS_PER_THREAD> quantized;
 
-          quantize_block<OType, ELEMS_PER_THREAD, ScalingMode>(
-              subwarp_amax, e8m0_biased_scale, in_compute, quantized.values);
+          if constexpr (StochasticRounding) {
+            const uint64_t row = row_base + shmem_offset_y;
+            const uint64_t blocks_per_row = cols / SCALE_DIM_X;
+            const uint64_t col_block =
+                (chunk_offset_X + shmem_offset_x) / SCALE_DIM_X;
+            const uint64_t logical_block = row * blocks_per_row + col_block;
+            const uint64_t half16 =
+                (shmem_offset_x % SCALE_DIM_X) / ELEMS_PER_THREAD;
+            const uint64_t offset = stochastic_rounding_counter(
+                sr_domain, logical_block, half16);
+            quantize_block_stochastic<OType, ELEMS_PER_THREAD, ScalingMode>(
+                subwarp_amax, e8m0_biased_scale, in_compute,
+                quantized.values, sr_seed_value, offset);
+          } else {
+            quantize_block<OType, ELEMS_PER_THREAD, ScalingMode>(
+                subwarp_amax, e8m0_biased_scale, in_compute,
+                quantized.values);
+          }
 
           const bool row_out_of_bounds =
               row_base + shmem_offset_y >= rows;
@@ -837,8 +955,23 @@ __global__ void __launch_bounds__(MXFP8_THREADS_PER_CHUNK)
         // Apply quantization to the local block.
         e8m0_t e8m0_biased_scale;
         OType quantized_values[SCALE_DIM_Y];
-        quantize_block<OType, SCALE_DIM_Y, ScalingMode>(
-            amax, e8m0_biased_scale, in_compute, quantized_values);
+        if constexpr (StochasticRounding) {
+          // Place colwise blocks after every rowwise block so the two output
+          // orientations never reuse a Philox counter.
+          const uint64_t rowwise_block_count = rows * (cols / SCALE_DIM_X);
+          const uint64_t row_block = row_base / SCALE_DIM_Y;
+          const uint64_t blocks_per_col = rows / SCALE_DIM_Y;
+          const uint64_t logical_block =
+              rowwise_block_count + col * blocks_per_col + row_block;
+          const uint64_t offset =
+              stochastic_rounding_counter(sr_domain, logical_block, 0);
+          quantize_block_stochastic<OType, SCALE_DIM_Y, ScalingMode>(
+              amax, e8m0_biased_scale, in_compute, quantized_values,
+              sr_seed_value, offset);
+        } else {
+          quantize_block<OType, SCALE_DIM_Y, ScalingMode>(
+              amax, e8m0_biased_scale, in_compute, quantized_values);
+        }
 
         // Write scaling factor to global memory
         const int global_scales_offset_Y = scales_colwise_chunk_offset_Y + iter;
@@ -1185,21 +1318,27 @@ void launch_mxfp8_quantize_kernel(
     e8m0_t *scales_rowwise, e8m0_t *scales_colwise, size_t rows, size_t cols,
     size_t scales_rowwise_stride_dim0, size_t scales_rowwise_stride_dim1,
     size_t scales_colwise_stride_dim0, size_t scales_colwise_stride_dim1,
-    size_t scale_dim_x, size_t scale_dim_y, cudaStream_t stream) {
-#define LAUNCH_MXFP8_KERNEL(SCALE_Y, SCALE_X)                                 \
-  mxfp8_quantize_kernel<IType, fp8e4m3, SCALE_Y, SCALE_X, ScalingMode>        \
+    size_t scale_dim_x, size_t scale_dim_y, bool stochastic_rounding,
+    const uint64_t *sr_seed,
+    uint64_t sr_domain, cudaStream_t stream) {
+#define LAUNCH_MXFP8_KERNEL(SCALE_Y, SCALE_X, STOCHASTIC)                     \
+  mxfp8_quantize_kernel<IType, fp8e4m3, SCALE_Y, SCALE_X, ScalingMode,        \
+                        STOCHASTIC>                                           \
       <<<grid, block, 0, stream>>>(                                           \
           tensor_map_input, output_rowwise, tensor_map_output_colwise,        \
           scales_rowwise, scales_colwise, rows, cols,                         \
           scales_rowwise_stride_dim0, scales_rowwise_stride_dim1,             \
-          scales_colwise_stride_dim0, scales_colwise_stride_dim1)
+          scales_colwise_stride_dim0, scales_colwise_stride_dim1, sr_seed,    \
+          sr_domain)
 
-  if (scale_dim_x == 32 && scale_dim_y == 32) {
-    LAUNCH_MXFP8_KERNEL(32, 32);
+  if (stochastic_rounding) {
+    LAUNCH_MXFP8_KERNEL(32, 32, true);
+  } else if (scale_dim_x == 32 && scale_dim_y == 32) {
+    LAUNCH_MXFP8_KERNEL(32, 32, false);
   } else if (scale_dim_x == 32) {
-    LAUNCH_MXFP8_KERNEL(1, 32);
+    LAUNCH_MXFP8_KERNEL(1, 32, false);
   } else {
-    LAUNCH_MXFP8_KERNEL(32, 1);
+    LAUNCH_MXFP8_KERNEL(32, 1, false);
   }
 
 #undef LAUNCH_MXFP8_KERNEL
@@ -1213,14 +1352,16 @@ inline void dispatch_mxfp8_quantize_kernel(
     e8m0_t *scales_rowwise, e8m0_t *scales_colwise, size_t rows, size_t cols,
     size_t scales_rowwise_stride_dim0, size_t scales_rowwise_stride_dim1,
     size_t scales_colwise_stride_dim0, size_t scales_colwise_stride_dim1,
-    size_t scale_dim_x, size_t scale_dim_y, cudaStream_t stream) {
+    size_t scale_dim_x, size_t scale_dim_y, bool stochastic_rounding,
+    const uint64_t *sr_seed,
+    uint64_t sr_domain, cudaStream_t stream) {
 #define DISPATCH_MXFP8_MODE(IType, ScalingMode)                               \
   launch_mxfp8_quantize_kernel<IType, ScalingMode>(                          \
       grid, block, tensor_map_input, output_rowwise,                         \
       tensor_map_output_colwise, scales_rowwise, scales_colwise, rows, cols, \
       scales_rowwise_stride_dim0, scales_rowwise_stride_dim1,                 \
       scales_colwise_stride_dim0, scales_colwise_stride_dim1, scale_dim_x,    \
-      scale_dim_y, stream)
+      scale_dim_y, stochastic_rounding, sr_seed, sr_domain, stream)
 
 #define DISPATCH_MXFP8_DTYPE(IType)                                           \
   do {                                                                        \
@@ -1268,6 +1409,8 @@ public:
            size_t rows, size_t cols, DType input_dtype, DType output_dtype,
            size_t scale_dim_x = 32, size_t scale_dim_y = 32,
            ScaleCalculationMode scaling_mode = ScaleCalculationMode::FLOOR,
+           bool stochastic_rounding = false,
+           const uint64_t *sr_seed = nullptr, uint64_t sr_domain = 0,
            cudaStream_t stream = 0) {
 
     // Check parameters
@@ -1279,6 +1422,11 @@ public:
       assert(scales_rowwise != nullptr);
     if (output_colwise)
       assert(scales_colwise != nullptr);
+    if (stochastic_rounding) {
+      assert(output_rowwise != nullptr && output_colwise != nullptr);
+      assert(scale_dim_x == 32 && scale_dim_y == 32);
+      assert(sr_seed != nullptr);
+    }
 
     if (output_dtype != DType::kFloat8E4M3) {
       throw std::invalid_argument("unsupported MXFP8 output dtype");
@@ -1331,7 +1479,8 @@ public:
         static_cast<fp8e4m3 *>(output_rowwise), tensor_map_output_colwise,
         scales_rowwise, scales_colwise, rows, cols, scales_rowwise_stride_dim0,
         scales_rowwise_stride_dim1, scales_colwise_stride_dim0,
-        scales_colwise_stride_dim1, scale_dim_x, scale_dim_y, stream);
+        scales_colwise_stride_dim1, scale_dim_x, scale_dim_y,
+        stochastic_rounding, sr_seed, sr_domain, stream);
 
 #endif
   }

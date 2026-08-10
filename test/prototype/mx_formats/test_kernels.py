@@ -859,6 +859,159 @@ def test_cuda_mx_dtensor_sharding_commutes_with_quantization(
 
 
 @pytest.mark.skipif(
+    not torch.cuda.is_available()
+    or torch.version.hip is not None
+    or torch.cuda.get_device_capability() not in ((10, 0), (10, 3)),
+    reason="native stochastic FP8 conversion requires sm_100a or sm_103a",
+)
+def test_cuda_mxfp8_quantize_legacy_schema_defaults():
+    x = torch.randn(128, 128, dtype=torch.bfloat16, device="cuda")
+
+    result = torch.ops.torchao.mxfp8_quantize(
+        x, False, True, 1, 32, "e4m3", "rceil"
+    )
+
+    assert result[1].shape == x.shape
+
+
+@pytest.mark.skipif(
+    not torch.cuda.is_available()
+    or torch.version.hip is not None
+    or torch.cuda.get_device_capability() not in ((10, 0), (10, 3)),
+    reason="native stochastic FP8 conversion requires sm_100a or sm_103a",
+)
+@pytest.mark.parametrize("input_dtype", (torch.float32, torch.float16, torch.bfloat16))
+@pytest.mark.parametrize("scaling_mode", ("floor", "rceil"))
+def test_cuda_mxfp8_stochastic_rounding_dual_output(input_dtype, scaling_mode):
+    x = torch.randn(128, 128, dtype=input_dtype, device="cuda")
+    seed = torch.tensor(-0x123456789ABCDEF, dtype=torch.int64, device="cuda")
+
+    first = mxfp8_quantize_cuda(
+        x,
+        rowwise=True,
+        colwise=True,
+        scaling_mode=scaling_mode,
+        stochastic_rounding=True,
+        sr_seed=seed,
+        sr_domain=19,
+    )
+    repeated = mxfp8_quantize_cuda(
+        x,
+        rowwise=True,
+        colwise=True,
+        scaling_mode=scaling_mode,
+        stochastic_rounding=True,
+        sr_seed=seed,
+        sr_domain=19,
+    )
+    other_domain = mxfp8_quantize_cuda(
+        x,
+        rowwise=True,
+        colwise=True,
+        scaling_mode=scaling_mode,
+        stochastic_rounding=True,
+        sr_seed=seed,
+        sr_domain=20,
+    )
+
+    for first_tensor, repeated_tensor in zip(first, repeated):
+        assert torch.equal(
+            first_tensor.view(torch.uint8), repeated_tensor.view(torch.uint8)
+        )
+    for data_idx in (0, 1):
+        assert not torch.equal(
+            first[data_idx].view(torch.uint8),
+            other_domain[data_idx].view(torch.uint8),
+        )
+    for scale_idx in (2, 3):
+        assert torch.equal(
+            first[scale_idx].view(torch.uint8),
+            other_domain[scale_idx].view(torch.uint8),
+        )
+
+
+@pytest.mark.skipif(
+    not torch.cuda.is_available()
+    or torch.version.hip is not None
+    or torch.cuda.get_device_capability() not in ((10, 0), (10, 3)),
+    reason="native stochastic FP8 conversion requires sm_100a or sm_103a",
+)
+def test_cuda_mxfp8_stochastic_rounding_midpoints_and_counter_separation():
+    # Every rowwise and colwise block has scale 1. The remaining values are
+    # exact E4M3 midpoints, and the input is symmetric so transposed outputs
+    # would match if the two orientations reused Philox counters.
+    x = torch.full((128, 128), 1.0625, dtype=torch.bfloat16, device="cuda")
+    x[31::32, :] = 448.0
+    x[:, 31::32] = 448.0
+    seed = torch.tensor(1234, dtype=torch.int64, device="cuda")
+
+    rowwise, colwise, _, _ = mxfp8_quantize_cuda(
+        x,
+        rowwise=True,
+        colwise=True,
+        stochastic_rounding=True,
+        sr_seed=seed,
+        sr_domain=7,
+    )
+    midpoint_mask = x != 448.0
+    for data in (rowwise, colwise):
+        midpoint_results = data[midpoint_mask].float()
+        assert torch.all((midpoint_results == 1.0) | (midpoint_results == 1.125))
+        round_up_rate = (midpoint_results == 1.125).float().mean()
+        assert 0.47 < round_up_rate < 0.53
+    assert not torch.equal(rowwise.view(torch.uint8), colwise.t().view(torch.uint8))
+
+
+@pytest.mark.skipif(
+    not torch.cuda.is_available()
+    or torch.version.hip is not None
+    or torch.cuda.get_device_capability() not in ((10, 0), (10, 3)),
+    reason="native stochastic FP8 conversion requires sm_100a or sm_103a",
+)
+@pytest.mark.parametrize("rowwise,colwise", ((True, False), (False, True)))
+def test_cuda_mxfp8_stochastic_rounding_requires_dual_output(rowwise, colwise):
+    x = torch.randn(128, 128, dtype=torch.bfloat16, device="cuda")
+    seed = torch.tensor(1234, dtype=torch.int64, device="cuda")
+
+    with pytest.raises(AssertionError, match="rowwise and colwise outputs"):
+        mxfp8_quantize_cuda(
+            x,
+            rowwise=rowwise,
+            colwise=colwise,
+            stochastic_rounding=True,
+            sr_seed=seed,
+        )
+
+
+@pytest.mark.skipif(
+    not torch.cuda.is_available()
+    or torch.version.hip is not None
+    or torch.cuda.get_device_capability() not in ((10, 0), (10, 3)),
+    reason="native stochastic FP8 conversion requires sm_100a or sm_103a",
+)
+def test_cuda_mxfp8_stochastic_rounding_compile():
+    x = torch.randn(128, 128, dtype=torch.bfloat16, device="cuda")
+    seed = torch.tensor(1234, dtype=torch.int64, device="cuda")
+
+    def quantize(x, seed):
+        return mxfp8_quantize_cuda(
+            x,
+            rowwise=True,
+            colwise=True,
+            stochastic_rounding=True,
+            sr_seed=seed,
+            sr_domain=11,
+        )
+
+    eager = quantize(x, seed)
+    compiled = torch.compile(quantize, fullgraph=True)(x, seed)
+    for eager_tensor, compiled_tensor in zip(eager, compiled):
+        assert torch.equal(
+            eager_tensor.view(torch.uint8), compiled_tensor.view(torch.uint8)
+        )
+
+
+@pytest.mark.skipif(
     not is_sm_at_least_100(),
     reason="MXFP8 requires CUDA capability 10.0 or greater",
 )

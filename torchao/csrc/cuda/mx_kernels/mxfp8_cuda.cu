@@ -63,7 +63,10 @@ void mxfp8_quantize_cuda(const Tensor &input,
                          int64_t scale_dim_x,
                          int64_t scale_dim_y,
                          const std::string &fp8_format,
-                         const std::string &scaling_mode) {
+                         const std::string &scaling_mode,
+                         bool stochastic_rounding,
+                         const Tensor *sr_seed,
+                         int64_t sr_domain) {
 
   // Get tensor properties
   const int64_t rows = input.size(0);
@@ -82,6 +85,11 @@ void mxfp8_quantize_cuda(const Tensor &input,
   e8m0_t *scales_colwise_ptr =
       scales_colwise.numel() > 0
           ? reinterpret_cast<e8m0_t *>(scales_colwise.data_ptr())
+          : nullptr;
+  const uint64_t *sr_seed_ptr =
+      stochastic_rounding
+          ? reinterpret_cast<const uint64_t *>(
+                sr_seed->const_data_ptr<int64_t>())
           : nullptr;
 
   // Get CUDA stream using stable ABI
@@ -123,6 +131,8 @@ void mxfp8_quantize_cuda(const Tensor &input,
                            get_input_dtype(input), get_output_dtype(fp8_format),
                            scale_dim_x, scale_dim_y,
                            get_scaling_mode(scaling_mode),
+                           stochastic_rounding, sr_seed_ptr,
+                           static_cast<uint64_t>(sr_domain),
                            stream);
 }
 

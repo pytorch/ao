@@ -1022,7 +1022,7 @@ _mxfp8_cuda_kernels_available = (
 if _mxfp8_cuda_kernels_available:
     lib = torch.library.Library("torchao", "FRAGMENT")
     lib.define(
-        "mxfp8_quantize(Tensor input, bool rowwise, bool colwise, int scale_dim_x, int scale_dim_y, str fp8_format, str scaling_mode) -> (Tensor, Tensor, Tensor, Tensor)",
+        "mxfp8_quantize(Tensor input, bool rowwise, bool colwise, int scale_dim_x, int scale_dim_y, str fp8_format, str scaling_mode, bool stochastic_rounding=False, Tensor? sr_seed=None, int sr_domain=0) -> (Tensor, Tensor, Tensor, Tensor)",
         tags=[torch._C.Tag.needs_fixed_stride_order],
     )
 
@@ -1031,6 +1031,9 @@ if _mxfp8_cuda_kernels_available:
         rowwise: bool = False,
         colwise: bool = True,
         scaling_mode: str = "rceil",
+        stochastic_rounding: bool = False,
+        sr_seed: Optional[torch.Tensor] = None,
+        sr_domain: int = 0,
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         """
         Quantizes a 2D tensor to MXFP8 format using CUDA kernels.
@@ -1043,6 +1046,9 @@ if _mxfp8_cuda_kernels_available:
             rowwise: If True, compute rowwise scales.
             colwise: If True, compute colwise scales.
             scaling_mode: Scaling mode for quantization. Defaults to "floor".
+            stochastic_rounding: Use native stochastic FP8 conversion.
+            sr_seed: Scalar CUDA int64 seed used for stochastic rounding.
+            sr_domain: 16-bit stream domain used for stochastic rounding.
 
         Returns:
             Tuple of (output_rowwise, output_colwise, scales_rowwise, scales_colwise)
@@ -1056,6 +1062,17 @@ if _mxfp8_cuda_kernels_available:
         block_size = 32
         assert rows % block_size == 0, "rows must be a multiple of 32"
         assert cols % block_size == 0, "cols must be a multiple of 32"
+        if stochastic_rounding:
+            assert rowwise and colwise, (
+                "stochastic rounding requires rowwise and colwise outputs"
+            )
+            assert sr_seed is not None, "sr_seed is required for stochastic rounding"
+            assert sr_seed.device == x.device, "sr_seed must be on the input device"
+            assert sr_seed.dtype == torch.int64, "sr_seed must have dtype int64"
+            assert sr_seed.numel() == 1, "sr_seed must contain exactly one value"
+            assert 0 <= sr_domain < (1 << 16), (
+                "sr_domain must fit in the upper 16 bits of the Philox counter"
+            )
 
         # These dimensions independently select 1x32 rowwise groups and 32x1
         # colwise groups. Setting both to 32 fuses the two orientations in one
@@ -1072,6 +1089,9 @@ if _mxfp8_cuda_kernels_available:
                 scale_dim_y,
                 fp8_format,
                 scaling_mode,
+                stochastic_rounding,
+                sr_seed,
+                sr_domain,
             )
         )
         return output_rowwise, output_colwise, scales_rowwise, scales_colwise
@@ -1085,6 +1105,9 @@ if _mxfp8_cuda_kernels_available:
         scale_dim_y: int,
         fp8_format: str,
         scaling_mode: str,
+        stochastic_rounding: bool = False,
+        sr_seed: Optional[torch.Tensor] = None,
+        sr_domain: int = 0,
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         """Fake/meta implementation for mxfp8_quantize."""
         assert x.ndim == 2
@@ -1131,6 +1154,9 @@ if _mxfp8_cuda_kernels_available:
         scale_dim_y: int,
         fp8_format: str,
         scaling_mode: str,
+        stochastic_rounding: bool = False,
+        sr_seed: Optional[torch.Tensor] = None,
+        sr_domain: int = 0,
     ):
         # Op returns 4 tensors:
         # (output_rowwise, output_colwise, scales_rowwise, scales_colwise).
@@ -1140,15 +1166,20 @@ if _mxfp8_cuda_kernels_available:
         # tensors, which must remain replicated because they cannot be sharded.
         #
         # Format: (output_placements, input_placements)
-        # Input placements: one per arg (x=Tensor, then 6 non-tensor args=None)
+        # Input placements: one per argument; a supplied seed is replicated.
         # Output placements: one per output tensor (4 total)
 
-        non_tensor_args = [None, None, None, None, None, None]
+        seed_placement = Replicate() if sr_seed is not None else None
+        input_placements_replicated = (
+            [Replicate()]
+            + [None, None, None, None, None, None, None]
+            + [seed_placement, None]
+        )
 
         # When input is replicated, all outputs are replicated.
         rule_replicated = (
             [Replicate(), Replicate(), Replicate(), Replicate()],
-            [Replicate()] + non_tensor_args,
+            input_placements_replicated,
         )
 
         # When input is sharded along dim 0 (rows), both quantized outputs and
@@ -1161,7 +1192,7 @@ if _mxfp8_cuda_kernels_available:
                 Shard(0) if rowwise else Replicate(),
                 Shard(1) if colwise else Replicate(),
             ],
-            [Shard(0)] + non_tensor_args,
+            [Shard(0)] + input_placements_replicated[1:],
         )
 
         # When input is sharded along dim 1 (cols), both quantized outputs are
@@ -1175,9 +1206,11 @@ if _mxfp8_cuda_kernels_available:
                 Shard(1) if rowwise else Replicate(),
                 Shard(0) if colwise else Replicate(),
             ],
-            [Shard(1)] + non_tensor_args,
+            [Shard(1)] + input_placements_replicated[1:],
         )
 
+        if stochastic_rounding:
+            return [rule_replicated]
         return [rule_replicated, rule_shard_dim0, rule_shard_dim1]
 
 else:
@@ -1187,6 +1220,9 @@ else:
         rowwise: bool = False,
         colwise: bool = True,
         scaling_mode: str = "rceil",
+        stochastic_rounding: bool = False,
+        sr_seed: Optional[torch.Tensor] = None,
+        sr_domain: int = 0,
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         raise NotImplementedError(
             "`mxfp8_quantize_cuda` needs (1) torch 2.8+ and (2) torchao built from source on a machine with CUDA capability 10.0+. Please see https://github.com/pytorch/ao/issues/2932 for more details."
