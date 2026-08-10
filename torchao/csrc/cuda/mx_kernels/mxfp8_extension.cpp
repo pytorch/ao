@@ -11,6 +11,7 @@
 
 #include <cuda_runtime.h>
 #include <cstdint>
+#include <optional>
 #include <string>
 
 using torch::stable::Tensor;
@@ -27,7 +28,10 @@ void mxfp8_quantize_cuda(const Tensor &input,
                          int64_t scale_dim_x,
                          int64_t scale_dim_y,
                          const std::string &fp8_format,
-                         const std::string &scaling_mode);
+                         const std::string &scaling_mode,
+                         bool stochastic_rounding,
+                         const Tensor *sr_seed,
+                         int64_t sr_domain);
 
 void launch_mx_block_rearrange_2d_M_groups_cuda(
     const uint8_t* scales_ptr,
@@ -109,7 +113,10 @@ std::tuple<Tensor, Tensor, Tensor, Tensor>
 mxfp8_quantize(const Tensor& input, bool rowwise, bool colwise,
                int64_t scale_dim_x, int64_t scale_dim_y,
                const std::string &fp8_format,
-               const std::string &scaling_mode) {
+               const std::string &scaling_mode,
+               bool stochastic_rounding,
+               std::optional<Tensor> sr_seed,
+               int64_t sr_domain) {
 
   // Validate inputs
   STD_TORCH_CHECK(input.is_cuda(), "input must be a CUDA tensor");
@@ -129,6 +136,33 @@ mxfp8_quantize(const Tensor& input, bool rowwise, bool colwise,
               "rowwise output requires scale_dim_x == 32");
   STD_TORCH_CHECK(!colwise || scale_dim_y == 32,
               "colwise output requires scale_dim_y == 32");
+
+  if (stochastic_rounding) {
+    STD_TORCH_CHECK(rowwise && colwise,
+                "stochastic rounding requires rowwise and colwise outputs");
+    STD_TORCH_CHECK(sr_seed.has_value(),
+                "sr_seed is required for stochastic rounding");
+    check_cuda_tensor(*sr_seed, "sr_seed");
+    STD_TORCH_CHECK(sr_seed->scalar_type() == torch::headeronly::ScalarType::Long,
+                "sr_seed must have dtype int64");
+    STD_TORCH_CHECK(sr_seed->numel() == 1,
+                "sr_seed must contain exactly one element");
+    STD_TORCH_CHECK(sr_seed->get_device_index() == input.get_device_index(),
+                "sr_seed must be on the same CUDA device as input");
+    STD_TORCH_CHECK(sr_domain >= 0 && sr_domain <= 0xffff,
+                "sr_domain must be in [0, 65535]");
+
+    cudaDeviceProp properties{};
+    const cudaError_t status =
+        cudaGetDeviceProperties(&properties, input.get_device_index());
+    STD_TORCH_CHECK(status == cudaSuccess,
+                "failed to query CUDA device properties: ",
+                cudaGetErrorString(status));
+    const int compute_capability = properties.major * 10 + properties.minor;
+    STD_TORCH_CHECK(compute_capability == 100 || compute_capability == 103,
+                "stochastic MXFP8 conversion requires sm_100a or sm_103a, got sm_",
+                compute_capability);
+  }
 
   const int64_t rows = input.size(0);
   const int64_t cols = input.size(1);
@@ -171,7 +205,8 @@ mxfp8_quantize(const Tensor& input, bool rowwise, bool colwise,
                       scales_rowwise, scales_colwise,
                       rowwise ? scale_dim_x : 1, // scale_dim_x
                       colwise ? scale_dim_y : 1, // scale_dim_y
-                      fp8_format, scaling_mode);
+                      fp8_format, scaling_mode, stochastic_rounding,
+                      sr_seed ? &*sr_seed : nullptr, sr_domain);
 
   return std::make_tuple(output_rowwise, output_colwise, scales_rowwise,
                          scales_colwise);
