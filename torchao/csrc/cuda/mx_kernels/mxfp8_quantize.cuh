@@ -425,6 +425,19 @@ __device__ __forceinline__ float reciprocal_scale(e8m0_t scale) {
   return static_cast<float>(reciprocal);
 }
 
+template <typename OType, int NUM_VALUES> union PackedFp8Array {
+  static_assert(NUM_VALUES % 4 == 0);
+  OType values[NUM_VALUES];
+  uint32_t words[NUM_VALUES / 4];
+};
+
+__device__ __forceinline__ void store_fp8x16(
+    void *ptr, uint32_t x0, uint32_t x1, uint32_t x2, uint32_t x3) {
+  asm volatile("st.global.v4.u32 [%0], {%1, %2, %3, %4};"
+                :
+                : "l"(ptr), "r"(x0), "r"(x1), "r"(x2), "r"(x3));
+}
+
 /**
  * Complete torchao-style quantization: calculate scale and convert values
  * Template parameters ensure compile-time array size checking for safety
@@ -455,7 +468,7 @@ template <typename IType, typename OType, size_t SCALE_DIM_Y,
 __global__ void __launch_bounds__(MXFP8_THREADS_PER_CHUNK)
     mxfp8_quantize_kernel(
         const __grid_constant__ CUtensorMap tensor_map_input,
-        const __grid_constant__ CUtensorMap tensor_map_output_rowwise,
+        OType *const output_rowwise,
         const __grid_constant__ CUtensorMap tensor_map_output_colwise,
         e8m0_t *const scales_rowwise, e8m0_t *const scales_colwise,
         const size_t rows, const size_t cols,
@@ -536,8 +549,6 @@ __global__ void __launch_bounds__(MXFP8_THREADS_PER_CHUNK)
   // 128 e8m0_t aligned
   __shared__ alignas(128)
       IType in_sh[MXFP8_BUFFERS_NUM][MXFP8_SHMEM_DIM_Y][MXFP8_SHMEM_DIM_X];
-  __shared__ alignas(128) OType
-      out_rowwise_sh[MXFP8_BUFFERS_NUM][MXFP8_SHMEM_DIM_Y][MXFP8_SHMEM_DIM_X];
   __shared__ alignas(128) OType
       out_colwise_sh[MXFP8_BUFFERS_NUM][MXFP8_SHMEM_DIM_X][MXFP8_SHMEM_DIM_Y];
 
@@ -632,7 +643,6 @@ __global__ void __launch_bounds__(MXFP8_THREADS_PER_CHUNK)
       // Updated Row-wise scaling section:
       if constexpr (USE_ROWWISE_SCALING) {
         Vec<IType, ELEMS_PER_THREAD> in;
-        Vec<OType, ELEMS_PER_THREAD> out_c;
 
         const int iteration_scale_rowwise_offset_Y =
             scales_rowwise_chunk_offset_Y + iter * MXFP8_BUFFER_DIM_Y;
@@ -670,10 +680,15 @@ __global__ void __launch_bounds__(MXFP8_THREADS_PER_CHUNK)
 
           // Apply quantization to the local block.
           e8m0_t e8m0_biased_scale;
-          OType quantized_values[ELEMS_PER_THREAD];
+          PackedFp8Array<OType, ELEMS_PER_THREAD> quantized;
 
           quantize_block<OType, ELEMS_PER_THREAD, ScalingMode>(
-              subwarp_amax, e8m0_biased_scale, in_compute, quantized_values);
+              subwarp_amax, e8m0_biased_scale, in_compute, quantized.values);
+
+          const bool row_out_of_bounds =
+              row_base + shmem_offset_y >= rows;
+          const bool scale_col_out_of_bounds =
+              chunk_offset_X + shmem_offset_x >= cols;
 
           // Write scaling factor (only a single thread writes it to global
           // memory)
@@ -695,12 +710,14 @@ __global__ void __launch_bounds__(MXFP8_THREADS_PER_CHUNK)
             }
           }
 
-          // Store quantized values
-#pragma unroll
-          for (int j = 0; j < ELEMS_PER_THREAD; ++j) {
-            out_c.data.elt[j] = quantized_values[j];
+          // The two threads for each MX block issue adjacent 128-bit stores.
+          if (!row_out_of_bounds && !scale_col_out_of_bounds) {
+            OType *const output_ptr =
+                output_rowwise + (row_base + shmem_offset_y) * cols +
+                chunk_offset_X + shmem_offset_x;
+            store_fp8x16(output_ptr, quantized.words[0], quantized.words[1],
+                         quantized.words[2], quantized.words[3]);
           }
-          out_c.store_to(&out_rowwise_sh[buff][shmem_offset_y][shmem_offset_x]);
 
 #if defined(DEBUG)
           if (tid_rowwise_X == 0 && tid_rowwise_Y == 0) {
@@ -769,23 +786,12 @@ __global__ void __launch_bounds__(MXFP8_THREADS_PER_CHUNK)
 #endif
       }
 
-      // Wait for shared memory writes to be visible to TMA engine.
-      ptx::fence_proxy_async_shared_cta();
-      __syncthreads();
-      // After syncthreads, writes by all threads are visible to TMA engine.
+      if constexpr (USE_COLWISE_SCALING) {
+        // Wait for shared memory writes to be visible to the TMA engine.
+        ptx::fence_proxy_async_shared_cta();
+        __syncthreads();
 
-      // Initiate TMA transfer to copy shared memory to global memory
-      if (is_master_thread) {
-        if constexpr (USE_ROWWISE_SCALING) {
-          const int chunk_it_offset_y =
-              chunk_offset_Y + iter * MXFP8_BUFFER_DIM_Y;
-          const int chunk_it_offset_x = chunk_offset_X;
-          ptx::cp_async_bulk_tensor_2d_shared_to_global(
-              reinterpret_cast<const uint64_t *>(&tensor_map_output_rowwise),
-              chunk_it_offset_x, chunk_it_offset_y,
-              reinterpret_cast<uint64_t *>(&out_rowwise_sh[buff]));
-        }
-        if constexpr (USE_COLWISE_SCALING) {
+        if (is_master_thread) {
           // Swap logical destination offsets for TMA to write into column major layout.
           const int chunk_it_offset_y = chunk_offset_X;
           const int chunk_it_offset_x = chunk_offset_Y + iter * MXFP8_BUFFER_DIM_Y;
@@ -793,16 +799,17 @@ __global__ void __launch_bounds__(MXFP8_THREADS_PER_CHUNK)
               reinterpret_cast<const uint64_t *>(&tensor_map_output_colwise),
               chunk_it_offset_x, chunk_it_offset_y,
               reinterpret_cast<uint64_t *>(&out_colwise_sh[buff]));
-        }
-        // Create a "bulk async-group" out of the previous bulk copy operation.
-        ptx::cp_async_bulk_commit_group();
+          ptx::cp_async_bulk_commit_group();
 
-        // Wait for TMA transfer to have finished reading shared memory.
-        ptx::cp_async_bulk_wait_group_read<MXFP8_PREFETCH_BUFFERS_NUM>();
+          // Wait for TMA to finish reading this shared-memory buffer.
+          ptx::cp_async_bulk_wait_group_read<MXFP8_PREFETCH_BUFFERS_NUM>();
+        }
       }
     }
-    ptx::cp_async_bulk_wait_group_read<0>();
-    __syncthreads();
+    if constexpr (USE_COLWISE_SCALING) {
+      ptx::cp_async_bulk_wait_group_read<0>();
+      __syncthreads();
+    }
 
     parity ^= 1;
   }
@@ -1078,7 +1085,6 @@ public:
 
     // Create TMA descriptors
     alignas(128) CUtensorMap tensor_map_input{};
-    alignas(128) CUtensorMap tensor_map_output_rowwise{};
     alignas(128) CUtensorMap tensor_map_output_colwise{};
     int32_t input_bits_per_elem = get_dtype_bits(input_dtype);
     int32_t output_bits_per_elem = get_dtype_bits(output_dtype);
@@ -1089,15 +1095,6 @@ public:
                          MXFP8_SHMEM_DIM_Y, MXFP8_SHMEM_DIM_X,
                          cols,                 // stride of "slowest moving" dim
                          input_bits_per_elem); // bits per elem in input
-
-    if (output_rowwise) {
-      create_2D_tensor_map(
-          tensor_map_output_rowwise, output_rowwise, output_dtype,
-          rows, cols,
-          MXFP8_SHMEM_DIM_Y, MXFP8_SHMEM_DIM_X,
-          cols,                  // stride of "slowest moving" dim
-          output_bits_per_elem); // bits per elem in output fp8e4m3
-    }
 
     if (output_colwise) {
       create_2D_tensor_map(
@@ -1117,7 +1114,7 @@ public:
 #define LAUNCH_KERNEL(IType, OType, SCALE_Y, SCALE_X, ScalingMode)                          \
   mxfp8_quantize_kernel<IType, OType, SCALE_Y, SCALE_X, ScalingMode>                        \
       <<<grid, block, 0, stream>>>(                                            \
-          tensor_map_input, tensor_map_output_rowwise,                         \
+          tensor_map_input, static_cast<OType *>(output_rowwise),              \
           tensor_map_output_colwise, scales_rowwise, scales_colwise, rows,     \
           cols, scales_rowwise_stride_dim0, scales_rowwise_stride_dim1,        \
           scales_colwise_stride_dim0, scales_colwise_stride_dim1);
