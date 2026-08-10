@@ -519,7 +519,7 @@ def _compile_rowwise_scaled_linear_sparse_cutedsl(
                 cute.arch.sync_threads()
 
             if warpgroup == _CONSUMER_WARPGROUPS:
-                cute.arch.warpgroup_reg_dealloc(_PRODUCER_REGS)
+                cute.arch.setmaxregister_decrease(_PRODUCER_REGS)
                 if warp_idx == _PRODUCER_WARP:
                     ga = cute.local_tile(
                         tma_tensor_a,
@@ -615,7 +615,7 @@ def _compile_rowwise_scaled_linear_sparse_cutedsl(
                                 )
                         wave = wave + 1
             else:
-                cute.arch.warpgroup_reg_alloc(_CONSUMER_REGS)
+                cute.arch.setmaxregister_increase(_CONSUMER_REGS)
                 wg_base = n_base + warpgroup * _WG_WEIGHT_ROWS
                 m_base = m_block * _WGMMA_INPUT_ROWS
                 desc_a_bases = tuple(
