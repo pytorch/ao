@@ -888,6 +888,29 @@ def test_cuda_mxfp8_special_value_semantics(input_dtype, scaling_mode, orientati
     assert_mxfp8_semantics(data[:num_cases, :32], scales[:num_cases, :1], cases)
 
 
+@pytest.mark.skipif(
+    not is_sm_at_least_100(),
+    reason="MXFP8 requires CUDA capability 10.0 or greater",
+)
+@pytest.mark.skipif(
+    not is_cuda_version_at_least(12, 8),
+    reason="CUDA version >= 12.8 required for MXFP8 CUDA kernels",
+)
+def test_cuda_mxfp8_input_alignment():
+    shape = (96, 160)
+    numel = shape[0] * shape[1]
+    aligned_storage = torch.randn(numel + 8, device="cuda", dtype=torch.bfloat16)
+    aligned = aligned_storage[8:].view(shape)
+    assert aligned.is_contiguous() and aligned.data_ptr() % 16 == 0
+    mxfp8_quantize_cuda(aligned, rowwise=True, colwise=True)
+
+    unaligned_storage = torch.randn(numel + 1, device="cuda", dtype=torch.bfloat16)
+    unaligned = unaligned_storage[1:].view(shape)
+    assert unaligned.is_contiguous() and unaligned.data_ptr() % 16 != 0
+    with pytest.raises(RuntimeError, match="16-byte aligned"):
+        mxfp8_quantize_cuda(unaligned, rowwise=True, colwise=False)
+
+
 @pytest.mark.skipif(not has_triton(), reason="unsupported without triton")
 @pytest.mark.skipif(
     not is_sm_at_least_100() and not is_MI350(),

@@ -114,6 +114,8 @@ mxfp8_quantize(const Tensor& input, bool rowwise, bool colwise,
   // Validate inputs
   STD_TORCH_CHECK(input.is_cuda(), "input must be a CUDA tensor");
   STD_TORCH_CHECK(input.is_contiguous(), "input must be contiguous");
+  STD_TORCH_CHECK(reinterpret_cast<uintptr_t>(input.data_ptr()) % 16 == 0,
+              "input data pointer must be 16-byte aligned");
   STD_TORCH_CHECK(input.dim() == 2, "input must be 2D");
   STD_TORCH_CHECK(input.scalar_type() == torch::headeronly::ScalarType::Float ||
                   input.scalar_type() == torch::headeronly::ScalarType::BFloat16,
