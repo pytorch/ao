@@ -47,14 +47,12 @@ _WGMMA_COMPRESSED_K = _WGMMA_LOGICAL_K // 2
 _WGMMA_THREADS = 128
 _WGMMA_ACC_REGS = _WGMMA_WEIGHT_ROWS * _WGMMA_INPUT_ROWS // _WGMMA_THREADS
 _WARPS_PER_WARPGROUP = 4
-_MMA_PER_WG = 2
+_MMA_PER_WG_CHOICES = (1, 2)
+_MMA_PER_WG_DEFAULT = 2
 _CONSUMER_WARPGROUPS = 2
 _PRODUCER_WARPGROUPS = 1
 _WARPGROUPS = _CONSUMER_WARPGROUPS + _PRODUCER_WARPGROUPS
 _CTA_THREADS = _WGMMA_THREADS * _WARPGROUPS
-_WG_WEIGHT_ROWS = _WGMMA_WEIGHT_ROWS * _MMA_PER_WG
-_CTA_WEIGHT_ROWS = _WG_WEIGHT_ROWS * _CONSUMER_WARPGROUPS
-_TOTAL_ACC_REGS = _WGMMA_ACC_REGS * _MMA_PER_WG
 _PRODUCER_WARP = _CONSUMER_WARPGROUPS * _WARPS_PER_WARPGROUP
 _PRODUCER_REGS = 32
 _CONSUMER_REGS = 232
@@ -62,7 +60,6 @@ _A_TILE_BYTES = _WGMMA_WEIGHT_ROWS * _WGMMA_COMPRESSED_K
 _STAGES = 4
 _K_GROUP = 2
 _BUFFERS = _STAGES * _K_GROUP
-_A_STAGE_BYTES = _CTA_WEIGHT_ROWS * _WGMMA_COMPRESSED_K
 _B_STAGE_BYTES = _WGMMA_INPUT_ROWS * _WGMMA_LOGICAL_K
 _GMMA_LAYOUT_TYPE_B64 = 2
 _GMMA_LAYOUT_TYPE_B32 = 3
@@ -75,26 +72,32 @@ _A_GMMA_DESC_STRIDE_OFFSET = (
 _B_GMMA_DESC_STRIDE_OFFSET = (
     _GMMA_DESC_ROWS_PER_GROUP * _WGMMA_LOGICAL_K // _GMMA_DESC_UNIT_BYTES
 )
-_TMA_STAGE_BYTES = _A_STAGE_BYTES + _B_STAGE_BYTES
-_TMA_GROUP_BYTES = _K_GROUP * _TMA_STAGE_BYTES
-_A_STAGE_DESC_UNITS = _A_STAGE_BYTES // _GMMA_DESC_UNIT_BYTES
 _B_STAGE_DESC_UNITS = _B_STAGE_BYTES // _GMMA_DESC_UNIT_BYTES
 
 _META_UINT32_PER_ROW = 4
 _META_HALVES_PER_GROUP = max(1, _K_GROUP // 2)
-_META_STAGE_UINT32 = _CTA_WEIGHT_ROWS * _META_UINT32_PER_ROW
-_META_STAGE_BYTES = _META_STAGE_UINT32 * 4
-_META_GROUP_BYTES = _META_HALVES_PER_GROUP * _META_STAGE_BYTES
-_META_SMEM_UINT32 = _STAGES * _META_HALVES_PER_GROUP * _META_STAGE_UINT32
 _RASTER_GROUP_N = 8
 _META_SMEM_STAGED = _K_GROUP % 2 == 0
 _EPI_TILE_M = 64
 _EPI_TILE_N = 64
 _EPI_STAGES = 2
 _EPI_M_SUBTILES = _WGMMA_INPUT_ROWS // _EPI_TILE_M
-_EPI_N_SUBTILES = _WG_WEIGHT_ROWS // _EPI_TILE_N
 _EPI_SLOTS = _CONSUMER_WARPGROUPS * _EPI_STAGES
 _EPI_VID2_PER_SUBTILE = _WGMMA_ACC_REGS // 4 // _EPI_M_SUBTILES
+
+
+def _cta_weight_rows(mma_per_wg: int) -> int:
+    return _WGMMA_WEIGHT_ROWS * mma_per_wg * _CONSUMER_WARPGROUPS
+
+
+def _select_mma_per_wg(m: int, n: int, num_sms: int) -> int:
+    wide = _cta_weight_rows(_MMA_PER_WG_DEFAULT)
+    ctas = ((n + wide - 1) // wide) * ((m + _WGMMA_INPUT_ROWS - 1) // _WGMMA_INPUT_ROWS)
+    if m <= _WGMMA_INPUT_ROWS // 2:
+        limit = num_sms // 4
+    else:
+        limit = num_sms // 2
+    return 1 if ctas <= limit else _MMA_PER_WG_DEFAULT
 
 
 @functools.cache
@@ -108,6 +111,7 @@ def _compile_rowwise_scaled_linear_sparse_cutedsl(
     n_exact: bool,
     cluster_mcast: bool,
     meta_block_safe: bool,
+    mma_per_wg: int,
 ):
     import cuda.bindings.driver as cuda
     import cutlass
@@ -121,6 +125,23 @@ def _compile_rowwise_scaled_linear_sparse_cutedsl(
         raise AssertionError(f"Unsupported scale dtype: {scale_dtype}")
     if output_dtype not in ("fp16", "bf16"):
         raise AssertionError(f"Unsupported output dtype: {output_dtype}")
+    if mma_per_wg not in _MMA_PER_WG_CHOICES:
+        raise AssertionError(f"Unsupported MMAs per warpgroup: {mma_per_wg}")
+
+    _MMA_PER_WG = mma_per_wg
+    _WG_WEIGHT_ROWS = _WGMMA_WEIGHT_ROWS * _MMA_PER_WG
+    _CTA_WEIGHT_ROWS = _WG_WEIGHT_ROWS * _CONSUMER_WARPGROUPS
+    _TOTAL_ACC_REGS = _WGMMA_ACC_REGS * _MMA_PER_WG
+    _A_STAGE_BYTES = _CTA_WEIGHT_ROWS * _WGMMA_COMPRESSED_K
+    _A_STAGE_DESC_UNITS = _A_STAGE_BYTES // _GMMA_DESC_UNIT_BYTES
+    _TMA_STAGE_BYTES = _A_STAGE_BYTES + _B_STAGE_BYTES
+    _TMA_GROUP_BYTES = _K_GROUP * _TMA_STAGE_BYTES
+    _META_STAGE_UINT32 = _CTA_WEIGHT_ROWS * _META_UINT32_PER_ROW
+    _META_STAGE_BYTES = _META_STAGE_UINT32 * 4
+    _META_GROUP_BYTES = _META_HALVES_PER_GROUP * _META_STAGE_BYTES
+    _META_SMEM_UINT32 = _STAGES * _META_HALVES_PER_GROUP * _META_STAGE_UINT32
+    _EPI_N_SUBTILES = _WG_WEIGHT_ROWS // _EPI_TILE_N
+
     opcode = _sparse_wgmma_opcode(input_dtype, weight_dtype, _WGMMA_INPUT_ROWS)
     _use_a_mcast = cluster_mcast
     _meta_staged = _META_SMEM_STAGED and meta_block_safe
@@ -1063,6 +1084,9 @@ def rowwise_scaled_linear_sparse_cutedsl(
     scale_dtype_name = _float_name(input_scale.dtype)
     output_dtype_name = _float_name(output_dtype)
     m = input_2d.shape[0]
+    num_sms = torch.cuda.get_device_properties(input.device).multi_processor_count
+    mma_per_wg = _select_mma_per_wg(m, n, num_sms)
+    cta_weight_rows = _cta_weight_rows(mma_per_wg)
     compiled = _compile_rowwise_scaled_linear_sparse_cutedsl(
         input_dtype_name,
         weight_dtype_name,
@@ -1070,9 +1094,10 @@ def rowwise_scaled_linear_sparse_cutedsl(
         output_dtype_name,
         bias is not None,
         m % _WGMMA_INPUT_ROWS == 0,
-        n % _CTA_WEIGHT_ROWS == 0,
+        n % cta_weight_rows == 0,
         m % (2 * _WGMMA_INPUT_ROWS) == 0,
-        weight_meta.shape[0] >= _CTA_WEIGHT_ROWS,
+        weight_meta.shape[0] >= cta_weight_rows,
+        mma_per_wg,
     )
     compiled(
         input=input_2d,
@@ -1086,11 +1111,11 @@ def rowwise_scaled_linear_sparse_cutedsl(
         n_size=n,
         k_size=k,
         metadata_rows=weight_meta.shape[0],
-        num_n_blocks=(n + _CTA_WEIGHT_ROWS - 1) // _CTA_WEIGHT_ROWS,
+        num_n_blocks=(n + cta_weight_rows - 1) // cta_weight_rows,
         raster_group_n=(
             _RASTER_GROUP_N
-            if (n + _CTA_WEIGHT_ROWS - 1) // _CTA_WEIGHT_ROWS > 32
-            else (n + _CTA_WEIGHT_ROWS - 1) // _CTA_WEIGHT_ROWS
+            if (n + cta_weight_rows - 1) // cta_weight_rows > 32
+            else (n + cta_weight_rows - 1) // cta_weight_rows
         ),
         num_m_blocks=(m + _WGMMA_INPUT_ROWS - 1) // _WGMMA_INPUT_ROWS,
         stream=torch.cuda.current_stream(),
