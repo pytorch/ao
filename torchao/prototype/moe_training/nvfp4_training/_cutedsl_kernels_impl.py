@@ -31,7 +31,6 @@ from .hadamard_utils import get_rht_matrix
 FP8_E4M3_MAX = 448.0
 FP4_E2M1_MAX = 6.0
 FP32_MAX = torch.finfo(torch.float32).max
-FP8_E4M3_EPS = torch.finfo(torch.float8_e4m3fn).tiny  # smallest normal E4M3 (0.015625)
 
 HADAMARD_DIM = 16
 
@@ -383,10 +382,12 @@ def _quant16_from_amax(
 ):
     """Quantize 16 f32 values to NVFP4 (w0,w1 packed u32, pvscale_fp8) using a given block amax
     (1x16 or a shared 16x16 amax). sr selects stochastic rounding over RTNE."""
-    # Clamp to [eps, max]: a zero/near-zero block stores eps, not 0 (matches triton, and keeps
-    # the decode reciprocal finite).
+    # Cap at FP8_E4M3_MAX only, no lower clamp: pvscale is non-negative and TE emits a zero
+    # per-vector scale for zero/near-zero vectors, so pinning small scales to a nonzero floor
+    # would diverge from the TE ground truth (mirrors the triton _nvfp4_quantize). A zero
+    # pvscale drives the encode reciprocal to FP32_MAX, and the values it scales are zero
+    # there, so the product stays zero.
     pvscale = _min_f32(amax * enc_over_fp4max, cutlass.Float32(FP8_E4M3_MAX))
-    pvscale = _max_f32(pvscale, cutlass.Float32(FP8_E4M3_EPS))
     pv_f32 = cute.make_rmem_tensor((4,), cutlass.Float32)
     for i in range(4):
         pv_f32[i] = pvscale
