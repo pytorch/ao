@@ -116,9 +116,8 @@ mxfp8_quantize(const Tensor& input, bool rowwise, bool colwise,
   STD_TORCH_CHECK(input.is_contiguous(), "input must be contiguous");
   STD_TORCH_CHECK(input.dim() == 2, "input must be 2D");
   STD_TORCH_CHECK(input.scalar_type() == torch::headeronly::ScalarType::Float ||
-                  input.scalar_type() == torch::headeronly::ScalarType::Half ||
                   input.scalar_type() == torch::headeronly::ScalarType::BFloat16,
-              "Input must be float32, float16, or bfloat16");
+              "Input must be float32 or bfloat16");
   STD_TORCH_CHECK(rowwise || colwise,
               "At least one of rowwise or colwise must be true");
 
