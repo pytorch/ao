@@ -7,10 +7,11 @@
 import torch
 from torch import nn
 
-from torchao.kernel.blockwise_quantization import (
-    blockwise_fp8_gemm,
-    fp8_blockwise_act_quant,
+from torchao.quantization.quantize_.workflows.float8.kernels import (
+    _blockwise_fp8_gemm,
 )
+
+from .kernels import fp8_blockwise_act_quant
 
 
 class BlockwiseQuantLinear(nn.Module):
@@ -68,7 +69,7 @@ class BlockwiseQuantLinear(nn.Module):
             torch.Tensor: Transformed tensor after linear computation.
         """
         x, scale = fp8_blockwise_act_quant(x, self.block_size, self.dtype)
-        y = blockwise_fp8_gemm(
+        y = _blockwise_fp8_gemm(
             x, scale, self.weight, self.weight.scale, self.block_size
         )
 

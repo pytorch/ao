@@ -349,7 +349,8 @@ class TestPatternMatcherBase(TestCase):
 def _should_use_u8s8() -> bool:
     """
     Determine if the u8s8 decomposition path should be used.
-    This matches the logic in torchao/kernel/intmm.py::_int_scaled_matmul_cpu
+    This matches the logic in
+    torchao/quantization/quantize_/workflows/int8/kernels.py::_int_scaled_matmul_cpu
     """
     return (
         not _cpu_is_amx_tile_supported()
