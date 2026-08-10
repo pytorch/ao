@@ -21,6 +21,7 @@
 // Use official CUDA PTX library
 #include "ptx.cuh"
 #include <cuda/barrier>
+#include <cuda/pipeline>
 #include <cuda/ptx>
 
 #define MIN_CUDA_SM 1000 // SM90 = 900, SM100 = 1000
@@ -431,6 +432,15 @@ template <typename OType, int NUM_VALUES> union PackedFp8Array {
   uint32_t words[NUM_VALUES / 4];
 };
 
+__device__ __forceinline__ void store_fp8x32(
+    void *ptr, uint32_t x0, uint32_t x1, uint32_t x2, uint32_t x3,
+    uint32_t x4, uint32_t x5, uint32_t x6, uint32_t x7) {
+  asm volatile("st.global.v8.u32 [%0], {%1, %2, %3, %4, %5, %6, %7, %8};"
+               :
+               : "l"(ptr), "r"(x0), "r"(x1), "r"(x2), "r"(x3), "r"(x4),
+                 "r"(x5), "r"(x6), "r"(x7));
+}
+
 __device__ __forceinline__ void store_fp8x16(
     void *ptr, uint32_t x0, uint32_t x1, uint32_t x2, uint32_t x3) {
   asm volatile("st.global.v4.u32 [%0], {%1, %2, %3, %4};"
@@ -456,6 +466,84 @@ quantize_block(float amax, e8m0_t &out_scale,
   for (int i = 0; i < NUM_VALUES; ++i) {
     output_values[i] = static_cast<OType>(input_values[i] * inv_scale_fp32);
   }
+}
+
+template <typename IType>
+__device__ __forceinline__ float2 load_input_pair(const IType *ptr) {
+  if constexpr (std::is_same_v<IType, bfloat16>) {
+    return __bfloat1622float2(*reinterpret_cast<const __nv_bfloat162 *>(ptr));
+  } else {
+    return *reinterpret_cast<const float2 *>(ptr);
+  }
+}
+
+template <typename IType, typename OType, int WARPS,
+          ScaleCalculationMode ScalingMode>
+__global__ __launch_bounds__(WARPS * THREADS_PER_WARP, 16)
+void mxfp8_quantize_rowwise_kernel(const IType *__restrict__ input,
+                                   OType *__restrict__ output,
+                                   e8m0_t *__restrict__ scales) {
+  constexpr int THREADS = WARPS * THREADS_PER_WARP;
+  constexpr int BLOCK_SIZE = 32;
+  constexpr int ELEMENTS_PER_CTA = THREADS * BLOCK_SIZE;
+
+  const int64_t cta_offset =
+      static_cast<int64_t>(blockIdx.x) * ELEMENTS_PER_CTA;
+  const IType *const cta_input = input + cta_offset;
+  OType *const cta_output = output + cta_offset;
+
+  __shared__ alignas(16) IType input_shared[ELEMENTS_PER_CTA];
+  using barrier_t = cuda::barrier<cuda::thread_scope_block>;
+  __shared__ alignas(alignof(barrier_t)) char barrier_storage[sizeof(barrier_t)];
+  barrier_t &barrier = *reinterpret_cast<barrier_t *>(barrier_storage);
+
+  const bool is_master = threadIdx.x == 0;
+  if (is_master) {
+    init(&barrier, blockDim.x);
+  }
+  __syncthreads();
+  if (is_master) {
+    cuda::device::memcpy_async_tx(
+        reinterpret_cast<uint32_t *>(input_shared),
+        reinterpret_cast<const uint32_t *>(cta_input),
+        cuda::aligned_size_t<16>(sizeof(input_shared)), barrier);
+  }
+  const int expected_bytes = is_master ? sizeof(input_shared) : 0;
+  auto token =
+      cuda::device::barrier_arrive_tx(barrier, 1, expected_bytes);
+  barrier.wait(cuda::std::move(token));
+
+  constexpr int PAIRS_PER_BLOCK = BLOCK_SIZE / 2;
+  union InputBlock {
+    float values[BLOCK_SIZE];
+    float2 pairs[PAIRS_PER_BLOCK];
+  } input_block;
+  const int thread_offset = threadIdx.x * BLOCK_SIZE;
+#pragma unroll
+  for (int i = 0; i < PAIRS_PER_BLOCK; ++i) {
+    input_block.pairs[i] =
+        load_input_pair(&input_shared[thread_offset + 2 * i]);
+  }
+
+  float amax = 0.0f;
+#pragma unroll
+  for (int i = 0; i < PAIRS_PER_BLOCK; ++i) {
+    amax = abs_max_nan_f32(
+        amax, input_block.pairs[i].x, input_block.pairs[i].y);
+  }
+
+  PackedFp8Array<OType, BLOCK_SIZE> quantized;
+  e8m0_t scale;
+  quantize_block<OType, BLOCK_SIZE, ScalingMode>(
+      amax, scale, input_block.values, quantized.values);
+
+  const int64_t logical_block =
+      static_cast<int64_t>(blockIdx.x) * THREADS + threadIdx.x;
+  scales[logical_block] = scale;
+  store_fp8x32(cta_output + thread_offset, quantized.words[0],
+               quantized.words[1], quantized.words[2], quantized.words[3],
+               quantized.words[4], quantized.words[5], quantized.words[6],
+               quantized.words[7]);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -1041,6 +1129,59 @@ __global__ void __launch_bounds__(MXFP8_THREADS_PER_CHUNK)
 }
 
 template <typename IType, ScaleCalculationMode ScalingMode>
+void launch_mxfp8_quantize_rowwise(const IType *input, fp8e4m3 *output,
+                                   e8m0_t *scales, size_t rows, size_t cols,
+                                   cudaStream_t stream) {
+  const size_t num_blocks = rows * cols / 32;
+  const bool use_two_warps = num_blocks % 64 == 0;
+
+#define LAUNCH_ROWWISE(WARPS)                                                 \
+  mxfp8_quantize_rowwise_kernel<IType, fp8e4m3, WARPS, ScalingMode>           \
+      <<<(num_blocks / (WARPS * THREADS_PER_WARP)),                          \
+         (WARPS * THREADS_PER_WARP), 0, stream>>>(input, output, scales)
+
+  if (use_two_warps) {
+    LAUNCH_ROWWISE(2);
+  } else {
+    LAUNCH_ROWWISE(1);
+  }
+
+#undef LAUNCH_ROWWISE
+}
+
+inline void dispatch_mxfp8_quantize_rowwise(
+    const void *input, fp8e4m3 *output, e8m0_t *scales, size_t rows,
+    size_t cols, DType input_dtype, ScaleCalculationMode scaling_mode,
+    cudaStream_t stream) {
+#define DISPATCH_ROWWISE_MODE(IType, ScalingMode)                             \
+  launch_mxfp8_quantize_rowwise<IType, ScalingMode>(                         \
+      static_cast<const IType *>(input), output, scales, rows, cols, stream)
+
+#define DISPATCH_ROWWISE_DTYPE(IType)                                         \
+  do {                                                                        \
+    if (scaling_mode == ScaleCalculationMode::FLOOR) {                        \
+      DISPATCH_ROWWISE_MODE(IType, ScaleCalculationMode::FLOOR);              \
+    } else {                                                                  \
+      DISPATCH_ROWWISE_MODE(IType, ScaleCalculationMode::RCEIL);              \
+    }                                                                         \
+  } while (0)
+
+  switch (input_dtype) {
+  case DType::kFloat32:
+    DISPATCH_ROWWISE_DTYPE(float);
+    break;
+  case DType::kBFloat16:
+    DISPATCH_ROWWISE_DTYPE(bfloat16);
+    break;
+  default:
+    throw std::invalid_argument("unsupported MXFP8 input dtype");
+  }
+
+#undef DISPATCH_ROWWISE_DTYPE
+#undef DISPATCH_ROWWISE_MODE
+}
+
+template <typename IType, ScaleCalculationMode ScalingMode>
 void launch_mxfp8_quantize_kernel(
     const dim3 grid, const dim3 block, const CUtensorMap &tensor_map_input,
     fp8e4m3 *output_rowwise,
@@ -1145,6 +1286,13 @@ public:
 
     if (output_dtype != DType::kFloat8E4M3) {
       throw std::invalid_argument("unsupported MXFP8 output dtype");
+    }
+
+    if (output_rowwise && !output_colwise) {
+      dispatch_mxfp8_quantize_rowwise(
+          input, static_cast<fp8e4m3 *>(output_rowwise), scales_rowwise, rows,
+          cols, input_dtype, scaling_mode, stream);
+      return;
     }
 
     // Calculate grid dimensions
