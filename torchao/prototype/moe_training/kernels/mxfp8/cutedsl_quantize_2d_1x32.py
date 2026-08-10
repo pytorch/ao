@@ -15,7 +15,6 @@ from .cute_utils import (
     F8_MAX,
     compute_amax,
     compute_scale_from_amax,
-    load_vals_chunk_tail,
     validate_group_sizes,
 )
 
@@ -222,46 +221,6 @@ def _compile_mxfp8_quantize_2d_cutedsl(
             return vals_block
 
         @cute.jit
-        def _load_block_tail_smem_to_reg(
-            self,
-            sIN_tile: cute.Tensor,
-            k0: cutlass.Int64,
-            m_rel: cutlass.Int32,
-            k_base: cutlass.Int32,
-            K: cutlass.Int64,
-        ):
-            """Load a 32-element quantization block from shared memory to registers with bounds checking.
-
-            Out-of-bounds elements are set to 0.0.
-
-            Args:
-                sIN_tile: Input tile in shared memory (TILE_M, TILE_K)
-                k0: Global K offset for this tile
-                m_rel: Row index within tile
-                k_base: Starting K index for this block within tile
-                K: Total K dimension size for bounds checking
-
-            Returns:
-                vals_block: 32 input elements in register memory (out-of-bounds set to 0.0)
-            """
-            vals_block = cute.make_rmem_tensor((SCALE_DIM_K_VALUE,), cutlass.Float32)
-            raw = cute.make_rmem_tensor((SCALE_DIM_K_VALUE,), INPUT_CUTLASS_DTYPE)
-            cute.autovec_copy(
-                cute.make_tensor(
-                    (sIN_tile.iterator + (m_rel * TILE_K + k_base)).align(16),
-                    cute.make_layout(SCALE_DIM_K_VALUE),
-                ),
-                raw,
-            )
-            for i in range(SCALE_DIM_K_VALUE):
-                k = k0 + k_base + i
-                if k < K:
-                    vals_block[i] = cutlass.Float32(raw[i])
-                else:
-                    vals_block[i] = cutlass.Float32(0.0)
-            return vals_block
-
-        @cute.jit
         def _store_scales_reg_to_gmem_vec(
             self,
             scales_tensor: cute.Tensor,
@@ -383,58 +342,6 @@ def _compile_mxfp8_quantize_2d_cutedsl(
                 vals_group = cute.make_rmem_tensor((SMEM_STORE_VEC,), cutlass.Float32)
                 for i in range(SMEM_STORE_VEC):
                     vals_group[i] = vals_block[local_base + i]
-                self._quantize_then_store_reg_to_smem(
-                    vals_group,
-                    inv_scale,
-                    sOUT_tile,
-                    m_rel,
-                    k_base + local_base,
-                    USE_RCEIL,
-                )
-
-        @cute.jit
-        def _quantize_block_then_store_reg_to_smem_tail(
-            self,
-            vals_block: cute.Tensor,
-            inv_scale: cutlass.Float32,
-            sOUT_tile: cute.Tensor,
-            k0: cutlass.Int64,
-            m_rel: cutlass.Int32,
-            k_base: cutlass.Int32,
-            K: cutlass.Int64,
-            USE_RCEIL: cutlass.Constexpr[bool],
-        ):
-            """Quantize and store a 32-element block with bounds checking by processing 8 chunks.
-
-            Out-of-bounds elements are handled in the chunk loading stage.
-
-            Args:
-                vals_block: 32 input elements in register memory
-                inv_scale: Inverse scale in register memory
-                sOUT_tile: Output tile in shared memory (TILE_M, TILE_K)
-                k0: Global K offset for this tile
-                m_rel: Row index within tile
-                k_base: Starting K index for this block within tile
-                K: Total K dimension size for bounds checking
-                USE_RCEIL: Whether using RCEIL mode or FLOOR mode
-
-            Storage locations:
-                Inputs: vals_block, inv_scale (registers)
-                Output: sOUT_tile (shared memory)
-            """
-            for g in range(SCALE_DIM_K_VALUE // SMEM_STORE_VEC):
-                local_base = g * SMEM_STORE_VEC
-                vals_group = cute.make_rmem_tensor((SMEM_STORE_VEC,), cutlass.Float32)
-                for c in range(SMEM_STORE_VEC // 4):
-                    chunk = load_vals_chunk_tail(
-                        vals_block,
-                        k0,
-                        k_base + local_base + c * 4,
-                        local_base + c * 4,
-                        K,
-                    )
-                    for i in range(4):
-                        vals_group[c * 4 + i] = chunk[i]
                 self._quantize_then_store_reg_to_smem(
                     vals_group,
                     inv_scale,
@@ -662,7 +569,6 @@ def _compile_mxfp8_quantize_2d_cutedsl(
                 scales_tensor = scales_out_u8
             for tile_step in cutlass.range_constexpr(K_TILES_PER_CTA):
                 k_tile_eff = k_tile_group_idx * K_TILES_PER_CTA + tile_step
-                k0 = k_tile_eff * TILE_K
 
                 stage_idx = tile_step % STAGE_COUNT
 
@@ -777,12 +683,10 @@ def _compile_mxfp8_quantize_2d_cutedsl(
                                     k_block = k_tile_eff * K_BLOCKS_PER_TILE + kb
                                     if k_block < k_blocks:
                                         k_base = kb * SCALE_DIM_K_VALUE
-                                        vals_block = self._load_block_tail_smem_to_reg(
+                                        vals_block = self._load_block_full_smem_to_reg(
                                             sIN_tile,
-                                            k0,
                                             m_rel,
                                             k_base,
-                                            K,
                                         )
 
                                         amax = compute_amax(vals_block)
@@ -795,14 +699,12 @@ def _compile_mxfp8_quantize_2d_cutedsl(
                                         )
                                         num_valid_scales = num_valid_scales + 1
 
-                                        self._quantize_block_then_store_reg_to_smem_tail(
+                                        self._quantize_block_then_store_reg_to_smem_full(
                                             vals_block,
                                             inv_scale,
                                             sOUT_tile,
-                                            k0,
                                             m_rel,
                                             k_base,
-                                            K,
                                             USE_RCEIL,
                                         )
 
