@@ -3,9 +3,6 @@
 #
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
-import logging
-import os
-
 import torch
 from torch._dynamo import is_compiling as dynamo_is_compiling
 from torch._higher_order_ops.out_dtype import out_dtype
@@ -16,20 +13,6 @@ from torchao.utils import (
     _is_device,
     torch_version_at_least,
 )
-
-logger = logging.getLogger(__name__)
-logger.addHandler(logging.NullHandler())
-
-try:
-    from torchao.kernel import intmm_triton
-except ImportError:
-    logger.warning(
-        "Warning: Detected no triton, on systems without Triton certain kernels will not work"
-    )
-    # On cpu-only builds might not be available.
-    intmm_triton = None
-
-AUTOTUNER_ENABLE = bool(int(os.getenv("TORCHAO_AUTOTUNER_ENABLE", 0)))
 
 
 def safe_int_mm(input: torch.Tensor, mat2: torch.Tensor) -> torch.Tensor:
@@ -93,23 +76,6 @@ def safe_int_mm(input: torch.Tensor, mat2: torch.Tensor) -> torch.Tensor:
         )
 
 
-def int_matmul(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
-    """
-    Performs integer matrix multiplication using intmm_triton if available and autotuner is enabled,
-    otherwise falls back to safe_int_mm.
-
-    Args:
-        a (torch.Tensor): The first matrix to multiply.
-        b (torch.Tensor): The second matrix to multiply.
-
-    Returns:
-        torch.Tensor: The result of the matrix multiplication.
-    """
-    if intmm_triton is not None and AUTOTUNER_ENABLE:
-        return torch.ops.torchao.int_matmul(a, b)
-    return safe_int_mm(a, b)
-
-
 def _int_scaled_matmul_cpu(
     a: torch.Tensor, b: torch.Tensor, scales1: torch.Tensor
 ) -> torch.Tensor:
@@ -145,7 +111,7 @@ def _int_scaled_matmul_cpu(
         return c.to(scales1.dtype) * scales1
 
 
-def int_scaled_matmul(
+def _int_scaled_matmul(
     a: torch.Tensor, b: torch.Tensor, scales1: torch.Tensor
 ) -> torch.Tensor:
     """
@@ -173,11 +139,6 @@ def int_scaled_matmul(
 
     if _is_device("cpu", scales1.device):
         return _int_scaled_matmul_cpu(a, b, scales1)
-
-    scales1 = scales1.expand((M, N))
-
-    if intmm_triton is not None and AUTOTUNER_ENABLE:
-        return torch.ops.torchao.int_scaled_matmul(a, b, scales1)
 
     c = safe_int_mm(a, b)
     return c * scales1

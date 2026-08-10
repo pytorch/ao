@@ -6,6 +6,7 @@
 # this benchmarking script is a modified version of the original script from: https://github.com/drisspg/transformer_nuggets/blob/main/transformer_nuggets/utils/benchmark.py
 
 import itertools
+import os
 from dataclasses import dataclass
 from typing import List
 
@@ -21,9 +22,17 @@ from torchao.prototype.moe_training.kernels.mxfp8.cutedsl_quantize_2d_1x32 impor
     mxfp8_quantize_cutedsl_2d_1x32,
 )
 from torchao.prototype.moe_training.utils import generate_jagged_offs
-from torchao.prototype.mx_formats.kernels import triton_to_mxfp8_dim0
+from torchao.prototype.mx_formats.config import ScaleCalculationMode
+from torchao.prototype.mx_formats.kernels import (
+    triton_mx_block_rearrange,
+    triton_to_mxfp8_dim0,
+)
+from torchao.prototype.mx_formats.mx_tensor import to_mx
 
 device = torch.device("cuda")
+VALIDATE = os.environ.get("MXFP8_BENCH_VALIDATE", "0") == "1"
+INPUT_MODE = os.environ.get("MXFP8_BENCH_INPUT_MODE", "randn")
+EXTRA_NON_NICE = os.environ.get("MXFP8_BENCH_EXTRA_NON_NICE", "0") == "1"
 
 # Needed since changing args to function causes recompiles
 torch._dynamo.config.cache_size_limit = 1000
@@ -62,12 +71,22 @@ def get_configs() -> List[ExperimentConfig]:
         (131072, 2048),
         (131072, 7168),
     ]
+    if EXTRA_NON_NICE:
+        input_shapes += [
+            (128, 128),
+            (384, 1408),
+            (1152, 3456),
+        ]
     scaling_modes = ["floor", "rceil"]
     num_groups_list = [8]
+    if EXTRA_NON_NICE:
+        num_groups_list = [1, 4, 8]
     configs = []
     for shape, scaling_mode, num_groups in itertools.product(
         input_shapes, scaling_modes, num_groups_list
     ):
+        if num_groups > shape[0] // 128:
+            continue
         configs.append(
             ExperimentConfig(
                 input_shape=shape,
@@ -78,17 +97,61 @@ def get_configs() -> List[ExperimentConfig]:
     return configs
 
 
+def make_input(shape: tuple[int, int], dtype: torch.dtype) -> torch.Tensor:
+    if INPUT_MODE == "randn":
+        return torch.randn(*shape, dtype=dtype, device=device)
+
+    numel = shape[0] * shape[1]
+    if INPUT_MODE == "zeros":
+        x = torch.zeros(numel, dtype=torch.float32, device=device)
+    elif INPUT_MODE == "arange_signed":
+        x = (torch.arange(numel, dtype=torch.float32, device=device) % 257) - 128
+    elif INPUT_MODE == "wide_dynamic":
+        base = torch.arange(numel, dtype=torch.float32, device=device)
+        signs = torch.where(base.to(torch.int64) % 2 == 0, 1.0, -1.0)
+        x = signs * torch.pow(2.0, (base % 17) - 8)
+    elif INPUT_MODE == "near_saturation":
+        base = torch.arange(numel, dtype=torch.float32, device=device)
+        vals = torch.tensor(
+            [-448.0, -127.5, -1.0, 0.0, 1.0, 127.5, 448.0],
+            dtype=torch.float32,
+            device=device,
+        )
+        x = vals[base.to(torch.int64) % vals.numel()]
+    else:
+        raise ValueError(f"unknown MXFP8_BENCH_INPUT_MODE={INPUT_MODE}")
+    return x.reshape(shape).to(dtype)
+
+
+def validate_outputs(
+    x: torch.Tensor,
+    data_cutedsl: torch.Tensor,
+    scales_cutedsl: torch.Tensor,
+    scaling_mode: str,
+):
+    scale_mode = (
+        ScaleCalculationMode.FLOOR
+        if scaling_mode == "floor"
+        else ScaleCalculationMode.RCEIL
+    )
+    scales_ref, data_ref = to_mx(
+        x,
+        elem_dtype=torch.float8_e4m3fn,
+        block_size=32,
+        scaling_mode=scale_mode,
+    )
+    scales_ref = triton_mx_block_rearrange(scales_ref)
+    torch.testing.assert_close(data_cutedsl, data_ref, rtol=0, atol=0)
+    torch.testing.assert_close(scales_cutedsl, scales_ref, rtol=0, atol=0)
+
+
 def run_experiment(config: ExperimentConfig) -> ExperimentResult:
     block_size = 32
     input_shape = config.input_shape
     scaling_mode = config.scaling_mode
     num_groups = config.num_groups
 
-    input_tensor = torch.randn(
-        *input_shape,
-        dtype=torch.bfloat16,
-        device=device,
-    )
+    input_tensor = make_input(input_shape, torch.bfloat16)
 
     M, K = input_shape
 
@@ -103,6 +166,8 @@ def run_experiment(config: ExperimentConfig) -> ExperimentResult:
         scaling_mode=scaling_mode,
         blocked_scale_output=True,
     )
+    if VALIDATE:
+        validate_outputs(input_tensor, data_cutedsl, scales_cutedsl, scaling_mode)
     cutedsl_blocked_time_us = benchmark_cuda_function_in_microseconds(
         mxfp8_quantize_cutedsl_2d_1x32,
         input_tensor,

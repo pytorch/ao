@@ -3,7 +3,6 @@
 
 # Quantization
 /torchao/quantization/ @jerryzh168 @andrewor14 @vkuzo
-/torchao/dtypes/ @jerryzh168 @vkuzo @andrewor14
 
 # Float8 / Low-precision training
 /torchao/float8/ @vkuzo @jerryzh168 @andrewor14
