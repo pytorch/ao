@@ -115,7 +115,13 @@ def cutedsl_prepare_for_cuda_graph(device, *, sign_vectors=None) -> None:
         _get_rht_buffer(tuple(int(v) for v in sign_vector), idx)
     # Pre-compile the kernels so no lazy compile fires mid-capture: amax; the RHT fused RTNE +
     # SR variants (apply_rht=True); and the no-MMA weight-quantize variant (apply_rht=False).
-    _compile_amax_tc_kernel(idx)
-    for sr in (False, True):
-        _compile_fused_kernel(idx, True, sr, apply_rht=True)
-    _compile_fused_kernel(idx, True, False, apply_rht=False)
+    # Both supertile heights: 256-row (M % 256 shapes) and 128-row (other M % 128).
+    for col_groups in (16, 8):
+        _compile_amax_tc_kernel(idx, col_groups)
+        for sr in (False, True):
+            _compile_fused_kernel(
+                idx, True, sr, apply_rht=True, col_groups_per_supertile=col_groups
+            )
+        _compile_fused_kernel(
+            idx, True, False, apply_rht=False, col_groups_per_supertile=col_groups
+        )

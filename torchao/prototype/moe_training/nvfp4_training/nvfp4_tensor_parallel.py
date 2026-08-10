@@ -50,32 +50,32 @@ def _check_cutedsl_shard(
     *,
     scatter_m: bool = False,
 ) -> None:
-    """The CuteDSL kernels need the per-rank activation shard to have M % 256 == 0 and
-    K % 128 == 0 (Triton allows M % 128). The weight quantize additionally needs the per-rank
-    weight shard to have out_features % 256 == 0 and in_features % 128 == 0. Fail early with a
+    """The CuteDSL kernels need the per-rank activation shard to have M % 128 == 0 and
+    K % 128 == 0. The weight quantize additionally needs the per-rank
+    weight shard to have out_features % 128 == 0 and in_features % 128 == 0. Fail early with a
     TP-aware message.
 
     ``scatter_m=True`` (row parallel): the forward reduce-scatters the output along M, so the
-    backward quantizes a grad shard of M // world_size rows. Requiring M % (256 * world_size)
+    backward quantizes a grad shard of M // world_size rows. Requiring M % (128 * world_size)
     here keeps that backward quantize legal — otherwise a shape that passes this check dies
-    mid-backward with a bare "M must be divisible by 256" and no TP context."""
+    mid-backward with a bare "M must be divisible by 128" and no TP context."""
     M, K = x.shape[0], x.shape[1]
-    m_multiple = 256 * world_size if scatter_m else 256
+    m_multiple = 128 * world_size if scatter_m else 128
     if M % m_multiple != 0 or K % 128 != 0:
         detail = (
-            f"M % {m_multiple} == 0 (256 x world_size, since the backward quantizes the "
+            f"M % {m_multiple} == 0 (128 x world_size, since the backward quantizes the "
             f"reduce-scattered M // {world_size} grad shard) and K % 128 == 0"
             if scatter_m
-            else "M % 256 == 0 and K % 128 == 0"
+            else "M % 128 == 0 and K % 128 == 0"
         )
         raise ValueError(
             "kernel_preference=CUTEDSL requires the per-rank activation shard to have "
             f"{detail}; got shard shape {tuple(x.shape)} (world_size={world_size})"
         )
-    if w is not None and (w.shape[0] % 256 != 0 or w.shape[1] % 128 != 0):
+    if w is not None and (w.shape[0] % 128 != 0 or w.shape[1] % 128 != 0):
         raise ValueError(
             "kernel_preference=CUTEDSL requires the per-rank weight shard to have "
-            f"out_features % 256 == 0 and in_features % 128 == 0; got shard shape {tuple(w.shape)} "
+            f"out_features % 128 == 0 and in_features % 128 == 0; got shard shape {tuple(w.shape)} "
             f"(world_size={world_size})"
         )
 
@@ -410,7 +410,7 @@ def nvfp4_col_parallel_linear(
         sign_vector: RHT sign vector used for amax and quantization. Must
             match across TP ranks.
         use_cutedsl: Use the CuteDSL amax + quantize for both forward (RTNE) and the
-            backward SR (cvt.rs) paths. Requires the per-rank M shard % 256 == 0.
+            backward SR (cvt.rs) paths. Requires the per-rank M shard % 128 == 0.
     """
     if tp_group is None:
         raise ValueError("tp_group is required for nvfp4_col_parallel_linear")
@@ -661,7 +661,7 @@ def nvfp4_row_parallel_linear(
         sign_vector: RHT sign vector used for amax and quantization. Must
             match across TP ranks.
         use_cutedsl: Use the CuteDSL amax + quantize for both forward (RTNE) and the
-            backward SR (cvt.rs) paths. Requires the per-rank M shard % 256 == 0.
+            backward SR (cvt.rs) paths. Requires the per-rank M shard % 128 == 0.
     """
     if tp_group is None:
         raise ValueError("tp_group is required for nvfp4_row_parallel_linear")

@@ -44,7 +44,7 @@ def cutedsl_rht_quantize_row_col(
         FP4 + (M//128, N//64, 32, 16) swizzled scales.
 
     Args:
-        A: (M, N) bfloat16, row-major. M must be divisible by 256, N by 128.
+        A: (M, N) bfloat16, row-major. M must be divisible by 128, N by 128.
         col_global_amax: scalar float32 ``max(abs(RHT(A.t())))``. Compute via
             ``cutedsl_rht_amax`` (and optionally all-reduce for TP) before passing in.
         row_global_amax: scalar float32 ``max(abs(A))``. Same source.

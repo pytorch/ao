@@ -181,7 +181,7 @@ def _test_nvfp4_mlp_fsdp2_tp_smoke(
         512,
         256,
         512,
-    )  # per-TP shards (M//2=256, K=256, out//2=256) satisfy CuteDSL's %256/%128
+    )  # per-TP shards (M//2=256, K=256, out//2=256) satisfy CuteDSL's %128/%128
 
     model = NVFP4MLP(
         K, H, device=device, dtype=torch.bfloat16, kernel_preference=kernel_preference
@@ -260,7 +260,7 @@ def test_nvfp4_mlp_fsdp2_tp_cuda_graph_compile_smoke(distributed_env: DeviceMesh
 )
 def test_nvfp4_mlp_fsdp2_tp_cutedsl_smoke(distributed_env: DeviceMesh):
     """FSDP2 + TP (eager) with the CuteDSL backend. The per-TP weight/activation shards satisfy
-    CuteDSL's out_features % 256 / M % 256 / K % 128."""
+    CuteDSL's out_features % 128 / M % 128 / K % 128."""
     _test_nvfp4_mlp_fsdp2_tp_smoke(
         distributed_env, compile_model=False, kernel_preference=KernelPreference.CUTEDSL
     )

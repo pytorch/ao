@@ -39,18 +39,18 @@ _KERNELS = [
     pytest.param("cutedsl", marks=_skip_no_cutedsl, id="cutedsl"),
 ]
 
-# The CuteDSL kernel requires out_features (dim 0) % 256 == 0 and in_features (dim 1)
+# The CuteDSL kernel requires out_features (dim 0) % 128 == 0 and in_features (dim 1)
 # % 128 == 0; the triton kernel's BLOCK_M minimum is 128 and its swizzled scales require
-# both dims % 128. The sweep is the union, with _skip_if_unsupported_shape dropping
-# M=128 for cutedsl so triton keeps its BLOCK_M-minimum coverage.
-_M_VALUES = [128, 256, 512, 1024]
+# both dims % 128 — the same bound, so the sweep runs on both backends. M=128/384
+# exercise the CuteDSL 128-row supertile; the other M run its tuned 256-row supertile.
+_M_VALUES = [128, 256, 384, 512, 1024]
 _N_VALUES = [128, 256, 512, 1024, 2048]
 
 
 def _skip_if_unsupported_shape(kernel: str, M: int, N: int) -> None:
     """Skip shapes the selected backend cannot handle."""
-    if kernel == "cutedsl" and M % 256 != 0:
-        pytest.skip("cutedsl weight quantize requires out_features % 256 == 0")
+    if kernel == "cutedsl" and M % 128 != 0:
+        pytest.skip("cutedsl weight quantize requires out_features % 128 == 0")
 
 
 # Minimum reconstruction SQNR (dB) per backend; both land around 19 dB on the grid above.
@@ -393,9 +393,9 @@ def test_weight_quantize_2d_zero_and_near_zero_no_nan_or_saturation(kernel, inpu
 
 @_skip_no_cutedsl
 @torch.no_grad()
-def test_cutedsl_weight_quantize_2d_requires_out_features_256():
-    """out_features (dim 0) must be divisible by 256 (stricter than the Triton kernel's 128)."""
-    W = torch.randn(384, 256, dtype=torch.bfloat16, device="cuda")  # 384 % 256 == 128
+def test_cutedsl_weight_quantize_2d_requires_out_features_128():
+    """out_features (dim 0) must be divisible by 128 (matching the Triton kernel)."""
+    W = torch.randn(192, 256, dtype=torch.bfloat16, device="cuda")  # 192 % 128 == 64
     amax = W.float().abs().max()
     with pytest.raises(ValueError, match="out_features"):
         cutedsl_weight_quantize_2d(W, amax)

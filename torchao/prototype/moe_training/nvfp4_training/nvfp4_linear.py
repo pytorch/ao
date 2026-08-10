@@ -172,18 +172,6 @@ class nvfp4_mm_triton(torch.autograd.Function):
                 f"nvfp4_mm_triton requires M, K, N all divisible by 128; "
                 f"got M={M}, K={K}, N={N}"
             )
-        if use_cutedsl and M % 256 != 0:
-            # The outer M % 128 gate is too coarse for CuteDSL: M=128 reaches the amax
-            # kernel and silently returns zero amaxes.
-            raise ValueError(
-                f"kernel_preference=CUTEDSL requires M divisible by 256, got M={M}"
-            )
-        if use_cutedsl and N % 256 != 0:
-            # The CuteDSL weight quantize maps the weight as (out=N, in=K) into the fused kernel,
-            # whose M tiler needs out_features % 256 (stricter than the Triton weight kernel's %128).
-            raise ValueError(
-                f"kernel_preference=CUTEDSL requires N (out_features) divisible by 256, got N={N}"
-            )
         input_2d = input_hp.reshape(-1, K).contiguous()
 
         # Amaxes are separate ops so TP callers can all-reduce them before quantizing.
@@ -328,7 +316,7 @@ def nvfp4_linear(
         sign_vector: RHT sign vector used for amax and quantization.
         kernel_preference: Backend for quantization, TRITON (default) or CUTEDSL.
             CUTEDSL runs the full path on CuteDSL — the amax, the forward RTNE quantize, the
-            backward SR (cvt.rs) quantize, and the 2D weight quantize (requires out_features % 256).
+            backward SR (cvt.rs) quantize, and the 2D weight quantize (requires out_features % 128).
         sr_seed: Fixed int64 seed tensor (size=(1,)) for SR Philox key. Allocated
             fresh if None. For reproducibility, pass a pre-allocated module buffer.
     """
