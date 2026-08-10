@@ -12,11 +12,7 @@ import torch
 
 from torchao.utils import ceil_div
 
-from .cute_utils import (
-    F8_MAX,
-    compute_amax,
-    compute_scale_from_amax,
-)
+from .cute_utils import compute_amax, compute_scale_from_amax, fmax_nan_f32
 
 
 def _make_tile_smem_layouts(
@@ -92,13 +88,6 @@ def _compile_mxfp8_quantize_3d_cutedsl(
     import cutlass.utils as utils
     from cutlass.cute.nvgpu import cpasync, tcgen05
     from cutlass.cute.runtime import make_fake_stream, make_fake_tensor
-
-    # PTX lowering note:
-    # - RCEIL uses inline PTX on Blackwell-family targets because
-    #   CuTeDSL does not currently lower this conversion to
-    #   `cvt.rp.satfinite.ue8m0x2.f32` on its own.
-    # - FLOOR still uses a different lowered sequence than C++
-    #   helper routines.
 
     if input_dtype_name == "torch.float32":
         INPUT_CUTLASS_DTYPE = cutlass.Float32
@@ -201,14 +190,13 @@ def _compile_mxfp8_quantize_3d_cutedsl(
             e: cutlass.Int64,
             n_block: cutlass.Int64,
             k: cutlass.Int64,
-            scale_biased: cutlass.Int32,
+            scale_biased: cutlass.Uint8,
             BLOCKED_SCALE_OUTPUT: cutlass.Constexpr[bool],
         ):
-            scale_u8 = cutlass.Uint8(scale_biased)
             if cutlass.const_expr(BLOCKED_SCALE_OUTPUT):
-                scales_expert[k, n_block] = scale_u8
+                scales_expert[k, n_block] = scale_biased
             else:
-                scales_expert[e, n_block, k] = scale_u8
+                scales_expert[e, n_block, k] = scale_biased
 
         @cute.jit
         def _store_scale_32x32(
@@ -218,10 +206,9 @@ def _compile_mxfp8_quantize_3d_cutedsl(
             n_block: cutlass.Int64,
             k_block: cutlass.Int64,
             lane: cutlass.Int32,
-            scale_biased: cutlass.Int32,
+            scale_biased: cutlass.Uint8,
             BLOCKED_SCALE_OUTPUT: cutlass.Constexpr[bool],
         ):
-            scale_u8 = cutlass.Uint8(scale_biased)
             if cutlass.const_expr(BLOCKED_SCALE_OUTPUT):
                 # Match the 32x1 blocked output contract:
                 # grouped GEMM consumes a logical (K, N//32) scale
@@ -230,12 +217,12 @@ def _compile_mxfp8_quantize_3d_cutedsl(
                 # that matrix, replicating it across the 32 columns
                 # of the original quantization tile.
                 k_row = k_block * cutlass.Int64(32) + cutlass.Int64(lane)
-                scales_expert[k_row, n_block] = scale_u8
+                scales_expert[k_row, n_block] = scale_biased
             else:
                 # For unblocked output, scales_expert is the compact
                 # logical 3D scale tensor with shape (E, N//32,
                 # K//32).
-                scales_expert[e, n_block, k_block] = scale_u8
+                scales_expert[e, n_block, k_block] = scale_biased
 
         @cute.jit
         def _warp_reduce_max(
@@ -243,7 +230,7 @@ def _compile_mxfp8_quantize_3d_cutedsl(
             amax: cutlass.Float32,
         ):
             for i in range(int(math.log2(32))):
-                amax = cute.arch.fmax(
+                amax = fmax_nan_f32(
                     amax,
                     cute.arch.shuffle_sync_bfly(
                         amax,
@@ -321,9 +308,6 @@ def _compile_mxfp8_quantize_3d_cutedsl(
             USE_RCEIL: cutlass.Constexpr[bool],
         ):
             q_vec = vals_group.load() * inv_scale
-            if not cutlass.const_expr(USE_RCEIL):
-                q_vec = cute.where(q_vec > F8_MAX, F8_MAX, q_vec)
-                q_vec = cute.where(q_vec < -F8_MAX, -F8_MAX, q_vec)
             q_fp8 = cute.make_rmem_tensor((SMEM_STORE_VEC,), cutlass.Float8E4M3FN)
             q_fp8.store(q_vec.to(cutlass.Float8E4M3FN))
             cute.autovec_copy(

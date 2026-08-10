@@ -21,6 +21,10 @@ if not (torch.cuda.is_available() and (_is_sm_10x() or is_MI300() or is_MI350())
         allow_module_level=True,
     )
 
+from test.prototype._mxfp8_test_utils import (
+    assert_mxfp8_semantics,
+    make_mxfp8_semantic_cases,
+)
 from torchao.float8.config import ScalingGranularity, e4m3_dtype
 from torchao.float8.float8_utils import tensor_to_scale, to_fp8_saturated
 from torchao.prototype.moe_training.kernels import (
@@ -832,6 +836,101 @@ def test_cuda_mx_dim1_2d_cutedsl_edge_inputs(
     torch.testing.assert_close(s, s_ref, rtol=0, atol=0)
     torch.testing.assert_close(y, y_ref, rtol=0, atol=0)
     assert y.stride() == (1, M)
+
+
+@pytest.mark.parametrize("backend", ("cutedsl", "flydsl"))
+@pytest.mark.parametrize("orientation", ("1x32", "32x1"))
+@pytest.mark.parametrize("input_dtype", (torch.float32, torch.bfloat16))
+@pytest.mark.parametrize("scaling_mode", ("floor", "rceil"))
+def test_mxfp8_dsl_special_value_semantics(
+    backend, orientation, input_dtype, scaling_mode
+):
+    if backend == "cutedsl" and not _mxfp8_cutedsl_kernels_available:
+        pytest.skip("MXFP8 CuTeDSL kernels not available")
+    if backend == "flydsl" and not _mxfp8_flydsl_kernels_available:
+        pytest.skip("MXFP8 FlyDSL kernels not available")
+
+    cases = make_mxfp8_semantic_cases(input_dtype, scaling_mode, device="cuda")
+    num_cases = len(cases.names)
+    rows = torch.zeros((128, 128), dtype=input_dtype, device="cuda")
+    rows[:num_cases] = cases.inputs.repeat(1, 4)
+    x = rows if orientation == "1x32" else rows.t().contiguous()
+    if backend == "cutedsl" and orientation == "1x32":
+        qdata, blocked_scales = mxfp8_quantize_2d_1x32_cutedsl(
+            x, block_size=32, scaling_mode=scaling_mode
+        )
+        scales = from_blocked(blocked_scales, 128, 4)
+    elif backend == "cutedsl":
+        qdata, scales = mxfp8_quantize_2d_32x1_cutedsl(
+            x,
+            block_size=32,
+            scaling_mode=scaling_mode,
+            blocked_scale_output=False,
+        )
+    elif orientation == "1x32":
+        qdata, scales = mxfp8_quantize_2d_1x32_flydsl(
+            x, block_size=32, scaling_mode=scaling_mode
+        )
+    else:
+        qdata, scales = mxfp8_quantize_2d_32x1_flydsl(
+            x, block_size=32, scaling_mode=scaling_mode
+        )
+
+    if orientation == "32x1":
+        qdata = qdata.t()
+    for block_idx in range(4):
+        assert_mxfp8_semantics(
+            qdata[:num_cases, block_idx * 32 : (block_idx + 1) * 32],
+            scales[:num_cases, block_idx : block_idx + 1],
+            cases,
+        )
+
+    # Keep the backend-vs-to_mx comparison in addition to the hardcoded contract.
+    ref_scales, ref_qdata = to_mx(
+        rows,
+        elem_dtype=torch.float8_e4m3fn,
+        block_size=32,
+        scaling_mode=ScaleCalculationMode(scaling_mode),
+    )
+    assert torch.equal(qdata.view(torch.uint8), ref_qdata.view(torch.uint8))
+    assert torch.equal(scales.view(torch.uint8), ref_scales.view(torch.uint8))
+
+
+@pytest.mark.parametrize("backend", ("cutedsl", "flydsl"))
+@pytest.mark.parametrize("input_dtype", (torch.float32, torch.bfloat16))
+@pytest.mark.parametrize("scaling_mode", ("floor", "rceil"))
+def test_mxfp8_dsl_3d_special_value_semantics(backend, input_dtype, scaling_mode):
+    if backend == "cutedsl" and not _mxfp8_cutedsl_kernels_available:
+        pytest.skip("MXFP8 CuTeDSL kernels not available")
+    if backend == "flydsl" and not _mxfp8_flydsl_kernels_available:
+        pytest.skip("MXFP8 FlyDSL kernels not available")
+
+    x = torch.full((1, 32, 64), float("nan"), dtype=input_dtype, device="cuda")
+    x[0, -1, :32] = 1.0
+    x[0, -1, 0] = 480.0
+
+    quantize = (
+        mxfp8_quantize_cuda_3d if backend == "cutedsl" else mxfp8_quantize_3d_flydsl
+    )
+    qdata, scales = quantize(
+        x,
+        block_size=32,
+        scale_block_dim1=32,
+        scale_block_dim2=32,
+        scaling_mode=scaling_mode,
+        blocked_scale_output=False,
+    )
+
+    expected_scales = torch.full((1, 1, 2), 255, dtype=torch.uint8)
+    expected_data = torch.full((1, 32, 64), 0x7F, dtype=torch.uint8)
+    assert torch.equal(scales.view(torch.uint8).cpu(), expected_scales)
+    assert torch.equal(qdata.view(torch.uint8).cpu(), expected_data)
+
+    y_ref, s_ref = _mxfp8_3d_edge_reference(
+        x, "32x32_n", ScaleCalculationMode(scaling_mode)
+    )
+    assert torch.equal(qdata.view(torch.uint8), y_ref.view(torch.uint8))
+    assert torch.equal(scales.view(torch.uint8), s_ref.view(torch.uint8))
 
 
 def _mxfp8_3d_edge_reference(
