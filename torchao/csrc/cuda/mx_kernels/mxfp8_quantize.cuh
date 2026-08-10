@@ -515,13 +515,20 @@ quantize_block(float amax, e8m0_t &out_scale,
                        const float (&input_values)[NUM_VALUES],
                        OType (&output_values)[NUM_VALUES]) {
   static_assert(std::is_same_v<OType, fp8e4m3>);
+  static_assert(NUM_VALUES % 2 == 0);
 
   out_scale = calculate_scale<ScalingMode>(amax);
   float inv_scale_fp32 = reciprocal_scale(out_scale);
 
 #pragma unroll
-  for (int i = 0; i < NUM_VALUES; ++i) {
-    output_values[i] = static_cast<OType>(input_values[i] * inv_scale_fp32);
+  for (int i = 0; i < NUM_VALUES; i += 2) {
+    float value0 = input_values[i] * inv_scale_fp32;
+    float value1 = input_values[i + 1] * inv_scale_fp32;
+    const __nv_fp8x2_storage_t packed = __nv_cvt_float2_to_fp8x2(
+        make_float2(value0, value1), __NV_SATFINITE, __NV_E4M3);
+    output_values[i].__x = static_cast<__nv_fp8_storage_t>(packed);
+    output_values[i + 1].__x =
+        static_cast<__nv_fp8_storage_t>(packed >> 8);
   }
 }
 
