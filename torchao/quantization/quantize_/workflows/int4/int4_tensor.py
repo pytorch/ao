@@ -126,6 +126,78 @@ class Int4Tensor(TorchAOBaseTensor):
             s += f", act_pre_scale.shape={self.act_pre_scale.shape}"
         return s
 
+    def dequantize(self, output_dtype: Optional[torch.dtype] = None) -> torch.Tensor:
+        """Dequantize the int4 packed weight back to high-precision dtype.
+
+        Unpacks the int4 data from the packed byte format and applies
+        scale and zero_point to recover the original weight values.
+
+        The quantization used by int4_row_quantize_zp produces:
+            out = round((x - min_val) / scale) - 8   (int8, range [-8, 7])
+            scale = (max - min) / 15
+            zero_point = min_val + scale * 8
+        Packed via pack_int4 as unsigned nibbles (0-15).
+
+        Dequantization: x = (unsigned_val - 8) * scale + zero_point
+        """
+        if output_dtype is None:
+            output_dtype = self.dtype
+
+        # Find the actual group_size (the non-1 value in block_size)
+        group_size = max(self.block_size)
+
+        def _unpack_and_dequant_2d(qdata, scale, zero_point, group_size, out_dtype):
+            """Unpack int4 from packed bytes and dequantize a single 2D slice.
+
+            qdata: (N, K/2) packed int8
+            scale: (K/group_size, N)
+            zero_point: (K/group_size, N)
+            Returns: (N, K) in out_dtype
+            """
+            # Unpack: each byte holds two int4 values (low nibble, high nibble)
+            low = (qdata & 0xF).to(torch.int32)
+            high = ((qdata >> 4) & 0xF).to(torch.int32)
+            # Interleave to recover original order: [N, K]
+            unpacked = torch.stack([low, high], dim=-1).reshape(
+                qdata.shape[0], -1
+            )
+
+            N, K = unpacked.shape
+            num_groups = K // group_size
+
+            # Convert unsigned (0-15) back to signed (-8 to 7)
+            signed = unpacked.to(torch.float32) - 8.0
+
+            # Reshape for group-wise dequantization: [N, num_groups, group_size]
+            signed = signed.reshape(N, num_groups, group_size)
+
+            # scale and zero_point are (K/group_size, N) = (num_groups, N)
+            # Transpose to (N, num_groups) and unsqueeze for broadcasting
+            s = scale.transpose(0, 1).unsqueeze(-1).to(torch.float32)  # [N, num_groups, 1]
+            zp = zero_point.transpose(0, 1).unsqueeze(-1).to(torch.float32)  # [N, num_groups, 1]
+
+            # Dequantize: x = signed_val * scale + zero_point
+            result = signed * s + zp
+            return result.reshape(N, K).to(out_dtype)
+
+        if self.ndim >= 3:
+            slices = []
+            for i in range(self.shape[0]):
+                slices.append(
+                    _unpack_and_dequant_2d(
+                        self.qdata[i],
+                        self.scale[i],
+                        self.zero_point[i],
+                        group_size,
+                        output_dtype,
+                    )
+                )
+            return torch.stack(slices, dim=0)
+        else:
+            return _unpack_and_dequant_2d(
+                self.qdata, self.scale, self.zero_point, group_size, output_dtype
+            )
+
     @classmethod
     def from_hp(
         cls,
@@ -619,6 +691,26 @@ def _(func, types, args, kwargs):
         act_pre_scale=self.act_pre_scale,
     )
     return return_and_correct_aliasing(func, args, kwargs, new)
+
+
+@implements([aten._grouped_mm.default])
+def _(func, types, args, kwargs):
+    """Handles torch._grouped_mm when weight (mat_b) is an Int4Tensor.
+
+    Dequantizes the int4 weight and calls the native grouped_mm.
+
+    The calling convention is:
+        torch._grouped_mm(mat_a, weight.transpose(-2, -1), offs=offs)
+    where weight is [E, N, K] and after transpose is [E, K, N].
+    mat_a is [total_M, K], offs is [E] with cumulative row counts.
+    """
+    mat_a, mat_b = args[0], args[1]
+    offs = args[2] if len(args) > 2 else kwargs.get("offs", None)
+    assert isinstance(mat_b, Int4Tensor)
+    assert offs is not None, "offs is required for _grouped_mm"
+
+    # Dequantize and call the native grouped_mm
+    return torch._grouped_mm(mat_a, mat_b.dequantize(), offs=offs)
 
 
 Int4Tensor.__module__ = "torchao.quantization"

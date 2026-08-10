@@ -4,6 +4,7 @@
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
 
+import copy
 import unittest
 
 import torch
@@ -19,6 +20,7 @@ from torchao.quantization import (
     quantize_,
 )
 from torchao.quantization.quantize_.common import SupportsActivationPreScaling
+from torchao.quantization.quantize_.workflows.int4.int4_tensor import Int4Tensor
 from torchao.quantization.utils import compute_error
 from torchao.testing.utils import TorchAOIntegrationTestCase
 from torchao.utils import (
@@ -36,6 +38,19 @@ WEIGHT_ONLY_CONFIG = Int4WeightOnlyConfig(
 FP8_ACT_CONFIG = Float8DynamicActivationInt4WeightConfig(
     int4_packing_format="plain",
 )
+
+
+class GroupedMMModel(torch.nn.Module):
+    """A toy model whose only op in forward is torch._grouped_mm."""
+
+    def __init__(self, E, K, N, device, dtype=torch.bfloat16):
+        super().__init__()
+        self.weight = torch.nn.Parameter(
+            torch.randn(E, N, K, device=device, dtype=dtype)
+        )
+
+    def forward(self, x, offs):
+        return torch._grouped_mm(x, self.weight.transpose(-2, -1), offs=offs)
 
 
 @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
@@ -281,6 +296,85 @@ class TestInt4Tensor(TorchAOIntegrationTestCase):
 
         weight = linear.weight
         self.assertEqual(weight.activation_dtype, expected_activation_dtype)
+
+    @parametrize(
+        "E,K,N,m_per_group",
+        [
+            (4, 128, 256, [32, 64, 16, 48]),
+            (8, 256, 128, [16, 16, 16, 16, 16, 16, 16, 16]),
+        ],
+    )
+    @torch.no_grad()
+    def test_grouped_mm(self, E, K, N, m_per_group):
+        """Test Int4WeightOnlyConfig with grouped_mm dispatch (dequant fallback path)."""
+        device = "cuda"
+        dtype = torch.bfloat16
+        total_m = sum(m_per_group)
+
+        model_ref = GroupedMMModel(E, K, N, device=device, dtype=dtype)
+        model = copy.deepcopy(model_ref)
+
+        x = torch.randn(total_m, K, device=device, dtype=dtype)
+        offs = torch.tensor(
+            [sum(m_per_group[: i + 1]) for i in range(E)],
+            device=device,
+            dtype=torch.int32,
+        )
+
+        y_ref = model_ref(x, offs)
+
+        quantize_(
+            model,
+            WEIGHT_ONLY_CONFIG,
+            filter_fn=lambda mod, fqn: (
+                isinstance(mod, GroupedMMModel) and hasattr(mod, "weight")
+            ),
+        )
+
+        self.assertIsInstance(model.weight, Int4Tensor)
+
+        y = model(x, offs)
+        y_sqnr = compute_error(y_ref, y)
+        self.assertGreater(y_sqnr, 15.0, f"Output SQNR too low: {y_sqnr:.2f}")
+
+    @torch.no_grad()
+    def test_dequantize_roundtrip(self):
+        """Test that quantize -> dequantize produces reasonable SQNR."""
+        device = "cuda"
+        dtype = torch.bfloat16
+        N, K = 256, 128
+        weight = torch.randn(N, K, dtype=dtype, device=device)
+        linear = torch.nn.Linear(K, N, bias=False, dtype=dtype, device=device)
+        linear.weight = torch.nn.Parameter(weight)
+        quantize_(linear, WEIGHT_ONLY_CONFIG)
+
+        dequantized = linear.weight.dequantize()
+        self.assertEqual(dequantized.shape, weight.shape)
+        sqnr = compute_error(weight, dequantized)
+        self.assertGreater(sqnr, 15.0, f"Dequantize SQNR too low: {sqnr:.2f}")
+
+    @torch.no_grad()
+    def test_dequantize_3d(self):
+        """Test dequantize on 3D (MoE expert) tensors."""
+        device = "cuda"
+        dtype = torch.bfloat16
+        E, N, K = 4, 128, 256
+        weight = torch.randn(E, N, K, dtype=dtype, device=device)
+
+        model_ref = GroupedMMModel(E, K, N, device=device, dtype=dtype)
+        model = copy.deepcopy(model_ref)
+        quantize_(
+            model,
+            WEIGHT_ONLY_CONFIG,
+            filter_fn=lambda mod, fqn: (
+                isinstance(mod, GroupedMMModel) and hasattr(mod, "weight")
+            ),
+        )
+
+        dequantized = model.weight.dequantize()
+        self.assertEqual(dequantized.shape, model_ref.weight.shape)
+        sqnr = compute_error(model_ref.weight, dequantized)
+        self.assertGreater(sqnr, 15.0, f"3D dequantize SQNR too low: {sqnr:.2f}")
 
 
 instantiate_parametrized_tests(TestInt4Tensor)

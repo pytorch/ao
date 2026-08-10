@@ -8,6 +8,7 @@
 from typing import List, Optional
 
 import torch
+from torch.utils._python_dispatch import return_and_correct_aliasing
 
 from torchao.quantization.quant_primitives import (
     MappingType,
@@ -83,6 +84,79 @@ class Int4PlainInt32Tensor(TorchAOBaseTensor):
             s += f", act_pre_scale.shape={self.act_pre_scale.shape}"
         return s
 
+    def dequantize(self, output_dtype: Optional[torch.dtype] = None) -> torch.Tensor:
+        """Dequantize the int4 packed weight back to high-precision dtype.
+
+        Uses the existing _weight_int4pack_mm_with_scales_and_zeros kernel
+        with an identity matrix to recover the original weight values.
+
+        Handles logically transposed tensors: qdata/scale/zero_point are always
+        stored in the original [N, K/8] / [K/gs, N] layout. If the logical shape
+        has been transposed (detected via block_size), the dequantized result is
+        transposed to match.
+        """
+        if output_dtype is None:
+            output_dtype = self.dtype
+
+        if self.ndim >= 3:
+            # Detect if logically transposed: original block_size is [1, 1, gs],
+            # after transpose(-2,-1) it becomes [1, gs, 1].
+            # Transposed means the group_size is NOT in the last position.
+            is_transposed = self.block_size[-1] == 1 and any(
+                b != 1 for b in self.block_size[:-1]
+            )
+
+            # Dequantize each 2D expert slice in its stored orientation
+            E = self.qdata.shape[0]
+            # Find the actual group_size (the non-1 value in block_size)
+            group_size = max(self.block_size)
+
+            slices = []
+            for i in range(E):
+                # qdata[i] is in original [N, K/8] packed format
+                # scale[i] is in [K/gs, N] format
+                # We need the original 2D shape [N, K] for the identity trick
+                # N = self.shape[-2] if not transposed, self.shape[-1] if transposed
+                if is_transposed:
+                    orig_N = self.shape[-1]
+                    orig_K = self.shape[-2]
+                else:
+                    orig_N = self.shape[-2]
+                    orig_K = self.shape[-1]
+
+                identity = torch.eye(orig_K, dtype=output_dtype, device=self.device)
+                result = torch.ops.aten._weight_int4pack_mm_with_scales_and_zeros(
+                    identity, self.qdata[i], group_size, self.scale[i], self.zero_point[i]
+                )
+                # result is [K, N_padded], trim to [K, N]
+                result = result[:, :orig_N]
+                # result is [K, N], transpose to get [N, K]
+                slices.append(result.transpose(0, 1).contiguous().to(output_dtype))
+
+            # Stack: [E, N, K] (original orientation)
+            stacked = torch.stack(slices, dim=0)
+
+            # If logically transposed, transpose last two dims to match self.shape
+            if is_transposed:
+                stacked = stacked.transpose(-2, -1).contiguous()
+
+            return stacked
+
+        # 2D case: use the matmul kernel with identity matrix
+        # Find group_size from block_size
+        group_size = max(self.block_size)
+        K = self.shape[1]
+        N = self.shape[0]
+
+        identity = torch.eye(K, dtype=output_dtype, device=self.device)
+        result = torch.ops.aten._weight_int4pack_mm_with_scales_and_zeros(
+            identity, self.qdata, group_size, self.scale, self.zero_point
+        )
+        # Trim to original output features (may have been padded)
+        result = result[:, :N]
+        # result is [K, N], transpose to get [N, K]
+        return result.transpose(0, 1).contiguous().to(output_dtype)
+
     @classmethod
     def from_hp(
         cls,
@@ -104,12 +178,40 @@ def _from_hp_xpu(
     w: torch.Tensor,
     block_size: List[int],
 ):
-    assert w.ndim == 2 and w.device.type == "xpu", (
-        f"Expecting 2D tensor on XPU, but got: {w.shape} on {w.device.type}"
+    assert w.device.type == "xpu", (
+        f"Expecting tensor on XPU, but got: {w.device.type}"
     )
     assert len(block_size) == w.ndim
     assert w.dtype in [torch.float16, torch.bfloat16], (
         f"Expecting float16 or bfloat16 weight tensor, but got: {w.dtype}"
+    )
+
+    if w.ndim >= 3:
+        # Quantize each 2D slice independently and stack
+        results = [_from_hp_xpu_2d(cls, w[i], block_size[1:]) for i in range(w.shape[0])]
+        qdata = torch.stack([r.qdata for r in results], dim=0)
+        scale = torch.stack([r.scale for r in results], dim=0)
+        zero_point = torch.stack([r.zero_point for r in results], dim=0)
+        return Int4PlainInt32Tensor(
+            qdata,
+            scale,
+            zero_point,
+            block_size,
+            w.shape,
+            act_pre_scale=None,
+        )
+    else:
+        return _from_hp_xpu_2d(cls, w, block_size)
+
+
+def _from_hp_xpu_2d(
+    cls,
+    w: torch.Tensor,
+    block_size: List[int],
+):
+    """Quantize a single 2D weight tensor on XPU."""
+    assert w.ndim == 2, (
+        f"Expecting 2D tensor, but got: {w.shape}"
     )
     original_shape = w.shape
     mapping_type = MappingType.ASYMMETRIC
@@ -375,6 +477,65 @@ def _linear_npu(
     y = y.reshape(*orig_act_size[:-1], orig_out_features)
 
     return y.to(orig_dtype)
+
+
+@implements(aten.transpose.int)
+def _(func, types, args, kwargs):
+    self, dim0, dim1 = args
+    assert self.ndim == 3, (
+        f"Int4PlainInt32Tensor transpose only supports 3D tensors, got ndim={self.ndim}"
+    )
+    valid_dims = ((1, 2), (2, 1), (-1, -2), (-2, -1))
+    assert (dim0, dim1) in valid_dims, (
+        f"Only transpose of last two dims is supported, got dims {dim0}, {dim1}"
+    )
+
+    # For packed int4 tensors, we do NOT physically transpose qdata/scale/zero_point.
+    # The packed format from _convert_weight_to_int4pack is not meaningfully transposable.
+    # We only update shape and block_size to reflect the logical transpose.
+    # dequantize() and grouped_mm know to handle the stored layout correctly.
+
+    # Update block_size by swapping the dimensions
+    block_size = self.block_size.copy()
+    ndim = len(block_size)
+    d0 = dim0 % ndim
+    d1 = dim1 % ndim
+    block_size[d0], block_size[d1] = block_size[d1], block_size[d0]
+
+    # Update shape by swapping the dimensions
+    new_shape = list(self.shape)
+    new_shape[d0], new_shape[d1] = new_shape[d1], new_shape[d0]
+
+    new = Int4PlainInt32Tensor(
+        self.qdata,       # NOT transposed — packed format is layout-specific
+        self.scale,       # NOT transposed — stays in [E, K/gs, N] layout
+        self.zero_point,  # NOT transposed — stays in [E, K/gs, N] layout
+        block_size,
+        new_shape,
+        act_pre_scale=self.act_pre_scale,
+    )
+    return return_and_correct_aliasing(func, args, kwargs, new)
+
+
+@implements([aten._grouped_mm.default])
+def _(func, types, args, kwargs):
+    """Handles torch._grouped_mm when weight (mat_b) is an Int4PlainInt32Tensor.
+
+    Decomposes the grouped matmul into per-expert matmuls using the existing
+    int4 kernel (_weight_int4pack_mm_with_scales_and_zeros on XPU).
+
+    The calling convention is:
+        torch._grouped_mm(mat_a, weight.transpose(-2, -1), offs=offs)
+    where weight is [E, N, K] and after transpose is [E, K, N].
+    mat_a is [total_M, K], offs is [E] with cumulative row counts.
+    """
+    mat_a, mat_b = args[0], args[1]
+    offs = args[2] if len(args) > 2 else kwargs.get("offs", None)
+    assert isinstance(mat_b, Int4PlainInt32Tensor)
+    assert offs is not None, "offs is required for _grouped_mm"
+
+    # Dequantize and call the native grouped_mm
+    return torch._grouped_mm(mat_a, mat_b.dequantize(), offs=offs)
 
 
 Int4PlainInt32Tensor.__module__ = "torchao.quantization"
