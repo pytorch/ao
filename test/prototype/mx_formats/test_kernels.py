@@ -9,11 +9,6 @@ import torch
 from torch.utils._triton import has_triton
 
 import torchao.prototype.mx_formats.kernels as mx_kernels
-from test.prototype._mxfp8_test_utils import (
-    assert_mxfp8_semantics,
-    make_f32_to_e8m0_rceil_cases,
-    make_mxfp8_semantic_cases,
-)
 from torchao.prototype.mx_formats.constants import (
     DTYPE_FP6_E2M3,
     DTYPE_FP6_E3M2,
@@ -49,6 +44,11 @@ from torchao.prototype.mx_formats.kernels import (
 )
 from torchao.prototype.mx_formats.mx_tensor import ScaleCalculationMode, to_dtype, to_mx
 from torchao.prototype.mx_formats.utils import to_blocked
+from torchao.testing._mxfp8_test_utils import (
+    assert_mxfp8_semantics,
+    make_f32_to_e8m0_rceil_cases,
+    make_mxfp8_semantic_cases,
+)
 from torchao.utils import (
     is_cuda_version_at_least,
     is_MI350,

@@ -15,11 +15,6 @@ from torch.fx.experimental.proxy_tensor import make_fx
 from torch.testing import FileCheck
 
 import torchao.prototype.mx_formats.mx_tensor as mx_tensor_module
-from test.prototype._mxfp8_test_utils import (
-    assert_mxfp8_semantics,
-    make_f32_to_e8m0_rceil_cases,
-    make_mxfp8_semantic_cases,
-)
 from torchao.prototype.mx_formats.constants import (
     DTYPE_FP6_E2M3,
     DTYPE_FP6_E3M2,
@@ -38,6 +33,11 @@ from torchao.prototype.mx_formats.mx_tensor import (
 from torchao.prototype.mx_formats.utils import from_blocked, to_blocked
 from torchao.quantization.quantize_.common import KernelPreference
 from torchao.quantization.utils import compute_error
+from torchao.testing._mxfp8_test_utils import (
+    assert_mxfp8_semantics,
+    make_f32_to_e8m0_rceil_cases,
+    make_mxfp8_semantic_cases,
+)
 from torchao.utils import (
     is_sm_at_least_89,
     is_sm_at_least_90,

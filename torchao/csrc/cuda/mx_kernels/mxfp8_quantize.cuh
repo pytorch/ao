@@ -6,7 +6,6 @@
 
 #pragma once
 
-#include <cassert>
 #include <cstdint>
 #include <cuda.h>
 #include <cudaTypedefs.h>
@@ -15,6 +14,7 @@
 #include <iostream>
 #include <stdexcept>
 #include <string>
+#include <torch/headeronly/util/Exception.h>
 #include <type_traits>
 #include <vector>
 
@@ -1058,14 +1058,24 @@ public:
            cudaStream_t stream = 0) {
 
     // Check parameters
-    assert((scale_dim_x == 1 || scale_dim_x == 32) &&
-           (scale_dim_y == 1 || scale_dim_y == 32));
-    assert(output_rowwise != nullptr || output_colwise != nullptr);
+    STD_TORCH_CHECK((scale_dim_x == 1 || scale_dim_x == 32) &&
+                        (scale_dim_y == 1 || scale_dim_y == 32),
+                    "scale_dim_x and scale_dim_y must each be 1 or 32, got ",
+                    scale_dim_x, " and ", scale_dim_y);
+    STD_TORCH_CHECK(rows % 32 == 0 && cols % 32 == 0,
+                    "rows and cols must be multiples of 32, got ", rows,
+                    " and ", cols);
+    STD_TORCH_CHECK(output_rowwise != nullptr || output_colwise != nullptr,
+                    "at least one output must be non-null");
 
     if (output_rowwise)
-      assert(scales_rowwise != nullptr);
+      STD_TORCH_CHECK(
+          scales_rowwise != nullptr,
+          "scales_rowwise must be non-null when output_rowwise is non-null");
     if (output_colwise)
-      assert(scales_colwise != nullptr);
+      STD_TORCH_CHECK(
+          scales_colwise != nullptr,
+          "scales_colwise must be non-null when output_colwise is non-null");
 
     // Calculate grid dimensions
     const size_t chunks_Y = DIVUP(rows, MXFP8_CHUNK_DIM_Y);
@@ -1202,10 +1212,15 @@ public:
               cudaStream_t stream = 0) {
 
     // Check parameters
-    assert(scale_dim_n == 32); // Only support 32 for now
-    assert(N % scale_dim_n == 0);
-    assert(output_colwise != nullptr);
-    assert(scales_colwise != nullptr);
+    STD_TORCH_CHECK(scale_dim_n == 32, "scale_dim_n must be 32, got ",
+                    scale_dim_n);
+    STD_TORCH_CHECK(N % scale_dim_n == 0,
+                    "N must be a multiple of scale_dim_n, got N=", N,
+                    " and scale_dim_n=", scale_dim_n);
+    STD_TORCH_CHECK(output_colwise != nullptr,
+                    "output_colwise must be non-null");
+    STD_TORCH_CHECK(scales_colwise != nullptr,
+                    "scales_colwise must be non-null");
 
     // Calculate grid dimensions for 3D tensor: Z handles E dimension, X,Y handle (N,K)
     const size_t chunks_Y = DIVUP(N, MXFP8_CHUNK_DIM_Y);

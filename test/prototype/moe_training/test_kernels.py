@@ -21,10 +21,6 @@ if not (torch.cuda.is_available() and (_is_sm_10x() or is_MI300() or is_MI350())
         allow_module_level=True,
     )
 
-from test.prototype._mxfp8_test_utils import (
-    assert_mxfp8_semantics,
-    make_mxfp8_semantic_cases,
-)
 from torchao.float8.config import ScalingGranularity, e4m3_dtype
 from torchao.float8.float8_utils import tensor_to_scale, to_fp8_saturated
 from torchao.prototype.moe_training.kernels import (
@@ -73,6 +69,10 @@ from torchao.prototype.moe_training.utils import (
 from torchao.prototype.mx_formats.kernels import triton_mx_block_rearrange
 from torchao.prototype.mx_formats.mx_tensor import ScaleCalculationMode, to_mx
 from torchao.prototype.mx_formats.utils import from_blocked, to_blocked
+from torchao.testing._mxfp8_test_utils import (
+    assert_mxfp8_semantics,
+    make_mxfp8_semantic_cases,
+)
 from torchao.testing.utils import skip_if_rocm
 
 

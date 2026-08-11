@@ -4,6 +4,8 @@
 # This source code is licensed under the license found in the
 # LICENSE file in the root directory of this source tree.
 
+"""Shared helpers for testing MXFP8 quantization semantics."""
+
 from dataclasses import dataclass
 
 import torch
@@ -50,9 +52,9 @@ def make_mxfp8_semantic_cases(
         "negative_satfinite",
     )
 
-    inputs = torch.zeros((len(names), 32), dtype=input_dtype, device=device)
-    expected_scales = torch.zeros((len(names),), dtype=torch.uint8)
-    expected_data = torch.zeros_like(inputs, dtype=torch.uint8, device="cpu")
+    inputs = torch.empty((len(names), 32), dtype=input_dtype, device=device)
+    expected_scales = torch.empty((len(names),), dtype=torch.uint8)
+    expected_data = torch.empty_like(inputs, dtype=torch.uint8, device="cpu")
 
     # The maximum fp32/bf16 value is 2^128-eps. Divided by 448 (=1.75*2^8) it
     # becomes (1/1.75-eps)*2^120, with 0.5 < 1/1.75 < 1. Rounding this up gives
@@ -82,8 +84,9 @@ def make_mxfp8_semantic_cases(
 
     for idx, name in enumerate(names):
         if name == "zero":
-            # Leave eveything at zero. Note this means the scale is 2^-127.
-            pass
+            inputs[idx].fill_(0.0)
+            expected_scales[idx] = 0  # 2^-127
+            expected_data[idx].fill_(0x00)
 
         elif name == "smallest_normal":
             # E8M0 byte 0 encodes 2^-127 rather than numerical zero. The smallest
