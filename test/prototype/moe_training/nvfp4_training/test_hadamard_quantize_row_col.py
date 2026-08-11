@@ -506,7 +506,6 @@ def test_rht_quantize_row_col_zero_and_near_zero_no_nan_or_saturation(
     )
     assert row_dequant.abs().max() <= 1.0
 
-
     col_target = torch.full((N, M), _NEAR_ZERO, dtype=torch.float32, device="cuda")
     col_target[0, 0] = 1.0
     A_col = _input_from_rht_target(col_target)
@@ -527,7 +526,6 @@ def test_rht_quantize_row_col_zero_and_near_zero_no_nan_or_saturation(
         "colwise dequantized values must be finite"
     )
     assert col_dequant.abs().max() <= 1.0
-
 
 
 # ---------------------------------------------------------------------------

@@ -348,14 +348,12 @@ def test_weight_quantize_2d_zero_and_near_zero_no_nan_or_saturation(kernel, inpu
     )
     assert row_dequant.abs().max() <= 1.0
 
-
     _assert_scales_finite(col_sf)
     col_dequant = _dequantize(col_codes, col_sf, global_amax)
     assert torch.isfinite(col_dequant).all(), (
         "colwise dequantized values must be finite"
     )
     assert col_dequant.abs().max() <= 1.0
-
 
 
 # ---------------------------------------------------------------------------

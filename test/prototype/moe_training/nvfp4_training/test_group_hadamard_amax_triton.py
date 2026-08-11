@@ -113,11 +113,7 @@ def test_group_rht_amax_matches_per_group_kernel_bitwise():
     )
     torch_col = torch.stack(
         [
-            (A_g.t().reshape(-1, 16) @ rht)
-            .to(torch.bfloat16)
-            .abs()
-            .amax()
-            .float()
+            (A_g.t().reshape(-1, 16) @ rht).to(torch.bfloat16).abs().amax().float()
             for A_g in group_tensors
         ]
     )
