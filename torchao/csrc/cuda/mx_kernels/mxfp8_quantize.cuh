@@ -51,7 +51,6 @@ do {                                                                          \
 enum class DType {
   kByte,
   kFloat32,
-  kFloat16,
   kBFloat16,
   kFloat8E4M3,
   kFloat8E5M2
@@ -346,8 +345,6 @@ inline CUtensorMapDataType get_dtype_for_tma(DType dtype) {
   switch (dtype) {
   case DType::kFloat32:
     return CU_TENSOR_MAP_DATA_TYPE_FLOAT32;
-  case DType::kFloat16:
-    return CU_TENSOR_MAP_DATA_TYPE_FLOAT16;
   case DType::kBFloat16:
     return CU_TENSOR_MAP_DATA_TYPE_BFLOAT16;
   case DType::kFloat8E4M3:
