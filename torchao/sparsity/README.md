@@ -23,8 +23,6 @@ The following benchmarks we ran for sam ViT-h on an NVIDIA-A100-80GB, with batch
 |            | 2:4 sparsity (mlp only)                                                                              | 24.81 | 15632        | 0.5672              | **1.10x**        | **97.61%**        |
 |            | 2:4 sparsity (attn + mlp)                                                                            | 24.30 | 13429        | 0.5306              | **1.07x**        | **91.31%**        |
 
-To reproduce our benchmarks please follow these [instructions](/torchao/_models/sam/README.md).
-
 ### LLama3
 
 On Meta LLama3, we observe a 25% tok/s increase (180 -> 226) compared to our existing int4-wo implementation when using the sparse marlin kernel @Diogo-V added.
