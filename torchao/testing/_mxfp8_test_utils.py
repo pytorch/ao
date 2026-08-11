@@ -167,6 +167,7 @@ def make_mxfp8_semantic_cases(
             inputs[idx].fill_(1.0)
             inputs[idx, 0] = torch.finfo(input_dtype).max
             expected_scales[idx] = max_scale
+            expected_data[idx].fill_(0x00)
             expected_data[idx, 0] = max_data
 
         elif name == "rceil_premature_bf16_lowers_scale":
