@@ -115,27 +115,8 @@ The tool will also write the BO search trial history to history_output csv file 
 | 7.4736  | 5.9766 | {'bitwidth.0.': 5, 'groupsize.0.': 32, 'bitwidth.1.': 5, 'groupsize.1.': 32,...,'bitwidth.31.': 5, 'groupsize.31.': 32} |
 ...
 
-#### Run BO to optimize inference speed
-We also provide another version of BO search to optimize inference throughput (with torch.compile()) under a certain model accuracy constraint:
-```
-python --BO_acc_throughput.py --checkpoint=/tmp/Meta-Llama-3-8B --num_trials=200 --ppl_constraint=7.5 --output_file=BO_acc_modelsize_output.csv --parameters_list=Llama3-8B_parameters.json --initial_samples Llama3-8B_initial_samples.json
-```
-All the arguments are similar to the optmizing accuracy under model size constraint, except replacing --model_size_constraint with --ppl_constraint=7.5 to set up the perplexity limit of the valid search results.
-
-Similarly, the tool will output the best configuration for both inference throughput and model accuracy.
-```
-------Best config------
-{'cal_throughput': 147.72, 'cal_PPL': 7.3134} {'bitwidth.0.': 5, 'groupsize.0.': 32, 'bitwidth.1.': 5, 'groupsize.1.': 32,...,'bitwidth.31.': 5, 'groupsize.31.': 32}
-```
-and write out the BO search history file:
-|   cal_throughput        | cal_PPL | quant_config|
-| ---------------- | ------ | ------ |
-| 135.64  | 7.5322 | {'bitwidth.0.': 6, 'groupsize.0.': 64, 'bitwidth.1.': 4, 'groupsize.1.': 128,...,'bitwidth.31.': 5, 'groupsize.31.': 64} |
-| 147.72  | 7.3134 | {'bitwidth.0.': 5, 'groupsize.0.': 32, 'bitwidth.1.': 5, 'groupsize.1.': 32,...,'bitwidth.31.': 5, 'groupsize.31.': 32} |
-...
-
 #### Run BO for other models
-We are supporting more models, such as more transformer models and ViT models. To run all the above experiments for a new model e.g., Mistrial-7B-v0.1, you will need to specified the correct path to load model with --checkpoint, the desired parameters space with --parameters_list and the optional your pre-defined initial samples with --initial_samples, with the following command, similarly for optimizing the inference speed:
+We are supporting more models, such as more transformer models and ViT models. To run all the above experiments for a new model e.g., Mistrial-7B-v0.1, you will need to specified the correct path to load model with --checkpoint, the desired parameters space with --parameters_list and the optional your pre-defined initial samples with --initial_samples, with the following command:
 
 ```
 python --BO_acc_modelsize.py --checkpoint=/tmp/Mistral-7B-v0.1/ --num_trials=200 --model_size_constraint=6.0 --output_file=BO_acc_modelsize_output.csv --parameters_list=Mistral-7B_parameters.json --initial_samples=Mistral-7B_initial_samples.json --gpu_lists=0,1,2,3"
@@ -145,7 +126,7 @@ Support for ViT models is coming soon.
 
 
 ## Results
-We evaluated BO search for Llama3-8B and Mistral-7B-v0.1 under two settings: (1) optimizing model accuracy under model size constraint; (2) optimizing model inference throughput under model accuracy constraint, and compared the BO results with bfloat-16, [int8 weight only](https://github.com/pytorch/ao/blob/983f5653f5516e91c9fb9df73d6f407fbd4b381f/torchao/quantization/quant_api.py#L432) uniform quantization and [int4 weight only](https://github.com/pytorch/ao/blob/983f5653f5516e91c9fb9df73d6f407fbd4b381f/torchao/quantization/quant_api.py#L396) uniform quantization.
+We evaluated BO search for Llama3-8B and Mistral-7B-v0.1 optimizing model accuracy under a model size constraint, and compared the BO results with bfloat-16, [int8 weight only](https://github.com/pytorch/ao/blob/983f5653f5516e91c9fb9df73d6f407fbd4b381f/torchao/quantization/quant_api.py#L432) uniform quantization and [int4 weight only](https://github.com/pytorch/ao/blob/983f5653f5516e91c9fb9df73d6f407fbd4b381f/torchao/quantization/quant_api.py#L396) uniform quantization.
 
 ### Results of BO for optimizing model accuracy under model size constraint
 
@@ -168,14 +149,3 @@ For Mistral-7B-v0.1, BO search quantization saves 30.6% model size with only 1.7
 | int8wo uniform quantization  | 8.028  | 7.90  |
 | int4wo uniform quantization  | 8.387  | 4.65 |
 | BO mixed-precision quantization  | 8.168 | 5.48 |
-
-
-### Results of BO for optimizing model inference throughput under model accuracy constraint
-For Llama3-8B, the BO search quantization improves 15.2% throughput with only 3.21% ppl degradation compared to int8wo uniform quantization baseline.
-
-|    Llama3-8B     |ppl | throughput|
-| ---------------- | ------ | ------ |
-| bf16 baseline  | 7.260 | 94.97 |
-| int8wo uniform quantization  | 7.263 | 139.76 |
-| int4wo uniform quantization  | 7.900 | 179.44 |
-| BO mixed-precision quantization  | 7.496 | 160.96 |

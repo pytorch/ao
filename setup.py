@@ -823,7 +823,6 @@ setup(
     packages=find_packages(exclude=["benchmarks", "benchmarks.*"]),
     include_package_data=True,
     package_data={
-        "torchao.kernel.configs": ["*.pkl"],
         "torchao.prototype.spinquant": [
             "_hadamard_matrices.json",
             "_hadamard_matrices.pkl",
