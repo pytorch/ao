@@ -6,7 +6,6 @@
 
 #pragma once
 
-#include <cassert>
 #include <cstdint>
 #include <cuda.h>
 #include <cudaTypedefs.h>
@@ -15,6 +14,7 @@
 #include <iostream>
 #include <stdexcept>
 #include <string>
+#include <torch/headeronly/util/Exception.h>
 #include <vector>
 
 // Use official CUDA PTX library
@@ -549,38 +549,6 @@ quantize_block(float amax, e8m0_t &out_scale,
 
 }
 
-/**
- * Bounds checking helper for IMA avoidance
- */
-struct BoundsChecker {
-  const size_t rows, cols;
-  const size_t chunk_offset_X, chunk_offset_Y;
-
-  __device__ __forceinline__ BoundsChecker(size_t r, size_t c, size_t cox,
-                                           size_t coy)
-      : rows(r), cols(c), chunk_offset_X(cox), chunk_offset_Y(coy) {}
-
-  __device__ __forceinline__ bool is_out_of_bounds(size_t row,
-                                                   size_t col) const {
-    return (row >= rows) || (col >= cols);
-  }
-
-  __device__ __forceinline__ bool
-  is_rowwise_out_of_bounds(size_t shmem_y, size_t shmem_x, int j,
-                           size_t row_base) const {
-    const size_t row = row_base + shmem_y;
-    const size_t col = chunk_offset_X + shmem_x + j;
-    return is_out_of_bounds(row, col);
-  }
-
-  __device__ __forceinline__ bool
-  is_colwise_out_of_bounds(size_t row_offset, size_t col,
-                           size_t row_base) const {
-    const size_t row = row_base + row_offset;
-    return is_out_of_bounds(row, col);
-  }
-};
-
 ////////////////////////////////////////////////////////////////////////////////
 // MXFP8 quantization kernel
 ////////////////////////////////////////////////////////////////////////////////
@@ -681,8 +649,6 @@ __global__ void __launch_bounds__(MXFP8_THREADS_PER_CHUNK)
 
   const bool is_master_thread = (threadIdx.x == 0);
 
-  float block_amax = 0;
-
 // Initialize shared memory barrier with the number of threads participating in
 // the barrier.
 #pragma nv_diag_suppress static_var_with_dynamic_init
@@ -772,9 +738,6 @@ __global__ void __launch_bounds__(MXFP8_THREADS_PER_CHUNK)
         Vec<IType, ELEMS_PER_THREAD> in;
         Vec<OType, ELEMS_PER_THREAD> out_c;
 
-        // Create bounds checker for this chunk
-        BoundsChecker bounds(rows, cols, chunk_offset_X, chunk_offset_Y);
-
         const int iteration_scale_rowwise_offset_Y =
             scales_rowwise_chunk_offset_Y + iter * MXFP8_BUFFER_DIM_Y;
 
@@ -790,24 +753,17 @@ __global__ void __launch_bounds__(MXFP8_THREADS_PER_CHUNK)
           float thread_amax = 0;
           float in_compute[ELEMS_PER_THREAD];
 
-          // Calculate thread-local amax and prepare input values
+          // TMA zero-fills OOB tile padding. Since rows and columns are
+          // multiples of 32, padding never shares an MX block with valid data.
 #pragma unroll
           for (int j = 0; j < ELEMS_PER_THREAD; ++j) {
-            const bool out_of_bounds = bounds.is_rowwise_out_of_bounds(
-                shmem_offset_y, shmem_offset_x, j, row_base);
-
             // Load and convert to float
             float elt = DataTypeTraits<IType>::to_float(in.data.elt[j]);
             in_compute[j] = elt;
 
             // Update thread local amax
-            if (!out_of_bounds) {
-              thread_amax = fmaxf(thread_amax, fabsf(elt));
-            }
+            thread_amax = fmaxf(thread_amax, fabsf(elt));
           }
-
-          // Update block local amax
-          block_amax = fmaxf(block_amax, thread_amax);
 
           // Reduce amax across subwarp
           const float subwarp_amax =
@@ -862,9 +818,6 @@ __global__ void __launch_bounds__(MXFP8_THREADS_PER_CHUNK)
       // Column-wise scaling
 
       if constexpr (USE_COLWISE_SCALING) {
-        // Create bounds checker for this chunk
-        BoundsChecker bounds(rows, cols, chunk_offset_X, chunk_offset_Y);
-
         const size_t col = chunk_offset_X + tid_colwise_X;
         const bool col_out_of_bounds = (col >= cols);
 
@@ -874,18 +827,13 @@ __global__ void __launch_bounds__(MXFP8_THREADS_PER_CHUNK)
         // Calculate amax and prepare input values
 #pragma unroll
         for (int i = 0; i < SCALE_DIM_Y; ++i) {
-          const bool out_of_bounds =
-              bounds.is_colwise_out_of_bounds(i, col, row_base);
-
           // Load and convert to float
           float elt =
               DataTypeTraits<IType>::to_float(in_sh[buff][i][tid_colwise_X]);
           in_compute[i] = elt;
 
           // Update thread local amax
-          if (!out_of_bounds) {
-            amax = fmaxf(amax, fabsf(elt));
-          }
+          amax = fmaxf(amax, fabsf(elt));
         }
 
         // Apply quantization to the local block.
@@ -1105,9 +1053,6 @@ __global__ void __launch_bounds__(MXFP8_THREADS_PER_CHUNK)
 
       // ======== 3d tensor column-wise scaling
 
-      // Create bounds checker for this chunk - using the full tensor dimensions (E*N, K)
-      BoundsChecker bounds(E * N, K, chunk_offset_X, chunk_offset_Y);
-
       const size_t col = chunk_offset_X + tid_colwise_X;
       const bool col_out_of_bounds = (col >= K);
 
@@ -1117,18 +1062,13 @@ __global__ void __launch_bounds__(MXFP8_THREADS_PER_CHUNK)
       // Calculate amax and prepare input values
 #pragma unroll
       for (int i = 0; i < SCALE_DIM_Y; ++i) {
-        const bool out_of_bounds =
-            bounds.is_colwise_out_of_bounds(i, col, row_base);
-
         // Load and convert to float
         float elt =
             DataTypeTraits<IType>::to_float(in_sh[buff][i][tid_colwise_X]);
         in_compute[i] = elt;
 
         // Update thread local amax
-       if (!out_of_bounds) {
         amax = fmaxf(amax, fabsf(elt));
-       }
       }
 
       // Apply quantization to the local block.
@@ -1223,14 +1163,24 @@ public:
            cudaStream_t stream = 0) {
 
     // Check parameters
-    assert((scale_dim_x == 1 || scale_dim_x == 32) &&
-           (scale_dim_y == 1 || scale_dim_y == 32));
-    assert(output_rowwise != nullptr || output_colwise != nullptr);
+    STD_TORCH_CHECK((scale_dim_x == 1 || scale_dim_x == 32) &&
+                        (scale_dim_y == 1 || scale_dim_y == 32),
+                    "scale_dim_x and scale_dim_y must each be 1 or 32, got ",
+                    scale_dim_x, " and ", scale_dim_y);
+    STD_TORCH_CHECK(rows % 32 == 0 && cols % 32 == 0,
+                    "rows and cols must be multiples of 32, got ", rows,
+                    " and ", cols);
+    STD_TORCH_CHECK(output_rowwise != nullptr || output_colwise != nullptr,
+                    "at least one output must be non-null");
 
     if (output_rowwise)
-      assert(scales_rowwise != nullptr);
+      STD_TORCH_CHECK(
+          scales_rowwise != nullptr,
+          "scales_rowwise must be non-null when output_rowwise is non-null");
     if (output_colwise)
-      assert(scales_colwise != nullptr);
+      STD_TORCH_CHECK(
+          scales_colwise != nullptr,
+          "scales_colwise must be non-null when output_colwise is non-null");
 
     // Calculate grid dimensions
     const size_t chunks_Y = DIVUP(rows, MXFP8_CHUNK_DIM_Y);
@@ -1367,9 +1317,15 @@ public:
               cudaStream_t stream = 0) {
 
     // Check parameters
-    assert(scale_dim_n == 32); // Only support 32 for now
-    assert(output_colwise != nullptr);
-    assert(scales_colwise != nullptr);
+    STD_TORCH_CHECK(scale_dim_n == 32, "scale_dim_n must be 32, got ",
+                    scale_dim_n);
+    STD_TORCH_CHECK(N % scale_dim_n == 0,
+                    "N must be a multiple of scale_dim_n, got N=", N,
+                    " and scale_dim_n=", scale_dim_n);
+    STD_TORCH_CHECK(output_colwise != nullptr,
+                    "output_colwise must be non-null");
+    STD_TORCH_CHECK(scales_colwise != nullptr,
+                    "scales_colwise must be non-null");
 
     // Calculate grid dimensions for 3D tensor: Z handles E dimension, X,Y handle (N,K)
     const size_t chunks_Y = DIVUP(N, MXFP8_CHUNK_DIM_Y);
