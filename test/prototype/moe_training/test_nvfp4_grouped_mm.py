@@ -143,6 +143,12 @@ def test_emulated_nvfp4_grouped_gemm_2d_2d(M, K, N, num_experts):
 @pytest.mark.skipif(
     not torch_version_at_least("2.10.0"), reason="requires PyTorch 2.10+"
 )
+# Keep the ungrouped dim above 128 here. The columnwise scale buffer is
+# (ungrouped // 128, tokens // 64, 32, 16), so at or below one 128-row tile the
+# per-group and whole-extent block layouts are the same permutation and wgrad
+# layout bugs are invisible at any expert count -- 8 experts at K=N=128 scores
+# the same 15.06 dB with or without such a bug. Expert count is not the axis
+# that gives this coverage; the ungrouped dim is.
 @pytest.mark.parametrize("M,K,N", [(1024, 1024, 1024)])
 @pytest.mark.parametrize("num_experts", (1, 8))
 def test_nvfp4_grouped_gemm_fwd_bwd(M, K, N, num_experts):
@@ -210,7 +216,12 @@ def test_nvfp4_grouped_gemm_fwd_bwd(M, K, N, num_experts):
     not torch_version_at_least("2.10.0"), reason="requires PyTorch 2.10+"
 )
 def test_nvfp4_grouped_gemm_unaligned_padding():
-    M, K, N, num_experts = 256, 128, 128, 2
+    # K=N=256, not 128: this is the only coverage of the padded/unaligned group
+    # path, and that path depends on the padding restoring the 128-aligned group
+    # boundaries the columnwise scale store requires. At 128 the scale layout is
+    # a single row-tile and degenerate (see the note above the fwd/bwd shapes),
+    # so the test cannot see a layout error in the path it exists to guard.
+    M, K, N, num_experts = 256, 256, 256, 2
     torch.manual_seed(42)
     x = torch.randn(M, K, dtype=torch.bfloat16, device="cuda", requires_grad=True)
     weight = torch.randn(
