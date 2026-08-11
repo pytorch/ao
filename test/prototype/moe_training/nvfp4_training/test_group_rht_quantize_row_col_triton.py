@@ -37,6 +37,8 @@ from torchao.prototype.mx_formats.nvfp4_tensor import (
 from torchao.prototype.mx_formats.utils import from_blocked, to_blocked
 from torchao.utils import is_sm_at_least_100, torch_version_at_least
 
+_TILE_ELEMS = 32 * 16  # elements in one swizzled scale tile
+
 if has_triton() and is_sm_at_least_100() and torch_version_at_least("2.10.0"):
     from torchao.prototype.moe_training.nvfp4_training.group_hadamard_amax_triton import (
         triton_group_rht_amax,
@@ -152,6 +154,33 @@ def _assert_scales_adjacent(got: torch.Tensor, ref: torch.Tensor, label: str) ->
     )
 
 
+def _from_blocked_grouped(sfd, hidden, group_sizes):
+    """De-swizzle a columnwise scale buffer, whose groups are blocked separately.
+
+    The columnwise scales put the grouped token axis on the 64-blocked inner
+    side, so each group is blocked on its own extent and the buffers are
+    concatenated flat -- one whole-extent de-swizzle would read the wrong tiles
+    for every group. The rowwise buffer needs no equivalent: there the grouped
+    axis is the outer one, where a group is already contiguous.
+    """
+    out, base = [], 0
+    for m in group_sizes:
+        span = (hidden // 128) * (m // 64) * _TILE_ELEMS
+        chunk = sfd.reshape(-1)[base : base + span].reshape(hidden, m // 16)
+        out.append(from_blocked(chunk, hidden, m // 16))
+        base += span
+    return torch.cat(out, dim=1)
+
+
+def _to_blocked_grouped(plain, group_sizes):
+    """Inverse of _from_blocked_grouped: block each group on its own extent."""
+    parts, col = [], 0
+    for m in group_sizes:
+        parts.append(to_blocked(plain[:, col : col + m // 16]).flatten())
+        col += m // 16
+    return torch.cat(parts)
+
+
 def _make_rng_state(device, values=(1, 2, 3, 4)) -> torch.Tensor:
     """[col_seed, col_offset, row_seed, row_offset] caller-owned Philox state."""
     return torch.tensor(list(values), dtype=torch.int64, device=device)
@@ -233,7 +262,7 @@ def triton_group_rht_quantize_row_col_ref(
     expected_row_sf = torch.empty(
         (psl, hs // 16), dtype=torch.float8_e4m3fn, device=A.device
     )
-    col_sf_plain = from_blocked(sfd, hs, psl // 16)
+    col_sf_plain = _from_blocked_grouped(sfd, hs, spec.groups)
     row_sf_plain = from_blocked(sfa, psl, hs // 16)
 
     row_offset = 0
@@ -267,7 +296,9 @@ def triton_group_rht_quantize_row_col_ref(
 
         row_offset += m
 
-    _assert_scales_adjacent(sfd, to_blocked(expected_col_sf), "col sf swizzled")
+    _assert_scales_adjacent(
+        sfd, _to_blocked_grouped(expected_col_sf, spec.groups), "col sf swizzled"
+    )
     _assert_scales_adjacent(sfa, to_blocked(expected_row_sf), "row sf swizzled")
 
 
@@ -387,7 +418,9 @@ def test_group_rht_padded_capacity_masks_spare_rows():
     expected_qa, expected_sfa, expected_qd, expected_sfd = expected
     actual_qa, actual_sfa, actual_qd, actual_sfd = actual
     actual_sfa_plain = from_blocked(actual_sfa, capacity_rows, hidden_size // 16)
-    actual_sfd_plain = from_blocked(actual_sfd, hidden_size, capacity_rows // 16)
+    # Only the one group's extent: the capacity tail lies past every group's
+    # blocked buffer, so it is not part of the columnwise scale layout at all.
+    actual_sfd_plain = _from_blocked_grouped(actual_sfd, hidden_size, (logical_rows,))
 
     assert torch.equal(actual_qa[:logical_rows], expected_qa)
     assert torch.equal(
@@ -396,13 +429,15 @@ def test_group_rht_padded_capacity_masks_spare_rows():
     )
     assert torch.equal(actual_qd[:, : logical_rows // 2], expected_qd)
     assert torch.equal(
-        actual_sfd_plain[:, : logical_rows // 16],
+        actual_sfd_plain,
         from_blocked(expected_sfd, hidden_size, logical_rows // 16),
     )
     assert torch.count_nonzero(actual_qa[logical_rows:]) == 0
     assert torch.count_nonzero(actual_sfa_plain[logical_rows:]) == 0
     assert torch.count_nonzero(actual_qd[:, logical_rows // 2 :]) == 0
-    assert torch.count_nonzero(actual_sfd_plain[:, logical_rows // 16 :]) == 0
+    # No columnwise-scale equivalent: the grouped layout ends at the last
+    # group's extent, so the spare capacity has no scale bytes to flush -- the
+    # allocation past that point is never addressed by the grouped GEMM.
 
 
 @_maybe_sm100

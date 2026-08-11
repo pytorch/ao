@@ -133,6 +133,13 @@ if has_triton():
     import triton
     import triton.language as tl
 
+    # Elements in one swizzled scale tile (128 outer rows x 4 inner
+    # scale-columns). Shared scope because the store helper and the grouped
+    # wrapper that offsets into it must agree on this by construction. Must be a
+    # tl.constexpr instance, not a bare int: @triton.jit refuses non-constexpr
+    # module globals.
+    TILE_ELEMS = tl.constexpr(32 * 16)
+
     @triton.jit
     def _compute_pid(tile_id, num_pid_in_group, num_pid_n, GROUP_SIZE_N: tl.constexpr):
         r"""Convert flat tile_id to (pid_n, pid_m) with L2-cache-friendly grouping."""
@@ -292,16 +299,20 @@ if has_triton():
         INNER,
         BLOCK_OUTER: tl.constexpr,
         BLOCK_INNER: tl.constexpr,
+        base_elems=0,
     ):
         """Store pre-swizzled scale factors in tile-major layout (OUTER//128, INNER//64, 32, 16).
 
         Columnwise: _store_scales_swizzle(sf, ptr, pid_n, pid_m, N, M, BLOCK_N, BLOCK_M)
         Rowwise:    _store_scales_swizzle(sf, ptr, pid_m, pid_n, M, N, BLOCK_M, BLOCK_N)
+
+        *INNER* is the extent this tiling runs over, which is the whole tensor
+        unless the inner axis is grouped -- see _store_grouped_scales_swizzle,
+        the only caller that passes a nonzero *base_elems*.
         """
         VEC_ELEMS_FP8: tl.constexpr = 16
         BLOCK_OUTER_TILES: tl.constexpr = BLOCK_OUTER // 128
         BLOCK_INNER_TILES: tl.constexpr = BLOCK_INNER // 64
-        TILE_ELEMS: tl.constexpr = 32 * 16
         FLAT_TILE: tl.constexpr = BLOCK_OUTER_TILES * BLOCK_INNER_TILES * TILE_ELEMS
 
         INNER_TILES = tl.cdiv(INNER, 64)
@@ -315,7 +326,8 @@ if has_triton():
         elem_idx = tl.arange(0, TILE_ELEMS)
 
         offsets = (
-            rb_idx[:, None, None] * INNER_TILES * TILE_ELEMS
+            base_elems
+            + rb_idx[:, None, None] * INNER_TILES * TILE_ELEMS
             + cb_idx[None, :, None] * TILE_ELEMS
             + elem_idx[None, None, :]
         )
@@ -332,6 +344,53 @@ if has_triton():
         tl.multiple_of(flat_ptrs, VEC_ELEMS_FP8)
         tl.max_contiguous(flat_ptrs, VEC_ELEMS_FP8)
         tl.store(flat_ptrs, flat_val, mask=flat_msk)
+
+    @triton.jit
+    def _store_grouped_scales_swizzle(
+        scale_inv,
+        sf_ptr,
+        pid_outer,
+        pid_inner,
+        offsets_ptr,
+        group_idx,
+        OUTER,
+        BLOCK_OUTER: tl.constexpr,
+        BLOCK_INNER: tl.constexpr,
+    ):
+        """Store scales whose *inner* (64-blocked) axis is the grouped one.
+
+        A grouped GEMM reads each group's block scales as an independently
+        blocked buffer, the buffers concatenated flat -- what
+        `_check_scales_blocked` calls `rounded_up_per_group(K/blocksize, 4)`
+        (pytorch aten/src/ATen/native/cuda/GroupedBlas.cpp:401-403). So the
+        tiling has to restart at every group boundary. Running it over the
+        packed extent instead scatters each group's tiles through the buffer,
+        and the GEMM then reads all of them from the wrong offset.
+
+        The outer axis needs no equivalent: it is the slowest-varying term, so a
+        group occupying whole 128-row tiles is already contiguous. That is why
+        the rowwise store -- where the grouped axis is the outer one -- calls
+        _store_scales_swizzle directly.
+
+        Requires 128-aligned group boundaries, which is what makes the
+        group-local tile index exact. The pad-128 token dispatcher guarantees
+        it, as does the caller's `offs[-1] = A.shape[0]` for the padding tail.
+        """
+        group_start = tl.load(
+            offsets_ptr + group_idx - 1, mask=group_idx > 0, other=0
+        ).to(tl.int32)
+        group_end = tl.load(offsets_ptr + group_idx).to(tl.int32)
+        _store_scales_swizzle(
+            scale_inv,
+            sf_ptr,
+            pid_outer,
+            pid_inner - group_start // BLOCK_INNER,
+            OUTER,
+            group_end - group_start,
+            BLOCK_OUTER,
+            BLOCK_INNER,
+            base_elems=tl.cdiv(OUTER, 128) * (group_start // 64) * TILE_ELEMS,
+        )
 
 else:
 
@@ -355,3 +414,6 @@ else:
 
     def _store_scales_swizzle(*args, **kwargs):
         raise RuntimeError("_store_scales_swizzle requires Triton")
+
+    def _store_grouped_scales_swizzle(*args, **kwargs):
+        raise RuntimeError("_store_grouped_scales_swizzle requires Triton")

@@ -36,7 +36,7 @@ from torchao.testing.utils import skip_if_rocm
 
 if has_triton() and is_sm_at_least_100() and torch_version_at_least("2.10.0"):
     from torchao.prototype.moe_training.nvfp4_training.nvfp4_grouped_mm import (
-        _to_nvfp4_then_scaled_grouped_mm,
+        _to_nvfp4_rht_rs_then_scaled_grouped_mm,
     )
 
 BLOCK_SIZE = 16
@@ -168,7 +168,7 @@ def test_nvfp4_grouped_gemm_fwd_bwd(M, K, N, num_experts):
         offs=offs.clone(),
         out_dtype=torch.bfloat16,
     )
-    out = _to_nvfp4_then_scaled_grouped_mm(
+    out = _to_nvfp4_rht_rs_then_scaled_grouped_mm(
         x,
         weight,
         sign_vector,
@@ -190,7 +190,13 @@ def test_nvfp4_grouped_gemm_fwd_bwd(M, K, N, num_experts):
     assert input_grad_sqnr >= 14.0, f"Input grad SQNR {input_grad_sqnr} is below 14.0"
 
     assert weight.grad.shape == weight_ref.grad.shape == (num_experts, N, K)
-    min_weight_grad_sqnr = 14.0 if num_experts == 1 else 5.0
+    # One bound for any expert count. The multi-expert case had been relaxed to
+    # 5.0, which hid a columnwise scale-layout bug in the wgrad GEMM that put it
+    # at ~6.7 dB; that is fixed. 12.0 keeps this a regression test for it while
+    # clearing the tightest legitimate shape (8 experts x 128 rows measures
+    # 13.4 dB -- fewer tokens per expert means less averaging of quantization
+    # noise). Single-expert shapes run ~15.5 dB.
+    min_weight_grad_sqnr = 12.0
     weight_grad_sqnr = compute_error(weight_ref.grad, weight.grad)
     assert weight_grad_sqnr >= min_weight_grad_sqnr, (
         f"Weight grad SQNR {weight_grad_sqnr} is below {min_weight_grad_sqnr}"
@@ -227,7 +233,7 @@ def test_nvfp4_grouped_gemm_unaligned_padding():
         offs=offs,
         out_dtype=torch.bfloat16,
     )
-    out = _to_nvfp4_then_scaled_grouped_mm(
+    out = _to_nvfp4_rht_rs_then_scaled_grouped_mm(
         x,
         weight,
         sign_vector,
@@ -244,7 +250,7 @@ def test_nvfp4_grouped_gemm_unaligned_padding():
     assert x.grad.shape == x_ref.grad.shape == (M, K)
     assert compute_error(x_ref.grad, x.grad) >= 14.0
     assert weight.grad.shape == weight_ref.grad.shape == (num_experts, N, K)
-    assert compute_error(weight_ref.grad, weight.grad) >= 5.0
+    assert compute_error(weight_ref.grad, weight.grad) >= 12.0
 
 
 def test_nvfp4_dequant_roundtrip():

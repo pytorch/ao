@@ -40,6 +40,7 @@ if torch_version_at_least("2.10.0") and has_triton():
         _device_key,
         _nvfp4_quantize,
         _pack_fp4,
+        _store_grouped_scales_swizzle,
         _store_scales_swizzle,
         _swizzle_scales,
         get_rht_matrix,
@@ -145,13 +146,17 @@ if torch_version_at_least("2.10.0") and has_triton():
         )
 
         col_swizzled = _swizzle_scales(col_scale, BLOCK_N, BLOCK_M)
-        _store_scales_swizzle(
+        # Columnwise puts the grouped token axis on the inner (64-blocked) side,
+        # so the tiling restarts per group; the rowwise store below has it on the
+        # outer axis, where a group is already contiguous.
+        _store_grouped_scales_swizzle(
             col_swizzled,
             sfa_t_ptr,
             pid_n,
             pid_m,
+            offsets_ptr,
+            group_idx,
             N,
-            M,
             BLOCK_N,
             BLOCK_M,
         )
