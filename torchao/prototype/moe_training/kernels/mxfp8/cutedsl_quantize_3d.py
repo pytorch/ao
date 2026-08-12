@@ -16,7 +16,6 @@ from .cute_utils import (
     F8_MAX,
     compute_amax,
     compute_scale_from_amax,
-    load_vals_chunk_tail,
 )
 
 
@@ -196,40 +195,6 @@ def _compile_mxfp8_quantize_3d_cutedsl(
             return vals_block
 
         @cute.jit
-        def _load_vals_block_tail(
-            self,
-            sIN_tile: cute.Tensor,
-            n0: cutlass.Int64,
-            n_base: cutlass.Int32,
-            k_rel: cutlass.Int32,
-            N: cutlass.Int64,
-        ):
-            vals_block = cute.make_rmem_tensor((SCALE_DIM_N_VALUE,), cutlass.Float32)
-            if cutlass.const_expr(INPUT_TRANSPOSED_VALUE):
-                raw = cute.make_rmem_tensor((SCALE_DIM_N_VALUE,), INPUT_CUTLASS_DTYPE)
-                cute.autovec_copy(
-                    cute.make_tensor(
-                        (sIN_tile.iterator + (k_rel * TILE_N + n_base)).align(16),
-                        cute.make_layout(SCALE_DIM_N_VALUE),
-                    ),
-                    raw,
-                )
-                for i in range(SCALE_DIM_N_VALUE):
-                    n = n0 + n_base + i
-                    if n < N:
-                        vals_block[i] = cutlass.Float32(raw[i])
-                    else:
-                        vals_block[i] = cutlass.Float32(0.0)
-            else:
-                for i in range(SCALE_DIM_N_VALUE):
-                    n = n0 + n_base + i
-                    if n < N:
-                        vals_block[i] = cutlass.Float32(sIN_tile[0, n_base + i, k_rel])
-                    else:
-                        vals_block[i] = cutlass.Float32(0.0)
-            return vals_block
-
-        @cute.jit
         def _store_scale_32x1(
             self,
             scales_expert: cute.Tensor,
@@ -397,40 +362,6 @@ def _compile_mxfp8_quantize_3d_cutedsl(
                 )
 
         @cute.jit
-        def _quantize_store_tail(
-            self,
-            vals_block: cute.Tensor,
-            inv_scale: cutlass.Float32,
-            sOUT_tile: cute.Tensor,
-            n0: cutlass.Int64,
-            n_base: cutlass.Int32,
-            k_rel: cutlass.Int32,
-            N: cutlass.Int64,
-            USE_RCEIL: cutlass.Constexpr[bool],
-        ):
-            for g in range(SCALE_DIM_N_VALUE // SMEM_STORE_VEC):
-                local_base = g * SMEM_STORE_VEC
-                vals_group = cute.make_rmem_tensor((SMEM_STORE_VEC,), cutlass.Float32)
-                for c in range(SMEM_STORE_VEC // 4):
-                    chunk = load_vals_chunk_tail(
-                        vals_block,
-                        n0,
-                        n_base + local_base + c * 4,
-                        local_base + c * 4,
-                        N,
-                    )
-                    for i in range(4):
-                        vals_group[c * 4 + i] = chunk[i]
-                self._quantize_store_chunk(
-                    vals_group,
-                    inv_scale,
-                    sOUT_tile,
-                    n_base + local_base,
-                    k_rel,
-                    USE_RCEIL,
-                )
-
-        @cute.jit
         def _issue_tma_load(
             self,
             tma_atom_in: cute.CopyAtom,
@@ -583,7 +514,6 @@ def _compile_mxfp8_quantize_3d_cutedsl(
             k_tile_group_idx = cutlass.Int64(bidx)
             n_tile = n_tile0
             e = e0
-            n0 = n_tile * TILE_N
             if cutlass.const_expr(BLOCKED_SCALE_OUTPUT_VALUE):
                 scales_expert = cute.make_tensor(
                     scales_colwise_u8.iterator + e * e_scale_stride,
@@ -665,20 +595,11 @@ def _compile_mxfp8_quantize_3d_cutedsl(
                                     or n_block < n_blocks
                                 ):
                                     n_base = nb * SCALE_DIM_N_VALUE
-                                    if cutlass.const_expr(IS_FULL_K_TILES):
-                                        vals_block = self._load_vals_block_full(
-                                            sIN_tile,
-                                            n_base,
-                                            k_rel,
-                                        )
-                                    else:
-                                        vals_block = self._load_vals_block_tail(
-                                            sIN_tile,
-                                            n0,
-                                            n_base,
-                                            k_rel,
-                                            N,
-                                        )
+                                    vals_block = self._load_vals_block_full(
+                                        sIN_tile,
+                                        n_base,
+                                        k_rel,
+                                    )
                                     inv_scale = self._compute_inv_scale_and_store(
                                         vals_block,
                                         scales_expert,
@@ -692,26 +613,14 @@ def _compile_mxfp8_quantize_3d_cutedsl(
                                         USE_RCEIL,
                                         BLOCKED_SCALE_OUTPUT_VALUE,
                                     )
-                                    if cutlass.const_expr(IS_FULL_K_TILES):
-                                        self._quantize_store_full(
-                                            vals_block,
-                                            inv_scale,
-                                            sOUT_tile,
-                                            n_base,
-                                            k_rel,
-                                            USE_RCEIL,
-                                        )
-                                    else:
-                                        self._quantize_store_tail(
-                                            vals_block,
-                                            inv_scale,
-                                            sOUT_tile,
-                                            n0,
-                                            n_base,
-                                            k_rel,
-                                            N,
-                                            USE_RCEIL,
-                                        )
+                                    self._quantize_store_full(
+                                        vals_block,
+                                        inv_scale,
+                                        sOUT_tile,
+                                        n_base,
+                                        k_rel,
+                                        USE_RCEIL,
+                                    )
 
                 gOUT_tile = cute.local_tile(
                     tma_tensor_out, (1, TILE_N, TILE_K), (e, n_tile, bidx_eff)
