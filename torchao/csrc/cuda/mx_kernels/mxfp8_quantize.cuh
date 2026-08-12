@@ -15,6 +15,7 @@
 #include <stdexcept>
 #include <string>
 #include <torch/headeronly/util/Exception.h>
+#include <type_traits>
 #include <vector>
 
 // Use official CUDA PTX library
@@ -89,8 +90,8 @@ constexpr int32_t BF16_MANTISSA_BITS = 7;
 constexpr int32_t BF16_EXPONENT_BIAS = 127;
 
 // FP8E4M3 constants
-constexpr int32_t F8E4M3_MAX_POW2 = 8;
 constexpr float F8E4M3_MAX = 448.0;
+constexpr float F8E4M3_MAX_POWER_OF_2 = 256.0;
 
 // FP8E8M0 constants
 constexpr int32_t E8M0_EXPONENT_BIAS = 127;
@@ -122,29 +123,21 @@ template <> struct DataTypeTraits<nv_bfloat16> {
   }
 };
 
-__device__ static __forceinline__ e8m0_t
-calculate_e8m0_biased_scale(const float amax) {
-  // torchao ref:
-  // https://github.com/pytorch/ao/blob/00417b8b33abb75c54cdb347bd320fb6ac0a4d94/torchao/prototype/mx_formats/mx_tensor.py#L239
-  const int32_t int_amax = *reinterpret_cast<const int32_t *>(&amax);
-  const int32_t extracted_pow2 =
-      ((int_amax >> FP32_MANTISSA_BITS) & 0b11111111) - FP32_EXPONENT_BIAS;
+// Explicit NaN-propagating max helpers for callers that need those PTX
+// semantics instead of the default CUDA behavior.
+__device__ __forceinline__ float max_nan_f32(float a, float b) {
+  float result;
+  asm("max.NaN.f32 %0, %1, %2;" : "=f"(result) : "f"(a), "f"(b));
+  return result;
+}
 
-  // torchao ref:
-  // https://github.com/pytorch/ao/blob/00417b8b33abb75c54cdb347bd320fb6ac0a4d94/torchao/prototype/mx_formats/mx_tensor.py#L244
-  int32_t scale_unbiased = extracted_pow2 - F8E4M3_MAX_POW2;
-
-  // torchao ref:
-  // https://github.com/pytorch/ao/blob/00417b8b33abb75c54cdb347bd320fb6ac0a4d94/torchao/prototype/mx_formats/mx_tensor.py#L256
-  scale_unbiased = max(scale_unbiased, -E8M0_EXPONENT_BIAS);
-  scale_unbiased = min(scale_unbiased, E8M0_EXPONENT_BIAS + 1);
-  int32_t scale_with_e8m0_bias = scale_unbiased + E8M0_EXPONENT_BIAS;
-
-  // torchao ref:
-  // https://github.com/pytorch/ao/blob/00417b8b33abb75c54cdb347bd320fb6ac0a4d94/torchao/prototype/mx_formats/mx_tensor.py#L261C9-L261C26
-  const e8m0_t e8m0_biased_scale =
-      *reinterpret_cast<e8m0_t *>(&scale_with_e8m0_bias);
-  return e8m0_biased_scale;
+// max(|current|, |a|, |b|), with NaN propagation, in one instruction.
+__device__ __forceinline__ float abs_max_nan_f32(float current, float a,
+                                                 float b) {
+  asm("max.NaN.abs.f32 %0, %1, %2, %3;"
+      : "=f"(current)
+      : "f"(current), "f"(a), "f"(b));
+  return current;
 }
 
 // Constants for MXFP8 kernel
@@ -208,63 +201,6 @@ template <typename T, int N> struct Vec {
   }
 };
 
-// Source: https://github.com/NVIDIA/TransformerEngine/blob/b7598aa887eb7d619d64c90692980009669379bf/transformer_engine/common/util/ptx.cuh#L332-L341
-__device__ __forceinline__ float exp2f_rcp(e8m0_t biased_exp) {
-  // Handle the special case of NaN.
-  if (biased_exp == 255) return __int_as_float(0x7fffffff);
-  // Handle the special case where the unbiased exponent is 127, so the reciprocal is 2^-127 which needs the first bit of
-  // the mantissa to be 1, which can't be obtained by shifting `FP32_MANTISSA_BITS` bits to the left.
-  if (biased_exp == 254) return __int_as_float(0x00400000);
-  // Fast calculation when the unbiased exp is in [-126, 126], and only the exponent part is used to express the reciprocal.
-  return __int_as_float((254 - biased_exp) << FP32_MANTISSA_BITS);
-}
-
-
-// Source:
-// https://github.com/NVIDIA/TransformerEngine/blob/1ae1d228d725a488621deba685bd26d6ee1cdb21/transformer_engine/common/utils.cuh#L937
-__device__ __forceinline__ e8m0_t float_to_e8m0(float val) {
-  // TODO: nan/inf needs to be set for any value
-  // of nan/inf in input not just amax.
-  if (isnan(val)) {
-    return 0xFF;
-  }
-  if (isinf(val)) {
-    return 0xFE;
-  }
-#if ((__CUDA_ARCH_HAS_FEATURE__(SM100_ALL)) ||                                 \
-     (__CUDA_ARCH_HAS_FEATURE__(SM101_ALL)) ||                                 \
-     (__CUDA_ARCH_HAS_FEATURE__(SM120_ALL)))
-  uint16_t out;
-  asm volatile("{\n"
-               "cvt.rp.satfinite.ue8m0x2.f32  %0, 0.0, %1;\n"
-               "}"
-               : "=h"(out)
-               : "f"(val));
-  return *reinterpret_cast<e8m0_t *>(&out);
-#else
-  if (val == 0.0f) {
-    return 0x00;
-  }
-  uint32_t val_u32 = *reinterpret_cast<uint32_t *>(&val);
-  e8m0_t exponent = (val_u32 >> FP32_MANTISSA_BITS);
-  uint32_t mantissa = val_u32 & 0x7FFFFF;
-  // Round up exponent and deal with satfinite.
-  if ((mantissa > 0 && exponent != 0xFE) &&
-      !(exponent == 0 && mantissa <= 0x400000)) {
-    ++exponent;
-  }
-  return exponent;
-#endif
-}
-
-// Quantization limits
-// Source:
-// https://github.com/NVIDIA/TransformerEngine/blob/1ae1d228d725a488621deba685bd26d6ee1cdb21/transformer_engine/common/utils.cuh#L929
-template <typename T> struct Quantized_Limits {
-  static constexpr float max_norm = 448.0f; // For E4M3
-  static constexpr float max_norm_rcp = 1.0f / max_norm;
-};
-
 // Warp reduction utilities
 // https://github.com/NVIDIA/TransformerEngine/blob/1ae1d228d725a488621deba685bd26d6ee1cdb21/transformer_engine/common/utils.cuh#L867
 /**
@@ -282,9 +218,7 @@ __forceinline__ __device__ float subwarp_reduce_max_broadcast(const float val) {
   for (int offset = subwarp_width / 2; offset > 0; offset /= 2) {
     const float val_other =
         __shfl_down_sync(0xFFFFFFFF, val_tmp, offset, subwarp_width);
-    __builtin_assume(val_tmp >= 0);
-    __builtin_assume(val_other >= 0);
-    val_tmp = fmaxf(val_tmp, val_other);
+    val_tmp = max_nan_f32(val_tmp, val_other);
   }
   // Broadcast the amax to other threads of the subwarp from the zero subwarp
   // lane_id
@@ -469,42 +403,26 @@ __device__ inline void copy_2d_to_shared(void *smem,
 // TorchAO shared quantization utils
 ////////////////////////////////////////////////////////////////////////////////
 
-/**
- * Convert e8m0 biased scale to float32 scale following torchao implementation
- * torchao ref:
- * https://github.com/pytorch/ao/blob/00417b8b33abb75c54cdb347bd320fb6ac0a4d94/torchao/prototype/mx_formats/mx_tensor.py#L275C1-L277C30
- */
-__device__ __forceinline__ float e8m0_to_scale_fp32(e8m0_t e8m0_biased_scale) {
-  int32_t exponent_as_int32 = static_cast<int32_t>(e8m0_biased_scale);
-  int32_t float_bits = exponent_as_int32 << FP32_MANTISSA_BITS;
-  float scale_fp32 = *reinterpret_cast<float *>(&float_bits);
-
-  // torchao ref:
-  // https://github.com/pytorch/ao/blob/00417b8b33abb75c54cdb347bd320fb6ac0a4d94/torchao/prototype/mx_formats/mx_tensor.py#L286
-  const float F32_MIN_NORMAL = exp2f(-FP32_EXPONENT_BIAS + 1);
-  scale_fp32 = max(scale_fp32, F32_MIN_NORMAL);
-
-  return scale_fp32;
+template <ScaleCalculationMode ScalingMode>
+__device__ __forceinline__ e8m0_t calculate_scale(float amax) {
+  if constexpr (ScalingMode == ScaleCalculationMode::FLOOR) {
+    // Map round_down_to_prev_pow_of_2(amax) to round_down_to_prev_pow_of_2(FP8_MAX)
+    // but move the division before the conversion (this commutes because it's a
+    // power of 2) so that the fp32 mul handles underflows and NaNs for us.
+    return __nv_cvt_float_to_e8m0(amax * (1.0f / F8E4M3_MAX_POWER_OF_2), __NV_NOSAT,
+                                  cudaRoundZero);
+  } else {
+    // Try to map amax to FP8_MAX but, as the scale is constrained to powers of 2,
+    // prefer to map amax to smaller values as otherwise it would overflow.
+    return __nv_cvt_float_to_e8m0(amax * (1.0f / F8E4M3_MAX), __NV_NOSAT,
+                                  cudaRoundPosInf);
+  }
 }
 
-/**
- * Quantize a single value using torchao-style clamping and conversion
- * torchao ref:
- * https://github.com/pytorch/ao/blob/00417b8b33abb75c54cdb347bd320fb6ac0a4d94/torchao/prototype/mx_formats/mx_tensor.py#L289
- */
-template <typename OType>
-__device__ __forceinline__ OType torchao_quantize_value(float input_value,
-                                                        float inv_scale_fp32) {
-  // Scale the input value
-  float data_lp = input_value * inv_scale_fp32;
-
-  // Apply torchao-style clamping
-  // torchao ref:
-  // https://github.com/pytorch/ao/blob/00417b8b33abb75c54cdb347bd320fb6ac0a4d94/torchao/prototype/mx_formats/mx_tensor.py#L301C23-L301C74
-  data_lp = min(data_lp, F8E4M3_MAX);
-  data_lp = max(data_lp, -F8E4M3_MAX);
-
-  return static_cast<OType>(data_lp);
+__device__ __forceinline__ float reciprocal_scale(e8m0_t scale) {
+  __nv_fp8_e8m0 reciprocal;
+  reciprocal.__x = static_cast<e8m0_t>(254 - scale);
+  return static_cast<float>(reciprocal);
 }
 
 /**
@@ -516,37 +434,15 @@ __device__ __forceinline__ void
 quantize_block(float amax, e8m0_t &out_scale,
                        const float (&input_values)[NUM_VALUES],
                        OType (&output_values)[NUM_VALUES]) {
+  static_assert(std::is_same_v<OType, fp8e4m3>);
 
-  float inv_scale_fp32;
-  if constexpr (ScalingMode == ScaleCalculationMode::FLOOR) {
-    // FLOOR scaling.
-    out_scale = calculate_e8m0_biased_scale(amax);
-
-    // Convert scale to float32
-    float scale_fp32 = e8m0_to_scale_fp32(out_scale);
-
-    // Calculate inverse scale for fast multiplication
-    inv_scale_fp32 = __fdiv_rn(1.0f, scale_fp32);
-
-    // Quantize all values
-#pragma unroll
-      for (int i = 0; i < NUM_VALUES; ++i) {
-        output_values[i] =
-            torchao_quantize_value<OType>(input_values[i], inv_scale_fp32);
-      }
-
-  } else {
-    // RCEIL scaling.
-    out_scale = float_to_e8m0(amax * Quantized_Limits<OType>::max_norm_rcp);
-    inv_scale_fp32 = exp2f_rcp(out_scale);
+  out_scale = calculate_scale<ScalingMode>(amax);
+  float inv_scale_fp32 = reciprocal_scale(out_scale);
 
 #pragma unroll
-      for (int i = 0; i < NUM_VALUES; ++i) {
-        output_values[i] =
-            static_cast<OType>(input_values[i] * inv_scale_fp32);
-      }
+  for (int i = 0; i < NUM_VALUES; ++i) {
+    output_values[i] = static_cast<OType>(input_values[i] * inv_scale_fp32);
   }
-
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -757,12 +653,14 @@ __global__ void __launch_bounds__(MXFP8_THREADS_PER_CHUNK)
           // multiples of 32, padding never shares an MX block with valid data.
 #pragma unroll
           for (int j = 0; j < ELEMS_PER_THREAD; ++j) {
-            // Load and convert to float
             float elt = DataTypeTraits<IType>::to_float(in.data.elt[j]);
             in_compute[j] = elt;
+          }
 
-            // Update thread local amax
-            thread_amax = fmaxf(thread_amax, fabsf(elt));
+#pragma unroll
+          for (int j = 0; j < ELEMS_PER_THREAD; j += 2) {
+            thread_amax = abs_max_nan_f32(
+                thread_amax, in_compute[j], in_compute[j + 1]);
           }
 
           // Reduce amax across subwarp
@@ -826,14 +724,13 @@ __global__ void __launch_bounds__(MXFP8_THREADS_PER_CHUNK)
 
         // Calculate amax and prepare input values
 #pragma unroll
-        for (int i = 0; i < SCALE_DIM_Y; ++i) {
-          // Load and convert to float
-          float elt =
+        for (int i = 0; i < SCALE_DIM_Y; i += 2) {
+          in_compute[i] =
               DataTypeTraits<IType>::to_float(in_sh[buff][i][tid_colwise_X]);
-          in_compute[i] = elt;
-
-          // Update thread local amax
-          amax = fmaxf(amax, fabsf(elt));
+          in_compute[i + 1] = DataTypeTraits<IType>::to_float(
+              in_sh[buff][i + 1][tid_colwise_X]);
+          amax =
+              abs_max_nan_f32(amax, in_compute[i], in_compute[i + 1]);
         }
 
         // Apply quantization to the local block.
@@ -1061,14 +958,12 @@ __global__ void __launch_bounds__(MXFP8_THREADS_PER_CHUNK)
 
       // Calculate amax and prepare input values
 #pragma unroll
-      for (int i = 0; i < SCALE_DIM_Y; ++i) {
-        // Load and convert to float
-        float elt =
+      for (int i = 0; i < SCALE_DIM_Y; i += 2) {
+        in_compute[i] =
             DataTypeTraits<IType>::to_float(in_sh[buff][i][tid_colwise_X]);
-        in_compute[i] = elt;
-
-        // Update thread local amax
-        amax = fmaxf(amax, fabsf(elt));
+        in_compute[i + 1] = DataTypeTraits<IType>::to_float(
+            in_sh[buff][i + 1][tid_colwise_X]);
+        amax = abs_max_nan_f32(amax, in_compute[i], in_compute[i + 1]);
       }
 
       // Apply quantization to the local block.
