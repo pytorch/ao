@@ -116,7 +116,10 @@ def _weight_quantize_2d(x: torch.Tensor, use_cutedsl: bool):
     use_cutedsl selects the CuteDSL kernel (plain transpose-quantize via an identity Hadamard)
     over the Triton 2D weight kernel. Neither path applies RHT or SR.
     """
-    global_amax = x.float().abs().max()
+    # An inf-norm is the amax in one reduction. Upcasting first would instead
+    # materialize the whole weight in fp32, for the same result: bf16 -> fp32 is
+    # exact, so it reduces over the same values.
+    global_amax = torch.linalg.vector_norm(x, ord=float("inf"), dtype=torch.float)
     quantize = cutedsl_weight_quantize_2d if use_cutedsl else triton_weight_quantize_2d
     codes, sf, t_codes, t_sf = quantize(x, global_amax)
     return (
