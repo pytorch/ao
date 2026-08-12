@@ -134,7 +134,6 @@ TorchAO delivers substantial performance gains with minimal code changes:
 - **Int4 weight-only**: [1.73x speedup with 65% less memory](https://huggingface.co/pytorch/gemma-3-12b-it-INT4) for Gemma3-12b-it on H100 with slight impact on accuracy
 - **Float8 dynamic quantization**: [1.5-1.6x speedup on gemma-3-27b-it](https://huggingface.co/pytorch/gemma-3-27b-it-FP8/blob/main/README.md#results-h100-machine) and [1.54x and 1.27x speedup on Flux.1-Dev* and CogVideoX-5b respectively](https://github.com/sayakpaul/diffusers-torchao) on H100 with preserved quality
 - **Int8 activation quantization and int4 weight quantization**: Quantized Qwen3-4B running with 14.8 tokens/s with 3379 MB memory usage on iPhone 15 Pro through [ExecuTorch](https://huggingface.co/pytorch/Qwen3-4B-INT8-INT4#running-in-a-mobile-app)
-- **Int4 + 2:4 Sparsity**: [2.37x throughput with 67.7% memory reduction](torchao/sparsity/README.md) on Llama-3-8B
 
 Following is our recommended flow for quantization and deployment:
 ```python
@@ -239,16 +238,7 @@ Our float8 training is integrated into [TorchTitan's pre-training flows](https:/
 * [Float8 in PyTorch](https://dev-discuss.pytorch.org/t/float8-in-pytorch-1-x/1815)
 
 <details>
-  <summary>Other features (sparse training, memory efficient optimizers)</summary>
-
-### Sparse Training
-
-We've added support for semi-structured 2:4 sparsity with **6% end-to-end speedups on ViT-L**. Full blog [here](https://pytorch.org/blog/accelerating-neural-network-training/). The code change is a 1 liner with the full example available [here](torchao/sparsity/training/):
-
-```python
-from torchao.sparsity.training import SemiSparseLinear, swap_linear_with_semi_sparse_linear
-swap_linear_with_semi_sparse_linear(model, {"seq.0": SemiSparseLinear})
-```
+  <summary>Other features (memory efficient optimizers)</summary>
 
 ### Memory-efficient optimizers
 
