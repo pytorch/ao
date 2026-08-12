@@ -449,7 +449,7 @@ def _float8_addmm_impl(
                     # blockwise scaling on CUDA 12.9
                     # TODO(future PR): add mslk path if available
                     # TODO(future PR): proper out_dtype handling
-                    res = blockwise_fp8_gemm(
+                    res = _blockwise_fp8_gemm(
                         inpt_data,
                         input_scale,
                         w_data.t(),
