@@ -4,6 +4,8 @@
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
 
+import os
+
 import torch
 from torch.utils._triton import has_triton
 
@@ -13,6 +15,14 @@ BLOCK_M = 128
 BLOCK_N = 128
 SAME_BOTH_DIMS = 0
 VARYING_FIRST_DIM = 1
+
+# The group metadata invariants are properties of device-resident values, so
+# checking them means launching `_assert_async` rather than reading them (which
+# would sync and break graph capture). Each such launch costs ~9 us of device
+# time: at DeepSeek-V3 671B expert shapes that is more than the grouped RHT
+# kernel being guarded, so the checks are opt-in. The shape, dtype, device and
+# alignment checks derived from host-side arguments always run.
+_DEVICE_ASSERTS = os.environ.get("TORCHAO_NVFP4_GROUP_DEVICE_ASSERTS", "0") == "1"
 
 
 if torch_version_at_least("2.10.0") and has_triton():
@@ -122,20 +132,21 @@ def _validate_grouped_hadamard_inputs(
         raise ValueError("logical_packed_length.dtype must be torch.int32")
     if not logical_packed_length.is_cuda or logical_packed_length.device != A.device:
         raise ValueError("logical_packed_length must be on the same device as A")
-    torch.ops.aten._assert_async.msg(
-        offsets[-1] == logical_packed_length[0],
-        "the final group-end offset must equal logical_packed_length",
-    )
-    torch.ops.aten._assert_async.msg(
-        logical_packed_length[0] <= packed_sequence_length,
-        "logical_packed_length must not exceed packed_sequence_length capacity",
-    )
-    torch.ops.aten._assert_async.msg(
-        logical_packed_length[0] % BLOCK_M == 0,
-        "logical_packed_length must be divisible by 128",
-    )
-    if shape_rep == VARYING_FIRST_DIM:
+    if _DEVICE_ASSERTS:
         torch.ops.aten._assert_async.msg(
-            torch.all(offsets % BLOCK_M == 0),
-            "VARYING_FIRST_DIM offsets must align group boundaries to 128-row tiles",
+            offsets[-1] == logical_packed_length[0],
+            "the final group-end offset must equal logical_packed_length",
         )
+        torch.ops.aten._assert_async.msg(
+            logical_packed_length[0] <= packed_sequence_length,
+            "logical_packed_length must not exceed packed_sequence_length capacity",
+        )
+        torch.ops.aten._assert_async.msg(
+            logical_packed_length[0] % BLOCK_M == 0,
+            "logical_packed_length must be divisible by 128",
+        )
+        if shape_rep == VARYING_FIRST_DIM:
+            torch.ops.aten._assert_async.msg(
+                torch.all(offsets % BLOCK_M == 0),
+                "VARYING_FIRST_DIM offsets must align group boundaries to 128-row tiles",
+            )
