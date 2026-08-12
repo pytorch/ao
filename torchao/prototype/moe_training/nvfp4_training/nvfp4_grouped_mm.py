@@ -15,6 +15,7 @@ from torchao.prototype.moe_training.nvfp4_training.group_hadamard_amax_triton im
     triton_group_rht_amax,
 )
 from torchao.prototype.moe_training.nvfp4_training.group_hadamard_utils import (
+    _DEVICE_ASSERTS,
     VARYING_FIRST_DIM,
 )
 from torchao.prototype.moe_training.nvfp4_training.group_quantize_2d_triton import (
@@ -121,21 +122,22 @@ class _NVFP4GroupedMM(torch.autograd.Function):
             raise ValueError(
                 f"K and N must be divisible by {_ALIGNMENT}; got K={K}, N={N}"
             )
-        group_sizes = torch.diff(
-            group_end_offsets, prepend=group_end_offsets.new_zeros(1)
-        )
-        torch.ops.aten._assert_async.msg(
-            torch.all(group_sizes > 0), "offs must describe non-empty groups"
-        )
-        torch.ops.aten._assert_async.msg(
-            group_end_offsets[-1] == num_tokens,
-            "the final group-end offset must equal A.shape[0]",
-        )
-        if not pad_token_groups_for_grouped_mm:
-            torch.ops.aten._assert_async.msg(
-                torch.all(group_sizes % _ALIGNMENT == 0),
-                "every token group must be 128-row aligned when padding is disabled",
+        if _DEVICE_ASSERTS:
+            group_sizes = torch.diff(
+                group_end_offsets, prepend=group_end_offsets.new_zeros(1)
             )
+            torch.ops.aten._assert_async.msg(
+                torch.all(group_sizes > 0), "offs must describe non-empty groups"
+            )
+            torch.ops.aten._assert_async.msg(
+                group_end_offsets[-1] == num_tokens,
+                "the final group-end offset must equal A.shape[0]",
+            )
+            if not pad_token_groups_for_grouped_mm:
+                torch.ops.aten._assert_async.msg(
+                    torch.all(group_sizes % _ALIGNMENT == 0),
+                    "every token group must be 128-row aligned when padding is disabled",
+                )
 
         input_act = input_act.to(torch.bfloat16).contiguous()
         # The 2D quantizer consumes logical W (E, N, K), then produces rowwise W
