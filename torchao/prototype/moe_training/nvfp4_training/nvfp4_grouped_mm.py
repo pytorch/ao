@@ -188,7 +188,12 @@ class _NVFP4GroupedMM(torch.autograd.Function):
             )
         )
 
-        weight_amax = weight.float().abs().amax(dim=(1, 2))
+        # An inf-norm is the per-expert amax in one reduction. Upcasting first
+        # would instead materialize the whole (E, N, K) weight in fp32, for the
+        # same result: bf16 -> fp32 is exact, so it reduces over the same values.
+        weight_amax = torch.linalg.vector_norm(
+            weight, ord=float("inf"), dim=(1, 2), dtype=torch.float
+        )
         weight_codes, weight_sf, weight_t_codes, weight_t_sf = (
             triton_group_weight_quantize_2d(weight, weight_amax, num_experts)
         )
