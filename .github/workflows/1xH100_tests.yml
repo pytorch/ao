@@ -56,9 +56,6 @@ jobs:
         # Installing it now via the reachable cache means the cache-bypassing torch install below
         # (--index-url only) never has to fetch it.
         #
-        # Also affects release_model/run_microbenchmarks; only the H100 test
-        # workflows are patched for now since they are the ones failing.
-        #
         # TODO: remove once the OSDC pool can reach files.pythonhosted.org (or spmd-types is
         # mirrored on download.pytorch.org). Egress owned by PyTorch dev infra.
         pip install filelock typing-extensions "setuptools<82" sympy networkx jinja2 fsspec numpy pillow spmd-types
@@ -69,7 +66,15 @@ jobs:
         pip install apache-tvm-ffi
         pip install nvidia-ml-py
         uv pip install -r dev-requirements.txt
-        pip install . --no-build-isolation -vv
+        # Editable install so build_ext --inplace drops the compiled extensions
+        # (e.g. _C_cutlass_90a.abi3.so) into the in-tree torchao/ dir. pytest is run
+        # from the repo root and, because test/ is a package with a conftest.py,
+        # prepends the repo root to sys.path -- so `import torchao` resolves to the
+        # source tree, which shadows the installed wheel. A non-editable `pip install .`
+        # leaves that source tree without the .so, so compiled CUDA ops (e.g. the
+        # sparse cutlass op) never register and their tests fail/skip. Editable keeps
+        # the extensions available in the shadowing source tree.
+        pip install -e . --no-build-isolation -vv
         pytest test/integration --verbose -s
         pytest test/dtypes/test_affine_quantized_float.py --verbose -s
         pytest test/quantization/quantize_/workflows/float8 --verbose -s

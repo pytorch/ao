@@ -41,11 +41,16 @@ class KernelPreference(str, Enum):
     2. Debugging kernel numerics issues.
     """
 
+    DEEPGEMM = "deepgemm"
+    """Use kernels from the optional DeepGEMM library."""
+
     TRITON = "triton"
-    """Use pure-triton RHT + stochastic rounding kernels already in TorchAO.
-    Full NVFP4 training recipe: RHT on forward activations,
-    stochastic rounding + RHT on backward gradients.
-    Requires bfloat16 input; M, K, N all divisible by 128.
+    """Use quantize and quantized mm kernels written in Triton, requires triton
+    """
+
+    CUTEDSL = "cutedsl"
+    """Use quantize and quantized mm kernels written in CuTeDSL, requires the
+    nvidia-cutlass-dsl library
     """
 
 

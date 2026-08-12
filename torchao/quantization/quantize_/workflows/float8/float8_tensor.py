@@ -24,9 +24,6 @@ from torchao.float8.inference import (
     preprocess_data,
     preprocess_scale,
 )
-from torchao.kernel.blockwise_quantization import (
-    blockwise_fp8_gemm,
-)
 from torchao.quantization.granularity import PerRow, PerTensor
 from torchao.quantization.quant_primitives import (
     _choose_scale_float8,
@@ -37,6 +34,9 @@ from torchao.quantization.quantize_.common import (
     KernelPreference,
     QuantizeTensorKwargs,
     _choose_quant_func_and_quantize_tensor,
+)
+from torchao.quantization.quantize_.workflows.float8.kernels import (
+    _blockwise_fp8_gemm,
 )
 from torchao.quantization.utils import get_block_size
 from torchao.utils import (

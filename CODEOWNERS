@@ -1,37 +1,36 @@
 # Default owners for the repo
-* @jerryzh168 @vkuzo
+* @jerryzh168 @vkuzo @andrewor14
 
 # Quantization
-/torchao/quantization/ @jerryzh168 @andrewor14
-/torchao/dtypes/ @jerryzh168
+/torchao/quantization/ @jerryzh168 @andrewor14 @vkuzo
 
 # Float8 / Low-precision training
-/torchao/float8/ @vkuzo
+/torchao/float8/ @vkuzo @jerryzh168 @andrewor14
 
 # Prototype: MX formats and MoE training
-/torchao/prototype/mx_formats/ @danielvegamyhre @vkuzo @drisspg
-/torchao/prototype/moe_training/ @danielvegamyhre
+/torchao/prototype/mx_formats/ @drisspg @jerryzh168 @vkuzo @andrewor14
+/torchao/prototype/moe_training/ @jerryzh168 @vkuzo @andrewor14
 
 # Sparsity
-/torchao/sparsity/ @jerryzh168
+/torchao/sparsity/ @jerryzh168 @vkuzo @andrewor14
 
 # Optimizers
-/torchao/optim/ @gau-nernst
+/torchao/optim/ @gau-nernst @jerryzh168 @vkuzo @andrewor14
 
 # Experimental / Edge
-/torchao/experimental/ @metascroy
+/torchao/experimental/ @metascroy @jerryzh168 @vkuzo @andrewor14
 
 # Kernels
-/torchao/kernel/ @danielvegamyhre
-/torchao/csrc/ @danielvegamyhre
+/torchao/kernel/ @jerryzh168 @vkuzo @andrewor14
+/torchao/csrc/ @jerryzh168 @vkuzo @andrewor14
 
 # Docs
-/docs/ @vkuzo @svekars
+/docs/ @vkuzo @jerryzh168 @andrewor14
 
 # X86
-torchao/csrc/cpu/aten_kernels/ @Xia-Weiwen @Valentine233
-torchao/prototype/float8_opaque_tensor/ @Xia-Weiwen
-torchao/prototype/inductor/ @Xia-Weiwen @Valentine233
-torchao/prototype/quantization/int4/ @Xia-Weiwen
-torchao/quantization/pt2e/inductor_passes/ @Xia-Weiwen
-torchao/quantization/pt2e/quantizer/x86_inductor_quantizer.py @Xia-Weiwen
+torchao/csrc/cpu/aten_kernels/ @Xia-Weiwen @Valentine233 @jerryzh168 @vkuzo @andrewor14
+torchao/prototype/float8_opaque_tensor/ @Xia-Weiwen @jerryzh168 @vkuzo @andrewor14
+torchao/prototype/inductor/ @Xia-Weiwen @Valentine233 @jerryzh168 @vkuzo @andrewor14
+torchao/prototype/quantization/int4/ @Xia-Weiwen @jerryzh168 @vkuzo @andrewor14
+torchao/quantization/pt2e/inductor_passes/ @Xia-Weiwen @jerryzh168 @vkuzo @andrewor14
+torchao/quantization/pt2e/quantizer/x86_inductor_quantizer.py @Xia-Weiwen @jerryzh168 @vkuzo @andrewor14

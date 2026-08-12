@@ -110,10 +110,6 @@ def f6_e3m2_unpacked_to_f32(x: torch.Tensor):
     return _floatx_unpacked_to_f32(x, EBITS_F6_E3M2, MBITS_F6_E3M2)
 
 
-# pack/unpack code copy-pasted from
-# https://github.com/pytorch-labs/ao/blob/main/torchao/dtypes/uint4.py
-
-
 def down_size(size):
     assert size[-1] % 2 == 0, f"{size} last dim not divisible by two"
     return (*size[:-1], size[-1] // 2)
@@ -1046,14 +1042,18 @@ if _mxfp8_cuda_kernels_available:
         # Input shape must be 2D.
         assert x.ndim == 2
         rows, cols = x.shape
+        assert rowwise or colwise, "at least one output orientation is required"
 
         # Block size must be a multiple of 32.
         block_size = 32
         assert rows % block_size == 0, "rows must be a multiple of 32"
         assert cols % block_size == 0, "cols must be a multiple of 32"
 
-        scale_dim_x = 1
-        scale_dim_y = block_size
+        # These dimensions independently select 1x32 rowwise groups and 32x1
+        # colwise groups. Setting both to 32 fuses the two orientations in one
+        # kernel; it does not change either scale granularity to 32x32.
+        scale_dim_x = block_size if rowwise else 1
+        scale_dim_y = block_size if colwise else 1
         fp8_format = "e4m3"
         output_rowwise, output_colwise, scales_rowwise, scales_colwise = (
             torch.ops.torchao.mxfp8_quantize.default(
@@ -1081,14 +1081,14 @@ if _mxfp8_cuda_kernels_available:
         """Fake/meta implementation for mxfp8_quantize."""
         assert x.ndim == 2
         rows, cols = x.shape
-        num_row_blocks = rows // 32
-        num_col_blocks = cols // 32
+        num_row_blocks = rows // scale_dim_y if colwise else 0
+        num_col_blocks = cols // scale_dim_x if rowwise else 0
 
         # rowwise
         if rowwise:
             output_rowwise = x.new_empty(rows, cols, dtype=torch.float8_e4m3fn)
             scales_rowwise = x.new_empty(
-                rows, num_col_blocks, 1, dtype=torch.float8_e8m0fnu
+                rows, num_col_blocks, dtype=torch.float8_e8m0fnu
             )
         else:
             output_rowwise = x.new_empty(0, dtype=torch.float8_e4m3fn)
@@ -1124,10 +1124,12 @@ if _mxfp8_cuda_kernels_available:
         fp8_format: str,
         scaling_mode: str,
     ):
-        # Op returns 4 tensors: (output_rowwise, output_colwise, scales_rowwise, scales_colwise)
-        # When rowwise=False, outputs 0 and 2 are empty tensors (size 0).
-        # output_colwise has shape (rows, cols) in col-major order.
-        # scales_colwise has shape (cols, num_row_blocks) in col-major order.
+        # Op returns 4 tensors:
+        # (output_rowwise, output_colwise, scales_rowwise, scales_colwise).
+        # The rowwise tensors have shapes (rows, cols) and
+        # (rows, num_col_blocks); the colwise tensors have shapes (rows, cols)
+        # and (cols, num_row_blocks). Disabled orientations return empty
+        # tensors, which must remain replicated because they cannot be sharded.
         #
         # Format: (output_placements, input_placements)
         # Input placements: one per arg (x=Tensor, then 6 non-tensor args=None)
@@ -1141,20 +1143,30 @@ if _mxfp8_cuda_kernels_available:
             [Replicate()] + non_tensor_args,
         )
 
-        # When input is sharded along dim 0:
-        # output_colwise (rows, cols) col-major: rows are sharded → Shard(0)
-        # scales_colwise (cols, num_row_blocks) col-major: row blocks sharded → Shard(1)
-        # Unused rowwise outputs (empty tensors): Replicate()
+        # When input is sharded along dim 0 (rows), both quantized outputs and
+        # rowwise scales are sharded along their row dimension. Colwise scales
+        # track input rows through num_row_blocks, their second dimension.
         rule_shard_dim0 = (
-            [Replicate(), Shard(0), Replicate(), Shard(1)],
+            [
+                Shard(0) if rowwise else Replicate(),
+                Shard(0) if colwise else Replicate(),
+                Shard(0) if rowwise else Replicate(),
+                Shard(1) if colwise else Replicate(),
+            ],
             [Shard(0)] + non_tensor_args,
         )
 
-        # When input is sharded along dim 1:
-        # output_colwise: cols are sharded → Shard(1)
-        # scales_colwise: col dim is sharded → Shard(0)
+        # When input is sharded along dim 1 (cols), both quantized outputs are
+        # sharded along their column dimension. Rowwise scales track input
+        # columns through num_col_blocks (dim 1), while columns are dim 0 of
+        # the colwise scales.
         rule_shard_dim1 = (
-            [Replicate(), Shard(1), Replicate(), Shard(0)],
+            [
+                Shard(1) if rowwise else Replicate(),
+                Shard(1) if colwise else Replicate(),
+                Shard(1) if rowwise else Replicate(),
+                Shard(0) if colwise else Replicate(),
+            ],
             [Shard(1)] + non_tensor_args,
         )
 

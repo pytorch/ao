@@ -16,7 +16,19 @@
 
 namespace torchao::ops::linear_8bit_act_xbit_weight {
 
-void pack_weights_operator(
+// TODO: Weak-symbol coexistence is wired up for the linear kernel only, since it
+// is currently the only shared kernel that can be linked into the same binary as
+// its registered ExecuTorch operator (via quantized_moe_ffn). If another shared
+// kernel later needs a single-threaded torch_free variant co-linked with its
+// threaded build, apply the same weak/strong operator-symbol treatment to that
+// kernel's operators.
+#if defined(TORCHAO_WEAK_LINEAR_OPERATOR_SYMBOLS)
+#define TORCHAO_LINEAR_OPERATOR_SYMBOL __attribute__((weak))
+#else
+#define TORCHAO_LINEAR_OPERATOR_SYMBOL
+#endif
+
+TORCHAO_LINEAR_OPERATOR_SYMBOL void pack_weights_operator(
     const UKernelConfig& uk,
     // Outputs
     void* packed_weights,
@@ -75,7 +87,7 @@ void pack_weights_operator(
   });
 }
 
-void pack_weights_with_lut_operator(
+TORCHAO_LINEAR_OPERATOR_SYMBOL void pack_weights_with_lut_operator(
     const UKernelConfig& uk,
     // Outputs
     void* packed_weights,
@@ -130,7 +142,8 @@ void pack_weights_with_lut_operator(
   });
 }
 
-LinearTilingParams LinearTilingParams::from_target_tiles_per_thread(
+TORCHAO_LINEAR_OPERATOR_SYMBOL LinearTilingParams
+LinearTilingParams::from_target_tiles_per_thread(
     int m,
     int m_step,
     int n,
@@ -172,7 +185,7 @@ LinearTilingParams LinearTilingParams::from_target_tiles_per_thread(
   return tiling_params;
 }
 
-void linear_operator(
+TORCHAO_LINEAR_OPERATOR_SYMBOL void linear_operator(
     const UKernelConfig& uk,
     const std::optional<LinearTilingParams>& tiling_params,
     // Outputs
@@ -279,5 +292,14 @@ void linear_operator(
     });
   }
 }
+
+// Out-of-line accessor so consumers in other translation units can link against
+// the linked kernel's thread count (get_num_threads() itself is inline-only).
+// Weak/strong like the operators above, so it co-resolves with linear_operator.
+TORCHAO_LINEAR_OPERATOR_SYMBOL int linear_operator_num_threads() {
+  return get_num_threads();
+}
+
+#undef TORCHAO_LINEAR_OPERATOR_SYMBOL
 
 } // namespace torchao::ops::linear_8bit_act_xbit_weight

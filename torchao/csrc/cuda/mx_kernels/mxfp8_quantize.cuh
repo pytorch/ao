@@ -51,7 +51,6 @@ do {                                                                          \
 enum class DType {
   kByte,
   kFloat32,
-  kFloat16,
   kBFloat16,
   kFloat8E4M3,
   kFloat8E5M2
@@ -346,8 +345,6 @@ inline CUtensorMapDataType get_dtype_for_tma(DType dtype) {
   switch (dtype) {
   case DType::kFloat32:
     return CU_TENSOR_MAP_DATA_TYPE_FLOAT32;
-  case DType::kFloat16:
-    return CU_TENSOR_MAP_DATA_TYPE_FLOAT16;
   case DType::kBFloat16:
     return CU_TENSOR_MAP_DATA_TYPE_BFLOAT16;
   case DType::kFloat8E4M3:
@@ -364,8 +361,13 @@ void* get_driver_ptr() {
   static void *driver_ptr = nullptr;
   if (!driver_ptr) {
     cudaDriverEntryPointQueryResult result;
+#if defined(CUDA_VERSION) && CUDA_VERSION >= 13000
+    CUDA_CHECK(cudaGetDriverEntryPointByVersion(
+        "cuTensorMapEncodeTiled", &driver_ptr, 12000, cudaEnableDefault, &result));
+#else
     CUDA_CHECK(cudaGetDriverEntryPoint("cuTensorMapEncodeTiled", &driver_ptr,
                             cudaEnableDefault, &result));
+#endif
   }
   return driver_ptr;
 }
@@ -831,7 +833,12 @@ __global__ void __launch_bounds__(MXFP8_THREADS_PER_CHUNK)
             const int scale_idx =
                 global_scales_offset_Y * scales_rowwise_stride_dim0 +
                 global_scales_offset_X;
-            scales_rowwise[scale_idx] = e8m0_biased_scale;
+            const bool scale_out_of_bounds =
+                global_scales_offset_Y >= rows ||
+                global_scales_offset_X * SCALE_DIM_X >= cols;
+            if (!scale_out_of_bounds) {
+              scales_rowwise[scale_idx] = e8m0_biased_scale;
+            }
           }
 
           // Store quantized values
@@ -892,7 +899,7 @@ __global__ void __launch_bounds__(MXFP8_THREADS_PER_CHUNK)
         const int global_scales_offset_X =
             scales_colwise_chunk_offset_X + tid_colwise_X;
 
-        // Write scale in column major memory layout, shape (cols, num_row_blocks, 1).
+        // Write scale in column major memory layout, shape (cols, num_row_blocks).
         // Stride along `cols` dim must be 1, for coalesced writes to global memory.
         const int scale_idx =
             global_scales_offset_Y * scales_colwise_stride_dim1 +
