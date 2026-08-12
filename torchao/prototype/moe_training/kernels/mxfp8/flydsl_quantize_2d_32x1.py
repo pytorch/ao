@@ -105,11 +105,11 @@ if _flydsl_runtime_available():
     from flydsl.expr import arith, buffer_ops, const_expr, gpu, range_constexpr, vector
     from flydsl.expr.arith import ArithValue
     from flydsl.expr.typing import T
-    from flydsl.expr.vector import ReductionOp
     from flydsl.runtime.device import get_rocm_arch
     from flydsl.utils.smem_allocator import SmemAllocator, SmemPtr
 
     from .flydsl_utils import (
+        abs_max_nan_as_inf,
         floor_scale_and_inv_scale,
         make_fp8_clamp_vectors,
         quantize_pack_chunk_to_i32_floor,
@@ -242,9 +242,7 @@ if _flydsl_runtime_available():
                         else:
                             vec_f32 = vector.from_elements(T.vec(VEC, T.f32), elems)
                         chunks.append(vec_f32)
-                        local_amax = local_amax.maximumf(
-                            fx.math.absf(vec_f32).reduce(ReductionOp.MAX)
-                        )
+                        local_amax = local_amax.maximumf(abs_max_nan_as_inf(vec_f32))
 
                     if const_expr(USE_RCEIL):
                         scale_u8, scale_arg = rceil_scale_and_pos_scale(local_amax)

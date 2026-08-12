@@ -12,7 +12,6 @@ import torch
 from torchao.utils import ceil_div
 
 from .cute_utils import (
-    F8_MAX,
     compute_amax,
     compute_scale_from_amax,
     validate_group_sizes,
@@ -263,7 +262,7 @@ def _compile_mxfp8_quantize_2d_32x1_cutedsl(
         ):
             """Quantize SMEM_STORE_VEC elements to FP8 and store them as one vector.
 
-            Applies inverse scale, optional clamping (FLOOR mode), and converts to FP8.
+            Applies inverse scale and converts to FP8 with saturation.
 
             Args:
                 vals_chunk: 4 input elements in register memory
@@ -271,16 +270,13 @@ def _compile_mxfp8_quantize_2d_32x1_cutedsl(
                 sOUT_tile: Output tile in shared memory (TILE_M, TILE_K)
                 m_base: Starting M index for this chunk within tile
                 k_rel: Column index within tile
-                USE_RCEIL: Whether using RCEIL mode (no clamping) or FLOOR mode (clamp to ±448)
+                USE_RCEIL: Scale calculation mode (kept for the shared call signature)
 
             Storage locations:
                 Inputs: vals_chunk, inv_scale (registers)
                 Output: sOUT_tile (shared memory)
             """
             q_vec = vals_group.load() * inv_scale
-            if not cutlass.const_expr(USE_RCEIL):
-                q_vec = cute.where(q_vec > F8_MAX, F8_MAX, q_vec)
-                q_vec = cute.where(q_vec < -F8_MAX, -F8_MAX, q_vec)
             q_fp8 = cute.make_rmem_tensor((SMEM_STORE_VEC,), cutlass.Float8E4M3FN)
             q_fp8.store(q_vec.to(cutlass.Float8E4M3FN))
             cute.autovec_copy(
@@ -635,7 +631,7 @@ def _compile_mxfp8_quantize_2d_32x1_cutedsl(
                                     scale_biased, inv_scale = compute_scale_from_amax(
                                         amax, USE_RCEIL
                                     )
-                                    scale_buffer[mb] = cutlass.Uint8(scale_biased)
+                                    scale_buffer[mb] = scale_biased
 
                                     self._quantize_block_then_store_reg_to_smem_full(
                                         vals_block,
@@ -680,9 +676,7 @@ def _compile_mxfp8_quantize_2d_32x1_cutedsl(
                                         scale_biased, inv_scale = (
                                             compute_scale_from_amax(amax, USE_RCEIL)
                                         )
-                                        scale_buffer[num_valid_scales] = cutlass.Uint8(
-                                            scale_biased
-                                        )
+                                        scale_buffer[num_valid_scales] = scale_biased
                                         num_valid_scales = num_valid_scales + 1
 
                                         self._quantize_block_then_store_reg_to_smem_full(
