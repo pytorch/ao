@@ -54,11 +54,11 @@ if _flydsl_runtime_available():
     import flydsl.expr as fx
     from flydsl.compiler.kernel_function import CompilationContext
     from flydsl.expr import buffer_ops, const_expr, range_constexpr
-    from flydsl.expr.vector import ReductionOp
 
     # Module-level imports of the in-kernel helpers — see flydsl_utils.py for
     # why this matters (cutedsl uses the same pattern with cute_utils).
     from .flydsl_utils import (
+        abs_max_nan_as_inf,
         floor_scale_and_inv_scale,
         make_fp8_clamp_vectors,
         quantize_pack_chunk_to_i32_floor,
@@ -116,9 +116,7 @@ if _flydsl_runtime_available():
                     )
                     vec_f32 = vec_in.to(fx.Float32)
                     chunks.append(vec_f32)
-                    local_amax = local_amax.maximumf(
-                        fx.math.absf(vec_f32).reduce(ReductionOp.MAX)
-                    )
+                    local_amax = local_amax.maximumf(abs_max_nan_as_inf(vec_f32))
 
                 if const_expr(USE_RCEIL):
                     scale_u8, scale_arg = rceil_scale_and_pos_scale(local_amax)
