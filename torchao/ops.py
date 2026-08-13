@@ -4,7 +4,7 @@
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
 import functools
-from typing import Optional, Tuple
+from typing import Optional
 
 import torch
 from torch import Tensor
@@ -149,30 +149,6 @@ def _(
     return query.transpose(1, 2).contiguous().transpose(1, 2)
 
 
-_SPARSE_LINEAR_BACKEND = "cutedsl"
-_SPARSE_CONVERSION_BACKEND = "cutedsl"
-
-
-def set_sparse_linear_backend(backend: str) -> None:
-    assert backend in ("legacy", "cutedsl")
-    global _SPARSE_LINEAR_BACKEND
-    _SPARSE_LINEAR_BACKEND = backend
-
-
-def get_sparse_linear_backend() -> str:
-    return _SPARSE_LINEAR_BACKEND
-
-
-def set_sparse_conversion_backend(backend: str) -> None:
-    assert backend in ("legacy", "cutedsl")
-    global _SPARSE_CONVERSION_BACKEND
-    _SPARSE_CONVERSION_BACKEND = backend
-
-
-def get_sparse_conversion_backend() -> str:
-    return _SPARSE_CONVERSION_BACKEND
-
-
 def rowwise_scaled_linear_sparse_cutlass_f8f8(
     input: Tensor,
     input_scale: Tensor,
@@ -181,7 +157,6 @@ def rowwise_scaled_linear_sparse_cutlass_f8f8(
     weight_scale: Tensor,
     bias: Optional[Tensor] = None,
     out_dtype: Optional[torch.dtype] = None,
-    backend: Optional[str] = None,
 ) -> Tensor:
     """
     CUTLASS-based row-wise scaled F8F8 linear operator, for sparsified weight case.
@@ -193,69 +168,13 @@ def rowwise_scaled_linear_sparse_cutlass_f8f8(
         weight_scale: scale factors for weight tensor, one value per row of weight matrix (thus also tensor of the same shape as the weight tensor, minus the last dimension).
         bias: an optional vector of size equal to number of rows of weight tensor, or None.
         out_dtype: optional data type for output tensor.
-        backend: kernel backend to use, "legacy" or "cutedsl"; defaults to the
-        value set by set_sparse_linear_backend.
     Returns:
         output: result tensor, in row-major layout.
     """
 
-    backend = get_sparse_linear_backend() if backend is None else backend
-    if backend == "legacy":
-        return torch.ops.torchao.rowwise_scaled_linear_sparse_cutlass_f8f8.default(
-            input, input_scale, weight, weight_meta, weight_scale, bias, out_dtype
-        )
-    if backend == "cutedsl":
-        return torch.ops.torchao.rowwise_scaled_linear_sparse_cutedsl.default(
-            input,
-            input_scale,
-            weight,
-            weight_meta,
-            weight_scale,
-            bias,
-            out_dtype,
-        )
-    raise ValueError(f"Unsupported sparse linear backend: {backend}")
-
-
-@torch.library.custom_op(
-    "torchao::rowwise_scaled_linear_sparse_cutedsl", mutates_args=()
-)
-def _rowwise_scaled_linear_sparse_cutedsl_custom_op(
-    input: Tensor,
-    input_scale: Tensor,
-    weight: Tensor,
-    weight_meta: Tensor,
-    weight_scale: Tensor,
-    bias: Optional[Tensor] = None,
-    out_dtype: Optional[torch.dtype] = None,
-) -> Tensor:
-    from torchao.quantization.quantize_.workflows.float8.cutedsl_sparse_linear import (
-        rowwise_scaled_linear_sparse_cutedsl,
+    return torch.ops.torchao.rowwise_scaled_linear_sparse_cutlass_f8f8.default(
+        input, input_scale, weight, weight_meta, weight_scale, bias, out_dtype
     )
-
-    return rowwise_scaled_linear_sparse_cutedsl(
-        input,
-        input_scale,
-        weight,
-        weight_meta,
-        weight_scale,
-        bias,
-        out_dtype,
-    )
-
-
-@_rowwise_scaled_linear_sparse_cutedsl_custom_op.register_fake
-def _(
-    input: Tensor,
-    input_scale: Tensor,
-    weight: Tensor,
-    weight_meta: Tensor,
-    weight_scale: Tensor,
-    bias: Optional[Tensor] = None,
-    out_dtype: Optional[torch.dtype] = None,
-) -> Tensor:
-    dtype = out_dtype if out_dtype is not None else input_scale.dtype
-    return input.new_empty((*input.shape[:-1], weight.shape[0]), dtype=dtype)
 
 
 @register_custom_op("torchao::rowwise_scaled_linear_sparse_cutlass_f8f8")
@@ -278,41 +197,17 @@ def _(
 
 def to_sparse_semi_structured_cutlass_sm9x_f8(
     weight: Tensor,
-    backend: Optional[str] = None,
 ) -> (Tensor, Tensor):
-    backend = get_sparse_conversion_backend() if backend is None else backend
-    if backend == "legacy":
-        return torch.ops.torchao.to_sparse_semi_structured_cutlass_sm9x_f8.default(
-            weight
-        )
-    if backend == "cutedsl":
-        return torch.ops.torchao.to_sparse_semi_structured_cutedsl.default(weight)
-    raise ValueError(f"Unsupported sparse conversion backend: {backend}")
+    """
+    CUTLASS-based conversion from sparsified input tensor to corresponding compressed tensor, along with corresponding metadata tensor.
+    Args:
+        weight: input tensor, in row-major layout.
+    Returns:
+        weight_compressed: compressed weight tensor, with sparsity eliminated, in row-major layout.
+        weight_meta: metadata tensor, describing the sparsity structure of the input tensor, also in row-major layout.
+    """
 
-
-@torch.library.custom_op("torchao::to_sparse_semi_structured_cutedsl", mutates_args=())
-def _to_sparse_semi_structured_cutedsl_custom_op(
-    weight: Tensor,
-) -> Tuple[Tensor, Tensor]:
-    from torchao.quantization.quantize_.workflows.float8.cutedsl_sparse_2x4 import (
-        to_sparse_semi_structured_cutedsl,
-    )
-
-    return to_sparse_semi_structured_cutedsl(weight)
-
-
-@_to_sparse_semi_structured_cutedsl_custom_op.register_fake
-def _(
-    weight: Tensor,
-) -> Tuple[Tensor, Tensor]:
-    rows, cols = weight.shape
-    compressed_cols = (((cols + 31) // 32) * 32) // 2
-    metadata_rows = ((rows + 63) // 64) * 64
-    metadata_cols = (((cols + 127) // 128) * 128) // 8
-    return (
-        weight.new_empty((rows, compressed_cols)),
-        weight.new_empty((metadata_rows, metadata_cols), dtype=torch.uint8),
-    )
+    return torch.ops.torchao.to_sparse_semi_structured_cutlass_sm9x_f8.default(weight)
 
 
 @register_custom_op("torchao::to_sparse_semi_structured_cutlass_sm9x_f8")
