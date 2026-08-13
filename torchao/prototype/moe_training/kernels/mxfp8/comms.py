@@ -55,8 +55,8 @@ class MXFP8OnDeviceAllToAllV(torch.autograd.Function):
         input: torch.Tensor,
         input_splits: torch.Tensor,
         max_output_rows_per_rank: int,
-        group: dist.ProcessGroup,
-        scaling_mode: ScaleCalculationMode,
+        group: dist.ProcessGroup = dist.group.WORLD,
+        scaling_mode: ScaleCalculationMode = ScaleCalculationMode.RCEIL,
     ):
         """
         Args:
@@ -65,7 +65,9 @@ class MXFP8OnDeviceAllToAllV(torch.autograd.Function):
             input_splits: input splits of shape (group.world_size,)
             max_output_rows_per_rank: maximum output rows/tokens per rank.
             group: process group to scope the collective.
-            scaling_mode: mode used to calculate MXFP8 scales.
+            scaling_mode: mode used to calculate MXFP8 scales. RCEIL is the
+                training-safe default; pass ``ScaleCalculationMode.FLOOR`` when
+                OCP MX 1.0 floor scaling semantics are required.
         """
         assert input.dtype in (torch.float32, torch.bfloat16)
 
@@ -264,26 +266,8 @@ class MXFP8OnDeviceAllToAllV(torch.autograd.Function):
         return grad_input_hp[:tokens_on_device_after_a2a_bwd], None, None, None, None
 
 
-def mxfp8_on_device_all_to_all_v(
-    input: torch.Tensor,
-    input_splits: torch.Tensor,
-    max_output_rows_per_rank: int,
-    group: dist.ProcessGroup = dist.group.WORLD,
-    scaling_mode: ScaleCalculationMode = ScaleCalculationMode.RCEIL,
-):
-    """
-    Quantize, exchange, and dequantize rows with an on-device all-to-all-v.
-
-    RCEIL is the training-safe default. Pass ``ScaleCalculationMode.FLOOR``
-    explicitly when OCP MX 1.0 floor scaling semantics are required.
-    """
-    return MXFP8OnDeviceAllToAllV.apply(
-        input,
-        input_splits,
-        max_output_rows_per_rank,
-        group,
-        scaling_mode,
-    )
+# Alias
+mxfp8_on_device_all_to_all_v = MXFP8OnDeviceAllToAllV.apply
 
 
 # Triton launcher function

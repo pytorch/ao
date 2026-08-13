@@ -200,12 +200,14 @@ class MXFP8OnDeviceAllToAllVTest(MultiProcessTestCase):
             )
 
             for mode in (ScaleCalculationMode.RCEIL, ScaleCalculationMode.FLOOR):
+                # scaling_mode is positional: autograd.Function.apply does not
+                # bind keyword arguments for this forward.
                 output, output_splits = mxfp8_on_device_all_to_all_v(
                     x,
                     input_splits,
                     max_output_tokens_per_rank,
                     group_name,
-                    scaling_mode=mode,
+                    mode,
                 )
                 assert torch.equal(output_splits, input_splits)
                 assert torch.equal(output, expected[mode])
