@@ -13,6 +13,7 @@ from torchao.float8.inference import (
     FP8Granularity,
 )
 from torchao.ops import (
+    get_sparse_linear_backend,
     rowwise_scaled_linear_sparse_cutlass_f8f8,
     to_sparse_semi_structured_cutlass_sm9x_f8,
 )
@@ -75,7 +76,7 @@ class Float8Sparse2x4_2DData2DMetadataTensor(TorchAOBaseTensor):
         scale: torch.Tensor,
         block_size: Optional[List[int]] = None,
         act_quant_kwargs: Optional[QuantizeTensorToFloat8Kwargs] = None,
-        sparse_linear_backend: str = "legacy",
+        sparse_linear_backend: Optional[str] = None,
         dtype: Optional[torch.dtype] = None,
     ):
         shape = qdata.shape[0], 2 * qdata.shape[1]
@@ -93,7 +94,7 @@ class Float8Sparse2x4_2DData2DMetadataTensor(TorchAOBaseTensor):
         scale: torch.Tensor,
         block_size: Optional[List[int]] = None,
         act_quant_kwargs: Optional[QuantizeTensorToFloat8Kwargs] = None,
-        sparse_linear_backend: str = "legacy",
+        sparse_linear_backend: Optional[str] = None,
         dtype: Optional[torch.dtype] = None,
     ):
         super().__init__()
@@ -102,14 +103,20 @@ class Float8Sparse2x4_2DData2DMetadataTensor(TorchAOBaseTensor):
         self.scale = scale
         self.block_size = block_size
         self.act_quant_kwargs = act_quant_kwargs
-        self.sparse_linear_backend = sparse_linear_backend
+        self.sparse_linear_backend = (
+            get_sparse_linear_backend()
+            if sparse_linear_backend is None
+            else sparse_linear_backend
+        )
 
     @classmethod
     def __tensor_unflatten__(
         cls, tensor_data_dict, tensor_attributes, outer_size, outer_stride
     ):
         if "sparse_linear_backend" not in tensor_attributes:
-            tensor_attributes = tensor_attributes | {"sparse_linear_backend": "legacy"}
+            tensor_attributes = tensor_attributes | {
+                "sparse_linear_backend": get_sparse_linear_backend()
+            }
         return super().__tensor_unflatten__(
             tensor_data_dict, tensor_attributes, outer_size, outer_stride
         )
@@ -159,8 +166,8 @@ class Float8Sparse2x4_2DData2DMetadataTensor(TorchAOBaseTensor):
         hp_value_lb: Optional[float] = None,
         hp_value_ub: Optional[float] = None,
         act_quant_kwargs: Optional[QuantizeTensorToFloat8Kwargs] = None,
-        sparse_conversion_backend: str = "legacy",
-        sparse_linear_backend: str = "legacy",
+        sparse_conversion_backend: Optional[str] = None,
+        sparse_linear_backend: Optional[str] = None,
     ):
         block_size = get_block_size(hp_tensor.shape, granularity)
         block_size = list(block_size)

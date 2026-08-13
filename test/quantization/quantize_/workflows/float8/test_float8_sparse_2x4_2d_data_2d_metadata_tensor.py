@@ -14,7 +14,11 @@ from torch.ao.pruning import WeightNormSparsifier
 from torch.testing._internal import common_utils
 
 from torchao.ops import (
+    get_sparse_conversion_backend,
+    get_sparse_linear_backend,
     rowwise_scaled_linear_sparse_cutlass_f8f8,
+    set_sparse_conversion_backend,
+    set_sparse_linear_backend,
     to_sparse_semi_structured_cutlass_sm9x_f8,
 )
 from torchao.quantization import (
@@ -105,7 +109,22 @@ class TestFloat8Sparse2x4_2DData2DMetadataTensor(common_utils.TestCase):
             None,
         )
 
-        self.assertEqual(tensor.sparse_linear_backend, "legacy")
+        self.assertEqual(tensor.sparse_linear_backend, get_sparse_linear_backend())
+
+    def test_sparse_backend_setters(self):
+        try:
+            for backend in ("legacy", "cutedsl"):
+                set_sparse_linear_backend(backend)
+                set_sparse_conversion_backend(backend)
+                self.assertEqual(get_sparse_linear_backend(), backend)
+                self.assertEqual(get_sparse_conversion_backend(), backend)
+            with self.assertRaises(AssertionError):
+                set_sparse_linear_backend("nonesuch")
+            with self.assertRaises(AssertionError):
+                set_sparse_conversion_backend("nonesuch")
+        finally:
+            set_sparse_linear_backend("cutedsl")
+            set_sparse_conversion_backend("cutedsl")
 
     @unittest.skipIf(not _is_sm90a(), "Need SM90a to run")
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
@@ -185,7 +204,19 @@ class TestFloat8Sparse2x4_2DData2DMetadataTensor(common_utils.TestCase):
     @unittest.skipIf(not is_sm_at_least_90(), "Need H100 to run")
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     @common_utils.parametrize("compile", [True, False])
-    def test_fp8_cutlass_sparse(self, compile):
+    @common_utils.parametrize("backend", ["legacy", "cutedsl"])
+    def test_fp8_cutlass_sparse(self, backend, compile):
+        if backend == "cutedsl" and not _cutedsl_runtime_available():
+            self.skipTest("CuTeDSL runtime unavailable")
+        set_sparse_linear_backend(backend)
+        set_sparse_conversion_backend(backend)
+        try:
+            self._fp8_cutlass_sparse_body(compile)
+        finally:
+            set_sparse_linear_backend("cutedsl")
+            set_sparse_conversion_backend("cutedsl")
+
+    def _fp8_cutlass_sparse_body(self, compile):
         with torch.inference_mode():
             input = torch.rand((256, 256), dtype=torch.bfloat16, device="cuda")
             model = (
