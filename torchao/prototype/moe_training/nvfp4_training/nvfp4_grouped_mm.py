@@ -24,6 +24,9 @@ from torchao.prototype.moe_training.nvfp4_training.group_quantize_2d_triton impo
 from torchao.prototype.moe_training.nvfp4_training.group_rht_quantize_row_col_triton import (
     triton_group_rht_quantize_row_col,
 )
+from torchao.prototype.moe_training.nvfp4_training.group_weight_amax_triton import (
+    triton_group_weight_amax,
+)
 from torchao.prototype.moe_training.utils import (
     conditional_nostrict_trace,
     pad_token_groups,
@@ -188,12 +191,7 @@ class _NVFP4GroupedMM(torch.autograd.Function):
             )
         )
 
-        # An inf-norm is the per-expert amax in one reduction. Upcasting first
-        # would instead materialize the whole (E, N, K) weight in fp32, for the
-        # same result: bf16 -> fp32 is exact, so it reduces over the same values.
-        weight_amax = torch.linalg.vector_norm(
-            weight, ord=float("inf"), dim=(1, 2), dtype=torch.float
-        )
+        weight_amax = triton_group_weight_amax(weight, num_experts)
         weight_codes, weight_sf, weight_t_codes, weight_t_sf = (
             triton_group_weight_quantize_2d(weight, weight_amax, num_experts)
         )
