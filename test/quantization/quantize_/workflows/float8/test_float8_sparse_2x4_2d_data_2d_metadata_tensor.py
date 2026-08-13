@@ -10,6 +10,7 @@ import unittest
 
 import torch
 from torch import nn
+from torch.ao.pruning import WeightNormSparsifier
 from torch.testing._internal import common_utils
 
 from torchao.ops import to_sparse_semi_structured_cutlass_sm9x_f8
@@ -24,13 +25,39 @@ from torchao.quantization.quantize_.workflows import (
     Float8PackingFormat,
 )
 from torchao.quantization.utils import compute_error
-from torchao.sparsity import apply_fake_sparsity
-from torchao.sparsity.utils import create_semi_structured_tensor
 from torchao.utils import is_sm_at_least_90
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
 )
+
+
+def apply_fake_sparsity(model):
+    """Simulates 2:4 sparsity on all linear layers in a model (test setup helper)."""
+    sparse_config = [
+        {"tensor_fqn": f"{name}.weight"}
+        for name, mod in model.named_modules()
+        if isinstance(mod, nn.Linear)
+    ]
+    sparsifier = WeightNormSparsifier(
+        sparsity_level=1.0, sparse_block_shape=(1, 4), zeros_per_block=2
+    )
+    sparsifier.prepare(model, sparse_config)
+    sparsifier.step()
+    sparsifier.squash_mask()
+
+
+def create_semi_structured_tensor(r, c, dtype):
+    """Returns a 1:2 sparse matrix of size (r, c), which is also 2:4 sparse."""
+    choice_indices = torch.randint(0, 2, (r * c // 2,)).cuda()
+    mask = (
+        torch.nn.functional.one_hot(choice_indices, num_classes=2)
+        .reshape(r, c)
+        .contiguous()
+        .to(torch.int32)
+    )
+    sparse_weight = mask + (torch.rand(r, c).cuda() * mask)
+    return sparse_weight.to(dtype)
 
 
 def _cutedsl_runtime_available():

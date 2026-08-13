@@ -10,8 +10,20 @@ import torch
 
 from benchmarks.utils import benchmark_cuda_function_in_microseconds
 from torchao.ops import to_sparse_semi_structured_cutlass_sm9x_f8
-from torchao.sparsity.utils import create_semi_structured_tensor
 from torchao.utils import is_sm_at_least_90
+
+
+def create_semi_structured_tensor(r, c, dtype):
+    """Returns a 1:2 sparse matrix of size (r, c), which is also 2:4 sparse."""
+    choice_indices = torch.randint(0, 2, (r * c // 2,)).cuda()
+    mask = (
+        torch.nn.functional.one_hot(choice_indices, num_classes=2)
+        .reshape(r, c)
+        .contiguous()
+        .to(torch.int32)
+    )
+    sparse_weight = mask + (torch.rand(r, c).cuda() * mask)
+    return sparse_weight.to(dtype)
 
 
 def benchmark_cuda_graph_function_in_microseconds(f, *args, iters=1000, **kwargs):
