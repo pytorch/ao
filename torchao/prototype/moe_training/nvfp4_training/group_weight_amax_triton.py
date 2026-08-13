@@ -8,6 +8,9 @@ flat 1D reduction per expert rather than a tiled one.
 Replaces ``torch.linalg.vector_norm(W, ord=inf, dim=(1, 2))``, which computes the same
 values but keeps too few loads in flight to saturate HBM (~2.5 TB/s vs ~3.9 TB/s here).
 The unrolled ``U`` independent loads per program are what buy the difference.
+
+Nothing here is expert-specific beyond the ``program_id(1)`` base, so ``nvfp4_linear``
+uses it at ``E=1`` on ``W.unsqueeze(0)`` for the same reason.
 """
 
 import torch

@@ -22,6 +22,9 @@ from typing import Optional
 import torch
 import torch.nn.functional as F
 
+from torchao.prototype.moe_training.nvfp4_training.group_weight_amax_triton import (
+    triton_group_weight_amax,
+)
 from torchao.prototype.moe_training.nvfp4_training.hadamard_amax_cutedsl import (
     cutedsl_rht_amax,
 )
@@ -116,10 +119,11 @@ def _weight_quantize_2d(x: torch.Tensor, use_cutedsl: bool):
     use_cutedsl selects the CuteDSL kernel (plain transpose-quantize via an identity Hadamard)
     over the Triton 2D weight kernel. Neither path applies RHT or SR.
     """
-    # An inf-norm is the amax in one reduction. Upcasting first would instead
-    # materialize the whole weight in fp32, for the same result: bf16 -> fp32 is
-    # exact, so it reduces over the same values.
-    global_amax = torch.linalg.vector_norm(x, ord=float("inf"), dtype=torch.float)
+    # The grouped weight amax at E=1. Bit-exact with the inf-norm it replaces --
+    # max is exact, and neither materializes the weight in fp32 -- but it keeps
+    # enough loads in flight to saturate HBM where the TensorIterator reduce does
+    # not: 1.7-2.0x over 29 MB to 470 MB of weights.
+    global_amax = triton_group_weight_amax(x.unsqueeze(0), 1)[0]
     quantize = cutedsl_weight_quantize_2d if use_cutedsl else triton_weight_quantize_2d
     codes, sf, t_codes, t_sf = quantize(x, global_amax)
     return (
