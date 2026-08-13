@@ -11,6 +11,9 @@ from .float8.float8_tensor import (
     Float8Tensor,
     QuantizeTensorToFloat8Kwargs,
 )
+from .float8.sparse_backend import (
+    SparseBackend,
+)
 from .int4.int4_choose_qparams_algorithm import Int4ChooseQParamsAlgorithm
 from .int4.int4_packing_format import Int4PackingFormat
 from .int4.int4_plain_int32_tensor import (
@@ -43,6 +46,7 @@ Sparse2x4CUTLASSFloat8Tensor = Float8Sparse2x4_2DData2DMetadataTensor
 
 __all__ = [
     "Float8PackingFormat",
+    "SparseBackend",
     "Float8Sparse2x4_1DData1DMetadataTensor",
     "Float8Sparse2x4_2DData2DMetadataTensor",
     "Float8Tensor",
