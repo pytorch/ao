@@ -28,8 +28,6 @@ class DeepSeekV3WeightShape:
 DEEPSEEK_V3_MODEL_SHAPES = (
     DeepSeekV3ModelShape("debugmodel", 8, 1, 256, 256),
     DeepSeekV3ModelShape("16B", 64, 8, 2048, 1408),
-    # TorchTitan has no registered 236B trainer recipe; assume one-node EP=8.
-    DeepSeekV3ModelShape("236B", 160, 8, 5120, 1536),
     DeepSeekV3ModelShape("671B", 256, 2, 7168, 2048),
 )
 
