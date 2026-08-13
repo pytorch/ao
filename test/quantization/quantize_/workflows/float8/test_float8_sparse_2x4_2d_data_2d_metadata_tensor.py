@@ -24,6 +24,9 @@ from torchao.quantization.quant_api import (
 from torchao.quantization.quantize_.workflows import (
     Float8PackingFormat,
 )
+from torchao.quantization.quantize_.workflows.float8.kernels import (
+    _to_sparse_semi_structured_cutedsl,
+)
 from torchao.quantization.utils import compute_error
 from torchao.utils import is_sm_at_least_90
 
@@ -98,14 +101,8 @@ class TestFloat8Sparse2x4_2DData2DMetadataTensor(common_utils.TestCase):
             dtype=torch.float8_e4m3fn,
         ).cuda()
 
-        legacy_data, legacy_meta = to_sparse_semi_structured_cutlass_sm9x_f8(
-            weight,
-            backend="legacy",
-        )
-        cutedsl_data, cutedsl_meta = to_sparse_semi_structured_cutlass_sm9x_f8(
-            weight,
-            backend="cutedsl",
-        )
+        legacy_data, legacy_meta = to_sparse_semi_structured_cutlass_sm9x_f8(weight)
+        cutedsl_data, cutedsl_meta = _to_sparse_semi_structured_cutedsl(weight)
 
         self.assertEqual(legacy_data, cutedsl_data)
         self.assertEqual(legacy_meta, cutedsl_meta)

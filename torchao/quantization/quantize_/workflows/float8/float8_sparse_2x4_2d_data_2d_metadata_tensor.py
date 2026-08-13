@@ -24,6 +24,9 @@ from torchao.quantization.quant_primitives import (
 from torchao.quantization.quantize_.common import (
     _choose_quant_func_and_quantize_tensor,
 )
+from torchao.quantization.quantize_.workflows.float8.kernels import (
+    _to_sparse_semi_structured_cutedsl,
+)
 from torchao.quantization.utils import get_block_size
 from torchao.utils import (
     TorchAOBaseTensor,
@@ -174,10 +177,14 @@ class Float8Sparse2x4_2DData2DMetadataTensor(TorchAOBaseTensor):
         )
         assert hp_value_lb is None, "CUTLASS sparse kernel does not support hp_value_lb"
 
-        qdata, sparse_metadata = to_sparse_semi_structured_cutlass_sm9x_f8(
-            data,
-            backend=sparse_conversion_backend,
-        )
+        if sparse_conversion_backend == "cutedsl":
+            qdata, sparse_metadata = _to_sparse_semi_structured_cutedsl(data)
+        elif sparse_conversion_backend == "legacy":
+            qdata, sparse_metadata = to_sparse_semi_structured_cutlass_sm9x_f8(data)
+        else:
+            raise ValueError(
+                f"Unsupported sparse conversion backend: {sparse_conversion_backend}"
+            )
 
         return Float8Sparse2x4_2DData2DMetadataTensor(
             qdata,

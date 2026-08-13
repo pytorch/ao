@@ -10,6 +10,9 @@ import torch
 
 from benchmarks.utils import benchmark_cuda_function_in_microseconds
 from torchao.ops import to_sparse_semi_structured_cutlass_sm9x_f8
+from torchao.quantization.quantize_.workflows.float8.kernels import (
+    _to_sparse_semi_structured_cutedsl,
+)
 from torchao.utils import is_sm_at_least_90
 
 
@@ -78,10 +81,39 @@ def _make_deterministic_sparse(rows: int, cols: int, dtype: torch.dtype):
     return raw.contiguous().view(dtype)
 
 
+def _parse_shape(spec: str):
+    """Parses `ROWSxCOLS` or `LABEL:ROWSxCOLS` into (label, rows, cols)."""
+    label, _, dims = spec.rpartition(":")
+    rows, _, cols = dims.partition("x")
+    if not rows or not cols:
+        raise SystemExit(f"Malformed shape {spec!r}, expected [LABEL:]ROWSxCOLS")
+    return (label or None, int(rows), int(cols))
+
+
+def _markdown(rows, columns):
+    widths = [
+        max(len(c), *(len(str(r[c])) for r in rows)) if rows else len(c)
+        for c in columns
+    ]
+    header = "| " + " | ".join(c.ljust(w) for c, w in zip(columns, widths)) + " |"
+    sep = "|" + "|".join("---:".rjust(w + 2) for w in widths) + "|"
+    body = [
+        "| " + " | ".join(str(r[c]).rjust(w) for c, w in zip(columns, widths)) + " |"
+        for r in rows
+    ]
+    return "\n".join([header, sep, *body])
+
+
 def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--rows", type=int, default=8192)
-    parser.add_argument("--cols", type=int, default=8192)
+    parser = argparse.ArgumentParser(
+        description="Benchmark legacy (CUTLASS) vs CuTeDSL FP8 2:4 sparse conversion."
+    )
+    parser.add_argument(
+        "shapes",
+        nargs="+",
+        metavar="[LABEL:]ROWSxCOLS",
+        help="shapes to benchmark, e.g. 8192x8192 or L2-7B/qkv_o:4096x4096",
+    )
     parser.add_argument("--dtype", choices=("e4m3", "e5m2"), default="e4m3")
     parser.add_argument(
         "--bench-only",
@@ -97,73 +129,45 @@ def main():
         raise SystemExit("CUDA is not available")
     if not is_sm_at_least_90():
         raise SystemExit(f"Requires SM 9.x+; got {torch.cuda.get_device_capability()}")
-    if args.cols % 8 != 0:
-        raise SystemExit("cols must be divisible by 8")
+
+    shapes = [_parse_shape(s) for s in args.shapes]
+    for _, _, cols in shapes:
+        if cols % 8 != 0:
+            raise SystemExit(f"cols must be divisible by 8, got {cols}")
 
     dtype = _dtype(args.dtype)
-    if args.deterministic:
-        weight = _make_deterministic_sparse(args.rows, args.cols, dtype)
-    else:
-        weight = create_semi_structured_tensor(args.rows, args.cols, dtype=dtype)
-    weight = weight.contiguous()
+    labelled = any(label is not None for label, _, _ in shapes)
+    rows_out = []
+    for label, rows, cols in shapes:
+        if args.deterministic:
+            weight = _make_deterministic_sparse(rows, cols, dtype)
+        else:
+            weight = create_semi_structured_tensor(rows, cols, dtype=dtype)
+        weight = weight.contiguous()
 
-    print(f"shape={tuple(weight.shape)} strides={weight.stride()} dtype={args.dtype}")
-    if args.bench_only is None:
-        legacy_data, legacy_meta = to_sparse_semi_structured_cutlass_sm9x_f8(
-            weight,
-            backend="legacy",
-        )
-        cutedsl_data, cutedsl_meta = to_sparse_semi_structured_cutlass_sm9x_f8(
-            weight,
-            backend="cutedsl",
-        )
-        torch.cuda.synchronize()
+        row = {"Model layer": label or ""} if labelled else {}
+        row["Weight MxK"] = f"{rows}x{cols}"
+        if args.bench_only in (None, "legacy"):
+            legacy_us = benchmark_function(
+                to_sparse_semi_structured_cutlass_sm9x_f8,
+                weight,
+                use_cuda_graph=args.cuda_graph_bench,
+                graph_iters=args.graph_iters,
+            )
+            row["Legacy us"] = f"{legacy_us:.2f}"
+        if args.bench_only in (None, "cutedsl"):
+            cutedsl_us = benchmark_function(
+                _to_sparse_semi_structured_cutedsl,
+                weight,
+                use_cuda_graph=args.cuda_graph_bench,
+                graph_iters=args.graph_iters,
+            )
+            row["CuTeDSL us"] = f"{cutedsl_us:.2f}"
+        if args.bench_only is None:
+            row["CuTeDSL speedup"] = f"{legacy_us / cutedsl_us:.2f}"
+        rows_out.append(row)
 
-        legacy_data_u8 = legacy_data.view(torch.uint8)
-        cutedsl_data_u8 = cutedsl_data.view(torch.uint8)
-        data_equal = torch.equal(legacy_data_u8, cutedsl_data_u8)
-        meta_equal = torch.equal(legacy_meta, cutedsl_meta)
-        print(f"cutedsl_data_equal={data_equal}")
-        print(f"cutedsl_meta_equal={meta_equal}")
-        if not data_equal:
-            diff = legacy_data_u8 != cutedsl_data_u8
-            print(f"cutedsl_data_diff_count={diff.sum().item()}")
-            coords = diff.nonzero()[:16]
-            idx = coords[:, 0] * legacy_data.shape[1] + coords[:, 1]
-            legacy_flat = legacy_data_u8.flatten()
-            cutedsl_flat = cutedsl_data_u8.flatten()
-            print(f"first_data_diff_coords={coords.cpu().tolist()}")
-            print(f"legacy_data_values={legacy_flat[idx].cpu().tolist()}")
-            print(f"cutedsl_data_values={cutedsl_flat[idx].cpu().tolist()}")
-        if not meta_equal:
-            diff = legacy_meta != cutedsl_meta
-            print(f"cutedsl_meta_diff_count={diff.sum().item()}")
-            coords = diff.nonzero()[:16]
-            idx = coords[:, 0] * legacy_meta.shape[1] + coords[:, 1]
-            legacy_flat = legacy_meta.flatten()
-            cutedsl_flat = cutedsl_meta.flatten()
-            print(f"first_meta_diff_coords={coords.cpu().tolist()}")
-            print(f"legacy_meta_values={legacy_flat[idx].cpu().tolist()}")
-            print(f"cutedsl_meta_values={cutedsl_flat[idx].cpu().tolist()}")
-
-    if args.bench_only in (None, "legacy"):
-        legacy_us = benchmark_function(
-            to_sparse_semi_structured_cutlass_sm9x_f8,
-            weight,
-            backend="legacy",
-            use_cuda_graph=args.cuda_graph_bench,
-            graph_iters=args.graph_iters,
-        )
-        print(f"legacy_us={legacy_us:.2f}")
-    if args.bench_only in (None, "cutedsl"):
-        cutedsl_us = benchmark_function(
-            to_sparse_semi_structured_cutlass_sm9x_f8,
-            weight,
-            backend="cutedsl",
-            use_cuda_graph=args.cuda_graph_bench,
-            graph_iters=args.graph_iters,
-        )
-        print(f"cutedsl_us={cutedsl_us:.2f}")
+    print(_markdown(rows_out, list(rows_out[0].keys())))
 
 
 if __name__ == "__main__":
