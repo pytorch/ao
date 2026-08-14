@@ -124,7 +124,8 @@ def _compile_mx_block_rearrange_2d_m_groups_cutedsl(
             if input_col + 3 < cols and input_offset % 4 == 0:
                 value = (
                     cute.recast_ptr(
-                        input_scales.iterator + input_offset, dtype=cutlass.Uint32
+                        (input_scales.iterator + input_offset).align(4),
+                        dtype=cutlass.Uint32,
                     )
                     .load()
                     .to(cutlass.Uint32)
@@ -582,6 +583,8 @@ def _mx_block_rearrange_2d_m_groups_cutedsl_impl(
         else:
             chunk_width = 16
     assert chunk_width in (16, 32, 64, 128)
+    # zeros, not empty: trailing padded rows beyond the last group's chunks are
+    # never covered by a launched block, so they are only zero because of this.
     output = torch.zeros(
         (padded_rows, padded_cols),
         device=scales_tensor.device,
@@ -602,6 +605,9 @@ def _mx_block_rearrange_2d_m_groups_cutedsl_impl(
         output.view(-1),
         int(rows),
         int(cols),
+        # + num_groups: each group's ceil-rounding to 128 rows can add at most one
+        # extra chunk. Over-estimating keeps the grid independent of the offsets
+        # (no d2h sync); the surplus blocks early-out on active == 0.
         int(ceil_div(rows, 128) + num_groups),
         int(ceil_div(cols, chunk_width)),
         int(padded_cols),
@@ -642,7 +648,7 @@ def _fake_mx_block_rearrange_2d_m_groups_cutedsl_custom_op(
     return scales_tensor.new_empty((padded_rows, padded_cols))
 
 
-def mx_block_rearrange_2d_m_groups_cutedsl(
+def _mx_block_rearrange_2d_m_groups_cutedsl(
     scales_tensor: torch.Tensor,
     input_offsets: torch.Tensor,
     chunk_width: int | None = None,
