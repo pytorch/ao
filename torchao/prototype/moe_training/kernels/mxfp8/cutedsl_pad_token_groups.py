@@ -114,10 +114,10 @@ def _compile_copy_token_groups_cutedsl(
         def _copy_vec_or_tail(
             self,
             inputs: cute.Tensor,
-            input_offset: cutlass.Int32,
+            input_offset: cutlass.Int64,
             elem_col: cutlass.Int32,
             output: cute.Tensor,
-            output_offset: cutlass.Int32,
+            output_offset: cutlass.Int64,
             dim: cutlass.Int32,
         ):
             if cutlass.const_expr(ROW_BYTES_ALIGNED):
@@ -201,8 +201,9 @@ def _compile_copy_token_groups_cutedsl(
                     input_row = padded_row
                     output_row = row
                 elem_col = lane_id * VEC_ELEMS
-                input_offset = input_row * dim + elem_col
-                output_offset = output_row * dim + elem_col
+                # row*dim overflows Int32 once num_tokens*dim exceeds ~2**31.
+                input_offset = cutlass.Int64(input_row) * dim + elem_col
+                output_offset = cutlass.Int64(output_row) * dim + elem_col
                 if cutlass.const_expr(ROW_BYTES_ALIGNED):
                     while elem_col + (UNROLL - 1) * LANE_STRIDE + VEC_ELEMS <= dim:
                         vals = []
@@ -317,7 +318,7 @@ def _compile_copy_token_groups_cutedsl(
     )
 
 
-def pad_token_groups_cutedsl(
+def _pad_token_groups_cutedsl(
     inputs: torch.Tensor,
     group_end_offsets: torch.Tensor,
     alignment_size: int = 32,
@@ -376,7 +377,7 @@ def pad_token_groups_cutedsl(
     return output, padded_group_start_offsets, padded_group_end_offsets
 
 
-def unpad_token_groups_cutedsl(
+def _unpad_token_groups_cutedsl(
     padded_inputs: torch.Tensor,
     group_end_offsets: torch.Tensor,
     padded_group_start_offsets: torch.Tensor,

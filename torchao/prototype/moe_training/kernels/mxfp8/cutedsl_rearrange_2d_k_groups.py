@@ -382,6 +382,9 @@ def _mx_block_rearrange_2d_k_groups_cutedsl_impl(
         else:
             chunk_width = 16
     assert chunk_width in (16, 32, 64, 128)
+    # zeros, not empty: inter-group column padding and rows beyond the last
+    # group's chunks are never written by a launched block, so they are only
+    # zero because of this allocation.
     output = torch.zeros(
         (padded_rows, padded_cols),
         device=scales_tensor.device,
@@ -403,6 +406,9 @@ def _mx_block_rearrange_2d_k_groups_cutedsl_impl(
         int(cols),
         int(padded_rows),
         int(ceil_div(rows, 128)),
+        # + num_groups: each group's chunk count rounds up independently, so the
+        # column-chunk grid is over-estimated to stay offset-independent (no d2h
+        # sync). Surplus blocks find active == 0 and skip the store.
         int(ceil_div(cols, chunk_width) + num_groups),
         stream,
     )
@@ -441,7 +447,7 @@ def _fake_mx_block_rearrange_2d_k_groups_cutedsl_custom_op(
     return scales_tensor.new_empty((padded_rows, padded_cols))
 
 
-def mx_block_rearrange_2d_k_groups_cutedsl(
+def _mx_block_rearrange_2d_k_groups_cutedsl(
     scales_tensor: torch.Tensor,
     input_offsets: torch.Tensor,
     chunk_width: int | None = None,

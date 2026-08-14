@@ -8,7 +8,3 @@ exclude = [
     "third_party/*",
     "torchao/prototype/paretoq/*",
 ]
-
-[lint.per-file-ignores]
-# Local imports (data, metrics) confuse isort's first-party detection
-"torchao/_models/sam/eval_combo.py" = ["I001"]
