@@ -87,10 +87,10 @@ jobs:
         include:
           - name: ROCM Nightly
             runs-on: linux.rocm.gpu.ecosystem.mi350.1
-            torch-spec: '--pre torch torchvision --index-url https://download.pytorch.org/whl/nightly/rocm7.2'
+            torch-spec: '--pre torch torchvision --index-url https://download.pytorch.org/whl/nightly/rocm7.14'
             gpu-arch-type: "rocm"
-            gpu-arch-version: "7.2"
-            docker-image: pytorch/manylinux2_28-builder:rocm7.2
+            gpu-arch-version: "7.14"
+            docker-image: pytorch/manylinux2_28-builder:rocm7.14
 
     permissions:
       id-token: write
