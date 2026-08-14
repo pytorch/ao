@@ -12,11 +12,12 @@ parametrization (see ``_KERNELS``):
   - ``cutedsl`` -> ``cutedsl_rht_quantize_row_col``
 
   RTNE (stochastic_rounding=False), both backends:
-    - test_rht_quantize_rtne_scales_vs_reference: FP8 scale factors match the PyTorch
-      reference within 1 fp8 ULP in swizzled layout. Not bitwise: the kernels are
-      matched against TransformerEngine (div_rn, no lower clamp) while the
-      mx_formats reference uses a reciprocal and an E4M3_EPS floor, so agreeing
-      bitwise with both is impossible.
+    - test_rht_quantize_rtne_scales_vs_transformer_engine_reference: FP8 scale
+      factors match a plain-PyTorch reference derived directly from
+      TransformerEngine bitwise in swizzled layout.
+    - test_rht_quantize_rtne_scales_vs_mx_formats_reference: FP8 scale factors
+      match the independent mx_formats reference within 1 fp8 ULP. Not bitwise:
+      mx_formats uses a reciprocal and an E4M3_EPS floor.
     - test_rht_quantize_rtne_sqnr: Dequantized output reconstructs post-RHT / raw-A
       values with SQNR >= 20 dB for both col and row paths.
     - test_rht_quantize_row_col_zero_and_near_zero_no_nan_or_saturation: zero and
@@ -38,8 +39,8 @@ parametrization (see ``_KERNELS``):
       at the same 1.25 midpoint.
 
 Coverage:
-  RS=F, RW=F  — rtne_scales_vs_reference + rtne_sqnr
-  RS=F, RW=T  — rtne_scales_vs_reference + rtne_sqnr
+  RS=F, RW=F  — TE bitwise scales + mx_formats scale compatibility + rtne_sqnr
+  RS=F, RW=T  — TE bitwise scales + mx_formats scale compatibility + rtne_sqnr
   RS=T, RW=F  — rs_midpoint_distribution (col) + rs_at_most_one_fp4_step_from_rtne (col+row)
   RS=T, RW=T  — rs_midpoint_distribution (row) + rs_at_most_one_fp4_step_from_rtne (col+row)
                 + sr_unbiased (row)
@@ -170,6 +171,38 @@ def _rht_quantize_rowwise_reference(
         A, per_tensor_scale=per_tensor_amax_to_scale(global_amax)
     )
     return codes, scale_inv, global_amax
+
+
+def _transformer_engine_scale_reference(
+    x: torch.Tensor, global_amax: torch.Tensor
+) -> torch.Tensor:
+    """Per-1x16 E4M3 decode scales using TransformerEngine's FP32 arithmetic.
+
+    Derived from ``compute_global_encode_scaling_factor_FP4`` and
+    ``compute_decoding_scaling_factor`` in
+    ``transformer_engine/common/cast/nvfp4/core_nvfp4.cuh``, plus the E4M3
+    cast/store path in ``quantize_transpose_nvfp4.cuh``. Keep the operation order
+    here aligned with those CUDA sources; in particular, this has no lower clamp.
+    """
+    global_amax = global_amax.to(torch.float32)
+    global_encode_scale = (
+        torch.tensor(448.0 * 6.0, dtype=torch.float32, device=x.device) / global_amax
+    )
+    global_encode_scale = torch.clamp(
+        global_encode_scale, max=torch.finfo(torch.float32).max
+    )
+    global_encode_scale = torch.where(
+        (global_amax == 0.0) | (global_encode_scale == 0.0),
+        torch.ones_like(global_encode_scale),
+        global_encode_scale,
+    )
+
+    block_amax = x.float().abs().reshape(*x.shape[:-1], -1, 16).amax(dim=-1)
+    scale = block_amax * (
+        global_encode_scale
+        * torch.tensor(1.0 / 6.0, dtype=torch.float32, device=x.device)
+    )
+    return torch.clamp(scale, max=448.0).to(torch.float8_e4m3fn)
 
 
 def _dequantize(
@@ -332,6 +365,19 @@ def _assert_scales_adjacent(got: torch.Tensor, ref: torch.Tensor, label: str) ->
     )
 
 
+def _assert_scales_bitwise(got: torch.Tensor, ref: torch.Tensor, label: str) -> None:
+    """Compare E4M3 scales as raw bytes."""
+    got_b = got.flatten().contiguous().view(torch.uint8)
+    ref_b = ref.flatten().contiguous().view(torch.uint8)
+    assert got_b.shape == ref_b.shape, (
+        f"{label}: shape mismatch {tuple(got_b.shape)} vs {tuple(ref_b.shape)}"
+    )
+    assert torch.equal(got_b, ref_b), (
+        f"{label}: {(got_b != ref_b).sum().item()}/{got_b.numel()} fp8 scale "
+        "bytes differ"
+    )
+
+
 def _assert_scales_finite(scales: torch.Tensor) -> None:
     # No lower-bound check: TE emits a zero per-vector scale for zero/near-zero
     # vectors, so pinning small scales to a nonzero floor would contradict the
@@ -371,10 +417,64 @@ def _assert_zero_quantized(
 
 
 @pytest.mark.parametrize("kernel", _KERNELS)
+@pytest.mark.parametrize(
+    "input_kind",
+    [
+        pytest.param("bounded_integer", id="bounded_integer"),
+        pytest.param("zeros", id="zeros"),
+        pytest.param("anchored_near_zero", id="anchored_near_zero"),
+    ],
+)
+@torch.no_grad()
+def test_rht_quantize_rtne_scales_vs_transformer_engine_reference(kernel, input_kind):
+    """Both fused scale paths must match TransformerEngine's arithmetic bitwise."""
+    M, N = _M_BOTH, _N_BOTH
+    if input_kind == "bounded_integer":
+        torch.manual_seed(42)
+        A = torch.randint(-8, 9, (M, N), dtype=torch.int16, device="cuda").to(
+            torch.bfloat16
+        )
+    elif input_kind == "zeros":
+        A = torch.zeros(M, N, dtype=torch.bfloat16, device="cuda")
+    else:
+        A = torch.full((M, N), _NEAR_ZERO, dtype=torch.bfloat16, device="cuda")
+        A[0, 0] = 1.0
+
+    col_values = _rht_reference(A)
+    col_amax = col_values.float().abs().max()
+    row_amax = A.float().abs().max()
+    ref_col_sf = to_blocked(_transformer_engine_scale_reference(col_values, col_amax))
+    ref_row_sf = to_blocked(_transformer_engine_scale_reference(A, row_amax))
+
+    _, col_sf, _, row_sf = _quantize_row_col(
+        kernel,
+        A,
+        col_amax=col_amax,
+        row_amax=row_amax,
+        sign_vector=_HARDCODED_SIGN_VECTOR,
+    )
+    _assert_scales_bitwise(col_sf, ref_col_sf, "col sf")
+    _assert_scales_bitwise(row_sf, ref_row_sf, "row sf")
+
+    if input_kind == "zeros":
+        assert torch.count_nonzero(col_sf.float()).item() == 0
+        assert torch.count_nonzero(row_sf.float()).item() == 0
+    elif input_kind == "anchored_near_zero":
+        for label, scales in (("col sf", col_sf), ("row sf", row_sf)):
+            scales_f32 = scales.float()
+            assert torch.count_nonzero(scales_f32).item() > 0, (
+                f"{label}: anchor must produce a nonzero scale"
+            )
+            assert torch.count_nonzero(scales_f32 == 0).item() > 0, (
+                f"{label}: near-zero blocks must underflow to E4M3 zero"
+            )
+
+
+@pytest.mark.parametrize("kernel", _KERNELS)
 @pytest.mark.parametrize("N", _N_VALUES, ids=lambda n: f"N{n}")
 @pytest.mark.parametrize("M", _M_VALUES, ids=lambda m: f"M{m}")
 @torch.no_grad()
-def test_rht_quantize_rtne_scales_vs_reference(kernel, M, N):
+def test_rht_quantize_rtne_scales_vs_mx_formats_reference(kernel, M, N):
     """Compare FP8 scale factors with the mx_formats implementation within 1 fp8 ULP.
 
     Columnwise: RHT + quantize of A.T. Rowwise: quantize raw A.
@@ -383,11 +483,10 @@ def test_rht_quantize_rtne_scales_vs_reference(kernel, M, N):
     conformance test. The kernels follow TE's correctly-rounded div_rn and do not
     lower-clamp per-vector scales. The mx_formats implementation instead multiplies
     by a reciprocal and applies an E4M3_EPS floor as part of its NVFP4 quantization.
-    For the ordinary, non-underflowing scales exercised here, the two formulations
-    are mathematically equivalent but can land on adjacent E4M3 values because of
-    FP32 rounding order. A separate plain-PyTorch TE reference should test the
-    intended kernel numerics bitwise; the zero-input test below covers the intentional
-    divergence from the mx_formats floor.
+    The epsilon floor belongs specifically to mx_formats and is not part of the
+    TE-derived reference above. For the ordinary, non-underflowing scales exercised
+    here, the two formulations are mathematically equivalent but can land on adjacent
+    E4M3 values because of FP32 rounding order.
 
     Note: packed FP4 codes are NOT checked at all here — the kernels use an
     approximate reciprocal (rcp.approx.f32, <=2 ULP) causing ~0.2% nibble
@@ -407,7 +506,7 @@ def test_rht_quantize_rtne_scales_vs_reference(kernel, M, N):
         sign_vector=_HARDCODED_SIGN_VECTOR,
     )
 
-    # Rowwise scale check (plain NVFP4 quantize of A) — bitwise for both backends.
+    # Rowwise compatibility check (plain mx_formats NVFP4 quantize of A).
     _, ref_row_sf, _ = _rht_quantize_rowwise_reference(A)
     _assert_scales_adjacent(row_sf.flatten(), to_blocked(ref_row_sf), "row sf")
 
