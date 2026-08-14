@@ -9,9 +9,6 @@ from typing import Dict, List, Optional, Tuple
 import torch
 from torch.utils._python_dispatch import TorchDispatchMode
 
-from torchao.kernel import (
-    int_scaled_matmul,
-)
 from torchao.quantization.quant_primitives import (
     MappingType,
     ZeroPointDomain,
@@ -40,7 +37,6 @@ from .granularity import (
 __all__ = [
     "compute_error",
     "_quantize_activation_per_token_absmax",
-    "_quant_int8_dynamic_per_token_linear",
     "dynamically_quantize_per_channel",
     "dequantize_per_tensor",
     "dequantize_per_channel",
@@ -115,28 +111,6 @@ class LoggingTensorMode(TorchDispatchMode):
         return rs
 
 
-class _MultiInput:
-    def __init__(self, inputs):
-        self.values = list(inputs)
-
-    def add_input(self, input):
-        self.values.append(input)
-        return self
-
-    def __getitem__(self, slice):
-        return _MultiInput(self.values[slice])
-
-    def cuda(self):
-        self.values = [
-            val.cuda() if isinstance(val, torch.Tensor) else val for val in self.values
-        ]
-
-    def xpu(self):
-        self.values = [
-            val.xpu() if isinstance(val, torch.Tensor) else val for val in self.values
-        ]
-
-
 def _guard_dtype_size(tensor_arg, arg_name, dtype=None, size=None):
     if dtype is not None and tensor_arg.dtype != dtype:
         raise ValueError(
@@ -190,86 +164,6 @@ def _quantize_activation_per_token_absmax(t):
     )
 
     return quantized, scale
-
-
-def _quant_int8_dynamic_per_token_linear(
-    x,
-    w_vals_int8_t,
-    w_scales,
-    bias,
-    out_dtype,
-):
-    """
-    like F.linear, but with int8 dynamic quantization of activation,
-    and a quantized weight
-    """
-    x_vals_int8, x_scales = _quantize_activation_per_token_absmax(x)
-    mm_out = _quant_int8_per_token_matmul(
-        x_vals_int8, x_scales, w_vals_int8_t, w_scales, out_dtype
-    )
-    if bias is not None:
-        mm_out = mm_out + bias
-    return mm_out
-
-
-def _quant_int8_per_token_matmul(
-    x_vals_int8,
-    x_scales,
-    w_vals_int8_t,
-    w_scales,
-    output_dtype=torch.float32,
-):
-    """
-    Quantized matmul of int8 operands that accumulates to int32 and returns
-    output_dtype. For now, this is written for approximate numerical
-    Assumes that activation and weight quantization are symmetric,
-    i.e. act_zp and w_zp is 0.
-    Assumes that weight quantization is per-channel.
-
-    see
-    https://github.com/google/gemmlowp/blob/master/doc/quantization.md
-    for an overview of quantized matmul compute
-
-    in scalar form, assuming output_dtype is fp32 and zw == 0:
-
-      Y_i_j_fp32 = sx * sw dot(X_i, W_j)
-    """
-
-    assert x_vals_int8.dtype == torch.int8, (
-        f"x dtype {x_vals_int8.dtype} not yet supported"
-    )
-    assert w_vals_int8_t.dtype == torch.int8, (
-        f"w dtype {w_vals_int8_t.dtype} not yet supported"
-    )
-
-    assert x_scales.dtype in [
-        torch.float,
-        torch.bfloat16,
-    ], (
-        f"x_scales needs to be a torch.float32 or torch.bfloat16 but got {x_scales.dtype}"
-    )
-
-    #
-    # 1. do the matrix form of dot(X_i, W_j)
-    #
-    #
-    # 2. rescale the output
-    #
-    # in cases with large matrices, y_dot_int32 can grow sufficiently
-    # large that y_dot_int32 * a float16 scale is greater than the maximum
-    # value of a float 16, (which results in a value of inf even if multiplying
-    # by the other scale would bring it within the expected range)
-
-    tmp = x_vals_int8.reshape(-1, x_vals_int8.shape[-1])
-    y_dot_scaled = int_scaled_matmul(tmp, w_vals_int8_t, x_scales.reshape(-1, 1))
-
-    y = (y_dot_scaled * w_scales).reshape(
-        *x_vals_int8.shape[:-1], y_dot_scaled.shape[-1]
-    )
-
-    # can downcast only at the very end
-    y = y.to(output_dtype)
-    return y
 
 
 def dynamically_quantize_per_channel(x, quant_min, quant_max, target_dtype):

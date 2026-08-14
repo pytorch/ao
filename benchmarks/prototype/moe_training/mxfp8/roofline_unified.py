@@ -19,7 +19,7 @@ import torch
 from triton.testing import do_bench
 
 from torchao.prototype.moe_training.kernels.mxfp8 import (
-    mx_block_rearrange_2d_k_groups_cutedsl,
+    _mx_block_rearrange_2d_k_groups_cutedsl,
     mx_block_rearrange_2d_M_groups_cuda,
     mxfp8_quantize_2d_1x32_cutedsl,
     mxfp8_quantize_2d_32x1_cutedsl,
@@ -28,7 +28,7 @@ from torchao.prototype.moe_training.kernels.mxfp8 import (
     triton_mx_block_rearrange_per_group_3d,
 )
 from torchao.prototype.moe_training.kernels.mxfp8.cutedsl_rearrange_2d_m_groups import (
-    mx_block_rearrange_2d_m_groups_cutedsl,
+    _mx_block_rearrange_2d_m_groups_cutedsl,
 )
 from torchao.prototype.moe_training.kernels.mxfp8.quant import (
     mxfp8_quantize_cuda_3d,
@@ -38,10 +38,10 @@ from torchao.prototype.moe_training.mxfp8_grouped_mm import (
 )
 from torchao.prototype.moe_training.mxfp8_grouped_mm import (
     _to_mxfp8_then_scaled_grouped_mm,
-    set_mxfp8_grouped_mm_backend,
 )
 from torchao.prototype.moe_training.utils import generate_jagged_offs
 from torchao.prototype.mx_formats.config import (
+    MXFP8Dim0CastKernelChoice,
     MXFP8Dim1CastKernelChoice,
     ScaleCalculationMode,
 )
@@ -452,9 +452,22 @@ def benchmark_torch_grouped_mm_fwd_bwd(x, w_t, offs, labels):
     return time_ms
 
 
+# The cast kernels each backend label selects.
+_BACKEND_CAST_KERNEL_CHOICES = {
+    "cutedsl": (
+        MXFP8Dim0CastKernelChoice.CUTEDSL,
+        MXFP8Dim1CastKernelChoice.CUTEDSL,
+    ),
+    "legacy": (
+        MXFP8Dim0CastKernelChoice.TRITON,
+        MXFP8Dim1CastKernelChoice.CUDA,
+    ),
+}
+
+
 def benchmark_mxfp8_grouped_mm_fwd_bwd(x, w_t, offs, labels, backend: str):
     """Benchmark _to_mxfp8_then_scaled_grouped_mm forward + backward"""
-    set_mxfp8_grouped_mm_backend(backend)
+    dim0_choice, dim1_choice = _BACKEND_CAST_KERNEL_CHOICES[backend]
     torch._dynamo.reset()
     x_clone = x.clone().requires_grad_(True)
     w_t_clone = w_t.clone().requires_grad_(True)
@@ -471,6 +484,8 @@ def benchmark_mxfp8_grouped_mm_fwd_bwd(x, w_t, offs, labels, backend: str):
             wgrad_with_hp=False,
             scale_calculation_mode=MoEScaleCalculationMode.RCEIL,
             pad_token_groups_for_grouped_mm=False,
+            mxfp8_dim0_cast_kernel_choice=dim0_choice,
+            mxfp8_dim1_cast_kernel_choice=dim1_choice,
         )
         loss = torch.nn.functional.mse_loss(out, labels)
         loss.backward()
@@ -949,13 +964,13 @@ def run(
             f"  mx_block_rearrange_2d_M_groups_cuda: Roofline={roofline_bandwidth_gbs:.1f} GB/s, Actual={cuda_bandwidth_gbs:.1f} GB/s, Efficiency={result_dict['cuda_efficiency_pct']:.1f}%"
         )
 
-        cutedsl_out = mx_block_rearrange_2d_m_groups_cutedsl(
+        cutedsl_out = _mx_block_rearrange_2d_m_groups_cutedsl(
             input_tensor,
             input_group_offsets,
         )
         torch.testing.assert_close(cutedsl_out, cuda_out, rtol=0, atol=0)
         cutedsl_time_us = benchmark_cuda_function_in_microseconds(
-            mx_block_rearrange_2d_m_groups_cutedsl,
+            _mx_block_rearrange_2d_m_groups_cutedsl,
             input_tensor,
             input_group_offsets,
         )
@@ -1036,13 +1051,13 @@ def run(
             f"  triton_mx_block_rearrange_2d_K_groups: Roofline={roofline_bandwidth_gbs:.1f} GB/s, Actual={triton_bandwidth_gbs:.1f} GB/s, Efficiency={result_dict['triton_efficiency_pct']:.1f}%"
         )
 
-        cutedsl_out = mx_block_rearrange_2d_k_groups_cutedsl(
+        cutedsl_out = _mx_block_rearrange_2d_k_groups_cutedsl(
             input_tensor,
             scale_group_offsets,
         )
         torch.testing.assert_close(cutedsl_out, triton_out, rtol=0, atol=0)
         cutedsl_time_us = benchmark_cuda_function_in_microseconds(
-            mx_block_rearrange_2d_k_groups_cutedsl,
+            _mx_block_rearrange_2d_k_groups_cutedsl,
             input_tensor,
             scale_group_offsets,
         )
@@ -1751,7 +1766,7 @@ def run(
     )
     bwd_input_grad_scale_rearrange_cutedsl_ms = (
         benchmark_cuda_function_in_microseconds(
-            mx_block_rearrange_2d_m_groups_cutedsl, grad_scales, grad_offs
+            _mx_block_rearrange_2d_m_groups_cutedsl, grad_scales, grad_offs
         )
         / 1000
     )
@@ -1812,7 +1827,7 @@ def run(
     )
     bwd_weight_input_scale_rearrange_cutedsl_ms = (
         benchmark_cuda_function_in_microseconds(
-            mx_block_rearrange_2d_k_groups_cutedsl, input_scales_k, scale_group_offs
+            _mx_block_rearrange_2d_k_groups_cutedsl, input_scales_k, scale_group_offs
         )
         / 1000
     )

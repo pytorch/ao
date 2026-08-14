@@ -112,19 +112,21 @@ mxfp8_quantize(const Tensor& input, bool rowwise, bool colwise,
                const std::string &scaling_mode) {
 
   // Validate inputs
-  STD_TORCH_CHECK(!rowwise, "rowwise scaling is not supported yet");
   STD_TORCH_CHECK(input.is_cuda(), "input must be a CUDA tensor");
   STD_TORCH_CHECK(input.is_contiguous(), "input must be contiguous");
   STD_TORCH_CHECK(input.dim() == 2, "input must be 2D");
   STD_TORCH_CHECK(input.scalar_type() == torch::headeronly::ScalarType::Float ||
-                  input.scalar_type() == torch::headeronly::ScalarType::Half ||
                   input.scalar_type() == torch::headeronly::ScalarType::BFloat16,
-              "Input must be float32, float16, or bfloat16");
+              "Input must be float32 or bfloat16");
   STD_TORCH_CHECK(rowwise || colwise,
               "At least one of rowwise or colwise must be true");
 
   validate_scale_dimensions(scale_dim_x, scale_dim_y);
   validate_fp8_format(fp8_format);
+  STD_TORCH_CHECK(!rowwise || scale_dim_x == 32,
+              "rowwise output requires scale_dim_x == 32");
+  STD_TORCH_CHECK(!colwise || scale_dim_y == 32,
+              "colwise output requires scale_dim_y == 32");
 
   const int64_t rows = input.size(0);
   const int64_t cols = input.size(1);

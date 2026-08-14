@@ -1141,6 +1141,8 @@ def _fake_mxfp8_quantize_2d_32x1_cutedsl_custom_op(
     assert block_size == 32, "Only block_size=32 is supported"
     m, k = x.shape
 
+    # Output data has the same dimensions as the input, but the 32x1 kernel writes
+    # it column-major, hence the (1, m) strides.
     q_data = torch.empty_strided(
         (m, k),
         (1, m),
@@ -1150,10 +1152,12 @@ def _fake_mxfp8_quantize_2d_32x1_cutedsl_custom_op(
 
     m_blocks = m // block_size
     if blocked_scale_output:
-        padded_scale_rows = ceil_div(m_blocks, 4) * 4
-        padded_scale_cols = ceil_div(k, 128) * 128
+        # Only the scales need padding, to whole 128x4 scale-factor tiles. Names
+        # match cutedsl_quantize_2d_32x1.py: rows come from K, cols from m_blocks.
+        padded_scale_rows = ceil_div(k, 128) * 128
+        padded_scale_cols = ceil_div(m_blocks, 4) * 4
         scales = x.new_empty(
-            (padded_scale_cols * padded_scale_rows,),
+            (padded_scale_rows * padded_scale_cols,),
             dtype=torch.float8_e8m0fnu,
         )
     else:

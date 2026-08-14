@@ -1,6 +1,6 @@
 # TorchAO
 
-PyTorch-native library for quantization, sparsity, and low-precision training.
+PyTorch-native library for quantization and low-precision training.
 
 ## Config Classes
 
@@ -8,7 +8,7 @@ All configs inherit from `AOBaseConfig`. Defined in `torchao/quantization/quant_
 
 ## Stable vs Prototype
 
-- **Stable** (`torchao/quantization/`, `torchao/float8/`, `torchao/sparsity/`, `torchao/optim/`): API stability guaranteed.
+- **Stable** (`torchao/quantization/`, `torchao/float8/`, `torchao/optim/`): API stability guaranteed.
 - **Prototype** (`torchao/prototype/`): Experimental, API may change without notice.
 
 See [docs/source/workflows/index.md](docs/source/workflows/index.md) for the full dtype x hardware status matrix.
@@ -30,6 +30,7 @@ Do not use or recommend these:
 - Layout registration system (`PlainLayout`, `Float8Layout`, `TensorCoreTiledLayout`, etc.) - deleted
 - `TorchAODType` - deprecated
 - `change_linear_weights_to_int4_woqtensors` - deleted, use `quantize_(model, Int4WeightOnlyConfig())`
+- `torchao.sparsity` (`sparsify_`, `semi_sparse_weight`, `block_sparse_weight`, `WandaSparsifier`, etc.), `torchao.prototype.sparsity`, and `torchao.kernel` - deleted
 
 New tensor types should inherit from `TorchAOBaseTensor` in `torchao/utils.py`.
 

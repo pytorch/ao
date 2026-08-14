@@ -59,7 +59,6 @@ from torchao.prototype.mx_formats.constants import (
     F8E5M2_MAX,
     F8E5M2_MAX_POW2,
     F32_EXP_BIAS,
-    F32_MIN_NORMAL,
     SUPPORTED_ELEM_DTYPES,
 )
 from torchao.prototype.mx_formats.kernels import (
@@ -95,6 +94,9 @@ EBITS_F6_E3M2, MBITS_F6_E3M2 = 3, 2
 EBITS_F8_E4M3, MBITS_F8_E4M3 = 4, 3
 EBITS_F8_E5M2, MBITS_F8_E5M2 = 5, 2
 
+_TORCH_VERSION_AT_LEAST_2_13 = torch_version_at_least("2.13.0.dev0")
+_TORCH_VERSION_AT_LEAST_2_14 = torch_version_at_least("2.14.0.dev0")
+
 
 @dataclass
 class QuantizeTensorToMXKwargs(QuantizeTensorKwargs):
@@ -104,6 +106,56 @@ class QuantizeTensorToMXKwargs(QuantizeTensorKwargs):
     scaling_mode: ScaleCalculationMode = ScaleCalculationMode.FLOOR
     kernel_preference: KernelPreference = KernelPreference.EMULATED
     is_swizzled_scales: bool = False
+
+
+def _f32_to_e8m0_rceil(value: torch.Tensor) -> torch.Tensor:
+    # We can't just use value.to(float8_e8m0fnu) because it doesn't support
+    # passing round="up". See https://github.com/pytorch/pytorch/issues/175409
+    value = value.to(torch.float32)
+    value_bits = value.view(torch.int32)
+    biased_exponent = torch.bitwise_right_shift(value_bits, MBITS_F32) & 0xFF
+    mantissa = value_bits & 0x7FFFFF
+
+    # Normal FP32 values round up when any mantissa bit is set. For FP32
+    # subnormals, E8M0 byte 0 is 2^-127, so only values above that round to 1.
+    needs_round_up = torch.where(
+        biased_exponent == 0,
+        mantissa > 0x400000,
+        mantissa != 0,
+    )
+    e8m0_biased = biased_exponent + needs_round_up.to(torch.int32)
+    return torch.where(torch.isfinite(value), e8m0_biased, E8M0_EXPONENT_NAN_VAL).to(
+        torch.uint8
+    )
+
+
+def _e8m0_scale_to_reciprocal_fp32(
+    scale_e8m0_biased: torch.Tensor,
+) -> torch.Tensor:
+    reciprocal_e8m0_biased = (
+        2 * E8M0_EXPONENT_BIAS - scale_e8m0_biased.to(torch.int32)
+    ).to(torch.uint8)
+
+    # PyTorch 2.14 adds a fuseable Inductor lowering for E8M0-to-float casts
+    # (https://github.com/pytorch/pytorch/pull/190593). Remove our fallback
+    # once torchao requires PyTorch 2.14 or newer.
+    if _TORCH_VERSION_AT_LEAST_2_14:
+        return reciprocal_e8m0_biased.view(torch.float8_e8m0fnu).to(torch.float32)
+
+    reciprocal_fp32_bits = torch.bitwise_left_shift(
+        reciprocal_e8m0_biased.to(torch.int32), MBITS_F32
+    )
+    reciprocal_fp32_bits = torch.where(
+        reciprocal_e8m0_biased == 0,
+        0x00400000,  # E8M0 byte 0 is the FP32 subnormal 2^-127.
+        reciprocal_fp32_bits,
+    )
+    reciprocal_fp32_bits = torch.where(
+        reciprocal_e8m0_biased == E8M0_EXPONENT_NAN_VAL,
+        0x7F800001,
+        reciprocal_fp32_bits,
+    )
+    return reciprocal_fp32_bits.view(torch.float32)
 
 
 def _to_mx_rceil(
@@ -116,7 +168,7 @@ def _to_mx_rceil(
     https://docs.nvidia.com/cuda/cublas/#d-block-quantization
 
     For Nvidia GPU with Blackwell+ architecture, the scale factor derivation method
-    is accelerated by the `cvt.rp.satfinite.ue8m0x2.f32` instruction via
+    is accelerated by the `cvt.rp.ue8m0x2.f32` instruction via
     `inline_asm_elementwise`, if torch.compile is on. Falls back to pure PyTorch ops
     on other hardware and in eager mode.
 
@@ -130,7 +182,7 @@ def _to_mx_rceil(
         data_lp: The targeted low precision data, in high precision container
             (requires cast to low precision data type).
     """
-    descale = max_abs / max_pos
+    descale = max_abs * (1.0 / max_pos)
 
     if (
         # gate the inline PTX to compile only because the functionality does
@@ -150,63 +202,25 @@ def _to_mx_rceil(
         and torch_version_at_least("2.12.0.dev0")
         and descale.is_cuda
     ):
-        # Use cvt.rp.satfinite.ue8m0x2.f32 to convert fp32 descale to e8m0.
+        # Use cvt.rp.ue8m0x2.f32 to convert fp32 descale to e8m0.
         # The instruction takes two fp32 inputs, packs two e8m0 results into uint16.
         # We pass 0.0 as the first input (high byte) and descale as the second (low byte).
-        # Handles NaN->255, Inf->254, subnormals->0 in hardware.
+        # Handles NaN/Inf->255 and subnormal rounding in hardware.
         scale_e8m0_u16 = inline_asm_elementwise(
             descale.to(torch.float32),
-            asm_str="cvt.rp.satfinite.ue8m0x2.f32 $0, 0.0, $1;",
+            asm_str="cvt.rp.ue8m0x2.f32 $0, 0.0, $1;",
             constraints="=h,r",
             dtype=torch.uint16,
         )
         # Low byte contains e8m0 of our input; truncate uint16 -> uint8
         exponent = scale_e8m0_u16.to(torch.uint8)
     else:
-        # Fallback
-        exponent = torch.where(
-            torch.isnan(descale),
-            255,  # 0xFF for NaN in amax
-            torch.where(
-                torch.isinf(descale),
-                254,  # 0xFE for inf in amax
-                # Normal case
-                (
-                    torch.clamp(
-                        torch.ceil(torch.log2(descale)),
-                        min=-E8M0_EXPONENT_BIAS,
-                        max=E8M0_EXPONENT_BIAS,
-                    )
-                    + E8M0_EXPONENT_BIAS
-                ).to(torch.uint8),
-            ),
-        )
+        exponent = _f32_to_e8m0_rceil(descale)
 
-    # Ref: https://github.com/NVIDIA/TransformerEngine/blob/b7598aa887eb7d619d64c90692980009669379bf/transformer_engine/common/util/ptx.cuh#L332-L341
-    rcp_fp32 = torch.where(
-        exponent == 255,  # NaN case -> stays NaN
-        # exponent is 255 exactly when descale is NaN. Reusing descale avoids
-        # materializing distinct NaN constants that prevent graph CSE when the
-        # same activation is quantized for multiple linear projections.
-        # See https://github.com/pytorch/pytorch/issues/191013.
-        descale,
-        torch.where(
-            exponent == 254,  # Inf case -> return 2^-127
-            2**-127,
-            # Normal case
-            torch.where(
-                exponent == 0,
-                1.0,
-                torch.exp2(E8M0_EXPONENT_BIAS - exponent.to(torch.float32)),
-            ),
-        ),
-    )
+    rcp_fp32 = _e8m0_scale_to_reciprocal_fp32(exponent)
 
     # Scale the data
     data_lp = data_hp * rcp_fp32
-
-    # Note: clamp preserves NaN values
-    data_lp = torch.clamp(data_lp, min=-max_pos, max=max_pos)
 
     return exponent, data_lp
 
@@ -334,44 +348,28 @@ def to_mx(
         scale_e8m0_biased = scale_e8m0_unbiased + E8M0_EXPONENT_BIAS
         scale_e8m0_biased = scale_e8m0_biased.to(torch.uint8)
 
-        # Conversion to torch.uint8 sets NaN values to 0, fix this by
-        # explicitly setting known NaN values to 255
+        # No-saturation E8M0 conversion maps both NaN and Inf to 0xff.
         scale_e8m0_biased = torch.where(
-            torch.isnan(max_abs),
-            E8M0_EXPONENT_NAN_VAL,
+            torch.isfinite(max_abs),
             scale_e8m0_biased,
+            E8M0_EXPONENT_NAN_VAL,
         )
 
-        # For now, calculate the scale in floating point.
-        # For now, use `torch.bitwise_left_shift` instead of `<<` to support DTensor
-        # See https://github.com/pytorch/pytorch/issues/156533.
-        scale_fp32 = (
-            torch.bitwise_left_shift(scale_e8m0_biased.to(torch.int32), MBITS_F32)
-        ).view(torch.float32)
+        inv_scale = _e8m0_scale_to_reciprocal_fp32(scale_e8m0_biased)
+        data_lp = data_hp * inv_scale
 
-        # Today, 2**-127 returns 0 in compile+inductor+triton because it is in the
-        # float32 denormal range. For now, manually adjust the fp scale. This is
-        # relevant if all of the incoming block values are zeroes.
-        # See https://github.com/pytorch/pytorch/issues/125557 for details.
-        # Note: it would be more correct to set the minimum to 2**-127, but this
-        # does not work in triton either as it looks like subnormal value handling
-        # has some gaps.  So, for now just set to the minimum normal value.
-        scale_fp32 = torch.clamp(scale_fp32, min=F32_MIN_NORMAL)
-
-        # scale and saturated cast the data elements to max of target dtype
-        data_lp = data_hp / scale_fp32
-
-        if (
-            elem_dtype in (torch.float8_e4m3fn, torch.float8_e5m2)
-            and not torch._dynamo.is_compiling()
-        ):
-            # PyTorch 2.11 and older eager casts did not saturate finite
+        needs_eager_saturation = elem_dtype == torch.float8_e5m2 or (
+            elem_dtype == torch.float8_e4m3fn and not _TORCH_VERSION_AT_LEAST_2_13
+        )
+        if needs_eager_saturation and not torch._dynamo.is_compiling():
+            # Before PyTorch 2.13, eager casts for e4m3 did not saturate finite
             # overflow values, so torchao clamps before casting. Triton
             # casts saturate, if we are compute bound we see a speedup if we remove
             # this redundant clamp (in the case of compiling to Triton)
             # TODO(#1912): PyTorch core fixed eager saturation in
-            # https://github.com/pytorch/pytorch/pull/178817. Remove this
-            # workaround after torchao stops supporting PyTorch 2.11.
+            # https://github.com/pytorch/pytorch/pull/178817 and
+            # https://github.com/pytorch/pytorch/pull/177870. Remove this
+            # workaround after torchao stops supporting PyTorch <2.13.
             data_lp = torch.clamp(data_lp, min=-1 * max_pos, max=max_pos)
 
     # cast to target dtype
@@ -651,6 +649,7 @@ class MXTensor(TorchAOBaseTensor):
         assert mxfp8_dim0_cast_kernel_choice in (
             MXFP8Dim0CastKernelChoice.TRITON,
             MXFP8Dim0CastKernelChoice.TORCH,
+            MXFP8Dim0CastKernelChoice.CUTEDSL,
         ), (
             f"unsupported kernel choice for mxfp8_dim0_cast_kernel_choice: {mxfp8_dim0_cast_kernel_choice}"
         )
@@ -665,6 +664,29 @@ class MXTensor(TorchAOBaseTensor):
             scale_e8m0_biased, data_lp = to_mx(
                 data_hp, elem_dtype, block_size, scaling_mode, is_swizzled_scales
             )
+        elif mxfp8_dim0_cast_kernel_choice == MXFP8Dim0CastKernelChoice.CUTEDSL:
+            assert elem_dtype == torch.float8_e4m3fn, (
+                f"cutedsl kernel unsupported for {elem_dtype=}"
+            )
+            assert scaling_mode in (
+                ScaleCalculationMode.FLOOR,
+                ScaleCalculationMode.RCEIL,
+            ), f"cutedsl kernel unsupported for {scaling_mode=}"
+
+            # avoid circular import
+            from torchao.prototype.moe_training.kernels.mxfp8.quant import (
+                mxfp8_quantize_2d_1x32_cutedsl,
+            )
+
+            data_lp, scale_e8m0_biased = mxfp8_quantize_2d_1x32_cutedsl(
+                data_hp,
+                block_size=block_size,
+                scaling_mode=scaling_mode.value,
+            )
+            # This kernel writes the scales in the blocked tcgen05 layout
+            # unconditionally, so the caller's request is upgraded rather than
+            # honored as-is.
+            is_swizzled_scales = True
         else:
             assert triton_kernel_supported, (
                 f"triton kernel unsupported for {data_hp.dtype=}, {elem_dtype=}, {scaling_mode=}, {is_swizzled_scales=}"
