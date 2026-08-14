@@ -49,37 +49,171 @@ def _cutedsl_runtime_available() -> bool:
 if _cutedsl_runtime_available():
     import cutlass
     import cutlass.cute as cute
-    from cutlass._mlir.dialects import llvm
+    from cutlass._mlir import ir
+    from cutlass._mlir.dialects import arith, llvm, nvvm, vector
     from cutlass.cutlass_dsl import T, dsl_user_op
 
     # FP8 constants
-    F8_MAX = cutlass.Float32(448.0)
     INV_F8_MAX = cutlass.Float32(1.0 / 448.0)
 
-    # PTX inline assembly for RCEIL conversion on Blackwell
     @dsl_user_op
-    def _cvt_rp_satfinite_ue8m0x2_f32(
-        a: cutlass.Float32,
+    def view_as(x, dtype, *, loc=None, ip=None):
+        """Bitcast one scalar to another scalar of equal width."""
+        assert type(x).width == dtype.width
+        # Use signed IR types even for unsigned CUTLASS types as this is what
+        # bitcast wants.
+        dst_type = (
+            T.i(dtype.width)
+            if ir.IntegerType.isinstance(dtype.mlir_type)
+            else dtype.mlir_type
+        )
+        return dtype(
+            arith.bitcast(
+                dst_type,
+                x.ir_value(loc=loc, ip=ip),
+                loc=loc,
+                ip=ip,
+            )
+        )
+
+    @dsl_user_op
+    def unpack(x, dtype, *, loc=None, ip=None):
+        """Unpack an integer carrier into a tuple of scalar values."""
+        x = cute.typing.as_numeric(x)
+        carrier_dtype = type(x)
+        assert ir.IntegerType.isinstance(carrier_dtype.mlir_type)
+        assert carrier_dtype.width % dtype.width == 0
+
+        num_lanes = carrier_dtype.width // dtype.width
+        # Use integer vector lanes because vector<N x FP8> can crash the
+        # compiler: https://github.com/NVIDIA/cutlass/issues/3342
+        lanes = llvm.bitcast(
+            T.vector(num_lanes, T.i(dtype.width)),
+            x.ir_value(loc=loc, ip=ip),
+            loc=loc,
+            ip=ip,
+        )
+        return tuple(
+            view_as(
+                cute.typing.as_numeric(
+                    vector.extract(
+                        lanes,
+                        dynamic_position=[],
+                        static_position=[i],
+                        loc=loc,
+                        ip=ip,
+                    )
+                ),
+                dtype,
+                loc=loc,
+                ip=ip,
+            )
+            for i in range(num_lanes)
+        )
+
+    @dsl_user_op
+    def pack(*values, carrier=None, loc=None, ip=None):
+        """Pack same-typed scalar values into an integer carrier."""
+        assert len(values) > 0
+
+        lane_dtype = type(values[0])
+        assert all(type(value) is lane_dtype for value in values)
+        # Use integer vector lanes because vector<N x FP8> can crash the
+        # compiler: https://github.com/NVIDIA/cutlass/issues/3342
+        lane_type = T.i(lane_dtype.width)
+        lanes = vector.from_elements(
+            T.vector(len(values), lane_type),
+            tuple(
+                arith.bitcast(
+                    lane_type,
+                    value.ir_value(loc=loc, ip=ip),
+                    loc=loc,
+                    ip=ip,
+                )
+                for value in values
+            ),
+            loc=loc,
+            ip=ip,
+        )
+
+        packed_width = len(values) * lane_dtype.width
+        packed = llvm.bitcast(T.i(packed_width), lanes, loc=loc, ip=ip)
+        if carrier is None:
+            return cute.typing.as_numeric(packed)
+        else:
+            assert ir.IntegerType.isinstance(carrier.mlir_type)
+            assert carrier.width == packed_width
+            return carrier(packed)
+
+    @dsl_user_op
+    def fmax_nan_f32(a, b, *, loc=None, ip=None):
+        """Pairwise f32 maximum with NaN propagation."""
+
+        # CUTLASS 4.6 exposes this directly as
+        # `cute.arch.fmax(a, b, nan=True)`. Remove this low-level NVVM wrapper
+        # once TorchAO's minimum supported nvidia-cutlass-dsl is at least 4.6.
+        return cutlass.Float32(
+            nvvm.fmax(
+                T.f32(),
+                cutlass.Float32(a).ir_value(loc=loc, ip=ip),
+                cutlass.Float32(b).ir_value(loc=loc, ip=ip),
+                nan=True,
+                loc=loc,
+                ip=ip,
+            )
+        )
+
+    @dsl_user_op
+    def _cvt_f32_to_ue8m0(
+        x: cutlass.Float32,
+        *,
+        rounding_mode,
+        loc=None,
+        ip=None,
+    ) -> cutlass.Float8E8M0FNU:
+        """Convert x to a single E8M0 value without saturation."""
+        packed = nvvm.cvt_packfloat_f32(
+            T.i32(),
+            cutlass.Float32(0.0).ir_value(loc=loc, ip=ip),
+            x.ir_value(loc=loc, ip=ip),
+            cutlass.Int32(0).ir_value(loc=loc, ip=ip),
+            nvvm.CVTPackFloatKind.UE8M0x2,
+            rnd=rounding_mode,
+            sat=nvvm.SaturationModeKind.NONE,
+            loc=loc,
+            ip=ip,
+        )
+        return unpack(packed, cutlass.Float8E8M0FNU, loc=loc, ip=ip)[0]
+
+    @dsl_user_op
+    def _cvt_ue8m0_to_f32(
+        x: cutlass.Float8E8M0FNU,
         *,
         loc=None,
         ip=None,
-    ) -> cutlass.Uint16:
-        """PTX inline assembly for RCEIL conversion.
-
-        Uses inline PTX on Blackwell-family targets because CuTeDSL does not
-        currently lower this conversion to `cvt.rp.satfinite.ue8m0x2.f32` on its own.
-        """
-        return cutlass.Uint16(
-            llvm.inline_asm(
-                T.i16(),
-                [cutlass.Float32(a).ir_value(loc=loc, ip=ip)],
-                "cvt.rp.satfinite.ue8m0x2.f32 $0, 0.0, $1;",
-                "=h,f",
-                has_side_effects=False,
-                is_align_stack=False,
-                asm_dialect=llvm.AsmDialect.AD_ATT,
-            )
+    ) -> cutlass.Float32:
+        """Convert a single E8M0 value to f32 through the supported BF16 path."""
+        x_e8m0x2 = pack(x, cutlass.Float8E8M0FNU(0), loc=loc, ip=ip)
+        x_u32 = llvm.zext(T.i32(), x_e8m0x2.ir_value(loc=loc, ip=ip), loc=loc, ip=ip)
+        bf16x2_bits = nvvm.cvt_packfloat(
+            T.i32(),
+            x_u32,
+            cutlass.Int32(0).ir_value(loc=loc, ip=ip),
+            nvvm.CVTPackFloatKind.UE8M0x2,
+            nvvm.CVTPackFloatKind.BF16x2,
+            rnd=nvvm.RoundingModeKind.RN,
+            sat=nvvm.SaturationModeKind.NONE,
+            loc=loc,
+            ip=ip,
         )
+        low_bf16 = unpack(bf16x2_bits, cutlass.BFloat16, loc=loc, ip=ip)[0]
+        return low_bf16.to(cutlass.Float32)
+
+    @cute.jit
+    def _reciprocal_scale(scale_e8m0: cutlass.Float8E8M0FNU):
+        scale_biased = view_as(scale_e8m0, cutlass.Uint8)
+        reciprocal_biased = cutlass.Uint8(254) - scale_biased
+        return _cvt_ue8m0_to_f32(view_as(reciprocal_biased, cutlass.Float8E8M0FNU))
 
     # Shared scale computation methods
     @cute.jit
@@ -93,17 +227,14 @@ if _cutedsl_runtime_available():
             The absolute maximum value as Float32
         """
         vals_vec = vals_block.load()
-        abs_vec = cute.where(vals_vec < 0, -vals_vec, vals_vec)
+        abs_vec = cute.absf(vals_vec)
         return cutlass.Float32(
             abs_vec.reduce(cute.ReductionOp.MAX, cutlass.Float32(0.0), 0)
         )
 
     @cute.jit
     def compute_scale_rceil(amax: cutlass.Float32):
-        """Compute scale using RCEIL (round-up) mode with Blackwell PTX inline assembly.
-
-        Uses inline PTX `cvt.rp.satfinite.ue8m0x2.f32` instruction for optimal performance
-        on Blackwell (SM 10.x) and later architectures.
+        """Compute scale using the Blackwell E8M0 round-up conversion.
 
         Args:
             amax: Absolute maximum value
@@ -111,17 +242,9 @@ if _cutedsl_runtime_available():
         Returns:
             Tuple of (scale_biased, inv_scale)
         """
-        # referene: https://github.com/pytorch/ao/blob/ac0b820899b0a5d415310f798c9c96b5a5973f53/torchao/csrc/cuda/mx_kernels/mxfp8_quantize.cuh#L538
         descale = amax * INV_F8_MAX
-        scale_biased = cutlass.Int32(_cvt_rp_satfinite_ue8m0x2_f32(descale))
-        inv_scale = cutlass.Float32(1.0)
-        if scale_biased == 0xFF:
-            inv_scale = cutlass.Float32(0.0)
-        elif scale_biased == 0:
-            inv_scale = cute.exp2(cutlass.Float32(126.0))
-        else:
-            inv_scale = cute.exp2(cutlass.Float32(127 - scale_biased))
-        return scale_biased, inv_scale
+        scale_e8m0 = _cvt_f32_to_ue8m0(descale, rounding_mode=nvvm.RoundingModeKind.RP)
+        return view_as(scale_e8m0, cutlass.Uint8), _reciprocal_scale(scale_e8m0)
 
     @cute.jit
     def compute_scale_floor(amax: cutlass.Float32):
@@ -133,17 +256,9 @@ if _cutedsl_runtime_available():
         Returns:
             Tuple of (scale_biased, inv_scale)
         """
-        # reference: https://github.com/pytorch/ao/blob/ac0b820899b0a5d415310f798c9c96b5a5973f53/torchao/csrc/cuda/mx_kernels/mxfp8_quantize.cuh#L520
-        bits = amax.bitcast(cutlass.Int32)
-        exp_i = ((bits >> cutlass.Int32(23)) & cutlass.Int32(0xFF)) - cutlass.Int32(127)
-        scale_exp_unbiased = exp_i - cutlass.Int32(8)
-        if scale_exp_unbiased < -127:
-            scale_exp_unbiased = cutlass.Int32(-127)
-        if scale_exp_unbiased > 128:
-            scale_exp_unbiased = cutlass.Int32(128)
-        inv_scale = cute.exp2(cutlass.Float32(-scale_exp_unbiased))
-        scale_biased = scale_exp_unbiased + 127
-        return scale_biased, inv_scale
+        descale = amax * cutlass.Float32(1.0 / 256.0)
+        scale_e8m0 = _cvt_f32_to_ue8m0(descale, rounding_mode=nvvm.RoundingModeKind.RZ)
+        return view_as(scale_e8m0, cutlass.Uint8), _reciprocal_scale(scale_e8m0)
 
     @cute.jit
     def compute_scale_from_amax(
@@ -159,48 +274,9 @@ if _cutedsl_runtime_available():
         Returns:
             Tuple of (scale_biased, inv_scale)
         """
-        scale_biased = cutlass.Int32(0)
-        inv_scale = cutlass.Float32(1.0)
-        if amax > 0:
-            if cutlass.const_expr(USE_RCEIL):
-                scale_biased, inv_scale = compute_scale_rceil(amax)
-            else:
-                scale_biased, inv_scale = compute_scale_floor(amax)
-        return scale_biased, inv_scale
-
-    @cute.jit
-    def load_vals_chunk_tail(
-        vals_block: cute.Tensor,
-        dim0: cutlass.Int64,
-        sout_base: cutlass.Int32,
-        local_base: cutlass.Int32,
-        dim_size: cutlass.Int64,
-    ):
-        """Load a tail chunk of 4 values with bounds checking.
-
-        This helper loads 4 values from a values block, checking if each position
-        is within the dimension bounds. Out-of-bounds values are replaced with 0.0.
-
-        Args:
-            vals_block: Register tensor containing values to load from
-            dim0: Starting index in the dimension (e.g., k0 or n0)
-            sout_base: Base offset for output indexing
-            local_base: Starting index within vals_block for the chunk
-            dim_size: Total size of the dimension for bounds checking (e.g., K or N)
-
-        Returns:
-            Register tensor of shape (4,) containing the loaded float32 values,
-            with out-of-bounds positions set to 0.0
-        """
-        chunk_vec = 4
-        vals_chunk = cute.make_rmem_tensor((chunk_vec,), cutlass.Float32)
-        for j in range(chunk_vec):
-            idx = dim0 + sout_base + j
-            if idx < dim_size:
-                vals_chunk[j] = vals_block[local_base + j]
-            else:
-                vals_chunk[j] = cutlass.Float32(0.0)
-        return vals_chunk
+        if cutlass.const_expr(USE_RCEIL):
+            return compute_scale_rceil(amax)
+        return compute_scale_floor(amax)
 
     @cute.jit
     def validate_group_sizes(offs: cute.Tensor):

@@ -26,8 +26,6 @@ DType get_input_dtype(const Tensor &t) {
   switch (t.scalar_type()) {
   case torch::headeronly::ScalarType::Float:
     return DType::kFloat32;
-  case torch::headeronly::ScalarType::Half:
-    return DType::kFloat16;
   case torch::headeronly::ScalarType::BFloat16:
     return DType::kBFloat16;
   case torch::headeronly::ScalarType::Byte:
