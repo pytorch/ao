@@ -6,6 +6,7 @@
 
 import pytest
 import torch
+from torch._subclasses.fake_tensor import FakeTensorMode
 
 # FP8 MoE kernels require FP8-capable hardware (SM 10.x on CUDA, MI300+ on ROCm)
 from torchao.utils import is_MI300, is_MI350
@@ -55,11 +56,11 @@ from torchao.prototype.moe_training.kernels.mxfp8 import (
     triton_mx_block_rearrange_per_group_3d,
 )
 from torchao.prototype.moe_training.kernels.mxfp8.cutedsl_pad_token_groups import (
-    pad_token_groups_cutedsl,
-    unpad_token_groups_cutedsl,
+    _pad_token_groups_cutedsl,
+    _unpad_token_groups_cutedsl,
 )
 from torchao.prototype.moe_training.kernels.mxfp8.cutedsl_rearrange_2d_m_groups import (
-    mx_block_rearrange_2d_m_groups_cutedsl,
+    _mx_block_rearrange_2d_m_groups_cutedsl,
 )
 from torchao.prototype.moe_training.kernels.mxfp8.quant import (
     _mxfp8_cuda_kernels_available,
@@ -76,6 +77,10 @@ from torchao.prototype.moe_training.utils import (
 from torchao.prototype.mx_formats.kernels import triton_mx_block_rearrange
 from torchao.prototype.mx_formats.mx_tensor import ScaleCalculationMode, to_mx
 from torchao.prototype.mx_formats.utils import from_blocked, to_blocked
+from torchao.testing._mxfp8_test_utils import (
+    assert_mxfp8_semantics,
+    make_mxfp8_semantic_cases,
+)
 from torchao.testing.utils import skip_if_rocm
 
 
@@ -286,26 +291,35 @@ def test_triton_mx_block_rearrange_2d_M_groups(
 )
 @skip_if_rocm("ROCm enablement in progress")
 @pytest.mark.parametrize(
-    "scale_rows,scale_cols,n_groups",
+    "scale_rows,scale_cols,n_groups,chunk_width",
     [
-        (256, 37, 8),
-        (256, 45, 8),
-        (512, 64, 8),
-        (1024, 224, 8),
-        (1024, 512, 8),
-        (1024, 1025, 8),
+        # chunk_width=None lets the kernel pick from cols (64/32/16)
+        (256, 37, 8, None),
+        (256, 45, 8, None),
+        (512, 64, 8, None),
+        (1024, 224, 8, None),
+        (1024, 512, 8, None),
+        (1024, 1025, 8, None),
+        # explicit widths: the store path differs per width (ALL_COL_CHUNKS_FULL vs
+        # COLS_MULTIPLE_OF_16 vs byte-wise), and 128 is unreachable via the default
+        (512, 128, 4, 16),
+        (512, 128, 4, 32),
+        (512, 128, 4, 64),
+        (512, 128, 4, 128),
+        (1024, 260, 3, 128),
     ],
 )
 def test_cutedsl_mx_block_rearrange_2d_M_groups(
     scale_rows: int,
     scale_cols: int,
     n_groups: int,
+    chunk_width: int,
 ):
     device = "cuda"
     block_size = 32
     e8m0_scales = torch.randint(
         0,
-        255,
+        256,
         (scale_rows, scale_cols),
         device=device,
         dtype=torch.uint8,
@@ -327,11 +341,15 @@ def test_cutedsl_mx_block_rearrange_2d_M_groups(
         input_group_start = input_group_end
         output_group_start += group_rows_padded
 
-    cutedsl_out_scales = mx_block_rearrange_2d_m_groups_cutedsl(
+    cutedsl_out_scales = _mx_block_rearrange_2d_m_groups_cutedsl(
         e8m0_scales,
         input_group_offsets,
+        chunk_width,
     )
-    assert torch.equal(ref_out_scales, cutedsl_out_scales), "blocked scales not equal"
+    # byte 0xFF is e8m0 NaN, and NaN != NaN would break torch.equal on the raw dtype
+    assert torch.equal(
+        ref_out_scales.view(torch.uint8), cutedsl_out_scales.view(torch.uint8)
+    ), "blocked scales not equal"
 
 
 @pytest.mark.skipif(
@@ -780,6 +798,29 @@ def test_cuda_mx_dim1_2d_numerics_32x1(
     # Check quantized values - no padding needed for data
     torch.testing.assert_close(y_d1, y_d1_ref, rtol=0, atol=0)
 
+    # The registered fake must report the same metadata as the real op, otherwise
+    # torch.compile / fake-tensor tracing sees the wrong shapes, strides or dtypes.
+    # This covers both blocked_scale_output values via the parametrization above.
+    with FakeTensorMode():
+        x_fake = torch.empty_like(x, device="cuda")
+        y_fake, s_fake = torch.ops.torchao.mxfp8_quantize_2d_32x1_cutedsl.default(
+            x_fake,
+            block_size=block_size,
+            scaling_mode=scaling_mode_str,
+            blocked_scale_output=blocked_scale_output,
+        )
+    assert y_fake.shape == y_d1.shape, (
+        f"fake data shape {y_fake.shape} != real {y_d1.shape}"
+    )
+    assert y_fake.stride() == y_d1.stride(), (
+        f"fake data stride {y_fake.stride()} != real {y_d1.stride()}"
+    )
+    assert y_fake.dtype == y_d1.dtype
+    assert s_fake.shape == s_d1.shape, (
+        f"fake scale shape {s_fake.shape} != real {s_d1.shape}"
+    )
+    assert s_fake.dtype == s_d1.dtype
+
 
 def _make_mxfp8_edge_input(shape, dtype, device, pattern: str) -> torch.Tensor:
     numel = 1
@@ -897,6 +938,121 @@ def test_cuda_mx_dim1_2d_cutedsl_edge_inputs(
     torch.testing.assert_close(s, s_ref, rtol=0, atol=0)
     torch.testing.assert_close(y, y_ref, rtol=0, atol=0)
     assert y.stride() == (1, M)
+
+
+@pytest.mark.parametrize("backend", ("cutedsl", "flydsl"))
+@pytest.mark.parametrize("orientation", ("1x32", "32x1"))
+@pytest.mark.parametrize("input_dtype", (torch.float32, torch.bfloat16))
+@pytest.mark.parametrize("scaling_mode", ("floor", "rceil"))
+def test_mxfp8_dsl_special_value_semantics(
+    backend, orientation, input_dtype, scaling_mode
+):
+    if backend == "cutedsl" and not _mxfp8_cutedsl_kernels_available:
+        pytest.skip("MXFP8 CuTeDSL kernels not available")
+    if backend == "flydsl" and not _mxfp8_flydsl_kernels_available:
+        pytest.skip("MXFP8 FlyDSL kernels not available")
+
+    cases = make_mxfp8_semantic_cases(input_dtype, scaling_mode, device="cuda")
+    num_cases = len(cases.names)
+    rows = torch.zeros((128, 128), dtype=input_dtype, device="cuda")
+    rows[:num_cases] = cases.inputs.repeat(1, 4)
+    x = rows if orientation == "1x32" else rows.t().contiguous()
+    if backend == "cutedsl" and orientation == "1x32":
+        qdata, blocked_scales = mxfp8_quantize_2d_1x32_cutedsl(
+            x, block_size=32, scaling_mode=scaling_mode
+        )
+        scales = from_blocked(blocked_scales, 128, 4)
+    elif backend == "cutedsl":
+        qdata, scales = mxfp8_quantize_2d_32x1_cutedsl(
+            x,
+            block_size=32,
+            scaling_mode=scaling_mode,
+            blocked_scale_output=False,
+        )
+    elif orientation == "1x32":
+        qdata, scales = mxfp8_quantize_2d_1x32_flydsl(
+            x, block_size=32, scaling_mode=scaling_mode
+        )
+    else:
+        qdata, scales = mxfp8_quantize_2d_32x1_flydsl(
+            x, block_size=32, scaling_mode=scaling_mode
+        )
+
+    if orientation == "32x1":
+        qdata = qdata.t()
+    for block_idx in range(4):
+        assert_mxfp8_semantics(
+            qdata[:num_cases, block_idx * 32 : (block_idx + 1) * 32],
+            scales[:num_cases, block_idx : block_idx + 1],
+            cases,
+        )
+
+    # Keep the backend-vs-to_mx comparison in addition to the hardcoded contract.
+    ref_scales, ref_qdata = to_mx(
+        rows,
+        elem_dtype=torch.float8_e4m3fn,
+        block_size=32,
+        scaling_mode=ScaleCalculationMode(scaling_mode),
+    )
+    assert torch.equal(qdata.view(torch.uint8), ref_qdata.view(torch.uint8))
+    assert torch.equal(scales.view(torch.uint8), ref_scales.view(torch.uint8))
+
+
+@pytest.mark.parametrize("backend", ("cutedsl", "flydsl"))
+@pytest.mark.parametrize("input_dtype", (torch.float32, torch.bfloat16))
+@pytest.mark.parametrize("scaling_mode", ("floor", "rceil"))
+@pytest.mark.parametrize("broadcast", ("rows", "columns"))
+def test_mxfp8_dsl_3d_special_value_semantics(
+    backend, input_dtype, scaling_mode, broadcast
+):
+    if backend == "cutedsl" and not _mxfp8_cutedsl_kernels_available:
+        pytest.skip("MXFP8 CuTeDSL kernels not available")
+    if backend == "flydsl" and not _mxfp8_flydsl_kernels_available:
+        pytest.skip("MXFP8 FlyDSL kernels not available")
+
+    cases = make_mxfp8_semantic_cases(input_dtype, scaling_mode, device="cuda")
+    # Row-constant tiles exercise the per-lane N reduction; column-constant
+    # tiles distribute each case across the subsequent K-lane warp reduction.
+    if broadcast == "rows":
+        tiles = cases.inputs.unsqueeze(-1).expand(-1, 32, 32)
+        expected_tiles = cases.expected_data.unsqueeze(-1).expand(-1, 32, 32)
+    else:
+        tiles = cases.inputs.unsqueeze(1).expand(-1, 32, 32)
+        expected_tiles = cases.expected_data.unsqueeze(1).expand(-1, 32, 32)
+
+    # Pack one 32x32 tile per semantic case along K.
+    x = tiles.permute(1, 0, 2).reshape(1, 32, -1).contiguous()
+    expected_data = expected_tiles.permute(1, 0, 2).reshape(1, 32, -1)
+    expected_scales = cases.expected_scales.T.unsqueeze(0)
+
+    quantize = (
+        mxfp8_quantize_cuda_3d if backend == "cutedsl" else mxfp8_quantize_3d_flydsl
+    )
+    qdata, scales = quantize(
+        x,
+        block_size=32,
+        scale_block_dim1=32,
+        scale_block_dim2=32,
+        scaling_mode=scaling_mode,
+        blocked_scale_output=False,
+    )
+
+    actual_scales = scales.view(torch.uint8).cpu()
+    actual_data = qdata.view(torch.uint8).cpu()
+    for case_idx, case_name in enumerate(cases.names):
+        assert torch.equal(
+            actual_scales[0, 0, case_idx], expected_scales[0, 0, case_idx]
+        ), f"scale mismatch for {broadcast}-broadcast {case_name}"
+        case_slice = slice(case_idx * 32, (case_idx + 1) * 32)
+        assert torch.equal(
+            actual_data[0, :, case_slice], expected_data[0, :, case_slice]
+        ), f"data mismatch for {broadcast}-broadcast {case_name}"
+
+    y_ref, s_ref = _mxfp8_3d_edge_reference(
+        x, "32x32_n", ScaleCalculationMode(scaling_mode)
+    )
+    assert torch.equal(qdata.view(torch.uint8), y_ref.view(torch.uint8))
+    assert torch.equal(scales.view(torch.uint8), s_ref.view(torch.uint8))
 
 
 def _mxfp8_3d_edge_reference(
@@ -1073,124 +1229,49 @@ def test_cuda_mx_3d_cutedsl_edge_inputs(
     assert y.stride() == y_ref.stride()
 
 
-@pytest.mark.skipif(
-    not _mxfp8_cuda_kernels_available,
-    reason="CUDA kernel requires sm_100 and CUDA 12.8+",
-)
+# Cases are listed per impl rather than crossed, so merging the cuda and cutedsl
+# tests preserves exactly the coverage each had before.
+_PAD_CASES = [
+    *(("cuda", t, 7168, g, 32) for t in (128, 157, 4096, 16392) for g in (1, 2, 4, 8)),
+    *(
+        ("cutedsl", t, d, g, 32)
+        for t in (128, 157, 4096)
+        for d in (32, 7168)
+        for g in (1, 8)
+    ),
+]
+
+_UNPAD_CASES = [
+    *(("cuda", t, 7168, g, 32) for t in (128, 157, 4096) for g in (1, 2, 4, 8)),
+    *(
+        ("cutedsl", t, d, g, 32)
+        for t in (128, 157, 4096)
+        for d in (32, 7168)
+        for g in (1, 8)
+    ),
+]
+
+
+def _skip_if_impl_unavailable(impl: str):
+    if impl == "cuda" and not _mxfp8_cuda_kernels_available:
+        pytest.skip("CUDA kernel requires sm_100 and CUDA 12.8+")
+    if impl == "cutedsl" and not _mxfp8_cutedsl_kernels_available:
+        pytest.skip("MXFP8 cutedsl kernels not available")
+
+
 @skip_if_rocm("ROCm enablement in progress")
-@pytest.mark.parametrize("num_tokens", [128, 157, 4096, 16392])
-@pytest.mark.parametrize("dim", [7168])
-@pytest.mark.parametrize("num_groups", [1, 2, 4, 8])
-@pytest.mark.parametrize("alignment_size", [32, 128])
+@pytest.mark.parametrize("impl,num_tokens,dim,num_groups,alignment_size", _PAD_CASES)
 @pytest.mark.parametrize("dtype", [torch.bfloat16])
-def test_cuda_fused_pad_token_groups(
-    num_tokens: int, dim: int, num_groups: int, alignment_size: int, dtype: torch.dtype
+def test_fused_pad_token_groups(
+    impl: str,
+    num_tokens: int,
+    dim: int,
+    num_groups: int,
+    alignment_size: int,
+    dtype: torch.dtype,
 ):
-    """Test fused_pad_token_groups_cuda kernel for padding token groups to alignment."""
-    device = "cuda"
-
-    # Create input activations
-    inputs = torch.randn(num_tokens, dim, dtype=dtype, device=device)
-
-    # Generate group offsets (end indices for each group)
-    group_offsets = generate_jagged_offs(
-        num_groups, num_tokens, multiple_of=1, device=device
-    )
-
-    # Get reference output
-    ref_padded_tokens, ref_padded_start_offsets, ref_padded_offsets = (
-        torch_pad_token_groups(inputs, group_offsets, alignment_size)
-    )
-
-    # Run CUDA kernel
-    kernel_padded_tokens, kernel_padded_start_offsets, kernel_padded_end_offsets = (
-        fused_pad_token_groups_cuda(inputs, group_offsets, alignment_size)
-    )
-
-    # All implementations now use the same upper bound output size
-    # Verify outputs match
-    assert torch.allclose(ref_padded_tokens, kernel_padded_tokens, rtol=0, atol=1e-5), (
-        "Padded tokens do not match"
-    )
-    assert torch.equal(ref_padded_start_offsets, kernel_padded_start_offsets), (
-        "Padded group start offsets do not match"
-    )
-    assert torch.equal(ref_padded_offsets, kernel_padded_end_offsets), (
-        "Padded group end offsets do not match"
-    )
-
-
-@pytest.mark.skipif(
-    not _mxfp8_cuda_kernels_available,
-    reason="CUDA kernel requires sm_100 and CUDA 12.8+",
-)
-@skip_if_rocm("ROCm enablement in progress")
-@pytest.mark.parametrize("num_tokens", [128, 157, 4096])
-@pytest.mark.parametrize("dim", [7168])
-@pytest.mark.parametrize("num_groups", [1, 2, 4, 8])
-@pytest.mark.parametrize("alignment_size", [32, 128])
-@pytest.mark.parametrize("dtype", [torch.bfloat16])
-def test_cuda_fused_unpad_token_groups(
-    num_tokens: int, dim: int, num_groups: int, alignment_size: int, dtype: torch.dtype
-):
-    """Test fused_unpad_token_groups_cuda kernel for removing padding from token groups."""
-    device = "cuda"
-
-    # Create input activations
-    inputs = torch.randn(num_tokens, dim, dtype=dtype, device=device)
-
-    # Generate group offsets (end indices for each group)
-    group_offsets = generate_jagged_offs(
-        num_groups, num_tokens, multiple_of=1, device=device
-    )
-
-    # First pad the tokens to create padded inputs
-    padded_tokens, padded_group_start_offsets, padded_offsets = torch_pad_token_groups(
-        inputs, group_offsets, alignment_size
-    )
-
-    # Get reference output using torch implementation
-    ref_unpadded_tokens = torch_unpad_token_groups(
-        padded_tokens,
-        group_offsets,
-        padded_group_start_offsets,
-        num_tokens,
-        alignment_size,
-    )
-
-    # Run CUDA kernel
-    kernel_unpadded_tokens = fused_unpad_token_groups_cuda(
-        padded_tokens,
-        group_offsets,
-        padded_group_start_offsets,
-        num_tokens,
-        alignment_size,
-    )
-
-    # Verify outputs match
-    assert torch.allclose(
-        ref_unpadded_tokens, kernel_unpadded_tokens, rtol=0, atol=1e-5
-    ), "Unpadded tokens do not match"
-
-    # Verify that unpad correctly reverses pad operation
-    assert torch.allclose(inputs, kernel_unpadded_tokens, rtol=0, atol=1e-5), (
-        "Unpadded tokens should match original inputs"
-    )
-
-
-@pytest.mark.skipif(
-    not _mxfp8_cutedsl_kernels_available,
-    reason="MXFP8 cutedsl kernels not available",
-)
-@skip_if_rocm("ROCm enablement in progress")
-@pytest.mark.parametrize("num_tokens", [128, 157, 4096])
-@pytest.mark.parametrize("dim", [32, 7168])
-@pytest.mark.parametrize("num_groups", [1, 8])
-@pytest.mark.parametrize("alignment_size", [32])
-@pytest.mark.parametrize("dtype", [torch.bfloat16])
-def test_cutedsl_pad_token_groups(
-    num_tokens: int, dim: int, num_groups: int, alignment_size: int, dtype: torch.dtype
-):
+    """Pad token groups to alignment, cuda and cutedsl against the torch reference."""
+    _skip_if_impl_unavailable(impl)
     device = "cuda"
     inputs = torch.randn(num_tokens, dim, dtype=dtype, device=device)
     group_offsets = generate_jagged_offs(
@@ -1200,28 +1281,40 @@ def test_cutedsl_pad_token_groups(
     ref_padded_tokens, ref_start_offsets, ref_end_offsets = torch_pad_token_groups(
         inputs, group_offsets, alignment_size
     )
-    cutedsl_padded_tokens, cutedsl_start_offsets, cutedsl_end_offsets = (
-        pad_token_groups_cutedsl(inputs, group_offsets, alignment_size)
+    kernel = (
+        _pad_token_groups_cutedsl if impl == "cutedsl" else fused_pad_token_groups_cuda
+    )
+    padded_tokens, start_offsets, end_offsets = kernel(
+        inputs, group_offsets, alignment_size
     )
 
-    assert torch.equal(ref_padded_tokens, cutedsl_padded_tokens)
-    assert torch.equal(ref_start_offsets, cutedsl_start_offsets)
-    assert torch.equal(ref_end_offsets, cutedsl_end_offsets)
+    if impl == "cutedsl":
+        assert torch.equal(ref_padded_tokens, padded_tokens)
+    else:
+        assert torch.allclose(ref_padded_tokens, padded_tokens, rtol=0, atol=1e-5), (
+            "Padded tokens do not match"
+        )
+    assert torch.equal(ref_start_offsets, start_offsets), (
+        "Padded group start offsets do not match"
+    )
+    assert torch.equal(ref_end_offsets, end_offsets), (
+        "Padded group end offsets do not match"
+    )
 
 
-@pytest.mark.skipif(
-    not _mxfp8_cutedsl_kernels_available,
-    reason="MXFP8 cutedsl kernels not available",
-)
 @skip_if_rocm("ROCm enablement in progress")
-@pytest.mark.parametrize("num_tokens", [128, 157, 4096])
-@pytest.mark.parametrize("dim", [32, 7168])
-@pytest.mark.parametrize("num_groups", [1, 8])
-@pytest.mark.parametrize("alignment_size", [32])
+@pytest.mark.parametrize("impl,num_tokens,dim,num_groups,alignment_size", _UNPAD_CASES)
 @pytest.mark.parametrize("dtype", [torch.bfloat16])
-def test_cutedsl_unpad_token_groups(
-    num_tokens: int, dim: int, num_groups: int, alignment_size: int, dtype: torch.dtype
+def test_fused_unpad_token_groups(
+    impl: str,
+    num_tokens: int,
+    dim: int,
+    num_groups: int,
+    alignment_size: int,
+    dtype: torch.dtype,
 ):
+    """Remove padding from token groups, cuda and cutedsl against the torch reference."""
+    _skip_if_impl_unavailable(impl)
     device = "cuda"
     inputs = torch.randn(num_tokens, dim, dtype=dtype, device=device)
     group_offsets = generate_jagged_offs(
@@ -1231,23 +1324,32 @@ def test_cutedsl_unpad_token_groups(
         inputs, group_offsets, alignment_size
     )
 
-    ref_unpadded_tokens = torch_unpad_token_groups(
+    call_args = (
         padded_tokens,
         group_offsets,
         padded_group_start_offsets,
         num_tokens,
         alignment_size,
     )
-    cutedsl_unpadded_tokens = unpad_token_groups_cutedsl(
-        padded_tokens,
-        group_offsets,
-        padded_group_start_offsets,
-        num_tokens,
-        alignment_size,
+    ref_unpadded_tokens = torch_unpad_token_groups(*call_args)
+    kernel = (
+        _unpad_token_groups_cutedsl
+        if impl == "cutedsl"
+        else fused_unpad_token_groups_cuda
     )
+    unpadded_tokens = kernel(*call_args)
 
-    assert torch.equal(ref_unpadded_tokens, cutedsl_unpadded_tokens)
-    assert torch.equal(inputs, cutedsl_unpadded_tokens)
+    if impl == "cutedsl":
+        assert torch.equal(ref_unpadded_tokens, unpadded_tokens)
+        # unpad must exactly reverse pad
+        assert torch.equal(inputs, unpadded_tokens)
+    else:
+        assert torch.allclose(
+            ref_unpadded_tokens, unpadded_tokens, rtol=0, atol=1e-5
+        ), "Unpadded tokens do not match"
+        assert torch.allclose(inputs, unpadded_tokens, rtol=0, atol=1e-5), (
+            "unpad did not reverse pad"
+        )
 
 
 @pytest.mark.parametrize("round_scales_to_power_of_2", [True, False])

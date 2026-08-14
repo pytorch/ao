@@ -1,9 +1,6 @@
 from torchao.prototype.moe_training.kernels.mxfp8.cutedsl_pad_token_groups import (  # noqa: F401
-    pad_token_groups_cutedsl,
-    unpad_token_groups_cutedsl,
-)
-from torchao.prototype.moe_training.kernels.mxfp8.cutedsl_rearrange_2d_k_groups import (  # noqa: F401
-    mx_block_rearrange_2d_k_groups_cutedsl,
+    _pad_token_groups_cutedsl,
+    _unpad_token_groups_cutedsl,
 )
 from torchao.prototype.moe_training.kernels.mxfp8.quant import (
     _mxfp8_cuda_kernels_available,  # noqa: F401

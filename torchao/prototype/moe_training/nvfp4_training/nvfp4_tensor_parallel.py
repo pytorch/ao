@@ -32,19 +32,52 @@ from torch.distributed.device_mesh import DeviceMesh
 from torch.distributed.tensor import DTensor, Replicate, distribute_tensor
 from torch.distributed.tensor.parallel import ColwiseParallel, RowwiseParallel
 
-from torchao.prototype.moe_training.nvfp4_training.hadamard_amax_triton import (
-    triton_rht_amax,
-)
-from torchao.prototype.moe_training.nvfp4_training.hadamard_quantize_row_col_triton import (
-    triton_rht_quantize_row_col,
-)
 from torchao.prototype.moe_training.nvfp4_training.nvfp4_linear import (
-    _triton_weight_quantize_2d,
+    _rht_amax,
+    _rht_quantize_row_col,
+    _weight_quantize_2d,
 )
 from torchao.prototype.mx_formats.nvfp4_tensor import per_tensor_amax_to_scale
 
 _TP_STYLE_COLWISE = "colwise"
 _TP_STYLE_ROWWISE = "rowwise"
+
+
+def _check_cutedsl_shard(
+    x: torch.Tensor,
+    world_size: int,
+    w: Optional[torch.Tensor] = None,
+    *,
+    scatter_m: bool = False,
+) -> None:
+    """The CuteDSL kernels need the per-rank activation shard to have M % 256 == 0 and
+    K % 128 == 0 (Triton allows M % 128). The weight quantize additionally needs the per-rank
+    weight shard to have out_features % 256 == 0 and in_features % 128 == 0. Fail early with a
+    TP-aware message.
+
+    ``scatter_m=True`` (row parallel): the forward reduce-scatters the output along M, so the
+    backward quantizes a grad shard of M // world_size rows. Requiring M % (256 * world_size)
+    here keeps that backward quantize legal — otherwise a shape that passes this check dies
+    mid-backward with a bare "M must be divisible by 256" and no TP context."""
+    M, K = x.shape[0], x.shape[1]
+    m_multiple = 256 * world_size if scatter_m else 256
+    if M % m_multiple != 0 or K % 128 != 0:
+        detail = (
+            f"M % {m_multiple} == 0 (256 x world_size, since the backward quantizes the "
+            f"reduce-scattered M // {world_size} grad shard) and K % 128 == 0"
+            if scatter_m
+            else "M % 256 == 0 and K % 128 == 0"
+        )
+        raise ValueError(
+            "kernel_preference=CUTEDSL requires the per-rank activation shard to have "
+            f"{detail}; got shard shape {tuple(x.shape)} (world_size={world_size})"
+        )
+    if w is not None and (w.shape[0] % 256 != 0 or w.shape[1] % 128 != 0):
+        raise ValueError(
+            "kernel_preference=CUTEDSL requires the per-rank weight shard to have "
+            f"out_features % 256 == 0 and in_features % 128 == 0; got shard shape {tuple(w.shape)} "
+            f"(world_size={world_size})"
+        )
 
 
 def _replicate_rht_sign_vector(
@@ -187,6 +220,7 @@ class nvfp4_col_parallel_mm(torch.autograd.Function):
         tp_group,
         world_size: int,
         sign_vector: tuple[int, ...] | list[int],
+        use_cutedsl: bool = False,
     ) -> torch.Tensor:
         sign_vector = tuple(int(v) for v in sign_vector)
         sign_vector_list = list(sign_vector)
@@ -196,9 +230,11 @@ class nvfp4_col_parallel_mm(torch.autograd.Function):
             x = x.to(torch.bfloat16)
         if w.dtype != torch.bfloat16:
             w = w.to(torch.bfloat16)
+        if use_cutedsl:
+            _check_cutedsl_shard(x, world_size, w)
 
         # --- Amax computation + global sync ---
-        col_amax, row_amax = triton_rht_amax(x, sign_vector=sign_vector_list)
+        col_amax, row_amax = _rht_amax(x, sign_vector_list, use_cutedsl)
         col_amax = all_reduce(col_amax, "MAX", tp_group)
         row_amax = all_reduce(row_amax, "MAX", tp_group)
         if isinstance(col_amax, AsyncCollectiveTensor):
@@ -207,17 +243,8 @@ class nvfp4_col_parallel_mm(torch.autograd.Function):
             row_amax = row_amax.wait()
 
         # --- Quantize x with global amaxes ---
-        (
-            qx_col_codes,
-            qx_col_sf,
-            qx_row_codes,
-            qx_row_sf,
-        ) = triton_rht_quantize_row_col(
-            x,
-            stochastic_rounding=False,
-            sign_vector=sign_vector_list,
-            col_global_amax=col_amax,
-            row_global_amax=row_amax,
+        qx_col_codes, qx_col_sf, qx_row_codes, qx_row_sf = _rht_quantize_row_col(
+            x, col_amax, row_amax, sign_vector_list, use_cutedsl
         )
 
         # --- 2D weight quantization ---
@@ -230,7 +257,7 @@ class nvfp4_col_parallel_mm(torch.autograd.Function):
             Wt_fp4_x2,
             Wt_sf,
             W_amax,
-        ) = _triton_weight_quantize_2d(w)
+        ) = _weight_quantize_2d(w, use_cutedsl)
 
         # --- All-gather rowwise quantized x along sequence dim ---
         x_gs = per_tensor_amax_to_scale(row_amax)
@@ -267,6 +294,7 @@ class nvfp4_col_parallel_mm(torch.autograd.Function):
         ctx.has_bias = bias is not None
         ctx.local_M = M_local
         ctx.sign_vector = sign_vector
+        ctx.use_cutedsl = use_cutedsl
         return output
 
     @staticmethod
@@ -285,31 +313,18 @@ class nvfp4_col_parallel_mm(torch.autograd.Function):
         sign_vector_list = list(ctx.sign_vector)
 
         grad_output = grad_output.contiguous()
-        dev = grad_output.device
 
-        # Independent SR offsets for the two backward quantizations
-        offset_row = torch.randint(0, 2**32, (1,), dtype=torch.int64, device=dev)
-        offset_col = torch.randint(0, 2**32, (1,), dtype=torch.int64, device=dev)
-
-        # --- Quantize dy (no amax all-reduce; each rank has a different dy shard) ---
-        dy_col_amax, dy_row_amax = triton_rht_amax(
-            grad_output, sign_vector=sign_vector_list
+        # --- Quantize dy with SR (no amax all-reduce; each rank has a different dy shard). ---
+        dy_col_amax, dy_row_amax = _rht_amax(
+            grad_output, sign_vector_list, ctx.use_cutedsl
         )
-        (
-            qdy_col_codes,
-            qdy_col_sf,
-            qdy_row_codes,
-            qdy_row_sf,
-        ) = triton_rht_quantize_row_col(
+        qdy_col_codes, qdy_col_sf, qdy_row_codes, qdy_row_sf = _rht_quantize_row_col(
             grad_output,
-            stochastic_rounding=True,
-            sign_vector=sign_vector_list,
-            col_seed_base=sr_seed,
-            col_offset_base=offset_col,
-            row_offset_base=offset_row,
-            row_seed_base=sr_seed ^ 1,
-            col_global_amax=dy_col_amax,
-            row_global_amax=dy_row_amax,
+            dy_col_amax,
+            dy_row_amax,
+            sign_vector_list,
+            ctx.use_cutedsl,
+            sr_seed=sr_seed,
         )
 
         # --- Launch async all-gather of saved colwise x shard [k, m/w//2] ---
@@ -368,8 +383,8 @@ class nvfp4_col_parallel_mm(torch.autograd.Function):
         )
 
         grad_bias = grad_output.sum(dim=0) if ctx.has_bias else None
-        # Nones for: bias, sr_seed, tp_group, world_size, sign_vector
-        return dx, dw, grad_bias, None, None, None, None
+        # Nones for: bias, sr_seed, tp_group, world_size, sign_vector, use_cutedsl
+        return dx, dw, grad_bias, None, None, None, None, None
 
 
 def nvfp4_col_parallel_linear(
@@ -381,6 +396,7 @@ def nvfp4_col_parallel_linear(
     world_size: Optional[int] = None,
     *,
     sign_vector: tuple[int, ...] | list[int],
+    use_cutedsl: bool = False,
 ) -> torch.Tensor:
     """Convenience wrapper around nvfp4_col_parallel_mm.
 
@@ -393,6 +409,8 @@ def nvfp4_col_parallel_linear(
         world_size: TP world size (inferred from group if None).
         sign_vector: RHT sign vector used for amax and quantization. Must
             match across TP ranks.
+        use_cutedsl: Use the CuteDSL amax + quantize for both forward (RTNE) and the
+            backward SR (cvt.rs) paths. Requires the per-rank M shard % 256 == 0.
     """
     if tp_group is None:
         raise ValueError("tp_group is required for nvfp4_col_parallel_linear")
@@ -403,7 +421,7 @@ def nvfp4_col_parallel_linear(
             -(2**63), 2**63 - 1, (1,), dtype=torch.int64, device=x.device
         )
     return nvfp4_col_parallel_mm.apply(
-        x, w, bias, sr_seed, tp_group, world_size, sign_vector
+        x, w, bias, sr_seed, tp_group, world_size, sign_vector, use_cutedsl
     )
 
 
@@ -414,10 +432,10 @@ class nvfp4_row_parallel_mm(torch.autograd.Function):
     Implements the protocol from:
       cutile/rht/docs/nvfp4_row_parallel_linear.md
 
-    The existing utilities in this module are enough for the implementation:
-      - ``triton_rht_amax`` and ``triton_rht_quantize_row_col`` for dual-layout
-        rowwise / columnwise-RHT input and gradient quantization.
-      - ``_triton_weight_quantize_2d`` for rowwise and columnwise weight layouts.
+    Built from the shared utilities:
+      - ``_rht_amax`` and ``_rht_quantize_row_col`` for dual-layout rowwise /
+        columnwise-RHT input and gradient quantization.
+      - ``_weight_quantize_2d`` for rowwise and columnwise weight layouts.
       - ``_all_gather_nvfp4_rowwise`` for rowwise dy all-gather.
       - ``_async_all_gather_nvfp4_colwise`` plus ``swap_first_dims`` for colwise
         dy all-gather.
@@ -434,6 +452,7 @@ class nvfp4_row_parallel_mm(torch.autograd.Function):
         tp_group,
         world_size: int,
         sign_vector: tuple[int, ...] | list[int],
+        use_cutedsl: bool = False,
     ) -> torch.Tensor:
         sign_vector = tuple(int(v) for v in sign_vector)
         sign_vector_list = list(sign_vector)
@@ -443,6 +462,8 @@ class nvfp4_row_parallel_mm(torch.autograd.Function):
             x = x.to(torch.bfloat16)
         if w.dtype != torch.bfloat16:
             w = w.to(torch.bfloat16)
+        if use_cutedsl:
+            _check_cutedsl_shard(x, world_size, w, scatter_m=True)
 
         # --- Amax computation ---
         # For the reduce-scatter gemm pattern, calculating the true global amax using
@@ -451,20 +472,11 @@ class nvfp4_row_parallel_mm(torch.autograd.Function):
         # amax. The true output is accumulated in bf16 using reduce-scatter. For the
         # all-gather gemm pattern, each rank get entire tensor, so it must be quantized
         # with global amax using all-reduce.
-        col_amax, row_amax = triton_rht_amax(x, sign_vector=sign_vector_list)
+        col_amax, row_amax = _rht_amax(x, sign_vector_list, use_cutedsl)
 
         # --- Quantize x with local amax ---
-        (
-            qx_col_codes,
-            qx_col_sf,
-            qx_row_codes,
-            qx_row_sf,
-        ) = triton_rht_quantize_row_col(
-            x,
-            stochastic_rounding=False,
-            sign_vector=sign_vector_list,
-            col_global_amax=col_amax,
-            row_global_amax=row_amax,
+        qx_col_codes, qx_col_sf, qx_row_codes, qx_row_sf = _rht_quantize_row_col(
+            x, col_amax, row_amax, sign_vector_list, use_cutedsl
         )
 
         # --- 2D weight quantization ---
@@ -477,7 +489,7 @@ class nvfp4_row_parallel_mm(torch.autograd.Function):
             Wt_fp4_x2,
             Wt_sf,
             W_amax,
-        ) = _triton_weight_quantize_2d(w)
+        ) = _weight_quantize_2d(w, use_cutedsl)
 
         # --- Forward GEMM: x @ w^T = outer product output [m, n] ---
         x_gs = per_tensor_amax_to_scale(row_amax)
@@ -520,6 +532,7 @@ class nvfp4_row_parallel_mm(torch.autograd.Function):
         ctx.has_bias = bias is not None
         ctx.local_M = M_local
         ctx.sign_vector = sign_vector
+        ctx.use_cutedsl = use_cutedsl
         return output
 
     @staticmethod
@@ -538,15 +551,10 @@ class nvfp4_row_parallel_mm(torch.autograd.Function):
         sign_vector_list = list(ctx.sign_vector)
 
         grad_output = grad_output.contiguous()
-        dev = grad_output.device
 
-        # Independent SR offsets for the two backward quantizations
-        offset_row = torch.randint(0, 2**32, (1,), dtype=torch.int64, device=dev)
-        offset_col = torch.randint(0, 2**32, (1,), dtype=torch.int64, device=dev)
-
-        # --- Amax dy computation + global sync ---
-        dy_col_amax, dy_row_amax = triton_rht_amax(
-            grad_output, sign_vector=sign_vector_list
+        # --- Amax dy computation + global sync. ---
+        dy_col_amax, dy_row_amax = _rht_amax(
+            grad_output, sign_vector_list, ctx.use_cutedsl
         )
         dy_col_amax = all_reduce(dy_col_amax, "MAX", tp_group)
         dy_row_amax = all_reduce(dy_row_amax, "MAX", tp_group)
@@ -555,22 +563,14 @@ class nvfp4_row_parallel_mm(torch.autograd.Function):
         if isinstance(dy_row_amax, AsyncCollectiveTensor):
             dy_row_amax = dy_row_amax.wait()
 
-        # --- Quantize dy  ---
-        (
-            qdy_col_codes,
-            qdy_col_sf,
-            qdy_row_codes,
-            qdy_row_sf,
-        ) = triton_rht_quantize_row_col(
+        # --- Quantize dy with SR ---
+        qdy_col_codes, qdy_col_sf, qdy_row_codes, qdy_row_sf = _rht_quantize_row_col(
             grad_output,
-            stochastic_rounding=True,
-            sign_vector=sign_vector_list,
-            col_seed_base=sr_seed,
-            col_offset_base=offset_col,
-            row_offset_base=offset_row,
-            row_seed_base=sr_seed ^ 1,
-            col_global_amax=dy_col_amax,
-            row_global_amax=dy_row_amax,
+            dy_col_amax,
+            dy_row_amax,
+            sign_vector_list,
+            ctx.use_cutedsl,
+            sr_seed=sr_seed,
         )
 
         qdy_row_full, qdy_row_sf_full = _all_gather_nvfp4_rowwise(
@@ -634,8 +634,8 @@ class nvfp4_row_parallel_mm(torch.autograd.Function):
         else:
             grad_bias = None
 
-        # Nones for: bias, sr_seed, tp_group, world_size, sign_vector
-        return dx, dw, grad_bias, None, None, None, None
+        # Nones for: bias, sr_seed, tp_group, world_size, sign_vector, use_cutedsl
+        return dx, dw, grad_bias, None, None, None, None, None
 
 
 def nvfp4_row_parallel_linear(
@@ -647,6 +647,7 @@ def nvfp4_row_parallel_linear(
     world_size: Optional[int] = None,
     *,
     sign_vector: tuple[int, ...] | list[int],
+    use_cutedsl: bool = False,
 ) -> torch.Tensor:
     """Convenience wrapper around nvfp4_row_parallel_mm.
 
@@ -659,6 +660,8 @@ def nvfp4_row_parallel_linear(
         world_size: TP world size (inferred from group if None).
         sign_vector: RHT sign vector used for amax and quantization. Must
             match across TP ranks.
+        use_cutedsl: Use the CuteDSL amax + quantize for both forward (RTNE) and the
+            backward SR (cvt.rs) paths. Requires the per-rank M shard % 256 == 0.
     """
     if tp_group is None:
         raise ValueError("tp_group is required for nvfp4_row_parallel_linear")
@@ -669,7 +672,7 @@ def nvfp4_row_parallel_linear(
             -(2**63), 2**63 - 1, (1,), dtype=torch.int64, device=x.device
         )
     return nvfp4_row_parallel_mm.apply(
-        x, w, bias, sr_seed, tp_group, world_size, sign_vector
+        x, w, bias, sr_seed, tp_group, world_size, sign_vector, use_cutedsl
     )
 
 
