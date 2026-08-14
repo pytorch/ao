@@ -382,11 +382,11 @@ def _quant16_from_amax(
 ):
     """Quantize 16 f32 values to NVFP4 (w0,w1 packed u32, pvscale_fp8) using a given block amax
     (1x16 or a shared 16x16 amax). sr selects stochastic rounding over RTNE."""
-    # Cap at FP8_E4M3_MAX only, no lower clamp: pvscale is non-negative and TE emits a zero
-    # per-vector scale for zero/near-zero vectors, so pinning small scales to a nonzero floor
+    # Cap at FP8_E4M3_MAX only, with no lower clamp: TE emits a zero per-vector scale for an
+    # all-zero vector and when a nonzero scale underflows in E4M3, so imposing a nonzero floor
     # would diverge from the TE ground truth (mirrors the triton _nvfp4_quantize). A zero
-    # pvscale drives the encode reciprocal to FP32_MAX, and the values it scales are zero
-    # there, so the product stays zero.
+    # pvscale drives the encode reciprocal to FP32_MAX. This exactly preserves an all-zero
+    # vector; in the underflow case, dequantization intentionally loses the tiny nonzero data.
     pvscale = _min_f32(amax * enc_over_fp4max, cutlass.Float32(FP8_E4M3_MAX))
     pv_f32 = cute.make_rmem_tensor((4,), cutlass.Float32)
     for i in range(4):

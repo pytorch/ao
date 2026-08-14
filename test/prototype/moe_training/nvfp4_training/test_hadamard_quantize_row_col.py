@@ -375,18 +375,19 @@ def _assert_zero_quantized(
 @pytest.mark.parametrize("M", _M_VALUES, ids=lambda m: f"M{m}")
 @torch.no_grad()
 def test_rht_quantize_rtne_scales_vs_reference(kernel, M, N):
-    """FP8 scale factors must match the PyTorch reference within 1 fp8 ULP.
+    """Compare FP8 scale factors with the mx_formats implementation within 1 fp8 ULP.
 
     Columnwise: RHT + quantize of A.T. Rowwise: quantize raw A.
 
-    Not bitwise: the kernels are matched against TransformerEngine, which uses
-    correctly-rounded div_rn and no lower clamp on the per-vector scale, whereas
-    the mx_formats reference multiplies by a reciprocal and applies an E4M3_EPS
-    floor. The scales are mathematically identical and differ only in fp32
-    rounding order, so they land on the same or an adjacent representable e4m3
-    value. Being bitwise-exact with TE and bitwise-exact with the torch
-    reference are mutually exclusive; TE is the ground truth these kernels
-    interoperate with.
+    This is a compatibility comparison, not the bitwise TransformerEngine
+    conformance test. The kernels follow TE's correctly-rounded div_rn and do not
+    lower-clamp per-vector scales. The mx_formats implementation instead multiplies
+    by a reciprocal and applies an E4M3_EPS floor as part of its NVFP4 quantization.
+    For the ordinary, non-underflowing scales exercised here, the two formulations
+    are mathematically equivalent but can land on adjacent E4M3 values because of
+    FP32 rounding order. A separate plain-PyTorch TE reference should test the
+    intended kernel numerics bitwise; the zero-input test below covers the intentional
+    divergence from the mx_formats floor.
 
     Note: packed FP4 codes are NOT checked at all here — the kernels use an
     approximate reciprocal (rcp.approx.f32, <=2 ULP) causing ~0.2% nibble
