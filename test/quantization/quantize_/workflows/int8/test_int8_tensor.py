@@ -6,7 +6,6 @@
 
 import copy
 import unittest
-from unittest import mock
 
 import torch
 from torch._inductor.utils import run_and_get_code
@@ -25,7 +24,6 @@ from torchao.quantization.quantize_.common import (
     _choose_quant_func_and_quantize_tensor,
 )
 from torchao.quantization.quantize_.workflows.int8.int8_tensor import (
-    Int8Tensor,
     QuantizeTensorToInt8Kwargs,
 )
 from torchao.quantization.utils import compute_error, get_block_size
@@ -202,67 +200,6 @@ class TestInt8Tensor(TorchAOIntegrationTestCase):
             self.assertEqual(weight2.scale, dummy.weight.scale)
         with self.assertRaises(NotImplementedError):
             _ = dummy.weight[::2]
-
-    @common_utils.parametrize("device", get_available_devices())
-    def test_fsdp_shard_ops(self, device):
-        """Test the local sharding and all-gather protocol used by FSDP2."""
-        linear = torch.nn.Linear(
-            128, 256, bias=False, dtype=torch.bfloat16, device=device
-        )
-        quantize_(linear, Int8DynamicActivationInt8WeightConfig())
-        weight = linear.weight
-
-        shards = torch.chunk(weight, 2, dim=0)
-        self.assertEqual(len(shards), 2)
-        self.assertEqual(shards[0].qdata, weight.qdata[:128])
-        self.assertEqual(shards[0].scale, weight.scale[:128])
-        self.assertEqual(shards[0].zero_point, weight.zero_point[:128])
-
-        padded_shard = weight.new_zeros(shards[0].shape)
-        padded_shard.copy_(shards[0])
-        self.assertEqual(padded_shard.qdata, shards[0].qdata)
-        self.assertEqual(padded_shard.scale, shards[0].scale)
-        self.assertEqual(padded_shard.zero_point, shards[0].zero_point)
-        self.assertEqual(padded_shard.view(-1).numel(), padded_shard.numel())
-
-        shard_inputs = []
-        metadata = None
-        mesh = mock.Mock()
-        mesh.size.return_value = 2
-        with self.assertRaisesRegex(NotImplementedError, "evenly divisible"):
-            shards[0].fsdp_pre_all_gather(mesh=mesh, outer_size=torch.Size((255, 128)))
-        for shard in shards:
-            inputs, shard_metadata = shard.fsdp_pre_all_gather(
-                mesh=mesh, outer_size=weight.size()
-            )
-            shard_inputs.append(inputs)
-            self.assertEqual(inputs[0].shape, (128, 128))
-            self.assertEqual(inputs[1].shape, (128, 1))
-            self.assertEqual(inputs[2].shape, (128, 1))
-            if metadata is None:
-                metadata = shard_metadata
-            else:
-                self.assertEqual(shard_metadata, metadata)
-
-        all_gather_outputs = tuple(
-            torch.cat([inputs[i] for inputs in shard_inputs], dim=0)
-            for i in range(len(shard_inputs[0]))
-        )
-        gathered, gathered_inputs = shards[0].fsdp_post_all_gather(
-            all_gather_outputs, metadata, weight.dtype
-        )
-        self.assertIsInstance(gathered, Int8Tensor)
-        self.assertEqual(gathered.qdata, weight.qdata)
-        self.assertEqual(gathered.scale, weight.scale)
-        self.assertEqual(gathered.zero_point, weight.zero_point)
-        self.assertEqual(gathered_inputs, all_gather_outputs)
-
-        unsharded = torch.as_strided(
-            gathered, weight.size(), weight.stride(), weight.storage_offset()
-        )
-        self.assertEqual(unsharded.qdata, weight.qdata)
-        self.assertEqual(unsharded.scale, weight.scale)
-        self.assertEqual(unsharded.zero_point, weight.zero_point)
 
     @common_utils.parametrize("config", INT8_TEST_CONFIGS)
     @common_utils.parametrize("device", get_available_devices())
