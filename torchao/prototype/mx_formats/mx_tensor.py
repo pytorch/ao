@@ -649,6 +649,7 @@ class MXTensor(TorchAOBaseTensor):
         assert mxfp8_dim0_cast_kernel_choice in (
             MXFP8Dim0CastKernelChoice.TRITON,
             MXFP8Dim0CastKernelChoice.TORCH,
+            MXFP8Dim0CastKernelChoice.CUTEDSL,
         ), (
             f"unsupported kernel choice for mxfp8_dim0_cast_kernel_choice: {mxfp8_dim0_cast_kernel_choice}"
         )
@@ -663,6 +664,29 @@ class MXTensor(TorchAOBaseTensor):
             scale_e8m0_biased, data_lp = to_mx(
                 data_hp, elem_dtype, block_size, scaling_mode, is_swizzled_scales
             )
+        elif mxfp8_dim0_cast_kernel_choice == MXFP8Dim0CastKernelChoice.CUTEDSL:
+            assert elem_dtype == torch.float8_e4m3fn, (
+                f"cutedsl kernel unsupported for {elem_dtype=}"
+            )
+            assert scaling_mode in (
+                ScaleCalculationMode.FLOOR,
+                ScaleCalculationMode.RCEIL,
+            ), f"cutedsl kernel unsupported for {scaling_mode=}"
+
+            # avoid circular import
+            from torchao.prototype.moe_training.kernels.mxfp8.quant import (
+                mxfp8_quantize_2d_1x32_cutedsl,
+            )
+
+            data_lp, scale_e8m0_biased = mxfp8_quantize_2d_1x32_cutedsl(
+                data_hp,
+                block_size=block_size,
+                scaling_mode=scaling_mode.value,
+            )
+            # This kernel writes the scales in the blocked tcgen05 layout
+            # unconditionally, so the caller's request is upgraded rather than
+            # honored as-is.
+            is_swizzled_scales = True
         else:
             assert triton_kernel_supported, (
                 f"triton kernel unsupported for {data_hp.dtype=}, {elem_dtype=}, {scaling_mode=}, {is_swizzled_scales=}"
