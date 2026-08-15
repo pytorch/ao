@@ -5,6 +5,7 @@
 # LICENSE file in the root directory of this source tree.
 
 
+from enum import Enum
 from typing import List, Optional
 
 import torch
@@ -35,9 +36,30 @@ from torchao.utils import (
 
 __all__ = [
     "Float8Sparse2x4_2DData2DMetadataTensor",
+    "SparseKernelChoice",
 ]
 
 aten = torch.ops.aten
+
+
+# can switch to StrEnum (https://docs.python.org/3/library/enum.html#enum.StrEnum)
+# after python 3.10 is end of life (https://devguide.python.org/versions/)
+class SparseKernelChoice(str, Enum):
+    """
+    Kernel choice for the FP8 2:4 sparse conversion and linear operators.
+    """
+
+    """
+    Hand-written CUTLASS C++ kernels, built as part of the torchao extension.
+    """
+    LEGACY = "legacy"
+    """
+    CuTeDSL kernels, JIT-compiled on first use through nvidia-cutlass-dsl.
+    """
+    CUTEDSL = "cutedsl"
+
+
+torch.serialization.add_safe_globals([SparseKernelChoice])
 
 
 from .float8_tensor import QuantizeTensorToFloat8Kwargs
@@ -148,7 +170,7 @@ class Float8Sparse2x4_2DData2DMetadataTensor(TorchAOBaseTensor):
         hp_value_lb: Optional[float] = None,
         hp_value_ub: Optional[float] = None,
         act_quant_kwargs: Optional[QuantizeTensorToFloat8Kwargs] = None,
-        sparse_conversion_backend: str = "legacy",
+        sparse_backend: SparseKernelChoice = SparseKernelChoice.LEGACY,
     ):
         block_size = get_block_size(hp_tensor.shape, granularity)
         block_size = list(block_size)
@@ -177,14 +199,13 @@ class Float8Sparse2x4_2DData2DMetadataTensor(TorchAOBaseTensor):
         )
         assert hp_value_lb is None, "CUTLASS sparse kernel does not support hp_value_lb"
 
-        if sparse_conversion_backend == "cutedsl":
+        sparse_backend = SparseKernelChoice(sparse_backend)
+        if sparse_backend is SparseKernelChoice.CUTEDSL:
             qdata, sparse_metadata = _to_sparse_semi_structured_cutedsl(data)
-        elif sparse_conversion_backend == "legacy":
+        elif sparse_backend is SparseKernelChoice.LEGACY:
             qdata, sparse_metadata = to_sparse_semi_structured_cutlass_sm9x_f8(data)
         else:
-            raise ValueError(
-                f"Unsupported sparse conversion backend: {sparse_conversion_backend}"
-            )
+            raise ValueError(f"Unsupported sparse backend: {sparse_backend}")
 
         return Float8Sparse2x4_2DData2DMetadataTensor(
             qdata,
