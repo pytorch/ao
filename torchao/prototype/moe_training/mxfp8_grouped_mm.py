@@ -62,17 +62,21 @@ def _pad_token_groups(
     kernel_preference: KernelPreference,
     mxfp8_dim0_cast_kernel_choice: MXFP8Dim0CastKernelChoice,
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-    if mxfp8_dim0_cast_kernel_choice != MXFP8Dim0CastKernelChoice.CUTEDSL:
+    if (
+        mxfp8_dim0_cast_kernel_choice != MXFP8Dim0CastKernelChoice.CUTEDSL
+        or kernel_preference == KernelPreference.EMULATED
+    ):
+        # EMULATED must stay hardware/dependency agnostic, so it always uses
+        # the legacy path even if CUTEDSL was requested for the real kernels.
         return pad_token_groups_legacy(
             input_act,
             group_end_offsets,
             alignment_size=alignment_size,
             kernel_preference=kernel_preference,
         )
-    if kernel_preference != KernelPreference.EMULATED:
-        # The CuTeDSL dim0 quantization kernel takes the group offsets directly
-        # and requires each group to be a whole number of 128-row tiles.
-        alignment_size = max(alignment_size, 128)
+    # The CuTeDSL dim0 quantization kernel takes the group offsets directly
+    # and requires each group to be a whole number of 128-row tiles.
+    alignment_size = max(alignment_size, 128)
     return _pad_token_groups_cutedsl(
         input_act,
         group_end_offsets,
@@ -89,7 +93,12 @@ def _unpad_token_groups(
     kernel_preference: KernelPreference,
     mxfp8_dim0_cast_kernel_choice: MXFP8Dim0CastKernelChoice,
 ) -> torch.Tensor:
-    if mxfp8_dim0_cast_kernel_choice != MXFP8Dim0CastKernelChoice.CUTEDSL:
+    if (
+        mxfp8_dim0_cast_kernel_choice != MXFP8Dim0CastKernelChoice.CUTEDSL
+        or kernel_preference == KernelPreference.EMULATED
+    ):
+        # EMULATED must stay hardware/dependency agnostic, so it always uses
+        # the legacy path even if CUTEDSL was requested for the real kernels.
         return unpad_token_groups_legacy(
             padded_output,
             original_group_end_offsets,
@@ -98,9 +107,8 @@ def _unpad_token_groups(
             alignment_size=alignment_size,
             kernel_preference=kernel_preference,
         )
-    if kernel_preference != KernelPreference.EMULATED:
-        # Must match the alignment used by _pad_token_groups.
-        alignment_size = max(alignment_size, 128)
+    # Must match the alignment used by _pad_token_groups.
+    alignment_size = max(alignment_size, 128)
     return _unpad_token_groups_cutedsl(
         padded_output,
         original_group_end_offsets,
