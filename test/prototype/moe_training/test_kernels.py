@@ -6,6 +6,7 @@
 
 import pytest
 import torch
+from torch._subclasses.fake_tensor import FakeTensorMode
 
 # FP8 MoE kernels require FP8-capable hardware (SM 10.x on CUDA, MI300+ on ROCm)
 from torchao.utils import is_MI300, is_MI350
@@ -792,6 +793,29 @@ def test_cuda_mx_dim1_2d_numerics_32x1(
 
     # Check quantized values - no padding needed for data
     torch.testing.assert_close(y_d1, y_d1_ref, rtol=0, atol=0)
+
+    # The registered fake must report the same metadata as the real op, otherwise
+    # torch.compile / fake-tensor tracing sees the wrong shapes, strides or dtypes.
+    # This covers both blocked_scale_output values via the parametrization above.
+    with FakeTensorMode():
+        x_fake = torch.empty_like(x, device="cuda")
+        y_fake, s_fake = torch.ops.torchao.mxfp8_quantize_2d_32x1_cutedsl.default(
+            x_fake,
+            block_size=block_size,
+            scaling_mode=scaling_mode_str,
+            blocked_scale_output=blocked_scale_output,
+        )
+    assert y_fake.shape == y_d1.shape, (
+        f"fake data shape {y_fake.shape} != real {y_d1.shape}"
+    )
+    assert y_fake.stride() == y_d1.stride(), (
+        f"fake data stride {y_fake.stride()} != real {y_d1.stride()}"
+    )
+    assert y_fake.dtype == y_d1.dtype
+    assert s_fake.shape == s_d1.shape, (
+        f"fake scale shape {s_fake.shape} != real {s_d1.shape}"
+    )
+    assert s_fake.dtype == s_d1.dtype
 
 
 def _make_mxfp8_edge_input(shape, dtype, device, pattern: str) -> torch.Tensor:
