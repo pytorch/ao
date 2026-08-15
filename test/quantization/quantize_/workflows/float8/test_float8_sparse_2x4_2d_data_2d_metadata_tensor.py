@@ -26,10 +26,10 @@ from torchao.quantization.quant_api import (
 )
 from torchao.quantization.quantize_.workflows import (
     Float8PackingFormat,
-    SparseBackend,
 )
 from torchao.quantization.quantize_.workflows.float8.float8_sparse_2x4_2d_data_2d_metadata_tensor import (
     Float8Sparse2x4_2DData2DMetadataTensor,
+    SparseKernelChoice,
 )
 from torchao.quantization.quantize_.workflows.float8.kernels import (
     _rowwise_scaled_linear_sparse_cutedsl,
@@ -82,6 +82,11 @@ def _cutedsl_runtime_available():
 
 
 def _is_sm90a():
+    # The CuTeDSL sparse linear kernel is built on the sm90a-only
+    # `wgmma.mma_async.sp` PTX instruction, so unlike the (pure data movement,
+    # architecture-agnostic) conversion kernel, this genuinely can't run on
+    # plain sm90 or later architectures like sm100/Blackwell (different MMA
+    # ISA) - is_sm_at_least_90() would be wrong here.
     return (
         torch.cuda.is_available()
         and torch.version.cuda
@@ -90,7 +95,7 @@ def _is_sm90a():
 
 
 class TestFloat8Sparse2x4_2DData2DMetadataTensor(common_utils.TestCase):
-    def test_tensor_unflatten_defaults_missing_sparse_linear_backend(self):
+    def test_tensor_unflatten_defaults_missing_sparse_backend(self):
         qdata = torch.empty((8, 16), dtype=torch.float8_e4m3fn)
         sparse_metadata = torch.empty((64, 16), dtype=torch.uint8)
         scale = torch.ones((8, 1), dtype=torch.bfloat16)
@@ -110,7 +115,7 @@ class TestFloat8Sparse2x4_2DData2DMetadataTensor(common_utils.TestCase):
             None,
         )
 
-        self.assertEqual(tensor._sparse_linear_backend, SparseBackend.CUTEDSL)
+        self.assertEqual(tensor._sparse_backend, "cutedsl")
 
     def test_config_sparse_backend_default(self):
         config = Float8DynamicActivationFloat8WeightConfig(
@@ -118,14 +123,9 @@ class TestFloat8Sparse2x4_2DData2DMetadataTensor(common_utils.TestCase):
             packing_format=Float8PackingFormat.SPARSE_2D_DATA_2D_METADATA,
             granularity=PerRow(),
         )
-        self.assertEqual(config.sparse_backend, SparseBackend.CUTEDSL)
+        self.assertEqual(config.sparse_backend, SparseKernelChoice.CUTEDSL)
 
-    def test_config_sparse_backend_rejects_unknown(self):
-        with self.assertRaises(ValueError):
-            SparseBackend("nonesuch")
-
-    @unittest.skipIf(not _is_sm90a(), "Need SM90a to run")
-    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
+    @unittest.skipIf(not is_sm_at_least_90(), "Need H100 to run")
     @unittest.skipIf(not _cutedsl_runtime_available(), "CuTeDSL runtime unavailable")
     @common_utils.parametrize(
         "rows, cols",
@@ -136,11 +136,15 @@ class TestFloat8Sparse2x4_2DData2DMetadataTensor(common_utils.TestCase):
             (2048, 8192),
         ],
     )
-    def test_cutedsl_sparse_conversion(self, rows, cols):
+    @common_utils.parametrize(
+        "dtype",
+        [torch.float8_e4m3fn, torch.float8_e5m2],
+    )
+    def test_cutedsl_sparse_conversion(self, rows, cols, dtype):
         weight = create_semi_structured_tensor(
             rows,
             cols,
-            dtype=torch.float8_e4m3fn,
+            dtype=dtype,
         ).cuda()
 
         legacy_data, legacy_meta = to_sparse_semi_structured_cutlass_sm9x_f8(weight)
@@ -150,11 +154,14 @@ class TestFloat8Sparse2x4_2DData2DMetadataTensor(common_utils.TestCase):
         self.assertEqual(legacy_meta, cutedsl_meta)
 
     @unittest.skipIf(not _is_sm90a(), "Need SM90a to run")
-    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     @unittest.skipIf(not _cutedsl_runtime_available(), "CuTeDSL runtime unavailable")
     @common_utils.parametrize("bias", [True, False])
     @common_utils.parametrize("shape", [(16, 16, 32), (128, 256, 256)])
     def test_cutedsl_sparse_linear(self, shape, bias):
+        # Not bitwise-identical to the legacy CUTLASS path: the two kernels
+        # use different GEMM tile schedules, so floating-point accumulation
+        # order (and thus rounding) differs, unlike the pure byte-copy
+        # conversion kernel above, which does match bitwise.
         m, n, k = shape
         input = torch.randn((m, k), dtype=torch.bfloat16, device="cuda").to(
             torch.float8_e4m3fn
@@ -224,13 +231,11 @@ class TestFloat8Sparse2x4_2DData2DMetadataTensor(common_utils.TestCase):
     @unittest.skipIf(not is_sm_at_least_90(), "Need H100 to run")
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     @common_utils.parametrize("compile", [True, False])
-    @common_utils.parametrize("backend", list(SparseBackend))
+    @common_utils.parametrize("backend", list(SparseKernelChoice))
     def test_fp8_cutlass_sparse(self, backend, compile):
-        if backend is SparseBackend.CUTEDSL and not _cutedsl_runtime_available():
+        if backend is SparseKernelChoice.CUTEDSL and not _cutedsl_runtime_available():
             self.skipTest("CuTeDSL runtime unavailable")
-        self._fp8_cutlass_sparse_body(backend, compile)
 
-    def _fp8_cutlass_sparse_body(self, backend, compile):
         with torch.inference_mode():
             input = torch.rand((256, 256), dtype=torch.bfloat16, device="cuda")
             model = (
