@@ -696,6 +696,47 @@ class TestQuantPrimitives(unittest.TestCase):
 
             self.assertTrue(torch.equal(w_int4x8, w_int4x8_ref))
 
+    def test_groupwise_affine_quantize_tensor_from_qparams_zero_point_none(self):
+        # the local reference above only covers FLOAT and INT, so check
+        # ZeroPointDomain.NONE against a plain scale only quantize and a round
+        # trip through the dequantize helper. Both helpers need zeros=None here.
+        input = torch.randn(10, 256).bfloat16()
+        scales = torch.randn(10, 2).abs().clamp(min=1e-2).bfloat16()
+        n_bit = 4
+        groupsize = 128
+        quant_max = 2**n_bit - 1
+
+        w_int4x8 = groupwise_affine_quantize_tensor_from_qparams(
+            input, scales, None, n_bit, groupsize, ZeroPointDomain.NONE
+        )
+
+        grouped = input.reshape(input.shape[0], -1, groupsize)
+        grouped_scales = scales.reshape(scales.shape[0], -1, 1)
+        int_ref = (
+            torch.round(grouped * (1.0 / grouped_scales))
+            .clamp(0, quant_max)
+            .reshape_as(input)
+            .to(torch.int32)
+        )
+        w_int4x8_ref = int_ref
+        if (not (_is_device("cpu", input.device))) and (
+            not (_is_device("xpu", input.device))
+        ):
+            w_int4x8_ref = (int_ref[::, ::2] << 4 | int_ref[::, 1::2]).to(torch.uint8)
+        if _is_device("xpu", input.device):
+            w_int4x8_ref = (int_ref[::, 1::2] << 4 | int_ref[::, ::2]).to(torch.uint8)
+
+        self.assertTrue(torch.equal(w_int4x8, w_int4x8_ref))
+
+        w_bf16 = groupwise_affine_dequantize_tensor_from_qparams(
+            w_int4x8, scales, None, n_bit, groupsize, ZeroPointDomain.NONE
+        )
+        w_bf16_ref = (
+            int_ref.reshape(input.shape[0], -1, groupsize).bfloat16() * grouped_scales
+        ).reshape_as(input)
+
+        self.assertTrue(torch.equal(w_bf16, w_bf16_ref))
+
     def test_groupwise_affine_dequantize_tensor_from_qparams(self):
         input = torch.randint(0, 15, (10, 256), dtype=torch.int32)
         scales = torch.randn(10, 2).bfloat16()
