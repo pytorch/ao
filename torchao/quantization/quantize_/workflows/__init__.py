@@ -6,13 +6,11 @@ from .float8.float8_sparse_2x4_1d_data_1d_metadata_tensor import (
 )
 from .float8.float8_sparse_2x4_2d_data_2d_metadata_tensor import (
     Float8Sparse2x4_2DData2DMetadataTensor,
+    SparseKernelChoice,
 )
 from .float8.float8_tensor import (
     Float8Tensor,
     QuantizeTensorToFloat8Kwargs,
-)
-from .float8.sparse_backend import (
-    SparseBackend,
 )
 from .int4.int4_choose_qparams_algorithm import Int4ChooseQParamsAlgorithm
 from .int4.int4_packing_format import Int4PackingFormat
@@ -46,7 +44,6 @@ Sparse2x4CUTLASSFloat8Tensor = Float8Sparse2x4_2DData2DMetadataTensor
 
 __all__ = [
     "Float8PackingFormat",
-    "SparseBackend",
     "Float8Sparse2x4_1DData1DMetadataTensor",
     "Float8Sparse2x4_2DData2DMetadataTensor",
     "Float8Tensor",
@@ -65,5 +62,6 @@ __all__ = [
     "QuantizeTensorToFloat8Kwargs",
     "QuantizeTensorToInt8Kwargs",
     "Sparse2x4CUTLASSFloat8Tensor",
+    "SparseKernelChoice",
     "to_nf4",
 ]

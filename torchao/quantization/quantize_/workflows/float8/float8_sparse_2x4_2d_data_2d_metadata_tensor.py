@@ -5,6 +5,7 @@
 # LICENSE file in the root directory of this source tree.
 
 
+from enum import Enum
 from typing import List, Optional
 
 import torch
@@ -28,9 +29,6 @@ from torchao.quantization.quantize_.workflows.float8.kernels import (
     _rowwise_scaled_linear_sparse_cutedsl,
     _to_sparse_semi_structured_cutedsl,
 )
-from torchao.quantization.quantize_.workflows.float8.sparse_backend import (
-    SparseBackend,
-)
 from torchao.quantization.utils import get_block_size
 from torchao.utils import (
     TorchAOBaseTensor,
@@ -39,9 +37,30 @@ from torchao.utils import (
 
 __all__ = [
     "Float8Sparse2x4_2DData2DMetadataTensor",
+    "SparseKernelChoice",
 ]
 
 aten = torch.ops.aten
+
+
+# can switch to StrEnum (https://docs.python.org/3/library/enum.html#enum.StrEnum)
+# after python 3.10 is end of life (https://devguide.python.org/versions/)
+class SparseKernelChoice(str, Enum):
+    """
+    Kernel choice for the FP8 2:4 sparse conversion and linear operators.
+    """
+
+    """
+    Hand-written CUTLASS C++ kernels, built as part of the torchao extension.
+    """
+    LEGACY = "legacy"
+    """
+    CuTeDSL kernels, JIT-compiled on first use through nvidia-cutlass-dsl.
+    """
+    CUTEDSL = "cutedsl"
+
+
+torch.serialization.add_safe_globals([SparseKernelChoice])
 
 
 from .float8_tensor import QuantizeTensorToFloat8Kwargs
@@ -71,7 +90,7 @@ class Float8Sparse2x4_2DData2DMetadataTensor(TorchAOBaseTensor):
     optional_tensor_attribute_names = [
         "block_size",
         "act_quant_kwargs",
-        "_sparse_linear_backend",
+        "_sparse_backend",
         "dtype",
     ]
 
@@ -82,7 +101,7 @@ class Float8Sparse2x4_2DData2DMetadataTensor(TorchAOBaseTensor):
         scale: torch.Tensor,
         block_size: Optional[List[int]] = None,
         act_quant_kwargs: Optional[QuantizeTensorToFloat8Kwargs] = None,
-        _sparse_linear_backend: SparseBackend = SparseBackend.LEGACY,
+        _sparse_backend: SparseKernelChoice = SparseKernelChoice.LEGACY,
         dtype: Optional[torch.dtype] = None,
     ):
         shape = qdata.shape[0], 2 * qdata.shape[1]
@@ -100,7 +119,7 @@ class Float8Sparse2x4_2DData2DMetadataTensor(TorchAOBaseTensor):
         scale: torch.Tensor,
         block_size: Optional[List[int]] = None,
         act_quant_kwargs: Optional[QuantizeTensorToFloat8Kwargs] = None,
-        _sparse_linear_backend: SparseBackend = SparseBackend.LEGACY,
+        _sparse_backend: SparseKernelChoice = SparseKernelChoice.LEGACY,
         dtype: Optional[torch.dtype] = None,
     ):
         super().__init__()
@@ -109,15 +128,15 @@ class Float8Sparse2x4_2DData2DMetadataTensor(TorchAOBaseTensor):
         self.scale = scale
         self.block_size = block_size
         self.act_quant_kwargs = act_quant_kwargs
-        self._sparse_linear_backend = SparseBackend(_sparse_linear_backend)
+        self._sparse_backend = SparseKernelChoice(_sparse_backend)
 
     @classmethod
     def __tensor_unflatten__(
         cls, tensor_data_dict, tensor_attributes, outer_size, outer_stride
     ):
-        if "_sparse_linear_backend" not in tensor_attributes:
+        if "_sparse_backend" not in tensor_attributes:
             tensor_attributes = tensor_attributes | {
-                "_sparse_linear_backend": SparseBackend.LEGACY
+                "_sparse_backend": SparseKernelChoice.LEGACY
             }
         return super().__tensor_unflatten__(
             tensor_data_dict, tensor_attributes, outer_size, outer_stride
@@ -168,8 +187,7 @@ class Float8Sparse2x4_2DData2DMetadataTensor(TorchAOBaseTensor):
         hp_value_lb: Optional[float] = None,
         hp_value_ub: Optional[float] = None,
         act_quant_kwargs: Optional[QuantizeTensorToFloat8Kwargs] = None,
-        sparse_conversion_backend: SparseBackend = SparseBackend.LEGACY,
-        sparse_linear_backend: SparseBackend = SparseBackend.LEGACY,
+        sparse_backend: SparseKernelChoice = SparseKernelChoice.LEGACY,
     ):
         block_size = get_block_size(hp_tensor.shape, granularity)
         block_size = list(block_size)
@@ -198,15 +216,13 @@ class Float8Sparse2x4_2DData2DMetadataTensor(TorchAOBaseTensor):
         )
         assert hp_value_lb is None, "CUTLASS sparse kernel does not support hp_value_lb"
 
-        sparse_conversion_backend = SparseBackend(sparse_conversion_backend)
-        if sparse_conversion_backend is SparseBackend.CUTEDSL:
+        sparse_backend = SparseKernelChoice(sparse_backend)
+        if sparse_backend is SparseKernelChoice.CUTEDSL:
             qdata, sparse_metadata = _to_sparse_semi_structured_cutedsl(data)
-        elif sparse_conversion_backend is SparseBackend.LEGACY:
+        elif sparse_backend is SparseKernelChoice.LEGACY:
             qdata, sparse_metadata = to_sparse_semi_structured_cutlass_sm9x_f8(data)
         else:
-            raise ValueError(
-                f"Unsupported sparse conversion backend: {sparse_conversion_backend}"
-            )
+            raise ValueError(f"Unsupported sparse backend: {sparse_backend}")
 
         return Float8Sparse2x4_2DData2DMetadataTensor(
             qdata,
@@ -214,7 +230,7 @@ class Float8Sparse2x4_2DData2DMetadataTensor(TorchAOBaseTensor):
             scale,
             block_size=block_size,
             act_quant_kwargs=act_quant_kwargs,
-            _sparse_linear_backend=sparse_linear_backend,
+            _sparse_backend=sparse_backend,
             dtype=hp_dtype,
         )
 
@@ -250,15 +266,14 @@ def _(func, types, args, kwargs):
     weight_meta = weight_tensor.sparse_metadata
     weight_scale = weight_tensor.scale.squeeze(1)
     out_dtype = input_tensor.dtype
-    sparse_linear_backend = weight_tensor._sparse_linear_backend
+    sparse_backend = SparseKernelChoice(weight_tensor._sparse_backend)
 
-    sparse_linear_backend = SparseBackend(sparse_linear_backend)
-    if sparse_linear_backend is SparseBackend.CUTEDSL:
+    if sparse_backend is SparseKernelChoice.CUTEDSL:
         linear_op = _rowwise_scaled_linear_sparse_cutedsl
-    elif sparse_linear_backend is SparseBackend.LEGACY:
+    elif sparse_backend is SparseKernelChoice.LEGACY:
         linear_op = rowwise_scaled_linear_sparse_cutlass_f8f8
     else:
-        raise ValueError(f"Unsupported sparse linear backend: {sparse_linear_backend}")
+        raise ValueError(f"Unsupported sparse backend: {sparse_backend}")
 
     out = linear_op(
         input,
