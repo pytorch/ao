@@ -137,6 +137,16 @@ def apply_to_inner_tensors(nf4tensor: "NF4Tensor", aten_op, args, kwargs):
     return attr_to_tensor
 
 
+# __torch_function__ utils: call tensor ops from inner tensors
+def call_from_inner_tensors(nf4tensor: "NF4Tensor", method_name: str, args, kwargs):
+    attr_to_tensor = {}
+    for attr in _INNER_TENSOR_NAMES_FOR_SHARDING:
+        inner_tensor = getattr(nf4tensor, attr)
+        func = getattr(inner_tensor, method_name)
+        attr_to_tensor[attr] = func(*args, **kwargs)
+    return attr_to_tensor
+
+
 class CompareOp(Enum):
     EQ = auto()
     LT = auto()
