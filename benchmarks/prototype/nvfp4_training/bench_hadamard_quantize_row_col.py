@@ -32,8 +32,8 @@ device = torch.device("cuda")
 
 BACKENDS = ("triton", "cutedsl")
 
-# Shared shape set (satisfies both backends: M % 256 == 0, N % 128 == 0).
-M_SHAPES = [256, 512, 1024, 8192]
+# Shared shape set (satisfies both backends: M % 128 == 0, N % 128 == 0).
+M_SHAPES = [256, 384, 512, 1024, 8192]
 N_SHAPES = [256, 512, 1024, 2048, 4096, 8192, 16384]
 
 LLAMA_BATCH_SIZE = 1

@@ -32,8 +32,8 @@ device = torch.device("cuda")
 
 BACKENDS = ("triton", "cutedsl")
 
-# Weight A = (out_features, in_features): out (M) % 256 == 0, in (N) % 128 == 0.
-M_SHAPES = [256, 512, 1024, 4096]
+# Weight A = (out_features, in_features): out (M) % 128 == 0, in (N) % 128 == 0.
+M_SHAPES = [256, 384, 512, 1024, 4096]
 N_SHAPES = [256, 512, 1024, 4096]
 
 
