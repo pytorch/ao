@@ -114,8 +114,31 @@ def cutedsl_prepare_for_cuda_graph(device, *, sign_vectors=None) -> None:
     for sign_vector in sign_vectors or ():
         _get_rht_buffer(tuple(int(v) for v in sign_vector), idx)
     # Pre-compile the kernels so no lazy compile fires mid-capture: amax; the RHT fused RTNE +
-    # SR variants (apply_rht=True); and the no-MMA weight-quantize variant (apply_rht=False).
-    _compile_amax_tc_kernel(idx)
+    # SR variants (apply_rht=True); and the no-MMA weight-quantize variant (apply_rht=False), in
+    # both its single-tensor and dense-expert grouped forms. Both supertile heights: 256-row
+    # (M % 256 shapes) and 128-row (other M % 128).
+    for col_groups in (16, 8):
+        _compile_amax_tc_kernel(idx, col_groups)
+        for sr in (False, True):
+            _compile_fused_kernel(
+                idx, True, sr, apply_rht=True, col_groups_per_supertile=col_groups
+            )
+        for grouped in (False, True):
+            _compile_fused_kernel(
+                idx,
+                True,
+                False,
+                apply_rht=False,
+                grouped=grouped,
+                col_groups_per_supertile=col_groups,
+            )
+
+    # Same for the grouped (per-expert MoE) kernels, which tile at 128 rows already.
+    from ._cutedsl_group_kernels_impl import (
+        _compile_group_amax_kernel,
+        _compile_group_fused_kernel,
+    )
+
+    _compile_group_amax_kernel(idx)
     for sr in (False, True):
-        _compile_fused_kernel(idx, True, sr, apply_rht=True)
-    _compile_fused_kernel(idx, True, False, apply_rht=False)
+        _compile_group_fused_kernel(idx, True, sr)
