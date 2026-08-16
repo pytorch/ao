@@ -71,41 +71,26 @@ def _rht_quantize_row_col(
 
     RTNE when sr_seed is None; stochastic rounding otherwise, with fresh offsets
     drawn from the default CUDA RNG (a first-class CUDA-graph side input — see
-    the nvfp4_mm_triton docstring). CuteDSL derives its col/row streams from a
-    single (seed, offset) base internally; Triton takes separate col/row bases.
+    the nvfp4_mm_triton docstring). Both backends take the same four Philox bases
+    and draw the same stream from them.
     """
+    quantize = (
+        cutedsl_rht_quantize_row_col if use_cutedsl else triton_rht_quantize_row_col
+    )
     if sr_seed is None:
-        if use_cutedsl:
-            return cutedsl_rht_quantize_row_col(x, col_amax, row_amax, sign_vector_list)
-        return triton_rht_quantize_row_col(
-            x,
-            stochastic_rounding=False,
-            sign_vector=sign_vector_list,
-            col_global_amax=col_amax,
-            row_global_amax=row_amax,
-        )
+        return quantize(x, col_amax, row_amax, sign_vector_list)
     offset_col = torch.randint(0, 2**32, (1,), dtype=torch.int64, device=x.device)
-    if use_cutedsl:
-        return cutedsl_rht_quantize_row_col(
-            x,
-            col_amax,
-            row_amax,
-            sign_vector_list,
-            stochastic_rounding=True,
-            seed=sr_seed,
-            offset=offset_col,
-        )
     offset_row = torch.randint(0, 2**32, (1,), dtype=torch.int64, device=x.device)
-    return triton_rht_quantize_row_col(
+    return quantize(
         x,
+        col_amax,
+        row_amax,
+        sign_vector_list,
         stochastic_rounding=True,
-        sign_vector=sign_vector_list,
         col_seed_base=sr_seed,
         row_seed_base=sr_seed ^ 1,
         col_offset_base=offset_col,
         row_offset_base=offset_row,
-        col_global_amax=col_amax,
-        row_global_amax=row_amax,
     )
 
 
@@ -180,14 +165,10 @@ class nvfp4_mm_triton(torch.autograd.Function):
                 f"got M={M}, K={K}, N={N}"
             )
         if use_cutedsl and M % 256 != 0:
-            # The outer M % 128 gate is too coarse for CuteDSL: M=128 reaches the amax
-            # kernel and silently returns zero amaxes.
             raise ValueError(
                 f"kernel_preference=CUTEDSL requires M divisible by 256, got M={M}"
             )
         if use_cutedsl and N % 256 != 0:
-            # The CuteDSL weight quantize maps the weight as (out=N, in=K) into the fused kernel,
-            # whose M tiler needs out_features % 256 (stricter than the Triton weight kernel's %128).
             raise ValueError(
                 f"kernel_preference=CUTEDSL requires N (out_features) divisible by 256, got N={N}"
             )
@@ -334,15 +315,15 @@ def nvfp4_linear(
         bias: Optional bias [out_features]
         sign_vector: RHT sign vector used for amax and quantization.
         kernel_preference: Backend for quantization, TRITON (default) or CUTEDSL.
-            CUTEDSL runs the full path on CuteDSL — the amax, the forward RTNE quantize, the
-            backward SR (cvt.rs) quantize, and the 2D weight quantize (requires out_features % 256).
+            CUTEDSL runs the full path on CuteDSL — the amax, the forward RTNE quantize,
+            the backward SR (cvt.rs) quantize, and the 2D weight quantize.
         sr_seed: Fixed int64 seed tensor (size=(1,)) for SR Philox key. Allocated
             fresh if None. For reproducibility, pass a pre-allocated module buffer.
     """
     if kernel_preference not in (KernelPreference.TRITON, KernelPreference.CUTEDSL):
         raise ValueError(
-            "NVFP4 training linear only supports kernel_preference TRITON or CUTEDSL, "
-            f"got {kernel_preference!r}"
+            "NVFP4 training linear only supports kernel_preference TRITON or "
+            f"CUTEDSL, got {kernel_preference!r}"
         )
     use_cutedsl = kernel_preference == KernelPreference.CUTEDSL
     if use_cutedsl and not cutedsl_nvfp4_kernels_available():
