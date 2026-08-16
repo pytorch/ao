@@ -30,9 +30,8 @@ def cutedsl_weight_quantize_2d(
     """2D NVFP4 E2M1 weight quantization without RHT (CuteDSL, SM100+).
 
     Args:
-        A:           (M, N) bfloat16, row-major. M == out_features must be divisible by 256,
-                     N == in_features by 128 (the fused kernel's tiling constraints, stricter
-                     than the Triton kernel's M % 128).
+        A:           (M, N) bfloat16, row-major. M == out_features must be divisible by,
+                     N == in_features by 128.
         global_amax: scalar float32 ``A.float().abs().max()`` (caller may all-reduce for TP).
 
     Returns:
@@ -44,15 +43,15 @@ def cutedsl_weight_quantize_2d(
 
     Raises:
         NotImplementedError: pre-SM100 / missing CuteDSL runtime.
-        ValueError: bad dtype/shape, or out_features not divisible by 256.
+        ValueError: bad dtype/shape, or out_features not divisible by 128.
     """
     raise_if_cutedsl_nvfp4_unavailable("cutedsl_weight_quantize_2d")
     if A.ndim != 2:
         raise ValueError("A must be 2-D")
     M, N = A.shape
-    if M % 256 != 0:
+    if M % 128 != 0:
         raise ValueError(
-            f"cutedsl_weight_quantize_2d requires out_features (dim 0) divisible by 256, got {M}"
+            f"cutedsl_weight_quantize_2d requires out_features (dim 0) divisible by 128, got {M}"
         )
 
     from ._cutedsl_kernels_impl import (

@@ -27,8 +27,9 @@ from torchao.utils import is_sm_at_least_100, torch_version_at_least
 
 _HARDCODED_SIGN_VECTOR = (1, 1, 1, -1, 1, -1, -1, -1, -1, -1, -1, 1, -1, 1, -1, -1)
 
-# The CuteDSL path needs M % 256 == 0, K % 128 == 0 and out_features % 256 == 0; the Triton
-# path needs % 128. 512 satisfies both, so the parametrized tests share one shape.
+# Both paths need M, K, out_features % 128 == 0. 512 exercises the CuteDSL 256-row
+# supertile; the 128-row supertile (M % 128 but not % 256) is covered by the
+# kernel-level tests.
 _M = _K = _N = 512
 
 _TRITON_MARKS = [
