@@ -30,16 +30,35 @@ from torchao.prototype.moe_training.nvfp4_grouped_mm import (
     _emulated_nvfp4_scaled_grouped_mm_2d_2d,
     _emulated_nvfp4_scaled_grouped_mm_2d_3d,
 )
+from torchao.prototype.moe_training.nvfp4_training.hadamard_cutedsl_utils import (
+    cutedsl_nvfp4_kernels_available,
+)
 from torchao.prototype.moe_training.utils import generate_jagged_offs
 from torchao.prototype.mx_formats.nvfp4_tensor import nvfp4_quantize
+from torchao.quantization.quantize_.common.kernel_preference import KernelPreference
 from torchao.testing.utils import skip_if_rocm
 
 if has_triton() and is_sm_at_least_100() and torch_version_at_least("2.10.0"):
+    from torchao.prototype.moe_training.nvfp4_training import nvfp4_grouped_mm
     from torchao.prototype.moe_training.nvfp4_training.nvfp4_grouped_mm import (
+        _resolve_backends,
         _to_nvfp4_rht_rs_then_scaled_grouped_mm,
     )
 
 BLOCK_SIZE = 16
+
+_KERNEL_PREFERENCES = [
+    pytest.param(KernelPreference.AUTO, id="auto"),
+    pytest.param(KernelPreference.TRITON, id="triton"),
+    pytest.param(
+        KernelPreference.CUTEDSL,
+        marks=pytest.mark.skipif(
+            not cutedsl_nvfp4_kernels_available(),
+            reason="requires the CuteDSL runtime",
+        ),
+        id="cutedsl",
+    ),
+]
 
 
 def _quantize_for_test(x: torch.Tensor):
@@ -151,7 +170,8 @@ def test_emulated_nvfp4_grouped_gemm_2d_2d(M, K, N, num_experts):
 # that gives this coverage; the ungrouped dim is.
 @pytest.mark.parametrize("M,K,N", [(1024, 1024, 1024)])
 @pytest.mark.parametrize("num_experts", (1, 8))
-def test_nvfp4_grouped_gemm_fwd_bwd(M, K, N, num_experts):
+@pytest.mark.parametrize("kernel_preference", _KERNEL_PREFERENCES)
+def test_nvfp4_grouped_gemm_fwd_bwd(M, K, N, num_experts, kernel_preference):
     torch.manual_seed(42)
     x = torch.randn(M, K, dtype=torch.bfloat16, device="cuda", requires_grad=True)
     weight = torch.randn(
@@ -181,6 +201,7 @@ def test_nvfp4_grouped_gemm_fwd_bwd(M, K, N, num_experts):
         sr_seed,
         offs=offs,
         pad_token_groups_for_grouped_mm=False,
+        kernel_preference=kernel_preference,
     )
 
     assert out.shape == out_ref.shape == (M, N)
@@ -207,6 +228,44 @@ def test_nvfp4_grouped_gemm_fwd_bwd(M, K, N, num_experts):
     assert weight_grad_sqnr >= min_weight_grad_sqnr, (
         f"Weight grad SQNR {weight_grad_sqnr} is below {min_weight_grad_sqnr}"
     )
+
+
+@pytest.mark.skipif(not has_triton(), reason="unsupported without triton")
+@pytest.mark.skipif(not is_sm_at_least_100(), reason="Requires SM100+")
+@pytest.mark.skipif(
+    not torch_version_at_least("2.10.0"), reason="requires PyTorch 2.10+"
+)
+def test_resolve_backends_falls_back_without_cutedsl(monkeypatch):
+    """AUTO degrades to Triton where CuteDSL cannot run; CUTEDSL says so instead."""
+    monkeypatch.setattr(
+        nvfp4_grouped_mm, "cutedsl_nvfp4_kernels_available", lambda: False
+    )
+
+    assert _resolve_backends(KernelPreference.AUTO, 8) == (False, False)
+    assert _resolve_backends(KernelPreference.TRITON, 8) == (False, False)
+    with pytest.raises(RuntimeError, match="CUTEDSL requires"):
+        _resolve_backends(KernelPreference.CUTEDSL, 8)
+    with pytest.raises(ValueError, match="AUTO, TRITON, or CUTEDSL"):
+        _resolve_backends(KernelPreference.TORCH, 8)
+
+
+@pytest.mark.skipif(not has_triton(), reason="unsupported without triton")
+@pytest.mark.skipif(not is_sm_at_least_100(), reason="Requires SM100+")
+@pytest.mark.skipif(
+    not torch_version_at_least("2.10.0"), reason="requires PyTorch 2.10+"
+)
+@pytest.mark.skipif(
+    not cutedsl_nvfp4_kernels_available(), reason="requires the CuteDSL runtime"
+)
+def test_resolve_backends_is_per_op():
+    """The expert cap belongs to the RHT ops alone: the weight quantize now accepts
+    every shape the grouped GEMM does, so the RHT path falling back must not drag it."""
+    assert _resolve_backends(KernelPreference.AUTO, 8) == (True, True)
+    # 65 experts exceeds the CuteDSL group cap; the weight quantize is unaffected.
+    assert _resolve_backends(KernelPreference.AUTO, 65) == (False, True)
+
+    with pytest.raises(ValueError, match="at most 64 experts"):
+        _resolve_backends(KernelPreference.CUTEDSL, 65)
 
 
 @skip_if_rocm("ROCm not supported")

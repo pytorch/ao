@@ -1,7 +1,8 @@
-"""Tests for triton_group_rht_quantize_row_col (SM100+ grouped RHT kernel).
+"""Tests for the grouped RHT quantize kernels (SM100+), triton and cutedsl.
 
-Pure-torch oracle (no TransformerEngine), mirroring
-test_hadamard_quantize_row_col_triton.py:
+Two oracles: the TE-derived reference in ``nvfp4_reference`` (scales and RTNE codes
+bitwise) and an independent mx_formats cross-check at 1 fp8 ULP. Mirrors
+test_hadamard_quantize_row_col.py:
 
   correctness (RTNE):
     - per group, for both columnwise and rowwise swizzled outputs:
@@ -37,6 +38,9 @@ from test.prototype.moe_training.nvfp4_training.nvfp4_reference import (
     to_blocked_grouped,
 )
 from torchao.float8.float8_utils import compute_error
+from torchao.prototype.moe_training.nvfp4_training.hadamard_cutedsl_utils import (
+    cutedsl_nvfp4_kernels_available,
+)
 from torchao.prototype.moe_training.nvfp4_training.hadamard_utils import (
     DEFAULT_SIGN_VECTOR,
 )
@@ -60,6 +64,10 @@ if has_triton() and is_sm_at_least_100() and torch_version_at_least("2.10.0"):
     from torchao.prototype.moe_training.nvfp4_training.hadamard_utils import (
         get_rht_matrix,
     )
+if cutedsl_nvfp4_kernels_available():
+    from torchao.prototype.moe_training.nvfp4_training.group_rht_quantize_row_col_cutedsl import (
+        cutedsl_group_rht_quantize_row_col,
+    )
 
 _HARDCODED_SIGN_VECTOR = DEFAULT_SIGN_VECTOR
 
@@ -73,10 +81,37 @@ requires_sm100 = [
 ]
 
 
+_skip_no_cutedsl = pytest.mark.skipif(
+    not cutedsl_nvfp4_kernels_available(),
+    reason="requires SM100 (Blackwell) + CuteDSL runtime (cuda-python, nvidia-cutlass-dsl)",
+)
+
+_KERNELS = [
+    pytest.param("triton", id="triton"),
+    pytest.param("cutedsl", marks=_skip_no_cutedsl, id="cutedsl"),
+]
+
+
 def _maybe_sm100(fn):
     for mark in requires_sm100:
         fn = mark(fn)
     return fn
+
+
+def _group_quantize(kernel, *args, **kwargs):
+    """Dispatch to a backend's grouped RHT quantize op."""
+    op = (
+        triton_group_rht_quantize_row_col
+        if kernel == "triton"
+        else cutedsl_group_rht_quantize_row_col
+    )
+    return op(*args, **kwargs)
+
+
+def _skip_if_unsupported_groups(kernel: str, num_tensors: int) -> None:
+    """The cutedsl group lookup is a fixed-depth binary search capped at 64 groups."""
+    if kernel == "cutedsl" and num_tensors > 64:
+        pytest.skip("cutedsl grouped kernel supports at most 64 groups")
 
 
 @dataclass(frozen=True)
@@ -287,12 +322,14 @@ def triton_group_rht_quantize_row_col_ref(
     _assert_scales_adjacent(sfa, to_blocked(expected_row_sf), "row sf swizzled")
 
 
-def _assert_group_rht_correctness(graph_case):
-    spec, A, B, offsets, amax_row, amax_col, group_tensors, rht_groups = graph_case
+def _assert_group_rht_correctness(graph_case, kernel):
+    spec, A, _, offsets, amax_row, amax_col, group_tensors, rht_groups = graph_case
     psl, hs = A.shape
     num_groups = len(spec.groups)
+    _skip_if_unsupported_groups(kernel, num_groups)
 
-    qa, sfa, qd, sfd = triton_group_rht_quantize_row_col(
+    qa, sfa, qd, sfd = _group_quantize(
+        kernel,
         A,
         list(_HARDCODED_SIGN_VECTOR),
         offsets,
@@ -306,13 +343,17 @@ def _assert_group_rht_correctness(graph_case):
         False,
     )
     _check_output_shapes(spec, qa, sfa, qd, sfd)
+
+    # TE-derived reference: packed scale buffers and RTNE codes are bitwise.
     ref_qa, ref_sfa, ref_qd, ref_sfd = reference_group_rht_quantize_row_col(
         A, offsets, num_groups, amax_col, amax_row, _HARDCODED_SIGN_VECTOR
     )
-    assert_codes_bitwise(qa, ref_qa, "row codes")
     assert_scales_bitwise(sfa, ref_sfa, "row sf")
-    assert_codes_bitwise(qd, ref_qd, "col codes")
     assert_scales_bitwise(sfd, ref_sfd, "col sf")
+    assert_codes_bitwise(qa, ref_qa, "row codes")
+    assert_codes_bitwise(qd, ref_qd, "col codes")
+
+    # Independent mx_formats cross-check (reciprocal + E4M3_EPS floor, hence 1 ULP).
     triton_group_rht_quantize_row_col_ref(
         spec,
         A,
@@ -328,21 +369,24 @@ def _assert_group_rht_correctness(graph_case):
 
 
 @_maybe_sm100
+@pytest.mark.parametrize("kernel", _KERNELS)
 @torch.no_grad()
-def test_group_rht_correctness(graph_case):
-    _assert_group_rht_correctness(graph_case)
+def test_group_rht_correctness(graph_case, kernel):
+    _assert_group_rht_correctness(graph_case, kernel)
 
 
 @_maybe_sm100
+@pytest.mark.parametrize("kernel", _KERNELS)
 @torch.no_grad()
-def test_group_rht_deepseek_dimensions_correctness(deepseek_graph_case):
+def test_group_rht_deepseek_dimensions_correctness(deepseek_graph_case, kernel):
     """Real TorchTitan M/N dimensions with E factorized to two experts."""
-    _assert_group_rht_correctness(deepseek_graph_case)
+    _assert_group_rht_correctness(deepseek_graph_case, kernel)
 
 
 @_maybe_sm100
+@pytest.mark.parametrize("kernel", _KERNELS)
 @torch.no_grad()
-def test_group_rht_padded_capacity_masks_spare_rows():
+def test_group_rht_padded_capacity_masks_spare_rows(kernel):
     """Capacity rows do not affect amax and flush to zero during quantization."""
     device = torch.device("cuda", 0)
     logical_rows, capacity_rows, hidden_size = 128, 256, 128
@@ -380,7 +424,8 @@ def test_group_rht_padded_capacity_masks_spare_rows():
     assert torch.equal(actual_col_amax, expected_col_amax)
     assert torch.equal(actual_row_amax, expected_row_amax)
 
-    expected = triton_group_rht_quantize_row_col(
+    expected = _group_quantize(
+        kernel,
         valid,
         list(_HARDCODED_SIGN_VECTOR),
         offsets,
@@ -393,7 +438,8 @@ def test_group_rht_padded_capacity_masks_spare_rows():
         None,
         False,
     )
-    actual = triton_group_rht_quantize_row_col(
+    actual = _group_quantize(
+        kernel,
         capacity,
         list(_HARDCODED_SIGN_VECTOR),
         offsets,
@@ -433,13 +479,76 @@ def test_group_rht_padded_capacity_masks_spare_rows():
 
 
 @_maybe_sm100
+@pytest.mark.parametrize("kernel", _KERNELS)
 @torch.no_grad()
-def test_group_rht_stochastic_rounding_launches(graph_case):
+def test_group_rht_capacity_folded_into_last_group_zeroes_col_scales(kernel):
+    """Capacity rows inside the last group's extent get zeroed columnwise scales.
+
+    The other convention (offsets[-1] == logical rows, covered above) leaves those
+    bytes unaddressed, so nothing writes them. Here offsets[-1] is the capacity, so
+    the spare rows *are* part of the last group's blocked scale buffer and the
+    grouped GEMM reads them -- both backends must flush zeros.
+    """
+    device = torch.device("cuda", 0)
+    logical_rows, capacity_rows, hidden_size = 128, 256, 128
+    torch.manual_seed(228)
+    A = torch.randn((capacity_rows, hidden_size), dtype=torch.bfloat16, device=device)
+    A[logical_rows:].fill_(1000.0)
+    offsets = torch.tensor([capacity_rows], dtype=torch.int32, device=device)
+    logical_packed_length = torch.tensor(
+        [logical_rows], dtype=torch.int32, device=device
+    )
+
+    amax_col, amax_row = triton_group_rht_amax(
+        A,
+        list(_HARDCODED_SIGN_VECTOR),
+        offsets,
+        1,
+        capacity_rows,
+        hidden_size,
+        1,
+        logical_packed_length=logical_packed_length,
+    )
+
+    # The op allocates its own outputs with torch.empty, so an unwritten scale
+    # region would read whatever the caching allocator last held. Dirty a block of
+    # exactly that size first, or "uninitialized" happens to be zero and the
+    # assertion below cannot fail.
+    sf_bytes = hidden_size * (capacity_rows // 16)
+    poison = torch.full((sf_bytes,), 255, dtype=torch.uint8, device=device)
+    del poison
+
+    _, _, _, sfd = _group_quantize(
+        kernel,
+        A,
+        list(_HARDCODED_SIGN_VECTOR),
+        offsets,
+        1,
+        capacity_rows,
+        hidden_size,
+        1,
+        amax_row,
+        amax_col,
+        None,
+        False,
+        logical_packed_length=logical_packed_length,
+    )
+
+    sfd_plain = _from_blocked_grouped(sfd, hidden_size, (capacity_rows,))
+    assert torch.count_nonzero(sfd_plain[:, logical_rows // 16 :]) == 0
+
+
+@_maybe_sm100
+@pytest.mark.parametrize("kernel", _KERNELS)
+@torch.no_grad()
+def test_group_rht_stochastic_rounding_launches(graph_case, kernel):
     spec, A, B, offsets, amax_row, amax_col, _, _ = graph_case
     psl, hs = A.shape
     num_groups = len(spec.groups)
+    _skip_if_unsupported_groups(kernel, num_groups)
 
-    qa, sfa, qd, sfd = triton_group_rht_quantize_row_col(
+    qa, sfa, qd, sfd = _group_quantize(
+        kernel,
         A,
         list(_HARDCODED_SIGN_VECTOR),
         offsets,
@@ -457,10 +566,48 @@ def test_group_rht_stochastic_rounding_launches(graph_case):
     assert torch.isfinite(sfd.float()).all()
 
 
-def _run_sr(graph_case, rng_state):
+@_maybe_sm100
+@_skip_no_cutedsl
+@pytest.mark.parametrize("stochastic_rounding", [False, True], ids=["rtne", "rs"])
+@torch.no_grad()
+def test_cutedsl_group_quantize_matches_triton_bitwise(graph_case, stochastic_rounding):
+    """The two grouped backends are byte-for-byte interchangeable, RTNE and SR alike.
+
+    SR included: the CuteDSL kernel draws the same Philox words triton does, from the
+    same caller-owned ``[col_seed, col_offset, row_seed, row_offset]`` state, at the
+    counters triton's ``cvt.rs`` actually consumes.
+    """
     spec, A, B, offsets, amax_row, amax_col, _, _ = graph_case
     psl, hs = A.shape
-    return triton_group_rht_quantize_row_col(
+    num_groups = len(spec.groups)
+    _skip_if_unsupported_groups("cutedsl", num_groups)
+
+    args = (
+        A,
+        list(_HARDCODED_SIGN_VECTOR),
+        offsets,
+        num_groups,
+        psl,
+        hs,
+        spec.shape_rep,
+        amax_row,
+        amax_col,
+        _make_rng_state(A.device, (0x5EED, 0x0FF5, 0xBEEF, 0xCAFE))
+        if stochastic_rounding
+        else None,
+        stochastic_rounding,
+    )
+    cutedsl = _group_quantize("cutedsl", *args)
+    triton_out = _group_quantize("triton", *args)
+    for name, c, t in zip(("qa", "sfa", "qd", "sfd"), cutedsl, triton_out):
+        assert torch.equal(c, t), f"{name} differs between backends"
+
+
+def _run_sr(graph_case, rng_state, kernel="triton"):
+    spec, A, B, offsets, amax_row, amax_col, _, _ = graph_case
+    psl, hs = A.shape
+    return _group_quantize(
+        kernel,
         A,
         list(_HARDCODED_SIGN_VECTOR),
         offsets,
@@ -476,41 +623,46 @@ def _run_sr(graph_case, rng_state):
 
 
 @_maybe_sm100
+@pytest.mark.parametrize("kernel", _KERNELS)
 @torch.no_grad()
-def test_group_rht_rng_state_controls_stochastic_rounding(graph_case):
+def test_group_rht_rng_state_controls_stochastic_rounding(graph_case, kernel):
     """Same rng_state -> identical packed codes; advanced state -> codes differ."""
+    _skip_if_unsupported_groups(kernel, len(graph_case[0].groups))
     qa1, _, qd1, _ = _run_sr(
-        graph_case, _make_rng_state(graph_case[1].device, (11, 22, 33, 44))
+        graph_case, _make_rng_state(graph_case[1].device, (11, 22, 33, 44)), kernel
     )
     qa2, _, qd2, _ = _run_sr(
-        graph_case, _make_rng_state(graph_case[1].device, (11, 22, 33, 44))
+        graph_case, _make_rng_state(graph_case[1].device, (11, 22, 33, 44)), kernel
     )
     assert torch.equal(qa1, qa2), "Same rng_state must yield identical row FP4 codes"
     assert torch.equal(qd1, qd2), "Same rng_state must yield identical col FP4 codes"
 
     qa3, _, qd3, _ = _run_sr(
-        graph_case, _make_rng_state(graph_case[1].device, (11, 9999, 33, 8888))
+        graph_case, _make_rng_state(graph_case[1].device, (11, 9999, 33, 8888)), kernel
     )
     assert not torch.equal(qa1, qa3), "Advanced rng_state must change row FP4 codes"
     assert not torch.equal(qd1, qd3), "Advanced rng_state must change col FP4 codes"
 
 
 @_maybe_sm100
+@pytest.mark.parametrize("kernel", _KERNELS)
 @torch.no_grad()
-def test_group_rht_rng_state_validation(graph_case):
+def test_group_rht_rng_state_validation(graph_case, kernel):
     """SR enabled requires a valid int64 rng_state; SR disabled ignores it."""
     spec, A, B, offsets, amax_row, amax_col, _, _ = graph_case
     psl, hs = A.shape
     num_groups = len(spec.groups)
+    _skip_if_unsupported_groups(kernel, num_groups)
 
     with pytest.raises(TypeError, match="rng_state must be a torch.Tensor"):
-        _run_sr(graph_case, None)
+        _run_sr(graph_case, None, kernel)
 
     with pytest.raises(ValueError, match="at least 4 elements"):
-        _run_sr(graph_case, _make_rng_state(A.device, (1, 2)))
+        _run_sr(graph_case, _make_rng_state(A.device, (1, 2)), kernel)
 
     # SR disabled: rng_state is ignored, so None is accepted.
-    triton_group_rht_quantize_row_col(
+    _group_quantize(
+        kernel,
         A,
         list(_HARDCODED_SIGN_VECTOR),
         offsets,
@@ -526,6 +678,7 @@ def test_group_rht_rng_state_validation(graph_case):
 
 
 @_maybe_sm100
+@pytest.mark.parametrize("kernel", _KERNELS)
 @pytest.mark.parametrize(
     ("invalid_amax", "error"),
     [
@@ -533,8 +686,9 @@ def test_group_rht_rng_state_validation(graph_case):
         ("noncontiguous", "a_global_amax must be contiguous"),
     ],
 )
-def test_group_rht_amax_storage_validation(graph_case, invalid_amax, error):
+def test_group_rht_amax_storage_validation(graph_case, invalid_amax, error, kernel):
     spec, A, _, offsets, _, amax_col, _, _ = graph_case
+    _skip_if_unsupported_groups(kernel, len(spec.groups))
     if invalid_amax == "2d":
         amax_row = torch.empty(
             (1, len(spec.groups)), dtype=torch.float32, device=A.device
@@ -546,7 +700,8 @@ def test_group_rht_amax_storage_validation(graph_case, invalid_amax, error):
         )[::2]
 
     with pytest.raises(ValueError, match=error):
-        triton_group_rht_quantize_row_col(
+        _group_quantize(
+            kernel,
             A,
             list(_HARDCODED_SIGN_VECTOR),
             offsets,
