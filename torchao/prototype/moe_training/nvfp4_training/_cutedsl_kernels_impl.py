@@ -567,14 +567,15 @@ def _quant16_from_amax(
     sr: cutlass.Constexpr = False,
     rb=None,
     rht_acc: cutlass.Constexpr = False,
+    fast_math: cutlass.Constexpr = False,
 ):
     """Quantize 16 f32 values to NVFP4 (w0,w1 packed u32, pvscale_fp8) using a given block amax
     (1x16 or a shared 16x16 amax). sr selects stochastic rounding over RTNE.
 
-    ``rht_acc`` marks ``vals`` as a raw tcgen05 RHT accumulator, which triton would have
-    truncated to bfloat16 first: each pair is rounded with one ``cvt.rn.bf16x2.f32``
-    inside the multiply loop, widening back by a shift or a mask. The caller is
-    responsible for having rounded ``amax`` (see ``_round_rht_amax``)."""
+    ``rht_acc`` marks ``vals`` as a raw tcgen05 RHT accumulator. Exact mode rounds it
+    through bfloat16 for TE-default compatibility; fast mode consumes FP32 directly and
+    uses TE's approximate FTZ reciprocal. The caller is responsible for rounding
+    ``amax`` in exact mode (see ``_round_rht_amax``)."""
     # Cap at FP8_E4M3_MAX only, with no lower clamp: TE emits a zero per-vector scale for an
     # all-zero vector and when a nonzero scale underflows in E4M3, so imposing a nonzero floor
     # would diverge from the TE ground truth (mirrors the triton _nvfp4_quantize). A zero
@@ -590,10 +591,15 @@ def _quant16_from_amax(
     pv_back = cute.make_rmem_tensor((4,), cutlass.Float32)
     pv_back.store(pv_f8.load().to(cutlass.Float32))
     denom = pv_back[0] * dec
-    enc = _min_f32(_div_rn_f32(cutlass.Float32(1.0), denom), cutlass.Float32(FP32_MAX))
+    enc = _min_f32(
+        cute.arch.rcp_approx(denom)
+        if cutlass.const_expr(fast_math)
+        else _div_rn_f32(cutlass.Float32(1.0), denom),
+        cutlass.Float32(FP32_MAX),
+    )
     q = cute.make_rmem_tensor((16,), cutlass.Float32)
     fp4_max = cutlass.Float32(FP4_E2M1_MAX)
-    if cutlass.const_expr(rht_acc):
+    if cutlass.const_expr(rht_acc and not fast_math):
         for i in range(0, 16, 2):
             packed = _cvt_rn_bf16x2_f32(vals[i + 1], vals[i])
             lo = _u32_as_f32(packed << cutlass.Uint32(16))
@@ -614,15 +620,18 @@ def _quant16(
     sr: cutlass.Constexpr = False,
     rb=None,
     rht_acc: cutlass.Constexpr = False,
+    fast_math: cutlass.Constexpr = False,
 ):
     """1x16 NVFP4 quantize -> (w0,w1 packed u32, pvscale_fp8). vals: 16-elem f32 rmem.
 
     ``rht_acc=True`` for a raw RHT accumulator: the block amax rounds once (monotonic),
     the values round pairwise in the multiply loop."""
     amax = _abs_amax16(vals)
-    if cutlass.const_expr(rht_acc):
+    if cutlass.const_expr(rht_acc and not fast_math):
         amax = _round_rht_amax(amax)
-    return _quant16_from_amax(vals, amax, enc_over_fp4max, dec, sr, rb, rht_acc)
+    return _quant16_from_amax(
+        vals, amax, enc_over_fp4max, dec, sr, rb, rht_acc, fast_math
+    )
 
 
 class _Tcgen05RowColFused:
@@ -633,6 +642,7 @@ class _Tcgen05RowColFused:
         apply_rht: bool = True,
         grouped: bool = False,
         col_groups_per_supertile: int = 16,
+        fast_math: bool = False,
     ):
         # swizzle_sf=True: cutlass NVFP4 swizzled SF (GEMM-ready, TMA-coalesced store).
         # False: plain (N,M//16)/(M,N//16) SF (row SF falls back to a strided SIMT store); its
@@ -659,6 +669,7 @@ class _Tcgen05RowColFused:
         self.sr = sr
         self.apply_rht = apply_rht
         self.grouped = grouped
+        self.fast_math = fast_math
         _set_supertile_geometry(self, col_groups_per_supertile)
 
     @cute.jit
@@ -1272,7 +1283,13 @@ class _Tcgen05RowColFused:
                     if cutlass.const_expr(not self.apply_rht):
                         amax = _group16_amax(amax)
                     w0, w1, sf = _quant16_from_amax(
-                        blk, amax, r_enc_over_fp4max, r_dec, self.sr, row_rb
+                        blk,
+                        amax,
+                        r_enc_over_fp4max,
+                        r_dec,
+                        self.sr,
+                        row_rb,
+                        fast_math=self.fast_math,
                     )
                     sRowFP4[k_row, b * 2, buf] = w0
                     sRowFP4[k_row, b * 2 + 1, buf] = w1
@@ -1409,7 +1426,13 @@ class _Tcgen05RowColFused:
                             + cutlass.Int32((u % (M_TILE // 16)) * 8),
                         )
                     w0, w1, pvscale_fp8 = _quant16(
-                        vals, enc_over_fp4max, g_dec, self.sr, col_rb, rht_acc=True
+                        vals,
+                        enc_over_fp4max,
+                        g_dec,
+                        self.sr,
+                        col_rb,
+                        rht_acc=True,
+                        fast_math=self.fast_math,
                     )
 
                     sFP4[tidx, u * 2] = w0
@@ -2111,7 +2134,8 @@ def _cutedsl_rht_amax_impl(A: torch.Tensor, sign_vector=DEFAULT_SIGN_VECTOR):
     return col_amax, row_amax
 
 
-# maxsize=None: the key is (device, swizzle, sr, apply_rht, grouped, col_groups_per_supertile)
+# maxsize=None: the key is
+# (device, swizzle, sr, apply_rht, grouped, col_groups_per_supertile, fast_math)
 # and every entry is a compiled kernel that a CUDA-graph capture may depend on. An eviction
 # would force a lazy recompile mid-capture, so the cache must never evict.
 @functools.lru_cache(maxsize=None)
@@ -2122,23 +2146,25 @@ def _compile_fused_kernel(
     apply_rht=True,
     grouped=False,
     col_groups_per_supertile=16,
+    fast_math=False,
 ):
     """Compile the fused kernel with symbolic shapes (cached per device+flags+supertile).
 
     The symbolic (sym_int) shapes make the compiled kernel serve any (M % (16*u), N % 128); the
     divisibilities below match each output's TMA store box so the atoms tile cleanly. ``swizzle``
     selects the cutlass-swizzled SF layout (op default) vs the plain (N, M//16)/(M, N//16) layout.
-    ``sr`` compiles the stochastic-rounding (cvt.rs) variant as a separate kernel, leaving the RTNE
-    forward path untouched. ``apply_rht=False`` compiles the no-MMA weight-quantize variant (the col
-    path reads transposed A from SMEM). ``grouped=True`` compiles the dense-expert variant: M is the
-    stacked E*M_expert extent, the amaxes are (E,), and the columnwise stores carry an expert offset.
-    Not keyed on the sign vector / RNG (runtime launch buffers).
+    ``sr`` and ``fast_math`` compile separate arithmetic variants. ``apply_rht=False`` compiles the
+    no-MMA weight-quantize variant (the col path reads transposed A from SMEM). ``grouped=True``
+    compiles the dense-expert variant: M is the stacked E*M_expert extent, the amaxes are (E,), and
+    the columnwise stores carry an expert offset. Not keyed on the sign vector / RNG (runtime launch
+    buffers).
     """
     # The grouped variant is only reachable from the weight quantize: apply_rht would need a
     # per-expert B operand. Weight mode itself is RTNE only -- the 2D wrappers never expose
     # stochastic rounding -- so its columnwise epilogue takes no SR draw.
     assert not (grouped and apply_rht)
     assert not (sr and not apply_rht), "weight mode (apply_rht=False) is RTNE only"
+    assert not (fast_math and not apply_rht), "fast math is only supported for RHT"
     # M % 256 or M % 128
     m_sym = cute.sym_int(divisibility=N_TILE * col_groups_per_supertile)
     n_sym = cute.sym_int(divisibility=M_TILE)  # N % 128
@@ -2211,6 +2237,7 @@ def _compile_fused_kernel(
         apply_rht=apply_rht,
         grouped=grouped,
         col_groups_per_supertile=col_groups_per_supertile,
+        fast_math=fast_math,
     )
     return cute.compile(
         k,
@@ -2243,6 +2270,7 @@ def _cutedsl_rht_quantize_row_col_impl(
     swizzle_scale_factors: bool = True,
     compute_rowwise: bool = True,
     apply_rht: bool = True,
+    use_fast_math: bool = False,
 ) -> Tuple[torch.Tensor, torch.Tensor, Optional[torch.Tensor], Optional[torch.Tensor]]:
     """Fused RHT + NVFP4 E2M1 columnwise quantize with rowwise quantize.
 
@@ -2363,6 +2391,7 @@ def _cutedsl_rht_quantize_row_col_impl(
         sr,
         bool(apply_rht),
         col_groups_per_supertile=col_groups_per_supertile,
+        fast_math=bool(use_fast_math),
     )
     fused(
         A.t().unsqueeze(-1),
