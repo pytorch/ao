@@ -9,6 +9,13 @@ import pytest
 import torch
 from torch.utils._triton import has_triton
 
+from test.prototype.moe_training.nvfp4_training._assertions import (
+    assert_codes_bitwise,
+    assert_scales_bitwise,
+)
+from test.prototype.moe_training.nvfp4_training.nvfp4_reference import (
+    reference_weight_quantize_2d,
+)
 from torchao.float8.float8_utils import compute_error
 from torchao.prototype.moe_training.nvfp4_training.hadamard_cutedsl_utils import (
     cutedsl_nvfp4_kernels_available,
@@ -72,6 +79,20 @@ def _weight_quantize_2d(kernel, W, amax):
 
         return triton_weight_quantize_2d(W, amax)
     return cutedsl_weight_quantize_2d(W, amax)
+
+
+@_skip_no_triton
+@torch.no_grad()
+def test_triton_weight_quantize_2d_vs_transformer_engine_reference():
+    torch.manual_seed(42)
+    W = torch.randn(256, 256, dtype=torch.bfloat16, device="cuda")
+    amax = W.float().abs().max()
+    codes, scales, t_codes, t_scales = _weight_quantize_2d("triton", W, amax)
+    ref_row, ref_col = reference_weight_quantize_2d(W, amax)
+    assert_codes_bitwise(codes, ref_row.codes, "rowwise codes")
+    assert_scales_bitwise(scales, ref_row.scales, "rowwise SF")
+    assert_codes_bitwise(t_codes, ref_col.codes, "colwise codes")
+    assert_scales_bitwise(t_scales, ref_col.scales, "colwise SF")
 
 
 # ---------------------------------------------------------------------------

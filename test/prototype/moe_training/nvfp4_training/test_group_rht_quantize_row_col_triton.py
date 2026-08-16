@@ -28,7 +28,17 @@ from torch.utils._triton import has_triton
 from benchmarks.prototype.nvfp4_training.deepseek_v3_shapes import (
     get_deepseek_v3_weight_shapes,
 )
+from test.prototype.moe_training.nvfp4_training._assertions import (
+    assert_codes_bitwise,
+    assert_scales_bitwise,
+)
+from test.prototype.moe_training.nvfp4_training.nvfp4_reference import (
+    reference_group_rht_quantize_row_col,
+)
 from torchao.float8.float8_utils import compute_error
+from torchao.prototype.moe_training.nvfp4_training.hadamard_utils import (
+    DEFAULT_SIGN_VECTOR,
+)
 from torchao.prototype.mx_formats.nvfp4_tensor import (
     NVFP4Tensor,
     nvfp4_quantize,
@@ -50,24 +60,7 @@ if has_triton() and is_sm_at_least_100() and torch_version_at_least("2.10.0"):
         get_rht_matrix,
     )
 
-_HARDCODED_SIGN_VECTOR = (
-    1,
-    1,
-    1,
-    -1,
-    1,
-    -1,
-    -1,
-    -1,
-    -1,
-    -1,
-    -1,
-    1,
-    -1,
-    1,
-    -1,
-    -1,
-)
+_HARDCODED_SIGN_VECTOR = DEFAULT_SIGN_VECTOR
 
 requires_sm100 = [
     pytest.mark.skipif(not has_triton(), reason="unsupported without triton"),
@@ -321,6 +314,13 @@ def _assert_group_rht_correctness(graph_case):
         False,
     )
     _check_output_shapes(spec, qa, sfa, qd, sfd)
+    ref_qa, ref_sfa, ref_qd, ref_sfd = reference_group_rht_quantize_row_col(
+        A, offsets, num_groups, amax_col, amax_row, _HARDCODED_SIGN_VECTOR
+    )
+    assert_codes_bitwise(qa, ref_qa, "row codes")
+    assert_scales_bitwise(sfa, ref_sfa, "row sf")
+    assert_codes_bitwise(qd, ref_qd, "col codes")
+    assert_scales_bitwise(sfd, ref_sfd, "col sf")
     triton_group_rht_quantize_row_col_ref(
         spec,
         A,

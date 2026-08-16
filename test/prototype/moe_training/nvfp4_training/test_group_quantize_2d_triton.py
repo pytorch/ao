@@ -7,6 +7,13 @@ from torch.utils._triton import has_triton
 from benchmarks.prototype.nvfp4_training.deepseek_v3_shapes import (
     get_deepseek_v3_weight_shapes,
 )
+from test.prototype.moe_training.nvfp4_training._assertions import (
+    assert_codes_bitwise,
+    assert_scales_bitwise,
+)
+from test.prototype.moe_training.nvfp4_training.nvfp4_reference import (
+    reference_group_weight_quantize_2d,
+)
 from torchao.prototype.mx_formats.nvfp4_tensor import (
     nvfp4_quantize,
     per_tensor_amax_to_scale,
@@ -110,6 +117,25 @@ def test_group_quantize_2d_matches_torch_oracle():
             - (expected_unpacked & 0x7).to(torch.int16)
         ).abs()
         assert magnitude_diff.max().item() <= 1
+
+
+@requires_grouped_kernel
+@torch.no_grad()
+def test_group_quantize_2d_vs_transformer_engine_reference():
+    torch.manual_seed(11)
+    E, M, N = 4, 128, 128
+    weights = torch.randn((E, M, N), dtype=torch.bfloat16, device="cuda")
+    global_amax = weights.float().abs().amax(dim=(1, 2))
+    codes, sf, t_codes, t_sf = triton_group_weight_quantize_2d(
+        weights, global_amax, num_tensors=E
+    )
+    ref_codes, ref_sf, ref_t_codes, ref_t_sf = reference_group_weight_quantize_2d(
+        weights, global_amax, E
+    )
+    assert_codes_bitwise(codes, ref_codes, "rowwise codes")
+    assert_scales_bitwise(sf, ref_sf, "rowwise SF")
+    assert_codes_bitwise(t_codes, ref_t_codes, "colwise codes")
+    assert_scales_bitwise(t_sf, ref_t_sf, "colwise SF")
 
 
 @requires_grouped_kernel

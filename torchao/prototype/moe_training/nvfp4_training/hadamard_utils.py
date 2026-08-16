@@ -12,6 +12,12 @@ from torch.utils._triton import has_triton
 
 _TMA_WORKSPACES: dict = {}
 
+# The RHT sign vector every NVFP4 path defaults to, matching TransformerEngine's
+# get_wgrad_sign_vector (transformer_engine/pytorch/tensor/nvfp4_tensor.py). Lives here
+# rather than beside the kernels so the reference and the tests can import it without
+# pulling in the Triton or CuteDSL runtime.
+DEFAULT_SIGN_VECTOR = (1, 1, 1, -1, 1, -1, -1, -1, -1, -1, -1, 1, -1, 1, -1, -1)
+
 
 def _device_key(device) -> str:
     """Normalize device to a canonical string key (e.g. 'cuda' and 'cuda:0' → 'cuda:0').
@@ -254,7 +260,10 @@ if has_triton():
         candidate = tl.minimum(candidate, FP32_MAX)
         candidate = tl.where(candidate == 0, 1.0, candidate)
         global_encode_scale = tl.where(is_global_amax, 1.0, candidate)
-        global_decode_scale = 1.0 / global_encode_scale
+        one = tl.full(
+            safe_global_amax.shape, 1.0, safe_global_amax.dtype
+        )  # div_rn needs a tensor numerator
+        global_decode_scale = tl.div_rn(one, global_encode_scale)
 
         # Cap at FP8_E4M3_MAX only, no lower clamp: pvscale is non-negative and TE
         # emits a zero per-vector scale for zero/near-zero vectors, so pinning small
@@ -265,9 +274,9 @@ if has_triton():
         pvscale_fp8 = pvscale.to(tl.float8e4nv)
         scale_inv = tl.reshape(pvscale_fp8, [BLOCK_N, BLOCK_M // 16])
 
-        encode_scale = tl.minimum(
-            1.0 / (pvscale_fp8.to(tl.float32) * global_decode_scale), FP32_MAX
-        )
+        denom = pvscale_fp8.to(tl.float32) * global_decode_scale
+        encode_num = tl.full(denom.shape, 1.0, tl.float32)
+        encode_scale = tl.minimum(tl.div_rn(encode_num, denom), FP32_MAX)
 
         scaled = a_vecs * encode_scale
         scaled = tl.clamp(scaled, -FP4_E2M1_MAX, FP4_E2M1_MAX)

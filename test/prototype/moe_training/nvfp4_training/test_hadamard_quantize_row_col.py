@@ -50,6 +50,14 @@ import pytest
 import torch
 from torch.utils._triton import has_triton
 
+from test.prototype.moe_training.nvfp4_training._assertions import (
+    assert_codes_bitwise,
+    assert_scales_bitwise,
+)
+from test.prototype.moe_training.nvfp4_training.nvfp4_reference import (
+    reference_rht,
+    reference_rht_quantize_row_col,
+)
 from torchao.float8.float8_utils import compute_error
 from torchao.prototype.moe_training.nvfp4_training.hadamard_amax_cutedsl import (
     cutedsl_rht_amax,
@@ -468,6 +476,27 @@ def test_rht_quantize_rtne_scales_vs_transformer_engine_reference(kernel, input_
             assert torch.count_nonzero(scales_f32 == 0).item() > 0, (
                 f"{label}: near-zero blocks must underflow to E4M3 zero"
             )
+
+
+@_skip_no_triton
+@torch.no_grad()
+def test_triton_rht_quantize_rtne_vs_transformer_engine_reference():
+    torch.manual_seed(42)
+    A = torch.randn(256, 256, dtype=torch.bfloat16, device="cuda")
+    col_amax = reference_rht(A).float().abs().max()
+    row_amax = A.float().abs().max()
+    ref_col, ref_row = reference_rht_quantize_row_col(A, col_amax, row_amax)
+    col_codes, col_sf, row_codes, row_sf = _quantize_row_col(
+        "triton",
+        A,
+        col_amax=col_amax,
+        row_amax=row_amax,
+        sign_vector=_HARDCODED_SIGN_VECTOR,
+    )
+    assert_codes_bitwise(col_codes, ref_col.codes, "col codes")
+    assert_scales_bitwise(col_sf, ref_col.scales, "col sf")
+    assert_codes_bitwise(row_codes, ref_row.codes, "row codes")
+    assert_scales_bitwise(row_sf, ref_row.scales, "row sf")
 
 
 @pytest.mark.parametrize("kernel", _KERNELS)

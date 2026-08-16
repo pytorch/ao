@@ -70,23 +70,34 @@ if torch_version_at_least("2.10.0") and has_triton():
 
         is_global_amax = global_amax == 0
         safe_global_amax = tl.where(is_global_amax, 1.0, global_amax)
-        candidate = tl.minimum(FP8_E4M3_MAX * FP4_E2M1_MAX / safe_global_amax, FP32_MAX)
+        # div_rn, not "/": Triton's "/" lowers to div.full.f32 (~2 ulp), which flips
+        # FP8 midpoint ties against TE and against the cutedsl kernel. Same reason as
+        # _nvfp4_quantize (hadamard_utils).
+        global_scale_num = tl.full(
+            safe_global_amax.shape, FP8_E4M3_MAX * FP4_E2M1_MAX, safe_global_amax.dtype
+        )
+        candidate = tl.minimum(tl.div_rn(global_scale_num, safe_global_amax), FP32_MAX)
         candidate = tl.where(candidate == 0, 1.0, candidate)
         global_encode_scale = tl.where(is_global_amax, 1.0, candidate)
-        global_decode_scale = 1.0 / global_encode_scale
+        one = tl.full(
+            safe_global_amax.shape, 1.0, safe_global_amax.dtype
+        )  # div_rn needs a tensor numerator
+        global_decode_scale = tl.div_rn(one, global_encode_scale)
 
         # Cap at FP8_E4M3_MAX only, no lower clamp: pvscale is non-negative and TE
         # emits a zero per-block scale for zero/near-zero blocks, so pinning small
         # scales to a nonzero floor would diverge from the TE ground truth. Matches
-        # _nvfp4_quantize (hadamard_utils) and _quant16_from_amax (cutedsl).
-        pvscale = (tile_max / FP4_E2M1_MAX) * global_encode_scale
+        # _nvfp4_quantize (hadamard_utils) and _quant16_from_amax (cutedsl) -- including
+        # the association: amax * (enc/6) rounds once where (amax/6) * enc rounds twice.
+        global_encode_scale_over_fp4max = global_encode_scale * (1.0 / FP4_E2M1_MAX)
+        pvscale = tile_max.to(tl.float32) * global_encode_scale_over_fp4max
         pvscale = tl.minimum(pvscale, FP8_E4M3_MAX)
         pvscale_fp8 = pvscale.to(tl.float8e4nv)
         scale_inv = tl.reshape(pvscale_fp8, [BLOCK_M // 16, BLOCK_N // 16])
 
-        encode_scale = tl.minimum(
-            1.0 / (pvscale_fp8.to(tl.float32) * global_decode_scale), FP32_MAX
-        )
+        denom = pvscale_fp8.to(tl.float32) * global_decode_scale
+        encode_num = tl.full(denom.shape, 1.0, tl.float32)
+        encode_scale = tl.minimum(tl.div_rn(encode_num, denom), FP32_MAX)
 
         scaled = a_tile * encode_scale
         scaled = tl.clamp(scaled, -FP4_E2M1_MAX, FP4_E2M1_MAX)
