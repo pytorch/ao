@@ -384,6 +384,91 @@ def test_group_rht_deepseek_dimensions_correctness(deepseek_graph_case, kernel):
 
 
 @_maybe_sm100
+@_skip_no_cutedsl
+@torch.no_grad()
+def test_cutedsl_group_fast_math_matches_transformer_engine(monkeypatch):
+    """The grouped compile specialization is byte-identical to actual TE fast math."""
+    monkeypatch.setenv("NVTE_USE_FAST_MATH", "1")
+    te = pytest.importorskip("transformer_engine.pytorch")
+    tex = pytest.importorskip("transformer_engine_torch")
+
+    num_groups, rows, hidden = 4, 128, 128
+    packed_rows = num_groups * rows
+    torch.manual_seed(123)
+    A = torch.randn((packed_rows, hidden), dtype=torch.bfloat16, device="cuda")
+    offsets = torch.arange(
+        rows, packed_rows + 1, rows, dtype=torch.int32, device="cuda"
+    )
+    logical_packed_length = torch.tensor(
+        [packed_rows], dtype=torch.int32, device="cuda"
+    )
+
+    quantizers = []
+    for _ in range(num_groups):
+        quantizer = te.NVFP4Quantizer(
+            fp4_dtype=te.DType.kFloat4E2M1,
+            rowwise=True,
+            columnwise=True,
+            with_amax_reduction=False,
+            amax_reduction_group=None,
+            with_rht=True,
+            with_post_rht_amax=True,
+            with_random_sign_mask=True,
+            stochastic_rounding=False,
+        )
+        quantizer.optimize_for_gemm = True
+        quantizers.append(quantizer)
+    expected = tex.split_quantize(A, [rows] * num_groups, quantizers)
+
+    from torchao.prototype.moe_training.nvfp4_training.group_hadamard_amax_cutedsl import (
+        cutedsl_group_rht_amax,
+    )
+
+    col_amax, row_amax = cutedsl_group_rht_amax(
+        A,
+        list(_HARDCODED_SIGN_VECTOR),
+        offsets,
+        num_groups,
+        packed_rows,
+        hidden,
+        0,
+        logical_packed_length=logical_packed_length,
+    )
+    qa, sfa, qd, sfd = cutedsl_group_rht_quantize_row_col(
+        A,
+        list(_HARDCODED_SIGN_VECTOR),
+        offsets,
+        num_groups,
+        packed_rows,
+        hidden,
+        0,
+        row_amax,
+        col_amax,
+        None,
+        False,
+        logical_packed_length=logical_packed_length,
+        use_fast_math=True,
+    )
+
+    expected_qa = torch.cat(
+        [tensor._rowwise_data.view(torch.uint8) for tensor in expected], dim=0
+    )
+    expected_qd = torch.cat(
+        [tensor._columnwise_data.view(torch.uint8) for tensor in expected], dim=1
+    )
+    expected_sfa = torch.cat(
+        [tensor._rowwise_scale_inv.flatten() for tensor in expected]
+    )
+    expected_sfd = torch.cat(
+        [tensor._columnwise_scale_inv.flatten() for tensor in expected]
+    )
+    assert_codes_bitwise(qa, expected_qa, "row codes")
+    assert_scales_bitwise(sfa, expected_sfa, "row sf")
+    assert_codes_bitwise(qd, expected_qd, "col codes")
+    assert_scales_bitwise(sfd, expected_sfd, "col sf")
+
+
+@_maybe_sm100
 @pytest.mark.parametrize("kernel", _KERNELS)
 @torch.no_grad()
 def test_group_rht_padded_capacity_masks_spare_rows(kernel):

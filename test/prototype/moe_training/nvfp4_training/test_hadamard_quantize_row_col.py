@@ -283,6 +283,48 @@ def test_rht_quantize_rtne_vs_transformer_engine_reference(kernel, M, N, input_k
             )
 
 
+@_skip_no_cutedsl
+@torch.no_grad()
+def test_cutedsl_fast_math_matches_transformer_engine(monkeypatch):
+    """The compile-specialized fast path is byte-identical to actual TE fast math."""
+    monkeypatch.setenv("NVTE_USE_FAST_MATH", "1")
+    te = pytest.importorskip("transformer_engine.pytorch")
+
+    torch.manual_seed(123)
+    A = torch.randn((256, 256), dtype=torch.bfloat16, device="cuda")
+    quantizer = te.NVFP4Quantizer(
+        fp4_dtype=te.DType.kFloat4E2M1,
+        rowwise=True,
+        columnwise=True,
+        with_amax_reduction=False,
+        amax_reduction_group=None,
+        with_rht=True,
+        with_post_rht_amax=True,
+        with_random_sign_mask=True,
+        stochastic_rounding=False,
+    )
+    quantizer.optimize_for_gemm = True
+    expected = quantizer(A)
+
+    col_amax, row_amax = cutedsl_rht_amax(A, list(_HARDCODED_SIGN_VECTOR))
+    col_codes, col_sf, row_codes, row_sf = cutedsl_rht_quantize_row_col(
+        A,
+        col_amax,
+        row_amax,
+        list(_HARDCODED_SIGN_VECTOR),
+        use_fast_math=True,
+    )
+
+    assert_codes_bitwise(
+        row_codes, expected._rowwise_data.view(torch.uint8), "row codes"
+    )
+    assert_scales_bitwise(row_sf, expected._rowwise_scale_inv, "row sf")
+    assert_codes_bitwise(
+        col_codes, expected._columnwise_data.view(torch.uint8), "col codes"
+    )
+    assert_scales_bitwise(col_sf, expected._columnwise_scale_inv, "col sf")
+
+
 @pytest.mark.parametrize("kernel", _KERNELS)
 @pytest.mark.parametrize("N", _N_VALUES, ids=lambda n: f"N{n}")
 @pytest.mark.parametrize("M", _M_VALUES, ids=lambda m: f"M{m}")

@@ -313,9 +313,12 @@ class _Tcgen05GroupRowColFused(_GroupRhtMainloop):
     the row warp group (which reads the same SMEM bytes for the rowwise path).
     """
 
-    def __init__(self, swizzle_sf: bool = True, sr: bool = False):
+    def __init__(
+        self, swizzle_sf: bool = True, sr: bool = False, fast_math: bool = False
+    ):
         self.swizzle_sf = swizzle_sf
         self.sr = sr
+        self.fast_math = fast_math
 
     @cute.jit
     def __call__(
@@ -779,7 +782,13 @@ class _Tcgen05GroupRowColFused(_GroupRhtMainloop):
                                 + cutlass.Int32(u * 8),
                             )
                         w0, w1, sf = _quant16(
-                            vals, enc_over_fp4max, dec, self.sr, col_rb, rht_acc=True
+                            vals,
+                            enc_over_fp4max,
+                            dec,
+                            self.sr,
+                            col_rb,
+                            rht_acc=True,
+                            fast_math=self.fast_math,
                         )
                         rCol[u * 2] = w0
                         rCol[u * 2 + 1] = w1
@@ -898,7 +907,12 @@ class _Tcgen05GroupRowColFused(_GroupRhtMainloop):
                                 + hb * cutlass.Int32(8),
                             )
                         w0, w1, sf = _quant16(
-                            blk, r_enc_over_fp4max, r_dec, self.sr, row_rb
+                            blk,
+                            r_enc_over_fp4max,
+                            r_dec,
+                            self.sr,
+                            row_rb,
+                            fast_math=self.fast_math,
                         )
                         gRow[(tok, hb * cutlass.Int32(2))] = w0
                         gRow[(tok, hb * cutlass.Int32(2) + cutlass.Int32(1))] = w1
@@ -938,13 +952,15 @@ class _Tcgen05GroupRowColFused(_GroupRhtMainloop):
                 clc_consumer_state.advance()
 
 
-@functools.lru_cache(maxsize=8)
-def _compile_group_fused_kernel(device_idx: int, swizzle: bool, sr: bool):
+@functools.lru_cache(maxsize=16)
+def _compile_group_fused_kernel(
+    device_idx: int, swizzle: bool, sr: bool, fast_math: bool = False
+):
     """Compile the grouped fused kernel with symbolic shapes (cached per device+flags).
 
     ``sym_int`` divisibilities let one compiled kernel serve any
-    ``hidden % 128``, ``tokens % 128``; the sign vector, amaxes, offsets and RNG
-    base are all runtime launch buffers, so they are not part of the key.
+    ``hidden % 128``, ``tokens % 128``. Exact and fast arithmetic are separate
+    cache entries; sign vector, amaxes, offsets, and RNG remain runtime buffers.
     """
     free = cute.sym_int
     h_sym = cute.sym_int(divisibility=M_TILE)
@@ -983,7 +999,7 @@ def _compile_group_fused_kernel(device_idx: int, swizzle: bool, sr: bool):
     fake_offsets = make_fake_tensor(cutlass.Int32, (free(),), stride=(1,))
 
     return cute.compile(
-        _Tcgen05GroupRowColFused(swizzle_sf=swizzle, sr=sr),
+        _Tcgen05GroupRowColFused(swizzle_sf=swizzle, sr=sr, fast_math=fast_math),
         fake_a,
         fake_b,
         fake_col_fp4,
@@ -1013,6 +1029,7 @@ def _cutedsl_group_rht_quantize_row_col_impl(
     logical_packed_length: Optional[torch.Tensor] = None,
     stochastic_rounding: bool = False,
     sr_rng: Optional[torch.Tensor] = None,
+    use_fast_math: bool = False,
 ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
     """Grouped fused RHT columnwise + raw rowwise NVFP4 quantization.
 
@@ -1050,7 +1067,9 @@ def _cutedsl_group_rht_quantize_row_col_impl(
     logical_packed_length = logical_packed_length.clone()
 
     stream = cuda.CUstream(int(torch.cuda.current_stream(dev).cuda_stream))
-    compiled = _compile_group_fused_kernel(dev.index, True, bool(stochastic_rounding))
+    compiled = _compile_group_fused_kernel(
+        dev.index, True, bool(stochastic_rounding), bool(use_fast_math)
+    )
     compiled(
         A.t().unsqueeze(-1),
         rht_nk,

@@ -36,6 +36,7 @@ def cutedsl_group_rht_quantize_row_col(
     rng_state: Optional[torch.Tensor],
     enable_stochastic_rounding: bool,
     logical_packed_length: Optional[torch.Tensor] = None,
+    use_fast_math: bool = False,
 ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
     """Grouped fused RHT columnwise + direct rowwise NVFP4 E2M1 quantization.
 
@@ -50,6 +51,9 @@ def cutedsl_group_rht_quantize_row_col(
 
     Returns ``(qa_base, sfa, qd, sfd)``; both scale tensors carry swizzled bytes
     reinterpreted to their logical 2D shapes.
+
+    ``use_fast_math=True`` selects the compile-specialized TE-fast-compatible
+    arithmetic path; False preserves TE-default-exact output.
 
     Raises:
         NotImplementedError: pre-SM100 or a missing CuteDSL runtime.
@@ -97,6 +101,7 @@ def cutedsl_group_rht_quantize_row_col(
         logical_packed_length=logical_packed_length,
         stochastic_rounding=enable_stochastic_rounding,
         sr_rng=rng_state if enable_stochastic_rounding else None,
+        use_fast_math=use_fast_math,
     )
     return (
         row_fp4,
@@ -120,6 +125,7 @@ def _(
     rng_state,
     enable_stochastic_rounding,
     logical_packed_length=None,
+    use_fast_math=False,
 ):
     qa_base = A.new_empty((packed_sequence_length, hidden_size // 2), dtype=torch.uint8)
     sfa = A.new_empty(

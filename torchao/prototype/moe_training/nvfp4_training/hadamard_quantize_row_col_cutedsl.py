@@ -36,6 +36,7 @@ def cutedsl_rht_quantize_row_col(
     col_offset_base: Optional[torch.Tensor] = None,
     row_offset_base: Optional[torch.Tensor] = None,
     row_seed_base: Optional[torch.Tensor] = None,
+    use_fast_math: bool = False,
 ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
     """RHT + NVFP4 E2M1 columnwise quantize fused with rowwise quantize.
 
@@ -60,6 +61,9 @@ def cutedsl_rht_quantize_row_col(
         col_offset_base, row_offset_base: int64 Philox counter-base tensors (1-elem), required
             when ``stochastic_rounding=True``. Fresh per-call values so CUDA-graph replays
             advance the stream. Same four arguments, same meaning, as the Triton op.
+        use_fast_math: compile a TE-fast-compatible variant that consumes FP32 RHT
+            accumulators directly and uses approximate reciprocals. False preserves
+            TE-default-exact arithmetic.
 
     Returns:
         4-tuple (col_fp4, col_sf, row_fp4, row_sf):
@@ -101,6 +105,7 @@ def cutedsl_rht_quantize_row_col(
         tuple(sign_vector),
         stochastic_rounding=stochastic_rounding,
         sr_rng=sr_rng,
+        use_fast_math=use_fast_math,
     )
 
 
@@ -117,6 +122,7 @@ def _(
     col_offset_base=None,
     row_offset_base=None,
     row_seed_base=None,
+    use_fast_math=False,
 ):
     M, N = A.shape
     col_fp4 = A.new_empty((N, M // 2), dtype=torch.uint8)
