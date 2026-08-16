@@ -77,16 +77,21 @@ class NVFP4TrainingConfig(AOBaseConfig):
 
     Args:
         kernel_preference: Backend for quantization kernels.
+            AUTO: CuteDSL where its runtime and the shapes allow, Triton otherwise.
+                The tensor-parallel path is the exception and stays on Triton, since
+                its shard constraints are checked by raising rather than by a
+                predicate AUTO could fall back on.
             TRITON: Pure-Triton RHT + stochastic rounding path.
             CUTEDSL: CuteDSL kernels for the full quantize path (amax, forward
                 RTNE quantize, SR backward quantize, and 2D weight quantize).
                 Requires SM100; in_features divisible by 128 and out_features
-                by 256. Under tensor parallel the same constraints apply to each
-                per-rank shard, and the per-rank M shard must be divisible by 256.
-            Default: TRITON.
+                by 128. Under tensor parallel the same constraints apply to each
+                per-rank shard, and the per-rank M shard must be divisible by 128.
+                Unlike AUTO, an unmet requirement raises instead of falling back.
+            Default: AUTO.
         process_group: Optional ProcessGroup for tensor-parallel TP.
             When set, forward dispatches to the selected NVFP4 tensor-parallel
-            path (TRITON or CUTEDSL).
+            path (Triton unless CUTEDSL is requested explicitly).
         world_size: TP world size.  Inferred from process_group if None.
         rht_sign_vector: Optional {-1, 1} sign vector of length 16 for the
             randomized Hadamard transform.  When None, each NVFP4Linear draws
@@ -98,7 +103,7 @@ class NVFP4TrainingConfig(AOBaseConfig):
             consistency via _replicate_rht_sign_vector regardless of this field.
     """
 
-    kernel_preference: KernelPreference = KernelPreference.TRITON
+    kernel_preference: KernelPreference = KernelPreference.AUTO
     process_group: Optional[object] = field(default=None, compare=False)
     world_size: Optional[int] = None
     rht_sign_vector: Optional[object] = field(default=None, compare=False)
@@ -119,7 +124,7 @@ class NVFP4Linear(nn.Linear):
         in_features: int,
         out_features: int,
         bias: bool = False,
-        kernel_preference: KernelPreference = KernelPreference.TRITON,
+        kernel_preference: KernelPreference = KernelPreference.AUTO,
         process_group=None,
         world_size: Optional[int] = None,
         device=None,
@@ -159,6 +164,7 @@ class NVFP4Linear(nn.Linear):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         if self.process_group is not None and self.kernel_preference in (
+            KernelPreference.AUTO,
             KernelPreference.TRITON,
             KernelPreference.CUTEDSL,
         ):
@@ -195,6 +201,10 @@ class NVFP4Linear(nn.Linear):
                 tp_group=self.process_group,
                 world_size=ws,
                 sign_vector=self.rht_sign_vector,
+                # CUTEDSL only, not AUTO: the TP path states its shard requirements by
+                # raising (_check_cutedsl_shard), so there is no predicate for AUTO to
+                # fall back on and a misaligned shard would turn a working default into
+                # an error. TP stays on Triton until that check is available as a bool.
                 use_cutedsl=self.kernel_preference == KernelPreference.CUTEDSL,
             )
         return nvfp4_linear(
@@ -210,7 +220,7 @@ class NVFP4Linear(nn.Linear):
     def from_linear(
         cls,
         mod: nn.Linear,
-        kernel_preference: KernelPreference = KernelPreference.TRITON,
+        kernel_preference: KernelPreference = KernelPreference.AUTO,
         process_group=None,
         world_size: Optional[int] = None,
         rht_sign_vector: torch.Tensor | tuple[int, ...] | list[int] | None = None,

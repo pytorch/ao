@@ -107,7 +107,8 @@ def _weight_quantize_2d(x: torch.Tensor, use_cutedsl: bool):
     # The grouped weight amax at E=1. Bit-exact with the inf-norm it replaces --
     # max is exact, and neither materializes the weight in fp32 -- but it keeps
     # enough loads in flight to saturate HBM where the TensorIterator reduce does
-    # not: 1.7-2.0x over 29 MB to 470 MB of weights.
+    # not: 1.5-2.0x over 29 MB to 470 MB of weights in a hot loop, 1.4-1.66x once
+    # L2 is flushed, rising with size as the fixed launch cost amortizes.
     global_amax = triton_group_weight_amax(x.unsqueeze(0), 1)[0]
     quantize = cutedsl_weight_quantize_2d if use_cutedsl else triton_weight_quantize_2d
     codes, sf, t_codes, t_sf = quantize(x, global_amax)
@@ -163,14 +164,6 @@ class nvfp4_mm_triton(torch.autograd.Function):
             raise ValueError(
                 f"nvfp4_mm_triton requires M, K, N all divisible by 128; "
                 f"got M={M}, K={K}, N={N}"
-            )
-        if use_cutedsl and M % 256 != 0:
-            raise ValueError(
-                f"kernel_preference=CUTEDSL requires M divisible by 256, got M={M}"
-            )
-        if use_cutedsl and N % 256 != 0:
-            raise ValueError(
-                f"kernel_preference=CUTEDSL requires N (out_features) divisible by 256, got N={N}"
             )
         input_2d = input_hp.reshape(-1, K).contiguous()
 
@@ -301,7 +294,7 @@ def nvfp4_linear(
     bias: Optional[torch.Tensor] = None,
     *,
     sign_vector: tuple[int, ...] | list[int],
-    kernel_preference: KernelPreference = KernelPreference.TRITON,
+    kernel_preference: KernelPreference = KernelPreference.AUTO,
     sr_seed: Optional[torch.Tensor] = None,
 ) -> torch.Tensor:
     """Convenience wrapper around the nvfp4_mm_triton autograd function.
@@ -314,23 +307,34 @@ def nvfp4_linear(
         weight_hp: High precision weight [out_features, in_features]
         bias: Optional bias [out_features]
         sign_vector: RHT sign vector used for amax and quantization.
-        kernel_preference: Backend for quantization, TRITON (default) or CUTEDSL.
-            CUTEDSL runs the full path on CuteDSL — the amax, the forward RTNE quantize,
-            the backward SR (cvt.rs) quantize, and the 2D weight quantize.
+        kernel_preference: Backend for quantization, AUTO (default), TRITON, or CUTEDSL.
+            CuteDSL runs the full path — the amax, the forward RTNE quantize, the backward
+            SR (cvt.rs) quantize, and the 2D weight quantize — and accepts exactly the
+            shapes Triton does (the path's own %128). AUTO takes CuteDSL when the runtime
+            allows and falls back to Triton otherwise; CUTEDSL is the same choice made
+            loudly, raising rather than falling back.
         sr_seed: Fixed int64 seed tensor (size=(1,)) for SR Philox key. Allocated
             fresh if None. For reproducibility, pass a pre-allocated module buffer.
     """
-    if kernel_preference not in (KernelPreference.TRITON, KernelPreference.CUTEDSL):
+    if kernel_preference not in (
+        KernelPreference.AUTO,
+        KernelPreference.TRITON,
+        KernelPreference.CUTEDSL,
+    ):
         raise ValueError(
-            "NVFP4 training linear only supports kernel_preference TRITON or "
+            "NVFP4 training linear only supports kernel_preference AUTO, TRITON, or "
             f"CUTEDSL, got {kernel_preference!r}"
         )
-    use_cutedsl = kernel_preference == KernelPreference.CUTEDSL
+    use_cutedsl = kernel_preference != KernelPreference.TRITON
     if use_cutedsl and not cutedsl_nvfp4_kernels_available():
-        raise RuntimeError(
-            f"kernel_preference=CUTEDSL requires {CUTEDSL_NVFP4_REQUIREMENTS} "
-            f"({cutedsl_nvfp4_unavailable_reason()})."
-        )
+        if kernel_preference == KernelPreference.CUTEDSL:
+            raise RuntimeError(
+                f"kernel_preference=CUTEDSL requires {CUTEDSL_NVFP4_REQUIREMENTS} "
+                f"({cutedsl_nvfp4_unavailable_reason()})."
+            )
+        use_cutedsl = False
+    # No shape fallback: CuteDSL now accepts exactly the shapes Triton does, and
+    # nvfp4_mm_triton.forward's shared % 128 gate rejects the rest for both.
 
     if sr_seed is None:
         sr_seed = torch.randint(
