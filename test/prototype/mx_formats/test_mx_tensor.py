@@ -48,7 +48,6 @@ torch.manual_seed(2)
 
 
 def test_f32_to_e8m0_rceil():
-    torch.accelerator.current_accelerator().type
     values, expected = make_f32_to_e8m0_rceil_cases(device="cpu")
     assert torch.equal(_f32_to_e8m0_rceil(values), expected)
 
@@ -66,12 +65,15 @@ def test_e8m0_scale_to_reciprocal_fp32(monkeypatch, use_direct_cast):
     assert torch.equal(actual.view(torch.int32), expected.view(torch.int32))
 
 
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+@pytest.mark.skipif(
+    not (torch.cuda.is_available() or torch.xpu.is_available()),
+    reason="CUDA or XPU not available",
+)
 @pytest.mark.parametrize("use_compile", (False, True), ids=("eager", "compiled"))
-def test_e8m0_scale_to_reciprocal_fp32_cuda_fallback(monkeypatch, use_compile):
-    torch.accelerator.current_accelerator().type
+def test_e8m0_scale_to_reciprocal_fp32_gpu_fallback(monkeypatch, use_compile):
+    device = torch.accelerator.current_accelerator().type
     monkeypatch.setattr(mx_tensor_module, "_TORCH_VERSION_AT_LEAST_2_14", False)
-    scale_e8m0_biased = torch.arange(256, dtype=torch.uint8, device="cuda")
+    scale_e8m0_biased = torch.arange(256, dtype=torch.uint8, device=device)
     convert = (
         torch.compile(_e8m0_scale_to_reciprocal_fp32, fullgraph=True)
         if use_compile
@@ -939,9 +941,11 @@ def test_cast_to_float8_e4m3fn_saturation_behavior(input_dtype):
     "use_triton_kernel", [False, True] if torch.cuda.is_available() else [False]
 )
 def test_to_blocked_from_blocked_roundtrip(shape, use_triton_kernel: bool):
-    device = torch.accelerator.current_accelerator().type
     rows, cols = shape
-    device = "cuda" if torch.cuda.is_available() else "cpu"
+    if torch.cuda.is_available() or torch.xpu.is_available():
+        device = torch.accelerator.current_accelerator().type
+    else:
+        device = "cpu"
 
     original = torch.randint(0, 255, (rows, cols), device=device, dtype=torch.uint8)
 
