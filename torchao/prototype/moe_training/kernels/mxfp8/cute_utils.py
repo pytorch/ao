@@ -6,7 +6,10 @@
 
 """Shared utilities for CuTeDSL quantization kernels."""
 
+import importlib.metadata
 import importlib.util
+
+from torchao.utils import parse_version
 
 # Runtime package detection
 _CUTEDSL_RUNTIME_PACKAGES = {
@@ -52,6 +55,12 @@ if _cutedsl_runtime_available():
     from cutlass._mlir import ir
     from cutlass._mlir.dialects import arith, llvm, nvvm, vector
     from cutlass.cutlass_dsl import T, dsl_user_op
+
+    # cutlass-dsl <=4.5.x takes the result type as a leading `res` argument;
+    # 4.6.0 dropped it and infers the type instead.
+    _CUTLASS_DSL_BEFORE_4_6_0 = parse_version(
+        importlib.metadata.version("nvidia-cutlass-dsl")
+    ) < parse_version("4.6.0")
 
     # FP8 constants
     INV_F8_MAX = cutlass.Float32(1.0 / 448.0)
@@ -172,17 +181,33 @@ if _cutedsl_runtime_available():
         ip=None,
     ) -> cutlass.Float8E8M0FNU:
         """Convert x to a single E8M0 value without saturation."""
-        packed = nvvm.cvt_packfloat_f32(
-            T.i32(),
-            cutlass.Float32(0.0).ir_value(loc=loc, ip=ip),
-            x.ir_value(loc=loc, ip=ip),
-            cutlass.Int32(0).ir_value(loc=loc, ip=ip),
-            nvvm.CVTPackFloatKind.UE8M0x2,
-            rnd=rounding_mode,
-            sat=nvvm.SaturationModeKind.NONE,
-            loc=loc,
-            ip=ip,
-        )
+        src_a = cutlass.Float32(0.0).ir_value(loc=loc, ip=ip)
+        src_b = x.ir_value(loc=loc, ip=ip)
+        src_c = cutlass.Int32(0).ir_value(loc=loc, ip=ip)
+        to = nvvm.CVTPackFloatKind.UE8M0x2
+        if _CUTLASS_DSL_BEFORE_4_6_0:
+            packed = nvvm.cvt_packfloat_f32(
+                T.i32(),
+                src_a,
+                src_b,
+                src_c,
+                to,
+                rnd=rounding_mode,
+                sat=nvvm.SaturationModeKind.NONE,
+                loc=loc,
+                ip=ip,
+            )
+        else:
+            packed = nvvm.cvt_packfloat_f32(
+                src_a,
+                src_b,
+                src_c,
+                to,
+                rnd=rounding_mode,
+                sat=nvvm.SaturationModeKind.NONE,
+                loc=loc,
+                ip=ip,
+            )
         return unpack(packed, cutlass.Float8E8M0FNU, loc=loc, ip=ip)[0]
 
     @dsl_user_op
@@ -195,17 +220,32 @@ if _cutedsl_runtime_available():
         """Convert a single E8M0 value to f32 through the supported BF16 path."""
         x_e8m0x2 = pack(x, cutlass.Float8E8M0FNU(0), loc=loc, ip=ip)
         x_u32 = llvm.zext(T.i32(), x_e8m0x2.ir_value(loc=loc, ip=ip), loc=loc, ip=ip)
-        bf16x2_bits = nvvm.cvt_packfloat(
-            T.i32(),
-            x_u32,
-            cutlass.Int32(0).ir_value(loc=loc, ip=ip),
-            nvvm.CVTPackFloatKind.UE8M0x2,
-            nvvm.CVTPackFloatKind.BF16x2,
-            rnd=nvvm.FPRoundingMode.RN,
-            sat=nvvm.SaturationModeKind.NONE,
-            loc=loc,
-            ip=ip,
-        )
+        src_c = cutlass.Int32(0).ir_value(loc=loc, ip=ip)
+        from_ = nvvm.CVTPackFloatKind.UE8M0x2
+        to = nvvm.CVTPackFloatKind.BF16x2
+        if _CUTLASS_DSL_BEFORE_4_6_0:
+            bf16x2_bits = nvvm.cvt_packfloat(
+                T.i32(),
+                x_u32,
+                src_c,
+                from_,
+                to,
+                rnd=nvvm.FPRoundingMode.RN,
+                sat=nvvm.SaturationModeKind.NONE,
+                loc=loc,
+                ip=ip,
+            )
+        else:
+            bf16x2_bits = nvvm.cvt_packfloat(
+                x_u32,
+                src_c,
+                from_,
+                to,
+                rnd=nvvm.FPRoundingMode.RN,
+                sat=nvvm.SaturationModeKind.NONE,
+                loc=loc,
+                ip=ip,
+            )
         low_bf16 = unpack(bf16x2_bits, cutlass.BFloat16, loc=loc, ip=ip)[0]
         return low_bf16.to(cutlass.Float32)
 
