@@ -1,22 +1,32 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+# All rights reserved.
+#
+# This source code is licensed under the BSD 3-Clause license found in the
+# LICENSE file in the root directory of this source tree.
+
 """Host-side precondition validation for the MXFP8 routed-expert grouped-MLP kernels.
 
 The grouped MXFP8 kernels require every per-expert row count to be a multiple of
 128. That is not a convenience: the tcgen05 blocked scale layout permutes in
 128-row tiles, so a group boundary off a 128 multiple splits a tile and the
-blocked buffer for the group no longer matches what the GEMM reads. Feeding such
-offsets to the existing CuTe DSL quantizer produces a device-side assertion, a
-wrong-sized scale buffer, and an unusable CUDA context rather than a clean error.
+blocked buffer for the group no longer matches what the GEMM reads.
 
 Everything here is metadata-only so it costs no host/device synchronization and
-stays traceable under torch.compile. The per-expert counts live in device memory
-and are validated on device by the kernels themselves; set
-TORCHAO_MXFP8_VALIDATE_OFFSETS=1 to additionally check them on the host while
-debugging, at the cost of a D2H copy.
+stays traceable under torch.compile. The per-expert offset VALUES live in device
+memory and are a documented caller invariant, not something these checks can
+enforce: reading them requires a D2H sync, so they are validated only by the
+opt-in TORCHAO_MXFP8_VALIDATE_OFFSETS=1 debugging path below, and there is NO
+device-side enforcement in a default build. Malformed offsets are not guaranteed
+to fault, either -- the ragged-K weight-gradient kernel in particular can return
+a wrong result from a clean-looking launch. Callers (and any future selection
+predicate) must guarantee the offsets contract, e.g. by padding every expert
+group to a multiple of 128 rows at dispatch time.
 
 Checks raise ValueError rather than asserting, so `python -O` cannot strip them.
 """
 
 import os
+from typing import Optional
 
 import torch
 
@@ -65,20 +75,32 @@ def validate_group_offsets(
     *,
     num_groups: int,
     allocated_rows: int,
+    device: Optional[torch.device] = None,
     name: str = "offsets",
 ) -> None:
-    """Validate the exclusive-end group offsets tensor.
+    """Validate the exclusive-end group offsets tensor's metadata.
 
-    Metadata is always checked. The offset *values* are checked only when
-    host_offsets_validation_enabled(), because reading them synchronizes; the
-    kernels assert the same invariants on device on every launch.
+    Metadata is always checked, including that at least one expert group
+    exists. The offset *values* are checked only when
+    host_offsets_validation_enabled(), because reading them forces a D2H sync;
+    otherwise they are a documented caller invariant with no default-build
+    enforcement anywhere (see the module docstring).
     """
     if not isinstance(offsets, torch.Tensor):
         raise ValueError(f"{name} must be a torch.Tensor, got {type(offsets)}")
+    if num_groups < 1:
+        raise ValueError(
+            f"{name} must describe at least one expert group, got G={num_groups}"
+        )
     if offsets.dtype != torch.int32:
         raise ValueError(f"{name} must be int32, got {offsets.dtype}")
     if not offsets.is_cuda:
         raise ValueError(f"{name} must be a CUDA tensor, got device {offsets.device}")
+    if device is not None and offsets.device != device:
+        raise ValueError(
+            f"{name} must be on {device}, got {offsets.device}; all operands and "
+            "destinations must share one CUDA device"
+        )
     if offsets.ndim != 1:
         raise ValueError(f"{name} must be 1D, got shape {tuple(offsets.shape)}")
     if offsets.numel() != num_groups:
