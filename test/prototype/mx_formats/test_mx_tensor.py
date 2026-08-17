@@ -200,19 +200,27 @@ def test_some_zeros(elem_dtype, device):
     _test_mx(data, elem_dtype, block_size)
 
 
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+@pytest.mark.skipif(
+    not (torch.cuda.is_available() or torch.xpu.is_available()),
+    reason="CUDA or XPU not available",
+)
+@pytest.mark.parametrize("device", _DEVICE_PARAMS)
 @pytest.mark.parametrize("input_dtype", (torch.float32, torch.bfloat16))
 @pytest.mark.parametrize(
     "scaling_mode", (ScaleCalculationMode.FLOOR, ScaleCalculationMode.RCEIL)
 )
 @pytest.mark.parametrize("use_compile", (False, True), ids=("eager", "compiled"))
-def test_mxfp8_corner_case_bytes(input_dtype, scaling_mode, use_compile):
-    cases = make_mxfp8_semantic_cases(input_dtype, scaling_mode, device="cuda")
+def test_mxfp8_corner_case_bytes(input_dtype, scaling_mode, use_compile, device):
+    cases = make_mxfp8_semantic_cases(input_dtype, scaling_mode, device=device)
     quantize = torch.compile(to_mx, fullgraph=True) if use_compile else to_mx
     scales, qdata = quantize(cases.inputs, torch.float8_e4m3fn, 32, scaling_mode)
     assert_mxfp8_semantics(qdata, scales, cases)
 
 
+@pytest.mark.skipif(
+    not (torch.cuda.is_available() or torch.xpu.is_available()),
+    reason="CUDA or XPU not available",
+)
 def test_to_mx_rceil():
     # nan
     # fmt: off
@@ -465,8 +473,9 @@ def test_to_mx_rceil_fallback_nan_branch_is_cse_compatible(monkeypatch):
     not (torch.cuda.is_available() or torch.xpu.is_available()),
     reason="CUDA or XPU not available",
 )
+@pytest.mark.parametrize("device", _DEVICE_PARAMS)
 @pytest.mark.parametrize("elem_dtype", SUPPORTED_ELEM_DTYPES)
-def test_exponent_nan_in(elem_dtype):
+def test_exponent_nan_in(elem_dtype, device):
     """
     If high precision block values has a NaN, the exponent block
     value is set to is NaN
