@@ -102,45 +102,6 @@ def from_blocked(
     return padded[:original_rows, :original_cols]
 
 
-def to_blocked_grouped(plain: Tensor, group_sizes) -> Tensor:
-    """``to_blocked`` for a scale tensor whose *inner* axis is grouped.
-
-    A grouped GEMM reads each group's block scales as an independently blocked buffer,
-    the buffers concatenated flat. Blocking the whole extent instead scatters each
-    group's tiles through the buffer and the GEMM then reads them from the wrong offset,
-    so the tiling has to restart at every group boundary.
-
-    The outer axis needs no equivalent: it is the slowest-varying term, so a group
-    occupying whole 128-row tiles is already contiguous and plain ``to_blocked`` works.
-
-    Args:
-        plain: (rows, sum(group_sizes) // 16) scale tensor in row-major layout.
-        group_sizes: per-group element counts along the grouped axis; each must be a
-            multiple of 16, which is what makes the group-local tile index exact.
-
-    Returns:
-        Flat 1-D tensor, the groups' blocked buffers concatenated.
-    """
-    parts, col = [], 0
-    for size in group_sizes:
-        width = size // 16
-        parts.append(to_blocked(plain[:, col : col + width]).flatten())
-        col += width
-    return torch.cat(parts)
-
-
-def from_blocked_grouped(blocked: Tensor, rows: int, group_sizes) -> Tensor:
-    """Inverse of ``to_blocked_grouped``: (rows, sum(group_sizes) // 16) row-major."""
-    out, base = [], 0
-    for size in group_sizes:
-        width = size // 16
-        span = ceil_div(rows, 128) * ceil_div(width, 4) * 32 * 16
-        chunk = blocked.reshape(-1)[base : base + span]
-        out.append(from_blocked(chunk, rows, width))
-        base += span
-    return torch.cat(out, dim=1)
-
-
 def hp_data_dims_to_swizzled_scale_dims_nvfp4(
     hp_data_M,
     hp_data_K,

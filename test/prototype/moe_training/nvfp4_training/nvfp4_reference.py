@@ -54,7 +54,7 @@ from torchao.prototype.moe_training.nvfp4_training.hadamard_utils import (
     get_rht_matrix,
 )
 from torchao.prototype.mx_formats.kernels import f32_to_f4_unpacked, pack_uint4
-from torchao.prototype.mx_formats.utils import to_blocked, to_blocked_grouped
+from torchao.prototype.mx_formats.utils import to_blocked
 
 FP4_E2M1_MAX = 6.0
 FP8_E4M3_MAX = 448.0
@@ -71,12 +71,40 @@ __all__ = [
     "reference_rht_amax",
     "reference_rht_quantize_row_col",
     "reference_weight_quantize_2d",
+    "to_blocked_grouped",
 ]
 
 
 # ---------------------------------------------------------------------------
 # Core arithmetic (core_nvfp4.cuh)
 # ---------------------------------------------------------------------------
+
+
+def to_blocked_grouped(plain: torch.Tensor, group_sizes) -> torch.Tensor:
+    """``to_blocked`` for a scale tensor whose *inner* axis is grouped.
+
+    A grouped GEMM reads each group's block scales as an independently blocked buffer,
+    the buffers concatenated flat. Blocking the whole extent instead scatters each
+    group's tiles through the buffer and the GEMM then reads them from the wrong offset,
+    so the tiling has to restart at every group boundary.
+
+    The outer axis needs no equivalent: it is the slowest-varying term, so a group
+    occupying whole 128-row tiles is already contiguous and plain ``to_blocked`` works.
+
+    Args:
+        plain: (rows, sum(group_sizes) // 16) scale tensor in row-major layout.
+        group_sizes: per-group element counts along the grouped axis; each must be a
+            multiple of 16, which is what makes the group-local tile index exact.
+
+    Returns:
+        Flat 1-D tensor, the groups' blocked buffers concatenated.
+    """
+    parts, col = [], 0
+    for size in group_sizes:
+        width = size // 16
+        parts.append(to_blocked(plain[:, col : col + width]).flatten())
+        col += width
+    return torch.cat(parts)
 
 
 def global_encode_scale(global_amax: torch.Tensor) -> torch.Tensor:

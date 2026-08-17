@@ -34,6 +34,7 @@ from test.prototype.moe_training.nvfp4_training._assertions import (
 )
 from test.prototype.moe_training.nvfp4_training.nvfp4_reference import (
     reference_group_rht_quantize_row_col,
+    to_blocked_grouped,
 )
 from torchao.float8.float8_utils import compute_error
 from torchao.prototype.moe_training.nvfp4_training.hadamard_utils import (
@@ -165,15 +166,6 @@ def _from_blocked_grouped(sfd, hidden, group_sizes):
     return torch.cat(out, dim=1)
 
 
-def _to_blocked_grouped(plain, group_sizes):
-    """Inverse of _from_blocked_grouped: block each group on its own extent."""
-    parts, col = [], 0
-    for m in group_sizes:
-        parts.append(to_blocked(plain[:, col : col + m // 16]).flatten())
-        col += m // 16
-    return torch.cat(parts)
-
-
 def _make_rng_state(device, values=(1, 2, 3, 4)) -> torch.Tensor:
     """[col_seed, col_offset, row_seed, row_offset] caller-owned Philox state."""
     return torch.tensor(list(values), dtype=torch.int64, device=device)
@@ -290,7 +282,7 @@ def triton_group_rht_quantize_row_col_ref(
         row_offset += m
 
     _assert_scales_adjacent(
-        sfd, _to_blocked_grouped(expected_col_sf, spec.groups), "col sf swizzled"
+        sfd, to_blocked_grouped(expected_col_sf, spec.groups), "col sf swizzled"
     )
     _assert_scales_adjacent(sfa, to_blocked(expected_row_sf), "row sf swizzled")
 

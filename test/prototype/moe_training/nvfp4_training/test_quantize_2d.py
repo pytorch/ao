@@ -82,10 +82,21 @@ def _weight_quantize_2d(kernel, W, amax):
 
 
 @_skip_no_triton
+@pytest.mark.parametrize("N", _N_VALUES, ids=lambda n: f"N{n}")
+@pytest.mark.parametrize("M", _M_VALUES, ids=lambda m: f"M{m}")
 @torch.no_grad()
-def test_triton_weight_quantize_2d_vs_transformer_engine_reference():
+def test_triton_weight_quantize_2d_vs_transformer_engine_reference(M, N):
+    """Codes and swizzled FP8 scales are bitwise identical to the TE-derived oracle.
+
+    This is the scale-factor oracle for the 2D weight path. A hand-rolled reference
+    lived here too, but it associated the per-block scale as ``(amax / 6) * enc`` --
+    two roundings where the kernels take ``amax * (enc / 6)``, one -- so it disagreed
+    with both the kernels and TE by one E4M3 step whenever a block amax landed on a
+    midpoint tie.
+    """
+    _skip_if_unsupported_shape("triton", M, N)
     torch.manual_seed(42)
-    W = torch.randn(256, 256, dtype=torch.bfloat16, device="cuda")
+    W = torch.randn(M, N, dtype=torch.bfloat16, device="cuda")
     amax = W.float().abs().max()
     codes, scales, t_codes, t_scales = _weight_quantize_2d("triton", W, amax)
     ref_row, ref_col = reference_weight_quantize_2d(W, amax)
@@ -98,55 +109,6 @@ def test_triton_weight_quantize_2d_vs_transformer_engine_reference():
 # ---------------------------------------------------------------------------
 # Reference implementation
 # ---------------------------------------------------------------------------
-
-
-def _weight_quantize_2d_reference_scales(A: torch.Tensor) -> torch.Tensor:
-    """PyTorch oracle: per-16×16-block FP8 scale factors expanded to (M, N//16).
-
-    Mirrors the two-level scaling in _nvfp4_2d_quantize:
-      1. global encode scale from the tensor-wide amax.
-      2. per-block FP8 scale capped at FP8_MAX (no lower clamp, matching TE).
-      3. Expand each per-block scale to cover 16 consecutive rows.
-
-    Returns:
-        (M, N//16) float8_e4m3fn — the same layout as the kernel's non-swizzled output.
-    """
-    FP8_MAX = 448.0
-    FP4_MAX = 6.0
-    M, N = A.shape
-    x = A.float()
-    global_amax = x.abs().max()
-
-    blocks = x.reshape(M // 16, 16, N // 16, 16)
-    block_amax = blocks.abs().amax(dim=(1, 3))  # (M//16, N//16)
-
-    is_global_amax_zero = global_amax == 0
-    safe_global_amax = torch.where(
-        is_global_amax_zero, torch.ones_like(global_amax), global_amax
-    )
-    enc_g = (FP8_MAX * FP4_MAX / safe_global_amax).clamp(
-        max=torch.finfo(torch.float32).max
-    )
-    enc_g = torch.where(is_global_amax_zero, torch.ones_like(enc_g), enc_g)
-    pvscale = (block_amax / FP4_MAX) * enc_g
-    pvscale = pvscale.clamp(max=FP8_MAX).to(torch.float8_e4m3fn)  # (M//16, N//16)
-
-    # Expand: each block-row scale repeated 16 times → (M, N//16)
-    return pvscale.repeat_interleave(16, dim=0)
-
-
-def _swizzle_py(scales_expanded: torch.Tensor, M: int, N: int) -> torch.Tensor:
-    """Python equivalent of the kernel's _swizzle_scales(expand_sf, BLOCK_M, BLOCK_N).
-
-    Transforms (M, N//16) float8_e4m3fn → (M//128, N//64, 32, 16).
-    """
-    u8 = scales_expanded.view(torch.uint8)
-    swizzled = (
-        u8.reshape(M // 128, 4, 32, N // 64, 4)
-        .permute(0, 3, 2, 1, 4)
-        .reshape(M // 128, N // 64, 32, 16)
-    )
-    return swizzled.view(torch.float8_e4m3fn)
 
 
 def _dequantize(
@@ -214,45 +176,6 @@ def _assert_scales_match_up_to_rounding_ties(
         assert (ratio <= 1.15).all() and (ratio >= 1 / 1.15).all(), (
             f"{what} mismatches exceed one E4M3 step (not a rounding tie)"
         )
-
-
-def _assert_scales_vs_reference(
-    kernel: str, scales: torch.Tensor, reference: torch.Tensor, what: str
-) -> None:
-    """triton reproduces the PyTorch oracle bitwise; CuteDSL up to FP8 rounding ties."""
-    if kernel == "triton":
-        torch.testing.assert_close(scales, reference, atol=0, rtol=0)
-    else:
-        _assert_scales_match_up_to_rounding_ties(scales, reference, what)
-
-
-# ---------------------------------------------------------------------------
-# Tests — scale factors
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.parametrize("kernel", _KERNELS)
-@pytest.mark.parametrize("N", _N_VALUES, ids=lambda n: f"N{n}")
-@pytest.mark.parametrize("M", _M_VALUES, ids=lambda m: f"M{m}")
-@torch.no_grad()
-def test_weight_quantize_2d_scales_vs_reference(kernel, M, N):
-    """Swizzled FP8 scale factors must match the PyTorch 16x16 reference."""
-    _skip_if_unsupported_shape(kernel, M, N)
-    torch.manual_seed(42)
-    A = torch.randn(M, N, dtype=torch.bfloat16, device="cuda")
-
-    ref_scales_expanded = _weight_quantize_2d_reference_scales(A)  # (M, N//16)
-
-    _, scales, _, t_scales = _weight_quantize_2d(kernel, A, A.float().abs().max())
-
-    ref_scales = _swizzle_py(ref_scales_expanded, M, N)
-    _assert_scales_vs_reference(kernel, scales, ref_scales, "rowwise SF")
-
-    ref_t_scales_expanded = _weight_quantize_2d_reference_scales(
-        A.T.contiguous()
-    )  # (N, M//16)
-    ref_t_scales = _swizzle_py(ref_t_scales_expanded, N, M)  # (N//128, M//64, 32, 16)
-    _assert_scales_vs_reference(kernel, t_scales, ref_t_scales, "colwise SF")
 
 
 @_skip_no_triton
