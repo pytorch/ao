@@ -172,7 +172,7 @@ window.addEventListener("load", () => mermaid.run());
   fbq('track', 'PageView');
 </script>
 <script>
-  document.documentElement.setAttribute('data-version', 'main (0.19.0+gitd37142a )');
+  document.documentElement.setAttribute('data-version', 'main (0.19.0+gitf10e69b )');
 </script>
 <noscript>
   <img height="1" width="1" src="https://www.facebook.com/tr?id=243028289693773&ev=PageView&noscript=1" />
@@ -1384,10 +1384,10 @@ document.write(`
 <span class="c1"># This source code is licensed under the license found in the</span>
 <span class="c1"># LICENSE file in the root directory of this source tree.</span>
 
-<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">"""</span>
 <span class="sd">Quantization workflow APIs moved from `torch/quantization/quant_api.py`</span>
 <span class="sd">to prototype.</span>
-<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">"""</span>
 
 <span class="kn">import</span><span class="w"> </span><span class="nn">logging</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">types</span>
@@ -1432,7 +1432,7 @@ document.write(`
 <a class="viewcode-back" href="../../../../api_reference/generated/torchao.prototype.quantization.UIntxWeightOnlyConfig.html#torchao.prototype.quantization.UIntxWeightOnlyConfig">[docs]</a>
 <span class="nd">@dataclass</span>
 <span class="k">class</span><span class="w"> </span><span class="nc">UIntxWeightOnlyConfig</span><span class="p">(</span><span class="n">AOBaseConfig</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Weight-only uintx quantization using bit-packed format with gemlite (https://github.com/dropbox/gemlite)</span>
+<span class="w">    </span><span class="sd">"""Weight-only uintx quantization using bit-packed format with gemlite (https://github.com/dropbox/gemlite)</span>
 <span class="sd">       Triton kernels.</span>
 
 <span class="sd">    Supports 4-bit (asymmetric, grouped) and 8-bit (symmetric, per-channel) quantization.</span>
@@ -1449,7 +1449,7 @@ document.write(`
 
 <span class="sd">    .. literalinclude:: ../../examples/inference/uintx_weight_only.py</span>
 <span class="sd">       :language: python</span>
-<span class="sd">    &quot;&quot;&quot;</span>
+<span class="sd">    """</span>
 
     <span class="n">group_size</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">int</span><span class="p">]</span> <span class="o">=</span> <span class="mi">128</span>
     <span class="n">bit_width</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">4</span>
@@ -1457,19 +1457,19 @@ document.write(`
     <span class="n">set_inductor_config</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span>
 
     <span class="k">def</span><span class="w"> </span><span class="nf">__post_init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
-        <span class="n">torch</span><span class="o">.</span><span class="n">_C</span><span class="o">.</span><span class="n">_log_api_usage_once</span><span class="p">(</span><span class="s2">&quot;torchao.quantization.UIntxWeightOnlyConfig&quot;</span><span class="p">)</span>
+        <span class="n">torch</span><span class="o">.</span><span class="n">_C</span><span class="o">.</span><span class="n">_log_api_usage_once</span><span class="p">(</span><span class="s2">"torchao.quantization.UIntxWeightOnlyConfig"</span><span class="p">)</span>
         <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">bit_width</span> <span class="ow">not</span> <span class="ow">in</span> <span class="p">[</span><span class="mi">4</span><span class="p">,</span> <span class="mi">8</span><span class="p">]:</span>
-            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;bit_width must be 4 or 8, got </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">bit_width</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">"bit_width must be 4 or 8, got </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">bit_width</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
         <span class="n">valid_group_sizes</span> <span class="o">=</span> <span class="p">[</span><span class="mi">32</span><span class="p">,</span> <span class="mi">64</span><span class="p">,</span> <span class="mi">128</span><span class="p">,</span> <span class="mi">256</span><span class="p">,</span> <span class="mi">512</span><span class="p">,</span> <span class="mi">1024</span><span class="p">,</span> <span class="kc">None</span><span class="p">]</span>
         <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">group_size</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">valid_group_sizes</span><span class="p">:</span>
             <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
-                <span class="sa">f</span><span class="s2">&quot;group_size must be one of </span><span class="si">{</span><span class="n">valid_group_sizes</span><span class="si">}</span><span class="s2">, got </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">group_size</span><span class="si">}</span><span class="s2">&quot;</span>
+                <span class="sa">f</span><span class="s2">"group_size must be one of </span><span class="si">{</span><span class="n">valid_group_sizes</span><span class="si">}</span><span class="s2">, got </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">group_size</span><span class="si">}</span><span class="s2">"</span>
             <span class="p">)</span>
         <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">bit_width</span> <span class="o">==</span> <span class="mi">8</span> <span class="ow">and</span> <span class="bp">self</span><span class="o">.</span><span class="n">group_size</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
-            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;group_size must be None for bit_width=8&quot;</span><span class="p">)</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">"group_size must be None for bit_width=8"</span><span class="p">)</span>
         <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">packing_bitwidth</span> <span class="ow">not</span> <span class="ow">in</span> <span class="p">[</span><span class="mi">8</span><span class="p">,</span> <span class="mi">16</span><span class="p">,</span> <span class="mi">32</span><span class="p">,</span> <span class="kc">None</span><span class="p">]:</span>
             <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
-                <span class="sa">f</span><span class="s2">&quot;packing_bitwidth must be 8, 16, 32, or None, got </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">packing_bitwidth</span><span class="si">}</span><span class="s2">&quot;</span>
+                <span class="sa">f</span><span class="s2">"packing_bitwidth must be 8, 16, 32, or None, got </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">packing_bitwidth</span><span class="si">}</span><span class="s2">"</span>
             <span class="p">)</span></div>
 
 
@@ -1479,7 +1479,7 @@ document.write(`
     <span class="n">module</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">,</span>
     <span class="n">config</span><span class="p">:</span> <span class="n">UIntxWeightOnlyConfig</span><span class="p">,</span>
     <span class="o">*</span><span class="p">,</span>
-    <span class="n">parameter_name</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;weight&quot;</span><span class="p">,</span>
+    <span class="n">parameter_name</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">"weight"</span><span class="p">,</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">:</span>
     <span class="kn">from</span><span class="w"> </span><span class="nn">torchao.prototype.quantization.uintx.uintx_bit_packed_tensor</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
         <span class="n">UIntxBitPackedTensor</span><span class="p">,</span>
@@ -1489,8 +1489,8 @@ document.write(`
         <span class="n">torchao</span><span class="o">.</span><span class="n">quantization</span><span class="o">.</span><span class="n">utils</span><span class="o">.</span><span class="n">recommended_inductor_config_setter</span><span class="p">()</span>
 
     <span class="k">assert</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">module</span><span class="p">,</span> <span class="n">parameter_name</span><span class="p">),</span> <span class="p">(</span>
-        <span class="sa">f</span><span class="s2">&quot;applying uintx weight only quant requires module to have </span><span class="si">{</span><span class="n">parameter_name</span><span class="si">}</span><span class="s2"> attribute&quot;</span>
-        <span class="o">+</span> <span class="sa">f</span><span class="s2">&quot; but </span><span class="si">{</span><span class="n">module</span><span class="si">}</span><span class="s2"> does not have one&quot;</span>
+        <span class="sa">f</span><span class="s2">"applying uintx weight only quant requires module to have </span><span class="si">{</span><span class="n">parameter_name</span><span class="si">}</span><span class="s2"> attribute"</span>
+        <span class="o">+</span> <span class="sa">f</span><span class="s2">" but </span><span class="si">{</span><span class="n">module</span><span class="si">}</span><span class="s2"> does not have one"</span>
     <span class="p">)</span>
     <span class="n">weight</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">module</span><span class="p">,</span> <span class="n">parameter_name</span><span class="p">)</span>
     <span class="n">quantized_weight</span> <span class="o">=</span> <span class="n">UIntxBitPackedTensor</span><span class="o">.</span><span class="n">from_hp</span><span class="p">(</span>
@@ -1519,7 +1519,7 @@ document.write(`
 <a class="viewcode-back" href="../../../../api_reference/generated/torchao.prototype.quantization.Int8DynamicActivationUIntxWeightConfig.html#torchao.prototype.quantization.Int8DynamicActivationUIntxWeightConfig">[docs]</a>
 <span class="nd">@dataclass</span>
 <span class="k">class</span><span class="w"> </span><span class="nc">Int8DynamicActivationUIntxWeightConfig</span><span class="p">(</span><span class="n">AOBaseConfig</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Dynamic activation + uintx weight quantization using gemlite (https://github.com/dropbox/gemlite)</span>
+<span class="w">    </span><span class="sd">"""Dynamic activation + uintx weight quantization using gemlite (https://github.com/dropbox/gemlite)</span>
 <span class="sd">       Triton kernels.</span>
 
 <span class="sd">    Activations are quantized dynamically at runtime (int8). Weights use bit-packed</span>
@@ -1536,7 +1536,7 @@ document.write(`
 
 <span class="sd">    .. literalinclude:: ../../examples/inference/int8_dynamic_activation_uintx_weight.py</span>
 <span class="sd">       :language: python</span>
-<span class="sd">    &quot;&quot;&quot;</span>
+<span class="sd">    """</span>
 
     <span class="n">group_size</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">int</span><span class="p">]</span> <span class="o">=</span> <span class="mi">128</span>
     <span class="n">bit_width</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">4</span>
@@ -1545,20 +1545,20 @@ document.write(`
 
     <span class="k">def</span><span class="w"> </span><span class="nf">__post_init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
         <span class="n">torch</span><span class="o">.</span><span class="n">_C</span><span class="o">.</span><span class="n">_log_api_usage_once</span><span class="p">(</span>
-            <span class="s2">&quot;torchao.quantization.Int8DynamicActivationUIntxWeightConfig&quot;</span>
+            <span class="s2">"torchao.quantization.Int8DynamicActivationUIntxWeightConfig"</span>
         <span class="p">)</span>
         <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">bit_width</span> <span class="ow">not</span> <span class="ow">in</span> <span class="p">[</span><span class="mi">4</span><span class="p">,</span> <span class="mi">8</span><span class="p">]:</span>
-            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;bit_width must be 4 or 8, got </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">bit_width</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">"bit_width must be 4 or 8, got </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">bit_width</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
         <span class="n">valid_group_sizes</span> <span class="o">=</span> <span class="p">[</span><span class="mi">32</span><span class="p">,</span> <span class="mi">64</span><span class="p">,</span> <span class="mi">128</span><span class="p">,</span> <span class="mi">256</span><span class="p">,</span> <span class="mi">512</span><span class="p">,</span> <span class="mi">1024</span><span class="p">,</span> <span class="kc">None</span><span class="p">]</span>
         <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">group_size</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">valid_group_sizes</span><span class="p">:</span>
             <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
-                <span class="sa">f</span><span class="s2">&quot;group_size must be one of </span><span class="si">{</span><span class="n">valid_group_sizes</span><span class="si">}</span><span class="s2">, got </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">group_size</span><span class="si">}</span><span class="s2">&quot;</span>
+                <span class="sa">f</span><span class="s2">"group_size must be one of </span><span class="si">{</span><span class="n">valid_group_sizes</span><span class="si">}</span><span class="s2">, got </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">group_size</span><span class="si">}</span><span class="s2">"</span>
             <span class="p">)</span>
         <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">bit_width</span> <span class="o">==</span> <span class="mi">8</span> <span class="ow">and</span> <span class="bp">self</span><span class="o">.</span><span class="n">group_size</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
-            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;group_size must be None for bit_width=8&quot;</span><span class="p">)</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">"group_size must be None for bit_width=8"</span><span class="p">)</span>
         <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">packing_bitwidth</span> <span class="ow">not</span> <span class="ow">in</span> <span class="p">[</span><span class="mi">8</span><span class="p">,</span> <span class="mi">16</span><span class="p">,</span> <span class="mi">32</span><span class="p">,</span> <span class="kc">None</span><span class="p">]:</span>
             <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
-                <span class="sa">f</span><span class="s2">&quot;packing_bitwidth must be 8, 16, 32, or None, got </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">packing_bitwidth</span><span class="si">}</span><span class="s2">&quot;</span>
+                <span class="sa">f</span><span class="s2">"packing_bitwidth must be 8, 16, 32, or None, got </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">packing_bitwidth</span><span class="si">}</span><span class="s2">"</span>
             <span class="p">)</span></div>
 
 
@@ -1568,7 +1568,7 @@ document.write(`
     <span class="n">module</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">,</span>
     <span class="n">config</span><span class="p">:</span> <span class="n">Int8DynamicActivationUIntxWeightConfig</span><span class="p">,</span>
     <span class="o">*</span><span class="p">,</span>
-    <span class="n">parameter_name</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;weight&quot;</span><span class="p">,</span>
+    <span class="n">parameter_name</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">"weight"</span><span class="p">,</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">:</span>
     <span class="kn">from</span><span class="w"> </span><span class="nn">torchao.prototype.quantization.uintx.uintx_bit_packed_tensor</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
         <span class="n">UIntxBitPackedTensor</span><span class="p">,</span>
@@ -1578,8 +1578,8 @@ document.write(`
         <span class="n">torchao</span><span class="o">.</span><span class="n">quantization</span><span class="o">.</span><span class="n">utils</span><span class="o">.</span><span class="n">recommended_inductor_config_setter</span><span class="p">()</span>
 
     <span class="k">assert</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">module</span><span class="p">,</span> <span class="n">parameter_name</span><span class="p">),</span> <span class="p">(</span>
-        <span class="sa">f</span><span class="s2">&quot;applying int8 dynamic activation uintx weight quant requires module to have </span><span class="si">{</span><span class="n">parameter_name</span><span class="si">}</span><span class="s2"> attribute&quot;</span>
-        <span class="o">+</span> <span class="sa">f</span><span class="s2">&quot; but </span><span class="si">{</span><span class="n">module</span><span class="si">}</span><span class="s2"> does not have one&quot;</span>
+        <span class="sa">f</span><span class="s2">"applying int8 dynamic activation uintx weight quant requires module to have </span><span class="si">{</span><span class="n">parameter_name</span><span class="si">}</span><span class="s2"> attribute"</span>
+        <span class="o">+</span> <span class="sa">f</span><span class="s2">" but </span><span class="si">{</span><span class="n">module</span><span class="si">}</span><span class="s2"> does not have one"</span>
     <span class="p">)</span>
     <span class="n">weight</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">module</span><span class="p">,</span> <span class="n">parameter_name</span><span class="p">)</span>
     <span class="n">quantized_weight</span> <span class="o">=</span> <span class="n">UIntxBitPackedTensor</span><span class="o">.</span><span class="n">from_hp</span><span class="p">(</span>
@@ -1587,7 +1587,7 @@ document.write(`
         <span class="n">bit_width</span><span class="o">=</span><span class="n">config</span><span class="o">.</span><span class="n">bit_width</span><span class="p">,</span>
         <span class="n">group_size</span><span class="o">=</span><span class="n">config</span><span class="o">.</span><span class="n">group_size</span><span class="p">,</span>
         <span class="n">packing_bitwidth</span><span class="o">=</span><span class="n">config</span><span class="o">.</span><span class="n">packing_bitwidth</span><span class="p">,</span>
-        <span class="n">mode</span><span class="o">=</span><span class="s2">&quot;dynamic&quot;</span><span class="p">,</span>
+        <span class="n">mode</span><span class="o">=</span><span class="s2">"dynamic"</span><span class="p">,</span>
     <span class="p">)</span>
     <span class="nb">setattr</span><span class="p">(</span>
         <span class="n">module</span><span class="p">,</span>
@@ -1607,15 +1607,15 @@ document.write(`
 
 <span class="nd">@dataclass</span>
 <span class="k">class</span><span class="w"> </span><span class="nc">Float8StaticActivationFloat8WeightConfig</span><span class="p">(</span><span class="n">AOBaseConfig</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">"""</span>
 <span class="sd">    Configuration for applying float8 static symmetric quantization to both activation and weight.</span>
 
 <span class="sd">    This supports two workflows:</span>
 
 <span class="sd">    1. Observer based flow (recommended):</span>
-<span class="sd">        - Use step=&quot;prepare&quot; to insert observers</span>
+<span class="sd">        - Use step="prepare" to insert observers</span>
 <span class="sd">        - Calibrate with representative data</span>
-<span class="sd">        - Use step=&quot;convert&quot; to convert to quantized model</span>
+<span class="sd">        - Use step="convert" to convert to quantized model</span>
 
 <span class="sd">    2. Direct quantization with known scale:</span>
 <span class="sd">        - Provide act_quant_scale directly (step is not required)</span>
@@ -1624,7 +1624,7 @@ document.write(`
 <span class="sd">        step (Optional[QuantizationStep]): Specifies the step for the observer-based quantization process.</span>
 <span class="sd">            PREPARE: insert observers to linear</span>
 <span class="sd">            CONVERT: convert the observed linear modules to linear modules with quantized weights</span>
-<span class="sd">            Can use the corresponding string &quot;prepare&quot;, &quot;convert&quot; for simplicity</span>
+<span class="sd">            Can use the corresponding string "prepare", "convert" for simplicity</span>
 <span class="sd">            If not provided, act_quant_scale must be provided for direct quantization.</span>
 <span class="sd">        act_quant_scale (Optional[torch.Tensor]): The scale tensor for activation quantization.</span>
 <span class="sd">            Required when step is not provided.</span>
@@ -1641,14 +1641,14 @@ document.write(`
 
 <span class="sd">    Example (Observer flow):</span>
 <span class="sd">        # Step 1: Prepare model by inserting observers</span>
-<span class="sd">        quantize_(model, Float8StaticActivationFloat8WeightConfig(step=&quot;prepare&quot;))</span>
+<span class="sd">        quantize_(model, Float8StaticActivationFloat8WeightConfig(step="prepare"))</span>
 
 <span class="sd">        # Step 2: Calibrate with representative data</span>
 <span class="sd">        for batch in calibration_data:</span>
 <span class="sd">            model(batch)</span>
 
 <span class="sd">        # Step 3: Convert observed model to quantized model</span>
-<span class="sd">        quantize_(model, Float8StaticActivationFloat8WeightConfig(step=&quot;convert&quot;))</span>
+<span class="sd">        quantize_(model, Float8StaticActivationFloat8WeightConfig(step="convert"))</span>
 
 <span class="sd">    Example (Direct quantization):</span>
 <span class="sd">        config = Float8StaticActivationFloat8WeightConfig(</span>
@@ -1656,9 +1656,9 @@ document.write(`
 <span class="sd">            granularity=PerTensor(),</span>
 <span class="sd">        )</span>
 <span class="sd">        quantize_(model, config)</span>
-<span class="sd">    &quot;&quot;&quot;</span>
+<span class="sd">    """</span>
 
-    <span class="n">step</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="s2">&quot;QuantizationStep&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">step</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="s2">"QuantizationStep"</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
     <span class="n">act_quant_scale</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
     <span class="n">activation_dtype</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">dtype</span> <span class="o">=</span> <span class="n">e4m3_dtype</span>
     <span class="n">weight_dtype</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">dtype</span> <span class="o">=</span> <span class="n">e4m3_dtype</span>
@@ -1671,7 +1671,7 @@ document.write(`
 
     <span class="k">def</span><span class="w"> </span><span class="nf">__post_init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
         <span class="n">torch</span><span class="o">.</span><span class="n">_C</span><span class="o">.</span><span class="n">_log_api_usage_once</span><span class="p">(</span>
-            <span class="s2">&quot;torchao.quantization.Float8StaticActivationFloat8WeightConfig&quot;</span>
+            <span class="s2">"torchao.quantization.Float8StaticActivationFloat8WeightConfig"</span>
         <span class="p">)</span>
         <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">mm_config</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">mm_config</span> <span class="o">=</span> <span class="n">Float8MMConfig</span><span class="p">(</span><span class="n">use_fast_accum</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
@@ -1684,13 +1684,13 @@ document.write(`
             <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">step</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">all_step_values</span> <span class="ow">and</span> <span class="bp">self</span><span class="o">.</span><span class="n">step</span> <span class="ow">not</span> <span class="ow">in</span> <span class="nb">list</span><span class="p">(</span>
                 <span class="n">QuantizationStep</span>
             <span class="p">):</span>
-                <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">step</span><span class="si">}</span><span class="s2"> is not one of </span><span class="si">{</span><span class="n">all_step_values</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+                <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">step</span><span class="si">}</span><span class="s2"> is not one of </span><span class="si">{</span><span class="n">all_step_values</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
 
     <span class="k">def</span><span class="w"> </span><span class="nf">get_act_quant_kwargs</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">QuantizeTensorKwargs</span><span class="p">:</span>
-<span class="w">        </span><span class="sd">&quot;&quot;&quot;Return the activation quantization kwargs.</span>
+<span class="w">        </span><span class="sd">"""Return the activation quantization kwargs.</span>
 
 <span class="sd">        This method is required by the IsStaticQuantizationConfig protocol.</span>
-<span class="sd">        &quot;&quot;&quot;</span>
+<span class="sd">        """</span>
         <span class="n">granularity</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">granularity</span> <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">granularity</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">PerTensor</span><span class="p">()</span>
         <span class="k">return</span> <span class="n">QuantizeTensorToFloat8Kwargs</span><span class="p">(</span>
             <span class="n">float8_dtype</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">activation_dtype</span><span class="p">,</span>
@@ -1701,27 +1701,27 @@ document.write(`
 
 
 <span class="k">class</span><span class="w"> </span><span class="nc">Float8ObservedLinear</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">"""</span>
 <span class="sd">    A linear module with an observer for float8 static quantization.</span>
 
 <span class="sd">    This module wraps a linear layer and adds an AffineQuantizedMinMaxObserver</span>
 <span class="sd">    that collects statistics during calibration. After calibration, use</span>
-<span class="sd">    `quantize_` with `Float8StaticActivationFloat8WeightConfig(step=&quot;convert&quot;)`</span>
+<span class="sd">    `quantize_` with `Float8StaticActivationFloat8WeightConfig(step="convert")`</span>
 <span class="sd">    to convert to a quantized module.</span>
 
 <span class="sd">    Optionally, an output observer can be provided to collect statistics for</span>
 <span class="sd">    output quantization when `quantize_and_dequantize_output=True` is used.</span>
-<span class="sd">    &quot;&quot;&quot;</span>
+<span class="sd">    """</span>
 
     <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span>
         <span class="bp">self</span><span class="p">,</span>
         <span class="n">in_features</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
         <span class="n">out_features</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
-        <span class="n">input_act_obs</span><span class="p">:</span> <span class="s2">&quot;AffineQuantizedMinMaxObserver&quot;</span><span class="p">,</span>  <span class="c1"># noqa: F821</span>
+        <span class="n">input_act_obs</span><span class="p">:</span> <span class="s2">"AffineQuantizedMinMaxObserver"</span><span class="p">,</span>  <span class="c1"># noqa: F821</span>
         <span class="n">bias</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
         <span class="n">device</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
         <span class="n">dtype</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
-        <span class="n">output_act_obs</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="s2">&quot;AffineQuantizedMinMaxObserver&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>  <span class="c1"># noqa: F821</span>
+        <span class="n">output_act_obs</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="s2">"AffineQuantizedMinMaxObserver"</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>  <span class="c1"># noqa: F821</span>
     <span class="p">):</span>
         <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">(</span><span class="n">in_features</span><span class="p">,</span> <span class="n">out_features</span><span class="p">,</span> <span class="n">bias</span><span class="p">,</span> <span class="n">device</span><span class="p">,</span> <span class="n">dtype</span><span class="p">)</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">input_act_obs</span> <span class="o">=</span> <span class="n">input_act_obs</span>
@@ -1738,10 +1738,10 @@ document.write(`
     <span class="k">def</span><span class="w"> </span><span class="nf">from_float</span><span class="p">(</span>
         <span class="bp">cls</span><span class="p">,</span>
         <span class="n">float_linear</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">,</span>
-        <span class="n">input_act_obs</span><span class="p">:</span> <span class="s2">&quot;AffineQuantizedMinMaxObserver&quot;</span><span class="p">,</span>  <span class="c1"># noqa: F821</span>
-        <span class="n">output_act_obs</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="s2">&quot;AffineQuantizedMinMaxObserver&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>  <span class="c1"># noqa: F821</span>
-    <span class="p">)</span> <span class="o">-&gt;</span> <span class="s2">&quot;Float8ObservedLinear&quot;</span><span class="p">:</span>
-<span class="w">        </span><span class="sd">&quot;&quot;&quot;Create an observed linear from a float linear module.&quot;&quot;&quot;</span>
+        <span class="n">input_act_obs</span><span class="p">:</span> <span class="s2">"AffineQuantizedMinMaxObserver"</span><span class="p">,</span>  <span class="c1"># noqa: F821</span>
+        <span class="n">output_act_obs</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="s2">"AffineQuantizedMinMaxObserver"</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>  <span class="c1"># noqa: F821</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="s2">"Float8ObservedLinear"</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">"""Create an observed linear from a float linear module."""</span>
         <span class="n">observed_linear</span> <span class="o">=</span> <span class="bp">cls</span><span class="p">(</span>
             <span class="n">float_linear</span><span class="o">.</span><span class="n">in_features</span><span class="p">,</span>
             <span class="n">float_linear</span><span class="o">.</span><span class="n">out_features</span><span class="p">,</span>
@@ -1757,7 +1757,7 @@ document.write(`
 
 
 <span class="k">class</span><span class="w"> </span><span class="nc">Float8ObservedSoftmax</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Softmax</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">"""</span>
 <span class="sd">    A softmax module placeholder for float8 static quantization.</span>
 
 <span class="sd">    Softmax output is always in [0, 1], so we use a fixed scale of</span>
@@ -1766,7 +1766,7 @@ document.write(`
 
 <span class="sd">    Unlike linear observers, the calibration loop does not collect statistics</span>
 <span class="sd">    here — it only records the input device for scale tensor placement.</span>
-<span class="sd">    &quot;&quot;&quot;</span>
+<span class="sd">    """</span>
 
     <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span>
         <span class="bp">self</span><span class="p">,</span>
@@ -1783,19 +1783,19 @@ document.write(`
     <span class="k">def</span><span class="w"> </span><span class="nf">from_float</span><span class="p">(</span>
         <span class="bp">cls</span><span class="p">,</span>
         <span class="n">float_softmax</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Softmax</span><span class="p">,</span>
-    <span class="p">)</span> <span class="o">-&gt;</span> <span class="s2">&quot;Float8ObservedSoftmax&quot;</span><span class="p">:</span>
-<span class="w">        </span><span class="sd">&quot;&quot;&quot;Create an observed softmax from a float softmax module.&quot;&quot;&quot;</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="s2">"Float8ObservedSoftmax"</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">"""Create an observed softmax from a float softmax module."""</span>
         <span class="k">return</span> <span class="bp">cls</span><span class="p">(</span><span class="n">dim</span><span class="o">=</span><span class="n">float_softmax</span><span class="o">.</span><span class="n">dim</span><span class="p">)</span>
 
 
 <span class="k">class</span><span class="w"> </span><span class="nc">Float8QuantizedSoftmax</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">"""</span>
 <span class="sd">    A softmax module that applies quantize-and-dequantize to its output.</span>
 
 <span class="sd">    This module computes softmax and then quantizes the output to float8,</span>
 <span class="sd">    immediately dequantizing it back to the original dtype. This simulates</span>
 <span class="sd">    the quantization error while returning a regular tensor.</span>
-<span class="sd">    &quot;&quot;&quot;</span>
+<span class="sd">    """</span>
 
     <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span>
         <span class="bp">self</span><span class="p">,</span>
@@ -1807,7 +1807,7 @@ document.write(`
         <span class="bp">self</span><span class="o">.</span><span class="n">_dim</span> <span class="o">=</span> <span class="n">dim</span>
         <span class="c1"># Register scale as a buffer so it moves with the module</span>
         <span class="k">if</span> <span class="n">output_act_quant_scale</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
-            <span class="bp">self</span><span class="o">.</span><span class="n">register_buffer</span><span class="p">(</span><span class="s2">&quot;output_act_quant_scale&quot;</span><span class="p">,</span> <span class="n">output_act_quant_scale</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">register_buffer</span><span class="p">(</span><span class="s2">"output_act_quant_scale"</span><span class="p">,</span> <span class="n">output_act_quant_scale</span><span class="p">)</span>
         <span class="k">else</span><span class="p">:</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">output_act_quant_scale</span> <span class="o">=</span> <span class="kc">None</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">output_act_quant_kwargs</span> <span class="o">=</span> <span class="n">output_act_quant_kwargs</span>
@@ -1819,7 +1819,7 @@ document.write(`
         <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_dim</span>
 
     <span class="k">def</span><span class="w"> </span><span class="nf">_get_reshaped_scale</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">target_ndim</span><span class="p">:</span> <span class="nb">int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
-<span class="w">        </span><span class="sd">&quot;&quot;&quot;Return the scale reshaped to match target_ndim, caching the result.&quot;&quot;&quot;</span>
+<span class="w">        </span><span class="sd">"""Return the scale reshaped to match target_ndim, caching the result."""</span>
         <span class="k">if</span> <span class="p">(</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">_reshaped_scale</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span>
             <span class="ow">and</span> <span class="bp">self</span><span class="o">.</span><span class="n">_reshaped_scale</span><span class="o">.</span><span class="n">ndim</span> <span class="o">==</span> <span class="n">target_ndim</span>
@@ -1853,11 +1853,11 @@ document.write(`
     <span class="nd">@classmethod</span>
     <span class="k">def</span><span class="w"> </span><span class="nf">from_observed</span><span class="p">(</span>
         <span class="bp">cls</span><span class="p">,</span>
-        <span class="n">observed_softmax</span><span class="p">:</span> <span class="s2">&quot;Float8ObservedSoftmax&quot;</span><span class="p">,</span>
+        <span class="n">observed_softmax</span><span class="p">:</span> <span class="s2">"Float8ObservedSoftmax"</span><span class="p">,</span>
         <span class="n">output_act_quant_scale</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
         <span class="n">output_act_quant_kwargs</span><span class="p">:</span> <span class="n">QuantizeTensorToFloat8Kwargs</span><span class="p">,</span>
-    <span class="p">)</span> <span class="o">-&gt;</span> <span class="s2">&quot;Float8QuantizedSoftmax&quot;</span><span class="p">:</span>
-<span class="w">        </span><span class="sd">&quot;&quot;&quot;Create a quantized softmax from an observed softmax module.&quot;&quot;&quot;</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="s2">"Float8QuantizedSoftmax"</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">"""Create a quantized softmax from an observed softmax module."""</span>
         <span class="k">return</span> <span class="bp">cls</span><span class="p">(</span>
             <span class="n">dim</span><span class="o">=</span><span class="n">observed_softmax</span><span class="o">.</span><span class="n">dim</span><span class="p">,</span>
             <span class="n">output_act_quant_scale</span><span class="o">=</span><span class="n">output_act_quant_scale</span><span class="p">,</span>
@@ -1870,7 +1870,7 @@ document.write(`
     <span class="n">module</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">,</span>
     <span class="n">config</span><span class="p">:</span> <span class="n">Float8StaticActivationFloat8WeightConfig</span><span class="p">,</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">:</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">"""</span>
 <span class="sd">    Transform handler for Float8StaticActivationFloat8WeightConfig.</span>
 
 <span class="sd">    Behavior depends on the step:</span>
@@ -1880,7 +1880,7 @@ document.write(`
 <span class="sd">    Supported modules:</span>
 <span class="sd">    - torch.nn.Linear: Static activation quantization with float8 weights</span>
 <span class="sd">    - torch.nn.Softmax: Output quantization simulation (quantize-and-dequantize)</span>
-<span class="sd">    &quot;&quot;&quot;</span>
+<span class="sd">    """</span>
     <span class="kn">from</span><span class="w"> </span><span class="nn">torchao.prototype.quantization.float8_static_quant.prototype_float8_tensor</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
         <span class="n">PrototypeFloat8Tensor</span><span class="p">,</span>
     <span class="p">)</span>
@@ -1889,7 +1889,7 @@ document.write(`
     <span class="n">step</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">step</span>
     <span class="n">granularity</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">granularity</span> <span class="k">if</span> <span class="n">config</span><span class="o">.</span><span class="n">granularity</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">PerTensor</span><span class="p">()</span>
 
-    <span class="k">if</span> <span class="n">step</span> <span class="o">==</span> <span class="n">QuantizationStep</span><span class="o">.</span><span class="n">PREPARE</span> <span class="ow">or</span> <span class="n">step</span> <span class="o">==</span> <span class="s2">&quot;prepare&quot;</span><span class="p">:</span>
+    <span class="k">if</span> <span class="n">step</span> <span class="o">==</span> <span class="n">QuantizationStep</span><span class="o">.</span><span class="n">PREPARE</span> <span class="ow">or</span> <span class="n">step</span> <span class="o">==</span> <span class="s2">"prepare"</span><span class="p">:</span>
         <span class="c1"># Handle Softmax modules</span>
         <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">module</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Softmax</span><span class="p">):</span>
             <span class="k">return</span> <span class="n">Float8ObservedSoftmax</span><span class="o">.</span><span class="n">from_float</span><span class="p">(</span><span class="n">module</span><span class="p">)</span>
@@ -1919,16 +1919,16 @@ document.write(`
             <span class="p">)</span>
         <span class="k">return</span> <span class="n">Float8ObservedLinear</span><span class="o">.</span><span class="n">from_float</span><span class="p">(</span><span class="n">module</span><span class="p">,</span> <span class="n">input_observer</span><span class="p">,</span> <span class="n">output_observer</span><span class="p">)</span>
 
-    <span class="k">elif</span> <span class="n">step</span> <span class="o">==</span> <span class="n">QuantizationStep</span><span class="o">.</span><span class="n">CONVERT</span> <span class="ow">or</span> <span class="n">step</span> <span class="o">==</span> <span class="s2">&quot;convert&quot;</span><span class="p">:</span>
+    <span class="k">elif</span> <span class="n">step</span> <span class="o">==</span> <span class="n">QuantizationStep</span><span class="o">.</span><span class="n">CONVERT</span> <span class="ow">or</span> <span class="n">step</span> <span class="o">==</span> <span class="s2">"convert"</span><span class="p">:</span>
         <span class="c1"># Handle observed Softmax modules</span>
         <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">module</span><span class="p">,</span> <span class="n">Float8ObservedSoftmax</span><span class="p">):</span>
             <span class="n">device</span> <span class="o">=</span> <span class="n">module</span><span class="o">.</span><span class="n">_device</span>
             <span class="k">if</span> <span class="n">device</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
                 <span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span>
-                    <span class="s2">&quot;Float8ObservedSoftmax._device is None (forward() was never called). &quot;</span>
-                    <span class="s2">&quot;Defaulting scale device to CPU.&quot;</span>
+                    <span class="s2">"Float8ObservedSoftmax._device is None (forward() was never called). "</span>
+                    <span class="s2">"Defaulting scale device to CPU."</span>
                 <span class="p">)</span>
-                <span class="n">device</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">device</span><span class="p">(</span><span class="s2">&quot;cpu&quot;</span><span class="p">)</span>
+                <span class="n">device</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">device</span><span class="p">(</span><span class="s2">"cpu"</span><span class="p">)</span>
             <span class="c1"># Softmax output is in [0, 1], so use a fixed scale:</span>
             <span class="c1"># scale = float8_max / 1.0 = float8_max</span>
             <span class="n">float8_max</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">finfo</span><span class="p">(</span><span class="n">config</span><span class="o">.</span><span class="n">activation_dtype</span><span class="p">)</span><span class="o">.</span><span class="n">max</span>
@@ -1952,7 +1952,7 @@ document.write(`
         <span class="c1"># Handle observed Linear modules</span>
         <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">module</span><span class="p">,</span> <span class="n">Float8ObservedLinear</span><span class="p">):</span>
             <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span>
-                <span class="sa">f</span><span class="s2">&quot;convert: module is not Float8ObservedLinear or Float8ObservedSoftmax, skipping: </span><span class="si">{</span><span class="nb">type</span><span class="p">(</span><span class="n">module</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span>
+                <span class="sa">f</span><span class="s2">"convert: module is not Float8ObservedLinear or Float8ObservedSoftmax, skipping: </span><span class="si">{</span><span class="nb">type</span><span class="p">(</span><span class="n">module</span><span class="p">)</span><span class="si">}</span><span class="s2">"</span>
             <span class="p">)</span>
             <span class="k">return</span> <span class="n">module</span>
 
@@ -2014,8 +2014,8 @@ document.write(`
         <span class="c1"># Direct quantization path - use provided act_quant_scale</span>
         <span class="k">if</span> <span class="n">config</span><span class="o">.</span><span class="n">act_quant_scale</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
             <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
-                <span class="s2">&quot;When step is None, act_quant_scale must be provided for direct quantization. &quot;</span>
-                <span class="s2">&quot;Alternatively, use step=&#39;prepare&#39; followed by step=&#39;convert&#39; for observer-based flow.&quot;</span>
+                <span class="s2">"When step is None, act_quant_scale must be provided for direct quantization. "</span>
+                <span class="s2">"Alternatively, use step='prepare' followed by step='convert' for observer-based flow."</span>
             <span class="p">)</span>
 
         <span class="k">if</span> <span class="n">config</span><span class="o">.</span><span class="n">set_inductor_config</span><span class="p">:</span>
@@ -2062,7 +2062,7 @@ document.write(`
 
     <span class="k">else</span><span class="p">:</span>
         <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
-            <span class="sa">f</span><span class="s2">&quot;Unexpected step: </span><span class="si">{</span><span class="n">step</span><span class="si">}</span><span class="s2">. Expected one of </span><span class="si">{</span><span class="p">[</span><span class="n">s</span><span class="o">.</span><span class="n">value</span><span class="w"> </span><span class="k">for</span><span class="w"> </span><span class="n">s</span><span class="w"> </span><span class="ow">in</span><span class="w"> </span><span class="n">QuantizationStep</span><span class="p">]</span><span class="si">}</span><span class="s2"> or None.&quot;</span>
+            <span class="sa">f</span><span class="s2">"Unexpected step: </span><span class="si">{</span><span class="n">step</span><span class="si">}</span><span class="s2">. Expected one of </span><span class="si">{</span><span class="p">[</span><span class="n">s</span><span class="o">.</span><span class="n">value</span><span class="w"> </span><span class="k">for</span><span class="w"> </span><span class="n">s</span><span class="w"> </span><span class="ow">in</span><span class="w"> </span><span class="n">QuantizationStep</span><span class="p">]</span><span class="si">}</span><span class="s2"> or None."</span>
         <span class="p">)</span>
 </pre></div>
 

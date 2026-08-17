@@ -172,7 +172,7 @@ window.addEventListener("load", () => mermaid.run());
   fbq('track', 'PageView');
 </script>
 <script>
-  document.documentElement.setAttribute('data-version', 'main (0.19.0+gitd37142a )');
+  document.documentElement.setAttribute('data-version', 'main (0.19.0+gitf10e69b )');
 </script>
 <noscript>
   <img height="1" width="1" src="https://www.facebook.com/tr?id=243028289693773&ev=PageView&noscript=1" />
@@ -1399,63 +1399,63 @@ document.write(`
 <div class="viewcode-block" id="ScalingType">
 <a class="viewcode-back" href="../../../api_reference/generated/torchao.float8.ScalingType.html#torchao.float8.ScalingType">[docs]</a>
 <span class="k">class</span><span class="w"> </span><span class="nc">ScalingType</span><span class="p">(</span><span class="n">enum</span><span class="o">.</span><span class="n">Enum</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">"""</span>
 <span class="sd">    Defines the type of scaling to use for casting to float8.</span>
 
 <span class="sd">    Values:</span>
 
-<span class="sd">    * ``DYNAMIC``: Compute scaling factor dynamically based on the tensor&#39;s values.</span>
+<span class="sd">    * ``DYNAMIC``: Compute scaling factor dynamically based on the tensor's values.</span>
 <span class="sd">    * ``DISABLED``: Skip scaling for this tensor, leave it in its original precision.</span>
-<span class="sd">    &quot;&quot;&quot;</span>
+<span class="sd">    """</span>
 
-    <span class="n">DYNAMIC</span> <span class="o">=</span> <span class="s2">&quot;dynamic&quot;</span>
-    <span class="c1"># ScalingType.DISABLED means &quot;skip scaling for this tensor, leave it in</span>
+    <span class="n">DYNAMIC</span> <span class="o">=</span> <span class="s2">"dynamic"</span>
+    <span class="c1"># ScalingType.DISABLED means "skip scaling for this tensor, leave it in</span>
     <span class="c1"># its original precision.</span>
-    <span class="n">DISABLED</span> <span class="o">=</span> <span class="s2">&quot;disabled&quot;</span>
+    <span class="n">DISABLED</span> <span class="o">=</span> <span class="s2">"disabled"</span>
 
     <span class="k">def</span><span class="w"> </span><span class="nf">short_str</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
         <span class="k">if</span> <span class="bp">self</span> <span class="ow">is</span> <span class="n">ScalingType</span><span class="o">.</span><span class="n">DYNAMIC</span><span class="p">:</span>
-            <span class="k">return</span> <span class="s2">&quot;dyn&quot;</span>
+            <span class="k">return</span> <span class="s2">"dyn"</span>
         <span class="k">else</span><span class="p">:</span>
             <span class="k">assert</span> <span class="bp">self</span> <span class="ow">is</span> <span class="n">ScalingType</span><span class="o">.</span><span class="n">DISABLED</span>
-            <span class="k">return</span> <span class="s2">&quot;dis&quot;</span></div>
+            <span class="k">return</span> <span class="s2">"dis"</span></div>
 
 
 
 <div class="viewcode-block" id="ScalingGranularity">
 <a class="viewcode-back" href="../../../api_reference/generated/torchao.float8.ScalingGranularity.html#torchao.float8.ScalingGranularity">[docs]</a>
 <span class="k">class</span><span class="w"> </span><span class="nc">ScalingGranularity</span><span class="p">(</span><span class="n">enum</span><span class="o">.</span><span class="n">Enum</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">"""</span>
 <span class="sd">    Defines the granularity of scaling strategies for casting to float8.</span>
 
 <span class="sd">    Values:</span>
 
 <span class="sd">    * ``TENSORWISE``: A single scaling factor for the entire tensor.</span>
 <span class="sd">    * ``AXISWISE``: Scaling factors computed along one axis of the tensor (rowwise scaling).</span>
-<span class="sd">    &quot;&quot;&quot;</span>
+<span class="sd">    """</span>
 
     <span class="c1"># A single scaling factor for the entire tensor</span>
-    <span class="n">TENSORWISE</span> <span class="o">=</span> <span class="s2">&quot;tensorwise&quot;</span>
+    <span class="n">TENSORWISE</span> <span class="o">=</span> <span class="s2">"tensorwise"</span>
     <span class="c1"># Scaling factors computed along one axis of the tensor, reducing it to</span>
     <span class="c1"># size 1.</span>
-    <span class="n">AXISWISE</span> <span class="o">=</span> <span class="s2">&quot;axiswise&quot;</span>
+    <span class="n">AXISWISE</span> <span class="o">=</span> <span class="s2">"axiswise"</span>
 
     <span class="k">def</span><span class="w"> </span><span class="nf">short_str</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
         <span class="k">if</span> <span class="bp">self</span> <span class="ow">is</span> <span class="n">ScalingGranularity</span><span class="o">.</span><span class="n">TENSORWISE</span><span class="p">:</span>
-            <span class="k">return</span> <span class="s2">&quot;ten&quot;</span>
+            <span class="k">return</span> <span class="s2">"ten"</span>
         <span class="k">else</span><span class="p">:</span>
             <span class="k">assert</span> <span class="bp">self</span> <span class="ow">is</span> <span class="n">ScalingGranularity</span><span class="o">.</span><span class="n">AXISWISE</span>
-            <span class="k">return</span> <span class="s2">&quot;axs&quot;</span></div>
+            <span class="k">return</span> <span class="s2">"axs"</span></div>
 
 
 
 <span class="nd">@dataclass</span>
 <span class="k">class</span><span class="w"> </span><span class="nc">Float8TypeConfig</span><span class="p">:</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">"""</span>
 <span class="sd">    Configuration for selecting the preferred float8 type pair, either e4m3fn/e5m2 or e4m3fnuz/e5m2fnuz.</span>
 
 <span class="sd">    Currently, ROCm supports 1. fnuz variants in MI300. 2. OCP F8 variants in MI350/Navi4.</span>
-<span class="sd">    &quot;&quot;&quot;</span>
+<span class="sd">    """</span>
 
     <span class="c1"># The preferred e4m3 type.</span>
     <span class="n">e4m3_dtype</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">float8_e4m3fn</span>
@@ -1479,7 +1479,7 @@ document.write(`
 <a class="viewcode-back" href="../../../api_reference/generated/torchao.float8.CastConfig.html#torchao.float8.CastConfig">[docs]</a>
 <span class="nd">@dataclass</span><span class="p">(</span><span class="n">frozen</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
 <span class="k">class</span><span class="w"> </span><span class="nc">CastConfig</span><span class="p">:</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">"""</span>
 <span class="sd">    Configuration for casting a single tensor to float8.</span>
 
 <span class="sd">    Args:</span>
@@ -1489,24 +1489,24 @@ document.write(`
 <span class="sd">            Default: ``ScalingGranularity.TENSORWISE``</span>
 <span class="sd">        target_dtype: The target float8 dtype (e.g., ``torch.float8_e4m3fn``).</span>
 <span class="sd">            Default: ``None`` (will be set based on the recipe)</span>
-<span class="sd">    &quot;&quot;&quot;</span>
+<span class="sd">    """</span>
 
     <span class="n">scaling_type</span><span class="p">:</span> <span class="n">ScalingType</span> <span class="o">=</span> <span class="n">ScalingType</span><span class="o">.</span><span class="n">DYNAMIC</span>
     <span class="n">scaling_granularity</span><span class="p">:</span> <span class="n">ScalingGranularity</span> <span class="o">=</span> <span class="n">ScalingGranularity</span><span class="o">.</span><span class="n">TENSORWISE</span>
     <span class="n">target_dtype</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">torch</span><span class="o">.</span><span class="n">dtype</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
 
     <span class="k">def</span><span class="w"> </span><span class="nf">short_str</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
-        <span class="n">dtype</span> <span class="o">=</span> <span class="p">{</span><span class="n">e4m3_dtype</span><span class="p">:</span> <span class="s2">&quot;e4m3&quot;</span><span class="p">,</span> <span class="n">e5m2_dtype</span><span class="p">:</span> <span class="s2">&quot;e5m2&quot;</span><span class="p">}[</span><span class="bp">self</span><span class="o">.</span><span class="n">target_dtype</span><span class="p">]</span>
-        <span class="k">return</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">scaling_type</span><span class="o">.</span><span class="n">short_str</span><span class="p">()</span><span class="si">}</span><span class="s2">_</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">scaling_granularity</span><span class="o">.</span><span class="n">short_str</span><span class="p">()</span><span class="si">}</span><span class="s2">_</span><span class="si">{</span><span class="n">dtype</span><span class="si">}</span><span class="s2">&quot;</span>
+        <span class="n">dtype</span> <span class="o">=</span> <span class="p">{</span><span class="n">e4m3_dtype</span><span class="p">:</span> <span class="s2">"e4m3"</span><span class="p">,</span> <span class="n">e5m2_dtype</span><span class="p">:</span> <span class="s2">"e5m2"</span><span class="p">}[</span><span class="bp">self</span><span class="o">.</span><span class="n">target_dtype</span><span class="p">]</span>
+        <span class="k">return</span> <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">scaling_type</span><span class="o">.</span><span class="n">short_str</span><span class="p">()</span><span class="si">}</span><span class="s2">_</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">scaling_granularity</span><span class="o">.</span><span class="n">short_str</span><span class="p">()</span><span class="si">}</span><span class="s2">_</span><span class="si">{</span><span class="n">dtype</span><span class="si">}</span><span class="s2">"</span>
 
     <span class="k">def</span><span class="w"> </span><span class="nf">__post_init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
         <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">scaling_granularity</span> <span class="ow">is</span> <span class="n">ScalingGranularity</span><span class="o">.</span><span class="n">AXISWISE</span><span class="p">:</span>
             <span class="k">assert</span> <span class="bp">self</span><span class="o">.</span><span class="n">scaling_type</span> <span class="ow">is</span> <span class="n">ScalingType</span><span class="o">.</span><span class="n">DYNAMIC</span><span class="p">,</span> <span class="p">(</span>
-                <span class="s2">&quot;only dynamic scaling type is supported for axiswise scaling granularity&quot;</span>
+                <span class="s2">"only dynamic scaling type is supported for axiswise scaling granularity"</span>
             <span class="p">)</span>
         <span class="k">assert</span> <span class="bp">self</span><span class="o">.</span><span class="n">target_dtype</span> <span class="ow">is</span> <span class="kc">None</span> <span class="ow">or</span> <span class="p">(</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">target_dtype</span><span class="o">.</span><span class="n">is_floating_point</span> <span class="ow">and</span> <span class="bp">self</span><span class="o">.</span><span class="n">target_dtype</span><span class="o">.</span><span class="n">itemsize</span> <span class="o">==</span> <span class="mi">1</span>
-        <span class="p">),</span> <span class="s2">&quot;must specify a 8-bit floating-point dtype&quot;</span></div>
+        <span class="p">),</span> <span class="s2">"must specify a 8-bit floating-point dtype"</span></div>
 
 
 
@@ -1514,14 +1514,14 @@ document.write(`
 <a class="viewcode-back" href="../../../api_reference/generated/torchao.float8.Float8GemmConfig.html#torchao.float8.Float8GemmConfig">[docs]</a>
 <span class="nd">@dataclass</span><span class="p">(</span><span class="n">frozen</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
 <span class="k">class</span><span class="w"> </span><span class="nc">Float8GemmConfig</span><span class="p">:</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">"""</span>
 <span class="sd">    Configuration for a float8 gemm.</span>
 
 <span class="sd">    Args:</span>
 <span class="sd">        use_fast_accum: If True, use fast accumulation in lower precision.</span>
 <span class="sd">            This can improve performance but may reduce numerical accuracy.</span>
 <span class="sd">            Default: ``False``</span>
-<span class="sd">    &quot;&quot;&quot;</span>
+<span class="sd">    """</span>
 
     <span class="c1"># If True, fast accumulation in lower precision is used.</span>
     <span class="c1"># Note: this flag is currently a no-op if emulation is turned on.</span>
@@ -1533,7 +1533,7 @@ document.write(`
 <div class="viewcode-block" id="Float8LinearRecipeName">
 <a class="viewcode-back" href="../../../api_reference/generated/torchao.float8.Float8LinearRecipeName.html#torchao.float8.Float8LinearRecipeName">[docs]</a>
 <span class="k">class</span><span class="w"> </span><span class="nc">Float8LinearRecipeName</span><span class="p">(</span><span class="n">enum</span><span class="o">.</span><span class="n">Enum</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">"""</span>
 <span class="sd">    Pre-made recipes for common float8 training configurations.</span>
 
 <span class="sd">    Values:</span>
@@ -1545,17 +1545,17 @@ document.write(`
 <span class="sd">      the nearest power of two for increased accuracy.</span>
 <span class="sd">    * ``ROWWISE_WITH_GW_HP``: A modification on rowwise scaling with increased accuracy</span>
 <span class="sd">      for grad_weight by keeping grad_weight computation in high precision. Most accurate option.</span>
-<span class="sd">    &quot;&quot;&quot;</span>
+<span class="sd">    """</span>
 
     <span class="c1"># Default, dynamic per-tensor scaling with the cuBLAS tensorwise kernel</span>
-    <span class="n">TENSORWISE</span> <span class="o">=</span> <span class="s2">&quot;tensorwise&quot;</span>
+    <span class="n">TENSORWISE</span> <span class="o">=</span> <span class="s2">"tensorwise"</span>
 
     <span class="c1"># dynamic rowwise scaling with the CUTLASS rowwise kernel</span>
     <span class="c1"># * e4m3 for activations, weights, gradients</span>
     <span class="c1"># * scales rounded (floor) to the nearest power of two for increased accuracy</span>
-    <span class="n">ROWWISE</span> <span class="o">=</span> <span class="s2">&quot;rowwise&quot;</span>
+    <span class="n">ROWWISE</span> <span class="o">=</span> <span class="s2">"rowwise"</span>
 
-    <span class="c1"># lw&#39;s recipe for a modification on rowwise scaling:</span>
+    <span class="c1"># lw's recipe for a modification on rowwise scaling:</span>
     <span class="c1">#</span>
     <span class="c1">#   output_hp = input_fp8_rowwise_dim0 @ weight_t_rowwise_dim1</span>
     <span class="c1">#   grad_input_hp = grad_output_fp8_rowwise_dim0 @ weight_fp8_tensorwise</span>
@@ -1567,7 +1567,7 @@ document.write(`
     <span class="c1">#     rowwise across a single dim compared to vanilla rowwise,</span>
     <span class="c1">#     which is more amenable to fast kernels</span>
     <span class="c1">#   * the e4m3 dtype is used across the board, including for gradients</span>
-    <span class="n">ROWWISE_WITH_GW_HP</span> <span class="o">=</span> <span class="s2">&quot;rowwise_with_gw_hp&quot;</span></div>
+    <span class="n">ROWWISE_WITH_GW_HP</span> <span class="o">=</span> <span class="s2">"rowwise_with_gw_hp"</span></div>
 
 
 
@@ -1575,10 +1575,10 @@ document.write(`
 <a class="viewcode-back" href="../../../api_reference/generated/torchao.float8.Float8LinearConfig.html#torchao.float8.Float8LinearConfig">[docs]</a>
 <span class="nd">@dataclass</span><span class="p">(</span><span class="n">frozen</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
 <span class="k">class</span><span class="w"> </span><span class="nc">Float8LinearConfig</span><span class="p">:</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">"""</span>
 <span class="sd">    Configuration for converting a `torch.nn.Linear` module to float8</span>
 <span class="sd">    for training.</span>
-<span class="sd">    &quot;&quot;&quot;</span>
+<span class="sd">    """</span>
 
     <span class="c1">#</span>
     <span class="c1"># Per-tensor configuration for casting of `input`, `weight`, `grad_output`</span>
@@ -1617,7 +1617,7 @@ document.write(`
     <span class="c1"># Per-linear configuration</span>
     <span class="c1">#</span>
 
-    <span class="c1"># If True, then uses a tensor subclass for the float8 linear module&#39;s weight that</span>
+    <span class="c1"># If True, then uses a tensor subclass for the float8 linear module's weight that</span>
     <span class="c1"># implements pre/post-all-gather methods to do float8 all-gather with FSDP2.</span>
     <span class="n">enable_fsdp_float8_all_gather</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span>
 
@@ -1651,23 +1651,23 @@ document.write(`
         <span class="c1"># Source of hack: https://stackoverflow.com/a/65959419/</span>
         <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">cast_config_input_for_grad_weight</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
             <span class="nb">object</span><span class="o">.</span><span class="fm">__setattr__</span><span class="p">(</span>
-                <span class="bp">self</span><span class="p">,</span> <span class="s2">&quot;cast_config_input_for_grad_weight&quot;</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">cast_config_input</span>
+                <span class="bp">self</span><span class="p">,</span> <span class="s2">"cast_config_input_for_grad_weight"</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">cast_config_input</span>
             <span class="p">)</span>
         <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">cast_config_weight_for_grad_input</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
             <span class="nb">object</span><span class="o">.</span><span class="fm">__setattr__</span><span class="p">(</span>
-                <span class="bp">self</span><span class="p">,</span> <span class="s2">&quot;cast_config_weight_for_grad_input&quot;</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">cast_config_weight</span>
+                <span class="bp">self</span><span class="p">,</span> <span class="s2">"cast_config_weight_for_grad_input"</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">cast_config_weight</span>
             <span class="p">)</span>
         <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">cast_config_grad_output_for_grad_weight</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
             <span class="nb">object</span><span class="o">.</span><span class="fm">__setattr__</span><span class="p">(</span>
                 <span class="bp">self</span><span class="p">,</span>
-                <span class="s2">&quot;cast_config_grad_output_for_grad_weight&quot;</span><span class="p">,</span>
+                <span class="s2">"cast_config_grad_output_for_grad_weight"</span><span class="p">,</span>
                 <span class="bp">self</span><span class="o">.</span><span class="n">cast_config_grad_output</span><span class="p">,</span>
             <span class="p">)</span>
 
         <span class="c1"># float8 all-gather only supports tensorwise, in the future may support blockwise</span>
         <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">cast_config_weight</span><span class="o">.</span><span class="n">scaling_granularity</span> <span class="o">!=</span> <span class="n">ScalingGranularity</span><span class="o">.</span><span class="n">TENSORWISE</span><span class="p">:</span>
             <span class="k">assert</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">enable_fsdp_float8_all_gather</span><span class="p">,</span> <span class="p">(</span>
-                <span class="sa">f</span><span class="s2">&quot;enable_fsdp_float8_all_gather only supports tensorwise scaling granularity, got </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">cast_config_weight</span><span class="o">.</span><span class="n">scaling_granularity</span><span class="si">}</span><span class="s2">&quot;</span>
+                <span class="sa">f</span><span class="s2">"enable_fsdp_float8_all_gather only supports tensorwise scaling granularity, got </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">cast_config_weight</span><span class="o">.</span><span class="n">scaling_granularity</span><span class="si">}</span><span class="s2">"</span>
             <span class="p">)</span>
 
         <span class="c1"># save some characters in the compatibility checks below</span>
@@ -1681,33 +1681,33 @@ document.write(`
         <span class="c1"># in high precision, or both in float8. In the future, this may be relaxed.</span>
         <span class="c1"># TODO(future): make the float8 check more precise with the specific dtypes.</span>
         <span class="k">for</span> <span class="n">cc1</span><span class="p">,</span> <span class="n">cc2</span><span class="p">,</span> <span class="n">gemm_name</span> <span class="ow">in</span> <span class="p">(</span>
-            <span class="p">(</span><span class="n">cc_i</span><span class="p">,</span> <span class="n">cc_w</span><span class="p">,</span> <span class="s2">&quot;output&quot;</span><span class="p">),</span>
-            <span class="p">(</span><span class="n">cc_go</span><span class="p">,</span> <span class="n">cc_w_gi</span><span class="p">,</span> <span class="s2">&quot;grad_input&quot;</span><span class="p">),</span>
-            <span class="p">(</span><span class="n">cc_i_gw</span><span class="p">,</span> <span class="n">cc_go_gw</span><span class="p">,</span> <span class="s2">&quot;grad_weight&quot;</span><span class="p">),</span>
+            <span class="p">(</span><span class="n">cc_i</span><span class="p">,</span> <span class="n">cc_w</span><span class="p">,</span> <span class="s2">"output"</span><span class="p">),</span>
+            <span class="p">(</span><span class="n">cc_go</span><span class="p">,</span> <span class="n">cc_w_gi</span><span class="p">,</span> <span class="s2">"grad_input"</span><span class="p">),</span>
+            <span class="p">(</span><span class="n">cc_i_gw</span><span class="p">,</span> <span class="n">cc_go_gw</span><span class="p">,</span> <span class="s2">"grad_weight"</span><span class="p">),</span>
         <span class="p">):</span>
             <span class="n">is_disabled_1</span> <span class="o">=</span> <span class="n">cc1</span><span class="o">.</span><span class="n">scaling_type</span> <span class="ow">is</span> <span class="n">ScalingType</span><span class="o">.</span><span class="n">DISABLED</span>
             <span class="n">is_disabled_2</span> <span class="o">=</span> <span class="n">cc2</span><span class="o">.</span><span class="n">scaling_type</span> <span class="ow">is</span> <span class="n">ScalingType</span><span class="o">.</span><span class="n">DISABLED</span>
             <span class="k">assert</span> <span class="n">is_disabled_1</span> <span class="o">==</span> <span class="n">is_disabled_2</span><span class="p">,</span> <span class="p">(</span>
-                <span class="sa">f</span><span class="s2">&quot;incompatible operand precision for </span><span class="si">{</span><span class="n">gemm_name</span><span class="si">}</span><span class="s2">&quot;</span>
+                <span class="sa">f</span><span class="s2">"incompatible operand precision for </span><span class="si">{</span><span class="n">gemm_name</span><span class="si">}</span><span class="s2">"</span>
             <span class="p">)</span>
 
         <span class="k">for</span> <span class="n">cc1</span><span class="p">,</span> <span class="n">cc2</span><span class="p">,</span> <span class="n">operand_name</span><span class="p">,</span> <span class="n">default_dtype</span> <span class="ow">in</span> <span class="p">[</span>
-            <span class="p">(</span><span class="n">cc_i</span><span class="p">,</span> <span class="n">cc_i_gw</span><span class="p">,</span> <span class="s2">&quot;input&quot;</span><span class="p">,</span> <span class="n">e4m3_dtype</span><span class="p">),</span>
-            <span class="p">(</span><span class="n">cc_w</span><span class="p">,</span> <span class="n">cc_w_gi</span><span class="p">,</span> <span class="s2">&quot;weight&quot;</span><span class="p">,</span> <span class="n">e4m3_dtype</span><span class="p">),</span>
-            <span class="p">(</span><span class="n">cc_go</span><span class="p">,</span> <span class="n">cc_go_gw</span><span class="p">,</span> <span class="s2">&quot;grad_output&quot;</span><span class="p">,</span> <span class="n">e5m2_dtype</span><span class="p">),</span>
+            <span class="p">(</span><span class="n">cc_i</span><span class="p">,</span> <span class="n">cc_i_gw</span><span class="p">,</span> <span class="s2">"input"</span><span class="p">,</span> <span class="n">e4m3_dtype</span><span class="p">),</span>
+            <span class="p">(</span><span class="n">cc_w</span><span class="p">,</span> <span class="n">cc_w_gi</span><span class="p">,</span> <span class="s2">"weight"</span><span class="p">,</span> <span class="n">e4m3_dtype</span><span class="p">),</span>
+            <span class="p">(</span><span class="n">cc_go</span><span class="p">,</span> <span class="n">cc_go_gw</span><span class="p">,</span> <span class="s2">"grad_output"</span><span class="p">,</span> <span class="n">e5m2_dtype</span><span class="p">),</span>
         <span class="p">]:</span>
             <span class="c1"># Override the dataclass being frozen</span>
             <span class="k">if</span> <span class="n">cc1</span><span class="o">.</span><span class="n">target_dtype</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
-                <span class="nb">object</span><span class="o">.</span><span class="fm">__setattr__</span><span class="p">(</span><span class="n">cc1</span><span class="p">,</span> <span class="s2">&quot;target_dtype&quot;</span><span class="p">,</span> <span class="n">default_dtype</span><span class="p">)</span>
+                <span class="nb">object</span><span class="o">.</span><span class="fm">__setattr__</span><span class="p">(</span><span class="n">cc1</span><span class="p">,</span> <span class="s2">"target_dtype"</span><span class="p">,</span> <span class="n">default_dtype</span><span class="p">)</span>
             <span class="k">if</span> <span class="n">cc2</span><span class="o">.</span><span class="n">target_dtype</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
-                <span class="nb">object</span><span class="o">.</span><span class="fm">__setattr__</span><span class="p">(</span><span class="n">cc2</span><span class="p">,</span> <span class="s2">&quot;target_dtype&quot;</span><span class="p">,</span> <span class="n">default_dtype</span><span class="p">)</span>
+                <span class="nb">object</span><span class="o">.</span><span class="fm">__setattr__</span><span class="p">(</span><span class="n">cc2</span><span class="p">,</span> <span class="s2">"target_dtype"</span><span class="p">,</span> <span class="n">default_dtype</span><span class="p">)</span>
             <span class="k">assert</span> <span class="n">cc1</span><span class="o">.</span><span class="n">target_dtype</span> <span class="o">==</span> <span class="n">cc2</span><span class="o">.</span><span class="n">target_dtype</span><span class="p">,</span> <span class="p">(</span>
-                <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">operand_name</span><span class="si">}</span><span class="s2"> must be cast to the same dtype in both matmuls it&#39;s used in&quot;</span>
+                <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">operand_name</span><span class="si">}</span><span class="s2"> must be cast to the same dtype in both matmuls it's used in"</span>
             <span class="p">)</span>
 
         <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">force_recompute_fp8_weight_in_bwd</span><span class="p">:</span>
             <span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span>
-                <span class="s2">&quot;`config.force_recompute_fp8_weight_in_bwd` is deprecated and will be removed in a future release. Please see https://github.com/pytorch/ao/issues/2251 for more details.&quot;</span>
+                <span class="s2">"`config.force_recompute_fp8_weight_in_bwd` is deprecated and will be removed in a future release. Please see https://github.com/pytorch/ao/issues/2251 for more details."</span>
             <span class="p">)</span>
 
 <div class="viewcode-block" id="Float8LinearConfig.from_recipe_name">
@@ -1715,15 +1715,15 @@ document.write(`
     <span class="nd">@staticmethod</span>
     <span class="k">def</span><span class="w"> </span><span class="nf">from_recipe_name</span><span class="p">(</span>
         <span class="n">recipe_name</span><span class="p">:</span> <span class="n">Union</span><span class="p">[</span><span class="n">Float8LinearRecipeName</span><span class="p">,</span> <span class="nb">str</span><span class="p">],</span>
-    <span class="p">)</span> <span class="o">-&gt;</span> <span class="s2">&quot;Float8LinearConfig&quot;</span><span class="p">:</span>
-<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="s2">"Float8LinearConfig"</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">"""</span>
 <span class="sd">        Input: `Float8LinearRecipeName` value, or a string representing a `Float8LinearRecipeName` value</span>
 <span class="sd">        Output: a `Float8LinearConfig` configured to implement the specified recipe</span>
-<span class="sd">        &quot;&quot;&quot;</span>
+<span class="sd">        """</span>
         <span class="k">if</span> <span class="nb">type</span><span class="p">(</span><span class="n">recipe_name</span><span class="p">)</span> <span class="o">==</span> <span class="nb">str</span><span class="p">:</span>
             <span class="n">valid_names</span> <span class="o">=</span> <span class="p">[</span><span class="n">n</span><span class="o">.</span><span class="n">value</span> <span class="k">for</span> <span class="n">n</span> <span class="ow">in</span> <span class="n">Float8LinearRecipeName</span><span class="p">]</span>
             <span class="k">assert</span> <span class="n">recipe_name</span> <span class="ow">in</span> <span class="n">valid_names</span><span class="p">,</span> <span class="p">(</span>
-                <span class="sa">f</span><span class="s2">&quot;recipe_name </span><span class="si">{</span><span class="n">recipe_name</span><span class="si">}</span><span class="s2"> not in valid names </span><span class="si">{</span><span class="n">valid_names</span><span class="si">}</span><span class="s2">&quot;</span>
+                <span class="sa">f</span><span class="s2">"recipe_name </span><span class="si">{</span><span class="n">recipe_name</span><span class="si">}</span><span class="s2"> not in valid names </span><span class="si">{</span><span class="n">valid_names</span><span class="si">}</span><span class="s2">"</span>
             <span class="p">)</span>
             <span class="n">recipe_name</span> <span class="o">=</span> <span class="n">Float8LinearRecipeName</span><span class="p">(</span><span class="n">recipe_name</span><span class="p">)</span>
 
@@ -1777,7 +1777,7 @@ document.write(`
             <span class="p">)</span>
 
         <span class="k">else</span><span class="p">:</span>
-            <span class="k">raise</span> <span class="ne">AssertionError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;unknown recipe_name </span><span class="si">{</span><span class="n">recipe_name</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span></div>
+            <span class="k">raise</span> <span class="ne">AssertionError</span><span class="p">(</span><span class="sa">f</span><span class="s2">"unknown recipe_name </span><span class="si">{</span><span class="n">recipe_name</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span></div>
 </div>
 
 </pre></div>

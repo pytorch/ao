@@ -172,7 +172,7 @@ window.addEventListener("load", () => mermaid.run());
   fbq('track', 'PageView');
 </script>
 <script>
-  document.documentElement.setAttribute('data-version', 'main (0.19.0+gitd37142a )');
+  document.documentElement.setAttribute('data-version', 'main (0.19.0+gitf10e69b )');
 </script>
 <noscript>
   <img height="1" width="1" src="https://www.facebook.com/tr?id=243028289693773&ev=PageView&noscript=1" />
@@ -1422,7 +1422,7 @@ document.write(`
 <div class="viewcode-block" id="FakeQuantizedLinear">
 <a class="viewcode-back" href="../../../../api_reference/generated/torchao.quantization.qat.FakeQuantizedLinear.html#torchao.quantization.qat.FakeQuantizedLinear">[docs]</a>
 <span class="k">class</span><span class="w"> </span><span class="nc">FakeQuantizedLinear</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">"""</span>
 <span class="sd">    General linear layer with fake quantized weights and activations.</span>
 
 <span class="sd">    Specific target dtypes, granularity, schemes etc. are specified</span>
@@ -1432,7 +1432,7 @@ document.write(`
 
 <span class="sd">        activation_config = IntxFakeQuantizeConfig(</span>
 <span class="sd">            dtype=torch.int8,</span>
-<span class="sd">            granularity=&quot;per_token&quot;,</span>
+<span class="sd">            granularity="per_token",</span>
 <span class="sd">            is_symmetric=False,</span>
 <span class="sd">        )</span>
 <span class="sd">        weight_config = IntxFakeQuantizeConfig(</span>
@@ -1444,7 +1444,7 @@ document.write(`
 <span class="sd">            16, 32, False, activation_config, weight_config,</span>
 <span class="sd">        )</span>
 <span class="sd">        fq_linear(torch.randn(16))</span>
-<span class="sd">    &quot;&quot;&quot;</span>
+<span class="sd">    """</span>
 
     <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span>
         <span class="bp">self</span><span class="p">,</span>
@@ -1463,7 +1463,7 @@ document.write(`
             <span class="o">*</span><span class="n">args</span><span class="p">,</span>
             <span class="o">**</span><span class="n">kwargs</span><span class="p">,</span>
         <span class="p">)</span>
-        <span class="n">torch</span><span class="o">.</span><span class="n">_C</span><span class="o">.</span><span class="n">_log_api_usage_once</span><span class="p">(</span><span class="s2">&quot;torchao.quantization.qat.FakeQuantizedLinear&quot;</span><span class="p">)</span>
+        <span class="n">torch</span><span class="o">.</span><span class="n">_C</span><span class="o">.</span><span class="n">_log_api_usage_once</span><span class="p">(</span><span class="s2">"torchao.quantization.qat.FakeQuantizedLinear"</span><span class="p">)</span>
         <span class="c1"># initialize activation fake quantizer</span>
         <span class="k">if</span> <span class="n">activation_config</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">activation_fake_quantizer</span> <span class="o">=</span> <span class="n">FakeQuantizerBase</span><span class="o">.</span><span class="n">from_config</span><span class="p">(</span>
@@ -1480,7 +1480,7 @@ document.write(`
                 <span class="n">group_size</span> <span class="o">=</span> <span class="n">weight_config</span><span class="o">.</span><span class="n">group_size</span>
                 <span class="k">if</span> <span class="n">group_size</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="n">in_features</span> <span class="o">%</span> <span class="n">group_size</span> <span class="o">!=</span> <span class="mi">0</span><span class="p">:</span>
                     <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
-                        <span class="s2">&quot;in_features (</span><span class="si">%s</span><span class="s2">) </span><span class="si">%%</span><span class="s2"> group_size (</span><span class="si">%s</span><span class="s2">) must be == 0&quot;</span>
+                        <span class="s2">"in_features (</span><span class="si">%s</span><span class="s2">) </span><span class="si">%%</span><span class="s2"> group_size (</span><span class="si">%s</span><span class="s2">) must be == 0"</span>
                         <span class="o">%</span> <span class="p">(</span><span class="n">in_features</span><span class="p">,</span> <span class="n">group_size</span><span class="p">)</span>
                     <span class="p">)</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">weight_fake_quantizer</span> <span class="o">=</span> <span class="n">FakeQuantizerBase</span><span class="o">.</span><span class="n">from_config</span><span class="p">(</span><span class="n">weight_config</span><span class="p">)</span>
@@ -1510,7 +1510,7 @@ document.write(`
         <span class="c1"># In distributed training, the model may be instantiated</span>
         <span class="c1"># on the meta device, in which case there is no need to</span>
         <span class="c1"># copy the weights, and doing so will result in an error</span>
-        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">weight</span><span class="o">.</span><span class="n">device</span> <span class="o">!=</span> <span class="n">torch</span><span class="o">.</span><span class="n">device</span><span class="p">(</span><span class="s2">&quot;meta&quot;</span><span class="p">):</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">weight</span><span class="o">.</span><span class="n">device</span> <span class="o">!=</span> <span class="n">torch</span><span class="o">.</span><span class="n">device</span><span class="p">(</span><span class="s2">"meta"</span><span class="p">):</span>
             <span class="n">new_linear</span><span class="o">.</span><span class="n">weight</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">weight</span>
             <span class="n">new_linear</span><span class="o">.</span><span class="n">bias</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">bias</span>
         <span class="k">return</span> <span class="n">new_linear</span>
@@ -1534,7 +1534,7 @@ document.write(`
         <span class="c1"># In distributed training, the model may be instantiated</span>
         <span class="c1"># on the meta device, in which case there is no need to</span>
         <span class="c1"># copy the weights, and doing so will result in an error</span>
-        <span class="k">if</span> <span class="n">mod</span><span class="o">.</span><span class="n">weight</span><span class="o">.</span><span class="n">device</span> <span class="o">!=</span> <span class="n">torch</span><span class="o">.</span><span class="n">device</span><span class="p">(</span><span class="s2">&quot;meta&quot;</span><span class="p">):</span>
+        <span class="k">if</span> <span class="n">mod</span><span class="o">.</span><span class="n">weight</span><span class="o">.</span><span class="n">device</span> <span class="o">!=</span> <span class="n">torch</span><span class="o">.</span><span class="n">device</span><span class="p">(</span><span class="s2">"meta"</span><span class="p">):</span>
             <span class="n">new_linear</span><span class="o">.</span><span class="n">weight</span> <span class="o">=</span> <span class="n">mod</span><span class="o">.</span><span class="n">weight</span>
             <span class="n">new_linear</span><span class="o">.</span><span class="n">bias</span> <span class="o">=</span> <span class="n">mod</span><span class="o">.</span><span class="n">bias</span>
         <span class="k">return</span> <span class="n">new_linear</span></div>
@@ -1547,9 +1547,9 @@ document.write(`
     <span class="n">mod</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">,</span>
     <span class="n">enabled</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
 <span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">"""</span>
 <span class="sd">    Helper function to enable fake quantization in `FakeQuantizedLinear`.</span>
-<span class="sd">    &quot;&quot;&quot;</span>
+<span class="sd">    """</span>
     <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">mod</span><span class="p">,</span> <span class="n">FakeQuantizedLinear</span><span class="p">):</span>
         <span class="k">if</span> <span class="n">mod</span><span class="o">.</span><span class="n">activation_fake_quantizer</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
             <span class="n">mod</span><span class="o">.</span><span class="n">activation_fake_quantizer</span><span class="o">.</span><span class="n">enabled</span> <span class="o">=</span> <span class="n">enabled</span>
@@ -1561,9 +1561,9 @@ document.write(`
 <div class="viewcode-block" id="disable_linear_fake_quant">
 <a class="viewcode-back" href="../../../../api_reference/generated/torchao.quantization.qat.linear.disable_linear_fake_quant.html#torchao.quantization.qat.disable_linear_fake_quant">[docs]</a>
 <span class="k">def</span><span class="w"> </span><span class="nf">disable_linear_fake_quant</span><span class="p">(</span><span class="n">mod</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">"""</span>
 <span class="sd">    Helper function to disable fake quantization in `FakeQuantizedLinear`.</span>
-<span class="sd">    &quot;&quot;&quot;</span>
+<span class="sd">    """</span>
     <span class="n">enable_linear_fake_quant</span><span class="p">(</span><span class="n">mod</span><span class="p">,</span> <span class="n">enabled</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span></div>
 
 
@@ -1574,9 +1574,9 @@ document.write(`
 
 
 <span class="k">class</span><span class="w"> </span><span class="nc">_LegacyQATQuantizer</span><span class="p">(</span><span class="n">TwoStepQuantizer</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">"""</span>
 <span class="sd">    Base class for sharing common methods across legacy QAT quantizers.</span>
-<span class="sd">    &quot;&quot;&quot;</span>
+<span class="sd">    """</span>
 
     <span class="k">def</span><span class="w"> </span><span class="nf">get_activation_fake_quantize_config</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Optional</span><span class="p">[</span><span class="n">FakeQuantizeConfigBase</span><span class="p">]:</span>
         <span class="k">return</span> <span class="kc">None</span>
@@ -1593,11 +1593,11 @@ document.write(`
 <div class="viewcode-block" id="Int8DynActInt4WeightQATQuantizer">
 <a class="viewcode-back" href="../../../../api_reference/generated/torchao.quantization.qat.Int8DynActInt4WeightQATQuantizer.html#torchao.quantization.qat.Int8DynActInt4WeightQATQuantizer">[docs]</a>
 <span class="k">class</span><span class="w"> </span><span class="nc">Int8DynActInt4WeightQATQuantizer</span><span class="p">(</span><span class="n">_LegacyQATQuantizer</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">"""</span>
 <span class="sd">    Quantizer for performing QAT on a model, where linear layers have int8</span>
 <span class="sd">    dynamic per token fake quantized activations and int4 fake quantized</span>
 <span class="sd">    grouped per channel weights.</span>
-<span class="sd">    &quot;&quot;&quot;</span>
+<span class="sd">    """</span>
 
     <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span>
         <span class="bp">self</span><span class="p">,</span>
@@ -1608,7 +1608,7 @@ document.write(`
     <span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
         <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">()</span>
         <span class="n">torch</span><span class="o">.</span><span class="n">_C</span><span class="o">.</span><span class="n">_log_api_usage_once</span><span class="p">(</span>
-            <span class="s2">&quot;torchao.quantization.qat.Int8DynActInt4WeightQATQuantizer&quot;</span>
+            <span class="s2">"torchao.quantization.qat.Int8DynActInt4WeightQATQuantizer"</span>
         <span class="p">)</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">groupsize</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="n">groupsize</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">padding_allowed</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="n">padding_allowed</span>
@@ -1638,9 +1638,9 @@ document.write(`
         <span class="k">return</span> <span class="n">model</span>
 
     <span class="k">def</span><span class="w"> </span><span class="nf">_convert_qat_linear_8da4w</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">module</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">):</span>
-<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="w">        </span><span class="sd">"""</span>
 <span class="sd">        Replace all `Int8DynActInt4WeightQATLinear` with `Int8DynActInt4WeightLinear`.</span>
-<span class="sd">        &quot;&quot;&quot;</span>
+<span class="sd">        """</span>
         <span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="n">child</span> <span class="ow">in</span> <span class="n">module</span><span class="o">.</span><span class="n">named_children</span><span class="p">():</span>
             <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">child</span><span class="p">,</span> <span class="n">Int8DynActInt4WeightQATLinear</span><span class="p">):</span>
                 <span class="n">config</span> <span class="o">=</span> <span class="n">child</span><span class="o">.</span><span class="n">weight_fake_quantizer</span><span class="o">.</span><span class="n">config</span>
@@ -1696,7 +1696,7 @@ document.write(`
 <div class="viewcode-block" id="Int8DynActInt4WeightQATLinear">
 <a class="viewcode-back" href="../../../../api_reference/generated/torchao.quantization.qat.linear.Int8DynActInt4WeightQATLinear.html#torchao.quantization.qat.Int8DynActInt4WeightQATLinear">[docs]</a>
 <span class="k">class</span><span class="w"> </span><span class="nc">Int8DynActInt4WeightQATLinear</span><span class="p">(</span><span class="n">FakeQuantizedLinear</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">"""</span>
 <span class="sd">    This module implements a linear layer with int8 dynamic per token fake</span>
 <span class="sd">    quantized activations with int4 fake quantized grouped per channel weights.</span>
 
@@ -1707,7 +1707,7 @@ document.write(`
 
 <span class="sd">    Note: we hardcode activation scales to use torch.fp32, but allow users to specify the weight scales (defaults to torch.fp32).</span>
 <span class="sd">    Here scales_precision refers specifically to the weight scales only, not the activation scales.</span>
-<span class="sd">    &quot;&quot;&quot;</span>
+<span class="sd">    """</span>
 
     <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span>
         <span class="bp">self</span><span class="p">,</span>
@@ -1744,18 +1744,18 @@ document.write(`
 
 <span class="c1"># TODO: remove these in favor of enable_linear_fake_quant</span>
 <span class="k">def</span><span class="w"> </span><span class="nf">enable_8da4w_fake_quant</span><span class="p">(</span><span class="n">mod</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">"""</span>
 <span class="sd">    (deprecated) Enable fake quantization for `Int8DynActInt4WeightQATLinear`.</span>
-<span class="sd">    &quot;&quot;&quot;</span>
+<span class="sd">    """</span>
     <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">mod</span><span class="p">,</span> <span class="n">Int8DynActInt4WeightQATLinear</span><span class="p">):</span>
         <span class="n">mod</span><span class="o">.</span><span class="n">enable_fake_quant</span><span class="p">()</span>
 
 
 <span class="c1"># TODO: remove in favor of disable_linear_fake_quant</span>
 <span class="k">def</span><span class="w"> </span><span class="nf">disable_8da4w_fake_quant</span><span class="p">(</span><span class="n">mod</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">"""</span>
 <span class="sd">    (deprecated) Disable fake quantization for `Int8DynActInt4WeightQATLinear`.</span>
-<span class="sd">    &quot;&quot;&quot;</span>
+<span class="sd">    """</span>
     <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">mod</span><span class="p">,</span> <span class="n">Int8DynActInt4WeightQATLinear</span><span class="p">):</span>
         <span class="n">mod</span><span class="o">.</span><span class="n">disable_fake_quant</span><span class="p">()</span>
 
@@ -1763,14 +1763,14 @@ document.write(`
 <span class="k">def</span><span class="w"> </span><span class="nf">_get_8da4w_activation_config</span><span class="p">(</span>
     <span class="n">qparams_precision</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">dtype</span><span class="p">,</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">IntxFakeQuantizeConfig</span><span class="p">:</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">"""</span>
 <span class="sd">    Return the activation `IntxFakeQuantizeConfig` for `Int8DynActInt4WeightQATQuantizer`.</span>
-<span class="sd">    &quot;&quot;&quot;</span>
+<span class="sd">    """</span>
     <span class="c1"># TODO: generalize this</span>
     <span class="k">assert</span> <span class="n">qparams_precision</span> <span class="o">==</span> <span class="n">torch</span><span class="o">.</span><span class="n">float32</span>
     <span class="k">return</span> <span class="n">IntxFakeQuantizeConfig</span><span class="p">(</span>
         <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">int8</span><span class="p">,</span>
-        <span class="n">granularity</span><span class="o">=</span><span class="s2">&quot;per_token&quot;</span><span class="p">,</span>
+        <span class="n">granularity</span><span class="o">=</span><span class="s2">"per_token"</span><span class="p">,</span>
         <span class="n">is_symmetric</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
         <span class="n">is_dynamic</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
         <span class="n">scale_precision</span><span class="o">=</span><span class="n">qparams_precision</span><span class="p">,</span>
@@ -1783,9 +1783,9 @@ document.write(`
     <span class="n">group_size</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
     <span class="n">qparams_precision</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">dtype</span><span class="p">,</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">IntxFakeQuantizeConfig</span><span class="p">:</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">"""</span>
 <span class="sd">    Return the weight `IntxFakeQuantizeConfig` for `Int8DynActInt4WeightQATQuantizer`.</span>
-<span class="sd">    &quot;&quot;&quot;</span>
+<span class="sd">    """</span>
     <span class="k">return</span> <span class="n">IntxFakeQuantizeConfig</span><span class="p">(</span>
         <span class="n">dtype</span><span class="o">=</span><span class="n">TorchAODType</span><span class="o">.</span><span class="n">INT4</span><span class="p">,</span>
         <span class="n">group_size</span><span class="o">=</span><span class="n">group_size</span><span class="p">,</span>
@@ -1804,10 +1804,10 @@ document.write(`
 <div class="viewcode-block" id="Int4WeightOnlyQATQuantizer">
 <a class="viewcode-back" href="../../../../api_reference/generated/torchao.quantization.qat.Int4WeightOnlyQATQuantizer.html#torchao.quantization.qat.Int4WeightOnlyQATQuantizer">[docs]</a>
 <span class="k">class</span><span class="w"> </span><span class="nc">Int4WeightOnlyQATQuantizer</span><span class="p">(</span><span class="n">_LegacyQATQuantizer</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">"""</span>
 <span class="sd">    Quantizer for performing QAT on a model, where linear layers have</span>
 <span class="sd">    int4 fake quantized grouped per channel weights.</span>
-<span class="sd">    &quot;&quot;&quot;</span>
+<span class="sd">    """</span>
 
     <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span>
         <span class="bp">self</span><span class="p">,</span>
@@ -1818,7 +1818,7 @@ document.write(`
     <span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
         <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">()</span>
         <span class="n">torch</span><span class="o">.</span><span class="n">_C</span><span class="o">.</span><span class="n">_log_api_usage_once</span><span class="p">(</span>
-            <span class="s2">&quot;torchao.quantization.qat.Int4WeightOnlyQATQuantizer&quot;</span>
+            <span class="s2">"torchao.quantization.qat.Int4WeightOnlyQATQuantizer"</span>
         <span class="p">)</span>
         <span class="k">assert</span> <span class="n">inner_k_tiles</span> <span class="ow">in</span> <span class="p">[</span><span class="mi">2</span><span class="p">,</span> <span class="mi">4</span><span class="p">,</span> <span class="mi">8</span><span class="p">]</span>
         <span class="k">assert</span> <span class="n">groupsize</span> <span class="ow">in</span> <span class="p">[</span><span class="mi">32</span><span class="p">,</span> <span class="mi">64</span><span class="p">,</span> <span class="mi">128</span><span class="p">,</span> <span class="mi">256</span><span class="p">]</span>
@@ -1849,9 +1849,9 @@ document.write(`
         <span class="k">return</span> <span class="n">model</span>
 
     <span class="k">def</span><span class="w"> </span><span class="nf">_convert_qat_linear_4w</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">module</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">):</span>
-<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="w">        </span><span class="sd">"""</span>
 <span class="sd">        Replace all `Int4WeightOnlyQATLinear` with `WeightOnlyInt4Linear`.</span>
-<span class="sd">        &quot;&quot;&quot;</span>
+<span class="sd">        """</span>
         <span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="n">child</span> <span class="ow">in</span> <span class="n">module</span><span class="o">.</span><span class="n">named_children</span><span class="p">():</span>
             <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">child</span><span class="p">,</span> <span class="n">Int4WeightOnlyQATLinear</span><span class="p">):</span>
                 <span class="n">in_features</span> <span class="o">=</span> <span class="n">child</span><span class="o">.</span><span class="n">in_features</span>
@@ -1877,7 +1877,7 @@ document.write(`
                     <span class="n">n_bit</span><span class="p">,</span>
                     <span class="n">config</span><span class="o">.</span><span class="n">group_size</span><span class="p">,</span>
                 <span class="p">)</span>
-                <span class="k">if</span> <span class="n">_is_device</span><span class="p">(</span><span class="n">q_weight</span><span class="o">.</span><span class="n">device</span><span class="o">.</span><span class="n">type</span><span class="p">,</span> <span class="s2">&quot;cpu&quot;</span><span class="p">):</span>
+                <span class="k">if</span> <span class="n">_is_device</span><span class="p">(</span><span class="n">q_weight</span><span class="o">.</span><span class="n">device</span><span class="o">.</span><span class="n">type</span><span class="p">,</span> <span class="s2">"cpu"</span><span class="p">):</span>
                     <span class="n">q_weight</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">ops</span><span class="o">.</span><span class="n">aten</span><span class="o">.</span><span class="n">_convert_weight_to_int4pack_for_cpu</span><span class="p">(</span>
                         <span class="n">q_weight</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">child</span><span class="o">.</span><span class="n">weight</span><span class="o">.</span><span class="n">device</span><span class="p">),</span>
                         <span class="n">child</span><span class="o">.</span><span class="n">inner_k_tiles</span><span class="p">,</span>
@@ -1900,7 +1900,7 @@ document.write(`
 <div class="viewcode-block" id="Int4WeightOnlyQATLinear">
 <a class="viewcode-back" href="../../../../api_reference/generated/torchao.quantization.qat.linear.Int4WeightOnlyQATLinear.html#torchao.quantization.qat.Int4WeightOnlyQATLinear">[docs]</a>
 <span class="k">class</span><span class="w"> </span><span class="nc">Int4WeightOnlyQATLinear</span><span class="p">(</span><span class="n">FakeQuantizedLinear</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">"""</span>
 <span class="sd">    This module implements a linear layer with int4 fake quantized grouped</span>
 <span class="sd">    per channel weights, with forward numerics matching `WeightOnlyInt4Linear`,</span>
 <span class="sd">    which uses the efficient int4 tinygemm kernel.</span>
@@ -1909,7 +1909,7 @@ document.write(`
 <span class="sd">        groupsize: the number of elements in each quantized group for weights</span>
 <span class="sd">        precision: precision of weights</span>
 <span class="sd">        scales_precision: precision of per group scales and zero points</span>
-<span class="sd">    &quot;&quot;&quot;</span>
+<span class="sd">    """</span>
 
     <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span>
         <span class="bp">self</span><span class="p">,</span>
@@ -1922,9 +1922,9 @@ document.write(`
         <span class="n">precision</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">dtype</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">bfloat16</span><span class="p">,</span>
         <span class="n">scales_precision</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">dtype</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">bfloat16</span><span class="p">,</span>
     <span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
-        <span class="k">assert</span> <span class="n">scales_precision</span> <span class="o">==</span> <span class="n">torch</span><span class="o">.</span><span class="n">bfloat16</span><span class="p">,</span> <span class="s2">&quot;only bf16 is supported for scales&quot;</span>
+        <span class="k">assert</span> <span class="n">scales_precision</span> <span class="o">==</span> <span class="n">torch</span><span class="o">.</span><span class="n">bfloat16</span><span class="p">,</span> <span class="s2">"only bf16 is supported for scales"</span>
         <span class="k">if</span> <span class="ow">not</span> <span class="n">_check_linear_int4_k</span><span class="p">(</span><span class="n">in_features</span><span class="p">,</span> <span class="n">groupsize</span><span class="p">,</span> <span class="n">inner_k_tiles</span><span class="p">):</span>
-            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;Padding for QAT 4w is not supported yet&quot;</span><span class="p">)</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">"Padding for QAT 4w is not supported yet"</span><span class="p">)</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">inner_k_tiles</span> <span class="o">=</span> <span class="n">inner_k_tiles</span>
         <span class="n">weight_config</span> <span class="o">=</span> <span class="n">_get_4w_weight_config</span><span class="p">(</span><span class="n">groupsize</span><span class="p">,</span> <span class="n">scales_precision</span><span class="p">)</span>
         <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">(</span>
@@ -1948,18 +1948,18 @@ document.write(`
 
 <span class="c1"># TODO: remove these in favor of enable_linear_fake_quant</span>
 <span class="k">def</span><span class="w"> </span><span class="nf">enable_4w_fake_quant</span><span class="p">(</span><span class="n">mod</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">"""</span>
 <span class="sd">    (deprecated) Enable fake quantization for `Int4WeightOnlyQATLinear`.</span>
-<span class="sd">    &quot;&quot;&quot;</span>
+<span class="sd">    """</span>
     <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">mod</span><span class="p">,</span> <span class="n">Int4WeightOnlyQATLinear</span><span class="p">):</span>
         <span class="n">mod</span><span class="o">.</span><span class="n">enable_fake_quant</span><span class="p">()</span>
 
 
 <span class="c1"># TODO: remove these in favor of disable_linear_fake_quant</span>
 <span class="k">def</span><span class="w"> </span><span class="nf">disable_4w_fake_quant</span><span class="p">(</span><span class="n">mod</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">"""</span>
 <span class="sd">    (deprecated) Disable fake quantization for `Int4WeightOnlyQATLinear`.</span>
-<span class="sd">    &quot;&quot;&quot;</span>
+<span class="sd">    """</span>
     <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">mod</span><span class="p">,</span> <span class="n">Int4WeightOnlyQATLinear</span><span class="p">):</span>
         <span class="n">mod</span><span class="o">.</span><span class="n">disable_fake_quant</span><span class="p">()</span>
 
@@ -1968,9 +1968,9 @@ document.write(`
     <span class="n">group_size</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
     <span class="n">qparams_precision</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">dtype</span><span class="p">,</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">IntxFakeQuantizeConfig</span><span class="p">:</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">"""</span>
 <span class="sd">    Return the weight `IntxFakeQuantizeConfig` for `Int4WeightOnlyQATQuantizer`.</span>
-<span class="sd">    &quot;&quot;&quot;</span>
+<span class="sd">    """</span>
     <span class="k">return</span> <span class="n">IntxFakeQuantizeConfig</span><span class="p">(</span>
         <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">uint4</span><span class="p">,</span>
         <span class="n">group_size</span><span class="o">=</span><span class="n">group_size</span><span class="p">,</span>
@@ -1990,7 +1990,7 @@ document.write(`
 <div class="viewcode-block" id="Float8ActInt4WeightQATQuantizer">
 <a class="viewcode-back" href="../../../../api_reference/generated/torchao.quantization.qat.Float8ActInt4WeightQATQuantizer.html#torchao.quantization.qat.Float8ActInt4WeightQATQuantizer">[docs]</a>
 <span class="k">class</span><span class="w"> </span><span class="nc">Float8ActInt4WeightQATQuantizer</span><span class="p">(</span><span class="n">_LegacyQATQuantizer</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">"""</span>
 <span class="sd">    QAT quantizer for applying dynamic rowwise float8 activation + int4</span>
 <span class="sd">    per group/channel symmetric weight fake quantization to linear layers</span>
 <span class="sd">    in the model. Currently only supports rowwise granularity for float8</span>
@@ -2000,7 +2000,7 @@ document.write(`
 <span class="sd">        group_size (Optional[int]): the number of elements in each quantized</span>
 <span class="sd">            group for weights, defaults to 64. Use None for per channel.</span>
 <span class="sd">        scale_precision: precision of weight scales, defaults to torch.bfloat16.</span>
-<span class="sd">    &quot;&quot;&quot;</span>
+<span class="sd">    """</span>
 
     <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span>
         <span class="bp">self</span><span class="p">,</span>
@@ -2008,12 +2008,12 @@ document.write(`
         <span class="n">scale_precision</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">dtype</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">bfloat16</span><span class="p">,</span>
     <span class="p">):</span>
         <span class="n">torch</span><span class="o">.</span><span class="n">_C</span><span class="o">.</span><span class="n">_log_api_usage_once</span><span class="p">(</span>
-            <span class="s2">&quot;torchao.quantization.qat.Float8ActInt4WeightQATQuantizer&quot;</span>
+            <span class="s2">"torchao.quantization.qat.Float8ActInt4WeightQATQuantizer"</span>
         <span class="p">)</span>
         <span class="k">if</span> <span class="n">group_size</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
-            <span class="n">weight_granularity</span> <span class="o">=</span> <span class="s2">&quot;per_group&quot;</span>
+            <span class="n">weight_granularity</span> <span class="o">=</span> <span class="s2">"per_group"</span>
         <span class="k">else</span><span class="p">:</span>
-            <span class="n">weight_granularity</span> <span class="o">=</span> <span class="s2">&quot;per_channel&quot;</span>
+            <span class="n">weight_granularity</span> <span class="o">=</span> <span class="s2">"per_channel"</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">_activation_config</span> <span class="o">=</span> <span class="n">Float8FakeQuantizeConfig</span><span class="p">(</span>
             <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">float8_e4m3fn</span><span class="p">,</span>
             <span class="n">granularity</span><span class="o">=</span><span class="n">PerRow</span><span class="p">(),</span>
@@ -2032,10 +2032,10 @@ document.write(`
     <span class="k">def</span><span class="w"> </span><span class="nf">prepare</span><span class="p">(</span>
         <span class="bp">self</span><span class="p">,</span> <span class="n">model</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">:</span> <span class="n">Any</span>
     <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">:</span>
-<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="w">        </span><span class="sd">"""</span>
 <span class="sd">        Swap all `nn.Linear` with `FakeQuantizedLinear` with float8</span>
 <span class="sd">        fake quantizer for activations and int4 fake quantizer for weights.</span>
-<span class="sd">        &quot;&quot;&quot;</span>
+<span class="sd">        """</span>
         <span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="n">child</span> <span class="ow">in</span> <span class="n">model</span><span class="o">.</span><span class="n">named_children</span><span class="p">():</span>
             <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">child</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">):</span>
                 <span class="n">new_linear</span> <span class="o">=</span> <span class="n">FakeQuantizedLinear</span><span class="o">.</span><span class="n">from_linear</span><span class="p">(</span>
@@ -2056,7 +2056,7 @@ document.write(`
         <span class="k">raise</span> <span class="ne">NotImplementedError</span>
 
     <span class="k">def</span><span class="w"> </span><span class="nf">get_activation_fake_quantize_config</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Optional</span><span class="p">[</span><span class="n">FakeQuantizeConfigBase</span><span class="p">]:</span>
-        <span class="k">raise</span> <span class="ne">NotImplementedError</span><span class="p">(</span><span class="s2">&quot;Float8 FakeQuantizeConfig does not exist yet&quot;</span><span class="p">)</span>
+        <span class="k">raise</span> <span class="ne">NotImplementedError</span><span class="p">(</span><span class="s2">"Float8 FakeQuantizeConfig does not exist yet"</span><span class="p">)</span>
 
     <span class="k">def</span><span class="w"> </span><span class="nf">get_weight_fake_quantize_config</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Optional</span><span class="p">[</span><span class="n">FakeQuantizeConfigBase</span><span class="p">]:</span>
         <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">weight_config</span></div>

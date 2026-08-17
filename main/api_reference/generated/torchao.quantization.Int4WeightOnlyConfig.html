@@ -173,7 +173,7 @@
   fbq('track', 'PageView');
 </script>
 <script>
-  document.documentElement.setAttribute('data-version', 'main (0.19.0+gitd37142a )');
+  document.documentElement.setAttribute('data-version', 'main (0.19.0+gitf10e69b )');
 </script>
 <noscript>
   <img height="1" width="1" src="https://www.facebook.com/tr?id=243028289693773&ev=PageView&noscript=1" />
@@ -1502,12 +1502,12 @@ currently support TINYGEMM (“tinygemm”) and HQQ (“hqq”)</p></li>
 
 <span class="kn">from</span><span class="w"> </span><span class="nn">torchao.quantization</span><span class="w"> </span><span class="kn">import</span> <span class="n">Int4WeightOnlyConfig</span><span class="p">,</span> <span class="n">quantize_</span>
 
-<span class="n">model</span> <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">Sequential</span><span class="p">(</span><span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">(</span><span class="mi">2048</span><span class="p">,</span> <span class="mi">2048</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="s2">&quot;cuda&quot;</span><span class="p">))</span>
+<span class="n">model</span> <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">Sequential</span><span class="p">(</span><span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">(</span><span class="mi">2048</span><span class="p">,</span> <span class="mi">2048</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="s2">"cuda"</span><span class="p">))</span>
 
 <span class="n">config</span> <span class="o">=</span> <span class="n">Int4WeightOnlyConfig</span><span class="p">(</span>
     <span class="n">group_size</span><span class="o">=</span><span class="mi">32</span><span class="p">,</span>
-    <span class="n">int4_packing_format</span><span class="o">=</span><span class="s2">&quot;tile_packed_to_4d&quot;</span><span class="p">,</span>
-    <span class="n">int4_choose_qparams_algorithm</span><span class="o">=</span><span class="s2">&quot;hqq&quot;</span><span class="p">,</span>
+    <span class="n">int4_packing_format</span><span class="o">=</span><span class="s2">"tile_packed_to_4d"</span><span class="p">,</span>
+    <span class="n">int4_choose_qparams_algorithm</span><span class="o">=</span><span class="s2">"hqq"</span><span class="p">,</span>
 <span class="p">)</span>
 
 <span class="n">quantize_</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="n">config</span><span class="p">)</span>

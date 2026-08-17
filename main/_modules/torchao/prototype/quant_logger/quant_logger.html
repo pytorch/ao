@@ -172,7 +172,7 @@ window.addEventListener("load", () => mermaid.run());
   fbq('track', 'PageView');
 </script>
 <script>
-  document.documentElement.setAttribute('data-version', 'main (0.19.0+gitd37142a )');
+  document.documentElement.setAttribute('data-version', 'main (0.19.0+gitf10e69b )');
 </script>
 <noscript>
   <img height="1" width="1" src="https://www.facebook.com/tr?id=243028289693773&ev=PageView&noscript=1" />
@@ -1395,31 +1395,31 @@ document.write(`
 <div class="viewcode-block" id="reset_counter">
 <a class="viewcode-back" href="../../../../api_reference/generated/torchao.prototype.quant_logger.reset_counter.html#torchao.prototype.quant_logger.reset_counter">[docs]</a>
 <span class="k">def</span><span class="w"> </span><span class="nf">reset_counter</span><span class="p">():</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Resets the global logging counter to zero.&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">"""Resets the global logging counter to zero."""</span>
     <span class="n">counter</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">=</span> <span class="mi">0</span></div>
 
 
 
 <span class="k">def</span><span class="w"> </span><span class="nf">get_default_stats</span><span class="p">(</span><span class="n">x</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Computes summary statistics for a tensor.</span>
+<span class="w">    </span><span class="sd">"""Computes summary statistics for a tensor.</span>
 
 <span class="sd">    Args:</span>
 <span class="sd">        x: Input tensor to compute statistics for.</span>
 
 <span class="sd">    Returns:</span>
 <span class="sd">        A tuple of (max_abs, avg, std) as Python floats.</span>
-<span class="sd">    &quot;&quot;&quot;</span>
+<span class="sd">    """</span>
     <span class="n">max_abs</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">max</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">abs</span><span class="p">(</span><span class="n">x</span><span class="p">))</span><span class="o">.</span><span class="n">item</span><span class="p">()</span>
     <span class="n">avg</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">mean</span><span class="p">(</span><span class="n">x</span><span class="p">)</span><span class="o">.</span><span class="n">item</span><span class="p">()</span>
     <span class="n">std</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">std</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">correction</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span><span class="o">.</span><span class="n">item</span><span class="p">()</span>
     <span class="k">return</span> <span class="n">max_abs</span><span class="p">,</span> <span class="n">avg</span><span class="p">,</span> <span class="n">std</span>
 
 
-<span class="nd">@torch</span><span class="o">.</span><span class="n">library</span><span class="o">.</span><span class="n">custom_op</span><span class="p">(</span><span class="s2">&quot;quant_logger::log_tensor&quot;</span><span class="p">,</span> <span class="n">mutates_args</span><span class="o">=</span><span class="p">(</span><span class="s2">&quot;x&quot;</span><span class="p">,))</span>
+<span class="nd">@torch</span><span class="o">.</span><span class="n">library</span><span class="o">.</span><span class="n">custom_op</span><span class="p">(</span><span class="s2">"quant_logger::log_tensor"</span><span class="p">,</span> <span class="n">mutates_args</span><span class="o">=</span><span class="p">(</span><span class="s2">"x"</span><span class="p">,))</span>
 <span class="k">def</span><span class="w"> </span><span class="nf">log_tensor</span><span class="p">(</span>
     <span class="n">x</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span> <span class="n">fqn</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">op</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">tag</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">extra</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Logs summary statistics for a tensor. This is the default implementation</span>
+<span class="w">    </span><span class="sd">"""Logs summary statistics for a tensor. This is the default implementation</span>
 <span class="sd">    that prints to stdout; users can redefine this custom op to customize</span>
 <span class="sd">    logging behavior (e.g. write to file, log custom stats).</span>
 
@@ -1430,24 +1430,24 @@ document.write(`
 <span class="sd">    Args:</span>
 <span class="sd">        x: The tensor to log statistics for.</span>
 <span class="sd">        fqn: Fully qualified name of the module parameter associated with this tensor.</span>
-<span class="sd">        op: The operation being logged (e.g. ``&quot;linear&quot;``), or ``&quot;&quot;`` for parameters.</span>
-<span class="sd">        tag: A tag categorizing the log entry (e.g. ``&quot;act&quot;`` for activations,</span>
-<span class="sd">            ``&quot;param&quot;`` for parameters).</span>
+<span class="sd">        op: The operation being logged (e.g. ``"linear"``), or ``""`` for parameters.</span>
+<span class="sd">        tag: A tag categorizing the log entry (e.g. ``"act"`` for activations,</span>
+<span class="sd">            ``"param"`` for parameters).</span>
 <span class="sd">        extra: Optional extra metadata string to include in the log line.</span>
 
 <span class="sd">    Example:</span>
 
 <span class="sd">    .. literalinclude:: ../../examples/prototype/quant_logger/log_tensor_example.py</span>
 <span class="sd">       :language: python</span>
-<span class="sd">    &quot;&quot;&quot;</span>
+<span class="sd">    """</span>
     <span class="n">counter_val</span> <span class="o">=</span> <span class="n">counter</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
     <span class="n">counter</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">+=</span> <span class="mi">1</span>
     <span class="n">max_abs</span><span class="p">,</span> <span class="n">avg</span><span class="p">,</span> <span class="n">std</span> <span class="o">=</span> <span class="n">get_default_stats</span><span class="p">(</span><span class="n">x</span><span class="p">)</span>
-    <span class="n">extra_str</span> <span class="o">=</span> <span class="s2">&quot;&quot;</span>
+    <span class="n">extra_str</span> <span class="o">=</span> <span class="s2">""</span>
     <span class="k">if</span> <span class="n">extra</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
-        <span class="n">extra_str</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">extra</span><span class="si">=}</span><span class="s2">, &quot;</span>
+        <span class="n">extra_str</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">extra</span><span class="si">=}</span><span class="s2">, "</span>
     <span class="nb">print</span><span class="p">(</span>
-        <span class="sa">f</span><span class="s2">&quot;t=</span><span class="si">{</span><span class="n">tag</span><span class="si">}</span><span class="s2">, c=</span><span class="si">{</span><span class="n">counter_val</span><span class="si">}</span><span class="s2">, </span><span class="si">{</span><span class="n">fqn</span><span class="si">=}</span><span class="s2">, </span><span class="si">{</span><span class="n">op</span><span class="si">=}</span><span class="s2">, </span><span class="si">{</span><span class="n">extra_str</span><span class="si">}</span><span class="s2">max_abs=</span><span class="si">{</span><span class="n">max_abs</span><span class="si">:</span><span class="s2">.2f</span><span class="si">}</span><span class="s2">, avg=</span><span class="si">{</span><span class="n">avg</span><span class="si">:</span><span class="s2">.2f</span><span class="si">}</span><span class="s2">, std=</span><span class="si">{</span><span class="n">std</span><span class="si">:</span><span class="s2">.2f</span><span class="si">}</span><span class="s2">&quot;</span>
+        <span class="sa">f</span><span class="s2">"t=</span><span class="si">{</span><span class="n">tag</span><span class="si">}</span><span class="s2">, c=</span><span class="si">{</span><span class="n">counter_val</span><span class="si">}</span><span class="s2">, </span><span class="si">{</span><span class="n">fqn</span><span class="si">=}</span><span class="s2">, </span><span class="si">{</span><span class="n">op</span><span class="si">=}</span><span class="s2">, </span><span class="si">{</span><span class="n">extra_str</span><span class="si">}</span><span class="s2">max_abs=</span><span class="si">{</span><span class="n">max_abs</span><span class="si">:</span><span class="s2">.2f</span><span class="si">}</span><span class="s2">, avg=</span><span class="si">{</span><span class="n">avg</span><span class="si">:</span><span class="s2">.2f</span><span class="si">}</span><span class="s2">, std=</span><span class="si">{</span><span class="n">std</span><span class="si">:</span><span class="s2">.2f</span><span class="si">}</span><span class="s2">"</span>
     <span class="p">)</span>
 
 
@@ -1462,23 +1462,23 @@ document.write(`
 <div class="viewcode-block" id="enable_log_tensor_save_tensors_to_disk">
 <a class="viewcode-back" href="../../../../api_reference/generated/torchao.prototype.quant_logger.enable_log_tensor_save_tensors_to_disk.html#torchao.prototype.quant_logger.enable_log_tensor_save_tensors_to_disk">[docs]</a>
 <span class="k">def</span><span class="w"> </span><span class="nf">enable_log_tensor_save_tensors_to_disk</span><span class="p">(</span><span class="n">save_dir</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Redefines ``quant_logger::log_tensor`` to save full tensors to disk.</span>
+<span class="w">    </span><span class="sd">"""Redefines ``quant_logger::log_tensor`` to save full tensors to disk.</span>
 
 <span class="sd">    Each logged tensor is cloned and saved as ``{fqn}_{op}_{tag}.pt``</span>
 <span class="sd">    under *save_dir*. The directory is created if it does not exist.</span>
 
 <span class="sd">    Args:</span>
 <span class="sd">        save_dir: Path to the directory where tensor files will be saved.</span>
-<span class="sd">    &quot;&quot;&quot;</span>
+<span class="sd">    """</span>
     <span class="n">os</span><span class="o">.</span><span class="n">makedirs</span><span class="p">(</span><span class="n">save_dir</span><span class="p">,</span> <span class="n">exist_ok</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
 
-    <span class="nd">@torch</span><span class="o">.</span><span class="n">library</span><span class="o">.</span><span class="n">custom_op</span><span class="p">(</span><span class="s2">&quot;quant_logger::log_tensor&quot;</span><span class="p">,</span> <span class="n">mutates_args</span><span class="o">=</span><span class="p">(</span><span class="s2">&quot;x&quot;</span><span class="p">,))</span>
+    <span class="nd">@torch</span><span class="o">.</span><span class="n">library</span><span class="o">.</span><span class="n">custom_op</span><span class="p">(</span><span class="s2">"quant_logger::log_tensor"</span><span class="p">,</span> <span class="n">mutates_args</span><span class="o">=</span><span class="p">(</span><span class="s2">"x"</span><span class="p">,))</span>
     <span class="k">def</span><span class="w"> </span><span class="nf">log_tensor</span><span class="p">(</span>
         <span class="n">x</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span> <span class="n">fqn</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">op</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">tag</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">extra</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
     <span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
-        <span class="n">filename</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">fqn</span><span class="si">}</span><span class="s2">_</span><span class="si">{</span><span class="n">op</span><span class="si">}</span><span class="s2">_</span><span class="si">{</span><span class="n">tag</span><span class="si">}</span><span class="s2">.pt&quot;</span>
+        <span class="n">filename</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">fqn</span><span class="si">}</span><span class="s2">_</span><span class="si">{</span><span class="n">op</span><span class="si">}</span><span class="s2">_</span><span class="si">{</span><span class="n">tag</span><span class="si">}</span><span class="s2">.pt"</span>
         <span class="c1"># Replace invalid path characters</span>
-        <span class="n">filename</span> <span class="o">=</span> <span class="n">filename</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span><span class="s2">&quot;/&quot;</span><span class="p">,</span> <span class="s2">&quot;_&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span><span class="s2">&quot;:&quot;</span><span class="p">,</span> <span class="s2">&quot;_&quot;</span><span class="p">)</span>
+        <span class="n">filename</span> <span class="o">=</span> <span class="n">filename</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span><span class="s2">"/"</span><span class="p">,</span> <span class="s2">"_"</span><span class="p">)</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span><span class="s2">":"</span><span class="p">,</span> <span class="s2">"_"</span><span class="p">)</span>
         <span class="n">filepath</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">save_dir</span><span class="p">,</span> <span class="n">filename</span><span class="p">)</span>
         <span class="n">torch</span><span class="o">.</span><span class="n">save</span><span class="p">(</span><span class="n">x</span><span class="o">.</span><span class="n">clone</span><span class="p">(),</span> <span class="n">filepath</span><span class="p">)</span></div>
 
@@ -1487,7 +1487,7 @@ document.write(`
 <div class="viewcode-block" id="enable_log_stats_to_file">
 <a class="viewcode-back" href="../../../../api_reference/generated/torchao.prototype.quant_logger.enable_log_stats_to_file.html#torchao.prototype.quant_logger.enable_log_stats_to_file">[docs]</a>
 <span class="k">def</span><span class="w"> </span><span class="nf">enable_log_stats_to_file</span><span class="p">(</span><span class="n">filename</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Redefines ``quant_logger::log_tensor`` to append summary statistics to a CSV file.</span>
+<span class="w">    </span><span class="sd">"""Redefines ``quant_logger::log_tensor`` to append summary statistics to a CSV file.</span>
 
 <span class="sd">    The file is initialized with a header row. Each subsequent call to</span>
 <span class="sd">    ``log_tensor`` appends a row with columns: tag, counter_val, fqn, op,</span>
@@ -1495,28 +1495,28 @@ document.write(`
 
 <span class="sd">    Args:</span>
 <span class="sd">        filename: Path to the CSV file to write.</span>
-<span class="sd">    &quot;&quot;&quot;</span>
-    <span class="n">headers</span> <span class="o">=</span> <span class="p">[</span><span class="s2">&quot;tag&quot;</span><span class="p">,</span> <span class="s2">&quot;counter_val&quot;</span><span class="p">,</span> <span class="s2">&quot;fqn&quot;</span><span class="p">,</span> <span class="s2">&quot;op&quot;</span><span class="p">,</span> <span class="s2">&quot;max_abs&quot;</span><span class="p">,</span> <span class="s2">&quot;avg&quot;</span><span class="p">,</span> <span class="s2">&quot;std&quot;</span><span class="p">,</span> <span class="s2">&quot;extra&quot;</span><span class="p">]</span>
-    <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="n">filename</span><span class="p">,</span> <span class="s2">&quot;w&quot;</span><span class="p">)</span> <span class="k">as</span> <span class="n">f</span><span class="p">:</span>
+<span class="sd">    """</span>
+    <span class="n">headers</span> <span class="o">=</span> <span class="p">[</span><span class="s2">"tag"</span><span class="p">,</span> <span class="s2">"counter_val"</span><span class="p">,</span> <span class="s2">"fqn"</span><span class="p">,</span> <span class="s2">"op"</span><span class="p">,</span> <span class="s2">"max_abs"</span><span class="p">,</span> <span class="s2">"avg"</span><span class="p">,</span> <span class="s2">"std"</span><span class="p">,</span> <span class="s2">"extra"</span><span class="p">]</span>
+    <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="n">filename</span><span class="p">,</span> <span class="s2">"w"</span><span class="p">)</span> <span class="k">as</span> <span class="n">f</span><span class="p">:</span>
         <span class="n">writer</span> <span class="o">=</span> <span class="n">csv</span><span class="o">.</span><span class="n">writer</span><span class="p">(</span><span class="n">f</span><span class="p">)</span>
         <span class="n">writer</span><span class="o">.</span><span class="n">writerow</span><span class="p">(</span><span class="n">headers</span><span class="p">)</span>
 
-    <span class="nd">@torch</span><span class="o">.</span><span class="n">library</span><span class="o">.</span><span class="n">custom_op</span><span class="p">(</span><span class="s2">&quot;quant_logger::log_tensor&quot;</span><span class="p">,</span> <span class="n">mutates_args</span><span class="o">=</span><span class="p">(</span><span class="s2">&quot;x&quot;</span><span class="p">,))</span>
+    <span class="nd">@torch</span><span class="o">.</span><span class="n">library</span><span class="o">.</span><span class="n">custom_op</span><span class="p">(</span><span class="s2">"quant_logger::log_tensor"</span><span class="p">,</span> <span class="n">mutates_args</span><span class="o">=</span><span class="p">(</span><span class="s2">"x"</span><span class="p">,))</span>
     <span class="k">def</span><span class="w"> </span><span class="nf">log_tensor</span><span class="p">(</span>
         <span class="n">x</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span> <span class="n">fqn</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">op</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">tag</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">extra</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
     <span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
         <span class="n">counter_val</span> <span class="o">=</span> <span class="n">counter</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
         <span class="n">counter</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">+=</span> <span class="mi">1</span>
         <span class="n">max_abs</span><span class="p">,</span> <span class="n">avg</span><span class="p">,</span> <span class="n">std</span> <span class="o">=</span> <span class="n">get_default_stats</span><span class="p">(</span><span class="n">x</span><span class="p">)</span>
-        <span class="n">data</span> <span class="o">=</span> <span class="p">[</span><span class="n">tag</span><span class="p">,</span> <span class="n">counter_val</span><span class="p">,</span> <span class="n">fqn</span><span class="p">,</span> <span class="n">op</span><span class="p">,</span> <span class="n">max_abs</span><span class="p">,</span> <span class="n">avg</span><span class="p">,</span> <span class="n">std</span><span class="p">,</span> <span class="n">extra</span> <span class="ow">or</span> <span class="s2">&quot;&quot;</span><span class="p">]</span>
-        <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="n">filename</span><span class="p">,</span> <span class="s2">&quot;a&quot;</span><span class="p">)</span> <span class="k">as</span> <span class="n">f</span><span class="p">:</span>
+        <span class="n">data</span> <span class="o">=</span> <span class="p">[</span><span class="n">tag</span><span class="p">,</span> <span class="n">counter_val</span><span class="p">,</span> <span class="n">fqn</span><span class="p">,</span> <span class="n">op</span><span class="p">,</span> <span class="n">max_abs</span><span class="p">,</span> <span class="n">avg</span><span class="p">,</span> <span class="n">std</span><span class="p">,</span> <span class="n">extra</span> <span class="ow">or</span> <span class="s2">""</span><span class="p">]</span>
+        <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="n">filename</span><span class="p">,</span> <span class="s2">"a"</span><span class="p">)</span> <span class="k">as</span> <span class="n">f</span><span class="p">:</span>
             <span class="n">writer</span> <span class="o">=</span> <span class="n">csv</span><span class="o">.</span><span class="n">writer</span><span class="p">(</span><span class="n">f</span><span class="p">)</span>
             <span class="n">writer</span><span class="o">.</span><span class="n">writerow</span><span class="p">(</span><span class="n">data</span><span class="p">)</span></div>
 
 
 
 <span class="k">class</span><span class="w"> </span><span class="nc">ActivationLoggingTensor</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;A wrapper tensor subclass that intercepts ``F.linear`` calls to log</span>
+<span class="w">    </span><span class="sd">"""A wrapper tensor subclass that intercepts ``F.linear`` calls to log</span>
 <span class="sd">    input activations via the ``quant_logger::log_tensor`` custom op.</span>
 
 <span class="sd">    When ``F.linear`` is called with an ``ActivationLoggingTensor`` as the</span>
@@ -1527,8 +1527,8 @@ document.write(`
 <span class="sd">    Args:</span>
 <span class="sd">        original_weight_tensor: The real weight tensor to wrap.</span>
 <span class="sd">        fqn: Fully qualified name of the parameter in the model (e.g.</span>
-<span class="sd">            ``&quot;layers.0.self_attn.q_proj.weight&quot;``).</span>
-<span class="sd">    &quot;&quot;&quot;</span>
+<span class="sd">            ``"layers.0.self_attn.q_proj.weight"``).</span>
+<span class="sd">    """</span>
 
     <span class="nd">@staticmethod</span>
     <span class="k">def</span><span class="w"> </span><span class="fm">__new__</span><span class="p">(</span>
@@ -1553,16 +1553,16 @@ document.write(`
         <span class="bp">self</span><span class="o">.</span><span class="n">fqn</span> <span class="o">=</span> <span class="n">fqn</span>
 
     <span class="k">def</span><span class="w"> </span><span class="fm">__repr__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
-        <span class="k">return</span> <span class="sa">f</span><span class="s2">&quot;ActivationLoggingTensor(fqn=</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">fqn</span><span class="si">}</span><span class="s2">, shape=</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">shape</span><span class="si">}</span><span class="s2">)&quot;</span>
+        <span class="k">return</span> <span class="sa">f</span><span class="s2">"ActivationLoggingTensor(fqn=</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">fqn</span><span class="si">}</span><span class="s2">, shape=</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">shape</span><span class="si">}</span><span class="s2">)"</span>
 
     <span class="k">def</span><span class="w"> </span><span class="nf">__tensor_flatten__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
-        <span class="k">return</span> <span class="p">[</span><span class="s2">&quot;original_weight_tensor&quot;</span><span class="p">],</span> <span class="p">{</span><span class="s2">&quot;fqn&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">fqn</span><span class="p">}</span>
+        <span class="k">return</span> <span class="p">[</span><span class="s2">"original_weight_tensor"</span><span class="p">],</span> <span class="p">{</span><span class="s2">"fqn"</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">fqn</span><span class="p">}</span>
 
     <span class="nd">@staticmethod</span>
     <span class="k">def</span><span class="w"> </span><span class="nf">__tensor_unflatten__</span><span class="p">(</span><span class="n">tensor_data</span><span class="p">,</span> <span class="n">metadata</span><span class="p">,</span> <span class="n">outer_size</span><span class="p">,</span> <span class="n">outer_stride</span><span class="p">):</span>
         <span class="k">return</span> <span class="n">ActivationLoggingTensor</span><span class="p">(</span>
-            <span class="n">tensor_data</span><span class="p">[</span><span class="s2">&quot;original_weight_tensor&quot;</span><span class="p">],</span>
-            <span class="n">metadata</span><span class="p">[</span><span class="s2">&quot;fqn&quot;</span><span class="p">],</span>
+            <span class="n">tensor_data</span><span class="p">[</span><span class="s2">"original_weight_tensor"</span><span class="p">],</span>
+            <span class="n">metadata</span><span class="p">[</span><span class="s2">"fqn"</span><span class="p">],</span>
         <span class="p">)</span>
 
     <span class="nd">@classmethod</span>
@@ -1573,17 +1573,17 @@ document.write(`
             <span class="c1"># F.linear signature: linear(input, weight, bias=None)</span>
             <span class="n">input_tensor</span> <span class="o">=</span> <span class="n">args</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
             <span class="n">weight</span> <span class="o">=</span> <span class="n">args</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span>
-            <span class="n">bias</span> <span class="o">=</span> <span class="n">args</span><span class="p">[</span><span class="mi">2</span><span class="p">]</span> <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">args</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">2</span> <span class="k">else</span> <span class="n">kwargs</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;bias&quot;</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span>
+            <span class="n">bias</span> <span class="o">=</span> <span class="n">args</span><span class="p">[</span><span class="mi">2</span><span class="p">]</span> <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">args</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">2</span> <span class="k">else</span> <span class="n">kwargs</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"bias"</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span>
 
             <span class="c1"># set the extra argument to the gemm shape (MKN)</span>
             <span class="n">M</span><span class="p">,</span> <span class="n">K</span> <span class="o">=</span> <span class="n">input_tensor</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">,</span> <span class="n">input_tensor</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">])</span><span class="o">.</span><span class="n">shape</span>
             <span class="n">N</span><span class="p">,</span> <span class="n">K2</span> <span class="o">=</span> <span class="n">weight</span><span class="o">.</span><span class="n">shape</span>
             <span class="k">assert</span> <span class="n">K</span> <span class="o">==</span> <span class="n">K2</span>
-            <span class="n">extra</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;MKN=</span><span class="si">{</span><span class="n">M</span><span class="si">}</span><span class="s2">|</span><span class="si">{</span><span class="n">K</span><span class="si">}</span><span class="s2">|</span><span class="si">{</span><span class="n">N</span><span class="si">}</span><span class="s2">&quot;</span>
+            <span class="n">extra</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">"MKN=</span><span class="si">{</span><span class="n">M</span><span class="si">}</span><span class="s2">|</span><span class="si">{</span><span class="n">K</span><span class="si">}</span><span class="s2">|</span><span class="si">{</span><span class="n">N</span><span class="si">}</span><span class="s2">"</span>
 
             <span class="c1"># Log the activation</span>
             <span class="n">torch</span><span class="o">.</span><span class="n">ops</span><span class="o">.</span><span class="n">quant_logger</span><span class="o">.</span><span class="n">log_tensor</span><span class="p">(</span>
-                <span class="n">input_tensor</span><span class="p">,</span> <span class="n">weight</span><span class="o">.</span><span class="n">fqn</span><span class="p">,</span> <span class="s2">&quot;linear&quot;</span><span class="p">,</span> <span class="s2">&quot;act&quot;</span><span class="p">,</span> <span class="n">extra</span>
+                <span class="n">input_tensor</span><span class="p">,</span> <span class="n">weight</span><span class="o">.</span><span class="n">fqn</span><span class="p">,</span> <span class="s2">"linear"</span><span class="p">,</span> <span class="s2">"act"</span><span class="p">,</span> <span class="n">extra</span>
             <span class="p">)</span>
 
             <span class="c1"># Call F.linear with the unwrapped weight</span>
@@ -1621,7 +1621,7 @@ document.write(`
 <div class="viewcode-block" id="add_activation_loggers">
 <a class="viewcode-back" href="../../../../api_reference/generated/torchao.prototype.quant_logger.add_activation_loggers.html#torchao.prototype.quant_logger.add_activation_loggers">[docs]</a>
 <span class="k">def</span><span class="w"> </span><span class="nf">add_activation_loggers</span><span class="p">(</span><span class="n">model</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Wraps ``nn.Linear`` weights with :class:`ActivationLoggingTensor` so that</span>
+<span class="w">    </span><span class="sd">"""Wraps ``nn.Linear`` weights with :class:`ActivationLoggingTensor` so that</span>
 <span class="sd">    input activations are logged each time ``F.linear`` is called.</span>
 
 <span class="sd">    The logging behavior is user-configurable by redefining the</span>
@@ -1636,18 +1636,18 @@ document.write(`
 
 <span class="sd">    .. literalinclude:: ../../examples/prototype/quant_logger/add_activation_loggers_example.py</span>
 <span class="sd">       :language: python</span>
-<span class="sd">    &quot;&quot;&quot;</span>
+<span class="sd">    """</span>
 
     <span class="n">fqn_to_module</span> <span class="o">=</span> <span class="nb">dict</span><span class="p">(</span><span class="n">model</span><span class="o">.</span><span class="n">named_modules</span><span class="p">())</span>
     <span class="k">for</span> <span class="n">fqn</span><span class="p">,</span> <span class="n">parameter</span> <span class="ow">in</span> <span class="n">model</span><span class="o">.</span><span class="n">named_parameters</span><span class="p">():</span>
-        <span class="n">parent_fqn</span> <span class="o">=</span> <span class="s2">&quot;.&quot;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">fqn</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s2">&quot;.&quot;</span><span class="p">)[:</span><span class="o">-</span><span class="mi">1</span><span class="p">])</span>
-        <span class="n">child_fqn</span> <span class="o">=</span> <span class="n">fqn</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s2">&quot;.&quot;</span><span class="p">)[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span>
+        <span class="n">parent_fqn</span> <span class="o">=</span> <span class="s2">"."</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">fqn</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s2">"."</span><span class="p">)[:</span><span class="o">-</span><span class="mi">1</span><span class="p">])</span>
+        <span class="n">child_fqn</span> <span class="o">=</span> <span class="n">fqn</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s2">"."</span><span class="p">)[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span>
         <span class="n">parent_module</span> <span class="o">=</span> <span class="n">fqn_to_module</span><span class="p">[</span><span class="n">parent_fqn</span><span class="p">]</span>
         <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">parent_module</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">):</span>
             <span class="c1"># TODO(future PR): handle wrapping parameter weights for bmm, grouped_mm, etc</span>
             <span class="k">continue</span>
-        <span class="k">if</span> <span class="n">child_fqn</span> <span class="o">==</span> <span class="s2">&quot;bias&quot;</span><span class="p">:</span>
-            <span class="c1"># don&#39;t need to wrap bias, as weight is already wrapped</span>
+        <span class="k">if</span> <span class="n">child_fqn</span> <span class="o">==</span> <span class="s2">"bias"</span><span class="p">:</span>
+            <span class="c1"># don't need to wrap bias, as weight is already wrapped</span>
             <span class="k">continue</span>
         <span class="n">new_parameter</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Parameter</span><span class="p">(</span><span class="n">ActivationLoggingTensor</span><span class="p">(</span><span class="n">parameter</span><span class="p">,</span> <span class="n">fqn</span><span class="p">))</span>
         <span class="nb">setattr</span><span class="p">(</span><span class="n">parent_module</span><span class="p">,</span> <span class="n">child_fqn</span><span class="p">,</span> <span class="n">new_parameter</span><span class="p">)</span></div>
@@ -1657,10 +1657,10 @@ document.write(`
 <div class="viewcode-block" id="log_parameter_info">
 <a class="viewcode-back" href="../../../../api_reference/generated/torchao.prototype.quant_logger.log_parameter_info.html#torchao.prototype.quant_logger.log_parameter_info">[docs]</a>
 <span class="k">def</span><span class="w"> </span><span class="nf">log_parameter_info</span><span class="p">(</span><span class="n">model</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Logs summary statistics for every parameter in the model.</span>
+<span class="w">    </span><span class="sd">"""Logs summary statistics for every parameter in the model.</span>
 
 <span class="sd">    Each parameter is passed to ``quant_logger::log_tensor`` with</span>
-<span class="sd">    ``tag=&quot;param&quot;``, so the output format depends on the current</span>
+<span class="sd">    ``tag="param"``, so the output format depends on the current</span>
 <span class="sd">    ``log_tensor`` implementation.</span>
 
 <span class="sd">    Args:</span>
@@ -1670,9 +1670,9 @@ document.write(`
 
 <span class="sd">    .. literalinclude:: ../../examples/prototype/quant_logger/log_parameter_info_example.py</span>
 <span class="sd">       :language: python</span>
-<span class="sd">    &quot;&quot;&quot;</span>
+<span class="sd">    """</span>
     <span class="k">for</span> <span class="n">fqn</span><span class="p">,</span> <span class="n">parameter</span> <span class="ow">in</span> <span class="n">model</span><span class="o">.</span><span class="n">named_parameters</span><span class="p">():</span>
-        <span class="n">torch</span><span class="o">.</span><span class="n">ops</span><span class="o">.</span><span class="n">quant_logger</span><span class="o">.</span><span class="n">log_tensor</span><span class="p">(</span><span class="n">parameter</span><span class="p">,</span> <span class="n">fqn</span><span class="p">,</span> <span class="s2">&quot;&quot;</span><span class="p">,</span> <span class="s2">&quot;param&quot;</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span></div>
+        <span class="n">torch</span><span class="o">.</span><span class="n">ops</span><span class="o">.</span><span class="n">quant_logger</span><span class="o">.</span><span class="n">log_tensor</span><span class="p">(</span><span class="n">parameter</span><span class="p">,</span> <span class="n">fqn</span><span class="p">,</span> <span class="s2">""</span><span class="p">,</span> <span class="s2">"param"</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span></div>
 
 </pre></div>
 

@@ -173,7 +173,7 @@
   fbq('track', 'PageView');
 </script>
 <script>
-  document.documentElement.setAttribute('data-version', 'main (0.19.0+gitd37142a )');
+  document.documentElement.setAttribute('data-version', 'main (0.19.0+gitf10e69b )');
 </script>
 <noscript>
   <img height="1" width="1" src="https://www.facebook.com/tr?id=243028289693773&ev=PageView&noscript=1" />
@@ -1508,8 +1508,8 @@ input activations are logged each time <code class="docutils literal notranslate
 <span class="n">add_activation_loggers</span><span class="p">(</span><span class="n">model</span><span class="p">)</span>
 <span class="n">x</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">128</span><span class="p">)</span>
 <span class="n">model</span><span class="p">(</span><span class="n">x</span><span class="p">)</span>
-<span class="c1"># t=act, c=0, fqn=&#39;0.weight&#39;, op=&#39;linear&#39;, extra=&#39;MKN=1|128|256&#39;, max_abs=..., avg=..., std=...</span>
-<span class="c1"># t=act, c=1, fqn=&#39;2.weight&#39;, op=&#39;linear&#39;, extra=&#39;MKN=1|256|512&#39;, max_abs=..., avg=..., std=...</span>
+<span class="c1"># t=act, c=0, fqn='0.weight', op='linear', extra='MKN=1|128|256', max_abs=..., avg=..., std=...</span>
+<span class="c1"># t=act, c=1, fqn='2.weight', op='linear', extra='MKN=1|256|512', max_abs=..., avg=..., std=...</span>
 </pre></div>
 </div>
 </dd></dl>

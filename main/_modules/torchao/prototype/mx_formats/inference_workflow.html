@@ -172,7 +172,7 @@ window.addEventListener("load", () => mermaid.run());
   fbq('track', 'PageView');
 </script>
 <script>
-  document.documentElement.setAttribute('data-version', 'main (0.19.0+gitd37142a )');
+  document.documentElement.setAttribute('data-version', 'main (0.19.0+gitf10e69b )');
 </script>
 <noscript>
   <img height="1" width="1" src="https://www.facebook.com/tr?id=243028289693773&ev=PageView&noscript=1" />
@@ -1415,7 +1415,7 @@ document.write(`
 
 
 <span class="k">class</span><span class="w"> </span><span class="nc">NVFP4ObservedLinear</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;A linear module with an observer for NVFP4 static quantization.</span>
+<span class="w">    </span><span class="sd">"""A linear module with an observer for NVFP4 static quantization.</span>
 
 <span class="sd">    During calibration, this module tracks the per-tensor absolute maximum (amax)</span>
 <span class="sd">    of the input activations. After calibration, the amax is converted to a</span>
@@ -1423,7 +1423,7 @@ document.write(`
 
 <span class="sd">    The block-level dynamic quantization remains unchanged - only the global</span>
 <span class="sd">    per_tensor_scale is determined statically.</span>
-<span class="sd">    &quot;&quot;&quot;</span>
+<span class="sd">    """</span>
 
     <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span>
         <span class="bp">self</span><span class="p">,</span>
@@ -1444,7 +1444,7 @@ document.write(`
         <span class="k">return</span> <span class="n">output</span>
 
     <span class="nd">@classmethod</span>
-    <span class="k">def</span><span class="w"> </span><span class="nf">from_float</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="n">float_linear</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="s2">&quot;NVFP4ObservedLinear&quot;</span><span class="p">:</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">from_float</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="n">float_linear</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="s2">"NVFP4ObservedLinear"</span><span class="p">:</span>
         <span class="n">observed_linear</span> <span class="o">=</span> <span class="bp">cls</span><span class="p">(</span>
             <span class="n">float_linear</span><span class="o">.</span><span class="n">in_features</span><span class="p">,</span>
             <span class="n">float_linear</span><span class="o">.</span><span class="n">out_features</span><span class="p">,</span>
@@ -1461,7 +1461,7 @@ document.write(`
 <a class="viewcode-back" href="../../../../api_reference/generated/torchao.prototype.mx_formats.MXDynamicActivationMXWeightConfig.html#torchao.prototype.mx_formats.MXDynamicActivationMXWeightConfig">[docs]</a>
 <span class="nd">@dataclass</span>
 <span class="k">class</span><span class="w"> </span><span class="nc">MXDynamicActivationMXWeightConfig</span><span class="p">(</span><span class="n">AOBaseConfig</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">"""</span>
 <span class="sd">    MX Format Inference Quantization</span>
 
 <span class="sd">    This module provides support for running inference with float8 quantization using MX formats.</span>
@@ -1479,7 +1479,7 @@ document.write(`
 
 <span class="sd">    .. literalinclude:: ../../examples/inference/mxfp4_dynamic_activation_mxfp4_weight.py</span>
 <span class="sd">       :language: python</span>
-<span class="sd">    &quot;&quot;&quot;</span>
+<span class="sd">    """</span>
 
     <span class="n">block_size</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">32</span>
 
@@ -1495,7 +1495,7 @@ document.write(`
 
     <span class="k">def</span><span class="w"> </span><span class="nf">__post_init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
         <span class="k">assert</span> <span class="bp">self</span><span class="o">.</span><span class="n">activation_dtype</span> <span class="o">==</span> <span class="bp">self</span><span class="o">.</span><span class="n">weight_dtype</span><span class="p">,</span> <span class="p">(</span>
-            <span class="s2">&quot;For now - we only support matching input/weight dtypes.&quot;</span>
+            <span class="s2">"For now - we only support matching input/weight dtypes."</span>
         <span class="p">)</span>
         <span class="n">_validate_elem_dtype</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">activation_dtype</span><span class="p">)</span>
         <span class="n">_validate_elem_dtype</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">weight_dtype</span><span class="p">)</span></div>
@@ -1503,7 +1503,7 @@ document.write(`
 
 
 <span class="k">def</span><span class="w"> </span><span class="nf">_linear_extra_repr</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
-    <span class="k">return</span> <span class="sa">f</span><span class="s2">&quot;in_features=</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">weight</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span><span class="si">}</span><span class="s2">, out_features=</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">weight</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="si">}</span><span class="s2">, weight=</span><span class="si">{</span><span class="n">_quantization_type</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">weight</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span>
+    <span class="k">return</span> <span class="sa">f</span><span class="s2">"in_features=</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">weight</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span><span class="si">}</span><span class="s2">, out_features=</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">weight</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="si">}</span><span class="s2">, weight=</span><span class="si">{</span><span class="n">_quantization_type</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">weight</span><span class="p">)</span><span class="si">}</span><span class="s2">"</span>
 
 
 <span class="nd">@register_quantize_module_handler</span><span class="p">(</span><span class="n">MXDynamicActivationMXWeightConfig</span><span class="p">)</span>
@@ -1511,12 +1511,12 @@ document.write(`
     <span class="n">module</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">,</span>
     <span class="n">config</span><span class="p">:</span> <span class="n">MXDynamicActivationMXWeightConfig</span><span class="p">,</span>
     <span class="o">*</span><span class="p">,</span>
-    <span class="n">parameter_name</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;weight&quot;</span><span class="p">,</span>
+    <span class="n">parameter_name</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">"weight"</span><span class="p">,</span>
 <span class="p">):</span>
     <span class="n">weight</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">module</span><span class="p">,</span> <span class="n">parameter_name</span><span class="p">)</span>
 
     <span class="k">assert</span> <span class="n">weight</span><span class="o">.</span><span class="n">dtype</span> <span class="o">==</span> <span class="n">torch</span><span class="o">.</span><span class="n">bfloat16</span><span class="p">,</span> <span class="p">(</span>
-        <span class="sa">f</span><span class="s2">&quot;Only supporting bf16 out dtype for now, got </span><span class="si">{</span><span class="n">weight</span><span class="o">.</span><span class="n">dtype</span><span class="si">}</span><span class="s2">&quot;</span>
+        <span class="sa">f</span><span class="s2">"Only supporting bf16 out dtype for now, got </span><span class="si">{</span><span class="n">weight</span><span class="o">.</span><span class="n">dtype</span><span class="si">}</span><span class="s2">"</span>
     <span class="p">)</span>
     <span class="n">act_quant_kwargs</span> <span class="o">=</span> <span class="n">QuantizeTensorToMXKwargs</span><span class="p">(</span>
         <span class="n">elem_dtype</span><span class="o">=</span><span class="n">config</span><span class="o">.</span><span class="n">activation_dtype</span><span class="p">,</span>
@@ -1557,11 +1557,11 @@ document.write(`
 <a class="viewcode-back" href="../../../../api_reference/generated/torchao.prototype.mx_formats.NVFP4DynamicActivationNVFP4WeightConfig.html#torchao.prototype.mx_formats.NVFP4DynamicActivationNVFP4WeightConfig">[docs]</a>
 <span class="nd">@dataclass</span>
 <span class="k">class</span><span class="w"> </span><span class="nc">NVFP4DynamicActivationNVFP4WeightConfig</span><span class="p">(</span><span class="n">AOBaseConfig</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">"""</span>
 <span class="sd">    NVIDIA FP4 (NVFP4) Inference Quantization Configuration</span>
 
-<span class="sd">    This is a specialized configuration for NVIDIA&#39;s FP4 format.</span>
-<span class="sd">    NVFP4 uses &quot;double quantization&quot; with two scale levels:</span>
+<span class="sd">    This is a specialized configuration for NVIDIA's FP4 format.</span>
+<span class="sd">    NVFP4 uses "double quantization" with two scale levels:</span>
 <span class="sd">    - A global per_tensor_scale (float32)</span>
 <span class="sd">    - Per-block scales (float8_e4m3fn, block_size=16), always dynamically calculated</span>
 
@@ -1571,11 +1571,11 @@ document.write(`
 <span class="sd">        - Both weight and activation per_tensor_scale are computed at runtime</span>
 <span class="sd">          from the tensor amax</span>
 
-<span class="sd">    2. Static per_tensor_scale via observer flow (step=&quot;prepare&quot;/&quot;convert&quot;):</span>
+<span class="sd">    2. Static per_tensor_scale via observer flow (step="prepare"/"convert"):</span>
 <span class="sd">        - Weight per_tensor_scale is computed from weight amax at convert time</span>
 <span class="sd">        - Activation per_tensor_scale is determined statically during calibration:</span>
-<span class="sd">          step=&quot;prepare&quot; inserts observers, then after running calibration data,</span>
-<span class="sd">          step=&quot;convert&quot; extracts the observed amax and bakes the activation</span>
+<span class="sd">          step="prepare" inserts observers, then after running calibration data,</span>
+<span class="sd">          step="convert" extracts the observed amax and bakes the activation</span>
 <span class="sd">          per_tensor_scale into the quantized weight tensor</span>
 <span class="sd">        - At inference, the static activation per_tensor_scale is read from the</span>
 <span class="sd">          weight tensor instead of being computed dynamically</span>
@@ -1595,17 +1595,17 @@ document.write(`
 <span class="sd">    - Block size: 16 along the reduction dim</span>
 
 <span class="sd">    Note: Triton kernel only works with DYNAMIC mode and has constraints that input dimensions</span>
-<span class="sd">    must satisfy M % 128 == 0 and K % 64 == 0. Will automatically fallback when constraints aren&#39;t met.</span>
+<span class="sd">    must satisfy M % 128 == 0 and K % 64 == 0. Will automatically fallback when constraints aren't met.</span>
 
 <span class="sd">    Example:</span>
 
 <span class="sd">    .. literalinclude:: ../../examples/inference/nvfp4_dynamic_activation_nvfp4_weight.py</span>
 <span class="sd">       :language: python</span>
-<span class="sd">    &quot;&quot;&quot;</span>
+<span class="sd">    """</span>
 
     <span class="n">use_triton_kernel</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span>
     <span class="n">use_dynamic_per_tensor_scale</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span>
-    <span class="n">step</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="s2">&quot;QuantizationStep&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">step</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="s2">"QuantizationStep"</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
 
     <span class="k">def</span><span class="w"> </span><span class="nf">__post_init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
         <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">step</span><span class="p">,</span> <span class="nb">str</span><span class="p">):</span>
@@ -1621,27 +1621,27 @@ document.write(`
     <span class="n">module</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">,</span>
     <span class="n">config</span><span class="p">:</span> <span class="n">NVFP4DynamicActivationNVFP4WeightConfig</span><span class="p">,</span>
     <span class="o">*</span><span class="p">,</span>
-    <span class="n">parameter_name</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;weight&quot;</span><span class="p">,</span>
+    <span class="n">parameter_name</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">"weight"</span><span class="p">,</span>
 <span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Quantization handler for NVFP4DynamicActivationNVFP4WeightConfig</span>
+<span class="w">    </span><span class="sd">"""Quantization handler for NVFP4DynamicActivationNVFP4WeightConfig</span>
 
 <span class="sd">    Behavior depends on the step:</span>
 <span class="sd">    - PREPARE: Insert NVFP4ObservedLinear to collect activation statistics</span>
 <span class="sd">    - CONVERT: Extract amax from observer, compute static per_tensor_scale, quantize</span>
 <span class="sd">    - None (default): Original dynamic quantization behavior</span>
-<span class="sd">    &quot;&quot;&quot;</span>
+<span class="sd">    """</span>
     <span class="n">weight</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">module</span><span class="p">,</span> <span class="n">parameter_name</span><span class="p">)</span>
     <span class="k">if</span> <span class="n">weight</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="o">-</span><span class="mi">2</span><span class="p">]</span> <span class="o">%</span> <span class="mi">16</span> <span class="o">!=</span> <span class="mi">0</span> <span class="ow">or</span> <span class="n">weight</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span> <span class="o">%</span> <span class="mi">16</span> <span class="o">!=</span> <span class="mi">0</span><span class="p">:</span>
         <span class="k">raise</span> <span class="ne">RuntimeError</span><span class="p">(</span>
-            <span class="sa">f</span><span class="s2">&quot;NVFP4 only supports weight shape with last 2 dims divisible by 16, got </span><span class="si">{</span><span class="n">weight</span><span class="o">.</span><span class="n">shape</span><span class="si">}</span><span class="s2">&quot;</span>
+            <span class="sa">f</span><span class="s2">"NVFP4 only supports weight shape with last 2 dims divisible by 16, got </span><span class="si">{</span><span class="n">weight</span><span class="o">.</span><span class="n">shape</span><span class="si">}</span><span class="s2">"</span>
         <span class="p">)</span>
 
     <span class="n">step</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">step</span>
-    <span class="k">if</span> <span class="n">step</span> <span class="o">==</span> <span class="n">QuantizationStep</span><span class="o">.</span><span class="n">PREPARE</span> <span class="ow">or</span> <span class="n">step</span> <span class="o">==</span> <span class="s2">&quot;prepare&quot;</span><span class="p">:</span>
+    <span class="k">if</span> <span class="n">step</span> <span class="o">==</span> <span class="n">QuantizationStep</span><span class="o">.</span><span class="n">PREPARE</span> <span class="ow">or</span> <span class="n">step</span> <span class="o">==</span> <span class="s2">"prepare"</span><span class="p">:</span>
         <span class="k">return</span> <span class="n">NVFP4ObservedLinear</span><span class="o">.</span><span class="n">from_float</span><span class="p">(</span><span class="n">module</span><span class="p">)</span>
 
-    <span class="k">elif</span> <span class="n">step</span> <span class="o">==</span> <span class="n">QuantizationStep</span><span class="o">.</span><span class="n">CONVERT</span> <span class="ow">or</span> <span class="n">step</span> <span class="o">==</span> <span class="s2">&quot;convert&quot;</span><span class="p">:</span>
-        <span class="k">assert</span> <span class="nb">len</span><span class="p">(</span><span class="n">weight</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span> <span class="o">==</span> <span class="mi">2</span><span class="p">,</span> <span class="s2">&quot;3D weights not yet supported here&quot;</span>
+    <span class="k">elif</span> <span class="n">step</span> <span class="o">==</span> <span class="n">QuantizationStep</span><span class="o">.</span><span class="n">CONVERT</span> <span class="ow">or</span> <span class="n">step</span> <span class="o">==</span> <span class="s2">"convert"</span><span class="p">:</span>
+        <span class="k">assert</span> <span class="nb">len</span><span class="p">(</span><span class="n">weight</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span> <span class="o">==</span> <span class="mi">2</span><span class="p">,</span> <span class="s2">"3D weights not yet supported here"</span>
         <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">module</span><span class="p">,</span> <span class="n">NVFP4ObservedLinear</span><span class="p">):</span>
             <span class="k">return</span> <span class="n">module</span>
 
@@ -1685,7 +1685,7 @@ document.write(`
     <span class="k">elif</span> <span class="n">step</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
         <span class="c1"># Dynamic quantization</span>
         <span class="k">assert</span> <span class="n">is_sm_at_least_100</span><span class="p">(),</span> <span class="p">(</span>
-            <span class="s2">&quot;NVFP4 DYNAMIC mode is only supported on sm100+ machines&quot;</span>
+            <span class="s2">"NVFP4 DYNAMIC mode is only supported on sm100+ machines"</span>
         <span class="p">)</span>
 
         <span class="n">weight</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">module</span><span class="p">,</span> <span class="n">parameter_name</span><span class="p">)</span>
@@ -1696,7 +1696,7 @@ document.write(`
                 <span class="n">tensor_amax</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">max</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">abs</span><span class="p">(</span><span class="n">weight</span><span class="p">))</span>
                 <span class="n">per_tensor_scale</span> <span class="o">=</span> <span class="n">per_tensor_amax_to_scale</span><span class="p">(</span><span class="n">tensor_amax</span><span class="p">)</span>
             <span class="k">else</span><span class="p">:</span>
-                <span class="k">assert</span> <span class="nb">len</span><span class="p">(</span><span class="n">weight</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span> <span class="o">==</span> <span class="mi">3</span><span class="p">,</span> <span class="sa">f</span><span class="s2">&quot;unsupported </span><span class="si">{</span><span class="n">weight</span><span class="o">.</span><span class="n">shape</span><span class="si">=}</span><span class="s2">&quot;</span>
+                <span class="k">assert</span> <span class="nb">len</span><span class="p">(</span><span class="n">weight</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span> <span class="o">==</span> <span class="mi">3</span><span class="p">,</span> <span class="sa">f</span><span class="s2">"unsupported </span><span class="si">{</span><span class="n">weight</span><span class="o">.</span><span class="n">shape</span><span class="si">=}</span><span class="s2">"</span>
                 <span class="n">tensor_amax</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">amax</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">abs</span><span class="p">(</span><span class="n">weight</span><span class="p">),</span> <span class="n">dim</span><span class="o">=</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">))</span>
                 <span class="n">per_tensor_scale</span> <span class="o">=</span> <span class="n">per_tensor_amax_to_scale</span><span class="p">(</span><span class="n">tensor_amax</span><span class="p">)</span>
                 <span class="c1"># 1D -&gt; 3D</span>
@@ -1735,7 +1735,7 @@ document.write(`
 
     <span class="k">else</span><span class="p">:</span>
         <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
-            <span class="sa">f</span><span class="s2">&quot;Unexpected step: </span><span class="si">{</span><span class="n">step</span><span class="si">}</span><span class="s2">. Expected one of </span><span class="si">{</span><span class="p">[</span><span class="n">s</span><span class="o">.</span><span class="n">value</span><span class="w"> </span><span class="k">for</span><span class="w"> </span><span class="n">s</span><span class="w"> </span><span class="ow">in</span><span class="w"> </span><span class="n">QuantizationStep</span><span class="p">]</span><span class="si">}</span><span class="s2"> or None.&quot;</span>
+            <span class="sa">f</span><span class="s2">"Unexpected step: </span><span class="si">{</span><span class="n">step</span><span class="si">}</span><span class="s2">. Expected one of </span><span class="si">{</span><span class="p">[</span><span class="n">s</span><span class="o">.</span><span class="n">value</span><span class="w"> </span><span class="k">for</span><span class="w"> </span><span class="n">s</span><span class="w"> </span><span class="ow">in</span><span class="w"> </span><span class="n">QuantizationStep</span><span class="p">]</span><span class="si">}</span><span class="s2"> or None."</span>
         <span class="p">)</span>
 
 
@@ -1743,7 +1743,7 @@ document.write(`
 <a class="viewcode-back" href="../../../../api_reference/generated/torchao.prototype.mx_formats.NVFP4WeightOnlyConfig.html#torchao.prototype.mx_formats.NVFP4WeightOnlyConfig">[docs]</a>
 <span class="nd">@dataclass</span>
 <span class="k">class</span><span class="w"> </span><span class="nc">NVFP4WeightOnlyConfig</span><span class="p">(</span><span class="n">AOBaseConfig</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">"""</span>
 <span class="sd">    NVIDIA FP4 (NVFP4) Weight-Only Quantization Configuration</span>
 
 <span class="sd">    This configuration applies NVFP4 quantization to weights only, keeping activations</span>
@@ -1753,7 +1753,7 @@ document.write(`
 
 <span class="sd">    .. literalinclude:: ../../examples/inference/nvfp4_weight_only.py</span>
 <span class="sd">       :language: python</span>
-<span class="sd">    &quot;&quot;&quot;</span>
+<span class="sd">    """</span>
 
     <span class="n">use_dynamic_per_tensor_scale</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span></div>
 
@@ -1763,13 +1763,13 @@ document.write(`
 <span class="k">def</span><span class="w"> </span><span class="nf">_nvfp4_weight_only_linear_transform</span><span class="p">(</span>
     <span class="n">module</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">,</span> <span class="n">config</span><span class="p">:</span> <span class="n">NVFP4WeightOnlyConfig</span>
 <span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Quantization handler for NVFP4WeightOnlyConfig&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">"""Quantization handler for NVFP4WeightOnlyConfig"""</span>
     <span class="n">weight</span> <span class="o">=</span> <span class="n">module</span><span class="o">.</span><span class="n">weight</span>
 
-    <span class="k">assert</span> <span class="nb">len</span><span class="p">(</span><span class="n">weight</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span> <span class="o">==</span> <span class="mi">2</span><span class="p">,</span> <span class="s2">&quot;3D weights not yet supported in this workflow&quot;</span>
+    <span class="k">assert</span> <span class="nb">len</span><span class="p">(</span><span class="n">weight</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span> <span class="o">==</span> <span class="mi">2</span><span class="p">,</span> <span class="s2">"3D weights not yet supported in this workflow"</span>
     <span class="k">if</span> <span class="n">weight</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="o">-</span><span class="mi">2</span><span class="p">]</span> <span class="o">%</span> <span class="mi">16</span> <span class="o">!=</span> <span class="mi">0</span> <span class="ow">or</span> <span class="n">weight</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span> <span class="o">%</span> <span class="mi">16</span> <span class="o">!=</span> <span class="mi">0</span><span class="p">:</span>
         <span class="k">raise</span> <span class="ne">RuntimeError</span><span class="p">(</span>
-            <span class="sa">f</span><span class="s2">&quot;NVFP4 only supports weight shape with last 2 dims divisible by 16, got </span><span class="si">{</span><span class="n">weight</span><span class="o">.</span><span class="n">shape</span><span class="si">}</span><span class="s2">&quot;</span>
+            <span class="sa">f</span><span class="s2">"NVFP4 only supports weight shape with last 2 dims divisible by 16, got </span><span class="si">{</span><span class="n">weight</span><span class="o">.</span><span class="n">shape</span><span class="si">}</span><span class="s2">"</span>
         <span class="p">)</span>
 
     <span class="n">per_tensor_scale</span> <span class="o">=</span> <span class="kc">None</span>
@@ -1804,9 +1804,9 @@ document.write(`
 
 
 <span class="k">def</span><span class="w"> </span><span class="nf">_auto_filter_for_nfp4</span><span class="p">(</span><span class="n">mod</span><span class="p">:</span> <span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">,</span> <span class="n">fqn</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Generic Filter fn for NVFP4 that is best practice for most models.&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">"""Generic Filter fn for NVFP4 that is best practice for most models."""</span>
     <span class="c1"># Define any FQNs you want to exclude directly in the function</span>
-    <span class="n">filter_fqns</span> <span class="o">=</span> <span class="p">[</span><span class="s2">&quot;embedder&quot;</span><span class="p">,</span> <span class="s2">&quot;embed&quot;</span><span class="p">,</span> <span class="s2">&quot;embedding&quot;</span><span class="p">,</span> <span class="s2">&quot;time_text_embed&quot;</span><span class="p">]</span>
+    <span class="n">filter_fqns</span> <span class="o">=</span> <span class="p">[</span><span class="s2">"embedder"</span><span class="p">,</span> <span class="s2">"embed"</span><span class="p">,</span> <span class="s2">"embedding"</span><span class="p">,</span> <span class="s2">"time_text_embed"</span><span class="p">]</span>
 
     <span class="c1"># Only support Linear modules</span>
     <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">mod</span><span class="p">,</span> <span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">):</span>
@@ -1823,13 +1823,13 @@ document.write(`
     <span class="k">if</span> <span class="ow">not</span> <span class="n">dims_multiples_of_16</span><span class="p">:</span>
         <span class="k">return</span> <span class="kc">False</span>
     <span class="k">if</span> <span class="n">N</span> <span class="o">&lt;=</span> <span class="mi">64</span><span class="p">:</span>
-        <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;skiping small linear layer&quot;</span><span class="p">)</span>
-        <span class="c1"># TODO cublas doesn&#39;t like this one</span>
+        <span class="nb">print</span><span class="p">(</span><span class="s2">"skiping small linear layer"</span><span class="p">)</span>
+        <span class="c1"># TODO cublas doesn't like this one</span>
         <span class="k">return</span> <span class="kc">False</span>
 
     <span class="c1"># Dims below these thresholds may result in worse performance</span>
     <span class="k">if</span> <span class="n">K</span> <span class="o">&lt;=</span> <span class="mi">1024</span> <span class="ow">and</span> <span class="n">N</span> <span class="o">&lt;=</span> <span class="mi">1024</span><span class="p">:</span>
-        <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;skiping small linear layer&quot;</span><span class="p">)</span>
+        <span class="nb">print</span><span class="p">(</span><span class="s2">"skiping small linear layer"</span><span class="p">)</span>
         <span class="k">return</span> <span class="kc">False</span>
     <span class="k">return</span> <span class="kc">True</span>
 </pre></div>

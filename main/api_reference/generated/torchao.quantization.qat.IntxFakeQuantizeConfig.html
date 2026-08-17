@@ -173,7 +173,7 @@
   fbq('track', 'PageView');
 </script>
 <script>
-  document.documentElement.setAttribute('data-version', 'main (0.19.0+gitd37142a )');
+  document.documentElement.setAttribute('data-version', 'main (0.19.0+gitf10e69b )');
 </script>
 <noscript>
   <img height="1" width="1" src="https://www.facebook.com/tr?id=243028289693773&ev=PageView&noscript=1" />
@@ -1525,18 +1525,18 @@ can be set instead of <cite>mapping_type</cite></p></li>
 </dl>
 <p>Example usage:</p>
 <div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="c1"># Per token asymmetric quantization</span>
-<span class="n">IntxFakeQuantizeConfig</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">int8</span><span class="p">,</span> <span class="s2">&quot;per_token&quot;</span><span class="p">,</span> <span class="n">is_symmetric</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+<span class="n">IntxFakeQuantizeConfig</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">int8</span><span class="p">,</span> <span class="s2">"per_token"</span><span class="p">,</span> <span class="n">is_symmetric</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
 <span class="n">IntxFakeQuantizeConfig</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">int8</span><span class="p">,</span> <span class="n">PerToken</span><span class="p">(),</span> <span class="n">MappingType</span><span class="o">.</span><span class="n">ASYMMETRIC</span><span class="p">)</span>
 
 <span class="c1"># Per channel symmetric quantization</span>
-<span class="n">IntxFakeQuantizeConfig</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">int4</span><span class="p">,</span> <span class="s2">&quot;per_channel&quot;</span><span class="p">)</span>
-<span class="n">IntxFakeQuantizeConfig</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">int4</span><span class="p">,</span> <span class="s2">&quot;per_channel&quot;</span><span class="p">,</span> <span class="n">is_symmetric</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="n">IntxFakeQuantizeConfig</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">int4</span><span class="p">,</span> <span class="s2">"per_channel"</span><span class="p">)</span>
+<span class="n">IntxFakeQuantizeConfig</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">int4</span><span class="p">,</span> <span class="s2">"per_channel"</span><span class="p">,</span> <span class="n">is_symmetric</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
 <span class="n">IntxFakeQuantizeConfig</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">int4</span><span class="p">,</span> <span class="n">PerAxis</span><span class="p">(</span><span class="mi">0</span><span class="p">),</span> <span class="n">MappingType</span><span class="o">.</span><span class="n">SYMMETRIC</span><span class="p">)</span>
 
 <span class="c1"># Per group symmetric quantization</span>
 <span class="n">IntxFakeQuantizeConfig</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">int4</span><span class="p">,</span> <span class="n">group_size</span><span class="o">=</span><span class="mi">32</span><span class="p">)</span>
 <span class="n">IntxFakeQuantizeConfig</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">int4</span><span class="p">,</span> <span class="n">group_size</span><span class="o">=</span><span class="mi">32</span><span class="p">,</span> <span class="n">is_symmetric</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
-<span class="n">IntxFakeQuantizeConfig</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">int4</span><span class="p">,</span> <span class="s2">&quot;per_group&quot;</span><span class="p">,</span> <span class="n">group_size</span><span class="o">=</span><span class="mi">32</span><span class="p">,</span> <span class="n">is_symmetric</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="n">IntxFakeQuantizeConfig</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">int4</span><span class="p">,</span> <span class="s2">"per_group"</span><span class="p">,</span> <span class="n">group_size</span><span class="o">=</span><span class="mi">32</span><span class="p">,</span> <span class="n">is_symmetric</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
 <span class="n">IntxFakeQuantizeConfig</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">int4</span><span class="p">,</span> <span class="n">PerGroup</span><span class="p">(</span><span class="mi">32</span><span class="p">),</span> <span class="n">MappingType</span><span class="o">.</span><span class="n">SYMMETRIC</span><span class="p">)</span>
 </pre></div>
 </div>

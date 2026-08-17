@@ -172,7 +172,7 @@ window.addEventListener("load", () => mermaid.run());
   fbq('track', 'PageView');
 </script>
 <script>
-  document.documentElement.setAttribute('data-version', 'main (0.19.0+gitd37142a )');
+  document.documentElement.setAttribute('data-version', 'main (0.19.0+gitf10e69b )');
 </script>
 <noscript>
   <img height="1" width="1" src="https://www.facebook.com/tr?id=243028289693773&ev=PageView&noscript=1" />
@@ -1413,12 +1413,12 @@ document.write(`
 <div class="viewcode-block" id="QATStep">
 <a class="viewcode-back" href="../../../../api_reference/generated/torchao.quantization.qat.QATStep.html#torchao.quantization.qat.QATStep">[docs]</a>
 <span class="k">class</span><span class="w"> </span><span class="nc">QATStep</span><span class="p">(</span><span class="nb">str</span><span class="p">,</span> <span class="n">Enum</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">"""</span>
 <span class="sd">    Enum value for the `step` field in :class:`~torchao.quantization.qat.QATConfig`.</span>
-<span class="sd">    &quot;&quot;&quot;</span>
+<span class="sd">    """</span>
 
-    <span class="n">PREPARE</span> <span class="o">=</span> <span class="s2">&quot;prepare&quot;</span>
-    <span class="n">CONVERT</span> <span class="o">=</span> <span class="s2">&quot;convert&quot;</span></div>
+    <span class="n">PREPARE</span> <span class="o">=</span> <span class="s2">"prepare"</span>
+    <span class="n">CONVERT</span> <span class="o">=</span> <span class="s2">"convert"</span></div>
 
 
 
@@ -1426,12 +1426,12 @@ document.write(`
 <a class="viewcode-back" href="../../../../api_reference/generated/torchao.quantization.qat.QATConfig.html#torchao.quantization.qat.QATConfig">[docs]</a>
 <span class="nd">@dataclass</span>
 <span class="k">class</span><span class="w"> </span><span class="nc">QATConfig</span><span class="p">(</span><span class="n">AOBaseConfig</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">"""</span>
 <span class="sd">    Config for applying quantization-aware training (QAT) to a `torch.nn.Module`,</span>
 <span class="sd">    to be used with :func:`~torchao.quantization.quant_api.quantize_`.</span>
 
-<span class="sd">    This config has two steps, &quot;prepare&quot; and &quot;convert&quot;. The prepare step applies</span>
-<span class="sd">    &quot;fake&quot; quantization to the model and should be applied before training, while</span>
+<span class="sd">    This config has two steps, "prepare" and "convert". The prepare step applies</span>
+<span class="sd">    "fake" quantization to the model and should be applied before training, while</span>
 <span class="sd">    the convert step converts the model into an actual quantized model. Fake</span>
 <span class="sd">    quantization here refers to simulating the quantization numerics (e.g. int4)</span>
 <span class="sd">    using high precision arithmetic (e.g. bf16), with the goal of reducing</span>
@@ -1452,9 +1452,9 @@ document.write(`
 <span class="sd">        from torchao.quantization.qat import QATConfig</span>
 
 <span class="sd">        base_config = Int4WeightOnlyConfig(group_size=32)</span>
-<span class="sd">        quantize_(model, QATConfig(base_config, step=&quot;prepare&quot;))</span>
+<span class="sd">        quantize_(model, QATConfig(base_config, step="prepare"))</span>
 <span class="sd">        train_loop(model)</span>
-<span class="sd">        quantize_(model, QATConfig(base_config, step=&quot;convert&quot;))</span>
+<span class="sd">        quantize_(model, QATConfig(base_config, step="convert"))</span>
 
 <span class="sd">    Currently only the following are supported as base configs:</span>
 
@@ -1472,7 +1472,7 @@ document.write(`
 <span class="sd">        from torchao.quantization.qat import IntxFakeQuantizeConfig</span>
 
 <span class="sd">        activation_config = IntxFakeQuantizeConfig(</span>
-<span class="sd">            torch.int8, &quot;per_token&quot;, is_symmetric=False,</span>
+<span class="sd">            torch.int8, "per_token", is_symmetric=False,</span>
 <span class="sd">        )</span>
 <span class="sd">        weight_config = IntxFakeQuantizeConfig(</span>
 <span class="sd">            torch.int4, group_size=32, is_symmetric=True,</span>
@@ -1481,7 +1481,7 @@ document.write(`
 <span class="sd">            # must specify one of `base_config` or `weight_config`</span>
 <span class="sd">            activation_config=act_config,</span>
 <span class="sd">            weight_config=weight_config,</span>
-<span class="sd">            step=&quot;prepare&quot;,</span>
+<span class="sd">            step="prepare",</span>
 <span class="sd">        )</span>
 <span class="sd">        quantize_(model, qat_config)</span>
 
@@ -1496,7 +1496,7 @@ document.write(`
 <span class="sd">            config for weights. Must be None if `base_config` is used.</span>
 
 <span class="sd">    Keyword args:</span>
-<span class="sd">        step (str): One of &quot;prepare&quot; or &quot;convert&quot;, determines the QAT phase</span>
+<span class="sd">        step (str): One of "prepare" or "convert", determines the QAT phase</span>
 
 <span class="sd">    Raises:</span>
 <span class="sd">        ValueError: If `base_config` and `activation_config` are both specified</span>
@@ -1504,12 +1504,12 @@ document.write(`
 <span class="sd">        ValueError: If none of `base_config`, `activation_config`, or</span>
 <span class="sd">            `weight_config` are specified</span>
 <span class="sd">        ValueError: If either `activation_config` or `weight_config` is specified</span>
-<span class="sd">             and `step` is &quot;convert&quot;</span>
-<span class="sd">        ValueError: If `step` is not one of &quot;prepare&quot; or &quot;convert&quot;</span>
+<span class="sd">             and `step` is "convert"</span>
+<span class="sd">        ValueError: If `step` is not one of "prepare" or "convert"</span>
 <span class="sd">        ValueError: If the config is applied on a module that is not a</span>
 <span class="sd">            `torch.nn.Linear` or `torch.nn.Embedding`, or it is applied on</span>
 <span class="sd">            `torch.nn.Embedding` with an activation config</span>
-<span class="sd">    &quot;&quot;&quot;</span>
+<span class="sd">    """</span>
 
     <span class="n">base_config</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">AOBaseConfig</span><span class="p">]</span>
     <span class="n">activation_config</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">FakeQuantizeConfigBase</span><span class="p">]</span>
@@ -1524,7 +1524,7 @@ document.write(`
         <span class="n">activation_config</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">FakeQuantizeConfigBase</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
         <span class="n">weight_config</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">FakeQuantizeConfigBase</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
         <span class="o">*</span><span class="p">,</span>
-        <span class="n">step</span><span class="p">:</span> <span class="n">QATStep</span> <span class="o">=</span> <span class="s2">&quot;prepare&quot;</span><span class="p">,</span>
+        <span class="n">step</span><span class="p">:</span> <span class="n">QATStep</span> <span class="o">=</span> <span class="s2">"prepare"</span><span class="p">,</span>
     <span class="p">):</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">base_config</span> <span class="o">=</span> <span class="n">base_config</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">activation_config</span> <span class="o">=</span> <span class="n">activation_config</span>
@@ -1533,39 +1533,39 @@ document.write(`
         <span class="bp">self</span><span class="o">.</span><span class="n">__post_init__</span><span class="p">()</span>
 
     <span class="k">def</span><span class="w"> </span><span class="nf">__post_init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
-        <span class="n">torch</span><span class="o">.</span><span class="n">_C</span><span class="o">.</span><span class="n">_log_api_usage_once</span><span class="p">(</span><span class="s2">&quot;torchao.quantization.qat.QATConfig&quot;</span><span class="p">)</span>
+        <span class="n">torch</span><span class="o">.</span><span class="n">_C</span><span class="o">.</span><span class="n">_log_api_usage_once</span><span class="p">(</span><span class="s2">"torchao.quantization.qat.QATConfig"</span><span class="p">)</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">step</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">step</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span>
         <span class="n">all_step_values</span> <span class="o">=</span> <span class="p">[</span><span class="n">s</span><span class="o">.</span><span class="n">value</span> <span class="k">for</span> <span class="n">s</span> <span class="ow">in</span> <span class="n">QATStep</span><span class="p">]</span>
         <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">step</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">all_step_values</span><span class="p">:</span>
-            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;`step` must be one of </span><span class="si">{</span><span class="n">all_step_values</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">"`step` must be one of </span><span class="si">{</span><span class="n">all_step_values</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
         <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">base_config</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="bp">self</span><span class="o">.</span><span class="n">activation_config</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
             <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
-                <span class="s2">&quot;Cannot specify both `base_config` and `activation_config`&quot;</span>
+                <span class="s2">"Cannot specify both `base_config` and `activation_config`"</span>
             <span class="p">)</span>
         <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">base_config</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="bp">self</span><span class="o">.</span><span class="n">weight_config</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
-            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;Cannot specify both `base_config` and `weight_config`&quot;</span><span class="p">)</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">"Cannot specify both `base_config` and `weight_config`"</span><span class="p">)</span>
         <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">step</span> <span class="o">==</span> <span class="n">QATStep</span><span class="o">.</span><span class="n">PREPARE</span> <span class="ow">and</span> <span class="ow">not</span> <span class="nb">any</span><span class="p">(</span>
             <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">base_config</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">activation_config</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">weight_config</span><span class="p">)</span>
         <span class="p">):</span>
             <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
-                <span class="s2">&quot;Must specify `base_config`, `activation_config`, or `weight_config` in the prepare step&quot;</span>
+                <span class="s2">"Must specify `base_config`, `activation_config`, or `weight_config` in the prepare step"</span>
             <span class="p">)</span>
 
         <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">step</span> <span class="o">==</span> <span class="n">QATStep</span><span class="o">.</span><span class="n">CONVERT</span> <span class="ow">and</span> <span class="p">(</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">activation_config</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">or</span> <span class="bp">self</span><span class="o">.</span><span class="n">weight_config</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span>
         <span class="p">):</span>
             <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
-                <span class="s2">&quot;Cannot specify `weight_config` or `activation_config` in the convert step&quot;</span>
+                <span class="s2">"Cannot specify `weight_config` or `activation_config` in the convert step"</span>
             <span class="p">)</span>
         <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">base_config</span><span class="p">,</span> <span class="n">FakeQuantizeConfigBase</span><span class="p">):</span>
             <span class="n">config_type</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">base_config</span><span class="o">.</span><span class="vm">__class__</span><span class="o">.</span><span class="vm">__name__</span>
             <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
-                <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">config_type</span><span class="si">}</span><span class="s2"> was passed as `base_config`. Did you mean to do the following instead?</span><span class="se">\n</span><span class="s2">&quot;</span>
-                <span class="s2">&quot;    qat_config = QATConfig(</span><span class="se">\n</span><span class="s2">&quot;</span>
-                <span class="sa">f</span><span class="s2">&quot;        activation_config=</span><span class="si">{</span><span class="n">config_type</span><span class="si">}</span><span class="s2">(...),</span><span class="se">\n</span><span class="s2">&quot;</span>
-                <span class="sa">f</span><span class="s2">&quot;        weight_config=</span><span class="si">{</span><span class="n">config_type</span><span class="si">}</span><span class="s2">(...),</span><span class="se">\n</span><span class="s2">&quot;</span>
-                <span class="s1">&#39;        step=&quot;prepare&quot;,</span><span class="se">\n</span><span class="s1">&#39;</span>
-                <span class="s2">&quot;    )&quot;</span>
+                <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">config_type</span><span class="si">}</span><span class="s2"> was passed as `base_config`. Did you mean to do the following instead?</span><span class="se">\n</span><span class="s2">"</span>
+                <span class="s2">"    qat_config = QATConfig(</span><span class="se">\n</span><span class="s2">"</span>
+                <span class="sa">f</span><span class="s2">"        activation_config=</span><span class="si">{</span><span class="n">config_type</span><span class="si">}</span><span class="s2">(...),</span><span class="se">\n</span><span class="s2">"</span>
+                <span class="sa">f</span><span class="s2">"        weight_config=</span><span class="si">{</span><span class="n">config_type</span><span class="si">}</span><span class="s2">(...),</span><span class="se">\n</span><span class="s2">"</span>
+                <span class="s1">'        step="prepare",</span><span class="se">\n</span><span class="s1">'</span>
+                <span class="s2">"    )"</span>
             <span class="p">)</span></div>
 
 
@@ -1575,14 +1575,14 @@ document.write(`
     <span class="n">module</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">,</span>
     <span class="n">config</span><span class="p">:</span> <span class="n">QATConfig</span><span class="p">,</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">:</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">"""</span>
 <span class="sd">    During the prepare step, perform module swap to apply fake quantization.</span>
 <span class="sd">    If the base PTQ config is specified, derive the fake quantization configs from it.</span>
 
 <span class="sd">    During the convert step, first perform module swap to revert all fake quantized</span>
 <span class="sd">    modules to the corresponding built-in `torch.nn.Module`s, then apply the</span>
 <span class="sd">    base config directly to quantize the module.</span>
-<span class="sd">    &quot;&quot;&quot;</span>
+<span class="sd">    """</span>
     <span class="c1"># TODO: rewrite this using a registration API so</span>
     <span class="c1"># specific quantization schemes do not leak here</span>
     <span class="kn">from</span><span class="w"> </span><span class="nn">torchao.prototype.qat</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
@@ -1625,18 +1625,18 @@ document.write(`
         <span class="k">elif</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">module</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Embedding</span><span class="p">):</span>
             <span class="k">if</span> <span class="n">act_config</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
                 <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
-                    <span class="s2">&quot;Activation fake quantization is not supported for embedding&quot;</span>
+                    <span class="s2">"Activation fake quantization is not supported for embedding"</span>
                 <span class="p">)</span>
             <span class="k">return</span> <span class="n">FakeQuantizedEmbedding</span><span class="o">.</span><span class="n">from_embedding</span><span class="p">(</span><span class="n">module</span><span class="p">,</span> <span class="n">weight_config</span><span class="p">)</span>
         <span class="k">else</span><span class="p">:</span>
             <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
-                <span class="s2">&quot;Module of type &#39;</span><span class="si">%s</span><span class="s2">&#39; does not have QAT support&quot;</span> <span class="o">%</span> <span class="nb">type</span><span class="p">(</span><span class="n">module</span><span class="p">)</span>
+                <span class="s2">"Module of type '</span><span class="si">%s</span><span class="s2">' does not have QAT support"</span> <span class="o">%</span> <span class="nb">type</span><span class="p">(</span><span class="n">module</span><span class="p">)</span>
             <span class="p">)</span>
     <span class="k">else</span><span class="p">:</span>
         <span class="c1"># Convert step</span>
-        <span class="k">assert</span> <span class="n">step</span> <span class="o">==</span> <span class="n">QATStep</span><span class="o">.</span><span class="n">CONVERT</span><span class="p">,</span> <span class="s2">&quot;unexpected step &#39;</span><span class="si">%s</span><span class="s2">&#39; in QATConfig&quot;</span> <span class="o">%</span> <span class="n">step</span>
-        <span class="k">assert</span> <span class="n">config</span><span class="o">.</span><span class="n">activation_config</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">,</span> <span class="s2">&quot;unexpected `activation_config`&quot;</span>
-        <span class="k">assert</span> <span class="n">config</span><span class="o">.</span><span class="n">weight_config</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">,</span> <span class="s2">&quot;unexpected `weight_config`&quot;</span>
+        <span class="k">assert</span> <span class="n">step</span> <span class="o">==</span> <span class="n">QATStep</span><span class="o">.</span><span class="n">CONVERT</span><span class="p">,</span> <span class="s2">"unexpected step '</span><span class="si">%s</span><span class="s2">' in QATConfig"</span> <span class="o">%</span> <span class="n">step</span>
+        <span class="k">assert</span> <span class="n">config</span><span class="o">.</span><span class="n">activation_config</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">,</span> <span class="s2">"unexpected `activation_config`"</span>
+        <span class="k">assert</span> <span class="n">config</span><span class="o">.</span><span class="n">weight_config</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">,</span> <span class="s2">"unexpected `weight_config`"</span>
 
         <span class="c1"># Ignore unrelated modules</span>
         <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span>
@@ -1655,17 +1655,17 @@ document.write(`
         <span class="n">kwargs</span> <span class="o">=</span> <span class="p">{}</span>
         <span class="n">has_custom_scale_and_zero_point</span> <span class="o">=</span> <span class="kc">False</span>
         <span class="k">if</span> <span class="p">(</span>
-            <span class="nb">hasattr</span><span class="p">(</span><span class="n">module</span><span class="p">,</span> <span class="s2">&quot;weight_fake_quantizer&quot;</span><span class="p">)</span>
+            <span class="nb">hasattr</span><span class="p">(</span><span class="n">module</span><span class="p">,</span> <span class="s2">"weight_fake_quantizer"</span><span class="p">)</span>
             <span class="ow">and</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">module</span><span class="o">.</span><span class="n">weight_fake_quantizer</span><span class="o">.</span><span class="n">config</span><span class="p">,</span> <span class="n">IntxFakeQuantizeConfig</span><span class="p">)</span>
             <span class="ow">and</span> <span class="n">module</span><span class="o">.</span><span class="n">weight_fake_quantizer</span><span class="o">.</span><span class="n">config</span><span class="o">.</span><span class="n">range_learning</span>
         <span class="p">):</span>
-            <span class="n">kwargs</span><span class="p">[</span><span class="s2">&quot;custom_scale&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">module</span><span class="o">.</span><span class="n">weight_fake_quantizer</span><span class="o">.</span><span class="n">scale</span>
-            <span class="n">kwargs</span><span class="p">[</span><span class="s2">&quot;custom_zero_point&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">module</span><span class="o">.</span><span class="n">weight_fake_quantizer</span><span class="o">.</span><span class="n">zero_point</span>
+            <span class="n">kwargs</span><span class="p">[</span><span class="s2">"custom_scale"</span><span class="p">]</span> <span class="o">=</span> <span class="n">module</span><span class="o">.</span><span class="n">weight_fake_quantizer</span><span class="o">.</span><span class="n">scale</span>
+            <span class="n">kwargs</span><span class="p">[</span><span class="s2">"custom_zero_point"</span><span class="p">]</span> <span class="o">=</span> <span class="n">module</span><span class="o">.</span><span class="n">weight_fake_quantizer</span><span class="o">.</span><span class="n">zero_point</span>
             <span class="n">has_custom_scale_and_zero_point</span> <span class="o">=</span> <span class="kc">True</span>
 
         <span class="c1"># Swap FakeQuantizedLinear -&gt; nn.Linear</span>
         <span class="c1"># Swap FakeQuantizedEmbedding -&gt; nn.Embedding</span>
-        <span class="c1"># Then apply the base config&#39;s transform function to quantize the model</span>
+        <span class="c1"># Then apply the base config's transform function to quantize the model</span>
         <span class="c1"># If there is no base config, then simply perform the module swap</span>
         <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span>
             <span class="n">module</span><span class="p">,</span>
@@ -1676,14 +1676,14 @@ document.write(`
             <span class="n">module</span> <span class="o">=</span> <span class="n">module</span><span class="o">.</span><span class="n">to_embedding</span><span class="p">()</span>
         <span class="k">else</span><span class="p">:</span>
             <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
-                <span class="sa">f</span><span class="s2">&quot;Encountered unexpected module </span><span class="si">{</span><span class="n">module</span><span class="si">}</span><span class="s2">, should never happen&quot;</span>
+                <span class="sa">f</span><span class="s2">"Encountered unexpected module </span><span class="si">{</span><span class="n">module</span><span class="si">}</span><span class="s2">, should never happen"</span>
             <span class="p">)</span>
         <span class="k">if</span> <span class="n">base_config</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
             <span class="c1"># If passing custom scales and zero points, we need to disable the choose_qparam_algorithm on the config</span>
             <span class="k">if</span> <span class="n">has_custom_scale_and_zero_point</span> <span class="ow">and</span> <span class="nb">hasattr</span><span class="p">(</span>
-                <span class="n">base_config</span><span class="p">,</span> <span class="s2">&quot;intx_choose_qparams_algorithm&quot;</span>
+                <span class="n">base_config</span><span class="p">,</span> <span class="s2">"intx_choose_qparams_algorithm"</span>
             <span class="p">):</span>
-                <span class="n">logging</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s2">&quot;Disabling intx_choose_qparams_algorithm&quot;</span><span class="p">)</span>
+                <span class="n">logging</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s2">"Disabling intx_choose_qparams_algorithm"</span><span class="p">)</span>
                 <span class="n">base_config</span> <span class="o">=</span> <span class="n">copy</span><span class="o">.</span><span class="n">deepcopy</span><span class="p">(</span><span class="n">base_config</span><span class="p">)</span>
                 <span class="n">base_config</span><span class="o">.</span><span class="n">intx_choose_qparams_algorithm</span> <span class="o">=</span> <span class="kc">None</span>
             <span class="k">return</span> <span class="n">_QUANTIZE_CONFIG_HANDLER</span><span class="p">[</span><span class="nb">type</span><span class="p">(</span><span class="n">base_config</span><span class="p">)](</span>
@@ -1697,7 +1697,7 @@ document.write(`
 <a class="viewcode-back" href="../../../../api_reference/generated/torchao.quantization.qat.IntXQuantizationAwareTrainingConfig.html#torchao.quantization.qat.IntXQuantizationAwareTrainingConfig">[docs]</a>
 <span class="nd">@dataclass</span>
 <span class="k">class</span><span class="w"> </span><span class="nc">IntXQuantizationAwareTrainingConfig</span><span class="p">(</span><span class="n">AOBaseConfig</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">"""</span>
 <span class="sd">    (Deprecated) Please use :class:`~torchao.quantization.qat.QATConfig` instead.</span>
 
 <span class="sd">    Config for applying fake quantization to a `torch.nn.Module`.</span>
@@ -1708,7 +1708,7 @@ document.write(`
 <span class="sd">        from torchao.quantization import quantize_</span>
 <span class="sd">        from torchao.quantization.qat import IntxFakeQuantizeConfig</span>
 <span class="sd">        activation_config = IntxFakeQuantizeConfig(</span>
-<span class="sd">            torch.int8, &quot;per_token&quot;, is_symmetric=False,</span>
+<span class="sd">            torch.int8, "per_token", is_symmetric=False,</span>
 <span class="sd">        )</span>
 <span class="sd">        weight_config = IntxFakeQuantizeConfig(</span>
 <span class="sd">            torch.int4, group_size=32, is_symmetric=True,</span>
@@ -1722,7 +1722,7 @@ document.write(`
 <span class="sd">    `torch.nn.Linear` or `torch.nn.Embedding`, or it is applied on</span>
 <span class="sd">    `torch.nn.Embedding` with an activation config, then we will raise</span>
 <span class="sd">    ValueError as these are not supported.</span>
-<span class="sd">    &quot;&quot;&quot;</span>
+<span class="sd">    """</span>
 
     <span class="n">activation_config</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">FakeQuantizeConfigBase</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
     <span class="n">weight_config</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">FakeQuantizeConfigBase</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
@@ -1755,18 +1755,18 @@ document.write(`
     <span class="k">elif</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">mod</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Embedding</span><span class="p">):</span>
         <span class="k">if</span> <span class="n">activation_config</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
             <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
-                <span class="s2">&quot;Activation fake quantization is not supported for embedding&quot;</span>
+                <span class="s2">"Activation fake quantization is not supported for embedding"</span>
             <span class="p">)</span>
         <span class="k">return</span> <span class="n">FakeQuantizedEmbedding</span><span class="o">.</span><span class="n">from_embedding</span><span class="p">(</span><span class="n">mod</span><span class="p">,</span> <span class="n">weight_config</span><span class="p">)</span>
     <span class="k">else</span><span class="p">:</span>
-        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;Module of type &#39;</span><span class="si">%s</span><span class="s2">&#39; does not have QAT support&quot;</span> <span class="o">%</span> <span class="nb">type</span><span class="p">(</span><span class="n">mod</span><span class="p">))</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">"Module of type '</span><span class="si">%s</span><span class="s2">' does not have QAT support"</span> <span class="o">%</span> <span class="nb">type</span><span class="p">(</span><span class="n">mod</span><span class="p">))</span>
 
 
 <div class="viewcode-block" id="FromIntXQuantizationAwareTrainingConfig">
 <a class="viewcode-back" href="../../../../api_reference/generated/torchao.quantization.qat.FromIntXQuantizationAwareTrainingConfig.html#torchao.quantization.qat.FromIntXQuantizationAwareTrainingConfig">[docs]</a>
 <span class="nd">@dataclass</span>
 <span class="k">class</span><span class="w"> </span><span class="nc">FromIntXQuantizationAwareTrainingConfig</span><span class="p">(</span><span class="n">AOBaseConfig</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">"""</span>
 <span class="sd">    (Deprecated) Please use :class:`~torchao.quantization.qat.QATConfig` instead.</span>
 
 <span class="sd">    Config for converting a model with fake quantized modules,</span>
@@ -1783,7 +1783,7 @@ document.write(`
 <span class="sd">            model_with_fake_quantized_linears,</span>
 <span class="sd">            FromIntXQuantizationAwareTrainingConfig(),</span>
 <span class="sd">        )</span>
-<span class="sd">    &quot;&quot;&quot;</span>
+<span class="sd">    """</span>
 
     <span class="k">def</span><span class="w"> </span><span class="nf">__post_init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
         <span class="n">_log_deprecation_warning</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span></div>
@@ -1800,10 +1800,10 @@ document.write(`
     <span class="n">mod</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">,</span>
     <span class="n">config</span><span class="p">:</span> <span class="n">FromIntXQuantizationAwareTrainingConfig</span><span class="p">,</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">:</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">"""</span>
 <span class="sd">    If the given module is a fake quantized module, return the original</span>
 <span class="sd">    corresponding version of the module without fake quantization.</span>
-<span class="sd">    &quot;&quot;&quot;</span>
+<span class="sd">    """</span>
     <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">mod</span><span class="p">,</span> <span class="n">FakeQuantizedLinear</span><span class="p">):</span>
         <span class="k">return</span> <span class="n">mod</span><span class="o">.</span><span class="n">to_linear</span><span class="p">()</span>
     <span class="k">elif</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">mod</span><span class="p">,</span> <span class="n">FakeQuantizedEmbedding</span><span class="p">):</span>
@@ -1815,7 +1815,7 @@ document.write(`
 <div class="viewcode-block" id="ComposableQATQuantizer">
 <a class="viewcode-back" href="../../../../api_reference/generated/torchao.quantization.qat.ComposableQATQuantizer.html#torchao.quantization.qat.ComposableQATQuantizer">[docs]</a>
 <span class="k">class</span><span class="w"> </span><span class="nc">ComposableQATQuantizer</span><span class="p">(</span><span class="n">TwoStepQuantizer</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">"""</span>
 <span class="sd">    Composable quantizer that users can use to apply multiple QAT quantizers easily.</span>
 <span class="sd">    Quantizers will be applied in the order they are specified in the constructor.</span>
 
@@ -1832,10 +1832,10 @@ document.write(`
 <span class="sd">        model = my_quantizer.prepare(model)</span>
 <span class="sd">        train(model)</span>
 <span class="sd">        model = my_quantizer.convert(model)</span>
-<span class="sd">    &quot;&quot;&quot;</span>
+<span class="sd">    """</span>
 
     <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">quantizers</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">TwoStepQuantizer</span><span class="p">]):</span>
-        <span class="n">torch</span><span class="o">.</span><span class="n">_C</span><span class="o">.</span><span class="n">_log_api_usage_once</span><span class="p">(</span><span class="s2">&quot;torchao.quantization.qat.ComposableQATQuantizer&quot;</span><span class="p">)</span>
+        <span class="n">torch</span><span class="o">.</span><span class="n">_C</span><span class="o">.</span><span class="n">_log_api_usage_once</span><span class="p">(</span><span class="s2">"torchao.quantization.qat.ComposableQATQuantizer"</span><span class="p">)</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">quantizers</span> <span class="o">=</span> <span class="n">quantizers</span>
 
     <span class="k">def</span><span class="w"> </span><span class="nf">prepare</span><span class="p">(</span>
@@ -1860,12 +1860,12 @@ document.write(`
     <span class="n">model</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">,</span>
     <span class="n">example_inputs</span><span class="p">:</span> <span class="n">Tuple</span><span class="p">[</span><span class="n">Any</span><span class="p">,</span> <span class="o">...</span><span class="p">],</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">"""</span>
 <span class="sd">    (Prototype) Initialize the scales and zero points on all</span>
 <span class="sd">    :class:`~torchao.quantization.qat.fake_quantizer.IntxFakeQuantizerBase`</span>
 <span class="sd">    in the model based on the provided example inputs.</span>
-<span class="sd">    &quot;&quot;&quot;</span>
-    <span class="n">torch</span><span class="o">.</span><span class="n">_C</span><span class="o">.</span><span class="n">_log_api_usage_once</span><span class="p">(</span><span class="s2">&quot;torchao.quantization.qat.initialize_fake_quantizers&quot;</span><span class="p">)</span>
+<span class="sd">    """</span>
+    <span class="n">torch</span><span class="o">.</span><span class="n">_C</span><span class="o">.</span><span class="n">_log_api_usage_once</span><span class="p">(</span><span class="s2">"torchao.quantization.qat.initialize_fake_quantizers"</span><span class="p">)</span>
 
     <span class="c1"># avoid circular dependencies</span>
     <span class="kn">from</span><span class="w"> </span><span class="nn">torchao.quantization.qat.fake_quantizer</span><span class="w"> </span><span class="kn">import</span> <span class="n">IntxFakeQuantizer</span>

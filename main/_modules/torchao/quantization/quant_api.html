@@ -172,7 +172,7 @@ window.addEventListener("load", () => mermaid.run());
   fbq('track', 'PageView');
 </script>
 <script>
-  document.documentElement.setAttribute('data-version', 'main (0.19.0+gitd37142a )');
+  document.documentElement.setAttribute('data-version', 'main (0.19.0+gitf10e69b )');
 </script>
 <noscript>
   <img height="1" width="1" src="https://www.facebook.com/tr?id=243028289693773&ev=PageView&noscript=1" />
@@ -1384,7 +1384,7 @@ document.write(`
 <span class="c1"># This source code is licensed under the license found in the</span>
 <span class="c1"># LICENSE file in the root directory of this source tree.</span>
 
-<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">"""</span>
 <span class="sd">Quantization APIs</span>
 
 <span class="sd">Generally these APIs can be applied directly to any model</span>
@@ -1393,7 +1393,7 @@ document.write(`
 <span class="sd">both because primitives were designed based on the fusions that</span>
 <span class="sd">come along with it and because that is how we access the intended quantized</span>
 <span class="sd">and mixed GEMM kernels</span>
-<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">"""</span>
 
 <span class="kn">import</span><span class="w"> </span><span class="nn">inspect</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">logging</span>
@@ -1423,7 +1423,7 @@ document.write(`
 <span class="p">)</span>
 
 <span class="c1"># for BC, make sure to keep the `noqa: F401` comments to prevent</span>
-<span class="c1"># ruff from removing &quot;unused imports&quot;</span>
+<span class="c1"># ruff from removing "unused imports"</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">torchao.prototype.quantization.quant_api</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
     <span class="n">Float8StaticActivationFloat8WeightConfig</span><span class="p">,</span>  <span class="c1"># noqa: F401</span>
 <span class="p">)</span>
@@ -1489,13 +1489,13 @@ document.write(`
 
 <span class="c1"># TODO: revisit this list?</span>
 <span class="n">__all__</span> <span class="o">=</span> <span class="p">[</span>
-    <span class="s2">&quot;swap_conv2d_1x1_to_linear&quot;</span><span class="p">,</span>
-    <span class="s2">&quot;Int4WeightOnlyQuantizer&quot;</span><span class="p">,</span>
-    <span class="s2">&quot;_get_subclass_inserter&quot;</span><span class="p">,</span>
-    <span class="s2">&quot;quantize_&quot;</span><span class="p">,</span>
-    <span class="s2">&quot;intx_quantization_aware_training&quot;</span><span class="p">,</span>
-    <span class="s2">&quot;Int8DynActInt4WeightQuantizer&quot;</span><span class="p">,</span>
-    <span class="s2">&quot;ModuleFqnToConfig&quot;</span><span class="p">,</span>
+    <span class="s2">"swap_conv2d_1x1_to_linear"</span><span class="p">,</span>
+    <span class="s2">"Int4WeightOnlyQuantizer"</span><span class="p">,</span>
+    <span class="s2">"_get_subclass_inserter"</span><span class="p">,</span>
+    <span class="s2">"quantize_"</span><span class="p">,</span>
+    <span class="s2">"intx_quantization_aware_training"</span><span class="p">,</span>
+    <span class="s2">"Int8DynActInt4WeightQuantizer"</span><span class="p">,</span>
+    <span class="s2">"ModuleFqnToConfig"</span><span class="p">,</span>
 <span class="p">]</span>
 
 
@@ -1503,11 +1503,11 @@ document.write(`
     <span class="n">model</span><span class="p">,</span>
     <span class="n">replacement_fn</span><span class="p">,</span>
     <span class="n">filter_fn</span><span class="p">,</span>
-    <span class="n">cur_fqn</span><span class="o">=</span><span class="s2">&quot;&quot;</span><span class="p">,</span>
+    <span class="n">cur_fqn</span><span class="o">=</span><span class="s2">""</span><span class="p">,</span>
     <span class="n">device</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
     <span class="n">extra_args</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Tuple</span><span class="p">[</span><span class="n">Any</span><span class="p">,</span> <span class="o">...</span><span class="p">]]</span> <span class="o">=</span> <span class="p">(),</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">"""</span>
 <span class="sd">    Recursively replaces each child module in `model` with the result of `replacement_fn(child)`</span>
 <span class="sd">    if `filter_fn(child)` returns `True`.</span>
 
@@ -1515,13 +1515,13 @@ document.write(`
 <span class="sd">        model (torch.nn.Module): The model containing modules to be replaced.</span>
 <span class="sd">        replacement_fn (Callable[[torch.nn.Module], torch.nn.Module]): The function to replace matching modules.</span>
 <span class="sd">        filter_fn (Callable[[torch.nn.Module], bool]): The filter function to determine which modules to replace.</span>
-<span class="sd">        cur_fqn (str, optional): The current fully qualified name of the module being processed. Defaults to &quot;&quot;.</span>
+<span class="sd">        cur_fqn (str, optional): The current fully qualified name of the module being processed. Defaults to "".</span>
 <span class="sd">        device (device, optional): Device to move the model to before applying `filter_fn`. Defaults to None.</span>
 <span class="sd">        extra_args (Tuple[Any, ...], optional): optional extra args to pass to `replacement_fn`.</span>
 
 <span class="sd">    Returns:</span>
 <span class="sd">        None</span>
-<span class="sd">    &quot;&quot;&quot;</span>
+<span class="sd">    """</span>
     <span class="k">if</span> <span class="n">filter_fn</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="n">cur_fqn</span><span class="p">[:</span><span class="o">-</span><span class="mi">1</span><span class="p">]):</span>
         <span class="k">if</span> <span class="n">device</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
             <span class="n">model</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">device</span><span class="o">=</span><span class="n">device</span><span class="p">)</span>  <span class="c1"># move to device before quantization</span>
@@ -1534,7 +1534,7 @@ document.write(`
                 <span class="n">child</span><span class="p">,</span>
                 <span class="n">replacement_fn</span><span class="p">,</span>
                 <span class="n">filter_fn</span><span class="p">,</span>
-                <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">cur_fqn</span><span class="si">}{</span><span class="n">name</span><span class="si">}</span><span class="s2">.&quot;</span><span class="p">,</span>
+                <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">cur_fqn</span><span class="si">}{</span><span class="n">name</span><span class="si">}</span><span class="s2">."</span><span class="p">,</span>
                 <span class="n">device</span><span class="p">,</span>
                 <span class="n">extra_args</span><span class="p">,</span>
             <span class="p">)</span>
@@ -1556,14 +1556,14 @@ document.write(`
     <span class="c1"># TODO: check isinstance(TorchAOBaseTensor)?</span>
     <span class="k">return</span> <span class="p">(</span>
         <span class="nb">isinstance</span><span class="p">(</span><span class="n">mod</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">)</span>
-        <span class="ow">and</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">mod</span><span class="p">,</span> <span class="s2">&quot;weight&quot;</span><span class="p">)</span>
+        <span class="ow">and</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">mod</span><span class="p">,</span> <span class="s2">"weight"</span><span class="p">)</span>
         <span class="ow">and</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">mod</span><span class="o">.</span><span class="n">weight</span><span class="p">,</span> <span class="n">_AffineFakeQuantizedTensor</span><span class="p">)</span>
         <span class="ow">and</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">mod</span><span class="p">,</span> <span class="n">nn</span><span class="o">.</span><span class="n">modules</span><span class="o">.</span><span class="n">linear</span><span class="o">.</span><span class="n">NonDynamicallyQuantizableLinear</span><span class="p">)</span>
     <span class="p">)</span>
 
 
 <span class="k">def</span><span class="w"> </span><span class="nf">_get_subclass_inserter</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="n">enable_parametrization</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">"""</span>
 <span class="sd">    Returns a function which inserts the given subclass into all linear modules</span>
 <span class="sd">    in the model. The inserted module will have its weight set to the result of</span>
 <span class="sd">    `cls(mod.weight, **kwargs)`. If parametrization is enabled then this will be done using</span>
@@ -1572,9 +1572,9 @@ document.write(`
 <span class="sd">    Args:</span>
 <span class="sd">        cls (torch.Tensor): The class to insert as a child module.</span>
 <span class="sd">        kwargs (Any): Any additional arguments for the constructor.</span>
-<span class="sd">    &quot;&quot;&quot;</span>
-    <span class="n">constructor</span> <span class="o">=</span> <span class="n">kwargs</span><span class="o">.</span><span class="n">pop</span><span class="p">(</span><span class="s2">&quot;constructor&quot;</span><span class="p">,</span> <span class="s2">&quot;subclass_constructor&quot;</span><span class="p">)</span>
-    <span class="n">from_float</span> <span class="o">=</span> <span class="n">kwargs</span><span class="o">.</span><span class="n">pop</span><span class="p">(</span><span class="s2">&quot;method&quot;</span><span class="p">,</span> <span class="s2">&quot;from_float&quot;</span><span class="p">)</span>
+<span class="sd">    """</span>
+    <span class="n">constructor</span> <span class="o">=</span> <span class="n">kwargs</span><span class="o">.</span><span class="n">pop</span><span class="p">(</span><span class="s2">"constructor"</span><span class="p">,</span> <span class="s2">"subclass_constructor"</span><span class="p">)</span>
+    <span class="n">from_float</span> <span class="o">=</span> <span class="n">kwargs</span><span class="o">.</span><span class="n">pop</span><span class="p">(</span><span class="s2">"method"</span><span class="p">,</span> <span class="s2">"from_float"</span><span class="p">)</span>
 
     <span class="k">def</span><span class="w"> </span><span class="nf">insert_subclass</span><span class="p">(</span><span class="n">lin</span><span class="p">):</span>
         <span class="k">if</span> <span class="n">enable_parametrization</span><span class="p">:</span>
@@ -1583,7 +1583,7 @@ document.write(`
             <span class="p">)</span>
             <span class="n">_</span><span class="p">,</span> <span class="n">args</span> <span class="o">=</span> <span class="n">lin</span><span class="o">.</span><span class="n">weight</span><span class="o">.</span><span class="n">__tensor_flatten__</span><span class="p">()</span>
             <span class="n">parametrize</span><span class="o">.</span><span class="n">register_parametrization</span><span class="p">(</span>
-                <span class="n">lin</span><span class="p">,</span> <span class="s2">&quot;weight&quot;</span><span class="p">,</span> <span class="nb">getattr</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="n">constructor</span><span class="p">)(</span><span class="o">*</span><span class="n">args</span><span class="p">)</span>
+                <span class="n">lin</span><span class="p">,</span> <span class="s2">"weight"</span><span class="p">,</span> <span class="nb">getattr</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="n">constructor</span><span class="p">)(</span><span class="o">*</span><span class="n">args</span><span class="p">)</span>
             <span class="p">)</span>
         <span class="k">else</span><span class="p">:</span>
             <span class="n">lin</span><span class="o">.</span><span class="n">weight</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Parameter</span><span class="p">(</span>
@@ -1597,9 +1597,9 @@ document.write(`
 
 
 <span class="k">def</span><span class="w"> </span><span class="nf">swap_conv2d_1x1_to_linear</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="n">filter_fn</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">"""</span>
 <span class="sd">    Changes all conv2d 1x1 modules to equivalent linear modules so that they can then be quantized.</span>
-<span class="sd">    &quot;&quot;&quot;</span>
+<span class="sd">    """</span>
 
     <span class="k">class</span><span class="w"> </span><span class="nc">PermuteSandwich</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">):</span>
         <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">mod</span><span class="p">):</span>
@@ -1629,20 +1629,20 @@ document.write(`
 
 
 <span class="k">def</span><span class="w"> </span><span class="nf">_embedding_extra_repr</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
-    <span class="k">return</span> <span class="sa">f</span><span class="s2">&quot;num_embeddings=</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">weight</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="si">}</span><span class="s2">, embedding_dim=</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">weight</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span><span class="si">}</span><span class="s2">, weight=</span><span class="si">{</span><span class="n">_quantization_type</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">weight</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span>
+    <span class="k">return</span> <span class="sa">f</span><span class="s2">"num_embeddings=</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">weight</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="si">}</span><span class="s2">, embedding_dim=</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">weight</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span><span class="si">}</span><span class="s2">, weight=</span><span class="si">{</span><span class="n">_quantization_type</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">weight</span><span class="p">)</span><span class="si">}</span><span class="s2">"</span>
 
 
 <span class="k">def</span><span class="w"> </span><span class="nf">_get_linear_subclass_inserter</span><span class="p">(</span>
     <span class="n">constructor</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">allow_requires_grad</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">propagate_bias</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span>
 <span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Helper function to apply the constructor that quantizes the weight Tensor (with additional kwargs)</span>
+<span class="w">    </span><span class="sd">"""Helper function to apply the constructor that quantizes the weight Tensor (with additional kwargs)</span>
 <span class="sd">    to the weight of linear module</span>
-<span class="sd">    &quot;&quot;&quot;</span>
+<span class="sd">    """</span>
 
     <span class="k">def</span><span class="w"> </span><span class="nf">insert_subclass</span><span class="p">(</span><span class="n">lin</span><span class="p">):</span>
         <span class="n">requires_grad</span> <span class="o">=</span> <span class="n">allow_requires_grad</span> <span class="ow">and</span> <span class="n">lin</span><span class="o">.</span><span class="n">weight</span><span class="o">.</span><span class="n">requires_grad</span>
         <span class="k">if</span> <span class="n">propagate_bias</span> <span class="o">==</span> <span class="kc">True</span><span class="p">:</span>
-            <span class="n">kwargs</span><span class="p">[</span><span class="s2">&quot;bias&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">lin</span><span class="o">.</span><span class="n">bias</span>
+            <span class="n">kwargs</span><span class="p">[</span><span class="s2">"bias"</span><span class="p">]</span> <span class="o">=</span> <span class="n">lin</span><span class="o">.</span><span class="n">bias</span>
         <span class="n">lin</span><span class="o">.</span><span class="n">weight</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Parameter</span><span class="p">(</span>
             <span class="n">constructor</span><span class="p">(</span><span class="n">lin</span><span class="o">.</span><span class="n">weight</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">),</span> <span class="n">requires_grad</span><span class="o">=</span><span class="n">requires_grad</span>
         <span class="p">)</span>
@@ -1660,14 +1660,14 @@ document.write(`
     <span class="n">filter_fn</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Callable</span><span class="p">[[</span><span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">,</span> <span class="nb">str</span><span class="p">],</span> <span class="nb">bool</span><span class="p">]]</span> <span class="o">=</span> <span class="n">_is_linear</span><span class="p">,</span>
     <span class="n">device</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">torch</span><span class="o">.</span><span class="n">types</span><span class="o">.</span><span class="n">Device</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
 <span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Convert the weight of linear modules in the model with `config`, model is modified inplace</span>
+<span class="w">    </span><span class="sd">"""Convert the weight of linear modules in the model with `config`, model is modified inplace</span>
 
 <span class="sd">    Args:</span>
 <span class="sd">        model (torch.nn.Module): input model</span>
 <span class="sd">        config (AOBaseConfig): a workflow configuration object.</span>
 <span class="sd">        filter_fn (Optional[Callable[[torch.nn.Module, str], bool]]): function that takes a nn.Module instance and fully qualified name of the module, returns True if we want to run `config` on</span>
 <span class="sd">        the weight of the module</span>
-<span class="sd">        device (device, optional): Device to move module to before applying `filter_fn`. This can be set to `&quot;cuda&quot;` to speed up quantization. The final model will be on the specified `device`.</span>
+<span class="sd">        device (device, optional): Device to move module to before applying `filter_fn`. This can be set to `"cuda"` to speed up quantization. The final model will be on the specified `device`.</span>
 <span class="sd">            Defaults to None (do not change device).</span>
 
 <span class="sd">    Example::</span>
@@ -1688,28 +1688,28 @@ document.write(`
 <span class="sd">        m = nn.Sequential(nn.Linear(32, 1024), nn.Linear(1024, 32))</span>
 <span class="sd">        quantize_(m, Int4WeightOnlyConfig(group_size=32))</span>
 
-<span class="sd">    &quot;&quot;&quot;</span>
-    <span class="n">torch</span><span class="o">.</span><span class="n">_C</span><span class="o">.</span><span class="n">_log_api_usage_once</span><span class="p">(</span><span class="s2">&quot;torchao.quantization.quantize_&quot;</span><span class="p">)</span>
+<span class="sd">    """</span>
+    <span class="n">torch</span><span class="o">.</span><span class="n">_C</span><span class="o">.</span><span class="n">_log_api_usage_once</span><span class="p">(</span><span class="s2">"torchao.quantization.quantize_"</span><span class="p">)</span>
 
     <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">config</span><span class="p">,</span> <span class="n">FqnToConfig</span><span class="p">):</span>
         <span class="k">if</span> <span class="n">filter_fn</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
             <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
-                <span class="s2">&quot;Custom filter_fn and FqnToConfig were both specified. Only filter_fn=None is supported when FqnToConfig is specified.&quot;</span>
+                <span class="s2">"Custom filter_fn and FqnToConfig were both specified. Only filter_fn=None is supported when FqnToConfig is specified."</span>
             <span class="p">)</span>
         <span class="n">named_modules</span> <span class="o">=</span> <span class="nb">dict</span><span class="p">(</span><span class="n">model</span><span class="o">.</span><span class="n">named_modules</span><span class="p">())</span>
         <span class="k">for</span> <span class="n">module_fqn</span><span class="p">,</span> <span class="n">module</span> <span class="ow">in</span> <span class="n">named_modules</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
             <span class="k">if</span> <span class="p">(</span>
                 <span class="n">fqn_matches_fqn_config</span><span class="p">(</span><span class="n">module_fqn</span><span class="p">,</span> <span class="n">config</span><span class="p">)</span>
                 <span class="ow">or</span> <span class="n">_module_param_matches_fqn_config</span><span class="p">(</span><span class="n">module</span><span class="p">,</span> <span class="n">module_fqn</span><span class="p">,</span> <span class="n">config</span><span class="p">)</span>
-                <span class="ow">or</span> <span class="p">(</span><span class="s2">&quot;_default&quot;</span> <span class="ow">in</span> <span class="n">config</span><span class="o">.</span><span class="n">fqn_to_config</span> <span class="ow">and</span> <span class="n">_is_linear</span><span class="p">(</span><span class="n">module</span><span class="p">))</span>
+                <span class="ow">or</span> <span class="p">(</span><span class="s2">"_default"</span> <span class="ow">in</span> <span class="n">config</span><span class="o">.</span><span class="n">fqn_to_config</span> <span class="ow">and</span> <span class="n">_is_linear</span><span class="p">(</span><span class="n">module</span><span class="p">))</span>
             <span class="p">):</span>
                 <span class="n">replacement</span> <span class="o">=</span> <span class="n">_fqn_to_config_handler</span><span class="p">(</span><span class="n">module</span><span class="p">,</span> <span class="n">module_fqn</span><span class="p">,</span> <span class="n">config</span><span class="p">)</span>
                 <span class="k">if</span> <span class="n">device</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
                     <span class="n">replacement</span> <span class="o">=</span> <span class="n">replacement</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">device</span><span class="o">=</span><span class="n">device</span><span class="p">)</span>
                 <span class="c1"># handle module swap</span>
-                <span class="k">if</span> <span class="n">replacement</span> <span class="ow">is</span> <span class="ow">not</span> <span class="n">module</span> <span class="ow">and</span> <span class="n">module_fqn</span> <span class="o">!=</span> <span class="s2">&quot;&quot;</span><span class="p">:</span>
-                    <span class="n">child_name</span> <span class="o">=</span> <span class="n">module_fqn</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s2">&quot;.&quot;</span><span class="p">)[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span>
-                    <span class="n">parent_fqn</span> <span class="o">=</span> <span class="n">module_fqn</span><span class="o">.</span><span class="n">removesuffix</span><span class="p">(</span><span class="n">child_name</span><span class="p">)</span><span class="o">.</span><span class="n">removesuffix</span><span class="p">(</span><span class="s2">&quot;.&quot;</span><span class="p">)</span>
+                <span class="k">if</span> <span class="n">replacement</span> <span class="ow">is</span> <span class="ow">not</span> <span class="n">module</span> <span class="ow">and</span> <span class="n">module_fqn</span> <span class="o">!=</span> <span class="s2">""</span><span class="p">:</span>
+                    <span class="n">child_name</span> <span class="o">=</span> <span class="n">module_fqn</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s2">"."</span><span class="p">)[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span>
+                    <span class="n">parent_fqn</span> <span class="o">=</span> <span class="n">module_fqn</span><span class="o">.</span><span class="n">removesuffix</span><span class="p">(</span><span class="n">child_name</span><span class="p">)</span><span class="o">.</span><span class="n">removesuffix</span><span class="p">(</span><span class="s2">"."</span><span class="p">)</span>
                     <span class="n">parent_module</span> <span class="o">=</span> <span class="n">named_modules</span><span class="p">[</span><span class="n">parent_fqn</span><span class="p">]</span>
                     <span class="nb">setattr</span><span class="p">(</span><span class="n">parent_module</span><span class="p">,</span> <span class="n">child_name</span><span class="p">,</span> <span class="n">replacement</span><span class="p">)</span>
     <span class="k">elif</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">config</span><span class="p">,</span> <span class="n">AOBaseConfig</span><span class="p">):</span>
@@ -1725,7 +1725,7 @@ document.write(`
         <span class="p">)</span>
     <span class="k">else</span><span class="p">:</span>
         <span class="k">raise</span> <span class="ne">AssertionError</span><span class="p">(</span>
-<span class="w">            </span><span class="sd">&quot;&quot;&quot;Passing a generic Callable to `quantize_` is no longer recommended and will be deprecated at a later release. Please see https://github.com/pytorch/ao/issues/1690 for instructions on how to pass in workflow configuration instead.&quot;&quot;&quot;</span>
+<span class="w">            </span><span class="sd">"""Passing a generic Callable to `quantize_` is no longer recommended and will be deprecated at a later release. Please see https://github.com/pytorch/ao/issues/1690 for instructions on how to pass in workflow configuration instead."""</span>
         <span class="p">)</span></div>
 
 
@@ -1734,7 +1734,7 @@ document.write(`
 <a class="viewcode-back" href="../../../api_reference/generated/torchao.quantization.Int8DynamicActivationIntxWeightConfig.html#torchao.quantization.Int8DynamicActivationIntxWeightConfig">[docs]</a>
 <span class="nd">@dataclass</span>
 <span class="k">class</span><span class="w"> </span><span class="nc">Int8DynamicActivationIntxWeightConfig</span><span class="p">(</span><span class="n">AOBaseConfig</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">"""</span>
 <span class="sd">    Configuration for dynamically quantizing activations to torch.int8 and weights to torch.intx, with 1 &lt;= x &lt;= 8.</span>
 <span class="sd">    More specifically, activations are dynamically quantized to 8-bits at a per-token granularity with scales/zeros.</span>
 <span class="sd">    Weights are quantized with scales/zeros in a groupwise or channelwise manner using the number of bits specified by weight_dtype.</span>
@@ -1759,7 +1759,7 @@ document.write(`
 
 <span class="sd">    .. literalinclude:: ../../examples/inference/int8_dynamic_activation_intx_weight.py</span>
 <span class="sd">       :language: python</span>
-<span class="sd">    &quot;&quot;&quot;</span>
+<span class="sd">    """</span>
 
     <span class="n">weight_dtype</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">dtype</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">int8</span>
     <span class="n">weight_granularity</span><span class="p">:</span> <span class="n">Granularity</span> <span class="o">=</span> <span class="n">PerGroup</span><span class="p">(</span><span class="mi">32</span><span class="p">)</span>
@@ -1775,30 +1775,30 @@ document.write(`
 
     <span class="k">def</span><span class="w"> </span><span class="nf">__post_init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
         <span class="n">torch</span><span class="o">.</span><span class="n">_C</span><span class="o">.</span><span class="n">_log_api_usage_once</span><span class="p">(</span>
-            <span class="s2">&quot;torchao.quantization.Int8DynamicActivationIntxWeightConfig&quot;</span>
+            <span class="s2">"torchao.quantization.Int8DynamicActivationIntxWeightConfig"</span>
         <span class="p">)</span>
-        <span class="k">assert</span> <span class="bp">self</span><span class="o">.</span><span class="n">weight_dtype</span> <span class="ow">in</span> <span class="p">[</span><span class="nb">getattr</span><span class="p">(</span><span class="n">torch</span><span class="p">,</span> <span class="sa">f</span><span class="s2">&quot;int</span><span class="si">{</span><span class="n">b</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span> <span class="k">for</span> <span class="n">b</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">9</span><span class="p">)],</span> <span class="p">(</span>
-            <span class="sa">f</span><span class="s2">&quot;weight_dtype must be torch.intx, where 1 &lt;= x &lt;= 8, but got </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">weight_dtype</span><span class="si">}</span><span class="s2">&quot;</span>
+        <span class="k">assert</span> <span class="bp">self</span><span class="o">.</span><span class="n">weight_dtype</span> <span class="ow">in</span> <span class="p">[</span><span class="nb">getattr</span><span class="p">(</span><span class="n">torch</span><span class="p">,</span> <span class="sa">f</span><span class="s2">"int</span><span class="si">{</span><span class="n">b</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span> <span class="k">for</span> <span class="n">b</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">9</span><span class="p">)],</span> <span class="p">(</span>
+            <span class="sa">f</span><span class="s2">"weight_dtype must be torch.intx, where 1 &lt;= x &lt;= 8, but got </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">weight_dtype</span><span class="si">}</span><span class="s2">"</span>
         <span class="p">)</span>
         <span class="k">assert</span> <span class="nb">isinstance</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">weight_granularity</span><span class="p">,</span> <span class="p">(</span><span class="n">PerAxis</span><span class="p">,</span> <span class="n">PerGroup</span><span class="p">)),</span> <span class="p">(</span>
-            <span class="sa">f</span><span class="s2">&quot;weight_granularity must be PerAxis or PerGroup, but got </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">weight_granularity</span><span class="si">}</span><span class="s2">&quot;</span>
+            <span class="sa">f</span><span class="s2">"weight_granularity must be PerAxis or PerGroup, but got </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">weight_granularity</span><span class="si">}</span><span class="s2">"</span>
         <span class="p">)</span>
         <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">weight_granularity</span><span class="p">,</span> <span class="n">PerAxis</span><span class="p">):</span>
             <span class="k">assert</span> <span class="bp">self</span><span class="o">.</span><span class="n">weight_granularity</span><span class="o">.</span><span class="n">axis</span> <span class="o">==</span> <span class="mi">0</span><span class="p">,</span> <span class="p">(</span>
-                <span class="sa">f</span><span class="s2">&quot;axis must be 0, but got </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">weight_granularity</span><span class="o">.</span><span class="n">axis</span><span class="si">}</span><span class="s2">&quot;</span>
+                <span class="sa">f</span><span class="s2">"axis must be 0, but got </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">weight_granularity</span><span class="o">.</span><span class="n">axis</span><span class="si">}</span><span class="s2">"</span>
             <span class="p">)</span>
         <span class="k">assert</span> <span class="bp">self</span><span class="o">.</span><span class="n">weight_mapping_type</span> <span class="ow">in</span> <span class="p">[</span>
             <span class="n">MappingType</span><span class="o">.</span><span class="n">ASYMMETRIC</span><span class="p">,</span>
             <span class="n">MappingType</span><span class="o">.</span><span class="n">SYMMETRIC</span><span class="p">,</span>
             <span class="n">MappingType</span><span class="o">.</span><span class="n">SYMMETRIC_NO_CLIPPING_ERR</span><span class="p">,</span>
         <span class="p">],</span> <span class="p">(</span>
-            <span class="sa">f</span><span class="s2">&quot;weight_mapping_type must be MappingType.ASYMMETRIC or MappingType.SYMMETRIC or MappingType.SYMMETRIC_NO_CLIPPING_ERR, but got </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">weight_mapping_type</span><span class="si">}</span><span class="s2">&quot;</span>
+            <span class="sa">f</span><span class="s2">"weight_mapping_type must be MappingType.ASYMMETRIC or MappingType.SYMMETRIC or MappingType.SYMMETRIC_NO_CLIPPING_ERR, but got </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">weight_mapping_type</span><span class="si">}</span><span class="s2">"</span>
         <span class="p">)</span>
         <span class="k">assert</span> <span class="bp">self</span><span class="o">.</span><span class="n">act_mapping_type</span> <span class="ow">in</span> <span class="p">[</span>
             <span class="n">MappingType</span><span class="o">.</span><span class="n">ASYMMETRIC</span><span class="p">,</span>
             <span class="n">MappingType</span><span class="o">.</span><span class="n">SYMMETRIC</span><span class="p">,</span>
         <span class="p">],</span> <span class="p">(</span>
-            <span class="sa">f</span><span class="s2">&quot;act_mapping_type must be MappingType.ASYMMETRIC or MappingType.SYMMETRIC, but got </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">act_mapping_type</span><span class="si">}</span><span class="s2">&quot;</span>
+            <span class="sa">f</span><span class="s2">"act_mapping_type must be MappingType.ASYMMETRIC or MappingType.SYMMETRIC, but got </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">act_mapping_type</span><span class="si">}</span><span class="s2">"</span>
         <span class="p">)</span></div>
 
 
@@ -1820,18 +1820,18 @@ document.write(`
     <span class="n">intx_choose_qparams_algorithm</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">intx_choose_qparams_algorithm</span>
 
     <span class="k">assert</span> <span class="n">weight</span><span class="o">.</span><span class="n">dim</span><span class="p">()</span> <span class="o">==</span> <span class="mi">2</span><span class="p">,</span> <span class="p">(</span>
-        <span class="sa">f</span><span class="s2">&quot;Int8DynamicActivationIntxWeightConfig only works for 2-d Tensor, got: </span><span class="si">{</span><span class="n">weight</span><span class="o">.</span><span class="n">dim</span><span class="p">()</span><span class="si">}</span><span class="s2">&quot;</span>
+        <span class="sa">f</span><span class="s2">"Int8DynamicActivationIntxWeightConfig only works for 2-d Tensor, got: </span><span class="si">{</span><span class="n">weight</span><span class="o">.</span><span class="n">dim</span><span class="p">()</span><span class="si">}</span><span class="s2">"</span>
     <span class="p">)</span>
     <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">weight_granularity</span><span class="p">,</span> <span class="n">PerGroup</span><span class="p">):</span>
         <span class="n">group_size</span> <span class="o">=</span> <span class="n">weight_granularity</span><span class="o">.</span><span class="n">group_size</span>
     <span class="k">elif</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">weight_granularity</span><span class="p">,</span> <span class="n">PerAxis</span><span class="p">):</span>
         <span class="k">assert</span> <span class="n">weight_granularity</span><span class="o">.</span><span class="n">axis</span> <span class="o">==</span> <span class="mi">0</span><span class="p">,</span> <span class="p">(</span>
-            <span class="sa">f</span><span class="s2">&quot;axis must be 0 with PerAxis, but got </span><span class="si">{</span><span class="n">weight_granularity</span><span class="o">.</span><span class="n">axis</span><span class="si">}</span><span class="s2">&quot;</span>
+            <span class="sa">f</span><span class="s2">"axis must be 0 with PerAxis, but got </span><span class="si">{</span><span class="n">weight_granularity</span><span class="o">.</span><span class="n">axis</span><span class="si">}</span><span class="s2">"</span>
         <span class="p">)</span>
         <span class="n">group_size</span> <span class="o">=</span> <span class="n">weight</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span>
     <span class="k">else</span><span class="p">:</span>
         <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
-            <span class="sa">f</span><span class="s2">&quot;weight_granularity must be PerGroup or PerAxis, got </span><span class="si">{</span><span class="n">weight_granularity</span><span class="si">}</span><span class="s2">&quot;</span>
+            <span class="sa">f</span><span class="s2">"weight_granularity must be PerGroup or PerAxis, got </span><span class="si">{</span><span class="n">weight_granularity</span><span class="si">}</span><span class="s2">"</span>
         <span class="p">)</span>
 
     <span class="n">block_size</span> <span class="o">=</span> <span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="n">group_size</span><span class="p">)</span>
@@ -1847,7 +1847,7 @@ document.write(`
     <span class="k">assert</span> <span class="p">(</span>
         <span class="n">intx_packing_format</span> <span class="o">==</span> <span class="n">IntxPackingFormat</span><span class="o">.</span><span class="n">UNPACKED_TO_INT8</span>
         <span class="ow">or</span> <span class="n">intx_packing_format</span> <span class="ow">in</span> <span class="n">opaque_formats</span>
-    <span class="p">),</span> <span class="sa">f</span><span class="s2">&quot;Unsupported packing format: </span><span class="si">{</span><span class="n">intx_packing_format</span><span class="si">}</span><span class="s2">&quot;</span>
+    <span class="p">),</span> <span class="sa">f</span><span class="s2">"Unsupported packing format: </span><span class="si">{</span><span class="n">intx_packing_format</span><span class="si">}</span><span class="s2">"</span>
     <span class="k">if</span> <span class="n">custom_zero_point</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="n">custom_zero_point</span><span class="o">.</span><span class="n">dtype</span> <span class="o">==</span> <span class="n">torch</span><span class="o">.</span><span class="n">int32</span><span class="p">:</span>
         <span class="n">custom_zero_point</span> <span class="o">=</span> <span class="n">custom_zero_point</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">int8</span><span class="p">)</span>
     <span class="n">new_weight</span> <span class="o">=</span> <span class="n">IntxUnpackedToInt8Tensor</span><span class="o">.</span><span class="n">from_hp</span><span class="p">(</span>
@@ -1855,7 +1855,7 @@ document.write(`
         <span class="n">block_size</span><span class="p">,</span>
         <span class="n">weight_dtype</span><span class="p">,</span>
         <span class="n">mapping_type</span><span class="o">=</span><span class="n">weight_mapping_type</span><span class="p">,</span>
-        <span class="n">activation_quantization</span><span class="o">=</span><span class="s2">&quot;int8_asym_per_token&quot;</span><span class="p">,</span>
+        <span class="n">activation_quantization</span><span class="o">=</span><span class="s2">"int8_asym_per_token"</span><span class="p">,</span>
         <span class="n">intx_choose_qparams_algorithm</span><span class="o">=</span><span class="n">intx_choose_qparams_algorithm</span><span class="p">,</span>
         <span class="n">custom_scale</span><span class="o">=</span><span class="n">custom_scale</span><span class="p">,</span>
         <span class="n">custom_zero_point</span><span class="o">=</span><span class="n">custom_zero_point</span><span class="p">,</span>
@@ -1882,7 +1882,7 @@ document.write(`
     <span class="n">module</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">,</span>
     <span class="n">config</span><span class="p">:</span> <span class="n">Int8DynamicActivationIntxWeightConfig</span><span class="p">,</span>
     <span class="o">*</span><span class="p">,</span>
-    <span class="n">parameter_name</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;weight&quot;</span><span class="p">,</span>
+    <span class="n">parameter_name</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">"weight"</span><span class="p">,</span>
     <span class="n">custom_scale</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">custom_zero_point</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">:</span>
@@ -1915,7 +1915,7 @@ document.write(`
 <a class="viewcode-back" href="../../../api_reference/generated/torchao.quantization.Int4WeightOnlyConfig.html#torchao.quantization.Int4WeightOnlyConfig">[docs]</a>
 <span class="nd">@dataclass</span>
 <span class="k">class</span><span class="w"> </span><span class="nc">Int4WeightOnlyConfig</span><span class="p">(</span><span class="n">AOBaseConfig</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">"""</span>
 <span class="sd">    Configuration for int4 weight only quantization, only groupwise quantization is supported.</span>
 
 <span class="sd">    Args:</span>
@@ -1923,7 +1923,7 @@ document.write(`
 <span class="sd">         size is more fine grained, choices are [256, 128, 64, 32]</span>
 <span class="sd">        `int4_packing_format`: the packing format for int4 tensor</span>
 <span class="sd">        `int4_choose_qparams_algorithm`: variants of choose qparams algorithm to use for int4,</span>
-<span class="sd">         currently support TINYGEMM (&quot;tinygemm&quot;) and HQQ (&quot;hqq&quot;)</span>
+<span class="sd">         currently support TINYGEMM ("tinygemm") and HQQ ("hqq")</span>
 <span class="sd">        `set_inductor_config`: if True, adjusts `torchinductor` settings to recommended values.</span>
 <span class="sd">        `int4_tile_packed_ntile`: ntile size for TILED_PACKED_TO_4D format, default is 8 for CUDA platform, 16 for ROCm platform</span>
 
@@ -1931,7 +1931,7 @@ document.write(`
 
 <span class="sd">    .. literalinclude:: ../../examples/inference/int4_weight_only.py</span>
 <span class="sd">       :language: python</span>
-<span class="sd">    &quot;&quot;&quot;</span>
+<span class="sd">    """</span>
 
     <span class="n">group_size</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">128</span>
     <span class="n">set_inductor_config</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span>
@@ -1944,9 +1944,9 @@ document.write(`
 
     <span class="k">def</span><span class="w"> </span><span class="nf">__post_init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
         <span class="k">assert</span> <span class="bp">self</span><span class="o">.</span><span class="n">int4_tile_packed_ntile</span> <span class="ow">in</span> <span class="p">[</span><span class="mi">8</span><span class="p">,</span> <span class="mi">16</span><span class="p">],</span> <span class="p">(</span>
-            <span class="s2">&quot;int4_tile_packed_ntile must be either 8 or 16&quot;</span>
+            <span class="s2">"int4_tile_packed_ntile must be either 8 or 16"</span>
         <span class="p">)</span>
-        <span class="n">torch</span><span class="o">.</span><span class="n">_C</span><span class="o">.</span><span class="n">_log_api_usage_once</span><span class="p">(</span><span class="s2">&quot;torchao.quantization.Int4WeightOnlyConfig&quot;</span><span class="p">)</span></div>
+        <span class="n">torch</span><span class="o">.</span><span class="n">_C</span><span class="o">.</span><span class="n">_log_api_usage_once</span><span class="p">(</span><span class="s2">"torchao.quantization.Int4WeightOnlyConfig"</span><span class="p">)</span></div>
 
 
 
@@ -1963,7 +1963,7 @@ document.write(`
 
     <span class="k">if</span> <span class="n">weight</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span> <span class="o">%</span> <span class="n">group_size</span> <span class="o">!=</span> <span class="mi">0</span><span class="p">:</span>
         <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span>
-            <span class="sa">f</span><span class="s2">&quot;Skipping quantizing weight with int4 weight only quantization because the shape of weight </span><span class="si">{</span><span class="n">weight</span><span class="o">.</span><span class="n">shape</span><span class="si">}</span><span class="s2"> is not compatible with group_size </span><span class="si">{</span><span class="n">group_size</span><span class="si">}</span><span class="s2">&quot;</span>
+            <span class="sa">f</span><span class="s2">"Skipping quantizing weight with int4 weight only quantization because the shape of weight </span><span class="si">{</span><span class="n">weight</span><span class="o">.</span><span class="n">shape</span><span class="si">}</span><span class="s2"> is not compatible with group_size </span><span class="si">{</span><span class="n">group_size</span><span class="si">}</span><span class="s2">"</span>
         <span class="p">)</span>
         <span class="k">return</span> <span class="n">weight</span>
 
@@ -1974,8 +1974,8 @@ document.write(`
 
     <span class="k">if</span> <span class="n">int4_choose_qparams_algorithm</span> <span class="o">==</span> <span class="n">Int4ChooseQParamsAlgorithm</span><span class="o">.</span><span class="n">HQQ</span><span class="p">:</span>
         <span class="k">assert</span> <span class="n">int4_packing_format</span> <span class="o">==</span> <span class="n">Int4PackingFormat</span><span class="o">.</span><span class="n">TILE_PACKED_TO_4D</span><span class="p">,</span> <span class="p">(</span>
-            <span class="sa">f</span><span class="s2">&quot;Int4ChooseQParamsAlgorithm.HQQ is not supported by packing format </span><span class="si">{</span><span class="n">int4_packing_format</span><span class="si">}</span><span class="s2">, &quot;</span>
-            <span class="sa">f</span><span class="s2">&quot;it&#39;s only supported by Int4PackingFormat.TILE_PACKED_TO_4D currently&quot;</span>
+            <span class="sa">f</span><span class="s2">"Int4ChooseQParamsAlgorithm.HQQ is not supported by packing format </span><span class="si">{</span><span class="n">int4_packing_format</span><span class="si">}</span><span class="s2">, "</span>
+            <span class="sa">f</span><span class="s2">"it's only supported by Int4PackingFormat.TILE_PACKED_TO_4D currently"</span>
         <span class="p">)</span>
 
     <span class="k">if</span> <span class="n">int4_packing_format</span> <span class="o">==</span> <span class="n">Int4PackingFormat</span><span class="o">.</span><span class="n">PRESHUFFLED</span><span class="p">:</span>
@@ -2006,7 +2006,7 @@ document.write(`
         <span class="p">)</span>
         <span class="k">return</span> <span class="n">new_weight</span>
     <span class="k">else</span><span class="p">:</span>
-        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Unsupported int4 packing format: </span><span class="si">{</span><span class="n">int4_packing_format</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">"Unsupported int4 packing format: </span><span class="si">{</span><span class="n">int4_packing_format</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
 
 
 <span class="nd">@register_quantize_module_handler</span><span class="p">(</span><span class="n">Int4WeightOnlyConfig</span><span class="p">)</span>
@@ -2014,14 +2014,14 @@ document.write(`
     <span class="n">module</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">,</span>
     <span class="n">config</span><span class="p">:</span> <span class="n">Int4WeightOnlyConfig</span><span class="p">,</span>
     <span class="o">*</span><span class="p">,</span>
-    <span class="n">parameter_name</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;weight&quot;</span><span class="p">,</span>
+    <span class="n">parameter_name</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">"weight"</span><span class="p">,</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">:</span>
     <span class="k">if</span> <span class="n">config</span><span class="o">.</span><span class="n">set_inductor_config</span><span class="p">:</span>
         <span class="n">torchao</span><span class="o">.</span><span class="n">quantization</span><span class="o">.</span><span class="n">utils</span><span class="o">.</span><span class="n">recommended_inductor_config_setter</span><span class="p">()</span>
 
     <span class="k">assert</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">module</span><span class="p">,</span> <span class="n">parameter_name</span><span class="p">),</span> <span class="p">(</span>
-        <span class="sa">f</span><span class="s2">&quot;applying int4 weight only quant requires module to have </span><span class="si">{</span><span class="n">parameter_name</span><span class="si">}</span><span class="s2"> attribute&quot;</span>
-        <span class="o">+</span> <span class="sa">f</span><span class="s2">&quot; but </span><span class="si">{</span><span class="n">module</span><span class="si">}</span><span class="s2"> does not have one&quot;</span>
+        <span class="sa">f</span><span class="s2">"applying int4 weight only quant requires module to have </span><span class="si">{</span><span class="n">parameter_name</span><span class="si">}</span><span class="s2"> attribute"</span>
+        <span class="o">+</span> <span class="sa">f</span><span class="s2">" but </span><span class="si">{</span><span class="n">module</span><span class="si">}</span><span class="s2"> does not have one"</span>
     <span class="p">)</span>
     <span class="n">new_weight</span> <span class="o">=</span> <span class="n">_int4_weight_only_quantize_tensor</span><span class="p">(</span>
         <span class="nb">getattr</span><span class="p">(</span><span class="n">module</span><span class="p">,</span> <span class="n">parameter_name</span><span class="p">),</span> <span class="n">config</span>
@@ -2046,21 +2046,21 @@ document.write(`
 <a class="viewcode-back" href="../../../api_reference/generated/torchao.quantization.Float8DynamicActivationInt4WeightConfig.html#torchao.quantization.Float8DynamicActivationInt4WeightConfig">[docs]</a>
 <span class="nd">@dataclass</span>
 <span class="k">class</span><span class="w"> </span><span class="nc">Float8DynamicActivationInt4WeightConfig</span><span class="p">(</span><span class="n">AOBaseConfig</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Configuration for apply float8 dynamic per row quantization and int4</span>
+<span class="w">    </span><span class="sd">"""Configuration for apply float8 dynamic per row quantization and int4</span>
 <span class="sd">    per group weight quantization to linear</span>
 <span class="sd">    (only group_size 128 is supported right now since underlying kernel used only supports 128</span>
 <span class="sd">    and above and no benefits of making it bigger)</span>
 
 <span class="sd">    Args:</span>
-<span class="sd">        `int4_packing_format`: how the weight is packed, supported values are &quot;preshuffled&quot; and &quot;plain&quot;</span>
+<span class="sd">        `int4_packing_format`: how the weight is packed, supported values are "preshuffled" and "plain"</span>
 
 <span class="sd">    Example:</span>
 
 <span class="sd">    .. literalinclude:: ../../examples/inference/float8_dynamic_activation_int4_weight.py</span>
 <span class="sd">       :language: python</span>
-<span class="sd">    &quot;&quot;&quot;</span>
+<span class="sd">    """</span>
 
-    <span class="n">int4_packing_format</span><span class="p">:</span> <span class="n">Int4PackingFormat</span> <span class="o">=</span> <span class="s2">&quot;preshuffled&quot;</span></div>
+    <span class="n">int4_packing_format</span><span class="p">:</span> <span class="n">Int4PackingFormat</span> <span class="o">=</span> <span class="s2">"preshuffled"</span></div>
 
 
 
@@ -2069,25 +2069,25 @@ document.write(`
     <span class="n">module</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">,</span>
     <span class="n">config</span><span class="p">:</span> <span class="n">Float8DynamicActivationInt4WeightConfig</span><span class="p">,</span>
     <span class="o">*</span><span class="p">,</span>
-    <span class="n">parameter_name</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;weight&quot;</span><span class="p">,</span>
+    <span class="n">parameter_name</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">"weight"</span><span class="p">,</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">:</span>
     <span class="k">assert</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">module</span><span class="p">,</span> <span class="n">parameter_name</span><span class="p">),</span> <span class="p">(</span>
-        <span class="sa">f</span><span class="s2">&quot;applying float8 dynamic activation int4 weight quant requires module to have </span><span class="si">{</span><span class="n">parameter_name</span><span class="si">}</span><span class="s2"> attribute&quot;</span>
-        <span class="o">+</span> <span class="sa">f</span><span class="s2">&quot; but </span><span class="si">{</span><span class="n">module</span><span class="si">}</span><span class="s2"> does not have one&quot;</span>
+        <span class="sa">f</span><span class="s2">"applying float8 dynamic activation int4 weight quant requires module to have </span><span class="si">{</span><span class="n">parameter_name</span><span class="si">}</span><span class="s2"> attribute"</span>
+        <span class="o">+</span> <span class="sa">f</span><span class="s2">" but </span><span class="si">{</span><span class="n">module</span><span class="si">}</span><span class="s2"> does not have one"</span>
     <span class="p">)</span>
     <span class="n">int4_packing_format</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">int4_packing_format</span>
 
     <span class="k">assert</span> <span class="n">int4_packing_format</span> <span class="ow">in</span> <span class="p">(</span>
-        <span class="s2">&quot;preshuffled&quot;</span><span class="p">,</span>
-        <span class="s2">&quot;plain&quot;</span><span class="p">,</span>
+        <span class="s2">"preshuffled"</span><span class="p">,</span>
+        <span class="s2">"plain"</span><span class="p">,</span>
     <span class="p">),</span> <span class="p">(</span>
-        <span class="sa">f</span><span class="s2">&quot;only preshuffled and plain int4_packing_format supported right now, got: </span><span class="si">{</span><span class="n">int4_packing_format</span><span class="si">}</span><span class="s2">&quot;</span>
+        <span class="sa">f</span><span class="s2">"only preshuffled and plain int4_packing_format supported right now, got: </span><span class="si">{</span><span class="n">int4_packing_format</span><span class="si">}</span><span class="s2">"</span>
     <span class="p">)</span>
     <span class="n">weight</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">module</span><span class="p">,</span> <span class="n">parameter_name</span><span class="p">)</span>
     <span class="n">group_size</span> <span class="o">=</span> <span class="mi">128</span>
     <span class="n">block_size</span> <span class="o">=</span> <span class="nb">list</span><span class="p">([</span><span class="mi">1</span> <span class="k">for</span> <span class="n">_</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">weight</span><span class="o">.</span><span class="n">ndim</span> <span class="o">-</span> <span class="mi">1</span><span class="p">)]</span> <span class="o">+</span> <span class="p">[</span><span class="n">group_size</span><span class="p">])</span>
 
-    <span class="k">if</span> <span class="n">int4_packing_format</span> <span class="o">==</span> <span class="s2">&quot;preshuffled&quot;</span><span class="p">:</span>
+    <span class="k">if</span> <span class="n">int4_packing_format</span> <span class="o">==</span> <span class="s2">"preshuffled"</span><span class="p">:</span>
         <span class="n">new_weight</span> <span class="o">=</span> <span class="n">Int4PreshuffledTensor</span><span class="o">.</span><span class="n">from_hp</span><span class="p">(</span>
             <span class="n">module</span><span class="o">.</span><span class="n">weight</span><span class="p">,</span>
             <span class="n">block_size</span><span class="p">,</span>
@@ -2121,7 +2121,7 @@ document.write(`
 <a class="viewcode-back" href="../../../api_reference/generated/torchao.quantization.Int8WeightOnlyConfig.html#torchao.quantization.Int8WeightOnlyConfig">[docs]</a>
 <span class="nd">@dataclass</span>
 <span class="k">class</span><span class="w"> </span><span class="nc">Int8WeightOnlyConfig</span><span class="p">(</span><span class="n">AOBaseConfig</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">"""</span>
 <span class="sd">    Configuration for applying int8 weight-only symmetric per-channel quantization to linear layers.</span>
 
 <span class="sd">    Args:</span>
@@ -2137,7 +2137,7 @@ document.write(`
 
 <span class="sd">    .. literalinclude:: ../../examples/inference/int8_weight_only.py</span>
 <span class="sd">       :language: python</span>
-<span class="sd">    &quot;&quot;&quot;</span>
+<span class="sd">    """</span>
 
     <span class="n">group_size</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">int</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
     <span class="n">granularity</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Granularity</span><span class="p">]</span> <span class="o">=</span> <span class="n">PerRow</span><span class="p">()</span>
@@ -2145,24 +2145,24 @@ document.write(`
     <span class="n">version</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">2</span>
 
     <span class="k">def</span><span class="w"> </span><span class="nf">__post_init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
-        <span class="n">torch</span><span class="o">.</span><span class="n">_C</span><span class="o">.</span><span class="n">_log_api_usage_once</span><span class="p">(</span><span class="s2">&quot;torchao.quantization.Int8WeightOnlyConfig&quot;</span><span class="p">)</span>
+        <span class="n">torch</span><span class="o">.</span><span class="n">_C</span><span class="o">.</span><span class="n">_log_api_usage_once</span><span class="p">(</span><span class="s2">"torchao.quantization.Int8WeightOnlyConfig"</span><span class="p">)</span>
         <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">version</span> <span class="o">==</span> <span class="mi">1</span><span class="p">:</span>
             <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
-                <span class="s2">&quot;version 1 of Int8WeightOnlyConfig has been removed, please use version 2, &quot;</span>
-                <span class="s2">&quot;see https://github.com/pytorch/ao/issues/2752 for more details&quot;</span>
+                <span class="s2">"version 1 of Int8WeightOnlyConfig has been removed, please use version 2, "</span>
+                <span class="s2">"see https://github.com/pytorch/ao/issues/2752 for more details"</span>
             <span class="p">)</span>
         <span class="k">assert</span> <span class="bp">self</span><span class="o">.</span><span class="n">group_size</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">,</span> <span class="p">(</span>
-            <span class="sa">f</span><span class="s2">&quot;Only support version 2 with group_size=None, got </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">group_size</span><span class="si">}</span><span class="s2">. &quot;</span>
-            <span class="sa">f</span><span class="s2">&quot;Use granularity=PerGroup(</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">group_size</span><span class="si">}</span><span class="s2">) instead.&quot;</span>
+            <span class="sa">f</span><span class="s2">"Only support version 2 with group_size=None, got </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">group_size</span><span class="si">}</span><span class="s2">. "</span>
+            <span class="sa">f</span><span class="s2">"Use granularity=PerGroup(</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">group_size</span><span class="si">}</span><span class="s2">) instead."</span>
         <span class="p">)</span>
         <span class="k">assert</span> <span class="nb">isinstance</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">granularity</span><span class="p">,</span> <span class="p">(</span><span class="n">PerTensor</span><span class="p">,</span> <span class="n">PerRow</span><span class="p">,</span> <span class="n">PerGroup</span><span class="p">)),</span> <span class="p">(</span>
-            <span class="sa">f</span><span class="s2">&quot;granularity must be PerTensor, PerRow, or PerGroup, but got </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">granularity</span><span class="si">}</span><span class="s2">&quot;</span>
+            <span class="sa">f</span><span class="s2">"granularity must be PerTensor, PerRow, or PerGroup, but got </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">granularity</span><span class="si">}</span><span class="s2">"</span>
         <span class="p">)</span></div>
 
 
 
 <span class="k">def</span><span class="w"> </span><span class="nf">_int8_weight_only_quantize_tensor</span><span class="p">(</span><span class="n">weight</span><span class="p">,</span> <span class="n">config</span><span class="p">):</span>
-    <span class="k">assert</span> <span class="n">config</span><span class="o">.</span><span class="n">version</span> <span class="o">==</span> <span class="mi">2</span><span class="p">,</span> <span class="sa">f</span><span class="s2">&quot;Unexpected version: </span><span class="si">{</span><span class="n">config</span><span class="o">.</span><span class="n">version</span><span class="si">}</span><span class="s2">&quot;</span>
+    <span class="k">assert</span> <span class="n">config</span><span class="o">.</span><span class="n">version</span> <span class="o">==</span> <span class="mi">2</span><span class="p">,</span> <span class="sa">f</span><span class="s2">"Unexpected version: </span><span class="si">{</span><span class="n">config</span><span class="o">.</span><span class="n">version</span><span class="si">}</span><span class="s2">"</span>
     <span class="n">new_weight</span> <span class="o">=</span> <span class="n">Int8Tensor</span><span class="o">.</span><span class="n">from_hp</span><span class="p">(</span><span class="n">weight</span><span class="p">,</span> <span class="n">granularity</span><span class="o">=</span><span class="n">config</span><span class="o">.</span><span class="n">granularity</span><span class="p">)</span>
     <span class="k">return</span> <span class="n">new_weight</span>
 
@@ -2172,14 +2172,14 @@ document.write(`
     <span class="n">module</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">,</span>
     <span class="n">config</span><span class="p">:</span> <span class="n">Int8WeightOnlyConfig</span><span class="p">,</span>
     <span class="o">*</span><span class="p">,</span>
-    <span class="n">parameter_name</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;weight&quot;</span><span class="p">,</span>
+    <span class="n">parameter_name</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">"weight"</span><span class="p">,</span>
 <span class="p">):</span>
     <span class="k">if</span> <span class="n">config</span><span class="o">.</span><span class="n">set_inductor_config</span><span class="p">:</span>
         <span class="n">torchao</span><span class="o">.</span><span class="n">quantization</span><span class="o">.</span><span class="n">utils</span><span class="o">.</span><span class="n">recommended_inductor_config_setter</span><span class="p">()</span>
 
     <span class="k">assert</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">module</span><span class="p">,</span> <span class="n">parameter_name</span><span class="p">),</span> <span class="p">(</span>
-        <span class="s2">&quot;applying int8 weight only quant requires module to have </span><span class="si">{parameter_name}</span><span class="s2"> attribute&quot;</span>
-        <span class="o">+</span> <span class="s2">&quot; but </span><span class="si">{module}</span><span class="s2"> does not have one&quot;</span>
+        <span class="s2">"applying int8 weight only quant requires module to have </span><span class="si">{parameter_name}</span><span class="s2"> attribute"</span>
+        <span class="o">+</span> <span class="s2">" but </span><span class="si">{module}</span><span class="s2"> does not have one"</span>
     <span class="p">)</span>
     <span class="n">quantized_tensor</span> <span class="o">=</span> <span class="n">_int8_weight_only_quantize_tensor</span><span class="p">(</span>
         <span class="nb">getattr</span><span class="p">(</span><span class="n">module</span><span class="p">,</span> <span class="n">parameter_name</span><span class="p">),</span> <span class="n">config</span>
@@ -2207,22 +2207,22 @@ document.write(`
     <span class="n">supported</span> <span class="o">=</span> <span class="p">(</span><span class="n">PerTensor</span><span class="p">,</span> <span class="n">PerRow</span><span class="p">)</span>
     <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">act_granularity</span><span class="p">,</span> <span class="n">supported</span><span class="p">):</span>
         <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
-            <span class="sa">f</span><span class="s2">&quot;Unsupported activation granularity type: </span><span class="si">{</span><span class="nb">type</span><span class="p">(</span><span class="n">act_granularity</span><span class="p">)</span><span class="si">}</span><span class="s2">. &quot;</span>
-            <span class="sa">f</span><span class="s2">&quot;Only PerTensor and PerRow are supported.&quot;</span>
+            <span class="sa">f</span><span class="s2">"Unsupported activation granularity type: </span><span class="si">{</span><span class="nb">type</span><span class="p">(</span><span class="n">act_granularity</span><span class="p">)</span><span class="si">}</span><span class="s2">. "</span>
+            <span class="sa">f</span><span class="s2">"Only PerTensor and PerRow are supported."</span>
         <span class="p">)</span>
 
     <span class="c1"># Validate activation granularity - PerRow must use dim=-1 (per-token)</span>
     <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">act_granularity</span><span class="p">,</span> <span class="n">PerRow</span><span class="p">)</span> <span class="ow">and</span> <span class="n">act_granularity</span><span class="o">.</span><span class="n">dim</span> <span class="o">!=</span> <span class="o">-</span><span class="mi">1</span><span class="p">:</span>
         <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
-            <span class="sa">f</span><span class="s2">&quot;Only PerRow(dim=-1) is supported for activation quantization, &quot;</span>
-            <span class="sa">f</span><span class="s2">&quot;got PerRow(dim=</span><span class="si">{</span><span class="n">act_granularity</span><span class="o">.</span><span class="n">dim</span><span class="si">}</span><span class="s2">). &quot;</span>
-            <span class="sa">f</span><span class="s2">&quot;Per-feature activation quantization is not supported due to slicing limitations.&quot;</span>
+            <span class="sa">f</span><span class="s2">"Only PerRow(dim=-1) is supported for activation quantization, "</span>
+            <span class="sa">f</span><span class="s2">"got PerRow(dim=</span><span class="si">{</span><span class="n">act_granularity</span><span class="o">.</span><span class="n">dim</span><span class="si">}</span><span class="s2">). "</span>
+            <span class="sa">f</span><span class="s2">"Per-feature activation quantization is not supported due to slicing limitations."</span>
         <span class="p">)</span>
 
     <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">weight_granularity</span><span class="p">,</span> <span class="n">supported</span><span class="p">):</span>
         <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
-            <span class="sa">f</span><span class="s2">&quot;Unsupported weight granularity type: </span><span class="si">{</span><span class="nb">type</span><span class="p">(</span><span class="n">weight_granularity</span><span class="p">)</span><span class="si">}</span><span class="s2">. &quot;</span>
-            <span class="sa">f</span><span class="s2">&quot;Only PerTensor and PerRow are supported.&quot;</span>
+            <span class="sa">f</span><span class="s2">"Unsupported weight granularity type: </span><span class="si">{</span><span class="nb">type</span><span class="p">(</span><span class="n">weight_granularity</span><span class="p">)</span><span class="si">}</span><span class="s2">. "</span>
+            <span class="sa">f</span><span class="s2">"Only PerTensor and PerRow are supported."</span>
         <span class="p">)</span>
 
 
@@ -2230,7 +2230,7 @@ document.write(`
 <a class="viewcode-back" href="../../../api_reference/generated/torchao.quantization.Int8DynamicActivationInt8WeightConfig.html#torchao.quantization.Int8DynamicActivationInt8WeightConfig">[docs]</a>
 <span class="nd">@dataclass</span>
 <span class="k">class</span><span class="w"> </span><span class="nc">Int8DynamicActivationInt8WeightConfig</span><span class="p">(</span><span class="n">AOBaseConfig</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">"""</span>
 <span class="sd">    Configuration for applying int8 dynamic per-token activation and int8 per-channel weight</span>
 <span class="sd">    quantization to linear layers.</span>
 
@@ -2251,7 +2251,7 @@ document.write(`
 
 <span class="sd">    .. literalinclude:: ../../examples/inference/int8_dynamic_activation_int8_weight.py</span>
 <span class="sd">       :language: python</span>
-<span class="sd">    &quot;&quot;&quot;</span>
+<span class="sd">    """</span>
 
     <span class="n">act_mapping_type</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">MappingType</span><span class="p">]</span> <span class="o">=</span> <span class="n">MappingType</span><span class="o">.</span><span class="n">SYMMETRIC</span>
     <span class="n">weight_only_decode</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span>
@@ -2262,12 +2262,12 @@ document.write(`
 
     <span class="k">def</span><span class="w"> </span><span class="nf">__post_init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
         <span class="n">torch</span><span class="o">.</span><span class="n">_C</span><span class="o">.</span><span class="n">_log_api_usage_once</span><span class="p">(</span>
-            <span class="s2">&quot;torchao.quantization.Int8DynamicActivationInt8WeightConfig&quot;</span>
+            <span class="s2">"torchao.quantization.Int8DynamicActivationInt8WeightConfig"</span>
         <span class="p">)</span>
         <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">version</span> <span class="o">==</span> <span class="mi">1</span><span class="p">:</span>
             <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
-                <span class="s2">&quot;version 1 of Int8DynamicActivationInt8WeightConfig has been removed, please use version 2, &quot;</span>
-                <span class="s2">&quot;see https://github.com/pytorch/ao/issues/2752 for more details&quot;</span>
+                <span class="s2">"version 1 of Int8DynamicActivationInt8WeightConfig has been removed, please use version 2, "</span>
+                <span class="s2">"see https://github.com/pytorch/ao/issues/2752 for more details"</span>
             <span class="p">)</span>
         <span class="n">act_granularity</span><span class="p">,</span> <span class="n">weight_granularity</span> <span class="o">=</span> <span class="n">Int8Tensor</span><span class="o">.</span><span class="n">_normalize_granularity</span><span class="p">(</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">granularity</span>
@@ -2277,17 +2277,17 @@ document.write(`
             <span class="n">MappingType</span><span class="o">.</span><span class="n">SYMMETRIC</span><span class="p">,</span>
             <span class="n">MappingType</span><span class="o">.</span><span class="n">ASYMMETRIC</span><span class="p">,</span>
         <span class="p">),</span> <span class="p">(</span>
-            <span class="s2">&quot;Int8DynamicActivationInt8WeightConfig requires &quot;</span>
-            <span class="s2">&quot;`act_mapping_type` in (MappingType.SYMMETRIC, &quot;</span>
-            <span class="s2">&quot;MappingType.ASYMMETRIC). &quot;</span>
-            <span class="s2">&quot;Please set it to MappingType.SYMMETRIC or &quot;</span>
-            <span class="s2">&quot;MappingType.ASYMMETRIC.&quot;</span>
+            <span class="s2">"Int8DynamicActivationInt8WeightConfig requires "</span>
+            <span class="s2">"`act_mapping_type` in (MappingType.SYMMETRIC, "</span>
+            <span class="s2">"MappingType.ASYMMETRIC). "</span>
+            <span class="s2">"Please set it to MappingType.SYMMETRIC or "</span>
+            <span class="s2">"MappingType.ASYMMETRIC."</span>
         <span class="p">)</span></div>
 
 
 
 <span class="k">def</span><span class="w"> </span><span class="nf">_int8_dynamic_activation_int8_weight_quantize_tensor</span><span class="p">(</span><span class="n">weight</span><span class="p">,</span> <span class="n">config</span><span class="p">):</span>
-    <span class="k">assert</span> <span class="n">config</span><span class="o">.</span><span class="n">version</span> <span class="o">==</span> <span class="mi">2</span><span class="p">,</span> <span class="sa">f</span><span class="s2">&quot;Unexpected version: </span><span class="si">{</span><span class="n">config</span><span class="o">.</span><span class="n">version</span><span class="si">}</span><span class="s2">&quot;</span>
+    <span class="k">assert</span> <span class="n">config</span><span class="o">.</span><span class="n">version</span> <span class="o">==</span> <span class="mi">2</span><span class="p">,</span> <span class="sa">f</span><span class="s2">"Unexpected version: </span><span class="si">{</span><span class="n">config</span><span class="o">.</span><span class="n">version</span><span class="si">}</span><span class="s2">"</span>
     <span class="n">act_granularity</span><span class="p">,</span> <span class="n">weight_granularity</span> <span class="o">=</span> <span class="n">Int8Tensor</span><span class="o">.</span><span class="n">_normalize_granularity</span><span class="p">(</span>
         <span class="n">config</span><span class="o">.</span><span class="n">granularity</span>
     <span class="p">)</span>
@@ -2311,14 +2311,14 @@ document.write(`
     <span class="n">module</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">,</span>
     <span class="n">config</span><span class="p">:</span> <span class="n">Int8DynamicActivationInt8WeightConfig</span><span class="p">,</span>
     <span class="o">*</span><span class="p">,</span>
-    <span class="n">parameter_name</span><span class="o">=</span><span class="s2">&quot;weight&quot;</span><span class="p">,</span>
+    <span class="n">parameter_name</span><span class="o">=</span><span class="s2">"weight"</span><span class="p">,</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">:</span>
     <span class="k">if</span> <span class="n">config</span><span class="o">.</span><span class="n">set_inductor_config</span><span class="p">:</span>
         <span class="n">torchao</span><span class="o">.</span><span class="n">quantization</span><span class="o">.</span><span class="n">utils</span><span class="o">.</span><span class="n">recommended_inductor_config_setter</span><span class="p">()</span>
 
     <span class="k">assert</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">module</span><span class="p">,</span> <span class="n">parameter_name</span><span class="p">),</span> <span class="p">(</span>
-        <span class="sa">f</span><span class="s2">&quot;applying int8 dynamic activation int8 weight quant requires module to have </span><span class="si">{</span><span class="n">parameter_name</span><span class="si">}</span><span class="s2"> attribute&quot;</span>
-        <span class="o">+</span> <span class="sa">f</span><span class="s2">&quot; but </span><span class="si">{</span><span class="n">module</span><span class="si">}</span><span class="s2"> does not have one&quot;</span>
+        <span class="sa">f</span><span class="s2">"applying int8 dynamic activation int8 weight quant requires module to have </span><span class="si">{</span><span class="n">parameter_name</span><span class="si">}</span><span class="s2"> attribute"</span>
+        <span class="o">+</span> <span class="sa">f</span><span class="s2">" but </span><span class="si">{</span><span class="n">module</span><span class="si">}</span><span class="s2"> does not have one"</span>
     <span class="p">)</span>
     <span class="n">new_weight</span> <span class="o">=</span> <span class="n">_int8_dynamic_activation_int8_weight_quantize_tensor</span><span class="p">(</span>
         <span class="nb">getattr</span><span class="p">(</span><span class="n">module</span><span class="p">,</span> <span class="n">parameter_name</span><span class="p">),</span> <span class="n">config</span>
@@ -2341,7 +2341,7 @@ document.write(`
 
 <span class="nd">@dataclass</span>
 <span class="k">class</span><span class="w"> </span><span class="nc">Int8StaticActivationInt8WeightConfig</span><span class="p">(</span><span class="n">AOBaseConfig</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">"""</span>
 <span class="sd">    Configuration for applying int8 static quantization to both activation and weight</span>
 
 <span class="sd">    Args:</span>
@@ -2356,7 +2356,7 @@ document.write(`
 <span class="sd">        version (int): the version of the config</span>
 <span class="sd">        reduce_range (Optional[bool] = False): If True, use reduced activation and weight quantization ranges</span>
 <span class="sd">            to avoid overflow on CPU without VNNI. Users can call should_reduce_range() to help determine.</span>
-<span class="sd">    &quot;&quot;&quot;</span>
+<span class="sd">    """</span>
 
     <span class="n">act_quant_scale</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
     <span class="n">act_quant_zero_point</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
@@ -2368,7 +2368,7 @@ document.write(`
 
     <span class="k">def</span><span class="w"> </span><span class="nf">__post_init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
         <span class="n">torch</span><span class="o">.</span><span class="n">_C</span><span class="o">.</span><span class="n">_log_api_usage_once</span><span class="p">(</span>
-            <span class="s2">&quot;torchao.quantization.Int8StaticActivationInt8WeightConfig&quot;</span>
+            <span class="s2">"torchao.quantization.Int8StaticActivationInt8WeightConfig"</span>
         <span class="p">)</span>
         <span class="n">act_granularity</span><span class="p">,</span> <span class="n">weight_granularity</span> <span class="o">=</span> <span class="n">Int8Tensor</span><span class="o">.</span><span class="n">_normalize_granularity</span><span class="p">(</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">granularity</span>
@@ -2378,19 +2378,19 @@ document.write(`
             <span class="n">MappingType</span><span class="o">.</span><span class="n">SYMMETRIC</span><span class="p">,</span>
             <span class="n">MappingType</span><span class="o">.</span><span class="n">ASYMMETRIC</span><span class="p">,</span>
         <span class="p">),</span> <span class="p">(</span>
-            <span class="s2">&quot;Int8StaticActivationInt8WeightConfig requires &quot;</span>
-            <span class="s2">&quot;`act_mapping_type` in (MappingType.SYMMETRIC, &quot;</span>
-            <span class="s2">&quot;MappingType.ASYMMETRIC). &quot;</span>
-            <span class="s2">&quot;Please set it to MappingType.SYMMETRIC or &quot;</span>
-            <span class="s2">&quot;MappingType.ASYMMETRIC.&quot;</span>
+            <span class="s2">"Int8StaticActivationInt8WeightConfig requires "</span>
+            <span class="s2">"`act_mapping_type` in (MappingType.SYMMETRIC, "</span>
+            <span class="s2">"MappingType.ASYMMETRIC). "</span>
+            <span class="s2">"Please set it to MappingType.SYMMETRIC or "</span>
+            <span class="s2">"MappingType.ASYMMETRIC."</span>
         <span class="p">)</span>
 
     <span class="k">def</span><span class="w"> </span><span class="nf">get_act_quant_kwargs</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">QuantizeTensorToInt8Kwargs</span><span class="p">:</span>
-<span class="w">        </span><span class="sd">&quot;&quot;&quot;Get the activation quantization kwargs for static quantization.</span>
+<span class="w">        </span><span class="sd">"""Get the activation quantization kwargs for static quantization.</span>
 
 <span class="sd">        Returns:</span>
 <span class="sd">            QuantizeTensorToInt8Kwargs with the configured granularity and mapping type.</span>
-<span class="sd">        &quot;&quot;&quot;</span>
+<span class="sd">        """</span>
         <span class="n">act_granularity</span><span class="p">,</span> <span class="n">weight_granularity</span> <span class="o">=</span> <span class="n">Int8Tensor</span><span class="o">.</span><span class="n">_normalize_granularity</span><span class="p">(</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">granularity</span>
         <span class="p">)</span>
@@ -2407,13 +2407,13 @@ document.write(`
     <span class="n">module</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">,</span>
     <span class="n">config</span><span class="p">:</span> <span class="n">Int8StaticActivationInt8WeightConfig</span><span class="p">,</span>
     <span class="o">*</span><span class="p">,</span>
-    <span class="n">parameter_name</span><span class="o">=</span><span class="s2">&quot;weight&quot;</span><span class="p">,</span>
+    <span class="n">parameter_name</span><span class="o">=</span><span class="s2">"weight"</span><span class="p">,</span>
 <span class="p">):</span>
     <span class="n">activation_granularity</span><span class="p">,</span> <span class="n">weight_granularity</span> <span class="o">=</span> <span class="n">Int8Tensor</span><span class="o">.</span><span class="n">_normalize_granularity</span><span class="p">(</span>
         <span class="n">config</span><span class="o">.</span><span class="n">granularity</span>
     <span class="p">)</span>
     <span class="k">assert</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">module</span><span class="p">,</span> <span class="n">parameter_name</span><span class="p">),</span> <span class="p">(</span>
-        <span class="sa">f</span><span class="s2">&quot;Expected module to have attribute `</span><span class="si">{</span><span class="n">parameter_name</span><span class="si">}</span><span class="s2">` but not found&quot;</span>
+        <span class="sa">f</span><span class="s2">"Expected module to have attribute `</span><span class="si">{</span><span class="n">parameter_name</span><span class="si">}</span><span class="s2">` but not found"</span>
     <span class="p">)</span>
 
     <span class="k">if</span> <span class="n">config</span><span class="o">.</span><span class="n">set_inductor_config</span><span class="p">:</span>
@@ -2456,7 +2456,7 @@ document.write(`
 <a class="viewcode-back" href="../../../api_reference/generated/torchao.quantization.Float8WeightOnlyConfig.html#torchao.quantization.Float8WeightOnlyConfig">[docs]</a>
 <span class="nd">@dataclass</span>
 <span class="k">class</span><span class="w"> </span><span class="nc">Float8WeightOnlyConfig</span><span class="p">(</span><span class="n">AOBaseConfig</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">"""</span>
 <span class="sd">    Configuration for applying float8 weight-only symmetric quantization to linear layers.</span>
 
 <span class="sd">    Args:</span>
@@ -2472,7 +2472,7 @@ document.write(`
 
 <span class="sd">    .. literalinclude:: ../../examples/inference/float8_weight_only.py</span>
 <span class="sd">       :language: python</span>
-<span class="sd">    &quot;&quot;&quot;</span>
+<span class="sd">    """</span>
 
     <span class="n">weight_dtype</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">dtype</span> <span class="o">=</span> <span class="n">e4m3_dtype</span>
     <span class="n">set_inductor_config</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span>
@@ -2483,14 +2483,14 @@ document.write(`
         <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">granularity</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">granularity</span> <span class="o">=</span> <span class="n">PerRow</span><span class="p">()</span>
         <span class="k">assert</span> <span class="nb">isinstance</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">granularity</span><span class="p">,</span> <span class="p">(</span><span class="n">PerTensor</span><span class="p">,</span> <span class="n">PerRow</span><span class="p">,</span> <span class="n">PerGroup</span><span class="p">)),</span> <span class="p">(</span>
-            <span class="sa">f</span><span class="s2">&quot;granularity must be PerTensor, PerRow, or PerGroup, got </span><span class="si">{</span><span class="nb">type</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">granularity</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span>
+            <span class="sa">f</span><span class="s2">"granularity must be PerTensor, PerRow, or PerGroup, got </span><span class="si">{</span><span class="nb">type</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">granularity</span><span class="p">)</span><span class="si">}</span><span class="s2">"</span>
         <span class="p">)</span>
-        <span class="n">torch</span><span class="o">.</span><span class="n">_C</span><span class="o">.</span><span class="n">_log_api_usage_once</span><span class="p">(</span><span class="s2">&quot;torchao.quantization.Float8WeightOnlyConfig&quot;</span><span class="p">)</span></div>
+        <span class="n">torch</span><span class="o">.</span><span class="n">_C</span><span class="o">.</span><span class="n">_log_api_usage_once</span><span class="p">(</span><span class="s2">"torchao.quantization.Float8WeightOnlyConfig"</span><span class="p">)</span></div>
 
 
 
 <span class="k">def</span><span class="w"> </span><span class="nf">_float8_weight_only_quant_tensor</span><span class="p">(</span><span class="n">weight</span><span class="p">,</span> <span class="n">config</span><span class="p">):</span>
-    <span class="k">assert</span> <span class="n">config</span><span class="o">.</span><span class="n">version</span> <span class="o">==</span> <span class="mi">2</span><span class="p">,</span> <span class="sa">f</span><span class="s2">&quot;Unexpected version: </span><span class="si">{</span><span class="n">config</span><span class="o">.</span><span class="n">version</span><span class="si">}</span><span class="s2">&quot;</span>
+    <span class="k">assert</span> <span class="n">config</span><span class="o">.</span><span class="n">version</span> <span class="o">==</span> <span class="mi">2</span><span class="p">,</span> <span class="sa">f</span><span class="s2">"Unexpected version: </span><span class="si">{</span><span class="n">config</span><span class="o">.</span><span class="n">version</span><span class="si">}</span><span class="s2">"</span>
     <span class="n">weight_dtype</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">weight_dtype</span>
     <span class="n">new_weight</span> <span class="o">=</span> <span class="n">Float8Tensor</span><span class="o">.</span><span class="n">from_hp</span><span class="p">(</span>
         <span class="n">weight</span><span class="p">,</span> <span class="n">float8_dtype</span><span class="o">=</span><span class="n">weight_dtype</span><span class="p">,</span> <span class="n">granularity</span><span class="o">=</span><span class="n">config</span><span class="o">.</span><span class="n">granularity</span>
@@ -2503,14 +2503,14 @@ document.write(`
     <span class="n">module</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">,</span>
     <span class="n">config</span><span class="p">:</span> <span class="n">Float8WeightOnlyConfig</span><span class="p">,</span>
     <span class="o">*</span><span class="p">,</span>
-    <span class="n">parameter_name</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;weight&quot;</span><span class="p">,</span>
+    <span class="n">parameter_name</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">"weight"</span><span class="p">,</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">:</span>
     <span class="k">if</span> <span class="n">config</span><span class="o">.</span><span class="n">set_inductor_config</span><span class="p">:</span>
         <span class="n">torchao</span><span class="o">.</span><span class="n">quantization</span><span class="o">.</span><span class="n">utils</span><span class="o">.</span><span class="n">recommended_inductor_config_setter</span><span class="p">()</span>
 
     <span class="k">assert</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">module</span><span class="p">,</span> <span class="n">parameter_name</span><span class="p">),</span> <span class="p">(</span>
-        <span class="s2">&quot;applying float8 weight only quant requires module to have </span><span class="si">{parameter_name}</span><span class="s2"> attribute&quot;</span>
-        <span class="o">+</span> <span class="s2">&quot; but </span><span class="si">{module}</span><span class="s2"> does not have one&quot;</span>
+        <span class="s2">"applying float8 weight only quant requires module to have </span><span class="si">{parameter_name}</span><span class="s2"> attribute"</span>
+        <span class="o">+</span> <span class="s2">" but </span><span class="si">{module}</span><span class="s2"> does not have one"</span>
     <span class="p">)</span>
 
     <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">module</span><span class="p">,</span> <span class="n">Float8Linear</span><span class="p">):</span>
@@ -2540,7 +2540,7 @@ document.write(`
 <a class="viewcode-back" href="../../../api_reference/generated/torchao.quantization.Float8DynamicActivationFloat8WeightConfig.html#torchao.quantization.Float8DynamicActivationFloat8WeightConfig">[docs]</a>
 <span class="nd">@dataclass</span>
 <span class="k">class</span><span class="w"> </span><span class="nc">Float8DynamicActivationFloat8WeightConfig</span><span class="p">(</span><span class="n">AOBaseConfig</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">"""</span>
 <span class="sd">    Configuration for applying float8 dynamic symmetric quantization to both activations and weights of linear layers.</span>
 
 <span class="sd">    Args:</span>
@@ -2562,7 +2562,7 @@ document.write(`
 
 <span class="sd">    .. literalinclude:: ../../examples/inference/float8_dynamic_activation_float8_weight.py</span>
 <span class="sd">       :language: python</span>
-<span class="sd">    &quot;&quot;&quot;</span>
+<span class="sd">    """</span>
 
     <span class="n">activation_dtype</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">dtype</span> <span class="o">=</span> <span class="n">e4m3_dtype</span>
     <span class="n">weight_dtype</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">dtype</span> <span class="o">=</span> <span class="n">e4m3_dtype</span>
@@ -2578,7 +2578,7 @@ document.write(`
 
     <span class="k">def</span><span class="w"> </span><span class="nf">__post_init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
         <span class="n">torch</span><span class="o">.</span><span class="n">_C</span><span class="o">.</span><span class="n">_log_api_usage_once</span><span class="p">(</span>
-            <span class="s2">&quot;torchao.quantization.Float8DynamicActivationFloat8WeightConfig&quot;</span>
+            <span class="s2">"torchao.quantization.Float8DynamicActivationFloat8WeightConfig"</span>
         <span class="p">)</span>
         <span class="n">activation_granularity</span><span class="p">,</span> <span class="n">weight_granularity</span> <span class="o">=</span> <span class="n">_normalize_granularity</span><span class="p">(</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">granularity</span>
@@ -2590,8 +2590,8 @@ document.write(`
             <span class="k">assert</span> <span class="bp">self</span><span class="o">.</span><span class="n">kernel_preference</span> <span class="ow">in</span> <span class="p">(</span>
                 <span class="n">KernelPreference</span><span class="o">.</span><span class="n">AUTO</span><span class="p">,</span>
                 <span class="n">KernelPreference</span><span class="o">.</span><span class="n">TORCH</span><span class="p">,</span>
-            <span class="p">),</span> <span class="s2">&quot;unimplemented&quot;</span>
-            <span class="k">assert</span> <span class="bp">self</span><span class="o">.</span><span class="n">version</span> <span class="o">&gt;=</span> <span class="mi">2</span><span class="p">,</span> <span class="s2">&quot;unimplemented&quot;</span>
+            <span class="p">),</span> <span class="s2">"unimplemented"</span>
+            <span class="k">assert</span> <span class="bp">self</span><span class="o">.</span><span class="n">version</span> <span class="o">&gt;=</span> <span class="mi">2</span><span class="p">,</span> <span class="s2">"unimplemented"</span>
             <span class="n">default_use_fast_accum</span> <span class="o">=</span> <span class="kc">False</span>
         <span class="k">if</span> <span class="n">torch</span><span class="o">.</span><span class="n">xpu</span><span class="o">.</span><span class="n">is_available</span><span class="p">():</span>
             <span class="c1"># XPU does not support fast_accum for now</span>
@@ -2616,7 +2616,7 @@ document.write(`
     <span class="n">_check_hardware_support</span><span class="p">(</span><span class="n">granularity</span><span class="p">)</span>
     <span class="n">activation_granularity</span><span class="p">,</span> <span class="n">weight_granularity</span> <span class="o">=</span> <span class="n">granularity</span>
 
-    <span class="c1"># Note: right now we assume it&#39;s weights of conv2d and conv3d purely based</span>
+    <span class="c1"># Note: right now we assume it's weights of conv2d and conv3d purely based</span>
     <span class="c1"># on the dimension of weight, currently there is no conflict with linear 2d</span>
     <span class="c1"># and moe weights 3d</span>
     <span class="c1"># if we need to support conv1d, which also has 3d weight, we may have to</span>
@@ -2625,7 +2625,7 @@ document.write(`
         <span class="c1"># weights for conv2d or 3d</span>
         <span class="k">assert</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">activation_granularity</span><span class="p">,</span> <span class="n">PerTensor</span><span class="p">)</span> <span class="ow">and</span> <span class="nb">isinstance</span><span class="p">(</span>
             <span class="n">weight_granularity</span><span class="p">,</span> <span class="n">PerTensor</span>
-        <span class="p">),</span> <span class="s2">&quot;4D/5D tensor only supports per tensor activation and weight quantization&quot;</span>
+        <span class="p">),</span> <span class="s2">"4D/5D tensor only supports per tensor activation and weight quantization"</span>
 
         <span class="c1"># conv3d weight dim: (C_out, C_in, K1, K2, K3)</span>
         <span class="c1"># conv2d weight dim: (C_out, C_in, K1, K2)</span>
@@ -2637,12 +2637,12 @@ document.write(`
         <span class="c1"># TODO(future PR): this should really throw an exception instead of silently</span>
         <span class="c1"># not doing what the user asked</span>
         <span class="k">return</span> <span class="n">weight</span>
-    <span class="k">assert</span> <span class="n">config</span><span class="o">.</span><span class="n">version</span> <span class="o">==</span> <span class="mi">2</span><span class="p">,</span> <span class="sa">f</span><span class="s2">&quot;Unexpected version: </span><span class="si">{</span><span class="n">config</span><span class="o">.</span><span class="n">version</span><span class="si">}</span><span class="s2">&quot;</span>
+    <span class="k">assert</span> <span class="n">config</span><span class="o">.</span><span class="n">version</span> <span class="o">==</span> <span class="mi">2</span><span class="p">,</span> <span class="sa">f</span><span class="s2">"Unexpected version: </span><span class="si">{</span><span class="n">config</span><span class="o">.</span><span class="n">version</span><span class="si">}</span><span class="s2">"</span>
     <span class="k">if</span> <span class="n">packing_format</span> <span class="o">==</span> <span class="n">Float8PackingFormat</span><span class="o">.</span><span class="n">PLAIN</span> <span class="ow">and</span> <span class="nb">isinstance</span><span class="p">(</span>
         <span class="n">weight_granularity</span><span class="p">,</span> <span class="n">PerRow</span>
     <span class="p">):</span>
         <span class="k">assert</span> <span class="n">weight</span><span class="o">.</span><span class="n">dtype</span> <span class="o">==</span> <span class="n">torch</span><span class="o">.</span><span class="n">bfloat16</span><span class="p">,</span> <span class="p">(</span>
-            <span class="s2">&quot;PerRow quantization only works for bfloat16 precision input weight&quot;</span>
+            <span class="s2">"PerRow quantization only works for bfloat16 precision input weight"</span>
         <span class="p">)</span>
     <span class="n">act_quant_kwargs</span> <span class="o">=</span> <span class="n">QuantizeTensorToFloat8Kwargs</span><span class="p">(</span>
         <span class="n">activation_dtype</span><span class="p">,</span>
@@ -2663,7 +2663,7 @@ document.write(`
         <span class="k">return</span> <span class="n">quantized_weight</span>
     <span class="k">elif</span> <span class="n">packing_format</span> <span class="o">==</span> <span class="n">Float8PackingFormat</span><span class="o">.</span><span class="n">SPARSE_2D_DATA_2D_METADATA</span><span class="p">:</span>
         <span class="k">assert</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">weight_granularity</span><span class="p">,</span> <span class="n">PerRow</span><span class="p">),</span> <span class="p">(</span>
-            <span class="s2">&quot;Sparse packing format only supports per-row quantization&quot;</span>
+            <span class="s2">"Sparse packing format only supports per-row quantization"</span>
         <span class="p">)</span>
         <span class="n">quantized_weight</span> <span class="o">=</span> <span class="n">Float8Sparse2x4_2DData2DMetadataTensor</span><span class="o">.</span><span class="n">from_hp</span><span class="p">(</span>
             <span class="n">weight</span><span class="p">,</span>
@@ -2674,7 +2674,7 @@ document.write(`
         <span class="k">return</span> <span class="n">quantized_weight</span>
     <span class="k">elif</span> <span class="n">packing_format</span> <span class="o">==</span> <span class="n">Float8PackingFormat</span><span class="o">.</span><span class="n">SPARSE_1D_DATA_1D_METADATA</span><span class="p">:</span>
         <span class="k">assert</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">weight_granularity</span><span class="p">,</span> <span class="n">PerTensor</span><span class="p">),</span> <span class="p">(</span>
-            <span class="s2">&quot;Sparse 1D data 1D metadata packing format only supports per-tensor quantization&quot;</span>
+            <span class="s2">"Sparse 1D data 1D metadata packing format only supports per-tensor quantization"</span>
         <span class="p">)</span>
         <span class="n">quantized_weight</span> <span class="o">=</span> <span class="n">Float8Sparse2x4_1DData1DMetadataTensor</span><span class="o">.</span><span class="n">from_hp</span><span class="p">(</span>
             <span class="n">weight</span><span class="p">,</span>
@@ -2693,7 +2693,7 @@ document.write(`
         <span class="k">return</span>
     <span class="c1"># torch.version.cuda is None on ROCm/HIP builds (where torch.cuda.is_available()</span>
     <span class="c1"># is still True); the CUDA 12.9 regression does not apply there.</span>
-    <span class="k">if</span> <span class="n">torch</span><span class="o">.</span><span class="n">version</span><span class="o">.</span><span class="n">cuda</span> <span class="ow">is</span> <span class="kc">None</span> <span class="ow">or</span> <span class="ow">not</span> <span class="n">torch</span><span class="o">.</span><span class="n">version</span><span class="o">.</span><span class="n">cuda</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s2">&quot;12.9&quot;</span><span class="p">):</span>
+    <span class="k">if</span> <span class="n">torch</span><span class="o">.</span><span class="n">version</span><span class="o">.</span><span class="n">cuda</span> <span class="ow">is</span> <span class="kc">None</span> <span class="ow">or</span> <span class="ow">not</span> <span class="n">torch</span><span class="o">.</span><span class="n">version</span><span class="o">.</span><span class="n">cuda</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s2">"12.9"</span><span class="p">):</span>
         <span class="k">return</span>
     <span class="c1"># config.granularity is normalized to [activation, weight] in __post_init__.</span>
     <span class="k">if</span> <span class="ow">not</span> <span class="nb">any</span><span class="p">(</span><span class="nb">isinstance</span><span class="p">(</span><span class="n">g</span><span class="p">,</span> <span class="n">PerRow</span><span class="p">)</span> <span class="k">for</span> <span class="n">g</span> <span class="ow">in</span> <span class="n">config</span><span class="o">.</span><span class="n">granularity</span><span class="p">):</span>
@@ -2706,23 +2706,23 @@ document.write(`
     <span class="k">if</span> <span class="n">config</span><span class="o">.</span><span class="n">mm_config</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="ow">not</span> <span class="n">config</span><span class="o">.</span><span class="n">mm_config</span><span class="o">.</span><span class="n">use_fast_accum</span><span class="p">:</span>
         <span class="k">return</span>
     <span class="n">warnings</span><span class="o">.</span><span class="n">warn</span><span class="p">(</span>
-        <span class="s2">&quot;Rowwise fp8 (Float8DynamicActivationFloat8WeightConfig with PerRow()) on &quot;</span>
-        <span class="s2">&quot;CUDA 12.9 can crash with CUBLAS_STATUS_NOT_SUPPORTED for some large-K + &quot;</span>
-        <span class="s2">&quot;small-M/N GEMM shapes, due to a cuBLASLt regression specific to CUDA 12.9 &quot;</span>
-        <span class="s2">&quot;(not present in 12.6, fixed in 13.0). We can&#39;t reliably predict which &quot;</span>
-        <span class="s2">&quot;shapes fail, so we warn rather than guard. If you hit this, work around it &quot;</span>
-        <span class="s2">&quot;with any of:</span><span class="se">\n</span><span class="s2">&quot;</span>
-        <span class="s2">&quot;  (1) upgrade to CUDA 13.0 (or downgrade to 12.6), where the regression is &quot;</span>
-        <span class="s2">&quot;not present; or</span><span class="se">\n</span><span class="s2">&quot;</span>
-        <span class="s2">&quot;on the affected layers (e.g. via FqnToConfig):</span><span class="se">\n</span><span class="s2">&quot;</span>
-        <span class="s2">&quot;  (2) the mslk kernel, which uses CUTLASS instead of cuBLASLt and is &quot;</span>
-        <span class="s2">&quot;unaffected: Float8DynamicActivationFloat8WeightConfig(granularity=PerRow(), &quot;</span>
-        <span class="s2">&quot;kernel_preference=KernelPreference.MSLK). This requires the mslk package to &quot;</span>
-        <span class="s2">&quot;be installed (see https://github.com/pytorch/MSLK); or</span><span class="se">\n</span><span class="s2">&quot;</span>
-        <span class="s2">&quot;  (3) disabling fast accumulation, which avoids the failing cuBLASLt path: &quot;</span>
-        <span class="s2">&quot;Float8DynamicActivationFloat8WeightConfig(granularity=PerRow(), &quot;</span>
-        <span class="s2">&quot;mm_config=Float8MMConfig(use_fast_accum=False)).</span><span class="se">\n</span><span class="s2">&quot;</span>
-        <span class="s2">&quot;See https://github.com/pytorch/ao/issues/4582.&quot;</span>
+        <span class="s2">"Rowwise fp8 (Float8DynamicActivationFloat8WeightConfig with PerRow()) on "</span>
+        <span class="s2">"CUDA 12.9 can crash with CUBLAS_STATUS_NOT_SUPPORTED for some large-K + "</span>
+        <span class="s2">"small-M/N GEMM shapes, due to a cuBLASLt regression specific to CUDA 12.9 "</span>
+        <span class="s2">"(not present in 12.6, fixed in 13.0). We can't reliably predict which "</span>
+        <span class="s2">"shapes fail, so we warn rather than guard. If you hit this, work around it "</span>
+        <span class="s2">"with any of:</span><span class="se">\n</span><span class="s2">"</span>
+        <span class="s2">"  (1) upgrade to CUDA 13.0 (or downgrade to 12.6), where the regression is "</span>
+        <span class="s2">"not present; or</span><span class="se">\n</span><span class="s2">"</span>
+        <span class="s2">"on the affected layers (e.g. via FqnToConfig):</span><span class="se">\n</span><span class="s2">"</span>
+        <span class="s2">"  (2) the mslk kernel, which uses CUTLASS instead of cuBLASLt and is "</span>
+        <span class="s2">"unaffected: Float8DynamicActivationFloat8WeightConfig(granularity=PerRow(), "</span>
+        <span class="s2">"kernel_preference=KernelPreference.MSLK). This requires the mslk package to "</span>
+        <span class="s2">"be installed (see https://github.com/pytorch/MSLK); or</span><span class="se">\n</span><span class="s2">"</span>
+        <span class="s2">"  (3) disabling fast accumulation, which avoids the failing cuBLASLt path: "</span>
+        <span class="s2">"Float8DynamicActivationFloat8WeightConfig(granularity=PerRow(), "</span>
+        <span class="s2">"mm_config=Float8MMConfig(use_fast_accum=False)).</span><span class="se">\n</span><span class="s2">"</span>
+        <span class="s2">"See https://github.com/pytorch/ao/issues/4582."</span>
     <span class="p">)</span>
 
 
@@ -2731,19 +2731,19 @@ document.write(`
     <span class="n">module</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">,</span>
     <span class="n">config</span><span class="p">:</span> <span class="n">Float8DynamicActivationFloat8WeightConfig</span><span class="p">,</span>
     <span class="o">*</span><span class="p">,</span>
-    <span class="n">parameter_name</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;weight&quot;</span><span class="p">,</span>
+    <span class="n">parameter_name</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">"weight"</span><span class="p">,</span>
 <span class="p">):</span>
     <span class="n">_maybe_warn_rowwise_fp8_cuda_12_9</span><span class="p">(</span><span class="n">config</span><span class="p">)</span>
     <span class="k">if</span> <span class="n">torch</span><span class="o">.</span><span class="n">cuda</span><span class="o">.</span><span class="n">is_available</span><span class="p">():</span>
         <span class="k">assert</span> <span class="n">is_sm_at_least_89</span><span class="p">()</span> <span class="ow">or</span> <span class="n">is_MI300</span><span class="p">()</span> <span class="ow">or</span> <span class="n">is_MI350</span><span class="p">(),</span> <span class="p">(</span>
-            <span class="s2">&quot;Float8 dynamic activation quantization is only supported on CUDA&gt;=8.9 and MI300+&quot;</span>
+            <span class="s2">"Float8 dynamic activation quantization is only supported on CUDA&gt;=8.9 and MI300+"</span>
         <span class="p">)</span>
     <span class="k">if</span> <span class="n">config</span><span class="o">.</span><span class="n">set_inductor_config</span><span class="p">:</span>
         <span class="n">torchao</span><span class="o">.</span><span class="n">quantization</span><span class="o">.</span><span class="n">utils</span><span class="o">.</span><span class="n">recommended_inductor_config_setter</span><span class="p">()</span>
 
     <span class="k">assert</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">module</span><span class="p">,</span> <span class="n">parameter_name</span><span class="p">),</span> <span class="p">(</span>
-        <span class="sa">f</span><span class="s2">&quot;applying float8 dynamic activation quant requires module to have parameter </span><span class="si">{</span><span class="n">parameter_name</span><span class="si">}</span><span class="s2"> attribute&quot;</span>
-        <span class="o">+</span> <span class="sa">f</span><span class="s2">&quot; but </span><span class="si">{</span><span class="n">module</span><span class="si">}</span><span class="s2"> does not have one&quot;</span>
+        <span class="sa">f</span><span class="s2">"applying float8 dynamic activation quant requires module to have parameter </span><span class="si">{</span><span class="n">parameter_name</span><span class="si">}</span><span class="s2"> attribute"</span>
+        <span class="o">+</span> <span class="sa">f</span><span class="s2">" but </span><span class="si">{</span><span class="n">module</span><span class="si">}</span><span class="s2"> does not have one"</span>
     <span class="p">)</span>
     <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">module</span><span class="p">,</span> <span class="n">Float8Linear</span><span class="p">):</span>
         <span class="n">module</span> <span class="o">=</span> <span class="n">_unwrap_float8_linear</span><span class="p">(</span><span class="n">module</span><span class="p">)</span>
@@ -2771,12 +2771,12 @@ document.write(`
     <span class="n">hp_tensor</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
     <span class="n">scale_dtype</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">dtype</span><span class="p">,</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">"""</span>
 <span class="sd">    Adjusts the scale_dtype on IntxUnpackedToInt8Tensor.</span>
 <span class="sd">    Updating the scale dtype requires updating the qdata because qdata is calculated after the scale.</span>
 <span class="sd">    This is used in IntxWeightOnlyConfig and Int8DynamicActivationIntxWeightConfig to make</span>
 <span class="sd">    version=2 and version=1 numerically equivalent when the scale_dtype differs from the input dtype</span>
-<span class="sd">    &quot;&quot;&quot;</span>
+<span class="sd">    """</span>
     <span class="k">assert</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">intx_unpacked_tensor</span><span class="p">,</span> <span class="n">IntxUnpackedToInt8Tensor</span><span class="p">)</span>
     <span class="n">intx_unpacked_tensor</span><span class="o">.</span><span class="n">scale</span> <span class="o">=</span> <span class="n">intx_unpacked_tensor</span><span class="o">.</span><span class="n">scale</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">scale_dtype</span><span class="p">)</span>
     <span class="n">qmin</span><span class="p">,</span> <span class="n">qmax</span> <span class="o">=</span> <span class="n">_DTYPE_TO_QVALUE_BOUNDS</span><span class="p">[</span><span class="n">intx_unpacked_tensor</span><span class="o">.</span><span class="n">target_dtype</span><span class="p">]</span>
@@ -2795,7 +2795,7 @@ document.write(`
 <a class="viewcode-back" href="../../../api_reference/generated/torchao.quantization.IntxWeightOnlyConfig.html#torchao.quantization.IntxWeightOnlyConfig">[docs]</a>
 <span class="nd">@dataclass</span>
 <span class="k">class</span><span class="w"> </span><span class="nc">IntxWeightOnlyConfig</span><span class="p">(</span><span class="n">AOBaseConfig</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">"""</span>
 <span class="sd">    Configuration for quantizing weights to torch.intx, with 1 &lt;= x &lt;= 8.</span>
 <span class="sd">    Weights are quantized with scales/zeros in a groupwise or channelwise</span>
 <span class="sd">    manner using the number of bits specified by weight_dtype.</span>
@@ -2813,7 +2813,7 @@ document.write(`
 
 <span class="sd">    .. literalinclude:: ../../examples/inference/intx_weight_only.py</span>
 <span class="sd">       :language: python</span>
-<span class="sd">    &quot;&quot;&quot;</span>
+<span class="sd">    """</span>
 
     <span class="n">weight_dtype</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">dtype</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">int8</span>
     <span class="n">granularity</span><span class="p">:</span> <span class="n">Granularity</span> <span class="o">=</span> <span class="n">PerAxis</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
@@ -2826,23 +2826,23 @@ document.write(`
     <span class="n">version</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">2</span>
 
     <span class="k">def</span><span class="w"> </span><span class="nf">__post_init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
-        <span class="n">torch</span><span class="o">.</span><span class="n">_C</span><span class="o">.</span><span class="n">_log_api_usage_once</span><span class="p">(</span><span class="s2">&quot;torchao.quantization.IntxWeightOnlyConfig&quot;</span><span class="p">)</span>
-        <span class="k">assert</span> <span class="bp">self</span><span class="o">.</span><span class="n">weight_dtype</span> <span class="ow">in</span> <span class="p">[</span><span class="nb">getattr</span><span class="p">(</span><span class="n">torch</span><span class="p">,</span> <span class="sa">f</span><span class="s2">&quot;int</span><span class="si">{</span><span class="n">b</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span> <span class="k">for</span> <span class="n">b</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">9</span><span class="p">)],</span> <span class="p">(</span>
-            <span class="sa">f</span><span class="s2">&quot;weight_dtype must be torch.intx, where 1 &lt;= x &lt;= 8, but got </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">weight_dtype</span><span class="si">}</span><span class="s2">&quot;</span>
+        <span class="n">torch</span><span class="o">.</span><span class="n">_C</span><span class="o">.</span><span class="n">_log_api_usage_once</span><span class="p">(</span><span class="s2">"torchao.quantization.IntxWeightOnlyConfig"</span><span class="p">)</span>
+        <span class="k">assert</span> <span class="bp">self</span><span class="o">.</span><span class="n">weight_dtype</span> <span class="ow">in</span> <span class="p">[</span><span class="nb">getattr</span><span class="p">(</span><span class="n">torch</span><span class="p">,</span> <span class="sa">f</span><span class="s2">"int</span><span class="si">{</span><span class="n">b</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span> <span class="k">for</span> <span class="n">b</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">9</span><span class="p">)],</span> <span class="p">(</span>
+            <span class="sa">f</span><span class="s2">"weight_dtype must be torch.intx, where 1 &lt;= x &lt;= 8, but got </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">weight_dtype</span><span class="si">}</span><span class="s2">"</span>
         <span class="p">)</span>
         <span class="k">assert</span> <span class="nb">isinstance</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">granularity</span><span class="p">,</span> <span class="p">(</span><span class="n">PerAxis</span><span class="p">,</span> <span class="n">PerGroup</span><span class="p">)),</span> <span class="p">(</span>
-            <span class="sa">f</span><span class="s2">&quot;granularity must be PerAxis or PerGroup, but got </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">granularity</span><span class="si">}</span><span class="s2">&quot;</span>
+            <span class="sa">f</span><span class="s2">"granularity must be PerAxis or PerGroup, but got </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">granularity</span><span class="si">}</span><span class="s2">"</span>
         <span class="p">)</span>
         <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">granularity</span><span class="p">,</span> <span class="n">PerAxis</span><span class="p">):</span>
             <span class="k">assert</span> <span class="bp">self</span><span class="o">.</span><span class="n">granularity</span><span class="o">.</span><span class="n">axis</span> <span class="o">==</span> <span class="mi">0</span><span class="p">,</span> <span class="p">(</span>
-                <span class="sa">f</span><span class="s2">&quot;axis must be 0 with PerAxis, but got </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">granularity</span><span class="o">.</span><span class="n">axis</span><span class="si">}</span><span class="s2">&quot;</span>
+                <span class="sa">f</span><span class="s2">"axis must be 0 with PerAxis, but got </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">granularity</span><span class="o">.</span><span class="n">axis</span><span class="si">}</span><span class="s2">"</span>
             <span class="p">)</span>
         <span class="k">assert</span> <span class="bp">self</span><span class="o">.</span><span class="n">mapping_type</span> <span class="ow">in</span> <span class="p">[</span>
             <span class="n">MappingType</span><span class="o">.</span><span class="n">ASYMMETRIC</span><span class="p">,</span>
             <span class="n">MappingType</span><span class="o">.</span><span class="n">SYMMETRIC</span><span class="p">,</span>
             <span class="n">MappingType</span><span class="o">.</span><span class="n">SYMMETRIC_NO_CLIPPING_ERR</span><span class="p">,</span>
         <span class="p">],</span> <span class="p">(</span>
-            <span class="sa">f</span><span class="s2">&quot;mapping_type must be MappingType.ASYMMETRIC, MappingType.SYMMETRIC, or MappingType.SYMMETRIC_NO_CLIPPING_ERR, but got </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">mapping_type</span><span class="si">}</span><span class="s2">&quot;</span>
+            <span class="sa">f</span><span class="s2">"mapping_type must be MappingType.ASYMMETRIC, MappingType.SYMMETRIC, or MappingType.SYMMETRIC_NO_CLIPPING_ERR, but got </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">mapping_type</span><span class="si">}</span><span class="s2">"</span>
         <span class="p">)</span></div>
 
 
@@ -2868,18 +2868,18 @@ document.write(`
         <span class="n">input_dim</span> <span class="o">=</span> <span class="mi">1</span>
     <span class="k">else</span><span class="p">:</span>
         <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
-            <span class="sa">f</span><span class="s2">&quot;IntxWeightOnlyConfig only works for 2-d and 4-d Tensors, got: </span><span class="si">{</span><span class="n">weight</span><span class="o">.</span><span class="n">dim</span><span class="p">()</span><span class="si">}</span><span class="s2">&quot;</span>
+            <span class="sa">f</span><span class="s2">"IntxWeightOnlyConfig only works for 2-d and 4-d Tensors, got: </span><span class="si">{</span><span class="n">weight</span><span class="o">.</span><span class="n">dim</span><span class="p">()</span><span class="si">}</span><span class="s2">"</span>
         <span class="p">)</span>
 
     <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">granularity</span><span class="p">,</span> <span class="n">PerGroup</span><span class="p">):</span>
         <span class="n">group_size</span> <span class="o">=</span> <span class="n">granularity</span><span class="o">.</span><span class="n">group_size</span>
     <span class="k">elif</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">granularity</span><span class="p">,</span> <span class="n">PerAxis</span><span class="p">):</span>
         <span class="k">assert</span> <span class="n">granularity</span><span class="o">.</span><span class="n">axis</span> <span class="o">==</span> <span class="mi">0</span><span class="p">,</span> <span class="p">(</span>
-            <span class="sa">f</span><span class="s2">&quot;axis must be 0 with PerAxis, but got </span><span class="si">{</span><span class="n">granularity</span><span class="o">.</span><span class="n">axis</span><span class="si">}</span><span class="s2">&quot;</span>
+            <span class="sa">f</span><span class="s2">"axis must be 0 with PerAxis, but got </span><span class="si">{</span><span class="n">granularity</span><span class="o">.</span><span class="n">axis</span><span class="si">}</span><span class="s2">"</span>
         <span class="p">)</span>
         <span class="n">group_size</span> <span class="o">=</span> <span class="n">weight</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="n">input_dim</span><span class="p">]</span>
     <span class="k">else</span><span class="p">:</span>
-        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;granularity must be PerGroup or PerAxis, got </span><span class="si">{</span><span class="n">granularity</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">"granularity must be PerGroup or PerAxis, got </span><span class="si">{</span><span class="n">granularity</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
 
     <span class="k">if</span> <span class="n">weight</span><span class="o">.</span><span class="n">dim</span><span class="p">()</span> <span class="o">==</span> <span class="mi">2</span><span class="p">:</span>
         <span class="n">block_size</span> <span class="o">=</span> <span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="n">group_size</span><span class="p">)</span>
@@ -2906,7 +2906,7 @@ document.write(`
 
         <span class="k">return</span> <span class="n">new_weight</span>
     <span class="k">else</span><span class="p">:</span>
-        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Unsupported packing format: </span><span class="si">{</span><span class="n">intx_packing_format</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">"Unsupported packing format: </span><span class="si">{</span><span class="n">intx_packing_format</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
 
 
 <span class="nd">@register_quantize_module_handler</span><span class="p">(</span><span class="n">IntxWeightOnlyConfig</span><span class="p">)</span>
@@ -2914,13 +2914,13 @@ document.write(`
     <span class="n">module</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">,</span>
     <span class="n">config</span><span class="p">:</span> <span class="n">IntxWeightOnlyConfig</span><span class="p">,</span>
     <span class="o">*</span><span class="p">,</span>
-    <span class="n">parameter_name</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;weight&quot;</span><span class="p">,</span>
+    <span class="n">parameter_name</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">"weight"</span><span class="p">,</span>
     <span class="n">custom_scale</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">custom_zero_point</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">:</span>
     <span class="k">assert</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">module</span><span class="p">,</span> <span class="n">parameter_name</span><span class="p">),</span> <span class="p">(</span>
-        <span class="sa">f</span><span class="s2">&quot;applying intx weight only quant requires module to have </span><span class="si">{</span><span class="n">parameter_name</span><span class="si">}</span><span class="s2"> attribute&quot;</span>
-        <span class="o">+</span> <span class="sa">f</span><span class="s2">&quot; but </span><span class="si">{</span><span class="n">module</span><span class="si">}</span><span class="s2"> does not have one&quot;</span>
+        <span class="sa">f</span><span class="s2">"applying intx weight only quant requires module to have </span><span class="si">{</span><span class="n">parameter_name</span><span class="si">}</span><span class="s2"> attribute"</span>
+        <span class="o">+</span> <span class="sa">f</span><span class="s2">" but </span><span class="si">{</span><span class="n">module</span><span class="si">}</span><span class="s2"> does not have one"</span>
     <span class="p">)</span>
     <span class="n">new_weight</span> <span class="o">=</span> <span class="n">_intx_weight_only_quantize_tensor</span><span class="p">(</span>
         <span class="nb">getattr</span><span class="p">(</span><span class="n">module</span><span class="p">,</span> <span class="n">parameter_name</span><span class="p">),</span>
@@ -2948,7 +2948,7 @@ document.write(`
 <a class="viewcode-back" href="../../../api_reference/generated/torchao.quantization.FqnToConfig.html#torchao.quantization.FqnToConfig">[docs]</a>
 <span class="nd">@dataclass</span>
 <span class="k">class</span><span class="w"> </span><span class="nc">FqnToConfig</span><span class="p">(</span><span class="n">AOBaseConfig</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Configuration class for applying different quantization configs to modules or parameters based on their fully qualified names (FQNs).</span>
+<span class="w">    </span><span class="sd">"""Configuration class for applying different quantization configs to modules or parameters based on their fully qualified names (FQNs).</span>
 
 <span class="sd">    Args:</span>
 <span class="sd">        `fqn_to_config`: typing.OrderedDict[str, Optional[AOBaseConfig]]: an</span>
@@ -2957,8 +2957,8 @@ document.write(`
 
 <span class="sd">            1. fully qualified name (fqn) of module or parameter</span>
 <span class="sd">            2. regex of fully qualified name (in python `re` module regex format), should</span>
-<span class="sd">               start with prefix &quot;re:&quot; or</span>
-<span class="sd">            3. &quot;_default&quot;</span>
+<span class="sd">               start with prefix "re:" or</span>
+<span class="sd">            3. "_default"</span>
 
 <span class="sd">            Config key ordered by precedence:</span>
 
@@ -2969,18 +2969,18 @@ document.write(`
 <span class="sd">            * regex for module names, must start with `re:`, e.g. `re:language\.layers\..+\.q_proj`,</span>
 <span class="sd">              whichever regex fully matches the module fqn first will be applied</span>
 <span class="sd">              (order of keys for dictionary are kept consistent since we are using OrderedDict)</span>
-<span class="sd">            * &quot;_default&quot;, fallback if no match for all previous keys</span>
+<span class="sd">            * "_default", fallback if no match for all previous keys</span>
 <span class="sd">              (Note, when using `_default`, the config is applied to all modules, to apply</span>
-<span class="sd">              it to only a subset of modules, e.g. with some types, it&#39;s better to filter</span>
-<span class="sd">              the modules that we don&#39;t want to quantize before hand and configure them to</span>
-<span class="sd">              None, e.g. `{&quot;re:.+norm.+&quot;: None, &quot;_default&quot;: linear_config}`) &quot;_default&quot; is not supported when filter_fn is not specified.</span>
+<span class="sd">              it to only a subset of modules, e.g. with some types, it's better to filter</span>
+<span class="sd">              the modules that we don't want to quantize before hand and configure them to</span>
+<span class="sd">              None, e.g. `{"re:.+norm.+": None, "_default": linear_config}`) "_default" is not supported when filter_fn is not specified.</span>
 <span class="sd">        `module_fqn_to_config`: typing.OrderedDict[str, Optional[AOBaseConfig]]: To maintain BC with ModuleFqnToConfig, to be deprecated later</span>
 <span class="sd">        `version`: int: Version of config to use.</span>
 
 <span class="sd">    Note:</span>
 <span class="sd">        - The order of patterns in the OrderedDict may matter as only the first matching pattern is applied</span>
-<span class="sd">        - &quot;_default&quot; is ignored for parameter replacement.</span>
-<span class="sd">    &quot;&quot;&quot;</span>
+<span class="sd">        - "_default" is ignored for parameter replacement.</span>
+<span class="sd">    """</span>
 
     <span class="n">fqn_to_config</span><span class="p">:</span> <span class="n">OrderedDictType</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Optional</span><span class="p">[</span><span class="n">AOBaseConfig</span><span class="p">]]</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span>
         <span class="n">default_factory</span><span class="o">=</span><span class="n">OrderedDict</span>
@@ -2992,7 +2992,7 @@ document.write(`
     <span class="n">version</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">1</span>
 
     <span class="k">def</span><span class="w"> </span><span class="nf">__post_init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
-        <span class="n">torch</span><span class="o">.</span><span class="n">_C</span><span class="o">.</span><span class="n">_log_api_usage_once</span><span class="p">(</span><span class="s2">&quot;torchao.quantization.FqnToConfig&quot;</span><span class="p">)</span>
+        <span class="n">torch</span><span class="o">.</span><span class="n">_C</span><span class="o">.</span><span class="n">_log_api_usage_once</span><span class="p">(</span><span class="s2">"torchao.quantization.FqnToConfig"</span><span class="p">)</span>
 
         <span class="k">if</span> <span class="p">(</span>
             <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">fqn_to_config</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">0</span>
@@ -3000,7 +3000,7 @@ document.write(`
             <span class="ow">and</span> <span class="bp">self</span><span class="o">.</span><span class="n">fqn_to_config</span> <span class="o">!=</span> <span class="bp">self</span><span class="o">.</span><span class="n">module_fqn_to_config</span>
         <span class="p">):</span>
             <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
-                <span class="s2">&quot;`fqn_to_config` and `module_fqn_to_config` are both specified and are not equal!&quot;</span>
+                <span class="s2">"`fqn_to_config` and `module_fqn_to_config` are both specified and are not equal!"</span>
             <span class="p">)</span>
 
         <span class="c1"># This code handles BC compatibility with `ModuleFqnToConfig`. It ensures that `self.module_fqn_to_config` and `self.fqn_to_config` share the same object.</span>
@@ -3011,20 +3011,20 @@ document.write(`
             <span class="bp">self</span><span class="o">.</span><span class="n">module_fqn_to_config</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">fqn_to_config</span>
 
         <span class="c1"># TODO we plan to deprecate `_default later, so raise a warning if we find it passed in`</span>
-        <span class="k">if</span> <span class="s2">&quot;_default&quot;</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">fqn_to_config</span><span class="p">:</span>
+        <span class="k">if</span> <span class="s2">"_default"</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">fqn_to_config</span><span class="p">:</span>
             <span class="n">warnings</span><span class="o">.</span><span class="n">warn</span><span class="p">(</span>
-                <span class="s2">&quot;Config Deprecation: _default is deprecated and will no longer be supported in a future release. Please see https://github.com/pytorch/ao/issues/3229 for more details.&quot;</span>
+                <span class="s2">"Config Deprecation: _default is deprecated and will no longer be supported in a future release. Please see https://github.com/pytorch/ao/issues/3229 for more details."</span>
             <span class="p">)</span>
 
     <span class="k">def</span><span class="w"> </span><span class="fm">__str__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
-        <span class="k">return</span> <span class="s2">&quot;</span><span class="se">\n</span><span class="s2">&quot;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span>
+        <span class="k">return</span> <span class="s2">"</span><span class="se">\n</span><span class="s2">"</span><span class="o">.</span><span class="n">join</span><span class="p">(</span>
             <span class="p">[</span>
-                <span class="s2">&quot;FqnToConfig({&quot;</span><span class="p">,</span>
+                <span class="s2">"FqnToConfig({"</span><span class="p">,</span>
                 <span class="o">*</span><span class="p">(</span>
-                    <span class="sa">f</span><span class="s2">&quot;  &#39;</span><span class="si">{</span><span class="n">key</span><span class="si">}</span><span class="s2">&#39;:</span><span class="se">\n</span><span class="s2">    </span><span class="si">{</span><span class="n">value</span><span class="si">}</span><span class="s2">,&quot;</span>
+                    <span class="sa">f</span><span class="s2">"  '</span><span class="si">{</span><span class="n">key</span><span class="si">}</span><span class="s2">':</span><span class="se">\n</span><span class="s2">    </span><span class="si">{</span><span class="n">value</span><span class="si">}</span><span class="s2">,"</span>
                     <span class="k">for</span> <span class="n">key</span><span class="p">,</span> <span class="n">value</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">fqn_to_config</span><span class="o">.</span><span class="n">items</span><span class="p">()</span>
                 <span class="p">),</span>
-                <span class="s2">&quot;})&quot;</span><span class="p">,</span>
+                <span class="s2">"})"</span><span class="p">,</span>
             <span class="p">]</span>
         <span class="p">)</span></div>
 
@@ -3037,10 +3037,10 @@ document.write(`
 <span class="k">def</span><span class="w"> </span><span class="nf">_handler_supports_fqn_quantization</span><span class="p">(</span>
     <span class="n">handler</span><span class="p">:</span> <span class="n">Callable</span><span class="p">[[</span><span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">,</span> <span class="n">AOBaseConfig</span><span class="p">],</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">],</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
-<span class="sd">    Returns True if the handler function has a &quot;parameter_name&quot; kwarg in its type signature, False otherwise.</span>
-<span class="sd">    &quot;&quot;&quot;</span>
-    <span class="k">return</span> <span class="n">inspect</span><span class="o">.</span><span class="n">signature</span><span class="p">(</span><span class="n">handler</span><span class="p">)</span><span class="o">.</span><span class="n">parameters</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;parameter_name&quot;</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span>
+<span class="w">    </span><span class="sd">"""</span>
+<span class="sd">    Returns True if the handler function has a "parameter_name" kwarg in its type signature, False otherwise.</span>
+<span class="sd">    """</span>
+    <span class="k">return</span> <span class="n">inspect</span><span class="o">.</span><span class="n">signature</span><span class="p">(</span><span class="n">handler</span><span class="p">)</span><span class="o">.</span><span class="n">parameters</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"parameter_name"</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span>
 
 
 <span class="k">def</span><span class="w"> </span><span class="nf">_fqn_to_config_handler</span><span class="p">(</span>
@@ -3048,7 +3048,7 @@ document.write(`
     <span class="n">fqn</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
     <span class="n">config</span><span class="p">:</span> <span class="n">FqnToConfig</span><span class="p">,</span>
 <span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;This function expects a module that either is specified in FqnToConfig or has a parameter that is specified in FqnToConfig.</span>
+<span class="w">    </span><span class="sd">"""This function expects a module that either is specified in FqnToConfig or has a parameter that is specified in FqnToConfig.</span>
 
 <span class="sd">    Args:</span>
 <span class="sd">        module (torch.nn.Module): The module to be processed.</span>
@@ -3061,13 +3061,13 @@ document.write(`
 
 <span class="sd">    Raises:</span>
 <span class="sd">        NotImplementedError: If the quantization configuration is not yet supported for parameter quantization.</span>
-<span class="sd">    &quot;&quot;&quot;</span>
+<span class="sd">    """</span>
     <span class="n">parameter_config_found</span> <span class="o">=</span> <span class="kc">False</span>
     <span class="n">top_level_params</span> <span class="o">=</span> <span class="p">[]</span>
     <span class="k">for</span> <span class="n">i</span><span class="p">,</span> <span class="p">(</span><span class="n">parameter_name</span><span class="p">,</span> <span class="n">param</span><span class="p">)</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="nb">list</span><span class="p">(</span><span class="n">module</span><span class="o">.</span><span class="n">named_parameters</span><span class="p">())):</span>
         <span class="k">if</span> <span class="n">parameter_name</span> <span class="ow">in</span> <span class="nb">dir</span><span class="p">(</span><span class="n">module</span><span class="p">):</span>
             <span class="n">parameter_fqn</span> <span class="o">=</span> <span class="p">(</span>
-                <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">fqn</span><span class="si">}</span><span class="s2">.</span><span class="si">{</span><span class="n">parameter_name</span><span class="si">}</span><span class="s2">&quot;</span> <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">fqn</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">0</span> <span class="k">else</span> <span class="n">parameter_name</span>
+                <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">fqn</span><span class="si">}</span><span class="s2">.</span><span class="si">{</span><span class="n">parameter_name</span><span class="si">}</span><span class="s2">"</span> <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">fqn</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">0</span> <span class="k">else</span> <span class="n">parameter_name</span>
             <span class="p">)</span>
             <span class="n">top_level_params</span><span class="o">.</span><span class="n">append</span><span class="p">((</span><span class="n">i</span><span class="p">,</span> <span class="n">parameter_name</span><span class="p">,</span> <span class="n">param</span><span class="p">,</span> <span class="n">parameter_fqn</span><span class="p">))</span>
 
@@ -3082,11 +3082,11 @@ document.write(`
             <span class="k">else</span><span class="p">:</span>
                 <span class="n">handler</span> <span class="o">=</span> <span class="n">_QUANTIZE_CONFIG_HANDLER</span><span class="p">[</span><span class="nb">type</span><span class="p">(</span><span class="n">c</span><span class="p">)]</span>
                 <span class="k">if</span> <span class="n">_handler_supports_fqn_quantization</span><span class="p">(</span><span class="n">handler</span><span class="p">):</span>
-                    <span class="c1"># may be more than one param specified, so don&#39;t return prematurely</span>
+                    <span class="c1"># may be more than one param specified, so don't return prematurely</span>
                     <span class="n">module</span> <span class="o">=</span> <span class="n">handler</span><span class="p">(</span><span class="n">module</span><span class="p">,</span> <span class="n">c</span><span class="p">,</span> <span class="n">parameter_name</span><span class="o">=</span><span class="n">parameter_name</span><span class="p">)</span>
                 <span class="k">else</span><span class="p">:</span>
                     <span class="k">raise</span> <span class="ne">NotImplementedError</span><span class="p">(</span>
-                        <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="nb">type</span><span class="p">(</span><span class="n">c</span><span class="p">)</span><span class="si">}</span><span class="s2"> does not yet support parameter quantization! Please see https://github.com/pytorch/ao/issues/3252 for more details&quot;</span>
+                        <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="nb">type</span><span class="p">(</span><span class="n">c</span><span class="p">)</span><span class="si">}</span><span class="s2"> does not yet support parameter quantization! Please see https://github.com/pytorch/ao/issues/3252 for more details"</span>
                     <span class="p">)</span>
 
     <span class="c1"># then we see if we match module_fqn exactly</span>
@@ -3101,24 +3101,24 @@ document.write(`
     <span class="c1"># Next try to match parameters on regex patterns</span>
     <span class="k">for</span> <span class="n">i</span><span class="p">,</span> <span class="n">parameter_name</span><span class="p">,</span> <span class="n">param</span><span class="p">,</span> <span class="n">parameter_fqn</span> <span class="ow">in</span> <span class="n">top_level_params</span><span class="p">:</span>
         <span class="k">for</span> <span class="n">pattern</span> <span class="ow">in</span> <span class="n">config</span><span class="o">.</span><span class="n">fqn_to_config</span><span class="p">:</span>
-            <span class="k">if</span> <span class="n">pattern</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s2">&quot;re:&quot;</span><span class="p">)</span> <span class="ow">and</span> <span class="n">re</span><span class="o">.</span><span class="n">fullmatch</span><span class="p">(</span><span class="n">pattern</span><span class="p">[</span><span class="mi">3</span><span class="p">:],</span> <span class="n">parameter_fqn</span><span class="p">):</span>
+            <span class="k">if</span> <span class="n">pattern</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s2">"re:"</span><span class="p">)</span> <span class="ow">and</span> <span class="n">re</span><span class="o">.</span><span class="n">fullmatch</span><span class="p">(</span><span class="n">pattern</span><span class="p">[</span><span class="mi">3</span><span class="p">:],</span> <span class="n">parameter_fqn</span><span class="p">):</span>
                 <span class="n">parameter_config_found</span> <span class="o">=</span> <span class="kc">True</span>
                 <span class="n">c</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">fqn_to_config</span><span class="p">[</span><span class="n">pattern</span><span class="p">]</span>
                 <span class="k">if</span> <span class="n">c</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
                     <span class="n">handler</span> <span class="o">=</span> <span class="n">_QUANTIZE_CONFIG_HANDLER</span><span class="p">[</span><span class="nb">type</span><span class="p">(</span><span class="n">c</span><span class="p">)]</span>
                     <span class="k">if</span> <span class="n">_handler_supports_fqn_quantization</span><span class="p">(</span><span class="n">handler</span><span class="p">):</span>
-                        <span class="c1"># may be more than one param specified, so don&#39;t return prematurely</span>
+                        <span class="c1"># may be more than one param specified, so don't return prematurely</span>
                         <span class="n">module</span> <span class="o">=</span> <span class="n">handler</span><span class="p">(</span><span class="n">module</span><span class="p">,</span> <span class="n">c</span><span class="p">,</span> <span class="n">parameter_name</span><span class="o">=</span><span class="n">parameter_name</span><span class="p">)</span>
                     <span class="k">else</span><span class="p">:</span>
                         <span class="k">raise</span> <span class="ne">NotImplementedError</span><span class="p">(</span>
-                            <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="nb">type</span><span class="p">(</span><span class="n">c</span><span class="p">)</span><span class="si">}</span><span class="s2"> does not yet support parameter quantization! Please see https://github.com/pytorch/ao/issues/3252 for more details&quot;</span>
+                            <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="nb">type</span><span class="p">(</span><span class="n">c</span><span class="p">)</span><span class="si">}</span><span class="s2"> does not yet support parameter quantization! Please see https://github.com/pytorch/ao/issues/3252 for more details"</span>
                         <span class="p">)</span>
 
     <span class="c1"># try to match regex on module fqn</span>
     <span class="k">if</span> <span class="ow">not</span> <span class="n">parameter_config_found</span><span class="p">:</span>
         <span class="k">for</span> <span class="n">pattern</span> <span class="ow">in</span> <span class="n">config</span><span class="o">.</span><span class="n">fqn_to_config</span><span class="p">:</span>
-            <span class="c1"># we&#39;ll apply the config for first fully matched pattern</span>
-            <span class="k">if</span> <span class="n">pattern</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s2">&quot;re:&quot;</span><span class="p">)</span> <span class="ow">and</span> <span class="n">re</span><span class="o">.</span><span class="n">fullmatch</span><span class="p">(</span><span class="n">pattern</span><span class="p">[</span><span class="mi">3</span><span class="p">:],</span> <span class="n">fqn</span><span class="p">):</span>
+            <span class="c1"># we'll apply the config for first fully matched pattern</span>
+            <span class="k">if</span> <span class="n">pattern</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s2">"re:"</span><span class="p">)</span> <span class="ow">and</span> <span class="n">re</span><span class="o">.</span><span class="n">fullmatch</span><span class="p">(</span><span class="n">pattern</span><span class="p">[</span><span class="mi">3</span><span class="p">:],</span> <span class="n">fqn</span><span class="p">):</span>
                 <span class="n">c</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">fqn_to_config</span><span class="p">[</span><span class="n">pattern</span><span class="p">]</span>
                 <span class="k">if</span> <span class="n">c</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
                     <span class="n">handler</span> <span class="o">=</span> <span class="n">_QUANTIZE_CONFIG_HANDLER</span><span class="p">[</span><span class="nb">type</span><span class="p">(</span><span class="n">c</span><span class="p">)]</span>
@@ -3128,7 +3128,7 @@ document.write(`
 
     <span class="c1"># If no module_fqn or parameter_fqn matches, then we apply _default</span>
     <span class="k">if</span> <span class="ow">not</span> <span class="n">parameter_config_found</span><span class="p">:</span>
-        <span class="n">c</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">fqn_to_config</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;_default&quot;</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span>
+        <span class="n">c</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">fqn_to_config</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"_default"</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span>
         <span class="k">if</span> <span class="n">c</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
             <span class="n">handler</span> <span class="o">=</span> <span class="n">_QUANTIZE_CONFIG_HANDLER</span><span class="p">[</span><span class="nb">type</span><span class="p">(</span><span class="n">c</span><span class="p">)]</span>
             <span class="c1"># safe to return here as at most only one module will match</span>
@@ -3141,7 +3141,7 @@ document.write(`
     <span class="n">fqn</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
     <span class="n">config</span><span class="p">:</span> <span class="n">FqnToConfig</span><span class="p">,</span>
 <span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Check if a given fqn matches the exact fqn or regex pattern specified in FqnToConfig.</span>
+<span class="w">    </span><span class="sd">"""Check if a given fqn matches the exact fqn or regex pattern specified in FqnToConfig.</span>
 
 <span class="sd">    Args:</span>
 <span class="sd">        fqn (str): The fully qualified name of the module.</span>
@@ -3149,15 +3149,15 @@ document.write(`
 
 <span class="sd">    Returns:</span>
 <span class="sd">        bool: True if the fqn is specified in FqnToConfig. False otherwise.</span>
-<span class="sd">    &quot;&quot;&quot;</span>
+<span class="sd">    """</span>
     <span class="k">if</span> <span class="n">fqn</span> <span class="ow">in</span> <span class="n">config</span><span class="o">.</span><span class="n">fqn_to_config</span><span class="p">:</span>
-        <span class="k">assert</span> <span class="ow">not</span> <span class="n">fqn</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s2">&quot;re:&quot;</span><span class="p">),</span> <span class="p">(</span>
-            <span class="sa">f</span><span class="s2">&quot;Error: Exact match but regex </span><span class="si">{</span><span class="n">fqn</span><span class="si">}</span><span class="s2"> specified.&quot;</span>
+        <span class="k">assert</span> <span class="ow">not</span> <span class="n">fqn</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s2">"re:"</span><span class="p">),</span> <span class="p">(</span>
+            <span class="sa">f</span><span class="s2">"Error: Exact match but regex </span><span class="si">{</span><span class="n">fqn</span><span class="si">}</span><span class="s2"> specified."</span>
         <span class="p">)</span>
         <span class="k">return</span> <span class="kc">True</span>
     <span class="k">else</span><span class="p">:</span>
         <span class="k">for</span> <span class="n">maybe_module_or_param_fqn_pattern</span> <span class="ow">in</span> <span class="n">config</span><span class="o">.</span><span class="n">fqn_to_config</span><span class="p">:</span>
-            <span class="k">if</span> <span class="n">maybe_module_or_param_fqn_pattern</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s2">&quot;re:&quot;</span><span class="p">)</span> <span class="ow">and</span> <span class="n">re</span><span class="o">.</span><span class="n">fullmatch</span><span class="p">(</span>
+            <span class="k">if</span> <span class="n">maybe_module_or_param_fqn_pattern</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s2">"re:"</span><span class="p">)</span> <span class="ow">and</span> <span class="n">re</span><span class="o">.</span><span class="n">fullmatch</span><span class="p">(</span>
                 <span class="n">maybe_module_or_param_fqn_pattern</span><span class="p">[</span><span class="mi">3</span><span class="p">:],</span> <span class="n">fqn</span>
             <span class="p">):</span>
                 <span class="k">return</span> <span class="kc">True</span>
@@ -3169,7 +3169,7 @@ document.write(`
     <span class="n">fqn</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
     <span class="n">config</span><span class="p">:</span> <span class="n">FqnToConfig</span><span class="p">,</span>
 <span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Check if a given module contains top-level parameters that match the exact fqn or regex pattern specified in FqnToConfig.</span>
+<span class="w">    </span><span class="sd">"""Check if a given module contains top-level parameters that match the exact fqn or regex pattern specified in FqnToConfig.</span>
 
 <span class="sd">    Args:</span>
 <span class="sd">        module (nn.Module): The module to be checked.</span>
@@ -3178,10 +3178,10 @@ document.write(`
 
 <span class="sd">    Returns:</span>
 <span class="sd">        bool: True if the module contains top-level parameters that match the fqn or regex pattern specified in FqnTo</span>
-<span class="sd">    &quot;&quot;&quot;</span>
+<span class="sd">    """</span>
     <span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="n">param</span> <span class="ow">in</span> <span class="n">module</span><span class="o">.</span><span class="n">named_parameters</span><span class="p">():</span>
         <span class="k">if</span> <span class="n">name</span> <span class="ow">in</span> <span class="nb">dir</span><span class="p">(</span><span class="n">module</span><span class="p">):</span>
-            <span class="n">parameter_fqn</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">fqn</span><span class="si">}</span><span class="s2">.</span><span class="si">{</span><span class="n">name</span><span class="si">}</span><span class="s2">&quot;</span> <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">fqn</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">0</span> <span class="k">else</span> <span class="n">name</span>
+            <span class="n">parameter_fqn</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">fqn</span><span class="si">}</span><span class="s2">.</span><span class="si">{</span><span class="n">name</span><span class="si">}</span><span class="s2">"</span> <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">fqn</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">0</span> <span class="k">else</span> <span class="n">name</span>
             <span class="k">if</span> <span class="n">fqn_matches_fqn_config</span><span class="p">(</span><span class="n">parameter_fqn</span><span class="p">,</span> <span class="n">config</span><span class="p">):</span>
                 <span class="k">return</span> <span class="kc">True</span>
 
@@ -3189,14 +3189,14 @@ document.write(`
 
 
 <span class="k">def</span><span class="w"> </span><span class="nf">_unwrap_float8_linear</span><span class="p">(</span><span class="n">module</span><span class="p">:</span> <span class="n">Float8Linear</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">:</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">"""</span>
 <span class="sd">    Unwrap a torchao Float8Linear by returning a nn.Linear with the same weights and bias.</span>
 
 <span class="sd">    Torchao inference quantization techniques are generally only applicable to nn.Linear</span>
 <span class="sd">    layers, so this helper is useful for unwrapping models trained with torchao float8 training,</span>
 <span class="sd">    which replaces nn.Linear layers with Float8Linear layers.</span>
-<span class="sd">    &quot;&quot;&quot;</span>
-    <span class="k">with</span> <span class="n">torch</span><span class="o">.</span><span class="n">device</span><span class="p">(</span><span class="s2">&quot;meta&quot;</span><span class="p">):</span>
+<span class="sd">    """</span>
+    <span class="k">with</span> <span class="n">torch</span><span class="o">.</span><span class="n">device</span><span class="p">(</span><span class="s2">"meta"</span><span class="p">):</span>
         <span class="n">new_module</span> <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">(</span><span class="n">module</span><span class="o">.</span><span class="n">in_features</span><span class="p">,</span> <span class="n">module</span><span class="o">.</span><span class="n">out_features</span><span class="p">)</span>
     <span class="n">new_module</span><span class="o">.</span><span class="n">weight</span> <span class="o">=</span> <span class="n">module</span><span class="o">.</span><span class="n">weight</span>
     <span class="n">new_module</span><span class="o">.</span><span class="n">bias</span> <span class="o">=</span> <span class="n">module</span><span class="o">.</span><span class="n">bias</span>

@@ -173,7 +173,7 @@
   fbq('track', 'PageView');
 </script>
 <script>
-  document.documentElement.setAttribute('data-version', 'main (0.19.0+gitd37142a )');
+  document.documentElement.setAttribute('data-version', 'main (0.19.0+gitf10e69b )');
 </script>
 <noscript>
   <img height="1" width="1" src="https://www.facebook.com/tr?id=243028289693773&ev=PageView&noscript=1" />
@@ -1547,8 +1547,8 @@ is used automatically.</p>
 following Python’s MRO (Method Resolution Order), with later bases taking priority.</p>
 <p>Example:</p>
 <div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="k">class</span><span class="w"> </span><span class="nc">Parent</span><span class="p">(</span><span class="n">TorchAOBaseTensor</span><span class="p">):</span>
-    <span class="n">tensor_data_names</span> <span class="o">=</span> <span class="p">[</span><span class="s2">&quot;qdata&quot;</span><span class="p">]</span>
-    <span class="n">tensor_attribute_names</span> <span class="o">=</span> <span class="p">[</span><span class="s2">&quot;attr&quot;</span><span class="p">]</span>
+    <span class="n">tensor_data_names</span> <span class="o">=</span> <span class="p">[</span><span class="s2">"qdata"</span><span class="p">]</span>
+    <span class="n">tensor_attribute_names</span> <span class="o">=</span> <span class="p">[</span><span class="s2">"attr"</span><span class="p">]</span>
 
     <span class="k">def</span><span class="w"> </span><span class="fm">__new__</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="n">qdata</span><span class="p">,</span> <span class="n">attr</span><span class="p">):</span>
         <span class="n">r</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="o">.</span><span class="n">_make_wrapper_subclass</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="n">qdata</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span>
@@ -1564,10 +1564,10 @@ following Python’s MRO (Method Resolution Order), with later bases taking prio
     <span class="c1"># parent implementation</span>
     <span class="o">...</span>
 
-<span class="c1"># Child inherits Parent&#39;s aten.cat implementation automatically</span>
+<span class="c1"># Child inherits Parent's aten.cat implementation automatically</span>
 <span class="k">class</span><span class="w"> </span><span class="nc">Child</span><span class="p">(</span><span class="n">Parent</span><span class="p">):</span>
-    <span class="n">tensor_data_names</span> <span class="o">=</span> <span class="p">[</span><span class="s2">&quot;qdata&quot;</span><span class="p">]</span>
-    <span class="n">tensor_attribute_names</span> <span class="o">=</span> <span class="p">[</span><span class="s2">&quot;attr&quot;</span><span class="p">]</span>
+    <span class="n">tensor_data_names</span> <span class="o">=</span> <span class="p">[</span><span class="s2">"qdata"</span><span class="p">]</span>
+    <span class="n">tensor_attribute_names</span> <span class="o">=</span> <span class="p">[</span><span class="s2">"attr"</span><span class="p">]</span>
 
 <span class="c1"># Optionally override an inherited op:</span>
 <span class="nd">@Child</span><span class="o">.</span><span class="n">implements</span><span class="p">([</span><span class="n">torch</span><span class="o">.</span><span class="n">ops</span><span class="o">.</span><span class="n">aten</span><span class="o">.</span><span class="n">cat</span><span class="o">.</span><span class="n">default</span><span class="p">])</span>
@@ -1608,10 +1608,10 @@ for a full end-to-end example.</p>
 </div>
 <p>Examples:</p>
 <div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="k">class</span><span class="w"> </span><span class="nc">MyTensor</span><span class="p">(</span><span class="n">TorchAOBaseTensor</span><span class="p">):</span>
-    <span class="n">tensor_data_names</span> <span class="o">=</span> <span class="p">[</span><span class="s2">&quot;a&quot;</span><span class="p">,</span> <span class="s2">&quot;b&quot;</span><span class="p">]</span>
-    <span class="n">tensor_attribute_names</span> <span class="o">=</span> <span class="p">[</span><span class="s2">&quot;c&quot;</span><span class="p">,</span> <span class="s2">&quot;d&quot;</span><span class="p">]</span>
-    <span class="n">optional_tensor_data_names</span> <span class="o">=</span> <span class="p">[</span><span class="s2">&quot;e&quot;</span><span class="p">,</span> <span class="s2">&quot;f&quot;</span><span class="p">]</span>
-    <span class="n">optional_tensor_attribute_names</span> <span class="o">=</span> <span class="p">[</span><span class="s2">&quot;g&quot;</span><span class="p">,</span> <span class="s2">&quot;h&quot;</span><span class="p">]</span>
+    <span class="n">tensor_data_names</span> <span class="o">=</span> <span class="p">[</span><span class="s2">"a"</span><span class="p">,</span> <span class="s2">"b"</span><span class="p">]</span>
+    <span class="n">tensor_attribute_names</span> <span class="o">=</span> <span class="p">[</span><span class="s2">"c"</span><span class="p">,</span> <span class="s2">"d"</span><span class="p">]</span>
+    <span class="n">optional_tensor_data_names</span> <span class="o">=</span> <span class="p">[</span><span class="s2">"e"</span><span class="p">,</span> <span class="s2">"f"</span><span class="p">]</span>
+    <span class="n">optional_tensor_attribute_names</span> <span class="o">=</span> <span class="p">[</span><span class="s2">"g"</span><span class="p">,</span> <span class="s2">"h"</span><span class="p">]</span>
 
 
     <span class="k">def</span><span class="w"> </span><span class="fm">__new__</span><span class="p">(</span>

@@ -172,7 +172,7 @@ window.addEventListener("load", () => mermaid.run());
   fbq('track', 'PageView');
 </script>
 <script>
-  document.documentElement.setAttribute('data-version', 'main (0.19.0+gitd37142a )');
+  document.documentElement.setAttribute('data-version', 'main (0.19.0+gitf10e69b )');
 </script>
 <noscript>
   <img height="1" width="1" src="https://www.facebook.com/tr?id=243028289693773&ev=PageView&noscript=1" />
@@ -1408,7 +1408,7 @@ document.write(`
 <a class="viewcode-back" href="../../../api_reference/generated/torchao.float8.precompute_float8_dynamic_scale_for_fsdp.html#torchao.float8.precompute_float8_dynamic_scale_for_fsdp">[docs]</a>
 <span class="nd">@torch</span><span class="o">.</span><span class="n">no_grad</span><span class="p">()</span>
 <span class="k">def</span><span class="w"> </span><span class="nf">precompute_float8_dynamic_scale_for_fsdp</span><span class="p">(</span><span class="n">module</span><span class="p">:</span> <span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">"""</span>
 <span class="sd">    Calculate scale dynamically for all float8 parameters.</span>
 
 <span class="sd">    This should be run after the optimizer step. It performs a single all-reduce</span>
@@ -1422,13 +1422,13 @@ document.write(`
 <span class="sd">        model(input).sum().backward()</span>
 <span class="sd">        optim.step()</span>
 <span class="sd">        precompute_float8_dynamic_scale_for_fsdp(model)</span>
-<span class="sd">    &quot;&quot;&quot;</span>
+<span class="sd">    """</span>
     <span class="kn">from</span><span class="w"> </span><span class="nn">torch.distributed._tensor</span><span class="w"> </span><span class="kn">import</span> <span class="n">DTensor</span>
 
     <span class="kn">from</span><span class="w"> </span><span class="nn">torchao.float8.float8_linear</span><span class="w"> </span><span class="kn">import</span> <span class="n">Float8Linear</span>
 
     <span class="n">torch</span><span class="o">.</span><span class="n">_C</span><span class="o">.</span><span class="n">_log_api_usage_once</span><span class="p">(</span>
-        <span class="s2">&quot;torchao.float8.precompute_float8_dynamic_scale_for_fsdp&quot;</span>
+        <span class="s2">"torchao.float8.precompute_float8_dynamic_scale_for_fsdp"</span>
     <span class="p">)</span>
 
     <span class="n">float8_linears</span><span class="p">:</span> <span class="n">List</span><span class="p">[</span><span class="n">Float8Linear</span><span class="p">]</span> <span class="o">=</span> <span class="p">[</span>
@@ -1496,24 +1496,24 @@ document.write(`
 <span class="c1">#      | apply tensor parallel, `parallelize_module` shards rowwise/colwise</span>
 <span class="c1">#      |</span>
 <span class="c1"># Float8Linear(weight=DTensor(local_tensor=WeightWithDynamicFloat8CastTensor,</span>
-<span class="c1">#                             device_mesh=DeviceMesh([0, 1], mesh_dim_names=(&#39;tp&#39;,)),</span>
+<span class="c1">#                             device_mesh=DeviceMesh([0, 1], mesh_dim_names=('tp',)),</span>
 <span class="c1">#                             placements=(Shard(dim=0),)))</span>
 <span class="c1">#      |</span>
 <span class="c1">#      | apply FSDP2, `fully_shard` shards rowwise (dim=0)</span>
 <span class="c1">#      |</span>
 <span class="c1"># Float8Linear(weight=DTensor(local_tensor=WeightWithDynamicFloat8CastTensor,</span>
-<span class="c1">#                             device_mesh=DeviceMesh([[0, 1], [2, 3]], mesh_dim_names=(&#39;dp&#39;, &#39;tp&#39;)),</span>
+<span class="c1">#                             device_mesh=DeviceMesh([[0, 1], [2, 3]], mesh_dim_names=('dp', 'tp')),</span>
 <span class="c1">#                             placements=(Shard(dim=0), Shard(dim=0))))</span>
 
 <span class="c1"># Forward and backward: FSDP runs first then TP</span>
 <span class="c1"># Float8Linear(weight=DTensor(local_tensor=WeightWithDynamicFloat8CastTensor,</span>
-<span class="c1">#                             device_mesh=DeviceMesh([[0, 1], [2, 3]], mesh_dim_names=(&#39;dp&#39;, &#39;tp&#39;)),</span>
+<span class="c1">#                             device_mesh=DeviceMesh([[0, 1], [2, 3]], mesh_dim_names=('dp', 'tp')),</span>
 <span class="c1">#                             placements=(Shard(dim=0), Shard(dim=0))))</span>
 <span class="c1">#      |</span>
 <span class="c1">#      |   FSDP unshards parameters within dp mesh</span>
 <span class="c1">#      |</span>
 <span class="c1"># Float8Linear(weight=DTensor(local_tensor=WeightWithDynamicFloat8CastTensor,</span>
-<span class="c1">#                             device_mesh=DeviceMesh([0, 1], mesh_dim_names=(&#39;tp&#39;,)),</span>
+<span class="c1">#                             device_mesh=DeviceMesh([0, 1], mesh_dim_names=('tp',)),</span>
 <span class="c1">#                             placements=(Shard(dim=0),)))</span>
 <span class="c1">#      |</span>
 <span class="c1">#      |   TP compute with torch.mm(input, weight)</span>
@@ -1591,22 +1591,22 @@ document.write(`
         <span class="p">)</span>
 
     <span class="k">def</span><span class="w"> </span><span class="nf">__tensor_flatten__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
-        <span class="n">tensors</span> <span class="o">=</span> <span class="p">[</span><span class="s2">&quot;_tensor&quot;</span><span class="p">]</span>
+        <span class="n">tensors</span> <span class="o">=</span> <span class="p">[</span><span class="s2">"_tensor"</span><span class="p">]</span>
         <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_precomputed_scale</span><span class="p">:</span>
-            <span class="n">tensors</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s2">&quot;_precomputed_scale&quot;</span><span class="p">)</span>
-        <span class="k">return</span> <span class="n">tensors</span><span class="p">,</span> <span class="p">{</span><span class="s2">&quot;mm_config&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">_linear_mm_config</span><span class="p">,</span> <span class="s2">&quot;dtype&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">_dtype</span><span class="p">}</span>
+            <span class="n">tensors</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s2">"_precomputed_scale"</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">tensors</span><span class="p">,</span> <span class="p">{</span><span class="s2">"mm_config"</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">_linear_mm_config</span><span class="p">,</span> <span class="s2">"dtype"</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">_dtype</span><span class="p">}</span>
 
     <span class="nd">@staticmethod</span>
     <span class="k">def</span><span class="w"> </span><span class="nf">__tensor_unflatten__</span><span class="p">(</span><span class="n">inner_tensors</span><span class="p">,</span> <span class="n">flatten_spec</span><span class="p">,</span> <span class="n">outer_size</span><span class="p">,</span> <span class="n">outer_stride</span><span class="p">):</span>
         <span class="k">return</span> <span class="n">WeightWithDynamicFloat8CastTensor</span><span class="p">(</span>
-            <span class="n">inner_tensors</span><span class="p">[</span><span class="s2">&quot;_tensor&quot;</span><span class="p">],</span>
-            <span class="n">flatten_spec</span><span class="p">[</span><span class="s2">&quot;mm_config&quot;</span><span class="p">],</span>
-            <span class="n">flatten_spec</span><span class="p">[</span><span class="s2">&quot;dtype&quot;</span><span class="p">],</span>
-            <span class="nb">getattr</span><span class="p">(</span><span class="n">inner_tensors</span><span class="p">,</span> <span class="s2">&quot;_precomputed_scale&quot;</span><span class="p">,</span> <span class="kc">None</span><span class="p">),</span>
+            <span class="n">inner_tensors</span><span class="p">[</span><span class="s2">"_tensor"</span><span class="p">],</span>
+            <span class="n">flatten_spec</span><span class="p">[</span><span class="s2">"mm_config"</span><span class="p">],</span>
+            <span class="n">flatten_spec</span><span class="p">[</span><span class="s2">"dtype"</span><span class="p">],</span>
+            <span class="nb">getattr</span><span class="p">(</span><span class="n">inner_tensors</span><span class="p">,</span> <span class="s2">"_precomputed_scale"</span><span class="p">,</span> <span class="kc">None</span><span class="p">),</span>
         <span class="p">)</span>
 
     <span class="k">def</span><span class="w"> </span><span class="fm">__repr__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
-        <span class="k">return</span> <span class="sa">f</span><span class="s2">&quot;WeightWithDynamicFloat8CastTensor(tensor=</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">_tensor</span><span class="si">}</span><span class="s2">, linear_mm_config=</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">_linear_mm_config</span><span class="si">}</span><span class="s2">, dtype=</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">_dtype</span><span class="si">}</span><span class="s2">)&quot;</span>
+        <span class="k">return</span> <span class="sa">f</span><span class="s2">"WeightWithDynamicFloat8CastTensor(tensor=</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">_tensor</span><span class="si">}</span><span class="s2">, linear_mm_config=</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">_linear_mm_config</span><span class="si">}</span><span class="s2">, dtype=</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">_dtype</span><span class="si">}</span><span class="s2">)"</span>
 
     <span class="k">def</span><span class="w"> </span><span class="nf">fsdp_pre_all_gather</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">mesh</span><span class="p">):</span>
         <span class="c1"># Snapshot once: `_precomputed_scale` may be re-assigned by</span>
@@ -1654,7 +1654,7 @@ document.write(`
                 <span class="n">out</span><span class="o">.</span><span class="n">_local_tensor</span><span class="o">.</span><span class="n">_scale</span> <span class="o">=</span> <span class="n">scale</span>
             <span class="k">else</span><span class="p">:</span>
                 <span class="k">raise</span> <span class="ne">RuntimeError</span><span class="p">(</span>
-                    <span class="sa">f</span><span class="s2">&quot;out must be a Float8TrainingTensor or DTensor(_local_tensor=Float8TrainingTensor), but got </span><span class="si">{</span><span class="n">out</span><span class="si">}</span><span class="s2">&quot;</span>
+                    <span class="sa">f</span><span class="s2">"out must be a Float8TrainingTensor or DTensor(_local_tensor=Float8TrainingTensor), but got </span><span class="si">{</span><span class="n">out</span><span class="si">}</span><span class="s2">"</span>
                 <span class="p">)</span>
             <span class="k">return</span>
         <span class="k">return</span> <span class="n">Float8TrainingTensor</span><span class="p">(</span>

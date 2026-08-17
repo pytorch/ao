@@ -172,7 +172,7 @@ window.addEventListener("load", () => mermaid.run());
   fbq('track', 'PageView');
 </script>
 <script>
-  document.documentElement.setAttribute('data-version', 'main (0.19.0+gitd37142a )');
+  document.documentElement.setAttribute('data-version', 'main (0.19.0+gitf10e69b )');
 </script>
 <noscript>
   <img height="1" width="1" src="https://www.facebook.com/tr?id=243028289693773&ev=PageView&noscript=1" />
@@ -1406,7 +1406,7 @@ document.write(`
 <div class="viewcode-block" id="FakeQuantizedEmbedding">
 <a class="viewcode-back" href="../../../../api_reference/generated/torchao.quantization.qat.FakeQuantizedEmbedding.html#torchao.quantization.qat.FakeQuantizedEmbedding">[docs]</a>
 <span class="k">class</span><span class="w"> </span><span class="nc">FakeQuantizedEmbedding</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Embedding</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">"""</span>
 <span class="sd">    General embedding layer with fake quantized weights.</span>
 
 <span class="sd">    Specific target dtypes, granularity, schemes etc. are specified</span>
@@ -1421,7 +1421,7 @@ document.write(`
 <span class="sd">        )</span>
 <span class="sd">        fq_embedding = FakeQuantizedEmbedding(5, 10, weight_config)</span>
 <span class="sd">        fq_embedding(torch.LongTensor([3]))</span>
-<span class="sd">    &quot;&quot;&quot;</span>
+<span class="sd">    """</span>
 
     <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span>
         <span class="bp">self</span><span class="p">,</span>
@@ -1447,7 +1447,7 @@ document.write(`
             <span class="o">*</span><span class="n">args</span><span class="p">,</span>
             <span class="o">**</span><span class="n">kwargs</span><span class="p">,</span>
         <span class="p">)</span>
-        <span class="n">torch</span><span class="o">.</span><span class="n">_C</span><span class="o">.</span><span class="n">_log_api_usage_once</span><span class="p">(</span><span class="s2">&quot;torchao.quantization.qat.FakeQuantizedEmbedding&quot;</span><span class="p">)</span>
+        <span class="n">torch</span><span class="o">.</span><span class="n">_C</span><span class="o">.</span><span class="n">_log_api_usage_once</span><span class="p">(</span><span class="s2">"torchao.quantization.qat.FakeQuantizedEmbedding"</span><span class="p">)</span>
         <span class="k">if</span> <span class="n">weight_config</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">weight_fake_quantizer</span> <span class="o">=</span> <span class="n">FakeQuantizerBase</span><span class="o">.</span><span class="n">from_config</span><span class="p">(</span><span class="n">weight_config</span><span class="p">)</span>
         <span class="k">else</span><span class="p">:</span>
@@ -1486,7 +1486,7 @@ document.write(`
         <span class="c1"># In distributed training, the model may be instantiated</span>
         <span class="c1"># on the meta device, in which case there is no need to</span>
         <span class="c1"># copy the weights, and doing so will result in an error</span>
-        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">weight</span><span class="o">.</span><span class="n">device</span> <span class="o">!=</span> <span class="n">torch</span><span class="o">.</span><span class="n">device</span><span class="p">(</span><span class="s2">&quot;meta&quot;</span><span class="p">):</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">weight</span><span class="o">.</span><span class="n">device</span> <span class="o">!=</span> <span class="n">torch</span><span class="o">.</span><span class="n">device</span><span class="p">(</span><span class="s2">"meta"</span><span class="p">):</span>
             <span class="n">new_embedding</span><span class="o">.</span><span class="n">weight</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">weight</span>
         <span class="k">return</span> <span class="n">new_embedding</span>
 
@@ -1511,7 +1511,7 @@ document.write(`
         <span class="c1"># In distributed training, the model may be instantiated</span>
         <span class="c1"># on the meta device, in which case there is no need to</span>
         <span class="c1"># copy the weights, and doing so will result in an error</span>
-        <span class="k">if</span> <span class="n">mod</span><span class="o">.</span><span class="n">weight</span><span class="o">.</span><span class="n">device</span> <span class="o">!=</span> <span class="n">torch</span><span class="o">.</span><span class="n">device</span><span class="p">(</span><span class="s2">&quot;meta&quot;</span><span class="p">):</span>
+        <span class="k">if</span> <span class="n">mod</span><span class="o">.</span><span class="n">weight</span><span class="o">.</span><span class="n">device</span> <span class="o">!=</span> <span class="n">torch</span><span class="o">.</span><span class="n">device</span><span class="p">(</span><span class="s2">"meta"</span><span class="p">):</span>
             <span class="n">new_embedding</span><span class="o">.</span><span class="n">weight</span> <span class="o">=</span> <span class="n">mod</span><span class="o">.</span><span class="n">weight</span>
         <span class="k">return</span> <span class="n">new_embedding</span></div>
 
@@ -1525,10 +1525,10 @@ document.write(`
 <div class="viewcode-block" id="Int4WeightOnlyEmbeddingQATQuantizer">
 <a class="viewcode-back" href="../../../../api_reference/generated/torchao.quantization.qat.Int4WeightOnlyEmbeddingQATQuantizer.html#torchao.quantization.qat.Int4WeightOnlyEmbeddingQATQuantizer">[docs]</a>
 <span class="k">class</span><span class="w"> </span><span class="nc">Int4WeightOnlyEmbeddingQATQuantizer</span><span class="p">(</span><span class="n">TwoStepQuantizer</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">"""</span>
 <span class="sd">    Quantizer for performing QAT on a model, where embedding layers have</span>
 <span class="sd">    int4 fake quantized grouped per channel weights.</span>
-<span class="sd">    &quot;&quot;&quot;</span>
+<span class="sd">    """</span>
 
     <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span>
         <span class="bp">self</span><span class="p">,</span>
@@ -1538,7 +1538,7 @@ document.write(`
     <span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
         <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">()</span>
         <span class="n">torch</span><span class="o">.</span><span class="n">_C</span><span class="o">.</span><span class="n">_log_api_usage_once</span><span class="p">(</span>
-            <span class="s2">&quot;torchao.quantization.qat.Int4WeightOnlyEmbeddingQATQuantizer&quot;</span>
+            <span class="s2">"torchao.quantization.qat.Int4WeightOnlyEmbeddingQATQuantizer"</span>
         <span class="p">)</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">bit_width</span> <span class="o">=</span> <span class="mi">4</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">group_size</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="n">group_size</span>
@@ -1550,9 +1550,9 @@ document.write(`
     <span class="k">def</span><span class="w"> </span><span class="nf">prepare</span><span class="p">(</span>
         <span class="bp">self</span><span class="p">,</span> <span class="n">model</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">:</span> <span class="n">Any</span>
     <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">:</span>
-<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="w">        </span><span class="sd">"""</span>
 <span class="sd">        Swap `nn.Embedding` modules with `Int4WeightOnlyQATEmbedding`.</span>
-<span class="sd">        &quot;&quot;&quot;</span>
+<span class="sd">        """</span>
         <span class="c1"># avoid circular imports</span>
         <span class="kn">from</span><span class="w"> </span><span class="nn">torchao.quantization.quant_api</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
             <span class="n">_replace_with_custom_fn_if_matches_filter</span><span class="p">,</span>
@@ -1581,7 +1581,7 @@ document.write(`
             <span class="c1"># In distributed training, the model may be instantiated</span>
             <span class="c1"># on the meta device, in which case there is no need to</span>
             <span class="c1"># copy the weights, and doing so will result in an error</span>
-            <span class="k">if</span> <span class="n">child</span><span class="o">.</span><span class="n">weight</span><span class="o">.</span><span class="n">device</span> <span class="o">!=</span> <span class="n">torch</span><span class="o">.</span><span class="n">device</span><span class="p">(</span><span class="s2">&quot;meta&quot;</span><span class="p">):</span>
+            <span class="k">if</span> <span class="n">child</span><span class="o">.</span><span class="n">weight</span><span class="o">.</span><span class="n">device</span> <span class="o">!=</span> <span class="n">torch</span><span class="o">.</span><span class="n">device</span><span class="p">(</span><span class="s2">"meta"</span><span class="p">):</span>
                 <span class="n">new_embedding</span><span class="o">.</span><span class="n">weight</span> <span class="o">=</span> <span class="n">child</span><span class="o">.</span><span class="n">weight</span>
             <span class="k">return</span> <span class="n">new_embedding</span>
 
@@ -1594,18 +1594,18 @@ document.write(`
     <span class="k">def</span><span class="w"> </span><span class="nf">convert</span><span class="p">(</span>
         <span class="bp">self</span><span class="p">,</span> <span class="n">model</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">:</span> <span class="n">Any</span>
     <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">:</span>
-<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="w">        </span><span class="sd">"""</span>
 <span class="sd">        Swap all `Int4WeightOnlyQATEmbedding` modules with `Int4WeightOnlyEmbedding`.</span>
-<span class="sd">        &quot;&quot;&quot;</span>
+<span class="sd">        """</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">_convert_helper</span><span class="p">(</span><span class="n">model</span><span class="p">)</span>
         <span class="k">return</span> <span class="n">model</span></div>
 
 
     <span class="k">def</span><span class="w"> </span><span class="nf">_convert_helper</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">module</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">):</span>
-<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="w">        </span><span class="sd">"""</span>
 <span class="sd">        Helper function to recursively swap `Int4WeightOnlyQATEmbedding`</span>
 <span class="sd">        modules with `Int4WeightOnlyEmbedding`</span>
-<span class="sd">        &quot;&quot;&quot;</span>
+<span class="sd">        """</span>
         <span class="kn">from</span><span class="w"> </span><span class="nn">torchao._executorch_ops</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
             <span class="n">_quantized_decomposed_quantize_per_channel_group_wrapper</span><span class="p">,</span>
         <span class="p">)</span>
@@ -1664,7 +1664,7 @@ document.write(`
 <div class="viewcode-block" id="Int4WeightOnlyQATEmbedding">
 <a class="viewcode-back" href="../../../../api_reference/generated/torchao.quantization.qat.embedding.Int4WeightOnlyQATEmbedding.html#torchao.quantization.qat.Int4WeightOnlyQATEmbedding">[docs]</a>
 <span class="k">class</span><span class="w"> </span><span class="nc">Int4WeightOnlyQATEmbedding</span><span class="p">(</span><span class="n">FakeQuantizedEmbedding</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">"""</span>
 <span class="sd">    This module implements a embedding layer with int4 fake quantized</span>
 <span class="sd">    grouped per channel weights.</span>
 
@@ -1672,7 +1672,7 @@ document.write(`
 <span class="sd">        group_size: the number of elements in each quantized group for weights</span>
 <span class="sd">        scale_precision: precision of per group scales</span>
 <span class="sd">        zero_point_precision: precision of per group zero points</span>
-<span class="sd">    &quot;&quot;&quot;</span>
+<span class="sd">    """</span>
 
     <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span>
         <span class="bp">self</span><span class="p">,</span>
@@ -1721,10 +1721,10 @@ document.write(`
 <div class="viewcode-block" id="Int4WeightOnlyEmbedding">
 <a class="viewcode-back" href="../../../../api_reference/generated/torchao.quantization.qat.embedding.Int4WeightOnlyEmbedding.html#torchao.quantization.qat.Int4WeightOnlyEmbedding">[docs]</a>
 <span class="k">class</span><span class="w"> </span><span class="nc">Int4WeightOnlyEmbedding</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">"""</span>
 <span class="sd">    This module implements a embedding layer with int4 quantized</span>
 <span class="sd">    grouped per channel weights.</span>
-<span class="sd">    &quot;&quot;&quot;</span>
+<span class="sd">    """</span>
 
     <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span>
         <span class="bp">self</span><span class="p">,</span>
@@ -1761,13 +1761,13 @@ document.write(`
 
         <span class="c1"># currently storing unpacked int8 weights</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">register_buffer</span><span class="p">(</span>
-            <span class="s2">&quot;weight&quot;</span><span class="p">,</span>
+            <span class="s2">"weight"</span><span class="p">,</span>
             <span class="n">torch</span><span class="o">.</span><span class="n">empty</span><span class="p">(</span>
                 <span class="p">(</span><span class="n">num_embeddings</span><span class="p">,</span> <span class="n">embedding_dim</span><span class="p">),</span> <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">int8</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="n">device</span>
             <span class="p">),</span>
         <span class="p">)</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">register_buffer</span><span class="p">(</span>
-            <span class="s2">&quot;scale&quot;</span><span class="p">,</span>
+            <span class="s2">"scale"</span><span class="p">,</span>
             <span class="n">torch</span><span class="o">.</span><span class="n">empty</span><span class="p">(</span>
                 <span class="p">(</span><span class="n">num_embeddings</span><span class="p">,</span> <span class="n">embedding_dim</span> <span class="o">//</span> <span class="n">group_size</span><span class="p">),</span>
                 <span class="n">dtype</span><span class="o">=</span><span class="n">scale_precision</span><span class="p">,</span>
@@ -1775,7 +1775,7 @@ document.write(`
             <span class="p">),</span>
         <span class="p">)</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">register_buffer</span><span class="p">(</span>
-            <span class="s2">&quot;zero_point&quot;</span><span class="p">,</span>
+            <span class="s2">"zero_point"</span><span class="p">,</span>
             <span class="n">torch</span><span class="o">.</span><span class="n">empty</span><span class="p">(</span>
                 <span class="p">(</span><span class="n">num_embeddings</span><span class="p">,</span> <span class="n">embedding_dim</span> <span class="o">//</span> <span class="n">group_size</span><span class="p">),</span>
                 <span class="n">dtype</span><span class="o">=</span><span class="n">zero_point_precision</span><span class="p">,</span>

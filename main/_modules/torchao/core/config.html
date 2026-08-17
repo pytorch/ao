@@ -172,7 +172,7 @@ window.addEventListener("load", () => mermaid.run());
   fbq('track', 'PageView');
 </script>
 <script>
-  document.documentElement.setAttribute('data-version', 'main (0.19.0+gitd37142a )');
+  document.documentElement.setAttribute('data-version', 'main (0.19.0+gitf10e69b )');
 </script>
 <noscript>
   <img height="1" width="1" src="https://www.facebook.com/tr?id=243028289693773&ev=PageView&noscript=1" />
@@ -1394,10 +1394,10 @@ document.write(`
 <span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
 
 <span class="n">__all__</span> <span class="o">=</span> <span class="p">[</span>
-    <span class="s2">&quot;AOBaseConfig&quot;</span><span class="p">,</span>
-    <span class="s2">&quot;config_from_dict&quot;</span><span class="p">,</span>
-    <span class="s2">&quot;config_to_dict&quot;</span><span class="p">,</span>
-    <span class="s2">&quot;ALLOWED_AO_MODULES&quot;</span><span class="p">,</span>
+    <span class="s2">"AOBaseConfig"</span><span class="p">,</span>
+    <span class="s2">"config_from_dict"</span><span class="p">,</span>
+    <span class="s2">"config_to_dict"</span><span class="p">,</span>
+    <span class="s2">"ALLOWED_AO_MODULES"</span><span class="p">,</span>
 <span class="p">]</span>
 
 <span class="c1"># the default version for all configs, should never change</span>
@@ -1407,14 +1407,14 @@ document.write(`
 <div class="viewcode-block" id="AOBaseConfig">
 <a class="viewcode-back" href="../../../api_reference/generated/torchao.core.config.AOBaseConfig.html#torchao.core.config.AOBaseConfig">[docs]</a>
 <span class="k">class</span><span class="w"> </span><span class="nc">AOBaseConfig</span><span class="p">(</span><span class="n">abc</span><span class="o">.</span><span class="n">ABC</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">"""</span>
 <span class="sd">    If a workflow config inherits from this then `quantize_` knows</span>
 <span class="sd">    how to a apply it to a model. For example::</span>
 
 <span class="sd">        # user facing code</span>
 <span class="sd">        class WorkflowFooConfig(AOBaseConfig): ...</span>
 <span class="sd">            # configuration for workflow `Foo` is defined here</span>
-<span class="sd">            bar = &#39;baz&#39;</span>
+<span class="sd">            bar = 'baz'</span>
 
 <span class="sd">        # non user facing code</span>
 <span class="sd">        @register_quantize_module_handler(WorkflowFooConfig)</span>
@@ -1429,29 +1429,29 @@ document.write(`
 <span class="sd">        # then, the user calls `quantize_` with a config, and `_transform` is called</span>
 <span class="sd">        # under the hood by `quantize_.</span>
 
-<span class="sd">    &quot;&quot;&quot;</span>
+<span class="sd">    """</span>
 
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">"""</span>
 <span class="sd">    Note: this is not the version of AOBaseConfig, but the default version for instances of</span>
 <span class="sd">    all child configs inheriting from AOBaseConfig, and it should be `_DEFAULT_VERSION` and never change</span>
 <span class="sd">    this is making sure all config instances has a version defined, when they need to bump the default</span>
 <span class="sd">    version they have to define a instance variable version for the child config to overwrite the default version</span>
-<span class="sd">    that&#39;s defined here. Different child config instances will maintain their own version.</span>
+<span class="sd">    that's defined here. Different child config instances will maintain their own version.</span>
 
 <span class="sd">    Why version is instance variable instead of class variable? instance level version is needed becuase</span>
 <span class="sd">    when we have multiple versions co-exist, we need to be able to load objects with earlier versions,</span>
-<span class="sd">    class level version is global and can&#39;t achieve this goal so we have to use instance variable.</span>
+<span class="sd">    class level version is global and can't achieve this goal so we have to use instance variable.</span>
 
 <span class="sd">    to overwrite this in subclasses, we need to define `version: int` (with type annotations)</span>
 
 <span class="sd">    default Version of a config, should never change</span>
-<span class="sd">    &quot;&quot;&quot;</span>
+<span class="sd">    """</span>
     <span class="n">version</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="n">_DEFAULT_VERSION</span></div>
 
 
 
 <span class="k">class</span><span class="w"> </span><span class="nc">ConfigJSONEncoder</span><span class="p">(</span><span class="n">json</span><span class="o">.</span><span class="n">JSONEncoder</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Custom JSON encoder for AOBaseConfig objects&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">"""Custom JSON encoder for AOBaseConfig objects"""</span>
 
     <span class="k">def</span><span class="w"> </span><span class="nf">default</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">o</span><span class="p">):</span>
         <span class="c1"># Handle AOBaseConfig subclasses first (most specific case)</span>
@@ -1459,29 +1459,29 @@ document.write(`
             <span class="n">data_dict</span> <span class="o">=</span> <span class="p">{}</span>
             <span class="c1"># Process each attribute to handle nested objects</span>
             <span class="k">for</span> <span class="n">k</span><span class="p">,</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">o</span><span class="o">.</span><span class="vm">__dict__</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
-                <span class="k">if</span> <span class="ow">not</span> <span class="n">k</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s2">&quot;_&quot;</span><span class="p">)</span> <span class="ow">and</span> <span class="n">k</span> <span class="o">!=</span> <span class="s2">&quot;version&quot;</span><span class="p">:</span>
+                <span class="k">if</span> <span class="ow">not</span> <span class="n">k</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s2">"_"</span><span class="p">)</span> <span class="ow">and</span> <span class="n">k</span> <span class="o">!=</span> <span class="s2">"version"</span><span class="p">:</span>
                     <span class="c1"># Recursively encode each value (important for nested objects)</span>
                     <span class="n">data_dict</span><span class="p">[</span><span class="n">k</span><span class="p">]</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">encode_value</span><span class="p">(</span><span class="n">v</span><span class="p">)</span>
 
             <span class="k">return</span> <span class="p">{</span>
                 <span class="c1"># Only store the class name, not the full module path</span>
-                <span class="s2">&quot;_type&quot;</span><span class="p">:</span> <span class="n">o</span><span class="o">.</span><span class="vm">__class__</span><span class="o">.</span><span class="vm">__name__</span><span class="p">,</span>
-                <span class="s2">&quot;_version&quot;</span><span class="p">:</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">o</span><span class="p">,</span> <span class="s2">&quot;version&quot;</span><span class="p">,</span> <span class="n">_DEFAULT_VERSION</span><span class="p">),</span>
-                <span class="s2">&quot;_data&quot;</span><span class="p">:</span> <span class="n">data_dict</span><span class="p">,</span>
+                <span class="s2">"_type"</span><span class="p">:</span> <span class="n">o</span><span class="o">.</span><span class="vm">__class__</span><span class="o">.</span><span class="vm">__name__</span><span class="p">,</span>
+                <span class="s2">"_version"</span><span class="p">:</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">o</span><span class="p">,</span> <span class="s2">"version"</span><span class="p">,</span> <span class="n">_DEFAULT_VERSION</span><span class="p">),</span>
+                <span class="s2">"_data"</span><span class="p">:</span> <span class="n">data_dict</span><span class="p">,</span>
             <span class="p">}</span>
 
         <span class="c1"># Handle NamedTuple types</span>
-        <span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">o</span><span class="p">,</span> <span class="s2">&quot;_fields&quot;</span><span class="p">)</span> <span class="ow">and</span> <span class="nb">hasattr</span><span class="p">(</span>
-            <span class="n">o</span><span class="p">,</span> <span class="s2">&quot;_asdict&quot;</span>
+        <span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">o</span><span class="p">,</span> <span class="s2">"_fields"</span><span class="p">)</span> <span class="ow">and</span> <span class="nb">hasattr</span><span class="p">(</span>
+            <span class="n">o</span><span class="p">,</span> <span class="s2">"_asdict"</span>
         <span class="p">):</span>  <span class="c1"># Check for NamedTuple characteristics</span>
             <span class="n">asdict_data</span> <span class="o">=</span> <span class="n">o</span><span class="o">.</span><span class="n">_asdict</span><span class="p">()</span>
             <span class="c1"># Process each field to handle nested objects</span>
             <span class="n">processed_data</span> <span class="o">=</span> <span class="p">{</span><span class="n">k</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">encode_value</span><span class="p">(</span><span class="n">v</span><span class="p">)</span> <span class="k">for</span> <span class="n">k</span><span class="p">,</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">asdict_data</span><span class="o">.</span><span class="n">items</span><span class="p">()}</span>
 
             <span class="k">return</span> <span class="p">{</span>
-                <span class="s2">&quot;_type&quot;</span><span class="p">:</span> <span class="n">o</span><span class="o">.</span><span class="vm">__class__</span><span class="o">.</span><span class="vm">__name__</span><span class="p">,</span>
-                <span class="s2">&quot;_version&quot;</span><span class="p">:</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">o</span><span class="p">,</span> <span class="s2">&quot;version&quot;</span><span class="p">,</span> <span class="n">_DEFAULT_VERSION</span><span class="p">),</span>
-                <span class="s2">&quot;_data&quot;</span><span class="p">:</span> <span class="n">processed_data</span><span class="p">,</span>
+                <span class="s2">"_type"</span><span class="p">:</span> <span class="n">o</span><span class="o">.</span><span class="vm">__class__</span><span class="o">.</span><span class="vm">__name__</span><span class="p">,</span>
+                <span class="s2">"_version"</span><span class="p">:</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">o</span><span class="p">,</span> <span class="s2">"version"</span><span class="p">,</span> <span class="n">_DEFAULT_VERSION</span><span class="p">),</span>
+                <span class="s2">"_data"</span><span class="p">:</span> <span class="n">processed_data</span><span class="p">,</span>
             <span class="p">}</span>
 
         <span class="c1"># Handle dataclasses</span>
@@ -1489,38 +1489,38 @@ document.write(`
             <span class="n">data_dict</span> <span class="o">=</span> <span class="p">{}</span>
             <span class="c1"># Process each field to handle nested objects</span>
             <span class="k">for</span> <span class="n">f</span> <span class="ow">in</span> <span class="n">dataclasses</span><span class="o">.</span><span class="n">fields</span><span class="p">(</span><span class="n">o</span><span class="p">):</span>
-                <span class="k">if</span> <span class="n">f</span><span class="o">.</span><span class="n">name</span> <span class="o">!=</span> <span class="s2">&quot;version&quot;</span><span class="p">:</span>
+                <span class="k">if</span> <span class="n">f</span><span class="o">.</span><span class="n">name</span> <span class="o">!=</span> <span class="s2">"version"</span><span class="p">:</span>
                     <span class="n">data_dict</span><span class="p">[</span><span class="n">f</span><span class="o">.</span><span class="n">name</span><span class="p">]</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">encode_value</span><span class="p">(</span><span class="nb">getattr</span><span class="p">(</span><span class="n">o</span><span class="p">,</span> <span class="n">f</span><span class="o">.</span><span class="n">name</span><span class="p">))</span>
 
             <span class="k">return</span> <span class="p">{</span>
                 <span class="c1"># Only store the class name for dataclasses too</span>
-                <span class="s2">&quot;_type&quot;</span><span class="p">:</span> <span class="n">o</span><span class="o">.</span><span class="vm">__class__</span><span class="o">.</span><span class="vm">__name__</span><span class="p">,</span>
-                <span class="s2">&quot;_version&quot;</span><span class="p">:</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">o</span><span class="p">,</span> <span class="s2">&quot;version&quot;</span><span class="p">,</span> <span class="n">_DEFAULT_VERSION</span><span class="p">),</span>
-                <span class="s2">&quot;_data&quot;</span><span class="p">:</span> <span class="n">data_dict</span><span class="p">,</span>
+                <span class="s2">"_type"</span><span class="p">:</span> <span class="n">o</span><span class="o">.</span><span class="vm">__class__</span><span class="o">.</span><span class="vm">__name__</span><span class="p">,</span>
+                <span class="s2">"_version"</span><span class="p">:</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">o</span><span class="p">,</span> <span class="s2">"version"</span><span class="p">,</span> <span class="n">_DEFAULT_VERSION</span><span class="p">),</span>
+                <span class="s2">"_data"</span><span class="p">:</span> <span class="n">data_dict</span><span class="p">,</span>
             <span class="p">}</span>
 
         <span class="c1"># Handle torch.dtype</span>
-        <span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">o</span><span class="p">,</span> <span class="s2">&quot;__module__&quot;</span><span class="p">)</span> <span class="ow">and</span> <span class="n">o</span><span class="o">.</span><span class="vm">__module__</span> <span class="o">==</span> <span class="s2">&quot;torch&quot;</span> <span class="ow">and</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">o</span><span class="p">,</span> <span class="nb">type</span><span class="p">):</span>
-            <span class="k">return</span> <span class="p">{</span><span class="s2">&quot;_type&quot;</span><span class="p">:</span> <span class="s2">&quot;torch.dtype&quot;</span><span class="p">,</span> <span class="s2">&quot;_data&quot;</span><span class="p">:</span> <span class="nb">str</span><span class="p">(</span><span class="n">o</span><span class="p">)</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s2">&quot;.&quot;</span><span class="p">)[</span><span class="o">-</span><span class="mi">1</span><span class="p">]}</span>
+        <span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">o</span><span class="p">,</span> <span class="s2">"__module__"</span><span class="p">)</span> <span class="ow">and</span> <span class="n">o</span><span class="o">.</span><span class="vm">__module__</span> <span class="o">==</span> <span class="s2">"torch"</span> <span class="ow">and</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">o</span><span class="p">,</span> <span class="nb">type</span><span class="p">):</span>
+            <span class="k">return</span> <span class="p">{</span><span class="s2">"_type"</span><span class="p">:</span> <span class="s2">"torch.dtype"</span><span class="p">,</span> <span class="s2">"_data"</span><span class="p">:</span> <span class="nb">str</span><span class="p">(</span><span class="n">o</span><span class="p">)</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s2">"."</span><span class="p">)[</span><span class="o">-</span><span class="mi">1</span><span class="p">]}</span>
 
         <span class="c1"># Handle Layout objects</span>
-        <span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">o</span><span class="p">,</span> <span class="s2">&quot;__class__&quot;</span><span class="p">)</span> <span class="ow">and</span> <span class="s2">&quot;Layout&quot;</span> <span class="ow">in</span> <span class="n">o</span><span class="o">.</span><span class="vm">__class__</span><span class="o">.</span><span class="vm">__name__</span><span class="p">:</span>
+        <span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">o</span><span class="p">,</span> <span class="s2">"__class__"</span><span class="p">)</span> <span class="ow">and</span> <span class="s2">"Layout"</span> <span class="ow">in</span> <span class="n">o</span><span class="o">.</span><span class="vm">__class__</span><span class="o">.</span><span class="vm">__name__</span><span class="p">:</span>
             <span class="k">return</span> <span class="p">{</span>
-                <span class="s2">&quot;_type&quot;</span><span class="p">:</span> <span class="n">o</span><span class="o">.</span><span class="vm">__class__</span><span class="o">.</span><span class="vm">__name__</span><span class="p">,</span>
-                <span class="s2">&quot;_data&quot;</span><span class="p">:</span> <span class="p">{</span>
+                <span class="s2">"_type"</span><span class="p">:</span> <span class="n">o</span><span class="o">.</span><span class="vm">__class__</span><span class="o">.</span><span class="vm">__name__</span><span class="p">,</span>
+                <span class="s2">"_data"</span><span class="p">:</span> <span class="p">{</span>
                     <span class="n">k</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">encode_value</span><span class="p">(</span><span class="n">v</span><span class="p">)</span>
                     <span class="k">for</span> <span class="n">k</span><span class="p">,</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">o</span><span class="o">.</span><span class="vm">__dict__</span><span class="o">.</span><span class="n">items</span><span class="p">()</span>
-                    <span class="k">if</span> <span class="ow">not</span> <span class="n">k</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s2">&quot;_&quot;</span><span class="p">)</span>
+                    <span class="k">if</span> <span class="ow">not</span> <span class="n">k</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s2">"_"</span><span class="p">)</span>
                 <span class="p">},</span>
             <span class="p">}</span>
 
         <span class="c1"># Handle enum values</span>
         <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">o</span><span class="p">,</span> <span class="n">enum</span><span class="o">.</span><span class="n">Enum</span><span class="p">):</span>
             <span class="c1"># Store the full path for enums to ensure uniqueness</span>
-            <span class="k">return</span> <span class="p">{</span><span class="s2">&quot;_type&quot;</span><span class="p">:</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">o</span><span class="o">.</span><span class="vm">__class__</span><span class="o">.</span><span class="vm">__name__</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span> <span class="s2">&quot;_data&quot;</span><span class="p">:</span> <span class="n">o</span><span class="o">.</span><span class="n">name</span><span class="p">}</span>
+            <span class="k">return</span> <span class="p">{</span><span class="s2">"_type"</span><span class="p">:</span> <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">o</span><span class="o">.</span><span class="vm">__class__</span><span class="o">.</span><span class="vm">__name__</span><span class="si">}</span><span class="s2">"</span><span class="p">,</span> <span class="s2">"_data"</span><span class="p">:</span> <span class="n">o</span><span class="o">.</span><span class="n">name</span><span class="p">}</span>
 
         <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">o</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">dtype</span><span class="p">):</span>
-            <span class="k">return</span> <span class="p">{</span><span class="s2">&quot;_type&quot;</span><span class="p">:</span> <span class="s2">&quot;torch.dtype&quot;</span><span class="p">,</span> <span class="s2">&quot;_data&quot;</span><span class="p">:</span> <span class="nb">str</span><span class="p">(</span><span class="n">o</span><span class="p">)</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s2">&quot;.&quot;</span><span class="p">)[</span><span class="o">-</span><span class="mi">1</span><span class="p">]}</span>
+            <span class="k">return</span> <span class="p">{</span><span class="s2">"_type"</span><span class="p">:</span> <span class="s2">"torch.dtype"</span><span class="p">,</span> <span class="s2">"_data"</span><span class="p">:</span> <span class="nb">str</span><span class="p">(</span><span class="n">o</span><span class="p">)</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s2">"."</span><span class="p">)[</span><span class="o">-</span><span class="mi">1</span><span class="p">]}</span>
 
         <span class="c1"># For lists and dictionaries, recursively process their items</span>
         <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">o</span><span class="p">,</span> <span class="nb">list</span><span class="p">):</span>
@@ -1528,8 +1528,8 @@ document.write(`
 
         <span class="k">elif</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">o</span><span class="p">,</span> <span class="nb">tuple</span><span class="p">):</span>
             <span class="k">raise</span> <span class="ne">NotImplementedError</span><span class="p">(</span>
-                <span class="s2">&quot;Tuples will be serialized as List in JSON, so we recommend to use &quot;</span>
-                <span class="sa">f</span><span class="s2">&quot;Lists instead to avoid surprises. got: </span><span class="si">{</span><span class="n">o</span><span class="si">}</span><span class="s2">&quot;</span>
+                <span class="s2">"Tuples will be serialized as List in JSON, so we recommend to use "</span>
+                <span class="sa">f</span><span class="s2">"Lists instead to avoid surprises. got: </span><span class="si">{</span><span class="n">o</span><span class="si">}</span><span class="s2">"</span>
             <span class="p">)</span>
 
         <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">o</span><span class="p">,</span> <span class="nb">dict</span><span class="p">):</span>
@@ -1539,11 +1539,11 @@ document.write(`
         <span class="k">return</span> <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="n">default</span><span class="p">(</span><span class="n">o</span><span class="p">)</span>
 
     <span class="k">def</span><span class="w"> </span><span class="nf">encode_value</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">value</span><span class="p">):</span>
-<span class="w">        </span><span class="sd">&quot;&quot;&quot;Helper method to recursively encode a value&quot;&quot;&quot;</span>
+<span class="w">        </span><span class="sd">"""Helper method to recursively encode a value"""</span>
         <span class="c1"># Try to use default for custom type</span>
         <span class="k">try</span><span class="p">:</span>
             <span class="c1"># This will handle all our special cases and raise TypeError</span>
-            <span class="c1"># if it can&#39;t handle the type</span>
+            <span class="c1"># if it can't handle the type</span>
             <span class="n">result</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">default</span><span class="p">(</span><span class="n">value</span><span class="p">)</span>
             <span class="k">return</span> <span class="n">result</span>
         <span class="k">except</span> <span class="ne">TypeError</span><span class="p">:</span>
@@ -1555,7 +1555,7 @@ document.write(`
 
 
 <span class="k">def</span><span class="w"> </span><span class="nf">config_to_dict</span><span class="p">(</span><span class="n">config</span><span class="p">:</span> <span class="n">AOBaseConfig</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">"""</span>
 <span class="sd">    Convert an AOBaseConfig instance to a dictionary suitable for serialization.</span>
 
 <span class="sd">    Args:</span>
@@ -1563,29 +1563,29 @@ document.write(`
 
 <span class="sd">    Returns:</span>
 <span class="sd">        Dict representation of the config</span>
-<span class="sd">    &quot;&quot;&quot;</span>
+<span class="sd">    """</span>
     <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">config</span><span class="p">,</span> <span class="n">AOBaseConfig</span><span class="p">):</span>
-        <span class="k">raise</span> <span class="ne">TypeError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Expected AOBaseConfig instance, got </span><span class="si">{</span><span class="nb">type</span><span class="p">(</span><span class="n">config</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+        <span class="k">raise</span> <span class="ne">TypeError</span><span class="p">(</span><span class="sa">f</span><span class="s2">"Expected AOBaseConfig instance, got </span><span class="si">{</span><span class="nb">type</span><span class="p">(</span><span class="n">config</span><span class="p">)</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
 
     <span class="c1"># Use the existing JSON encoder but return the dict directly</span>
     <span class="k">return</span> <span class="n">json</span><span class="o">.</span><span class="n">loads</span><span class="p">(</span><span class="n">json</span><span class="o">.</span><span class="n">dumps</span><span class="p">(</span><span class="n">config</span><span class="p">,</span> <span class="bp">cls</span><span class="o">=</span><span class="n">ConfigJSONEncoder</span><span class="p">))</span>
 
 
 <span class="n">ALLOWED_AO_MODULES</span> <span class="o">=</span> <span class="p">{</span>
-    <span class="s2">&quot;torchao.quantization&quot;</span><span class="p">,</span>
-    <span class="s2">&quot;torchao.prototype.quantization&quot;</span><span class="p">,</span>
-    <span class="s2">&quot;torchao.prototype.mx_formats&quot;</span><span class="p">,</span>
-    <span class="s2">&quot;torchao.prototype.parq&quot;</span><span class="p">,</span>
-    <span class="s2">&quot;torchao.prototype.awq&quot;</span><span class="p">,</span>
-    <span class="s2">&quot;torchao.prototype.smoothquant&quot;</span><span class="p">,</span>
-    <span class="s2">&quot;torchao.prototype.parq.quant&quot;</span><span class="p">,</span>
-    <span class="s2">&quot;torchao.quantization.quantize_.common&quot;</span><span class="p">,</span>
-    <span class="s2">&quot;torchao.quantization.quantize_.workflows&quot;</span><span class="p">,</span>
+    <span class="s2">"torchao.quantization"</span><span class="p">,</span>
+    <span class="s2">"torchao.prototype.quantization"</span><span class="p">,</span>
+    <span class="s2">"torchao.prototype.mx_formats"</span><span class="p">,</span>
+    <span class="s2">"torchao.prototype.parq"</span><span class="p">,</span>
+    <span class="s2">"torchao.prototype.awq"</span><span class="p">,</span>
+    <span class="s2">"torchao.prototype.smoothquant"</span><span class="p">,</span>
+    <span class="s2">"torchao.prototype.parq.quant"</span><span class="p">,</span>
+    <span class="s2">"torchao.quantization.quantize_.common"</span><span class="p">,</span>
+    <span class="s2">"torchao.quantization.quantize_.workflows"</span><span class="p">,</span>
 <span class="p">}</span>
 
 
 <span class="k">def</span><span class="w"> </span><span class="nf">config_from_dict</span><span class="p">(</span><span class="n">data</span><span class="p">:</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="n">AOBaseConfig</span><span class="p">:</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">"""</span>
 <span class="sd">    Create an AOBaseConfig subclass instance from a dictionary.</span>
 
 <span class="sd">    Args:</span>
@@ -1596,19 +1596,19 @@ document.write(`
 
 <span class="sd">    Raises:</span>
 <span class="sd">        ValueError: If deserialization fails for other reasons</span>
-<span class="sd">    &quot;&quot;&quot;</span>
+<span class="sd">    """</span>
     <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">data</span><span class="p">,</span> <span class="nb">dict</span><span class="p">):</span>
-        <span class="k">raise</span> <span class="ne">TypeError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Expected dictionary, got </span><span class="si">{</span><span class="nb">type</span><span class="p">(</span><span class="n">data</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+        <span class="k">raise</span> <span class="ne">TypeError</span><span class="p">(</span><span class="sa">f</span><span class="s2">"Expected dictionary, got </span><span class="si">{</span><span class="nb">type</span><span class="p">(</span><span class="n">data</span><span class="p">)</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
 
-    <span class="k">if</span> <span class="s2">&quot;_type&quot;</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">data</span> <span class="ow">or</span> <span class="s2">&quot;_data&quot;</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">data</span><span class="p">:</span>
-        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;Input dictionary missing required &#39;_type&#39; or &#39;_data&#39; fields&quot;</span><span class="p">)</span>
+    <span class="k">if</span> <span class="s2">"_type"</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">data</span> <span class="ow">or</span> <span class="s2">"_data"</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">data</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">"Input dictionary missing required '_type' or '_data' fields"</span><span class="p">)</span>
 
-    <span class="n">type_path</span> <span class="o">=</span> <span class="n">data</span><span class="p">[</span><span class="s2">&quot;_type&quot;</span><span class="p">]</span>
-    <span class="n">stored_version</span> <span class="o">=</span> <span class="n">data</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;_version&quot;</span><span class="p">,</span> <span class="n">_DEFAULT_VERSION</span><span class="p">)</span>
-    <span class="n">obj_data</span> <span class="o">=</span> <span class="n">data</span><span class="p">[</span><span class="s2">&quot;_data&quot;</span><span class="p">]</span>
+    <span class="n">type_path</span> <span class="o">=</span> <span class="n">data</span><span class="p">[</span><span class="s2">"_type"</span><span class="p">]</span>
+    <span class="n">stored_version</span> <span class="o">=</span> <span class="n">data</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"_version"</span><span class="p">,</span> <span class="n">_DEFAULT_VERSION</span><span class="p">)</span>
+    <span class="n">obj_data</span> <span class="o">=</span> <span class="n">data</span><span class="p">[</span><span class="s2">"_data"</span><span class="p">]</span>
 
     <span class="c1"># Handle torch.dtype</span>
-    <span class="k">if</span> <span class="n">type_path</span> <span class="o">==</span> <span class="s2">&quot;torch.dtype&quot;</span><span class="p">:</span>
+    <span class="k">if</span> <span class="n">type_path</span> <span class="o">==</span> <span class="s2">"torch.dtype"</span><span class="p">:</span>
         <span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
 
         <span class="k">return</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">torch</span><span class="p">,</span> <span class="n">obj_data</span><span class="p">)</span>
@@ -1622,17 +1622,17 @@ document.write(`
         <span class="k">except</span> <span class="p">(</span><span class="ne">ImportError</span><span class="p">,</span> <span class="ne">AttributeError</span><span class="p">):</span>
             <span class="k">continue</span>  <span class="c1"># Try the next module</span>
 
-    <span class="c1"># If we couldn&#39;t find the class in any allowed module, raise an error</span>
+    <span class="c1"># If we couldn't find the class in any allowed module, raise an error</span>
     <span class="k">if</span> <span class="bp">cls</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
-        <span class="n">allowed_modules_str</span> <span class="o">=</span> <span class="s2">&quot;, &quot;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">ALLOWED_AO_MODULES</span><span class="p">)</span>
+        <span class="n">allowed_modules_str</span> <span class="o">=</span> <span class="s2">", "</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">ALLOWED_AO_MODULES</span><span class="p">)</span>
         <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
-            <span class="sa">f</span><span class="s2">&quot;Failed to find class </span><span class="si">{</span><span class="n">type_path</span><span class="si">}</span><span class="s2"> in any of the allowed modules: </span><span class="si">{</span><span class="n">allowed_modules_str</span><span class="si">}</span><span class="s2">&quot;</span>
+            <span class="sa">f</span><span class="s2">"Failed to find class </span><span class="si">{</span><span class="n">type_path</span><span class="si">}</span><span class="s2"> in any of the allowed modules: </span><span class="si">{</span><span class="n">allowed_modules_str</span><span class="si">}</span><span class="s2">"</span>
         <span class="p">)</span>
 
-    <span class="n">current_default_version</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="s2">&quot;version&quot;</span><span class="p">,</span> <span class="n">_DEFAULT_VERSION</span><span class="p">)</span>
+    <span class="n">current_default_version</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="s2">"version"</span><span class="p">,</span> <span class="n">_DEFAULT_VERSION</span><span class="p">)</span>
     <span class="k">if</span> <span class="n">stored_version</span> <span class="o">!=</span> <span class="n">current_default_version</span><span class="p">:</span>
         <span class="n">warnings</span><span class="o">.</span><span class="n">warn</span><span class="p">(</span>
-            <span class="sa">f</span><span class="s2">&quot;Stored version is not the same as current default version of the config: </span><span class="si">{</span><span class="n">stored_version</span><span class="si">=}</span><span class="s2">, </span><span class="si">{</span><span class="n">current_default_version</span><span class="si">=}</span><span class="s2">, please check the deprecation warning&quot;</span>
+            <span class="sa">f</span><span class="s2">"Stored version is not the same as current default version of the config: </span><span class="si">{</span><span class="n">stored_version</span><span class="si">=}</span><span class="s2">, </span><span class="si">{</span><span class="n">current_default_version</span><span class="si">=}</span><span class="s2">, please check the deprecation warning"</span>
         <span class="p">)</span>
 
     <span class="c1"># Handle the case where obj_data is not a dictionary</span>
@@ -1649,32 +1649,32 @@ document.write(`
 
     <span class="c1"># Process nested structures for dictionary obj_data</span>
     <span class="k">if</span> <span class="n">stored_version</span> <span class="o">!=</span> <span class="n">current_default_version</span><span class="p">:</span>
-        <span class="n">processed_data</span> <span class="o">=</span> <span class="p">{</span><span class="s2">&quot;version&quot;</span><span class="p">:</span> <span class="n">stored_version</span><span class="p">}</span>
+        <span class="n">processed_data</span> <span class="o">=</span> <span class="p">{</span><span class="s2">"version"</span><span class="p">:</span> <span class="n">stored_version</span><span class="p">}</span>
     <span class="k">else</span><span class="p">:</span>
         <span class="n">processed_data</span> <span class="o">=</span> <span class="p">{}</span>
 
     <span class="k">for</span> <span class="n">key</span><span class="p">,</span> <span class="n">value</span> <span class="ow">in</span> <span class="n">obj_data</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
-        <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">value</span><span class="p">,</span> <span class="nb">dict</span><span class="p">)</span> <span class="ow">and</span> <span class="s2">&quot;_type&quot;</span> <span class="ow">in</span> <span class="n">value</span> <span class="ow">and</span> <span class="s2">&quot;_data&quot;</span> <span class="ow">in</span> <span class="n">value</span><span class="p">:</span>
+        <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">value</span><span class="p">,</span> <span class="nb">dict</span><span class="p">)</span> <span class="ow">and</span> <span class="s2">"_type"</span> <span class="ow">in</span> <span class="n">value</span> <span class="ow">and</span> <span class="s2">"_data"</span> <span class="ow">in</span> <span class="n">value</span><span class="p">:</span>
             <span class="c1"># Recursively handle nested configs</span>
             <span class="n">processed_data</span><span class="p">[</span><span class="n">key</span><span class="p">]</span> <span class="o">=</span> <span class="n">config_from_dict</span><span class="p">(</span><span class="n">value</span><span class="p">)</span>
         <span class="k">elif</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">value</span><span class="p">,</span> <span class="nb">list</span><span class="p">):</span>
             <span class="c1"># Handle lists or tuples of possible configs</span>
             <span class="n">processed_data</span><span class="p">[</span><span class="n">key</span><span class="p">]</span> <span class="o">=</span> <span class="p">[</span>
                 <span class="n">config_from_dict</span><span class="p">(</span><span class="n">item</span><span class="p">)</span>
-                <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">item</span><span class="p">,</span> <span class="nb">dict</span><span class="p">)</span> <span class="ow">and</span> <span class="s2">&quot;_type&quot;</span> <span class="ow">in</span> <span class="n">item</span> <span class="ow">and</span> <span class="s2">&quot;_data&quot;</span> <span class="ow">in</span> <span class="n">item</span>
+                <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">item</span><span class="p">,</span> <span class="nb">dict</span><span class="p">)</span> <span class="ow">and</span> <span class="s2">"_type"</span> <span class="ow">in</span> <span class="n">item</span> <span class="ow">and</span> <span class="s2">"_data"</span> <span class="ow">in</span> <span class="n">item</span>
                 <span class="k">else</span> <span class="n">item</span>
                 <span class="k">for</span> <span class="n">item</span> <span class="ow">in</span> <span class="n">value</span>
             <span class="p">]</span>
         <span class="k">elif</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">value</span><span class="p">,</span> <span class="nb">tuple</span><span class="p">):</span>
             <span class="k">raise</span> <span class="ne">NotImplementedError</span><span class="p">(</span>
-                <span class="s2">&quot;Tuples will be serialized as List in JSON, so we recommend to use &quot;</span>
-                <span class="sa">f</span><span class="s2">&quot;Lists instead to avoid surprises. got: </span><span class="si">{</span><span class="n">value</span><span class="si">}</span><span class="s2">&quot;</span>
+                <span class="s2">"Tuples will be serialized as List in JSON, so we recommend to use "</span>
+                <span class="sa">f</span><span class="s2">"Lists instead to avoid surprises. got: </span><span class="si">{</span><span class="n">value</span><span class="si">}</span><span class="s2">"</span>
             <span class="p">)</span>
         <span class="k">elif</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">value</span><span class="p">,</span> <span class="nb">dict</span><span class="p">):</span>
             <span class="c1"># Handle dicts of possible configs</span>
             <span class="n">processed_data</span><span class="p">[</span><span class="n">key</span><span class="p">]</span> <span class="o">=</span> <span class="p">{</span>
                 <span class="n">k</span><span class="p">:</span> <span class="n">config_from_dict</span><span class="p">(</span><span class="n">v</span><span class="p">)</span>
-                <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">v</span><span class="p">,</span> <span class="nb">dict</span><span class="p">)</span> <span class="ow">and</span> <span class="s2">&quot;_type&quot;</span> <span class="ow">in</span> <span class="n">v</span> <span class="ow">and</span> <span class="s2">&quot;_data&quot;</span> <span class="ow">in</span> <span class="n">v</span>
+                <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">v</span><span class="p">,</span> <span class="nb">dict</span><span class="p">)</span> <span class="ow">and</span> <span class="s2">"_type"</span> <span class="ow">in</span> <span class="n">v</span> <span class="ow">and</span> <span class="s2">"_data"</span> <span class="ow">in</span> <span class="n">v</span>
                 <span class="k">else</span> <span class="n">v</span>
                 <span class="k">for</span> <span class="n">k</span><span class="p">,</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">value</span><span class="o">.</span><span class="n">items</span><span class="p">()</span>
             <span class="p">}</span>
@@ -1685,7 +1685,7 @@ document.write(`
     <span class="k">try</span><span class="p">:</span>
         <span class="k">return</span> <span class="bp">cls</span><span class="p">(</span><span class="o">**</span><span class="n">processed_data</span><span class="p">)</span>
     <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
-        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Failed to create instance of </span><span class="si">{</span><span class="bp">cls</span><span class="o">.</span><span class="vm">__name__</span><span class="si">}</span><span class="s2">: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">"Failed to create instance of </span><span class="si">{</span><span class="bp">cls</span><span class="o">.</span><span class="vm">__name__</span><span class="si">}</span><span class="s2">: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
 </pre></div>
 
                 </article>

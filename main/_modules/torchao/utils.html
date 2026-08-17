@@ -172,7 +172,7 @@ window.addEventListener("load", () => mermaid.run());
   fbq('track', 'PageView');
 </script>
 <script>
-  document.documentElement.setAttribute('data-version', 'main (0.19.0+gitd37142a )');
+  document.documentElement.setAttribute('data-version', 'main (0.19.0+gitf10e69b )');
 </script>
 <noscript>
   <img height="1" width="1" src="https://www.facebook.com/tr?id=243028289693773&ev=PageView&noscript=1" />
@@ -1398,32 +1398,32 @@ document.write(`
 <span class="kn">from</span><span class="w"> </span><span class="nn">torch.utils._python_dispatch</span><span class="w"> </span><span class="kn">import</span> <span class="n">return_and_correct_aliasing</span>
 
 <span class="n">__all__</span> <span class="o">=</span> <span class="p">[</span>
-    <span class="s2">&quot;benchmark_model&quot;</span><span class="p">,</span>
-    <span class="s2">&quot;profiler_runner&quot;</span><span class="p">,</span>
-    <span class="s2">&quot;get_available_devices&quot;</span><span class="p">,</span>
-    <span class="s2">&quot;get_compute_capability&quot;</span><span class="p">,</span>
-    <span class="s2">&quot;benchmark_torch_function_in_microseconds&quot;</span><span class="p">,</span>
-    <span class="s2">&quot;find_multiple&quot;</span><span class="p">,</span>
-    <span class="s2">&quot;_register_custom_op&quot;</span><span class="p">,</span>
-    <span class="s2">&quot;get_model_size_in_bytes&quot;</span><span class="p">,</span>
-    <span class="s2">&quot;unwrap_tensor_subclass&quot;</span><span class="p">,</span>
-    <span class="s2">&quot;TorchAOBaseTensor&quot;</span><span class="p">,</span>
-    <span class="s2">&quot;is_cuda_version_at_least&quot;</span><span class="p">,</span>
-    <span class="s2">&quot;is_MI300&quot;</span><span class="p">,</span>
-    <span class="s2">&quot;is_sm_at_least_89&quot;</span><span class="p">,</span>
-    <span class="s2">&quot;is_sm_at_least_90&quot;</span><span class="p">,</span>
-    <span class="s2">&quot;is_sm_at_least_100&quot;</span><span class="p">,</span>
-    <span class="s2">&quot;is_package_at_least&quot;</span><span class="p">,</span>
-    <span class="s2">&quot;DummyModule&quot;</span><span class="p">,</span>
-    <span class="s2">&quot;register_as_pytree_constant&quot;</span><span class="p">,</span>
-    <span class="s2">&quot;_cpu_is_amx_tile_supported&quot;</span><span class="p">,</span>
-    <span class="s2">&quot;_cpu_is_vnni_supported&quot;</span><span class="p">,</span>
-    <span class="s2">&quot;should_reduce_range&quot;</span><span class="p">,</span>
+    <span class="s2">"benchmark_model"</span><span class="p">,</span>
+    <span class="s2">"profiler_runner"</span><span class="p">,</span>
+    <span class="s2">"get_available_devices"</span><span class="p">,</span>
+    <span class="s2">"get_compute_capability"</span><span class="p">,</span>
+    <span class="s2">"benchmark_torch_function_in_microseconds"</span><span class="p">,</span>
+    <span class="s2">"find_multiple"</span><span class="p">,</span>
+    <span class="s2">"_register_custom_op"</span><span class="p">,</span>
+    <span class="s2">"get_model_size_in_bytes"</span><span class="p">,</span>
+    <span class="s2">"unwrap_tensor_subclass"</span><span class="p">,</span>
+    <span class="s2">"TorchAOBaseTensor"</span><span class="p">,</span>
+    <span class="s2">"is_cuda_version_at_least"</span><span class="p">,</span>
+    <span class="s2">"is_MI300"</span><span class="p">,</span>
+    <span class="s2">"is_sm_at_least_89"</span><span class="p">,</span>
+    <span class="s2">"is_sm_at_least_90"</span><span class="p">,</span>
+    <span class="s2">"is_sm_at_least_100"</span><span class="p">,</span>
+    <span class="s2">"is_package_at_least"</span><span class="p">,</span>
+    <span class="s2">"DummyModule"</span><span class="p">,</span>
+    <span class="s2">"register_as_pytree_constant"</span><span class="p">,</span>
+    <span class="s2">"_cpu_is_amx_tile_supported"</span><span class="p">,</span>
+    <span class="s2">"_cpu_is_vnni_supported"</span><span class="p">,</span>
+    <span class="s2">"should_reduce_range"</span><span class="p">,</span>
 <span class="p">]</span>
 
 
 <span class="k">def</span><span class="w"> </span><span class="nf">register_as_pytree_constant</span><span class="p">(</span><span class="bp">cls</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Decorator to register a class as a pytree constant for dynamo non-strict trace mode.&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">"""Decorator to register a class as a pytree constant for dynamo non-strict trace mode."""</span>
     <span class="n">torch</span><span class="o">.</span><span class="n">utils</span><span class="o">.</span><span class="n">_pytree</span><span class="o">.</span><span class="n">register_constant</span><span class="p">(</span><span class="bp">cls</span><span class="p">)</span>
     <span class="k">return</span> <span class="bp">cls</span>
 
@@ -1435,34 +1435,34 @@ document.write(`
 <span class="c1"># Referenced from: https://github.com/pytorch/pytorch/blob/9105d54c6b37099575c0059ef274c86c4dc80c57/torch/ao/quantization/utils.py#L711</span>
 <span class="nd">@functools</span><span class="o">.</span><span class="n">cache</span>
 <span class="k">def</span><span class="w"> </span><span class="nf">_assert_and_get_unique_device</span><span class="p">(</span><span class="n">module</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Any</span><span class="p">:</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">"""</span>
 <span class="sd">    Returns the unique device for a module, or None if no device is found.</span>
 <span class="sd">    Throws an error if multiple devices are detected.</span>
-<span class="sd">    &quot;&quot;&quot;</span>
+<span class="sd">    """</span>
     <span class="n">devices</span> <span class="o">=</span> <span class="p">{</span><span class="n">p</span><span class="o">.</span><span class="n">device</span> <span class="k">for</span> <span class="n">p</span> <span class="ow">in</span> <span class="n">module</span><span class="o">.</span><span class="n">parameters</span><span class="p">()}</span> <span class="o">|</span> <span class="p">{</span>
         <span class="n">p</span><span class="o">.</span><span class="n">device</span> <span class="k">for</span> <span class="n">p</span> <span class="ow">in</span> <span class="n">module</span><span class="o">.</span><span class="n">buffers</span><span class="p">()</span>
     <span class="p">}</span>
 
     <span class="k">assert</span> <span class="nb">len</span><span class="p">(</span><span class="n">devices</span><span class="p">)</span> <span class="o">&lt;=</span> <span class="mi">1</span><span class="p">,</span> <span class="p">(</span>
-        <span class="s2">&quot;prepare only works with cpu or single-device CUDA modules, &quot;</span>
-        <span class="sa">f</span><span class="s2">&quot;but got devices </span><span class="si">{</span><span class="n">devices</span><span class="si">}</span><span class="s2">&quot;</span>
+        <span class="s2">"prepare only works with cpu or single-device CUDA modules, "</span>
+        <span class="sa">f</span><span class="s2">"but got devices </span><span class="si">{</span><span class="n">devices</span><span class="si">}</span><span class="s2">"</span>
     <span class="p">)</span>
     <span class="n">device</span> <span class="o">=</span> <span class="nb">next</span><span class="p">(</span><span class="nb">iter</span><span class="p">(</span><span class="n">devices</span><span class="p">))</span> <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">devices</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">0</span> <span class="k">else</span> <span class="kc">None</span>
     <span class="k">return</span> <span class="n">device</span>
 
 
 <span class="k">def</span><span class="w"> </span><span class="nf">benchmark_model</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="n">num_runs</span><span class="p">,</span> <span class="n">args</span><span class="o">=</span><span class="p">(),</span> <span class="n">kwargs</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">device_type</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Benchmark model runs with `args` and `kwargs` both are optional&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">"""Benchmark model runs with `args` and `kwargs` both are optional"""</span>
     <span class="k">if</span> <span class="n">kwargs</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
         <span class="n">kwargs</span> <span class="o">=</span> <span class="p">{}</span>
 
     <span class="k">if</span> <span class="n">device_type</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
         <span class="k">assert</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">),</span> <span class="p">(</span>
-            <span class="s2">&quot;Expecting `model` to be torch.nn.Module if device_type is not provided&quot;</span>
+            <span class="s2">"Expecting `model` to be torch.nn.Module if device_type is not provided"</span>
         <span class="p">)</span>
         <span class="n">device_type</span> <span class="o">=</span> <span class="n">_assert_and_get_unique_device</span><span class="p">(</span><span class="n">model</span><span class="p">)</span><span class="o">.</span><span class="n">type</span>
 
-    <span class="k">if</span> <span class="n">device_type</span> <span class="o">==</span> <span class="s2">&quot;cuda&quot;</span><span class="p">:</span>
+    <span class="k">if</span> <span class="n">device_type</span> <span class="o">==</span> <span class="s2">"cuda"</span><span class="p">:</span>
         <span class="n">torch</span><span class="o">.</span><span class="n">cuda</span><span class="o">.</span><span class="n">synchronize</span><span class="p">()</span>
         <span class="n">start_event</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">cuda</span><span class="o">.</span><span class="n">Event</span><span class="p">(</span><span class="n">enable_timing</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
         <span class="n">end_event</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">cuda</span><span class="o">.</span><span class="n">Event</span><span class="p">(</span><span class="n">enable_timing</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
@@ -1470,14 +1470,14 @@ document.write(`
 
         <span class="c1"># benchmark</span>
         <span class="k">for</span> <span class="n">_</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">num_runs</span><span class="p">):</span>
-            <span class="k">with</span> <span class="n">torch</span><span class="o">.</span><span class="n">autograd</span><span class="o">.</span><span class="n">profiler</span><span class="o">.</span><span class="n">record_function</span><span class="p">(</span><span class="s2">&quot;timed region&quot;</span><span class="p">):</span>
+            <span class="k">with</span> <span class="n">torch</span><span class="o">.</span><span class="n">autograd</span><span class="o">.</span><span class="n">profiler</span><span class="o">.</span><span class="n">record_function</span><span class="p">(</span><span class="s2">"timed region"</span><span class="p">):</span>
                 <span class="n">model</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span>
 
         <span class="n">end_event</span><span class="o">.</span><span class="n">record</span><span class="p">()</span>
         <span class="n">torch</span><span class="o">.</span><span class="n">cuda</span><span class="o">.</span><span class="n">synchronize</span><span class="p">()</span>
         <span class="k">return</span> <span class="n">start_event</span><span class="o">.</span><span class="n">elapsed_time</span><span class="p">(</span><span class="n">end_event</span><span class="p">)</span> <span class="o">/</span> <span class="n">num_runs</span>
 
-    <span class="k">elif</span> <span class="n">device_type</span> <span class="o">==</span> <span class="s2">&quot;mps&quot;</span><span class="p">:</span>
+    <span class="k">elif</span> <span class="n">device_type</span> <span class="o">==</span> <span class="s2">"mps"</span><span class="p">:</span>
         <span class="n">torch</span><span class="o">.</span><span class="n">mps</span><span class="o">.</span><span class="n">synchronize</span><span class="p">()</span>
         <span class="n">start_event</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">mps</span><span class="o">.</span><span class="n">event</span><span class="o">.</span><span class="n">Event</span><span class="p">(</span><span class="n">enable_timing</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
         <span class="n">end_event</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">mps</span><span class="o">.</span><span class="n">event</span><span class="o">.</span><span class="n">Event</span><span class="p">(</span><span class="n">enable_timing</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
@@ -1485,20 +1485,20 @@ document.write(`
 
         <span class="c1"># benchmark</span>
         <span class="k">for</span> <span class="n">_</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">num_runs</span><span class="p">):</span>
-            <span class="k">with</span> <span class="n">torch</span><span class="o">.</span><span class="n">autograd</span><span class="o">.</span><span class="n">profiler</span><span class="o">.</span><span class="n">record_function</span><span class="p">(</span><span class="s2">&quot;timed region&quot;</span><span class="p">):</span>
+            <span class="k">with</span> <span class="n">torch</span><span class="o">.</span><span class="n">autograd</span><span class="o">.</span><span class="n">profiler</span><span class="o">.</span><span class="n">record_function</span><span class="p">(</span><span class="s2">"timed region"</span><span class="p">):</span>
                 <span class="n">model</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span>
 
         <span class="n">end_event</span><span class="o">.</span><span class="n">record</span><span class="p">()</span>
         <span class="n">torch</span><span class="o">.</span><span class="n">mps</span><span class="o">.</span><span class="n">synchronize</span><span class="p">()</span>
         <span class="k">return</span> <span class="n">start_event</span><span class="o">.</span><span class="n">elapsed_time</span><span class="p">(</span><span class="n">end_event</span><span class="p">)</span> <span class="o">/</span> <span class="n">num_runs</span>
 
-    <span class="k">elif</span> <span class="n">device_type</span> <span class="o">==</span> <span class="s2">&quot;cpu&quot;</span><span class="p">:</span>
+    <span class="k">elif</span> <span class="n">device_type</span> <span class="o">==</span> <span class="s2">"cpu"</span><span class="p">:</span>
         <span class="n">torch</span><span class="o">.</span><span class="n">cpu</span><span class="o">.</span><span class="n">synchronize</span><span class="p">()</span>
         <span class="n">start_time</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span>
 
         <span class="c1"># benchmark</span>
         <span class="k">for</span> <span class="n">_</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">num_runs</span><span class="p">):</span>
-            <span class="k">with</span> <span class="n">torch</span><span class="o">.</span><span class="n">autograd</span><span class="o">.</span><span class="n">profiler</span><span class="o">.</span><span class="n">record_function</span><span class="p">(</span><span class="s2">&quot;timed region&quot;</span><span class="p">):</span>
+            <span class="k">with</span> <span class="n">torch</span><span class="o">.</span><span class="n">autograd</span><span class="o">.</span><span class="n">profiler</span><span class="o">.</span><span class="n">record_function</span><span class="p">(</span><span class="s2">"timed region"</span><span class="p">):</span>
                 <span class="n">model</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span>
 
         <span class="n">end_time</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span>
@@ -1506,7 +1506,7 @@ document.write(`
         <span class="n">average_time_per_run</span> <span class="o">=</span> <span class="p">(</span><span class="n">end_time</span> <span class="o">-</span> <span class="n">start_time</span><span class="p">)</span> <span class="o">/</span> <span class="n">num_runs</span>
         <span class="k">return</span> <span class="n">average_time_per_run</span>
 
-    <span class="k">elif</span> <span class="n">device_type</span> <span class="o">==</span> <span class="s2">&quot;xpu&quot;</span><span class="p">:</span>
+    <span class="k">elif</span> <span class="n">device_type</span> <span class="o">==</span> <span class="s2">"xpu"</span><span class="p">:</span>
         <span class="n">torch</span><span class="o">.</span><span class="n">xpu</span><span class="o">.</span><span class="n">synchronize</span><span class="p">()</span>
         <span class="n">start_event</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">xpu</span><span class="o">.</span><span class="n">Event</span><span class="p">(</span><span class="n">enable_timing</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
         <span class="n">end_event</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">xpu</span><span class="o">.</span><span class="n">Event</span><span class="p">(</span><span class="n">enable_timing</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
@@ -1514,7 +1514,7 @@ document.write(`
 
         <span class="c1"># benchmark</span>
         <span class="k">for</span> <span class="n">_</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">num_runs</span><span class="p">):</span>
-            <span class="k">with</span> <span class="n">torch</span><span class="o">.</span><span class="n">autograd</span><span class="o">.</span><span class="n">profiler</span><span class="o">.</span><span class="n">record_function</span><span class="p">(</span><span class="s2">&quot;timed region&quot;</span><span class="p">):</span>
+            <span class="k">with</span> <span class="n">torch</span><span class="o">.</span><span class="n">autograd</span><span class="o">.</span><span class="n">profiler</span><span class="o">.</span><span class="n">record_function</span><span class="p">(</span><span class="s2">"timed region"</span><span class="p">):</span>
                 <span class="n">model</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span>
 
         <span class="n">end_event</span><span class="o">.</span><span class="n">record</span><span class="p">()</span>
@@ -1536,13 +1536,13 @@ document.write(`
 
 
 <span class="k">def</span><span class="w"> </span><span class="nf">get_available_devices</span><span class="p">():</span>
-    <span class="n">devices</span> <span class="o">=</span> <span class="p">[</span><span class="s2">&quot;cpu&quot;</span><span class="p">]</span>
+    <span class="n">devices</span> <span class="o">=</span> <span class="p">[</span><span class="s2">"cpu"</span><span class="p">]</span>
     <span class="k">if</span> <span class="n">torch</span><span class="o">.</span><span class="n">cuda</span><span class="o">.</span><span class="n">is_available</span><span class="p">():</span>
-        <span class="n">devices</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s2">&quot;cuda&quot;</span><span class="p">)</span>
+        <span class="n">devices</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s2">"cuda"</span><span class="p">)</span>
     <span class="k">elif</span> <span class="n">torch</span><span class="o">.</span><span class="n">xpu</span><span class="o">.</span><span class="n">is_available</span><span class="p">():</span>
-        <span class="n">devices</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s2">&quot;xpu&quot;</span><span class="p">)</span>
+        <span class="n">devices</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s2">"xpu"</span><span class="p">)</span>
     <span class="k">if</span> <span class="n">torch</span><span class="o">.</span><span class="n">mps</span><span class="o">.</span><span class="n">is_available</span><span class="p">():</span>
-        <span class="n">devices</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s2">&quot;mps&quot;</span><span class="p">)</span>
+        <span class="n">devices</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s2">"mps"</span><span class="p">)</span>
     <span class="k">return</span> <span class="n">devices</span>
 
 
@@ -1554,7 +1554,7 @@ document.write(`
 <span class="k">def</span><span class="w"> </span><span class="nf">get_compute_capability</span><span class="p">():</span>
     <span class="k">if</span> <span class="n">torch</span><span class="o">.</span><span class="n">cuda</span><span class="o">.</span><span class="n">is_available</span><span class="p">():</span>
         <span class="n">capability</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">cuda</span><span class="o">.</span><span class="n">get_device_capability</span><span class="p">()</span>
-        <span class="k">return</span> <span class="nb">float</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">capability</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="si">}</span><span class="s2">.</span><span class="si">{</span><span class="n">capability</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+        <span class="k">return</span> <span class="nb">float</span><span class="p">(</span><span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">capability</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="si">}</span><span class="s2">.</span><span class="si">{</span><span class="n">capability</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
     <span class="k">return</span> <span class="mf">0.0</span>
 
 
@@ -1572,8 +1572,8 @@ document.write(`
     <span class="n">f</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span>
 
     <span class="n">t0</span> <span class="o">=</span> <span class="n">benchmark</span><span class="o">.</span><span class="n">Timer</span><span class="p">(</span>
-        <span class="n">stmt</span><span class="o">=</span><span class="s2">&quot;f(*args, **kwargs)&quot;</span><span class="p">,</span>
-        <span class="nb">globals</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;args&quot;</span><span class="p">:</span> <span class="n">args</span><span class="p">,</span> <span class="s2">&quot;kwargs&quot;</span><span class="p">:</span> <span class="n">kwargs</span><span class="p">,</span> <span class="s2">&quot;f&quot;</span><span class="p">:</span> <span class="n">f</span><span class="p">},</span>  <span class="c1"># noqa: E501</span>
+        <span class="n">stmt</span><span class="o">=</span><span class="s2">"f(*args, **kwargs)"</span><span class="p">,</span>
+        <span class="nb">globals</span><span class="o">=</span><span class="p">{</span><span class="s2">"args"</span><span class="p">:</span> <span class="n">args</span><span class="p">,</span> <span class="s2">"kwargs"</span><span class="p">:</span> <span class="n">kwargs</span><span class="p">,</span> <span class="s2">"f"</span><span class="p">:</span> <span class="n">f</span><span class="p">},</span>  <span class="c1"># noqa: E501</span>
     <span class="p">)</span>
     <span class="n">measurement</span> <span class="o">=</span> <span class="n">t0</span><span class="o">.</span><span class="n">blocked_autorange</span><span class="p">()</span>
     <span class="k">return</span> <span class="n">measurement</span><span class="o">.</span><span class="n">mean</span> <span class="o">*</span> <span class="mf">1e6</span>
@@ -1587,18 +1587,18 @@ document.write(`
 
 
 <span class="k">def</span><span class="w"> </span><span class="nf">_register_custom_op</span><span class="p">(</span><span class="n">lib</span><span class="p">,</span> <span class="n">inductor_decomposed</span><span class="o">=</span><span class="kc">True</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;This decorator is used to preserve some high level operators for torch.export.export</span>
+<span class="w">    </span><span class="sd">"""This decorator is used to preserve some high level operators for torch.export.export</span>
 <span class="sd">    while still allow them to be decomposed for inductor path</span>
 
 <span class="sd">    requirement: make sure `fn.__name__[1:]` is the operator name you want to register</span>
 
 <span class="sd">    NOTE: This should be applied at the top, after all other decorators have been applied</span>
-<span class="sd">    NOTE: We haven&#39;t tested the case when `fn` accepts tensor subclass instance as input,</span>
-<span class="sd">    e.g. uint4 tensor subclass instance, and we&#39;ll probably need to figure out what would make</span>
+<span class="sd">    NOTE: We haven't tested the case when `fn` accepts tensor subclass instance as input,</span>
+<span class="sd">    e.g. uint4 tensor subclass instance, and we'll probably need to figure out what would make</span>
 <span class="sd">    sense for downstream system (like executorch) to accept as well</span>
 
 <span class="sd">    Example:</span>
-<span class="sd">        lib = torch.library.Library(&quot;my_namespace&#39;, &quot;FRAGMENT&quot;)</span>
+<span class="sd">        lib = torch.library.Library("my_namespace', "FRAGMENT")</span>
 
 <span class="sd">        register_custom_op = _register_custom_op(lib)</span>
 
@@ -1610,23 +1610,23 @@ document.write(`
 <span class="sd">        # torch.ops.my_namespace.the_op_that_needs_to_be_preserved operator after</span>
 <span class="sd">        # torch.export.export</span>
 
-<span class="sd">    &quot;&quot;&quot;</span>
+<span class="sd">    """</span>
     <span class="kn">from</span><span class="w"> </span><span class="nn">torch._inductor.decomposition</span><span class="w"> </span><span class="kn">import</span> <span class="n">register_decomposition</span>
 
     <span class="n">dispatch_key</span> <span class="o">=</span> <span class="p">(</span>
-        <span class="s2">&quot;CompositeImplicitAutograd&quot;</span>
+        <span class="s2">"CompositeImplicitAutograd"</span>
         <span class="k">if</span> <span class="n">inductor_decomposed</span>
-        <span class="k">else</span> <span class="s2">&quot;CompositeExplicitAutograd&quot;</span>
+        <span class="k">else</span> <span class="s2">"CompositeExplicitAutograd"</span>
     <span class="p">)</span>
 
     <span class="k">def</span><span class="w"> </span><span class="nf">decorator</span><span class="p">(</span><span class="n">fn</span><span class="p">):</span>
         <span class="kn">from</span><span class="w"> </span><span class="nn">torch._library.infer_schema</span><span class="w"> </span><span class="kn">import</span> <span class="n">infer_schema</span>
 
-        <span class="k">assert</span> <span class="ow">not</span> <span class="nb">any</span><span class="p">(</span><span class="n">c</span> <span class="ow">in</span> <span class="n">fn</span><span class="o">.</span><span class="vm">__name__</span> <span class="k">for</span> <span class="n">c</span> <span class="ow">in</span> <span class="s2">&quot;.&lt;&gt;&quot;</span><span class="p">),</span> <span class="p">(</span>
-            <span class="sa">f</span><span class="s2">&quot;Expecting op to be defined in normal functions, not lambda or local: </span><span class="si">{</span><span class="n">fn</span><span class="o">.</span><span class="vm">__name__</span><span class="si">}</span><span class="s2">&quot;</span>
+        <span class="k">assert</span> <span class="ow">not</span> <span class="nb">any</span><span class="p">(</span><span class="n">c</span> <span class="ow">in</span> <span class="n">fn</span><span class="o">.</span><span class="vm">__name__</span> <span class="k">for</span> <span class="n">c</span> <span class="ow">in</span> <span class="s2">".&lt;&gt;"</span><span class="p">),</span> <span class="p">(</span>
+            <span class="sa">f</span><span class="s2">"Expecting op to be defined in normal functions, not lambda or local: </span><span class="si">{</span><span class="n">fn</span><span class="o">.</span><span class="vm">__name__</span><span class="si">}</span><span class="s2">"</span>
         <span class="p">)</span>
         <span class="n">op_name</span> <span class="o">=</span> <span class="n">fn</span><span class="o">.</span><span class="vm">__name__</span>
-        <span class="k">if</span> <span class="n">op_name</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">==</span> <span class="s2">&quot;_&quot;</span><span class="p">:</span>
+        <span class="k">if</span> <span class="n">op_name</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">==</span> <span class="s2">"_"</span><span class="p">:</span>
             <span class="n">op_name</span> <span class="o">=</span> <span class="n">op_name</span><span class="p">[</span><span class="mi">1</span><span class="p">:]</span>
         <span class="n">schema</span> <span class="o">=</span> <span class="n">op_name</span> <span class="o">+</span> <span class="n">infer_schema</span><span class="p">(</span><span class="n">fn</span><span class="p">,</span> <span class="n">mutates_args</span><span class="o">=</span><span class="p">{})</span>
         <span class="n">lib</span><span class="o">.</span><span class="n">define</span><span class="p">(</span><span class="n">schema</span><span class="p">)</span>
@@ -1643,21 +1643,21 @@ document.write(`
 
 <span class="k">def</span><span class="w"> </span><span class="nf">_register_meta_op</span><span class="p">(</span><span class="n">lib</span><span class="p">,</span> <span class="n">op_name</span><span class="p">):</span>
     <span class="k">def</span><span class="w"> </span><span class="nf">decorator</span><span class="p">(</span><span class="n">fn</span><span class="p">):</span>
-        <span class="n">op</span> <span class="o">=</span> <span class="n">lib</span><span class="o">.</span><span class="n">impl</span><span class="p">(</span><span class="n">op_name</span><span class="p">,</span> <span class="n">fn</span><span class="p">,</span> <span class="s2">&quot;Meta&quot;</span><span class="p">)</span>
+        <span class="n">op</span> <span class="o">=</span> <span class="n">lib</span><span class="o">.</span><span class="n">impl</span><span class="p">(</span><span class="n">op_name</span><span class="p">,</span> <span class="n">fn</span><span class="p">,</span> <span class="s2">"Meta"</span><span class="p">)</span>
         <span class="k">return</span> <span class="n">op</span>
 
     <span class="k">return</span> <span class="n">decorator</span>
 
 
 <span class="k">def</span><span class="w"> </span><span class="nf">get_model_size_in_bytes</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="n">ignore_embeddings</span><span class="o">=</span><span class="kc">False</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">"""</span>
 <span class="sd">    Returns the model size in bytes. The option to ignore embeddings</span>
 <span class="sd">    is useful for models with disproportionately large embeddings compared</span>
 <span class="sd">    to other model parameters that get quantized/sparsified.</span>
-<span class="sd">    &quot;&quot;&quot;</span>
+<span class="sd">    """</span>
 
     <span class="k">def</span><span class="w"> </span><span class="nf">flat_size</span><span class="p">(</span><span class="n">tensor</span><span class="p">):</span>
-        <span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">tensor</span><span class="p">,</span> <span class="s2">&quot;__tensor_flatten__&quot;</span><span class="p">):</span>
+        <span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">tensor</span><span class="p">,</span> <span class="s2">"__tensor_flatten__"</span><span class="p">):</span>
             <span class="n">size</span> <span class="o">=</span> <span class="mi">0</span>
             <span class="c1"># 0th element is a list of attributes that</span>
             <span class="c1"># hold tensors</span>
@@ -1715,11 +1715,11 @@ document.write(`
 
 
 <span class="k">def</span><span class="w"> </span><span class="nf">unwrap_tensor_subclass</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="n">filter_fn</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Unwraps (nested) tensor subclass in the model to plain tensors</span>
+<span class="w">    </span><span class="sd">"""Unwraps (nested) tensor subclass in the model to plain tensors</span>
 <span class="sd">    This is a workaround to make a model with tensor subclass to work with `torch.export.export`</span>
 <span class="sd">    and `torch.aot_compile`, we hope this can be integrated into compile stack soon</span>
 <span class="sd">    tracking issue: https://github.com/pytorch/ao/issues/345</span>
-<span class="sd">    &quot;&quot;&quot;</span>
+<span class="sd">    """</span>
     <span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="n">child</span> <span class="ow">in</span> <span class="n">model</span><span class="o">.</span><span class="n">named_children</span><span class="p">():</span>
         <span class="c1"># make sure child.weight is a tensor subclass</span>
         <span class="k">if</span> <span class="p">(</span>
@@ -1727,7 +1727,7 @@ document.write(`
                 <span class="nb">isinstance</span><span class="p">(</span><span class="n">child</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">)</span>
                 <span class="ow">or</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">child</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Embedding</span><span class="p">)</span>
             <span class="p">)</span>
-            <span class="ow">and</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">child</span><span class="p">,</span> <span class="s2">&quot;weight&quot;</span><span class="p">)</span>
+            <span class="ow">and</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">child</span><span class="p">,</span> <span class="s2">"weight"</span><span class="p">)</span>
             <span class="ow">and</span> <span class="nb">type</span><span class="p">(</span><span class="n">child</span><span class="o">.</span><span class="n">weight</span><span class="p">)</span> <span class="ow">is</span> <span class="ow">not</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span>
             <span class="ow">and</span> <span class="nb">type</span><span class="p">(</span><span class="n">child</span><span class="o">.</span><span class="n">weight</span><span class="p">)</span> <span class="ow">is</span> <span class="ow">not</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Parameter</span>
             <span class="ow">and</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">child</span><span class="o">.</span><span class="n">weight</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">)</span>
@@ -1736,7 +1736,7 @@ document.write(`
             <span class="ow">and</span> <span class="ow">not</span> <span class="n">parametrize</span><span class="o">.</span><span class="n">is_parametrized</span><span class="p">(</span><span class="n">child</span><span class="p">)</span>
         <span class="p">):</span>
             <span class="n">parametrize</span><span class="o">.</span><span class="n">register_parametrization</span><span class="p">(</span>
-                <span class="n">child</span><span class="p">,</span> <span class="s2">&quot;weight&quot;</span><span class="p">,</span> <span class="n">UnwrapTensorSubclass</span><span class="p">()</span>
+                <span class="n">child</span><span class="p">,</span> <span class="s2">"weight"</span><span class="p">,</span> <span class="n">UnwrapTensorSubclass</span><span class="p">()</span>
             <span class="p">)</span>
         <span class="n">unwrap_tensor_subclass</span><span class="p">(</span><span class="n">child</span><span class="p">)</span>
     <span class="k">return</span> <span class="n">model</span>
@@ -1753,25 +1753,25 @@ document.write(`
 
 
 <span class="k">def</span><span class="w"> </span><span class="nf">parse_version</span><span class="p">(</span><span class="n">version_string</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">"""</span>
 <span class="sd">    Parse version string representing pre-release with -1</span>
 
-<span class="sd">    Examples: &quot;2.5.0.dev20240708+cu121&quot; -&gt; [2, 5, -1], &quot;2.5.0&quot; -&gt; [2, 5, 0]</span>
-<span class="sd">    &quot;&quot;&quot;</span>
+<span class="sd">    Examples: "2.5.0.dev20240708+cu121" -&gt; [2, 5, -1], "2.5.0" -&gt; [2, 5, 0]</span>
+<span class="sd">    """</span>
     <span class="c1"># Check for pre-release indicators</span>
-    <span class="n">is_prerelease</span> <span class="o">=</span> <span class="nb">bool</span><span class="p">(</span><span class="n">re</span><span class="o">.</span><span class="n">search</span><span class="p">(</span><span class="sa">r</span><span class="s2">&quot;(git|dev)&quot;</span><span class="p">,</span> <span class="n">version_string</span><span class="p">))</span>
-    <span class="n">match</span> <span class="o">=</span> <span class="n">re</span><span class="o">.</span><span class="n">match</span><span class="p">(</span><span class="sa">r</span><span class="s2">&quot;(\d+)\.(\d+)\.(\d+)&quot;</span><span class="p">,</span> <span class="n">version_string</span><span class="p">)</span>
+    <span class="n">is_prerelease</span> <span class="o">=</span> <span class="nb">bool</span><span class="p">(</span><span class="n">re</span><span class="o">.</span><span class="n">search</span><span class="p">(</span><span class="sa">r</span><span class="s2">"(git|dev)"</span><span class="p">,</span> <span class="n">version_string</span><span class="p">))</span>
+    <span class="n">match</span> <span class="o">=</span> <span class="n">re</span><span class="o">.</span><span class="n">match</span><span class="p">(</span><span class="sa">r</span><span class="s2">"(\d+)\.(\d+)\.(\d+)"</span><span class="p">,</span> <span class="n">version_string</span><span class="p">)</span>
     <span class="k">if</span> <span class="n">match</span><span class="p">:</span>
         <span class="n">major</span><span class="p">,</span> <span class="n">minor</span><span class="p">,</span> <span class="n">patch</span> <span class="o">=</span> <span class="nb">map</span><span class="p">(</span><span class="nb">int</span><span class="p">,</span> <span class="n">match</span><span class="o">.</span><span class="n">groups</span><span class="p">())</span>
         <span class="k">if</span> <span class="n">is_prerelease</span><span class="p">:</span>
             <span class="n">patch</span> <span class="o">=</span> <span class="o">-</span><span class="mi">1</span>
         <span class="k">return</span> <span class="p">[</span><span class="n">major</span><span class="p">,</span> <span class="n">minor</span><span class="p">,</span> <span class="n">patch</span><span class="p">]</span>
     <span class="k">else</span><span class="p">:</span>
-        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Invalid version string format: </span><span class="si">{</span><span class="n">version_string</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">"Invalid version string format: </span><span class="si">{</span><span class="n">version_string</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
 
 
 <span class="k">def</span><span class="w"> </span><span class="nf">is_fbcode</span><span class="p">():</span>
-    <span class="k">return</span> <span class="ow">not</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">version</span><span class="p">,</span> <span class="s2">&quot;git_version&quot;</span><span class="p">)</span>
+    <span class="k">return</span> <span class="ow">not</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">version</span><span class="p">,</span> <span class="s2">"git_version"</span><span class="p">)</span>
 
 
 <span class="k">def</span><span class="w"> </span><span class="nf">torch_version_at_least</span><span class="p">(</span><span class="n">min_version</span><span class="p">):</span>
@@ -1782,14 +1782,14 @@ document.write(`
     <span class="k">return</span> <span class="n">parse_version</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">__version__</span><span class="p">)</span> <span class="o">&gt;=</span> <span class="n">parse_version</span><span class="p">(</span><span class="n">min_version</span><span class="p">)</span>
 
 
-<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">"""</span>
 <span class="sd">Helper function for implementing aten op or torch function dispatch</span>
 <span class="sd">and dispatching to these implementations.</span>
-<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">"""</span>
 
 
 <span class="k">def</span><span class="w"> </span><span class="nf">_implements</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="n">aten_ops</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Decorator for implementing aten ops like `torch.ops.aten.linear.default` for</span>
+<span class="w">    </span><span class="sd">"""Decorator for implementing aten ops like `torch.ops.aten.linear.default` for</span>
 <span class="sd">    tensor subclass, the implemented functions are called in ``__torch_dispatch__`` callback</span>
 <span class="sd">    for ``torch.Tensor`` subclasses</span>
 
@@ -1801,8 +1801,8 @@ document.write(`
 <span class="sd">        def _(func, types, args, kwargs):</span>
 <span class="sd">            ...</span>
 
-<span class="sd">    &quot;&quot;&quot;</span>
-    <span class="k">if</span> <span class="ow">not</span> <span class="nb">hasattr</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="s2">&quot;_ATEN_OP_TABLE&quot;</span><span class="p">):</span>
+<span class="sd">    """</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="nb">hasattr</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="s2">"_ATEN_OP_TABLE"</span><span class="p">):</span>
         <span class="bp">cls</span><span class="o">.</span><span class="n">_ATEN_OP_TABLE</span> <span class="o">=</span> <span class="p">{}</span>
     <span class="k">if</span> <span class="bp">cls</span> <span class="ow">not</span> <span class="ow">in</span> <span class="bp">cls</span><span class="o">.</span><span class="n">_ATEN_OP_TABLE</span><span class="p">:</span>
         <span class="bp">cls</span><span class="o">.</span><span class="n">_ATEN_OP_TABLE</span><span class="p">[</span><span class="bp">cls</span><span class="p">]</span> <span class="o">=</span> <span class="p">{}</span>
@@ -1823,7 +1823,7 @@ document.write(`
 
 
 <span class="k">def</span><span class="w"> </span><span class="nf">_implements_torch_function</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="n">torch_fns</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Decorator for implementing torch functions / ops</span>
+<span class="w">    </span><span class="sd">"""Decorator for implementing torch functions / ops</span>
 <span class="sd">    like ``torch.nn.functional.linear``, ``torch.Tensor.t`` for the tensor subclass</span>
 <span class="sd">    the implemented functions are called in ``__torch_function__`` callback</span>
 <span class="sd">    for ``torch.Tensor`` subclasses</span>
@@ -1836,8 +1836,8 @@ document.write(`
 <span class="sd">        def _(func, types, args, kwargs):</span>
 <span class="sd">            ...</span>
 
-<span class="sd">    &quot;&quot;&quot;</span>
-    <span class="k">if</span> <span class="ow">not</span> <span class="nb">hasattr</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="s2">&quot;_TORCH_FN_TABLE&quot;</span><span class="p">):</span>
+<span class="sd">    """</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="nb">hasattr</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="s2">"_TORCH_FN_TABLE"</span><span class="p">):</span>
         <span class="bp">cls</span><span class="o">.</span><span class="n">_TORCH_FN_TABLE</span> <span class="o">=</span> <span class="p">{}</span>
     <span class="k">if</span> <span class="bp">cls</span> <span class="ow">not</span> <span class="ow">in</span> <span class="bp">cls</span><span class="o">.</span><span class="n">_TORCH_FN_TABLE</span><span class="p">:</span>
         <span class="bp">cls</span><span class="o">.</span><span class="n">_TORCH_FN_TABLE</span><span class="p">[</span><span class="bp">cls</span><span class="p">]</span> <span class="o">=</span> <span class="p">{}</span>
@@ -1869,15 +1869,15 @@ document.write(`
         <span class="bp">self</span> <span class="o">=</span> <span class="n">args</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
         <span class="c1"># only support dtype, layout, and device for now</span>
         <span class="k">for</span> <span class="n">k</span> <span class="ow">in</span> <span class="n">kwargs</span><span class="o">.</span><span class="n">keys</span><span class="p">():</span>
-            <span class="k">assert</span> <span class="n">k</span> <span class="ow">in</span> <span class="p">[</span><span class="s2">&quot;dtype&quot;</span><span class="p">,</span> <span class="s2">&quot;layout&quot;</span><span class="p">,</span> <span class="s2">&quot;device&quot;</span><span class="p">]</span>
+            <span class="k">assert</span> <span class="n">k</span> <span class="ow">in</span> <span class="p">[</span><span class="s2">"dtype"</span><span class="p">,</span> <span class="s2">"layout"</span><span class="p">,</span> <span class="s2">"device"</span><span class="p">]</span>
         <span class="c1"># only support same dtype and layout</span>
         <span class="c1"># different dtype and layout has undefined behavior</span>
-        <span class="k">if</span> <span class="s2">&quot;dtype&quot;</span> <span class="ow">in</span> <span class="n">kwargs</span><span class="p">:</span>
-            <span class="k">assert</span> <span class="n">kwargs</span><span class="p">[</span><span class="s2">&quot;dtype&quot;</span><span class="p">]</span> <span class="o">==</span> <span class="bp">self</span><span class="o">.</span><span class="n">dtype</span>
-        <span class="k">if</span> <span class="s2">&quot;layout&quot;</span> <span class="ow">in</span> <span class="n">kwargs</span><span class="p">:</span>
-            <span class="k">assert</span> <span class="n">kwargs</span><span class="p">[</span><span class="s2">&quot;layout&quot;</span><span class="p">]</span> <span class="o">==</span> <span class="bp">self</span><span class="o">.</span><span class="n">layout</span>
+        <span class="k">if</span> <span class="s2">"dtype"</span> <span class="ow">in</span> <span class="n">kwargs</span><span class="p">:</span>
+            <span class="k">assert</span> <span class="n">kwargs</span><span class="p">[</span><span class="s2">"dtype"</span><span class="p">]</span> <span class="o">==</span> <span class="bp">self</span><span class="o">.</span><span class="n">dtype</span>
+        <span class="k">if</span> <span class="s2">"layout"</span> <span class="ow">in</span> <span class="n">kwargs</span><span class="p">:</span>
+            <span class="k">assert</span> <span class="n">kwargs</span><span class="p">[</span><span class="s2">"layout"</span><span class="p">]</span> <span class="o">==</span> <span class="bp">self</span><span class="o">.</span><span class="n">layout</span>
         <span class="c1"># if device is the same, treat this like a no-op</span>
-        <span class="n">device</span> <span class="o">=</span> <span class="n">kwargs</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;device&quot;</span><span class="p">)</span>
+        <span class="n">device</span> <span class="o">=</span> <span class="n">kwargs</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"device"</span><span class="p">)</span>
         <span class="k">if</span> <span class="n">device</span> <span class="o">==</span> <span class="bp">self</span><span class="o">.</span><span class="n">device</span><span class="p">:</span>
             <span class="k">return</span> <span class="bp">self</span>
         <span class="n">new_tensor</span> <span class="o">=</span> <span class="n">args</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">_apply_fn_to_data</span><span class="p">(</span><span class="k">lambda</span> <span class="n">x</span><span class="p">:</span> <span class="n">func</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="n">device</span><span class="p">))</span>
@@ -1922,7 +1922,7 @@ document.write(`
             <span class="k">for</span> <span class="n">t_name</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">tensor_data_names</span>
         <span class="p">)</span>
         <span class="n">_optional_tensor_shape_match</span> <span class="o">=</span> <span class="kc">True</span>
-        <span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="s2">&quot;optional_tensor_data_names&quot;</span><span class="p">):</span>
+        <span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="s2">"optional_tensor_data_names"</span><span class="p">):</span>
             <span class="c1"># either both are None or both are not Tensors and the shape match</span>
             <span class="n">_optional_tensor_shape_match</span> <span class="o">=</span> <span class="nb">all</span><span class="p">(</span>
                 <span class="p">(</span>
@@ -1939,7 +1939,7 @@ document.write(`
         <span class="p">)</span>
 
         <span class="n">_optional_attr_match</span> <span class="o">=</span> <span class="kc">True</span>
-        <span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="s2">&quot;optional_tensor_attribute_names&quot;</span><span class="p">):</span>
+        <span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="s2">"optional_tensor_attribute_names"</span><span class="p">):</span>
             <span class="n">_optional_attr_match</span> <span class="o">=</span> <span class="nb">all</span><span class="p">(</span>
                 <span class="nb">getattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">a_name</span><span class="p">)</span> <span class="o">==</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">src</span><span class="p">,</span> <span class="n">a_name</span><span class="p">)</span>
                 <span class="k">for</span> <span class="n">a_name</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">optional_tensor_attribute_names</span>
@@ -1964,24 +1964,24 @@ document.write(`
                 <span class="nb">getattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">tensor_name</span><span class="p">)</span><span class="o">.</span><span class="n">copy_</span><span class="p">(</span><span class="nb">getattr</span><span class="p">(</span><span class="n">src</span><span class="p">,</span> <span class="n">tensor_name</span><span class="p">))</span>
             <span class="k">return</span>
         <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
-            <span class="sa">f</span><span class="s2">&quot;Not supported args for copy_ due to metadata mismatch: </span><span class="si">{</span><span class="n">args</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span><span class="w"> </span><span class="n">args</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span><span class="si">}</span><span class="s2">&quot;</span>
+            <span class="sa">f</span><span class="s2">"Not supported args for copy_ due to metadata mismatch: </span><span class="si">{</span><span class="n">args</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span><span class="w"> </span><span class="n">args</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span><span class="si">}</span><span class="s2">"</span>
         <span class="p">)</span>
 
     <span class="nd">@implements</span><span class="p">(</span><span class="n">aten</span><span class="o">.</span><span class="n">_to_copy</span><span class="o">.</span><span class="n">default</span><span class="p">)</span>
     <span class="k">def</span><span class="w"> </span><span class="nf">_</span><span class="p">(</span><span class="n">func</span><span class="p">,</span> <span class="n">types</span><span class="p">,</span> <span class="n">args</span><span class="p">,</span> <span class="n">kwargs</span><span class="p">):</span>
         <span class="bp">self</span> <span class="o">=</span> <span class="n">args</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
-        <span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="s2">&quot;tensor_data_names&quot;</span><span class="p">)</span> <span class="ow">and</span> <span class="nb">hasattr</span><span class="p">(</span>
-            <span class="bp">self</span><span class="p">,</span> <span class="s2">&quot;tensor_attribute_names&quot;</span>
+        <span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="s2">"tensor_data_names"</span><span class="p">)</span> <span class="ow">and</span> <span class="nb">hasattr</span><span class="p">(</span>
+            <span class="bp">self</span><span class="p">,</span> <span class="s2">"tensor_attribute_names"</span>
         <span class="p">):</span>
             <span class="n">kwargs</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_get_to_kwargs</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">[</span><span class="mi">1</span><span class="p">:],</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span>
-            <span class="n">device</span> <span class="o">=</span> <span class="n">kwargs</span><span class="o">.</span><span class="n">pop</span><span class="p">(</span><span class="s2">&quot;device&quot;</span><span class="p">)</span>
-            <span class="n">non_blocking</span> <span class="o">=</span> <span class="n">kwargs</span><span class="o">.</span><span class="n">pop</span><span class="p">(</span><span class="s2">&quot;non_blocking&quot;</span><span class="p">,</span> <span class="kc">False</span><span class="p">)</span>
+            <span class="n">device</span> <span class="o">=</span> <span class="n">kwargs</span><span class="o">.</span><span class="n">pop</span><span class="p">(</span><span class="s2">"device"</span><span class="p">)</span>
+            <span class="n">non_blocking</span> <span class="o">=</span> <span class="n">kwargs</span><span class="o">.</span><span class="n">pop</span><span class="p">(</span><span class="s2">"non_blocking"</span><span class="p">,</span> <span class="kc">False</span><span class="p">)</span>
             <span class="n">tensors</span> <span class="o">=</span> <span class="p">[</span>
                 <span class="nb">getattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">name</span><span class="p">)</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">device</span><span class="p">,</span> <span class="n">non_blocking</span><span class="o">=</span><span class="n">non_blocking</span><span class="p">)</span>
                 <span class="k">for</span> <span class="n">name</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">tensor_data_names</span>
             <span class="p">]</span>
             <span class="n">optional_tensors</span> <span class="o">=</span> <span class="p">[]</span>
-            <span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="s2">&quot;optional_tensor_data_names&quot;</span><span class="p">):</span>
+            <span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="s2">"optional_tensor_data_names"</span><span class="p">):</span>
                 <span class="k">for</span> <span class="n">tensor_data_name</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">optional_tensor_data_names</span><span class="p">:</span>
                     <span class="n">maybe_tensor</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">tensor_data_name</span><span class="p">)</span>
                     <span class="k">if</span> <span class="n">maybe_tensor</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
@@ -1993,13 +1993,13 @@ document.write(`
 
             <span class="c1"># change device</span>
             <span class="n">tensor_attributes</span> <span class="o">=</span> <span class="p">[</span>
-                <span class="nb">getattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">attr_name</span><span class="p">)</span> <span class="k">if</span> <span class="n">attr_name</span> <span class="o">!=</span> <span class="s2">&quot;device&quot;</span> <span class="k">else</span> <span class="n">device</span>
+                <span class="nb">getattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">attr_name</span><span class="p">)</span> <span class="k">if</span> <span class="n">attr_name</span> <span class="o">!=</span> <span class="s2">"device"</span> <span class="k">else</span> <span class="n">device</span>
                 <span class="k">for</span> <span class="n">attr_name</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">tensor_attribute_names</span>
             <span class="p">]</span>
             <span class="n">optional_tensor_attributes</span> <span class="o">=</span> <span class="p">[]</span>
-            <span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="s2">&quot;optional_tensor_attribute_names&quot;</span><span class="p">):</span>
+            <span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="s2">"optional_tensor_attribute_names"</span><span class="p">):</span>
                 <span class="n">optional_tensor_attributes</span> <span class="o">=</span> <span class="p">[</span>
-                    <span class="nb">getattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">attr_name</span><span class="p">)</span> <span class="k">if</span> <span class="n">attr_name</span> <span class="o">!=</span> <span class="s2">&quot;device&quot;</span> <span class="k">else</span> <span class="n">device</span>
+                    <span class="nb">getattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">attr_name</span><span class="p">)</span> <span class="k">if</span> <span class="n">attr_name</span> <span class="o">!=</span> <span class="s2">"device"</span> <span class="k">else</span> <span class="n">device</span>
                     <span class="k">for</span> <span class="n">attr_name</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">optional_tensor_attribute_names</span>
                 <span class="p">]</span>
 
@@ -2012,23 +2012,23 @@ document.write(`
             <span class="k">return</span> <span class="n">return_and_correct_aliasing</span><span class="p">(</span><span class="n">func</span><span class="p">,</span> <span class="n">args</span><span class="p">,</span> <span class="n">kwargs</span><span class="p">,</span> <span class="n">t</span><span class="p">)</span>
 
         <span class="k">raise</span> <span class="ne">NotImplementedError</span><span class="p">(</span>
-            <span class="s2">&quot;Subclasses must implement `aten._to_copy.default` or specify `tensor_data_names` and `tensor_attribute_names` for tensor class or tensor instance before using it&quot;</span>
+            <span class="s2">"Subclasses must implement `aten._to_copy.default` or specify `tensor_data_names` and `tensor_attribute_names` for tensor class or tensor instance before using it"</span>
         <span class="p">)</span>
 
 
 <span class="k">def</span><span class="w"> </span><span class="nf">_torchao_base_tensor__setstate__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">state</span><span class="p">):</span>
-    <span class="k">assert</span> <span class="nb">hasattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="s2">&quot;tensor_data_names&quot;</span><span class="p">)</span> <span class="ow">and</span> <span class="nb">hasattr</span><span class="p">(</span>
-        <span class="bp">self</span><span class="p">,</span> <span class="s2">&quot;tensor_attribute_names&quot;</span>
+    <span class="k">assert</span> <span class="nb">hasattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="s2">"tensor_data_names"</span><span class="p">)</span> <span class="ow">and</span> <span class="nb">hasattr</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span> <span class="s2">"tensor_attribute_names"</span>
     <span class="p">)</span>
     <span class="n">torch</span><span class="o">.</span><span class="n">_utils</span><span class="o">.</span><span class="n">_set_obj_state</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">state</span><span class="p">)</span>
-    <span class="k">for</span> <span class="n">optional_tensor_data_name</span> <span class="ow">in</span> <span class="nb">getattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="s2">&quot;optional_tensor_data_names&quot;</span><span class="p">,</span> <span class="p">[]):</span>
+    <span class="k">for</span> <span class="n">optional_tensor_data_name</span> <span class="ow">in</span> <span class="nb">getattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="s2">"optional_tensor_data_names"</span><span class="p">,</span> <span class="p">[]):</span>
         <span class="k">if</span> <span class="n">optional_tensor_data_name</span> <span class="ow">not</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="vm">__dict__</span> <span class="ow">and</span> <span class="ow">not</span> <span class="nb">hasattr</span><span class="p">(</span>
             <span class="bp">self</span><span class="p">,</span> <span class="n">optional_tensor_data_name</span>
         <span class="p">):</span>
             <span class="nb">setattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">optional_tensor_data_name</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span>
 
     <span class="k">for</span> <span class="n">optional_tensor_attribute_name</span> <span class="ow">in</span> <span class="nb">getattr</span><span class="p">(</span>
-        <span class="bp">self</span><span class="p">,</span> <span class="s2">&quot;optional_tensor_attribute_names&quot;</span><span class="p">,</span> <span class="p">[]</span>
+        <span class="bp">self</span><span class="p">,</span> <span class="s2">"optional_tensor_attribute_names"</span><span class="p">,</span> <span class="p">[]</span>
     <span class="p">):</span>
         <span class="k">if</span> <span class="n">optional_tensor_attribute_name</span> <span class="ow">not</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="vm">__dict__</span> <span class="ow">and</span> <span class="ow">not</span> <span class="nb">hasattr</span><span class="p">(</span>
             <span class="bp">self</span><span class="p">,</span> <span class="n">optional_tensor_attribute_name</span>
@@ -2037,16 +2037,16 @@ document.write(`
 
 
 <span class="k">def</span><span class="w"> </span><span class="nf">_dispatch__torch_function__</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="n">func</span><span class="p">,</span> <span class="n">types</span><span class="p">,</span> <span class="n">args</span><span class="o">=</span><span class="p">(),</span> <span class="n">kwargs</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Use this util function for a common `__torch_function__` implementation</span>
+<span class="w">    </span><span class="sd">"""Use this util function for a common `__torch_function__` implementation</span>
 <span class="sd">    that dispatches to ops/functions registered with `_implements`</span>
 
 <span class="sd">    class MyTensor(torch.Tensor):</span>
 <span class="sd">        ...</span>
 <span class="sd">        __torch_function__ = classmethod(_dispatch__torch_function__)</span>
-<span class="sd">    &quot;&quot;&quot;</span>
+<span class="sd">    """</span>
     <span class="n">kwargs</span> <span class="o">=</span> <span class="p">{}</span> <span class="k">if</span> <span class="n">kwargs</span> <span class="ow">is</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">kwargs</span>
     <span class="k">if</span> <span class="p">(</span>
-        <span class="nb">hasattr</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="s2">&quot;_TORCH_FN_TABLE&quot;</span><span class="p">)</span>
+        <span class="nb">hasattr</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="s2">"_TORCH_FN_TABLE"</span><span class="p">)</span>
         <span class="ow">and</span> <span class="bp">cls</span> <span class="ow">in</span> <span class="bp">cls</span><span class="o">.</span><span class="n">_TORCH_FN_TABLE</span>
         <span class="ow">and</span> <span class="n">func</span> <span class="ow">in</span> <span class="bp">cls</span><span class="o">.</span><span class="n">_TORCH_FN_TABLE</span><span class="p">[</span><span class="bp">cls</span><span class="p">]</span>
     <span class="p">):</span>
@@ -2056,15 +2056,15 @@ document.write(`
 
 
 <span class="k">def</span><span class="w"> </span><span class="nf">_dispatch__torch_dispatch__</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="n">func</span><span class="p">,</span> <span class="n">types</span><span class="p">,</span> <span class="n">args</span><span class="p">,</span> <span class="n">kwargs</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Use this util function for a common `__torch_dispatch__` implementation</span>
+<span class="w">    </span><span class="sd">"""Use this util function for a common `__torch_dispatch__` implementation</span>
 <span class="sd">    that dispatches to ops/functions registered with `_implements`</span>
 
 <span class="sd">    class MyTensor(torch.Tensor):</span>
 <span class="sd">        ...</span>
 <span class="sd">        __torch_dispatch__ = classmethod(_dispatch__torch_dispatch__)</span>
-<span class="sd">    &quot;&quot;&quot;</span>
+<span class="sd">    """</span>
     <span class="k">if</span> <span class="p">(</span>
-        <span class="nb">hasattr</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="s2">&quot;_ATEN_OP_TABLE&quot;</span><span class="p">)</span>
+        <span class="nb">hasattr</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="s2">"_ATEN_OP_TABLE"</span><span class="p">)</span>
         <span class="ow">and</span> <span class="bp">cls</span> <span class="ow">in</span> <span class="bp">cls</span><span class="o">.</span><span class="n">_ATEN_OP_TABLE</span>
         <span class="ow">and</span> <span class="n">func</span> <span class="ow">in</span> <span class="bp">cls</span><span class="o">.</span><span class="n">_ATEN_OP_TABLE</span><span class="p">[</span><span class="bp">cls</span><span class="p">]</span>
     <span class="p">):</span>
@@ -2073,26 +2073,26 @@ document.write(`
     <span class="n">arg_types</span> <span class="o">=</span> <span class="nb">tuple</span><span class="p">(</span><span class="nb">type</span><span class="p">(</span><span class="n">arg</span><span class="p">)</span> <span class="k">for</span> <span class="n">arg</span> <span class="ow">in</span> <span class="n">args</span><span class="p">)</span>
     <span class="n">kwarg_types</span> <span class="o">=</span> <span class="p">{</span><span class="n">k</span><span class="p">:</span> <span class="nb">type</span><span class="p">(</span><span class="n">arg</span><span class="p">)</span> <span class="k">for</span> <span class="n">k</span><span class="p">,</span> <span class="n">arg</span> <span class="ow">in</span> <span class="n">kwargs</span><span class="o">.</span><span class="n">items</span><span class="p">()}</span>
     <span class="k">raise</span> <span class="ne">NotImplementedError</span><span class="p">(</span>
-        <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="bp">cls</span><span class="o">.</span><span class="vm">__name__</span><span class="si">}</span><span class="s2"> dispatch: attempting to run unimplemented operator/function: </span><span class="si">{</span><span class="n">func</span><span class="si">=}</span><span class="s2">, </span><span class="si">{</span><span class="n">types</span><span class="si">=}</span><span class="s2">, </span><span class="si">{</span><span class="n">arg_types</span><span class="si">=}</span><span class="s2">, </span><span class="si">{</span><span class="n">kwarg_types</span><span class="si">=}</span><span class="s2">&quot;</span>
+        <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="bp">cls</span><span class="o">.</span><span class="vm">__name__</span><span class="si">}</span><span class="s2"> dispatch: attempting to run unimplemented operator/function: </span><span class="si">{</span><span class="n">func</span><span class="si">=}</span><span class="s2">, </span><span class="si">{</span><span class="n">types</span><span class="si">=}</span><span class="s2">, </span><span class="si">{</span><span class="n">arg_types</span><span class="si">=}</span><span class="s2">, </span><span class="si">{</span><span class="n">kwarg_types</span><span class="si">=}</span><span class="s2">"</span>
     <span class="p">)</span>
 
 
 <span class="k">def</span><span class="w"> </span><span class="nf">_get_to_kwargs</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Helper function to get the device, dtype and non_blocking keyword args for `aten._to_copy.default` op</span>
+<span class="w">    </span><span class="sd">"""Helper function to get the device, dtype and non_blocking keyword args for `aten._to_copy.default` op</span>
 
-<span class="sd">    Returns: {&quot;device&quot;: device, &quot;dtype&quot;: dtype, &quot;non_blocking&quot;: non_blocking}</span>
-<span class="sd">    &quot;&quot;&quot;</span>
-    <span class="c1"># `torch._C._nn._parse_to` can&#39;t handle `layout` argument</span>
+<span class="sd">    Returns: {"device": device, "dtype": dtype, "non_blocking": non_blocking}</span>
+<span class="sd">    """</span>
+    <span class="c1"># `torch._C._nn._parse_to` can't handle `layout` argument</span>
     <span class="n">args</span> <span class="o">=</span> <span class="nb">tuple</span><span class="p">(</span><span class="n">arg</span> <span class="k">for</span> <span class="n">arg</span> <span class="ow">in</span> <span class="n">args</span> <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">arg</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">layout</span><span class="p">))</span>
-    <span class="k">if</span> <span class="s2">&quot;layout&quot;</span> <span class="ow">in</span> <span class="n">kwargs</span><span class="p">:</span>
-        <span class="n">kwargs</span><span class="o">.</span><span class="n">pop</span><span class="p">(</span><span class="s2">&quot;layout&quot;</span><span class="p">)</span>
+    <span class="k">if</span> <span class="s2">"layout"</span> <span class="ow">in</span> <span class="n">kwargs</span><span class="p">:</span>
+        <span class="n">kwargs</span><span class="o">.</span><span class="n">pop</span><span class="p">(</span><span class="s2">"layout"</span><span class="p">)</span>
     <span class="n">device</span><span class="p">,</span> <span class="n">dtype</span><span class="p">,</span> <span class="n">non_blocking</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">_C</span><span class="o">.</span><span class="n">_nn</span><span class="o">.</span><span class="n">_parse_to</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span>
     <span class="n">device</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">device</span> <span class="k">if</span> <span class="n">device</span> <span class="ow">is</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">device</span>
     <span class="n">dtype</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">dtype</span> <span class="k">if</span> <span class="n">dtype</span> <span class="ow">is</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">dtype</span>
     <span class="n">kwargs</span> <span class="o">=</span> <span class="p">{</span>
-        <span class="s2">&quot;device&quot;</span><span class="p">:</span> <span class="n">device</span><span class="p">,</span>
-        <span class="s2">&quot;dtype&quot;</span><span class="p">:</span> <span class="n">dtype</span><span class="p">,</span>
-        <span class="s2">&quot;non_blocking&quot;</span><span class="p">:</span> <span class="n">non_blocking</span><span class="p">,</span>
+        <span class="s2">"device"</span><span class="p">:</span> <span class="n">device</span><span class="p">,</span>
+        <span class="s2">"dtype"</span><span class="p">:</span> <span class="n">dtype</span><span class="p">,</span>
+        <span class="s2">"non_blocking"</span><span class="p">:</span> <span class="n">non_blocking</span><span class="p">,</span>
     <span class="p">}</span>
     <span class="k">return</span> <span class="n">kwargs</span>
 
@@ -2100,7 +2100,7 @@ document.write(`
 <div class="viewcode-block" id="TorchAOBaseTensor">
 <a class="viewcode-back" href="../../api_reference/generated/torchao.utils.TorchAOBaseTensor.html#torchao.utils.TorchAOBaseTensor">[docs]</a>
 <span class="k">class</span><span class="w"> </span><span class="nc">TorchAOBaseTensor</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">):</span>
-<span class="w">    </span><span class="sa">r</span><span class="sd">&quot;&quot;&quot;A util tensor subclass that provides commonly used functions</span>
+<span class="w">    </span><span class="sa">r</span><span class="sd">"""A util tensor subclass that provides commonly used functions</span>
 <span class="sd">    new tensor subclass can inherit to get all the utility functions</span>
 
 <span class="sd">    Attributes (defined by subclass of ``TorchAOBaseTensor``):</span>
@@ -2113,12 +2113,12 @@ document.write(`
 <span class="sd">        order should match the ``__init__`` list of tensor subclass, following all the ``tensor_data_names`` arguments (optional to define to use ``TorchAOBaseTensor``, required for getting the</span>
 <span class="sd">        util functions been defined (see Note section))</span>
 
-<span class="sd">    * :attr:`optional_tensor_data_names` (List[str]): it&#39;s not required to get the</span>
+<span class="sd">    * :attr:`optional_tensor_data_names` (List[str]): it's not required to get the</span>
 <span class="sd">        additional util functions been implemented, but this will be need if there are</span>
 <span class="sd">        some optional ``Tensor`` data attributes, when defined, this will be a list of names of ``Tensor``s that</span>
 <span class="sd">        can be optional</span>
 
-<span class="sd">    * :attr:`optional_tensor_attribute_names` (List[str]): it&#39;s not required to get the</span>
+<span class="sd">    * :attr:`optional_tensor_attribute_names` (List[str]): it's not required to get the</span>
 <span class="sd">        additional util functions been implemented, but this will be need if there are</span>
 <span class="sd">        some optional non-``Tensor`` attributes, when defined, this will be a list of names of attributes</span>
 <span class="sd">        that can be optional</span>
@@ -2160,17 +2160,17 @@ document.write(`
 <span class="sd">        does not affect the parent, and vice versa.</span>
 
 <span class="sd">        A child class can override an inherited op by registering its own implementation with</span>
-<span class="sd">        ``@ChildClass.implements(...)``. If no override is provided, the parent&#39;s implementation</span>
+<span class="sd">        ``@ChildClass.implements(...)``. If no override is provided, the parent's implementation</span>
 <span class="sd">        is used automatically.</span>
 
 <span class="sd">        For multiple inheritance (e.g., ``class C(B, A)``), ops are inherited from all parents</span>
-<span class="sd">        following Python&#39;s MRO (Method Resolution Order), with later bases taking priority.</span>
+<span class="sd">        following Python's MRO (Method Resolution Order), with later bases taking priority.</span>
 
 <span class="sd">        Example::</span>
 
 <span class="sd">            class Parent(TorchAOBaseTensor):</span>
-<span class="sd">                tensor_data_names = [&quot;qdata&quot;]</span>
-<span class="sd">                tensor_attribute_names = [&quot;attr&quot;]</span>
+<span class="sd">                tensor_data_names = ["qdata"]</span>
+<span class="sd">                tensor_attribute_names = ["attr"]</span>
 
 <span class="sd">                def __new__(cls, qdata, attr):</span>
 <span class="sd">                    r = torch.Tensor._make_wrapper_subclass(cls, qdata.shape)</span>
@@ -2186,10 +2186,10 @@ document.write(`
 <span class="sd">                # parent implementation</span>
 <span class="sd">                ...</span>
 
-<span class="sd">            # Child inherits Parent&#39;s aten.cat implementation automatically</span>
+<span class="sd">            # Child inherits Parent's aten.cat implementation automatically</span>
 <span class="sd">            class Child(Parent):</span>
-<span class="sd">                tensor_data_names = [&quot;qdata&quot;]</span>
-<span class="sd">                tensor_attribute_names = [&quot;attr&quot;]</span>
+<span class="sd">                tensor_data_names = ["qdata"]</span>
+<span class="sd">                tensor_attribute_names = ["attr"]</span>
 
 <span class="sd">            # Optionally override an inherited op:</span>
 <span class="sd">            @Child.implements([torch.ops.aten.cat.default])</span>
@@ -2217,7 +2217,7 @@ document.write(`
 <span class="sd">        2. Register the subclass in ``torchao/prototype/safetensors/safetensors_utils.py``:</span>
 
 <span class="sd">           - Add the class name string to ``ALLOWED_TENSORS_SUBCLASSES``.</span>
-<span class="sd">           - Add a ``&quot;ClassName&quot;: ClassName`` entry to ``ALLOWED_CLASSES``.</span>
+<span class="sd">           - Add a ``"ClassName": ClassName`` entry to ``ALLOWED_CLASSES``.</span>
 <span class="sd">           - If the subclass has non-Tensor attributes with custom types (dataclasses, enums,</span>
 <span class="sd">             named tuples), add those types to ``ALLOWED_CLASSES`` as well.</span>
 
@@ -2229,10 +2229,10 @@ document.write(`
 <span class="sd">    Examples::</span>
 
 <span class="sd">        class MyTensor(TorchAOBaseTensor):</span>
-<span class="sd">            tensor_data_names = [&quot;a&quot;, &quot;b&quot;]</span>
-<span class="sd">            tensor_attribute_names = [&quot;c&quot;, &quot;d&quot;]</span>
-<span class="sd">            optional_tensor_data_names = [&quot;e&quot;, &quot;f&quot;]</span>
-<span class="sd">            optional_tensor_attribute_names = [&quot;g&quot;, &quot;h&quot;]</span>
+<span class="sd">            tensor_data_names = ["a", "b"]</span>
+<span class="sd">            tensor_attribute_names = ["c", "d"]</span>
+<span class="sd">            optional_tensor_data_names = ["e", "f"]</span>
+<span class="sd">            optional_tensor_attribute_names = ["g", "h"]</span>
 
 
 <span class="sd">            def __new__(</span>
@@ -2261,13 +2261,13 @@ document.write(`
 <span class="sd">            ):</span>
 <span class="sd">                pass</span>
 
-<span class="sd">    &quot;&quot;&quot;</span>
+<span class="sd">    """</span>
 
     <span class="nd">@classmethod</span>
     <span class="k">def</span><span class="w"> </span><span class="nf">__init_subclass__</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
-        <span class="k">if</span> <span class="s2">&quot;_ATEN_OP_TABLE&quot;</span> <span class="ow">not</span> <span class="ow">in</span> <span class="bp">cls</span><span class="o">.</span><span class="vm">__dict__</span><span class="p">:</span>
+        <span class="k">if</span> <span class="s2">"_ATEN_OP_TABLE"</span> <span class="ow">not</span> <span class="ow">in</span> <span class="bp">cls</span><span class="o">.</span><span class="vm">__dict__</span><span class="p">:</span>
             <span class="bp">cls</span><span class="o">.</span><span class="n">_ATEN_OP_TABLE</span> <span class="o">=</span> <span class="p">{}</span>
-        <span class="k">if</span> <span class="s2">&quot;_TORCH_FN_TABLE&quot;</span> <span class="ow">not</span> <span class="ow">in</span> <span class="bp">cls</span><span class="o">.</span><span class="vm">__dict__</span><span class="p">:</span>
+        <span class="k">if</span> <span class="s2">"_TORCH_FN_TABLE"</span> <span class="ow">not</span> <span class="ow">in</span> <span class="bp">cls</span><span class="o">.</span><span class="vm">__dict__</span><span class="p">:</span>
             <span class="bp">cls</span><span class="o">.</span><span class="n">_TORCH_FN_TABLE</span> <span class="o">=</span> <span class="p">{}</span>
         <span class="k">if</span> <span class="bp">cls</span> <span class="ow">not</span> <span class="ow">in</span> <span class="bp">cls</span><span class="o">.</span><span class="n">_ATEN_OP_TABLE</span><span class="p">:</span>
             <span class="bp">cls</span><span class="o">.</span><span class="n">_ATEN_OP_TABLE</span><span class="p">[</span><span class="bp">cls</span><span class="p">]</span> <span class="o">=</span> <span class="p">{}</span>
@@ -2276,19 +2276,19 @@ document.write(`
 
         <span class="c1"># define the common ops and __set_state__ for BC</span>
         <span class="c1"># if the tensor_data_names and tensor_attribute_names are defined</span>
-        <span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="s2">&quot;tensor_data_names&quot;</span><span class="p">)</span> <span class="ow">and</span> <span class="nb">hasattr</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="s2">&quot;tensor_attribute_names&quot;</span><span class="p">):</span>
+        <span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="s2">"tensor_data_names"</span><span class="p">)</span> <span class="ow">and</span> <span class="nb">hasattr</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="s2">"tensor_attribute_names"</span><span class="p">):</span>
             <span class="bp">cls</span><span class="o">.</span><span class="n">_implements_common_tensor_ops</span><span class="p">()</span>
             <span class="bp">cls</span><span class="o">.</span><span class="n">__setstate__</span> <span class="o">=</span> <span class="n">_torchao_base_tensor__setstate__</span>
 
         <span class="c1"># inherit the torch function and dispatch implementations from direct parent classes</span>
         <span class="c1"># e.g. for `class C(B, A)`, C.__bases__ == (B, A)</span>
         <span class="k">for</span> <span class="n">parent</span> <span class="ow">in</span> <span class="bp">cls</span><span class="o">.</span><span class="vm">__bases__</span><span class="p">:</span>
-            <span class="n">parent_aten_table</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">parent</span><span class="p">,</span> <span class="s2">&quot;_ATEN_OP_TABLE&quot;</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span>
+            <span class="n">parent_aten_table</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">parent</span><span class="p">,</span> <span class="s2">"_ATEN_OP_TABLE"</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span>
             <span class="k">if</span> <span class="n">parent_aten_table</span> <span class="ow">and</span> <span class="n">parent</span> <span class="ow">in</span> <span class="n">parent_aten_table</span><span class="p">:</span>
-                <span class="c1"># shallow-copy parent&#39;s per-class op mapping into child&#39;s per-class mapping</span>
+                <span class="c1"># shallow-copy parent's per-class op mapping into child's per-class mapping</span>
                 <span class="bp">cls</span><span class="o">.</span><span class="n">_ATEN_OP_TABLE</span><span class="p">[</span><span class="bp">cls</span><span class="p">]</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="n">parent_aten_table</span><span class="p">[</span><span class="n">parent</span><span class="p">])</span>
 
-            <span class="n">parent_torch_table</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">parent</span><span class="p">,</span> <span class="s2">&quot;_TORCH_FN_TABLE&quot;</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span>
+            <span class="n">parent_torch_table</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">parent</span><span class="p">,</span> <span class="s2">"_TORCH_FN_TABLE"</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span>
             <span class="k">if</span> <span class="n">parent_torch_table</span> <span class="ow">and</span> <span class="n">parent</span> <span class="ow">in</span> <span class="n">parent_torch_table</span><span class="p">:</span>
                 <span class="bp">cls</span><span class="o">.</span><span class="n">_TORCH_FN_TABLE</span><span class="p">[</span><span class="bp">cls</span><span class="p">]</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="n">parent_torch_table</span><span class="p">[</span><span class="n">parent</span><span class="p">])</span>
 
@@ -2303,11 +2303,11 @@ document.write(`
         <span class="n">torch</span><span class="o">.</span><span class="n">_C</span><span class="o">.</span><span class="n">_log_api_usage_once</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="nb">type</span><span class="p">(</span><span class="bp">self</span><span class="p">)))</span>
 
     <span class="k">def</span><span class="w"> </span><span class="nf">__tensor_flatten__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
-        <span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="s2">&quot;tensor_data_names&quot;</span><span class="p">)</span> <span class="ow">and</span> <span class="nb">hasattr</span><span class="p">(</span>
-            <span class="bp">self</span><span class="p">,</span> <span class="s2">&quot;tensor_attribute_names&quot;</span>
+        <span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="s2">"tensor_data_names"</span><span class="p">)</span> <span class="ow">and</span> <span class="nb">hasattr</span><span class="p">(</span>
+            <span class="bp">self</span><span class="p">,</span> <span class="s2">"tensor_attribute_names"</span>
         <span class="p">):</span>
             <span class="n">tensor_data_names</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">tensor_data_names</span><span class="o">.</span><span class="n">copy</span><span class="p">()</span>
-            <span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="s2">&quot;optional_tensor_data_names&quot;</span><span class="p">):</span>
+            <span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="s2">"optional_tensor_data_names"</span><span class="p">):</span>
                 <span class="k">for</span> <span class="n">tensor_data_name</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">optional_tensor_data_names</span><span class="p">:</span>
                     <span class="n">maybe_tensor</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">tensor_data_name</span><span class="p">)</span>
                     <span class="k">if</span> <span class="n">maybe_tensor</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
@@ -2316,7 +2316,7 @@ document.write(`
             <span class="n">attr_dict</span> <span class="o">=</span> <span class="p">{</span>
                 <span class="n">attr</span><span class="p">:</span> <span class="nb">getattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">attr</span><span class="p">)</span> <span class="k">for</span> <span class="n">attr</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">tensor_attribute_names</span>
             <span class="p">}</span>
-            <span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="s2">&quot;optional_tensor_attribute_names&quot;</span><span class="p">):</span>
+            <span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="s2">"optional_tensor_attribute_names"</span><span class="p">):</span>
                 <span class="n">attr_dict</span> <span class="o">=</span> <span class="n">attr_dict</span> <span class="o">|</span> <span class="p">{</span>
                     <span class="n">attr</span><span class="p">:</span> <span class="nb">getattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">attr</span><span class="p">)</span>
                     <span class="k">for</span> <span class="n">attr</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">optional_tensor_attribute_names</span>
@@ -2325,19 +2325,19 @@ document.write(`
             <span class="k">return</span> <span class="n">tensor_data_names</span><span class="p">,</span> <span class="n">attr_dict</span>
 
         <span class="k">raise</span> <span class="ne">NotImplementedError</span><span class="p">(</span>
-            <span class="s2">&quot;Subclasses should implement __tensor_flatten__ or specify `tensor_data_names` and `tensor_attribute_names` for tensor class before using it&quot;</span>
+            <span class="s2">"Subclasses should implement __tensor_flatten__ or specify `tensor_data_names` and `tensor_attribute_names` for tensor class before using it"</span>
         <span class="p">)</span>
 
     <span class="nd">@classmethod</span>
     <span class="k">def</span><span class="w"> </span><span class="nf">__tensor_unflatten__</span><span class="p">(</span>
         <span class="bp">cls</span><span class="p">,</span> <span class="n">tensor_data_dict</span><span class="p">,</span> <span class="n">tensor_attributes</span><span class="p">,</span> <span class="n">outer_size</span><span class="p">,</span> <span class="n">outer_stride</span>
     <span class="p">):</span>
-        <span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="s2">&quot;tensor_data_names&quot;</span><span class="p">)</span> <span class="ow">and</span> <span class="nb">hasattr</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="s2">&quot;tensor_attribute_names&quot;</span><span class="p">):</span>
+        <span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="s2">"tensor_data_names"</span><span class="p">)</span> <span class="ow">and</span> <span class="nb">hasattr</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="s2">"tensor_attribute_names"</span><span class="p">):</span>
             <span class="n">required_tensors</span> <span class="o">=</span> <span class="p">[</span>
                 <span class="n">tensor_data_dict</span><span class="p">[</span><span class="n">name</span><span class="p">]</span> <span class="k">for</span> <span class="n">name</span> <span class="ow">in</span> <span class="bp">cls</span><span class="o">.</span><span class="n">tensor_data_names</span>
             <span class="p">]</span>
             <span class="n">optional_tensor_dict</span> <span class="o">=</span> <span class="p">{}</span>
-            <span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="s2">&quot;optional_tensor_data_names&quot;</span><span class="p">):</span>
+            <span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="s2">"optional_tensor_data_names"</span><span class="p">):</span>
                 <span class="n">optional_tensor_dict</span> <span class="o">=</span> <span class="p">{</span>
                     <span class="n">tensor_data_name</span><span class="p">:</span> <span class="n">tensor_data_dict</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">tensor_data_name</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span>
                     <span class="k">for</span> <span class="n">tensor_data_name</span> <span class="ow">in</span> <span class="bp">cls</span><span class="o">.</span><span class="n">optional_tensor_data_names</span>
@@ -2347,7 +2347,7 @@ document.write(`
                 <span class="n">tensor_attributes</span><span class="p">[</span><span class="n">name</span><span class="p">]</span> <span class="k">for</span> <span class="n">name</span> <span class="ow">in</span> <span class="bp">cls</span><span class="o">.</span><span class="n">tensor_attribute_names</span>
             <span class="p">]</span>
             <span class="n">optional_attribute_dict</span> <span class="o">=</span> <span class="p">{}</span>
-            <span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="s2">&quot;optional_tensor_attribute_names&quot;</span><span class="p">):</span>
+            <span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="s2">"optional_tensor_attribute_names"</span><span class="p">):</span>
                 <span class="n">optional_attribute_dict</span> <span class="o">=</span> <span class="p">{</span>
                     <span class="n">name</span><span class="p">:</span> <span class="n">tensor_attributes</span><span class="p">[</span><span class="n">name</span><span class="p">]</span>
                     <span class="k">for</span> <span class="n">name</span> <span class="ow">in</span> <span class="bp">cls</span><span class="o">.</span><span class="n">optional_tensor_attribute_names</span>
@@ -2361,18 +2361,18 @@ document.write(`
             <span class="p">)</span>
 
         <span class="k">raise</span> <span class="ne">NotImplementedError</span><span class="p">(</span>
-            <span class="s2">&quot;Subclasses should implement __tensor_unflatten__ or specify `tensor_data_names` and `tensor_attribute_names` for tensor class before using it&quot;</span>
+            <span class="s2">"Subclasses should implement __tensor_unflatten__ or specify `tensor_data_names` and `tensor_attribute_names` for tensor class before using it"</span>
         <span class="p">)</span>
 
     <span class="k">def</span><span class="w"> </span><span class="nf">_apply_fn_to_data</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">fn</span><span class="p">):</span>
-        <span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="s2">&quot;tensor_data_names&quot;</span><span class="p">)</span> <span class="ow">and</span> <span class="nb">hasattr</span><span class="p">(</span>
-            <span class="bp">self</span><span class="p">,</span> <span class="s2">&quot;tensor_attribute_names&quot;</span>
+        <span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="s2">"tensor_data_names"</span><span class="p">)</span> <span class="ow">and</span> <span class="nb">hasattr</span><span class="p">(</span>
+            <span class="bp">self</span><span class="p">,</span> <span class="s2">"tensor_attribute_names"</span>
         <span class="p">):</span>
             <span class="n">required_tensors</span> <span class="o">=</span> <span class="p">[</span>
                 <span class="n">fn</span><span class="p">(</span><span class="nb">getattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">attr</span><span class="p">))</span> <span class="k">for</span> <span class="n">attr</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">tensor_data_names</span>
             <span class="p">]</span>
             <span class="n">optional_tensor_dict</span> <span class="o">=</span> <span class="p">{}</span>
-            <span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="s2">&quot;optional_tensor_data_names&quot;</span><span class="p">):</span>
+            <span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="s2">"optional_tensor_data_names"</span><span class="p">):</span>
                 <span class="k">for</span> <span class="n">tensor_data_name</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">optional_tensor_data_names</span><span class="p">:</span>
                     <span class="n">maybe_tensor</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">tensor_data_name</span><span class="p">)</span>
                     <span class="k">if</span> <span class="n">maybe_tensor</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
@@ -2384,7 +2384,7 @@ document.write(`
                 <span class="nb">getattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">attr</span><span class="p">)</span> <span class="k">for</span> <span class="n">attr</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">tensor_attribute_names</span>
             <span class="p">]</span>
             <span class="n">optional_attribute_dict</span> <span class="o">=</span> <span class="p">{}</span>
-            <span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="s2">&quot;optional_tensor_attribute_names&quot;</span><span class="p">):</span>
+            <span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="s2">"optional_tensor_attribute_names"</span><span class="p">):</span>
                 <span class="n">optional_attribute_dict</span> <span class="o">=</span> <span class="p">{</span>
                     <span class="n">attr_name</span><span class="p">:</span> <span class="nb">getattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">attr_name</span><span class="p">)</span>
                     <span class="k">for</span> <span class="n">attr_name</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">optional_tensor_attribute_names</span>
@@ -2398,55 +2398,55 @@ document.write(`
             <span class="p">)</span>
 
         <span class="k">raise</span> <span class="ne">NotImplementedError</span><span class="p">(</span>
-            <span class="s2">&quot;Subclasses should implement _apply_fn_to_data or specify `tensor_data_names` and `tensor_attribute_names` for tensor class or tensor instance before using it&quot;</span>
+            <span class="s2">"Subclasses should implement _apply_fn_to_data or specify `tensor_data_names` and `tensor_attribute_names` for tensor class or tensor instance before using it"</span>
         <span class="p">)</span>
 
     <span class="k">def</span><span class="w"> </span><span class="fm">__repr__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
-        <span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="s2">&quot;tensor_data_names&quot;</span><span class="p">)</span> <span class="ow">and</span> <span class="nb">hasattr</span><span class="p">(</span>
-            <span class="bp">self</span><span class="p">,</span> <span class="s2">&quot;tensor_attribute_names&quot;</span>
+        <span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="s2">"tensor_data_names"</span><span class="p">)</span> <span class="ow">and</span> <span class="nb">hasattr</span><span class="p">(</span>
+            <span class="bp">self</span><span class="p">,</span> <span class="s2">"tensor_attribute_names"</span>
         <span class="p">):</span>
-            <span class="n">repr_str</span> <span class="o">=</span> <span class="s2">&quot;&quot;</span>
+            <span class="n">repr_str</span> <span class="o">=</span> <span class="s2">""</span>
             <span class="c1"># required tensor data</span>
-            <span class="n">repr_str</span> <span class="o">+=</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">tensor_data_names</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="si">}</span><span class="s2">=</span><span class="si">{</span><span class="nb">getattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="bp">self</span><span class="o">.</span><span class="n">tensor_data_names</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span><span class="si">}</span><span class="s2">&quot;</span>
+            <span class="n">repr_str</span> <span class="o">+=</span> <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">tensor_data_names</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="si">}</span><span class="s2">=</span><span class="si">{</span><span class="nb">getattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="bp">self</span><span class="o">.</span><span class="n">tensor_data_names</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span><span class="si">}</span><span class="s2">"</span>
             <span class="k">for</span> <span class="n">tensor_data_name</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">tensor_data_names</span><span class="p">[</span><span class="mi">1</span><span class="p">:]:</span>
-                <span class="n">repr_str</span> <span class="o">+=</span> <span class="sa">f</span><span class="s2">&quot;, </span><span class="si">{</span><span class="n">tensor_data_name</span><span class="si">}</span><span class="s2">=</span><span class="si">{</span><span class="nb">getattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">tensor_data_name</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span>
+                <span class="n">repr_str</span> <span class="o">+=</span> <span class="sa">f</span><span class="s2">", </span><span class="si">{</span><span class="n">tensor_data_name</span><span class="si">}</span><span class="s2">=</span><span class="si">{</span><span class="nb">getattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">tensor_data_name</span><span class="p">)</span><span class="si">}</span><span class="s2">"</span>
 
             <span class="c1"># required attributes</span>
             <span class="k">for</span> <span class="n">tensor_attribute_name</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">tensor_attribute_names</span><span class="p">:</span>
                 <span class="n">repr_str</span> <span class="o">+=</span> <span class="p">(</span>
-                    <span class="sa">f</span><span class="s2">&quot;, </span><span class="si">{</span><span class="n">tensor_attribute_name</span><span class="si">}</span><span class="s2">=</span><span class="si">{</span><span class="nb">getattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">tensor_attribute_name</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span>
+                    <span class="sa">f</span><span class="s2">", </span><span class="si">{</span><span class="n">tensor_attribute_name</span><span class="si">}</span><span class="s2">=</span><span class="si">{</span><span class="nb">getattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">tensor_attribute_name</span><span class="p">)</span><span class="si">}</span><span class="s2">"</span>
                 <span class="p">)</span>
 
             <span class="c1"># optional tensor data</span>
-            <span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="s2">&quot;optional_tensor_data_names&quot;</span><span class="p">):</span>
+            <span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="s2">"optional_tensor_data_names"</span><span class="p">):</span>
                 <span class="k">for</span> <span class="n">tensor_data_name</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">optional_tensor_data_names</span><span class="p">:</span>
                     <span class="n">repr_str</span> <span class="o">+=</span> <span class="p">(</span>
-                        <span class="sa">f</span><span class="s2">&quot;, </span><span class="si">{</span><span class="n">tensor_data_name</span><span class="si">}</span><span class="s2">=</span><span class="si">{</span><span class="nb">getattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">tensor_data_name</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span>
+                        <span class="sa">f</span><span class="s2">", </span><span class="si">{</span><span class="n">tensor_data_name</span><span class="si">}</span><span class="s2">=</span><span class="si">{</span><span class="nb">getattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">tensor_data_name</span><span class="p">)</span><span class="si">}</span><span class="s2">"</span>
                     <span class="p">)</span>
 
             <span class="c1"># optional tensor attributes</span>
-            <span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="s2">&quot;optional_tensor_attribute_names&quot;</span><span class="p">):</span>
+            <span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="s2">"optional_tensor_attribute_names"</span><span class="p">):</span>
                 <span class="k">for</span> <span class="n">tensor_attribute_name</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">optional_tensor_attribute_names</span><span class="p">:</span>
-                    <span class="n">repr_str</span> <span class="o">+=</span> <span class="sa">f</span><span class="s2">&quot;, </span><span class="si">{</span><span class="n">tensor_attribute_name</span><span class="si">}</span><span class="s2">=</span><span class="si">{</span><span class="nb">getattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">tensor_attribute_name</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span>
+                    <span class="n">repr_str</span> <span class="o">+=</span> <span class="sa">f</span><span class="s2">", </span><span class="si">{</span><span class="n">tensor_attribute_name</span><span class="si">}</span><span class="s2">=</span><span class="si">{</span><span class="nb">getattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">tensor_attribute_name</span><span class="p">)</span><span class="si">}</span><span class="s2">"</span>
 
-            <span class="k">return</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="vm">__class__</span><span class="o">.</span><span class="vm">__name__</span><span class="si">}</span><span class="s2">(</span><span class="si">{</span><span class="n">repr_str</span><span class="si">}</span><span class="s2">)&quot;</span>
+            <span class="k">return</span> <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="vm">__class__</span><span class="o">.</span><span class="vm">__name__</span><span class="si">}</span><span class="s2">(</span><span class="si">{</span><span class="n">repr_str</span><span class="si">}</span><span class="s2">)"</span>
 
         <span class="k">raise</span> <span class="ne">NotImplementedError</span><span class="p">(</span>
-            <span class="s2">&quot;Subclasses must implement __repr__ or specify `tensor_data_names` and `tensor_attribute_names` for tensor class or tensor instance before using it&quot;</span>
+            <span class="s2">"Subclasses must implement __repr__ or specify `tensor_data_names` and `tensor_attribute_names` for tensor class or tensor instance before using it"</span>
         <span class="p">)</span>
 
 <div class="viewcode-block" id="TorchAOBaseTensor.get_layout">
 <a class="viewcode-back" href="../../api_reference/generated/torchao.utils.TorchAOBaseTensor.html#torchao.utils.TorchAOBaseTensor.get_layout">[docs]</a>
     <span class="k">def</span><span class="w"> </span><span class="nf">get_layout</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
-<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="w">        </span><span class="sd">"""</span>
 <span class="sd">        .. deprecated:: 0.15.1</span>
-<span class="sd">           This method is deprecated as of version 0.15.1 since it&#39;s</span>
+<span class="sd">           This method is deprecated as of version 0.15.1 since it's</span>
 <span class="sd">           part of the older tensor subclass development stack,</span>
 <span class="sd">           for information about new dev stack, please check</span>
 <span class="sd">           https://docs.pytorch.org/ao/main/quantization_overview.html</span>
 <span class="sd">           and https://docs.pytorch.org/ao/main/contributor_guide.html</span>
-<span class="sd">        &quot;&quot;&quot;</span>
-        <span class="k">if</span> <span class="ow">not</span> <span class="nb">hasattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="s2">&quot;_layout&quot;</span><span class="p">):</span>
+<span class="sd">        """</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="nb">hasattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="s2">"_layout"</span><span class="p">):</span>
             <span class="k">return</span> <span class="kc">None</span>
         <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_layout</span></div>
 </div>
@@ -2454,8 +2454,8 @@ document.write(`
 
 
 <span class="k">def</span><span class="w"> </span><span class="nf">fill_defaults</span><span class="p">(</span><span class="n">args</span><span class="p">,</span> <span class="n">n</span><span class="p">,</span> <span class="n">defaults_tail</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
-<span class="sd">    __torch_dispatch__ doesn&#39;t guarantee the number of arguments you are</span>
+<span class="w">    </span><span class="sd">"""</span>
+<span class="sd">    __torch_dispatch__ doesn't guarantee the number of arguments you are</span>
 <span class="sd">    passed (e.g., defaulted arguments are not passed); but usually it is</span>
 <span class="sd">    convenient to pad out the arguments list with defaults.  This function</span>
 <span class="sd">    helps you do that.</span>
@@ -2469,9 +2469,9 @@ document.write(`
 <span class="sd">        [1, 2, 3, 4, 5]</span>
 <span class="sd">        &gt;&gt;&gt; fill_defaults([1, 2, 3], 5, [None, None, None])</span>
 <span class="sd">        [1, 2, 3, None, None]]</span>
-<span class="sd">    &quot;&quot;&quot;</span>
+<span class="sd">    """</span>
     <span class="k">if</span> <span class="n">n</span> <span class="o">-</span> <span class="nb">len</span><span class="p">(</span><span class="n">defaults_tail</span><span class="p">)</span> <span class="o">&gt;</span> <span class="nb">len</span><span class="p">(</span><span class="n">args</span><span class="p">):</span>
-        <span class="k">raise</span> <span class="ne">RuntimeError</span><span class="p">(</span><span class="s2">&quot;not enough defaults to fill arguments&quot;</span><span class="p">)</span>
+        <span class="k">raise</span> <span class="ne">RuntimeError</span><span class="p">(</span><span class="s2">"not enough defaults to fill arguments"</span><span class="p">)</span>
     <span class="n">r</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="n">args</span><span class="p">)</span>
     <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">args</span><span class="p">),</span> <span class="n">n</span><span class="p">):</span>
         <span class="n">r</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">defaults_tail</span><span class="p">[</span><span class="n">i</span> <span class="o">-</span> <span class="n">n</span> <span class="o">+</span> <span class="nb">len</span><span class="p">(</span><span class="n">defaults_tail</span><span class="p">)])</span>
@@ -2493,7 +2493,7 @@ document.write(`
 
 <span class="k">def</span><span class="w"> </span><span class="nf">is_MI300</span><span class="p">():</span>
     <span class="k">if</span> <span class="n">is_ROCM</span><span class="p">():</span>
-        <span class="n">mxArchName</span> <span class="o">=</span> <span class="p">[</span><span class="s2">&quot;gfx940&quot;</span><span class="p">,</span> <span class="s2">&quot;gfx941&quot;</span><span class="p">,</span> <span class="s2">&quot;gfx942&quot;</span><span class="p">]</span>
+        <span class="n">mxArchName</span> <span class="o">=</span> <span class="p">[</span><span class="s2">"gfx940"</span><span class="p">,</span> <span class="s2">"gfx941"</span><span class="p">,</span> <span class="s2">"gfx942"</span><span class="p">]</span>
         <span class="n">archName</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">cuda</span><span class="o">.</span><span class="n">get_device_properties</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span><span class="o">.</span><span class="n">gcnArchName</span>
         <span class="k">for</span> <span class="n">arch</span> <span class="ow">in</span> <span class="n">mxArchName</span><span class="p">:</span>
             <span class="k">if</span> <span class="n">arch</span> <span class="ow">in</span> <span class="n">archName</span><span class="p">:</span>
@@ -2504,7 +2504,7 @@ document.write(`
 <span class="k">def</span><span class="w"> </span><span class="nf">is_MI350</span><span class="p">():</span>
     <span class="k">if</span> <span class="n">is_ROCM</span><span class="p">():</span>
         <span class="n">archName</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">cuda</span><span class="o">.</span><span class="n">get_device_properties</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span><span class="o">.</span><span class="n">gcnArchName</span>
-        <span class="k">if</span> <span class="s2">&quot;gfx950&quot;</span> <span class="ow">in</span> <span class="n">archName</span><span class="p">:</span>
+        <span class="k">if</span> <span class="s2">"gfx950"</span> <span class="ow">in</span> <span class="n">archName</span><span class="p">:</span>
             <span class="k">return</span> <span class="kc">True</span>
     <span class="k">return</span> <span class="kc">False</span>
 
@@ -2512,13 +2512,13 @@ document.write(`
 <span class="k">def</span><span class="w"> </span><span class="nf">is_Navi4</span><span class="p">():</span>
     <span class="k">if</span> <span class="n">is_ROCM</span><span class="p">():</span>
         <span class="n">archName</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">cuda</span><span class="o">.</span><span class="n">get_device_properties</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span><span class="o">.</span><span class="n">gcnArchName</span>
-        <span class="k">if</span> <span class="s2">&quot;gfx1200&quot;</span> <span class="ow">or</span> <span class="s2">&quot;gfx1201&quot;</span> <span class="ow">in</span> <span class="n">archName</span><span class="p">:</span>
+        <span class="k">if</span> <span class="s2">"gfx1200"</span> <span class="ow">or</span> <span class="s2">"gfx1201"</span> <span class="ow">in</span> <span class="n">archName</span><span class="p">:</span>
             <span class="k">return</span> <span class="kc">True</span>
     <span class="k">return</span> <span class="kc">False</span>
 
 
 <span class="k">def</span><span class="w"> </span><span class="nf">is_sm_version</span><span class="p">(</span><span class="n">major</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">minor</span><span class="p">:</span> <span class="nb">int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Check if the CUDA version is exactly major.minor&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">"""Check if the CUDA version is exactly major.minor"""</span>
     <span class="n">is_cuda</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">cuda</span><span class="o">.</span><span class="n">is_available</span><span class="p">()</span> <span class="ow">and</span> <span class="n">torch</span><span class="o">.</span><span class="n">version</span><span class="o">.</span><span class="n">cuda</span>
     <span class="k">return</span> <span class="n">torch</span><span class="o">.</span><span class="n">cuda</span><span class="o">.</span><span class="n">get_device_capability</span><span class="p">()</span> <span class="o">==</span> <span class="p">(</span><span class="n">major</span><span class="p">,</span> <span class="n">minor</span><span class="p">)</span> <span class="k">if</span> <span class="n">is_cuda</span> <span class="k">else</span> <span class="kc">False</span>
 
@@ -2554,42 +2554,42 @@ document.write(`
     <span class="n">cuda_version</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">version</span><span class="o">.</span><span class="n">cuda</span>
     <span class="k">if</span> <span class="n">cuda_version</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
         <span class="k">return</span> <span class="kc">False</span>
-    <span class="n">cuda_major</span><span class="p">,</span> <span class="n">cuda_minor</span> <span class="o">=</span> <span class="nb">map</span><span class="p">(</span><span class="nb">int</span><span class="p">,</span> <span class="n">cuda_version</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s2">&quot;.&quot;</span><span class="p">)[:</span><span class="mi">2</span><span class="p">])</span>
+    <span class="n">cuda_major</span><span class="p">,</span> <span class="n">cuda_minor</span> <span class="o">=</span> <span class="nb">map</span><span class="p">(</span><span class="nb">int</span><span class="p">,</span> <span class="n">cuda_version</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s2">"."</span><span class="p">)[:</span><span class="mi">2</span><span class="p">])</span>
     <span class="k">return</span> <span class="p">(</span><span class="n">cuda_major</span><span class="p">,</span> <span class="n">cuda_minor</span><span class="p">)</span> <span class="o">&gt;=</span> <span class="p">(</span><span class="n">major</span><span class="p">,</span> <span class="n">minor</span><span class="p">)</span>
 
 
 <span class="k">def</span><span class="w"> </span><span class="nf">_cpu_is_amx_tile_supported</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">"""</span>
 <span class="sd">    Safely query AMX tile support, guarding against private API absence.</span>
 <span class="sd">    torch.cpu._is_amx_tile_supported / torch._C._cpu._is_amx_tile_supported are</span>
 <span class="sd">    private and may be missing in certain PyTorch builds or versions.</span>
-<span class="sd">    &quot;&quot;&quot;</span>
-    <span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">_C</span><span class="o">.</span><span class="n">_cpu</span><span class="p">,</span> <span class="s2">&quot;_is_amx_tile_supported&quot;</span><span class="p">):</span>
+<span class="sd">    """</span>
+    <span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">_C</span><span class="o">.</span><span class="n">_cpu</span><span class="p">,</span> <span class="s2">"_is_amx_tile_supported"</span><span class="p">):</span>
         <span class="k">return</span> <span class="n">torch</span><span class="o">.</span><span class="n">_C</span><span class="o">.</span><span class="n">_cpu</span><span class="o">.</span><span class="n">_is_amx_tile_supported</span><span class="p">()</span>
-    <span class="k">elif</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">cpu</span><span class="p">,</span> <span class="s2">&quot;_is_amx_tile_supported&quot;</span><span class="p">):</span>
+    <span class="k">elif</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">cpu</span><span class="p">,</span> <span class="s2">"_is_amx_tile_supported"</span><span class="p">):</span>
         <span class="k">return</span> <span class="n">torch</span><span class="o">.</span><span class="n">cpu</span><span class="o">.</span><span class="n">_is_amx_tile_supported</span><span class="p">()</span>
     <span class="k">return</span> <span class="kc">False</span>
 
 
 <span class="k">def</span><span class="w"> </span><span class="nf">_cpu_is_vnni_supported</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">"""</span>
 <span class="sd">    Safely query AVX512_VNNI support, guarding against private API absence.</span>
 <span class="sd">    torch.cpu._is_vnni_supported / torch._C._cpu._is_vnni_supported are</span>
 <span class="sd">    private and may be missing in certain PyTorch builds or versions.</span>
-<span class="sd">    &quot;&quot;&quot;</span>
-    <span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">_C</span><span class="o">.</span><span class="n">_cpu</span><span class="p">,</span> <span class="s2">&quot;_is_vnni_supported&quot;</span><span class="p">):</span>
+<span class="sd">    """</span>
+    <span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">_C</span><span class="o">.</span><span class="n">_cpu</span><span class="p">,</span> <span class="s2">"_is_vnni_supported"</span><span class="p">):</span>
         <span class="k">return</span> <span class="n">torch</span><span class="o">.</span><span class="n">_C</span><span class="o">.</span><span class="n">_cpu</span><span class="o">.</span><span class="n">_is_vnni_supported</span><span class="p">()</span>
-    <span class="k">elif</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">cpu</span><span class="p">,</span> <span class="s2">&quot;_is_vnni_supported&quot;</span><span class="p">):</span>
+    <span class="k">elif</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">cpu</span><span class="p">,</span> <span class="s2">"_is_vnni_supported"</span><span class="p">):</span>
         <span class="k">return</span> <span class="n">torch</span><span class="o">.</span><span class="n">cpu</span><span class="o">.</span><span class="n">_is_vnni_supported</span><span class="p">()</span>
     <span class="k">return</span> <span class="kc">False</span>
 
 
 <span class="k">def</span><span class="w"> </span><span class="nf">should_reduce_range</span><span class="p">(</span><span class="n">device</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">device</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">"""</span>
 <span class="sd">    Helper to determine if int8 tensor quantization range should be reduced</span>
 <span class="sd">    to avoid overflow on CPUs without VNNI support.</span>
-<span class="sd">    &quot;&quot;&quot;</span>
-    <span class="k">return</span> <span class="n">device</span><span class="o">.</span><span class="n">type</span> <span class="o">==</span> <span class="s2">&quot;cpu&quot;</span> <span class="ow">and</span> <span class="ow">not</span> <span class="n">_cpu_is_vnni_supported</span><span class="p">()</span>
+<span class="sd">    """</span>
+    <span class="k">return</span> <span class="n">device</span><span class="o">.</span><span class="n">type</span> <span class="o">==</span> <span class="s2">"cpu"</span> <span class="ow">and</span> <span class="ow">not</span> <span class="n">_cpu_is_vnni_supported</span><span class="p">()</span>
 
 
 <span class="k">def</span><span class="w"> </span><span class="nf">ceil_div</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">b</span><span class="p">):</span>
@@ -2609,7 +2609,7 @@ document.write(`
 
 
 <span class="k">def</span><span class="w"> </span><span class="nf">_is_mslk_available</span><span class="p">():</span>
-    <span class="n">has_mslk</span> <span class="o">=</span> <span class="n">importlib</span><span class="o">.</span><span class="n">util</span><span class="o">.</span><span class="n">find_spec</span><span class="p">(</span><span class="s2">&quot;mslk&quot;</span><span class="p">)</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">or</span> <span class="n">is_fbcode</span><span class="p">()</span>
+    <span class="n">has_mslk</span> <span class="o">=</span> <span class="n">importlib</span><span class="o">.</span><span class="n">util</span><span class="o">.</span><span class="n">find_spec</span><span class="p">(</span><span class="s2">"mslk"</span><span class="p">)</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">or</span> <span class="n">is_fbcode</span><span class="p">()</span>
     <span class="k">if</span> <span class="ow">not</span> <span class="n">has_mslk</span><span class="p">:</span>
         <span class="k">return</span> <span class="kc">False</span>
 
@@ -2629,18 +2629,18 @@ document.write(`
 <span class="k">def</span><span class="w"> </span><span class="nf">_is_flashinfer_available</span><span class="p">():</span>
     <span class="k">return</span> <span class="p">(</span>
         <span class="c1"># flashinfer-python</span>
-        <span class="n">importlib</span><span class="o">.</span><span class="n">util</span><span class="o">.</span><span class="n">find_spec</span><span class="p">(</span><span class="s2">&quot;flashinfer&quot;</span><span class="p">)</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span>
+        <span class="n">importlib</span><span class="o">.</span><span class="n">util</span><span class="o">.</span><span class="n">find_spec</span><span class="p">(</span><span class="s2">"flashinfer"</span><span class="p">)</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span>
         <span class="c1"># apache-tvm-ffi</span>
-        <span class="ow">and</span> <span class="n">importlib</span><span class="o">.</span><span class="n">util</span><span class="o">.</span><span class="n">find_spec</span><span class="p">(</span><span class="s2">&quot;tvm_ffi&quot;</span><span class="p">)</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span>
+        <span class="ow">and</span> <span class="n">importlib</span><span class="o">.</span><span class="n">util</span><span class="o">.</span><span class="n">find_spec</span><span class="p">(</span><span class="s2">"tvm_ffi"</span><span class="p">)</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span>
         <span class="c1"># nvidia-ml-py</span>
-        <span class="ow">and</span> <span class="n">importlib</span><span class="o">.</span><span class="n">util</span><span class="o">.</span><span class="n">find_spec</span><span class="p">(</span><span class="s2">&quot;pynvml&quot;</span><span class="p">)</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span>
+        <span class="ow">and</span> <span class="n">importlib</span><span class="o">.</span><span class="n">util</span><span class="o">.</span><span class="n">find_spec</span><span class="p">(</span><span class="s2">"pynvml"</span><span class="p">)</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span>
     <span class="p">)</span> <span class="ow">or</span> <span class="n">is_fbcode</span><span class="p">()</span>
 
 
 <span class="k">class</span><span class="w"> </span><span class="nc">DummyModule</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;This is used because the TorchAO quantization functions tend to operate on modules so to apply the transform to a tensor, we can load a</span>
+<span class="w">    </span><span class="sd">"""This is used because the TorchAO quantization functions tend to operate on modules so to apply the transform to a tensor, we can load a</span>
 <span class="sd">    DummyModule with the target tensor and then apply the transformation to the module and then extract the transformed tensor.</span>
-<span class="sd">    &quot;&quot;&quot;</span>
+<span class="sd">    """</span>
 
     <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">weight</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span> <span class="n">bias</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">):</span>
         <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">()</span>
