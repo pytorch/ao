@@ -16,30 +16,21 @@ Three physically fused kernels, one launch each:
 * ``launch_grouped_gemm_wgrad``       -- generic ragged-K grouped weight
   gradient, BF16 output; called once for FC1 and once for FC2.
 
-They share one blockscaled tcgen05 mainloop. Three structural decisions, all
+They share one blockscaled tcgen05 mainloop. Three structural invariants, all
 descending from every per-expert row count being a multiple of 128:
 
-*No per-group tensormaps.* Every operand is one host-built static TMA
-descriptor over the whole tensor. Per-expert selection is an integer
-coordinate: an L coordinate for the 3-D weight operands, and a K-tile index
-base for the wgrad kernel's ragged contraction. The latter is plain layout
-algebra: the scale-factor tensor is retiled with
-``blockscaled_utils.tile_atom_to_shape_SF``, whose K-tile mode is uniform by
-construction, so slicing the partitioned tensor at ``k_base + i`` addresses
-expert data exactly, with no per-expert descriptor rebuilds.
-
-*No tile scheduler.* With the ragged axis tile-aligned, the forward/backward
-kernels enumerate all of ``[0, R/128)`` M tiles and the wgrad grid
-``(N/128, K/128, G)`` is fully static; only wgrad's K-loop trip count is
-data-dependent.
-
-*The inactive tail needs no special code path.* A tile whose row base is at or
-past the active row count runs with ``k_cnt == 0``: no TMA loads are issued,
-the accumulator fragment is zeroed in registers, and the unmodified epilogue
-emits the zero bytes the contract requires. Epilogue *stores* are never
-predicated; the one epilogue-side gmem *input* (the backward kernel's saved
-``z_bf16``) is loaded only when ``k_cnt > 0`` because tail rows of that tensor
-are read-forbidden.
+* No per-group tensormaps: one host-built static TMA descriptor per operand;
+  per-expert selection is an integer coordinate (an L coordinate for the 3-D
+  weights, a K-tile index base for wgrad's ragged contraction -- exact
+  because ``tile_atom_to_shape_SF``'s K-tile mode is uniform).
+* No tile scheduler: forward/backward enumerate all ``[0, R/128)`` M tiles
+  and the wgrad grid ``(N/128, K/128, G)`` is fully static; only wgrad's
+  K-loop trip count is data-dependent.
+* No special tail path: an inactive tile runs with ``k_cnt == 0`` -- no TMA
+  loads, a register-zeroed accumulator, and the unmodified epilogue emits the
+  zero bytes the contract requires. Stores are never predicated; the one
+  epilogue-side gmem input (the backward kernel's saved ``z_bf16``) is loaded
+  only when ``k_cnt > 0`` because its tail rows are read-forbidden.
 
 Offset contract (documented caller invariants -- the offset VALUES live on
 device and cannot be checked on the host without a synchronization): offsets
@@ -87,9 +78,7 @@ __all__ = [
     "launch_grouped_gemm_wgrad",
 ]
 
-# ---------------------------------------------------------------------------
-# Frozen configuration. One tiling, one pipeline shape, one warp assignment.
-# ---------------------------------------------------------------------------
+# --- Frozen configuration: one tiling, one pipeline shape, one warp assignment.
 
 # MXFP8 scaling block: 32 values share one E8M0 scale.
 _SF_VEC_SIZE = 32
@@ -144,29 +133,14 @@ class _KernelConfig:
     # Padded to an odd count so columnwise reads don't serialize on banks.
     epi_smem_cols: int
 
-    @property
-    def epi_tile(self):
-        return (_CTA_M, self.epi_n_acc)
-
-    @property
-    def num_epi_subtiles(self) -> int:
-        return _CTA_N // self.epi_n_acc
-
-    @property
-    def epi_smem_elems(self) -> int:
-        # A zero-size struct field would be degenerate; keep a tiny slab.
-        return max(_CTA_M * self.epi_smem_cols, 8)
-
 
 _SWIGLU_FWD_CONFIG = _KernelConfig(epi_n_acc=64, ragged_k=False, epi_smem_cols=33)
 _DSWIGLU_BWD_CONFIG = _KernelConfig(epi_n_acc=32, ragged_k=False, epi_smem_cols=65)
 _WGRAD_CONFIG = _KernelConfig(epi_n_acc=32, ragged_k=True, epi_smem_cols=0)
 
 
-# ---------------------------------------------------------------------------
-# Host-side operand views. Pure torch restrides into the (MN, K, L) GEMM
+# --- Host-side operand views: pure torch restrides into the (MN, K, L) GEMM
 # domain, K contiguous.
-# ---------------------------------------------------------------------------
 
 
 def activation_gemm_view(t: torch.Tensor) -> torch.Tensor:
@@ -198,75 +172,10 @@ class TileCoords:
     epilogue must store unconditionally.
     """
 
-    tile_m: Int32
-    tile_n: Int32
     expert: Int32
     row_base: Int32
     col_base: Int32
     k_cnt: Int32
-
-
-# ---------------------------------------------------------------------------
-# Mainloop building blocks (all public CuTe DSL API).
-# ---------------------------------------------------------------------------
-
-
-def _make_tiled_mma(a_dtype, b_dtype, sf_dtype):
-    """The one blockscaled tiled MMA, K-major on both operands, FP32 acc."""
-    return sm100_utils.make_blockscaled_trivial_tiled_mma(
-        a_dtype,
-        b_dtype,
-        tcgen05.OperandMajorMode.K,
-        tcgen05.OperandMajorMode.K,
-        sf_dtype,
-        _SF_VEC_SIZE,
-        tcgen05.CtaGroup.ONE,
-        (_CTA_M, _CTA_N),
-    )
-
-
-def _make_sf_gemm_tensor(flat_sf: cute.Tensor, mn: int, k: int, l: int):
-    """Retile a flat blocked E8M0 buffer into the GEMM-domain SF layout.
-
-    The buffer travels flat by ABI and may arrive as raw uint8, so the pointer
-    is recast: the MMA rejects a scale operand that is not E8M0.
-    ``tile_atom_to_shape_SF`` builds kernel IR, so this runs inside the trace.
-    """
-    return cute.make_tensor(
-        cute.recast_ptr(flat_sf.iterator, dtype=cutlass.Float8E8M0FNU),
-        blockscaled_utils.tile_atom_to_shape_SF((mn, k, l), _SF_VEC_SIZE),
-    )
-
-
-def _t2r_partition(tidx, tAcc_base: cute.Tensor, cfg):
-    """TMEM accumulator -> register handoff.
-
-    ``tTR_cAcc`` carries each register's ``(row, col)`` coordinate in the CTA
-    tile; every epilogue index below is derived from it rather than from a raw
-    register number or an assumed thread-to-row mapping, so the addressing is
-    correct by construction for whatever value order the copy atom uses.
-    ``elem_ty_d`` stays Float32: an 8-bit d type would steer
-    ``get_tmem_load_op`` into layouts shaped for a direct FP8 TMA store.
-    """
-    copy_atom_t2r = sm100_utils.get_tmem_load_op(
-        _MMA_TILER,
-        LayoutEnum.ROW_MAJOR,
-        Float32,
-        Float32,
-        cfg.epi_tile,
-        False,
-    )
-    tAcc_mn = tAcc_base[((None, None), 0, 0, 0)]
-    tAcc_epi = cute.flat_divide(tAcc_mn, cfg.epi_tile)
-    tiled_copy_t2r = tcgen05.make_tmem_copy(copy_atom_t2r, tAcc_epi[(None, None, 0, 0)])
-    thr_copy_t2r = tiled_copy_t2r.get_slice(tidx)
-    tTR_tAcc = thr_copy_t2r.partition_S(tAcc_epi)
-    cAcc_epi = cute.flat_divide(
-        cute.make_identity_tensor((_CTA_M, _CTA_N)), cfg.epi_tile
-    )
-    tTR_cAcc = thr_copy_t2r.partition_D(cAcc_epi)
-    tTR_rAcc = cute.make_rmem_tensor(tTR_cAcc[(None, None, None, 0, 0)].shape, Float32)
-    return tiled_copy_t2r, tTR_tAcc, tTR_rAcc, tTR_cAcc
 
 
 def _s2t_copy_and_partition(sSF: cute.Tensor, tSF: cute.Tensor):
@@ -290,21 +199,9 @@ def _s2t_copy_and_partition(sSF: cute.Tensor, tSF: cute.Tensor):
     return tiled_copy_s2t, tCsSF_s2t, tCtSF_s2t
 
 
-# ---------------------------------------------------------------------------
-# Quantization math. Public conversions only; every step mirrors the torchao
+# --- Quantization math: public conversions only; every step mirrors the torchao
 # reference (`to_mx(..., RCEIL)` + `to_blocked`) so the fused outputs are
 # byte-identical to the standalone quantizers on the same BF16 input.
-# ---------------------------------------------------------------------------
-
-
-@cute.jit
-def _sigmoid_f32(x: Float32) -> Float32:
-    """sigmoid(x) = 1 / (1 + exp(-x)), accurate mode.
-
-    Composed exactly like torch's float32 sigmoid (default-mode ``exp`` plus a
-    true divide); measured bit-identical to ``torch.sigmoid`` over 1e6 values.
-    """
-    return Float32(1.0) / (Float32(1.0) + cute.math.exp(Float32(0.0) - x))
 
 
 @cute.jit
@@ -352,10 +249,9 @@ def _quant_block_from_smem(
     sf_idx: Int32,
     COLWISE: cutlass.Constexpr,
 ):
-    """Quantize one 32-value MX block from the BF16 staging tile.
-
-    Reads ``sEpi[base_row, base_col + i]`` (rowwise) or
-    ``sEpi[base_row + i, base_col]`` (columnwise), then:
+    """Quantize one 32-value MX block read from the BF16 staging tile
+    (``sEpi[base_row, base_col + i]`` rowwise, ``sEpi[base_row + i, base_col]``
+    columnwise):
 
     * amax: NaN-propagating |max| chain, so a NaN element invalidates the
       block exactly like the torchao reference.
@@ -367,12 +263,10 @@ def _quant_block_from_smem(
       2^127; byte 255 gives a NaN reciprocal so every element of an
       invalidated block quantizes to the E4M3 NaN code.
     * qdata: one f32 multiply per element, then the public saturating-RNE
-      Float32 -> Float8E4M3FN conversion (byte-identical to torch's cast; no
-      explicit clamp -- saturation is part of the conversion's contract).
+      Float32 -> Float8E4M3FN conversion (byte-identical to torch's cast).
 
-    32 qdata bytes are one contiguous run of ``q_dst`` in both orientations
-    (row-major rowwise output; column-major columnwise output), stored
-    vectorized; the scale byte is stored individually at ``sf_idx``.
+    The 32 qdata bytes are one contiguous ``q_dst`` run in both orientations,
+    stored vectorized; the scale byte is stored individually at ``sf_idx``.
     """
     vals = []
     for i in cutlass.range_constexpr(_SF_VEC_SIZE):
@@ -432,11 +326,9 @@ def _epilogue_column_run(
     return first
 
 
-# ---------------------------------------------------------------------------
-# Epilogues. Called once per subtile by all 128 epilogue threads with a
+# --- Epilogues: called once per subtile by all 128 epilogue threads with a
 # CTA-uniform k_cnt; stores are never predicated (a tail tile's zeroed
 # accumulator produces exactly the zero bytes the contract requires).
-# ---------------------------------------------------------------------------
 
 
 @cute.jit
@@ -444,7 +336,6 @@ def _wgrad_epilogue(
     tTR_rAcc,
     tTR_cAcc_s,
     epi_tidx,
-    subtile_idx: cutlass.Constexpr,
     tile: TileCoords,
     sEpi,
     out,
@@ -484,7 +375,6 @@ def _swiglu_fwd_epilogue(
     tTR_rAcc,
     tTR_cAcc_s,
     epi_tidx,
-    subtile_idx: cutlass.Constexpr,
     tile: TileCoords,
     sEpi,
     out,
@@ -495,11 +385,10 @@ def _swiglu_fwd_epilogue(
 
     ``out`` = flat views ``(z [R*2F] bf16, h_row_q [R*F] e4m3,
     h_row_sf uint8, h_col_q [F*R] e4m3 in column-major storage order,
-    h_col_sf uint8)``. ``N == 2F`` is the GEMM (and z) column count.
-
-    Per the kernel contract: the accumulator is rounded to BF16 first (that IS
-    z), SwiGLU is evaluated once from the rounded values, h is rounded to BF16
-    once, and both quantizers consume the same staged BF16 h.
+    h_col_sf uint8)``; ``N == 2F`` is the GEMM (and z) column count. Contract:
+    the accumulator is rounded to BF16 first (that IS z), SwiGLU is evaluated
+    once from the rounded values, h is rounded to BF16 once, and both
+    quantizers consume the same staged BF16 h.
     """
     num_acc = cutlass.const_expr(cute.size(tTR_rAcc))  # 64
     half = cutlass.const_expr(num_acc // 2)  # 32 h columns per subtile
@@ -523,7 +412,9 @@ def _swiglu_fwd_epilogue(
     for j in cutlass.range_constexpr(half):
         gate = Float32(zfrag[2 * j])
         up = Float32(zfrag[2 * j + 1])
-        sig = _sigmoid_f32(gate)
+        # sigmoid composed exactly like torch's float32 sigmoid (default-mode
+        # exp plus a true divide); measured bit-identical to torch.sigmoid.
+        sig = Float32(1.0) / (Float32(1.0) + cute.math.exp(Float32(0.0) - gate))
         sEpi[lrow, Int32(j)] = cutlass.BFloat16((gate * sig) * up)
 
     cute.arch.barrier(
@@ -531,8 +422,8 @@ def _swiglu_fwd_epilogue(
     )
 
     # ---- stage 2: dual quantization off the staging tile -----------------
-    # Global h column base of this subtile; frag_col is static (64 *
-    # subtile_idx), so hbase is divisible by 32.
+    # Global h column base of this subtile; frag_col is static, 64 per
+    # subtile, so hbase is divisible by 32.
     hbase = (tile.col_base + Int32(frag_col)) >> 1
     ncb_row = cutlass.const_expr((F // _SF_VEC_SIZE + 3) // 4)
     ncb_col = cutlass.const_expr((R // _SF_VEC_SIZE + 3) // 4)
@@ -578,7 +469,6 @@ def _dswiglu_bwd_epilogue(
     tTR_rAcc,
     tTR_cAcc_s,
     epi_tidx,
-    subtile_idx: cutlass.Constexpr,
     tile: TileCoords,
     sEpi,
     out,
@@ -588,14 +478,12 @@ def _dswiglu_bwd_epilogue(
     """dSwiGLU from the saved z + dual MXFP8 quantization of dz.
 
     ``out`` = ``(z [R*2F] bf16 INPUT, dz_row_q [R*2F] e4m3, dz_row_sf uint8,
-    dz_col_q [2F*R] e4m3 column-major storage, dz_col_sf uint8)``. ``N == F``
+    dz_col_q [2F*R] e4m3 column-major storage, dz_col_sf uint8)``; ``N == F``
     is the dgrad GEMM column count; dz has 2F element-interleaved columns.
-
-    Per the kernel contract: dh is rounded to BF16 first; gate/up come from
-    the saved BF16 z; dgate/dup are each rounded to BF16 before interleaving;
-    both quantizers consume the same staged BF16 dz. The z load is the one
-    epilogue-side gmem input in the family and is predicated on
-    ``k_cnt == 0`` -- tail rows of z are read-forbidden and contribute zeros.
+    Contract: dh is rounded to BF16 first; gate/up come from the saved BF16 z;
+    dgate/dup are each rounded to BF16 before interleaving; both quantizers
+    consume the same staged BF16 dz. The z load is predicated on ``k_cnt`` --
+    tail rows of z are read-forbidden and contribute zeros.
     """
     num_acc = cutlass.const_expr(cute.size(tTR_rAcc))  # 32
     two_f = cutlass.const_expr(2 * N)
@@ -630,7 +518,7 @@ def _dswiglu_bwd_epilogue(
         gate = Float32(zfrag[2 * j])
         up = Float32(zfrag[2 * j + 1])
         dh = Float32(cutlass.BFloat16(tTR_rAcc[j]))
-        sig = _sigmoid_f32(gate)
+        sig = Float32(1.0) / (Float32(1.0) + cute.math.exp(Float32(0.0) - gate))
         silu = gate * sig
         dsilu = sig * (Float32(1.0) + gate * (Float32(1.0) - sig))
         sEpi[lrow, Int32(2 * j)] = cutlass.BFloat16((dh * up) * dsilu)
@@ -680,9 +568,7 @@ def _dswiglu_bwd_epilogue(
     )
 
 
-# ---------------------------------------------------------------------------
-# The shared kernel and launch builder.
-# ---------------------------------------------------------------------------
+# --- The shared kernel and launch builder.
 
 
 @cute.kernel
@@ -733,7 +619,6 @@ def _grouped_gemm_kernel(
         is_active = Int32(offs[num_groups - 1] > row_base)
         k_base = Int32(0)
         k_cnt = is_active * Int32(num_k_tiles_full)
-        l_a = Int32(0)
         l_b = expert
     else:
         expert = Int32(bidz)
@@ -747,11 +632,8 @@ def _grouped_gemm_kernel(
         # never wrote. Clamped, a malformed expert degrades to an all-zero
         # slice instead.
         k_cnt = cutlass.max((offs[expert] - prev) // _CTA_K, Int32(0))
-        l_a = Int32(0)
         l_b = Int32(0)
     tile = TileCoords(
-        tile_m=tile_m,
-        tile_n=tile_n,
         expert=expert,
         row_base=row_base,
         col_base=tile_n * _CTA_N,
@@ -870,9 +752,9 @@ def _grouped_gemm_kernel(
     tBsSFB = cute.filter_zeros(tBsSFB)
     tBgSFB = cute.filter_zeros(tBgSFB)
 
-    tAgA_slice = tAgA[(None, tile_m, None, l_a)]
+    tAgA_slice = tAgA[(None, tile_m, None, 0)]
     tBgB_slice = tBgB[(None, tile_n, None, l_b)]
-    tAgSFA_slice = tAgSFA[(None, tile_m, None, l_a)]
+    tAgSFA_slice = tAgSFA[(None, tile_m, None, 0)]
     tBgSFB_slice = tBgSFB[(None, tile_n, None, l_b)]
 
     acc_shape = tiled_mma.partition_shape_C(_MMA_TILER[:2])
@@ -1000,8 +882,28 @@ def _grouped_gemm_kernel(
         tCtAcc_base = cute.make_tensor(acc_tmem_ptr, tCtAcc_fake.layout)
 
         epi_tidx = tidx - _FIRST_EPI_THREAD
-        tiled_copy_t2r, tTR_tAcc, tTR_rAcc, tTR_cAcc = _t2r_partition(
-            epi_tidx, tCtAcc_base, cfg
+        # TMEM -> register handoff. tTR_cAcc carries each register's (row, col)
+        # coordinate in the CTA tile; every epilogue index is derived from it,
+        # not from an assumed thread-to-row mapping. The d element type stays
+        # Float32: an 8-bit d would steer get_tmem_load_op into layouts shaped
+        # for a direct FP8 TMA store.
+        epi_tile = (_CTA_M, cfg.epi_n_acc)
+        copy_atom_t2r = sm100_utils.get_tmem_load_op(
+            _MMA_TILER, LayoutEnum.ROW_MAJOR, Float32, Float32, epi_tile, False
+        )
+        tAcc_mn = tCtAcc_base[((None, None), 0, 0, 0)]
+        tAcc_epi = cute.flat_divide(tAcc_mn, epi_tile)
+        tiled_copy_t2r = tcgen05.make_tmem_copy(
+            copy_atom_t2r, tAcc_epi[(None, None, 0, 0)]
+        )
+        thr_copy_t2r = tiled_copy_t2r.get_slice(epi_tidx)
+        tTR_tAcc = thr_copy_t2r.partition_S(tAcc_epi)
+        cAcc_epi = cute.flat_divide(
+            cute.make_identity_tensor((_CTA_M, _CTA_N)), epi_tile
+        )
+        tTR_cAcc = thr_copy_t2r.partition_D(cAcc_epi)
+        tTR_rAcc = cute.make_rmem_tensor(
+            tTR_cAcc[(None, None, None, 0, 0)].shape, Float32
         )
 
         acc_consumer_state = pipeline.make_pipeline_state(
@@ -1009,7 +911,7 @@ def _grouped_gemm_kernel(
         )
         acc_pipeline.consumer_wait(acc_consumer_state)
 
-        for s in cutlass.range_constexpr(cfg.num_epi_subtiles):
+        for s in cutlass.range_constexpr(_CTA_N // cfg.epi_n_acc):
             if k_cnt == Int32(0):
                 # Tail tile or zero-token expert: nothing was accumulated, so
                 # the fragment is zeroed here and the epilogue runs unchanged.
@@ -1021,7 +923,6 @@ def _grouped_gemm_kernel(
                 tTR_rAcc,
                 tTR_cAcc[(None, None, None, 0, s)],
                 epi_tidx,
-                s,
                 tile,
                 sEpi,
                 out,
@@ -1051,9 +952,9 @@ def _launch_grouped_gemm(
     """Build the four static TMA descriptors and launch. Grid is data-independent.
 
     This is a trace body: calling it directly retraces the kernel on every
-    invocation. The public launchers below wrap it in per-kernel ``@cute.jit``
-    entry points taking only dynamic tensors, ``cute.compile`` those once per
-    shape key, and call the compiled executor.
+    invocation. The public launchers ``cute.compile`` it once per shape key,
+    passing ``cfg`` and ``EPILOGUE`` as trailing Constexpr args, then call the
+    compiled executor with the runtime args only.
     """
     a_dtype = mA.element_type
     b_dtype = mB.element_type
@@ -1074,10 +975,29 @@ def _launch_grouped_gemm(
             f"({_CTA_M}, {_CTA_N}, {_CTA_K})"
         )
 
-    mSFA = _make_sf_gemm_tensor(sfa_flat, gemm_m, gemm_k, l_a)
-    mSFB = _make_sf_gemm_tensor(sfb_flat, gemm_n, gemm_k, l_b)
+    # Retile the flat blocked E8M0 buffers into the GEMM-domain SF layout. The
+    # buffers travel flat by ABI and may arrive as raw uint8, so the pointer is
+    # recast: the MMA rejects a scale operand that is not E8M0.
+    mSFA = cute.make_tensor(
+        cute.recast_ptr(sfa_flat.iterator, dtype=cutlass.Float8E8M0FNU),
+        blockscaled_utils.tile_atom_to_shape_SF((gemm_m, gemm_k, l_a), _SF_VEC_SIZE),
+    )
+    mSFB = cute.make_tensor(
+        cute.recast_ptr(sfb_flat.iterator, dtype=cutlass.Float8E8M0FNU),
+        blockscaled_utils.tile_atom_to_shape_SF((gemm_n, gemm_k, l_b), _SF_VEC_SIZE),
+    )
 
-    tiled_mma = _make_tiled_mma(a_dtype, b_dtype, sf_dtype)
+    # The one blockscaled tiled MMA, K-major on both operands, FP32 acc.
+    tiled_mma = sm100_utils.make_blockscaled_trivial_tiled_mma(
+        a_dtype,
+        b_dtype,
+        tcgen05.OperandMajorMode.K,
+        tcgen05.OperandMajorMode.K,
+        sf_dtype,
+        _SF_VEC_SIZE,
+        tcgen05.CtaGroup.ONE,
+        (_CTA_M, _CTA_N),
+    )
     cluster_layout_vmnk = cute.tiled_divide(
         cute.make_layout((1, 1, 1)), (tiled_mma.thr_id.shape,)
     )
@@ -1133,13 +1053,17 @@ def _launch_grouped_gemm(
 
     @cute.struct
     class SharedStorage:
+        # The *_empty ranges are live storage: each Pipeline*.create consumes
+        # 2 x num_stages barriers starting at the *_full pointer.
         ab_full_mbar: cute.struct.MemRange[cutlass.Int64, _NUM_AB_STAGE]
         ab_empty_mbar: cute.struct.MemRange[cutlass.Int64, _NUM_AB_STAGE]
         acc_full_mbar: cute.struct.MemRange[cutlass.Int64, _NUM_ACC_STAGE]
         acc_empty_mbar: cute.struct.MemRange[cutlass.Int64, _NUM_ACC_STAGE]
         tmem_holding_buf: cutlass.Int32
+        # A zero-size struct field would be degenerate; keep a tiny slab.
         sEpi: cute.struct.Align[
-            cute.struct.MemRange[cutlass.BFloat16, cfg.epi_smem_elems], 128
+            cute.struct.MemRange[cutlass.BFloat16, max(_CTA_M * cfg.epi_smem_cols, 8)],
+            128,
         ]
         sA: cute.struct.Align[
             cute.struct.MemRange[a_dtype, cute.cosize(a_smem_layout.outer)], 1024
@@ -1194,65 +1118,10 @@ def _launch_grouped_gemm(
     )
 
 
-# ---------------------------------------------------------------------------
-# Compile-once entry points (dynamic tensors only; Constexprs closed over).
-# ---------------------------------------------------------------------------
-
-
-@cute.jit
-def _swiglu_fwd_entry(mA, mB, sfa, sfb, offs, mZ, mHrq, mHrs, mHcq, mHcs, stream):
-    _launch_grouped_gemm(
-        mA,
-        mB,
-        sfa,
-        sfb,
-        offs,
-        (mZ, mHrq, mHrs, mHcq, mHcs),
-        stream,
-        _SWIGLU_FWD_CONFIG,
-        _swiglu_fwd_epilogue,
-    )
-
-
-@cute.jit
-def _dswiglu_bwd_entry(mA, mB, sfa, sfb, offs, mZ, mDrq, mDrs, mDcq, mDcs, stream):
-    _launch_grouped_gemm(
-        mA,
-        mB,
-        sfa,
-        sfb,
-        offs,
-        (mZ, mDrq, mDrs, mDcq, mDcs),
-        stream,
-        _DSWIGLU_BWD_CONFIG,
-        _dswiglu_bwd_epilogue,
-    )
-
-
-@cute.jit
-def _wgrad_entry(mA, mB, sfa, sfb, offs, mDw, stream):
-    _launch_grouped_gemm(
-        mA,
-        mB,
-        sfa,
-        sfb,
-        offs,
-        (mDw,),
-        stream,
-        _WGRAD_CONFIG,
-        _wgrad_epilogue,
-    )
-
-
 @functools.cache
 def _executor_slot(key: tuple) -> list:
-    """One memo slot per (kernel, shape, device, dtype, DSL version) key.
-
-    The executor cannot be built from the key alone -- the shared trace needs
-    static shapes (the blocked scale layout and the grid are built from them)
-    -- so the first real call's tensors are what gets compiled and the caller
-    fills the slot once.
-    """
+    """One memo slot per (kernel, shape, device, dtype, DSL version) key; the
+    trace needs real tensors, so the first caller compiles and fills it once."""
     return []
 
 
@@ -1442,11 +1311,13 @@ def launch_grouped_gemm_swiglu_fwd(
         from_dlpack(x_sf.view(torch.uint8).view(-1), assumed_align=16),
         from_dlpack(w13_t_sf.view(torch.uint8).view(-1), assumed_align=16),
         from_dlpack(offsets, assumed_align=4),
-        from_dlpack(z_bf16.view(rows, two_hidden).view(-1), assumed_align=16),
-        from_dlpack(h_row_q.view(-1), assumed_align=16),
-        from_dlpack(h_row_sf.view(torch.uint8).view(-1), assumed_align=16),
-        from_dlpack(h_col_q.t().reshape(-1), assumed_align=16),
-        from_dlpack(h_col_sf.view(torch.uint8).view(-1), assumed_align=16),
+        (
+            from_dlpack(z_bf16.view(rows, two_hidden).view(-1), assumed_align=16),
+            from_dlpack(h_row_q.view(-1), assumed_align=16),
+            from_dlpack(h_row_sf.view(torch.uint8).view(-1), assumed_align=16),
+            from_dlpack(h_col_q.t().reshape(-1), assumed_align=16),
+            from_dlpack(h_col_sf.view(torch.uint8).view(-1), assumed_align=16),
+        ),
         stream,
     )
     key = _cache_key(
@@ -1454,7 +1325,11 @@ def launch_grouped_gemm_swiglu_fwd(
     )
     slot = _executor_slot(key)
     if not slot:
-        slot.append(cute.compile(_swiglu_fwd_entry, *args))
+        slot.append(
+            cute.compile(
+                _launch_grouped_gemm, *args, _SWIGLU_FWD_CONFIG, _swiglu_fwd_epilogue
+            )
+        )
     slot[0](*args)
 
 
@@ -1600,11 +1475,13 @@ def launch_grouped_gemm_dswiglu_bwd(
         from_dlpack(do_sf.view(torch.uint8).view(-1), assumed_align=16),
         from_dlpack(w2_dgrad_sf.view(torch.uint8).view(-1), assumed_align=16),
         from_dlpack(offsets, assumed_align=4),
-        from_dlpack(z_bf16.view(rows, two_hidden).view(-1), assumed_align=16),
-        from_dlpack(dz_row_q.view(-1), assumed_align=16),
-        from_dlpack(dz_row_sf.view(torch.uint8).view(-1), assumed_align=16),
-        from_dlpack(dz_col_q.t().reshape(-1), assumed_align=16),
-        from_dlpack(dz_col_sf.view(torch.uint8).view(-1), assumed_align=16),
+        (
+            from_dlpack(z_bf16.view(rows, two_hidden).view(-1), assumed_align=16),
+            from_dlpack(dz_row_q.view(-1), assumed_align=16),
+            from_dlpack(dz_row_sf.view(torch.uint8).view(-1), assumed_align=16),
+            from_dlpack(dz_col_q.t().reshape(-1), assumed_align=16),
+            from_dlpack(dz_col_sf.view(torch.uint8).view(-1), assumed_align=16),
+        ),
         stream,
     )
     key = _cache_key(
@@ -1612,7 +1489,11 @@ def launch_grouped_gemm_dswiglu_bwd(
     )
     slot = _executor_slot(key)
     if not slot:
-        slot.append(cute.compile(_dswiglu_bwd_entry, *args))
+        slot.append(
+            cute.compile(
+                _launch_grouped_gemm, *args, _DSWIGLU_BWD_CONFIG, _dswiglu_bwd_epilogue
+            )
+        )
     slot[0](*args)
 
 
@@ -1711,7 +1592,7 @@ def launch_grouped_gemm_wgrad(dy_col_q, dy_col_sf, x_col_q, x_col_sf, offsets, d
         from_dlpack(dy_col_sf.view(torch.uint8).view(-1), assumed_align=16),
         from_dlpack(x_col_sf.view(torch.uint8).view(-1), assumed_align=16),
         from_dlpack(offsets, assumed_align=4),
-        from_dlpack(dw.permute(1, 2, 0), assumed_align=16),
+        (from_dlpack(dw.permute(1, 2, 0), assumed_align=16),),
         stream,
     )
     key = _cache_key(
@@ -1719,5 +1600,7 @@ def launch_grouped_gemm_wgrad(dy_col_q, dy_col_sf, x_col_q, x_col_sf, offsets, d
     )
     slot = _executor_slot(key)
     if not slot:
-        slot.append(cute.compile(_wgrad_entry, *args))
+        slot.append(
+            cute.compile(_launch_grouped_gemm, *args, _WGRAD_CONFIG, _wgrad_epilogue)
+        )
     slot[0](*args)
