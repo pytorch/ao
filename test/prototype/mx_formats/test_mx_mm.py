@@ -15,21 +15,6 @@ from torchao.prototype.mx_formats.mx_tensor import MXTensor
 from torchao.prototype.mx_formats.utils import to_blocked
 from torchao.utils import is_sm_at_least_100
 
-_DEVICE_PARAMS = [
-    pytest.param(
-        "cuda",
-        marks=pytest.mark.skipif(
-            not torch.cuda.is_available(), reason="CUDA not available"
-        ),
-    ),
-    pytest.param(
-        "xpu",
-        marks=pytest.mark.skipif(
-            not torch.xpu.is_available(), reason="XPU not available"
-        ),
-    ),
-]
-
 
 def _mxfp4_scaled_mm(a_data, b_data, a_scale_block, b_scale_block):
     """Wrapper for F.scaled_mm with MXFP4 configuration."""
@@ -103,7 +88,6 @@ def run_matrix_test(M: int, K: int, N: int, format, device="cuda") -> float:
     not (torch.cuda.is_available() or torch.xpu.is_available()),
     reason="CUDA or XPU not available",
 )
-@pytest.mark.parametrize("device", _DEVICE_PARAMS)
 @pytest.mark.skipif(
     torch.cuda.is_available() and not is_sm_at_least_100(),
     reason="CUDA capability >= 10.0 required for mxfloat8",
@@ -126,7 +110,8 @@ def run_matrix_test(M: int, K: int, N: int, format, device="cuda") -> float:
     ids=lambda x: f"{x[0]}x{x[1]}x{x[2]}",
 )
 @pytest.mark.parametrize("format", ["fp8", "fp4"])
-def test_matrix_multiplication(size, format, device):
+def test_matrix_multiplication(size, format):
+    device = torch.accelerator.current_accelerator().type
     M, K, N = size
     sqnr = run_matrix_test(M, K, N, format, device=device)
     threshold = 80.0
