@@ -782,6 +782,9 @@ def _addmm_mx_dispatch(
         # real MX gemm backed by torchao's CUTLASS kernels
         M, K, N = a.shape[0], a.shape[1], b.shape[1]
         is_xpu = a.qdata.is_xpu and b.qdata.is_xpu
+        assert a.qdata.device.type == b.qdata.device.type, (
+            f"Operand device mismatch: a is on {a.qdata.device}, b is on {b.qdata.device}"
+        )
         assert a.qdata.is_contiguous()
         assert b.qdata.t().is_contiguous()
         assert a.block_size == 32, f"Invalid block size {a.block_size}"
@@ -792,7 +795,7 @@ def _addmm_mx_dispatch(
         else:
             a_scale = a.scale.view(M, K // a.block_size)
             if is_xpu:
-                a_scale_block = a_scale
+                a_scale_block = a_scale.contiguous()
             else:
                 a_scale_block = maybe_dtensor_to_blocked(a_scale)
 

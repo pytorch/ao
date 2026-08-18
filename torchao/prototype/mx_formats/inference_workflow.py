@@ -137,6 +137,11 @@ def _mx_inference_linear_transform(
     weight = getattr(module, parameter_name)
     is_swizzled_scales = config.swizzle_scales
 
+    assert not (weight.device.type == "xpu" and is_swizzled_scales), (
+        "swizzle_scales must be False on XPU."
+        "Set swizzle_scales=False in your config."
+    )
+
     assert weight.dtype == torch.bfloat16, (
         f"Only supporting bf16 out dtype for now, got {weight.dtype}"
     )
