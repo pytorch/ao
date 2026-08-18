@@ -2197,6 +2197,7 @@ def _choose_scale_float8(
     max_abs = tensor_reshaped.abs().amax(dim=reduction_dims, keepdim=True)
     if hp_value_lb is not None or hp_value_ub is not None:
         max_abs = torch.clamp(max_abs, min=hp_value_lb, max=hp_value_ub)
+    max_abs = torch.clamp(max_abs, min=1e-12)
     scale = max_abs / quant_max
     # Reshape scale back to match the expected output shape
     # The scale tensor should have the same shape as the input divided by block_size
