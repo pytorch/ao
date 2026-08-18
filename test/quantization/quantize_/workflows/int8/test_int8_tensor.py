@@ -391,7 +391,6 @@ class TestInt8Tensor(TorchAOIntegrationTestCase):
         with self.assertRaises(AssertionError):
             torch.cat([w_sym, w_asym], dim=0)
 
-
     @common_utils.parametrize("config", INT8_TEST_CONFIGS)
     @common_utils.parametrize("device", get_available_devices())
     def test_transpose(self, config, device):
@@ -449,9 +448,7 @@ class TestInt8Tensor(TorchAOIntegrationTestCase):
             out = torch.mm(x, w_t)
 
         self.assertEqual(out.shape, (M, N))
-        self.assertGreater(
-            compute_error(ref, out), 20, "mm/addmm SQNR too low"
-        )
+        self.assertGreater(compute_error(ref, out), 20, "mm/addmm SQNR too low")
 
         # We must not silently dequantize: unsupported configurations raise.
         # Quantized activation on the lhs cannot be honored.
@@ -461,10 +458,6 @@ class TestInt8Tensor(TorchAOIntegrationTestCase):
         b = torch.randn(N, dtype=dtype, device=device)
         with self.assertRaises(NotImplementedError):
             torch.addmm(b, x, w_t, beta=2.0)
-
-
-
-
 
 
 @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
