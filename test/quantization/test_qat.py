@@ -56,6 +56,7 @@ from torchao.quantization.qat.fake_quantize_config import (
 )
 from torchao.quantization.qat.fake_quantizer import (
     Float8FakeQuantizer,
+    Int4WeightFakeQuantizer,
     IntxFakeQuantizer,
 )
 from torchao.quantization.qat.linear import (
@@ -1781,6 +1782,41 @@ class TestQAT(TestCase):
         sqnr = compute_error(out, out_expected)
         self.assertGreater(sqnr, 16)
 
+    def test_fake_quantizer_enabled_attribute(self):
+        """
+        Test that `Int4WeightFakeQuantizer` and `Float8FakeQuantizer` initialize
+        `enabled = True` and gate fake quantization in forward, matching the
+        behavior of `IntxFakeQuantizer`.
+        """
+        # Int4WeightFakeQuantizer: enabled gate exercised on CPU via the
+        # bf16 activation path, which only uses ATen ops.
+        int4_config = Int4WeightFakeQuantizeConfig(
+            group_size=32,
+            activation_dtype=torch.bfloat16,
+        )
+        int4_fake_quantizer = Int4WeightFakeQuantizer(int4_config)
+        self.assertTrue(int4_fake_quantizer.enabled)
+
+        torch.manual_seed(self.SEED)
+        w = torch.randn(64, 64, dtype=torch.bfloat16)
+
+        int4_fake_quantizer.enabled = False
+        torch.testing.assert_close(int4_fake_quantizer(w), w, atol=0, rtol=0)
+
+        int4_fake_quantizer.enabled = True
+        self.assertFalse(torch.equal(int4_fake_quantizer(w), w))
+
+        # Float8FakeQuantizer: only the disabled path is exercised here,
+        # since the enabled path requires fp8-capable hardware (covered by
+        # `test_float8_fake_quantize`).
+        float8_config = Float8FakeQuantizeConfig(torch.float8_e4m3fn, PerRow())
+        float8_fake_quantizer = Float8FakeQuantizer(float8_config)
+        self.assertTrue(float8_fake_quantizer.enabled)
+
+        x = torch.randn(32, 64)
+        float8_fake_quantizer.enabled = False
+        torch.testing.assert_close(float8_fake_quantizer(x), x, atol=0, rtol=0)
+
     def _test_quantize_api_against_ptq(
         self,
         base_config: AOBaseConfig,
@@ -1951,7 +1987,8 @@ class TestQAT(TestCase):
         self.assertEqual(weight_config.group_size, 128)
         self.assertEqual(weight_config.activation_dtype, e4m3_dtype)
 
-    def test_infer_int4_weight_only_config(self):
+    @parametrize("group_size", [256, 128, 64, 32])
+    def test_infer_int4_weight_only_config(self, group_size: int):
         """
         Test that fake quantize configs are correctly inferred from `Int4WeightOnlyConfig`.
         """
@@ -1959,11 +1996,11 @@ class TestQAT(TestCase):
             _infer_fake_quantize_configs,
         )
 
-        base_config = Int4WeightOnlyConfig(version=2)
+        base_config = Int4WeightOnlyConfig(version=2, group_size=group_size)
         (act_config, weight_config) = _infer_fake_quantize_configs(base_config)
         self.assertIsNone(act_config)
         self.assertIsInstance(weight_config, Int4WeightFakeQuantizeConfig)
-        self.assertEqual(weight_config.group_size, 128)
+        self.assertEqual(weight_config.group_size, group_size)
         self.assertEqual(weight_config.activation_dtype, torch.bfloat16)
 
     @unittest.skipIf(not is_sm_at_least_89(), "Need sm89+")

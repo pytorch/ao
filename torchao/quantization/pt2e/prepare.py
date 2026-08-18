@@ -25,6 +25,7 @@ from torchao.quantization.pt2e import (
     ObserverOrFakeQuantize,
 )
 from torchao.quantization.pt2e.fake_quantize import FixedQParamsFakeQuantize
+from torchao.quantization.pt2e.graph_utils import collect_producer_nodes
 from torchao.quantization.pt2e.observer import (
     FixedQParamsObserver,
     PartialWrapper,
@@ -416,6 +417,41 @@ def _get_obs_or_fq_map(
     return obs_or_fq_map
 
 
+def _is_mutable_buffer_arg(
+    node: Node,
+    arg: Node,
+    buffer_names: set[str],
+) -> bool:
+    """Return whether arg is a mutating op destination backed by a module buffer."""
+    if (
+        node.op != "call_function"
+        or not hasattr(node.target, "_schema")
+        or len(node.args) == 0
+        or node.args[0] is not arg
+    ):
+        return False
+
+    schema = node.target._schema
+    # This covers in-place ops such as copy_, put_, scatter_, fill_, add_
+    if (
+        not schema.arguments
+        or not schema.arguments[0].alias_info
+        or not schema.arguments[0].alias_info.is_write
+    ):
+        return False
+
+    producer_nodes = collect_producer_nodes(arg)
+    if producer_nodes is None:
+        # If arg0 depends on a model input, it is not a buffer-only mutation
+        # destination, so fall back to normal observer insertion.
+        return False
+
+    return any(
+        producer.op == "get_attr" and str(producer.target) in buffer_names
+        for producer in producer_nodes
+    )
+
+
 def _maybe_insert_input_observer_for_arg_or_kwarg(
     node: Union[Node, Any],
     arg: Argument,
@@ -423,6 +459,7 @@ def _maybe_insert_input_observer_for_arg_or_kwarg(
     model: torch.nn.Module,
     named_modules: dict[str, torch.nn.Module],
     obs_or_fq_map: dict[EdgeOrNode, ObserverOrFakeQuantize],
+    buffer_names: set[str],
     is_qat: bool,
     model_device: Optional[torch.device] = None,
 ) -> Argument:
@@ -442,6 +479,7 @@ def _maybe_insert_input_observer_for_arg_or_kwarg(
                 model,
                 named_modules,
                 obs_or_fq_map,
+                buffer_names,
                 is_qat,
                 model_device,
             )
@@ -465,6 +503,10 @@ def _maybe_insert_input_observer_for_arg_or_kwarg(
     input_edge = (original_arg, node)
     if input_edge not in obs_or_fq_map:
         return new_arg
+
+    if _is_mutable_buffer_arg(node, original_arg, buffer_names):
+        return new_arg
+
     # input_edge needs to be observed
     input_edge_obs_or_fq = obs_or_fq_map[input_edge]
     if input_edge_obs_or_fq is None:
@@ -509,6 +551,7 @@ def _maybe_insert_input_observers_for_node(
     model: torch.nn.Module,
     named_modules: dict[str, torch.nn.Module],
     obs_or_fq_map: dict[EdgeOrNode, ObserverOrFakeQuantize],
+    buffer_names: set[str],
     is_qat: bool,
     model_device: Optional[torch.device] = None,
 ) -> None:
@@ -536,6 +579,7 @@ def _maybe_insert_input_observers_for_node(
             model,
             named_modules,
             obs_or_fq_map,
+            buffer_names,
             is_qat,
             model_device,
         )
@@ -594,6 +638,7 @@ def _maybe_insert_input_and_output_observers_for_node(
     model: torch.fx.GraphModule,
     obs_or_fq_map: dict[EdgeOrNode, ObserverOrFakeQuantize],
     named_modules: dict[str, torch.nn.Module],
+    buffer_names: set[str],
     is_qat: bool,
     model_device: Optional[torch.device] = None,
 ):
@@ -609,6 +654,7 @@ def _maybe_insert_input_and_output_observers_for_node(
         model,
         named_modules,
         obs_or_fq_map,
+        buffer_names,
         is_qat,
         model_device,
     )
@@ -675,6 +721,7 @@ def prepare(
         obs_or_fq_callback(model, obs_or_fq_map)
     model_device = _assert_and_get_unique_device(model)
     named_modules = dict(model.named_modules(remove_duplicate=False))
+    buffer_names = {name for name, _ in model.named_buffers(remove_duplicate=False)}
 
     for node in nodes_before_observation:
         # TODO: simplify logic for inserting observers
@@ -683,6 +730,7 @@ def prepare(
             model,
             obs_or_fq_map,
             named_modules,
+            buffer_names,
             is_qat,
             model_device,
         )

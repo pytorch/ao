@@ -28,6 +28,11 @@ jobs:
             torch-spec: '--pre torch --index-url https://download.pytorch.org/whl/nightly/cu126'
             gpu-arch-type: "cuda"
             gpu-arch-version: "12.6"
+          - name: SM-89 2.13
+            runs-on: linux.g6.4xlarge.experimental.nvidia.gpu
+            torch-spec: 'torch==2.13.0 --index-url https://download.pytorch.org/whl/cu126'
+            gpu-arch-type: "cuda"
+            gpu-arch-version: "12.6"
     permissions:
       id-token: write
       contents: read
@@ -51,4 +56,4 @@ jobs:
         pytest test/dtypes/test_affine_quantized_float.py --verbose -s
         ./test/float8/test_everything_single_gpu.sh
         python test/quantization/quantize_/workflows/float8/test_float8_tensor.py
-        python test/kernel/test_blockwise_triton.py --verbose -s
+        pytest test/prototype/blockwise_fp8_inference/test_blockwise.py --verbose -s

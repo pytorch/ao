@@ -3328,7 +3328,12 @@ class TestQuantizePT2E(PT2EQuantizationTestCase):
         result = m(*example_inputs)
         self.assertIsNotNone(result)
 
-    def test_quantize_in_place_index_put(self):
+    def _test_quantize_in_place_index_put_buffers_to_mutate(
+        self,
+        module: torch.nn.Module,
+        example_inputs: tuple[torch.Tensor, torch.Tensor],
+        expected_buffers_to_mutate: dict[str, str],
+    ) -> None:
         class IndexPutQuantizer(Quantizer):
             def __init__(self) -> None:
                 super().__init__()
@@ -3367,21 +3372,8 @@ class TestQuantizePT2E(PT2EQuantizationTestCase):
             def validate(self, model: torch.fx.GraphModule) -> None:
                 return None
 
-        class M(torch.nn.Module):
-            def __init__(self) -> None:
-                super().__init__()
-                self.register_buffer("buf", torch.zeros(4, dtype=torch.float32))
-
-            def forward(self, x: torch.Tensor, idx: torch.Tensor) -> torch.Tensor:
-                updated = self.buf.index_put_((idx,), x)
-                return updated.clone()
-
-        m = M().eval()
+        m = module.eval()
         quantizer = IndexPutQuantizer()
-        example_inputs = (
-            torch.tensor([1.0, 2.0], dtype=torch.float32),
-            torch.tensor([1, 3], dtype=torch.int64),
-        )
         m = torch.export.export(m, example_inputs, strict=True).module()
 
         m = prepare_pt2e(m, quantizer)
@@ -3392,9 +3384,422 @@ class TestQuantizePT2E(PT2EQuantizationTestCase):
         # If it folded it will be named _frozen_param0
         self.assertTrue("buf" in dict(m.named_buffers()))
 
+        # Downstream consumers rely on export metadata to identify mutated buffers.
+        exported = torch.export.export(m, example_inputs, strict=True)
+        exported = exported.run_decompositions({})
+        self.assertEqual(
+            exported.graph_signature.buffers_to_mutate,
+            expected_buffers_to_mutate,
+        )
+
         # Verify the quantized model works
         result = m(*example_inputs)
         self.assertIsNotNone(result)
+
+    def test_quantize_in_place_index_put(self):
+        class M(torch.nn.Module):
+            def __init__(self) -> None:
+                super().__init__()
+                self.register_buffer("buf", torch.zeros(4, dtype=torch.float32))
+
+            def forward(self, x: torch.Tensor, idx: torch.Tensor) -> torch.Tensor:
+                updated = self.buf.index_put_((idx,), x)
+                return updated.clone()
+
+        example_inputs = (
+            torch.tensor([1.0, 2.0], dtype=torch.float32),
+            torch.tensor([1, 3], dtype=torch.int64),
+        )
+
+        self._test_quantize_in_place_index_put_buffers_to_mutate(
+            M(), example_inputs, {"index_put": "buf"}
+        )
+
+    def test_quantize_in_place_index_put_view(self):
+        class ViewM(torch.nn.Module):
+            def __init__(self) -> None:
+                super().__init__()
+                self.register_buffer("buf", torch.zeros(2, 4, dtype=torch.float32))
+
+            def forward(self, x: torch.Tensor, idx: torch.Tensor) -> torch.Tensor:
+                row = self.buf.select(0, 0)
+                updated = row.index_put_((idx,), x)
+                return updated.clone()
+
+        example_inputs = (
+            torch.tensor([1.0, 2.0], dtype=torch.float32),
+            torch.tensor([1, 3], dtype=torch.int64),
+        )
+
+        self._test_quantize_in_place_index_put_buffers_to_mutate(
+            ViewM(), example_inputs, {"select_scatter": "buf"}
+        )
+
+    def _prepare_mutable_buffer_quantization(
+        self,
+        module: torch.nn.Module,
+        example_inputs: tuple[torch.Tensor, torch.Tensor],
+        share_observer: bool = True,
+    ) -> torch.fx.GraphModule:
+        class MutableBufferQuantizer(Quantizer):
+            def __init__(self) -> None:
+                super().__init__()
+                self.qspec = QuantizationSpec(
+                    dtype=torch.int8,
+                    observer_or_fake_quant_ctr=observer.default_observer,
+                    quant_min=-128,
+                    quant_max=127,
+                    qscheme=torch.per_tensor_symmetric,
+                )
+
+            def annotate(self, model: torch.fx.GraphModule) -> torch.fx.GraphModule:
+                for node in model.graph.nodes:
+                    if node.op != "call_function" or node.target not in (
+                        torch.ops.aten.index_put.default,
+                        torch.ops.aten.index_put_.default,
+                    ):
+                        continue
+                    buffer = node.args[0]
+                    value = node.args[2]
+                    assert isinstance(buffer, Node) and isinstance(value, Node)
+                    node.meta["quantization_annotation"] = QuantizationAnnotation(
+                        input_qspec_map={buffer: self.qspec, value: None},
+                        output_qspec=(
+                            SharedQuantizationSpec((buffer, node))
+                            if share_observer
+                            else self.qspec
+                        ),
+                        _annotated=True,
+                    )
+                return model
+
+            def transform_for_annotation(
+                self, model: torch.fx.GraphModule
+            ) -> torch.fx.GraphModule:
+                return model
+
+            def validate(self, model: torch.fx.GraphModule) -> None:
+                return None
+
+        exported = torch.export.export(
+            module.eval(), example_inputs, strict=True
+        ).module()
+        prepared = prepare_pt2e(exported, MutableBufferQuantizer())
+        prepared(*example_inputs)
+        return prepared
+
+    def test_fold_quantize_into_mutable_buffer_storage(self):
+        initial = torch.tensor([1.0, 2.0, 3.0, 4.0])
+
+        class M(torch.nn.Module):
+            def __init__(self) -> None:
+                super().__init__()
+                self.register_buffer("buf", initial.clone())
+
+            def forward(self, x: torch.Tensor, idx: torch.Tensor) -> torch.Tensor:
+                updated = self.buf.index_put((idx,), x)
+                self.buf.copy_(updated)
+                return updated.clone()
+
+        inputs = (torch.tensor([5.0, 6.0]), torch.tensor([1, 3]))
+        prepared = self._prepare_mutable_buffer_quantization(M(), inputs)
+        dict(prepared.named_buffers())["buf"].copy_(initial)
+        converted = convert_pt2e(
+            prepared,
+            fold_quantize_into_mutable_buffers=True,
+        )
+
+        buffer = dict(converted.named_buffers())["buf"]
+        self.assertEqual(torch.int8, buffer.dtype, msg=str(converted.graph))
+        self.assertIn("buf", converted.state_dict())
+        index_put = next(
+            node
+            for node in converted.graph.nodes
+            if node.target
+            in (torch.ops.aten.index_put.default, torch.ops.aten.index_put_.default)
+        )
+        buffer_dequant = index_put.args[0]
+        self.assertIsInstance(buffer_dequant, Node)
+        assert isinstance(buffer_dequant, Node)
+        self.assertEqual(
+            torch.ops.quantized_decomposed.dequantize_per_tensor.default,
+            buffer_dequant.target,
+        )
+        buffer_node = buffer_dequant.args[0]
+        self.assertIsInstance(buffer_node, Node)
+        assert isinstance(buffer_node, Node)
+        self.assertEqual("get_attr", buffer_node.op)
+        self.assertEqual("buf", buffer_node.target)
+        self.assertEqual(torch.int8, buffer_node.meta["val"].dtype)
+        output_quant = next(
+            user
+            for user in index_put.users
+            if user.target == torch.ops.quantized_decomposed.quantize_per_tensor.default
+        )
+        copy = next(
+            node
+            for node in converted.graph.nodes
+            if node.target == torch.ops.aten.copy_.default
+        )
+        self.assertIs(copy.args[1], output_quant)
+        output_dequants = [
+            user
+            for user in output_quant.users
+            if user.target
+            == torch.ops.quantized_decomposed.dequantize_per_tensor.default
+        ]
+        self.assertEqual(1, len(output_dequants))
+        self.assertEqual(
+            {copy, output_dequants[0]},
+            set(output_quant.users),
+        )
+
+        expected = initial.clone()
+        expected.index_put_((inputs[1],), inputs[0])
+        torch.testing.assert_close(converted(*inputs), expected, atol=0.03, rtol=0)
+
+        second_inputs = (torch.tensor([2.5, 4.5]), torch.tensor([0, 2]))
+        expected.index_put_((second_inputs[1],), second_inputs[0])
+        torch.testing.assert_close(
+            converted(*second_inputs), expected, atol=0.03, rtol=0
+        )
+
+        reexported = torch.export.export(
+            converted, inputs, strict=True
+        ).run_decompositions({})
+        self.assertEqual(
+            set(reexported.graph_signature.buffers_to_mutate.values()),
+            {"buf"},
+            msg=str(reexported),
+        )
+
+    def test_fold_quantize_into_mutable_buffer_storage_with_fanout(self):
+        initial = torch.tensor([1.0, 2.0, 3.0, 4.0])
+
+        class M(torch.nn.Module):
+            def __init__(self) -> None:
+                super().__init__()
+                self.register_buffer("buf", initial.clone())
+
+            def forward(self, x: torch.Tensor, factor: torch.Tensor) -> torch.Tensor:
+                value = self.buf.clone()
+                updated = value + x + value * factor
+                self.buf.copy_(updated)
+                return updated.clone()
+
+        class FanoutMutableBufferQuantizer(Quantizer):
+            def __init__(self) -> None:
+                super().__init__()
+                self.qspec = QuantizationSpec(
+                    dtype=torch.int8,
+                    observer_or_fake_quant_ctr=observer.default_observer,
+                    quant_min=-128,
+                    quant_max=127,
+                    qscheme=torch.per_tensor_symmetric,
+                )
+
+            def annotate(self, model: torch.fx.GraphModule) -> torch.fx.GraphModule:
+                buffer = next(
+                    node
+                    for node in model.graph.nodes
+                    if node.op == "get_attr" and node.target == "buf"
+                )
+                copy = next(
+                    node
+                    for node in buffer.users
+                    if node.op == "call_function"
+                    and node.target == torch.ops.aten.copy_.default
+                )
+                read_users = set(buffer.users) - {copy}
+                assert len(read_users) == 1
+                read = next(iter(read_users))
+                read.meta["quantization_annotation"] = QuantizationAnnotation(
+                    input_qspec_map={buffer: self.qspec},
+                    _annotated=True,
+                )
+
+                write = copy.args[1]
+                assert isinstance(write, Node)
+                write.meta["quantization_annotation"] = QuantizationAnnotation(
+                    output_qspec=self.qspec,
+                    _annotated=True,
+                )
+                return model
+
+            def transform_for_annotation(
+                self, model: torch.fx.GraphModule
+            ) -> torch.fx.GraphModule:
+                return model
+
+            def validate(self, model: torch.fx.GraphModule) -> None:
+                return None
+
+        inputs = (torch.full((4,), 0.25), torch.full((4,), 0.1))
+        exported = torch.export.export(M().eval(), inputs, strict=True).module()
+        prepared = prepare_pt2e(exported, FanoutMutableBufferQuantizer())
+        prepared(*inputs)
+        dict(prepared.named_buffers())["buf"].copy_(initial)
+        converted = convert_pt2e(
+            prepared,
+            fold_quantize_into_mutable_buffers=True,
+        )
+
+        buffer = dict(converted.named_buffers())["buf"]
+        self.assertEqual(torch.int8, buffer.dtype, msg=str(converted.graph))
+        buffer_dequant = next(
+            user
+            for node in converted.graph.nodes
+            if node.op == "get_attr" and node.target == "buf"
+            for user in node.users
+            if user.target
+            == torch.ops.quantized_decomposed.dequantize_per_tensor.default
+        )
+        read = next(iter(buffer_dequant.users))
+        self.assertGreaterEqual(len(read.users), 2, msg=str(converted.graph))
+        copy = next(
+            node
+            for node in converted.graph.nodes
+            if node.target == torch.ops.aten.copy_.default
+        )
+        output_quant = copy.args[1]
+        self.assertIsInstance(output_quant, Node)
+        assert isinstance(output_quant, Node)
+        self.assertEqual(
+            torch.ops.quantized_decomposed.quantize_per_tensor.default,
+            output_quant.target,
+        )
+
+        expected = initial + inputs[0] + initial * inputs[1]
+        torch.testing.assert_close(converted(*inputs), expected, atol=0.05, rtol=0)
+
+    def test_fold_independently_observed_mutable_buffer_storage(self):
+        initial = torch.tensor([1.0, 2.0, 3.0, 4.0])
+
+        class M(torch.nn.Module):
+            def __init__(self) -> None:
+                super().__init__()
+                self.register_buffer("buf", initial.clone())
+
+            def forward(self, x: torch.Tensor, idx: torch.Tensor) -> torch.Tensor:
+                updated = self.buf.index_put((idx,), x)
+                self.buf.copy_(updated)
+                return updated.clone()
+
+        inputs = (torch.tensor([5.0, 6.0]), torch.tensor([1, 3]))
+        prepared = self._prepare_mutable_buffer_quantization(
+            M(), inputs, share_observer=False
+        )
+        index_put = next(
+            node
+            for node in prepared.graph.nodes
+            if node.target
+            in (torch.ops.aten.index_put.default, torch.ops.aten.index_put_.default)
+        )
+        input_observer = index_put.args[0]
+        self.assertIsInstance(input_observer, Node)
+        assert isinstance(input_observer, Node)
+        input_observer_module = prepared.get_submodule(str(input_observer.target))
+        self.assertIsInstance(input_observer_module, ObserverBase)
+        assert isinstance(input_observer_module, ObserverBase)
+        output_observer = next(
+            user
+            for user in index_put.users
+            if user.op == "call_module"
+            and isinstance(prepared.get_submodule(str(user.target)), ObserverBase)
+        )
+        output_observer_module = prepared.get_submodule(str(output_observer.target))
+        self.assertIsInstance(output_observer_module, ObserverBase)
+        assert isinstance(output_observer_module, ObserverBase)
+        input_scale = input_observer_module.calculate_qparams()[0].item()
+        output_scale = output_observer_module.calculate_qparams()[0].item()
+        self.assertNotEqual(input_scale, output_scale)
+
+        dict(prepared.named_buffers())["buf"].copy_(initial)
+        converted = convert_pt2e(
+            prepared,
+            fold_quantize_into_mutable_buffers=True,
+        )
+
+        converted_index_put = next(
+            node
+            for node in converted.graph.nodes
+            if node.target
+            in (torch.ops.aten.index_put.default, torch.ops.aten.index_put_.default)
+        )
+        buffer_dequant = converted_index_put.args[0]
+        self.assertIsInstance(buffer_dequant, Node)
+        assert isinstance(buffer_dequant, Node)
+        output_quant = next(
+            user
+            for user in converted_index_put.users
+            if user.target == torch.ops.quantized_decomposed.quantize_per_tensor.default
+        )
+        self.assertEqual(buffer_dequant.args[1:6], output_quant.args[1:6])
+        self.assertAlmostEqual(buffer_dequant.args[1], output_scale)
+        self.assertEqual(torch.int8, dict(converted.named_buffers())["buf"].dtype)
+
+        expected = initial.clone()
+        expected.index_put_((inputs[1],), inputs[0])
+        torch.testing.assert_close(converted(*inputs), expected, atol=0.05, rtol=0)
+
+    def test_mutable_buffer_storage_folding_disabled_by_default(self):
+        class M(torch.nn.Module):
+            def __init__(self) -> None:
+                super().__init__()
+                self.register_buffer("buf", torch.zeros(4))
+
+            def forward(self, x: torch.Tensor, idx: torch.Tensor) -> torch.Tensor:
+                updated = self.buf.index_put((idx,), x)
+                self.buf.copy_(updated)
+                return updated.clone()
+
+        inputs = (torch.tensor([1.0, 2.0]), torch.tensor([1, 3]))
+        prepared = self._prepare_mutable_buffer_quantization(M(), inputs)
+        converted = convert_pt2e(prepared)
+
+        self.assertEqual(torch.float32, dict(converted.named_buffers())["buf"].dtype)
+
+    def test_mutable_buffer_without_explicit_copy_is_not_folded(self):
+        class M(torch.nn.Module):
+            def __init__(self) -> None:
+                super().__init__()
+                self.register_buffer("buf", torch.zeros(4))
+
+            def forward(self, x: torch.Tensor, idx: torch.Tensor) -> torch.Tensor:
+                return self.buf.index_put_((idx,), x).clone()
+
+        inputs = (torch.tensor([1.0, 2.0]), torch.tensor([1, 3]))
+        prepared = self._prepare_mutable_buffer_quantization(M(), inputs)
+        converted = convert_pt2e(
+            prepared,
+            fold_quantize_into_mutable_buffers=True,
+        )
+
+        self.assertEqual(torch.float32, dict(converted.named_buffers())["buf"].dtype)
+
+    def test_mutable_buffer_storage_folding_requires_fold_quantize(self):
+        class M(torch.nn.Module):
+            def __init__(self) -> None:
+                super().__init__()
+                self.register_buffer("buf", torch.zeros(4))
+
+            def forward(self, x: torch.Tensor, idx: torch.Tensor) -> torch.Tensor:
+                updated = self.buf.index_put((idx,), x)
+                self.buf.copy_(updated)
+                return updated.clone()
+
+        inputs = (torch.tensor([1.0, 2.0]), torch.tensor([1, 3]))
+        prepared = self._prepare_mutable_buffer_quantization(M(), inputs)
+
+        with self.assertRaisesRegex(
+            ValueError,
+            "fold_quantize_into_mutable_buffers=True requires fold_quantize=True",
+        ):
+            convert_pt2e(
+                prepared,
+                fold_quantize=False,
+                fold_quantize_into_mutable_buffers=True,
+            )
 
     def test_scan_op_quantization(self):
         """Test that prepare_pt2e and convert_pt2e correctly quantize ops

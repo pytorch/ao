@@ -85,7 +85,7 @@ def profiler_output_to_filtered_time_by_kernel_name(
                 f"unexpected number of iter for {e.key}"
             )
             continue
-        elif e.key == "cudaDeviceSynchronize":
+        elif e.key in ("cudaDeviceSynchronize", "hipDeviceSynchronize"):
             continue
         elif e.key == "Activity Buffer Request":
             continue

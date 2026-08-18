@@ -9,7 +9,7 @@ export SCCACHE_DISABLE=1
 
 python -m pip install --upgrade pip setuptools wheel
 
-python -m pip install torch torchvision torchaudio pytorch-triton-xpu --index-url https://download.pytorch.org/whl/nightly/xpu --force-reinstall --no-cache-dir 
+python -m pip install torch torchvision pytorch-triton-xpu --index-url https://download.pytorch.org/whl/nightly/xpu --force-reinstall --no-cache-dir
 cd torchao && python -m pip install . --no-build-isolation && cd ..
 
 python -c "import torch; import torchao; print(f'Torch version: {torch.__version__}')"
@@ -23,4 +23,7 @@ pytest -v -s --ignore=torchao/test/quantization/pt2e/test_x86inductor_fusion.py 
         torchao/test/float8/ \
         torchao/test/integration/test_integration.py \
         torchao/test/prototype/ \
-        torchao/test/quantization/quantize_/workflows/
+        torchao/test/quantization/quantize_/workflows/ \
+        torchao/test/core/test_config.py \
+        torchao/test/test_model_architecture.py \
+        torchao/test/test_utils.py

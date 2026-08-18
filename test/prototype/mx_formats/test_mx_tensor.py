@@ -9,9 +9,12 @@ import math
 
 import pytest
 import torch
+from torch._functorch.compile_utils import fx_graph_cse
 from torch._inductor.utils import run_and_get_code
+from torch.fx.experimental.proxy_tensor import make_fx
 from torch.testing import FileCheck
 
+import torchao.prototype.mx_formats.mx_tensor as mx_tensor_module
 from torchao.prototype.mx_formats.constants import (
     DTYPE_FP6_E2M3,
     DTYPE_FP6_E3M2,
@@ -21,11 +24,20 @@ from torchao.prototype.mx_formats.kernels import pack_uint4
 from torchao.prototype.mx_formats.mx_tensor import (
     MXTensor,
     ScaleCalculationMode,
+    _e8m0_scale_to_reciprocal_fp32,
+    _f32_to_e8m0_rceil,
+    _to_mx_rceil,
     to_dtype,
+    to_mx,
 )
 from torchao.prototype.mx_formats.utils import from_blocked, to_blocked
 from torchao.quantization.quantize_.common import KernelPreference
 from torchao.quantization.utils import compute_error
+from torchao.testing._mxfp8_test_utils import (
+    assert_mxfp8_semantics,
+    make_f32_to_e8m0_rceil_cases,
+    make_mxfp8_semantic_cases,
+)
 from torchao.utils import (
     is_sm_at_least_89,
     is_sm_at_least_90,
@@ -33,6 +45,50 @@ from torchao.utils import (
 )
 
 torch.manual_seed(2)
+
+
+def test_f32_to_e8m0_rceil():
+    values, expected = make_f32_to_e8m0_rceil_cases(device="cpu")
+    assert torch.equal(_f32_to_e8m0_rceil(values), expected)
+
+
+@pytest.mark.parametrize("use_direct_cast", (False, True))
+def test_e8m0_scale_to_reciprocal_fp32(monkeypatch, use_direct_cast):
+    monkeypatch.setattr(
+        mx_tensor_module, "_TORCH_VERSION_AT_LEAST_2_14", use_direct_cast
+    )
+    scale_e8m0_biased = torch.arange(256, dtype=torch.uint8)
+    actual = _e8m0_scale_to_reciprocal_fp32(scale_e8m0_biased)
+
+    reciprocal_e8m0_biased = (254 - scale_e8m0_biased.to(torch.int32)).to(torch.uint8)
+    expected = reciprocal_e8m0_biased.view(torch.float8_e8m0fnu).to(torch.float32)
+    assert torch.equal(actual.view(torch.int32), expected.view(torch.int32))
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+@pytest.mark.parametrize("use_compile", (False, True), ids=("eager", "compiled"))
+def test_e8m0_scale_to_reciprocal_fp32_cuda_fallback(monkeypatch, use_compile):
+    monkeypatch.setattr(mx_tensor_module, "_TORCH_VERSION_AT_LEAST_2_14", False)
+    scale_e8m0_biased = torch.arange(256, dtype=torch.uint8, device="cuda")
+    convert = (
+        torch.compile(_e8m0_scale_to_reciprocal_fp32, fullgraph=True)
+        if use_compile
+        else _e8m0_scale_to_reciprocal_fp32
+    )
+    actual_bits = convert(scale_e8m0_biased).cpu().view(torch.int32)
+
+    scale_e8m0_biased_cpu = scale_e8m0_biased.cpu()
+    reciprocal_e8m0_biased = (254 - scale_e8m0_biased_cpu.to(torch.int32)).to(
+        torch.uint8
+    )
+    expected_bits = (
+        reciprocal_e8m0_biased.view(torch.float8_e8m0fnu)
+        .to(torch.float32)
+        .view(torch.int32)
+    )
+    assert actual_bits[254] == 0x00400000  # Exact FP32 subnormal 2^-127.
+    assert actual_bits[255] == 0x7F800001  # E8M0 NaN payload.
+    assert torch.equal(actual_bits, expected_bits)
 
 
 @pytest.fixture(autouse=True)
@@ -114,6 +170,19 @@ def test_some_zeros(elem_dtype):
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+@pytest.mark.parametrize("input_dtype", (torch.float32, torch.bfloat16))
+@pytest.mark.parametrize(
+    "scaling_mode", (ScaleCalculationMode.FLOOR, ScaleCalculationMode.RCEIL)
+)
+@pytest.mark.parametrize("use_compile", (False, True), ids=("eager", "compiled"))
+def test_mxfp8_corner_case_bytes(input_dtype, scaling_mode, use_compile):
+    cases = make_mxfp8_semantic_cases(input_dtype, scaling_mode, device="cuda")
+    quantize = torch.compile(to_mx, fullgraph=True) if use_compile else to_mx
+    scales, qdata = quantize(cases.inputs, torch.float8_e4m3fn, 32, scaling_mode)
+    assert_mxfp8_semantics(qdata, scales, cases)
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 def test_to_mx_rceil():
     # nan
     # fmt: off
@@ -147,9 +216,19 @@ def test_to_mx_rceil():
     ).view(torch.float32)
     # fmt: on
     ground_truth_scale = torch.tensor([0], dtype=torch.uint8).view(torch.float8_e8m0fnu)
-    ground_truth_fp8 = torch.tensor([0] * 32, dtype=torch.uint8).view(
-        torch.float8_e4m3fn
-    )
+    # E8M0 byte 0 is 2^-127, so these FP32 subnormals remain representable
+    # after scaling instead of being flushed to zero.
+    # fmt: off
+    ground_truth_fp8 = torch.tensor(
+        [
+        60, 58, 53, 60, 59, 29, 45, 56,
+        59, 60, 45, 4, 55, 54, 58, 52,
+        62, 57, 62, 42, 59, 57, 48, 60,
+        8, 62, 57, 57, 60, 57, 59, 61,
+        ],
+        dtype=torch.uint8,
+    ).view(torch.float8_e4m3fn)
+    # fmt: on
     data_mx = MXTensor.to_mx(
         data_hp, torch.float8_e4m3fn, 32, ScaleCalculationMode.RCEIL
     )
@@ -168,9 +247,17 @@ def test_to_mx_rceil():
     ).view(torch.bfloat16)
     # fmt: on
     ground_truth_scale = torch.tensor([0], dtype=torch.uint8).view(torch.float8_e8m0fnu)
-    ground_truth_fp8 = torch.tensor([0] * 32, dtype=torch.uint8).view(
-        torch.float8_e4m3fn
-    )
+    # fmt: off
+    ground_truth_fp8 = torch.tensor(
+        [
+        61, 20, 52, 54, 49, 42, 57, 58,
+        49, 60, 46, 63, 58, 60, 42, 60,
+        41, 50, 60, 54, 20, 45, 56, 59,
+        55, 59, 53, 44, 55, 57, 55, 57,
+        ],
+        dtype=torch.uint8,
+    ).view(torch.float8_e4m3fn)
+    # fmt: on
     data_mx = MXTensor.to_mx(
         data_hp, torch.float8_e4m3fn, 32, ScaleCalculationMode.RCEIL
     )
@@ -311,6 +398,37 @@ def test_to_mx_rceil():
     )
     torch.testing.assert_close(data_mx.scale, ground_truth_scale)
     torch.testing.assert_close(data_mx.qdata, ground_truth_fp8)
+
+
+def test_to_mx_rceil_fallback_nan_branch_is_cse_compatible(monkeypatch):
+    monkeypatch.setattr(mx_tensor_module, "_TORCH_VERSION_AT_LEAST_2_14", False)
+
+    def repeated_rceil(data_hp, max_abs):
+        first = _to_mx_rceil(data_hp, max_abs, 448.0)
+        second = _to_mx_rceil(data_hp, max_abs, 448.0)
+        return *first, *second
+
+    data_hp = torch.randn(4, 32)
+    max_abs = data_hp.abs().amax(dim=-1, keepdim=True)
+    gm = make_fx(repeated_rceil)(data_hp, max_abs)
+    gm.graph = fx_graph_cse(gm.graph)
+
+    nan_branches = []
+    for node in gm.graph.nodes:
+        if node.target != torch.ops.aten.where.self:
+            continue
+        condition = node.args[0]
+        if (
+            isinstance(condition, torch.fx.Node)
+            and condition.target == torch.ops.aten.eq.Scalar
+            and condition.args[1] == 255
+        ):
+            nan_branches.append(node.args[1])
+
+    assert len(nan_branches) == 2
+    assert nan_branches[0] is nan_branches[1]
+    assert nan_branches[0].target == torch.ops.aten.scalar_tensor.default
+    assert nan_branches[0].args[0] == 0x7F800001
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
@@ -667,36 +785,37 @@ def test_index_select():
     reason="float8 in triton requires CUDA capability 8.9 or greater",
 )
 @pytest.mark.skipif(
-    not torch_version_at_least("2.12.0.dev0"),
-    reason="eager float8_e4m3fn casts saturate in PyTorch 2.12+",
+    not torch_version_at_least("2.13.0.dev0"),
+    reason="eager float8_e4m3fn casts saturate in PyTorch 2.13+",
 )
-def test_cast_to_float8_e4m3fn_saturation_behavior():
+@pytest.mark.parametrize("input_dtype", (torch.float32, torch.bfloat16))
+def test_cast_to_float8_e4m3fn_saturation_behavior(input_dtype):
     max_val = torch.finfo(torch.float8_e4m3fn).max
 
     # create example data inside the representable range
-    data_in_range_bf16 = torch.tensor(
+    data_in_range = torch.tensor(
         [
             max_val,
             -1 * max_val,
         ],
-        dtype=torch.bfloat16,
+        dtype=input_dtype,
         device="cuda",
     )
 
     # create example data outside the representable range
-    data_out_of_range_bf16 = torch.tensor(
+    data_out_of_range = torch.tensor(
         [
             max_val * 2,
             -1 * (max_val * 2),
         ],
-        dtype=torch.bfloat16,
+        dtype=input_dtype,
         device="cuda",
     )
 
     # PyTorch core saturates finite-overflow e4m3fn casts as of
     # https://github.com/pytorch/pytorch/pull/178817.
-    data_in_range_f8 = data_in_range_bf16.to(torch.float8_e4m3fn)
-    data_out_of_range_f8 = data_out_of_range_bf16.to(torch.float8_e4m3fn)
+    data_in_range_f8 = data_in_range.to(torch.float8_e4m3fn)
+    data_out_of_range_f8 = data_out_of_range.to(torch.float8_e4m3fn)
     assert not torch.any(torch.isnan(data_in_range_f8))
     assert not torch.any(torch.isnan(data_out_of_range_f8))
     torch.testing.assert_close(data_in_range_f8, data_out_of_range_f8, atol=0, rtol=0)
@@ -708,8 +827,8 @@ def test_cast_to_float8_e4m3fn_saturation_behavior():
         return x
 
     to_f8_c = torch.compile(to_f8)
-    data_in_range_f8_c = to_f8_c(data_in_range_bf16)
-    data_out_of_range_f8_c = to_f8_c(data_out_of_range_bf16)
+    data_in_range_f8_c = to_f8_c(data_in_range)
+    data_out_of_range_f8_c = to_f8_c(data_out_of_range)
     assert not torch.any(torch.isnan(data_in_range_f8_c))
     assert not torch.any(torch.isnan(data_out_of_range_f8_c))
     torch.testing.assert_close(
