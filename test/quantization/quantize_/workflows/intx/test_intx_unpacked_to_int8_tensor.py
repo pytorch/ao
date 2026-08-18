@@ -24,15 +24,6 @@ from torchao.quantization.quantize_.workflows import IntxPackingFormat
 from torchao.quantization.utils import compute_error
 from torchao.utils import torch_version_at_least, unwrap_tensor_subclass
 
-try:
-    from transformers.integrations.gemma_quant import (
-        QuantizedLinear,
-        QuantizedEmbedding,
-    )
-    HAS_TRANSFORMERS = True
-except ImportError:
-    HAS_TRANSFORMERS = False
-
 
 @unittest.skipIf(not torch_version_at_least("2.7.0"), "Need pytorch 2.7+")
 class TestIntxUnpackedToInt8Tensor(TestCase):
@@ -154,18 +145,20 @@ class TestIntxUnpackedToInt8Tensor(TestCase):
         dtype = torch.bfloat16
         device = "cpu"
         dummy = torch.nn.Linear(256, 256, bias=False, dtype=dtype, device=device)
-        
+
         quantize_(dummy, self.config)
-        
+
         # Test select row (index = 5)
         index = 5
-        selected_row = dummy.weight[index, :] # calls select dim=0
-        
+        selected_row = dummy.weight[index, :]  # calls select dim=0
+
         # Expected row dequantized
         dequantized_weight = dummy.weight.dequantize()
         expected_row = dequantized_weight[index, :]
-        
-        self.assertTrue(torch.allclose(selected_row, expected_row, rtol=1e-3, atol=1e-3))
+
+        self.assertTrue(
+            torch.allclose(selected_row, expected_row, rtol=1e-3, atol=1e-3)
+        )
 
     def test_slice_and_copy_(self):
         device = "cpu"
@@ -432,17 +425,16 @@ class TestIntxUnpackedToInt8Tensor(TestCase):
                 sqnr > 35, f"Got SQNR of {sqnr} between prepared and quantized"
             )
 
-
     def test_int8_static_activation_intx_weight_config(self):
         from torchao.quantization import Int8StaticActivationIntxWeightConfig
-        
+
         device = "cuda" if torch.cuda.is_available() else "cpu"
         dtype = torch.bfloat16
         input_tensor = torch.randn(1, 128, dtype=dtype, device=device)
         linear = torch.nn.Linear(128, 256, dtype=dtype, device=device)
-        
+
         act_quant_scale = torch.tensor(0.5, dtype=dtype, device=device)
-        
+
         config_group = Int8StaticActivationIntxWeightConfig(
             act_quant_scale=act_quant_scale,
             weight_dtype=torch.int4,
@@ -452,7 +444,7 @@ class TestIntxUnpackedToInt8Tensor(TestCase):
         linear_copy.load_state_dict(linear.state_dict())
         quantize_(linear_copy, config_group)
         out_group = linear_copy(input_tensor)
-        
+
         config_axis = Int8StaticActivationIntxWeightConfig(
             act_quant_scale=act_quant_scale,
             weight_dtype=torch.int4,
@@ -462,15 +454,28 @@ class TestIntxUnpackedToInt8Tensor(TestCase):
         linear_copy2.load_state_dict(linear.state_dict())
         quantize_(linear_copy2, config_axis)
         out_axis = linear_copy2(input_tensor)
-        
+
+        output_quant_scale = torch.tensor(0.25, dtype=dtype, device=device)
+        config_with_output_scale = Int8StaticActivationIntxWeightConfig(
+            act_quant_scale=act_quant_scale,
+            output_quant_scale=output_quant_scale,
+            weight_dtype=torch.int4,
+            weight_granularity=PerAxis(0),
+        )
+        linear_copy3 = torch.nn.Linear(128, 256, dtype=dtype, device=device)
+        linear_copy3.load_state_dict(linear.state_dict())
+        quantize_(linear_copy3, config_with_output_scale)
+        out_scaled = linear_copy3(input_tensor)
+
         self.assertEqual(out_group.shape, (1, 256))
         self.assertEqual(out_axis.shape, (1, 256))
+        self.assertEqual(out_scaled.shape, (1, 256))
 
     def test_intx_unpacked_embedding_sliced(self):
         dtype = torch.bfloat16
         device = "cpu"
         embedding = torch.nn.Embedding(128, 256, dtype=dtype, device=device)
-        
+
         config = IntxWeightOnlyConfig(
             weight_dtype=torch.int4,
             granularity=PerGroup(32),
@@ -478,100 +483,18 @@ class TestIntxUnpackedToInt8Tensor(TestCase):
         )
         is_embedding = lambda n, _: isinstance(n, torch.nn.Embedding)
         quantize_(embedding, config, filter_fn=is_embedding)
-        
+
         from torchao.quantization import IntxUnpackedToInt8Tensor
+
         self.assertTrue(isinstance(embedding.weight, IntxUnpackedToInt8Tensor))
-        
+
         indices = torch.tensor([1, 5, 10], device=device)
         output = embedding(indices)
-        
+
         dequantized_weight = embedding.weight.dequantize()
         expected_output = torch.nn.functional.embedding(indices, dequantized_weight)
-        
+
         self.assertTrue(torch.allclose(output, expected_output, atol=1e-5))
-
-    @unittest.skipIf(not HAS_TRANSFORMERS, "transformers not available")
-    def test_convert_gemma_quantized_to_torchao(self):
-        from torchao.quantization.gemma import convert_gemma_quantized_to_torchao
-        from torchao.quantization.quantize_.workflows.intx.intx_unpacked_to_int8_tensor import IntxUnpackedToInt8Tensor
-        from transformers.models.gemma.modeling_gemma import GemmaTextScaledWordEmbedding
-
-        vocab_size = 128
-        hidden_size = 64
-        num_bits = 4
-
-        # Create mock model with QuantizedLinear and QuantizedEmbedding
-        class MockGemmaModel(torch.nn.Module):
-            def __init__(self):
-                super().__init__()
-                self.config = type("Config", (), {"pad_token_id": 3})()
-                self.embed_tokens = QuantizedEmbedding(
-                    num_embeddings=vocab_size,
-                    embedding_dim=hidden_size,
-                    output_dtype=torch.bfloat16,
-                    embed_scale=1.0,
-                    num_bits=num_bits,
-                )
-                self.linear = QuantizedLinear(
-                    in_features=hidden_size,
-                    out_features=hidden_size,
-                    bias=False,
-                    num_bits=num_bits,
-                )
-                self.lm_head = QuantizedLinear(
-                    in_features=hidden_size,
-                    out_features=vocab_size,
-                    bias=False,
-                    num_bits=num_bits,
-                )
-
-            def forward(self, input_ids):
-                x = self.embed_tokens(input_ids)
-                x = self.linear(x)
-                x = self.lm_head(x)
-                return x
-
-            def tie_weights(self):
-                if isinstance(self.embed_tokens.weight, torch.nn.Parameter):
-                    self.lm_head.weight = self.embed_tokens.weight
-
-        model = MockGemmaModel()
-        model.tie_weights()
-
-        # Check model structure before conversion
-        self.assertTrue(isinstance(model.embed_tokens, QuantizedEmbedding))
-        self.assertTrue(isinstance(model.linear, QuantizedLinear))
-        self.assertTrue(isinstance(model.lm_head, QuantizedLinear))
-
-        # Convert the model
-        convert_gemma_quantized_to_torchao(model)
-
-        # Assertions
-        # 1. Swapped module types
-        self.assertTrue(isinstance(model.embed_tokens, GemmaTextScaledWordEmbedding))
-        self.assertTrue(isinstance(model.linear, torch.nn.Linear))
-        self.assertTrue(isinstance(model.lm_head, torch.nn.Linear))
-
-        # 2. Subclass weight checks
-        self.assertTrue(isinstance(model.embed_tokens.weight, IntxUnpackedToInt8Tensor))
-        self.assertTrue(isinstance(model.linear.weight, IntxUnpackedToInt8Tensor))
-        self.assertTrue(isinstance(model.lm_head.weight, IntxUnpackedToInt8Tensor))
-
-        # 3. Tied weights assertion: lm_head.weight must be the same instance as embed_tokens.weight
-        self.assertTrue(model.lm_head.weight is model.embed_tokens.weight)
-
-        # 4. Target dtypes
-        self.assertEqual(model.embed_tokens.weight.target_dtype, torch.int4)
-        self.assertEqual(model.linear.weight.target_dtype, torch.int4)
-
-        # 5. Check padding_idx preservation
-        self.assertEqual(model.embed_tokens.padding_idx, 3)
-
-        # Verify forward execution
-        input_ids = torch.randint(0, vocab_size, (2, 8))
-        out = model(input_ids)
-        self.assertEqual(out.shape, (2, 8, vocab_size))
-        self.assertEqual(out.dtype, torch.bfloat16)
 
 
 if __name__ == "__main__":

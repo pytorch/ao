@@ -294,7 +294,9 @@ def _(func, types, args, kwargs):
         # for int8 dynamic + static quantization path
         if getattr(weight_tensor, "act_quant_scale", None) is not None:
             if weight_tensor.act_quant_scale.ndim == 0:
-                weight_tensor.act_quant_scale = weight_tensor.act_quant_scale.view((1,) * activation_tensor.ndim)
+                weight_tensor.act_quant_scale = weight_tensor.act_quant_scale.view(
+                    (1,) * activation_tensor.ndim
+                )
 
         activation_tensor = _choose_quant_func_and_quantize_tensor(
             activation_tensor,
