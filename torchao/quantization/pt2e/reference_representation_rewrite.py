@@ -101,6 +101,9 @@ def _reference_quantized_linear(
 
     x_i16 = x_i8.to(torch.int16)
     weight_i16 = weight_i8.to(torch.int16)
+    x_zero_point = x_zero_point.to(torch.int16)
+    weight_zero_point = weight_zero_point.to(torch.int16)
+    out_zero_point = out_zero_point.to(torch.int32)
     # always set bias to None so that the same representation can work for the case
     # no matter if bias_scale == x_scale * weight_scale or not
     acc_i32 = out_dtype(
@@ -193,6 +196,8 @@ def _reference_dynamic_quantized_linear(
 
     x_i16 = x_i8.to(torch.int16)
     weight_i16 = weight_i8.to(torch.int16)
+    x_zero_point = x_zero_point.to(torch.int16)
+    weight_zero_point = weight_zero_point.to(torch.int16)
     # always set bias to None so that the same representation can work for the case
     # no matter if bias_scale == x_scale * weight_scale or not
     acc_i32 = out_dtype(
@@ -565,6 +570,9 @@ def _reference_quantized_conv2d(
 
     x_i16 = x_i8.to(torch.int16)
     weight_i16 = weight_i8.to(torch.int16)
+    x_zero_point = x_zero_point.to(torch.int16)
+    weight_zero_point = weight_zero_point.to(torch.int16)
+    out_zero_point = out_zero_point.to(torch.int32)
     # always set bias to None so that the same representation can work for the case
     # no matter if bias_scale == x_scale * weight_scale or not
     acc_i32 = out_dtype(
