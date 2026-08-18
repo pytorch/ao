@@ -1351,3 +1351,121 @@ def _(m_sizes, x, global_scale):
     xq = x.new_empty(M, K // 2, dtype=torch.float4_e2m1fn_x2)
     scale = x.new_empty(padded_total_M_ub, padded_cols, dtype=torch.float8_e4m3fn)
     return xq, scale
+
+
+# ---------------------------------------------------------------------------
+# Standalone mxfp8 32x32 cast: one e8m0 (RCEIL, power-of-two) scale per 32x32 block.
+#
+# This is a self-contained Triton kernel (not wired into MXTensor / to_mx / any config). It
+# mirrors torchao's `to_mx(..., ScaleCalculationMode.RCEIL)` but with a square 32x32 block
+# instead of a 1x32 / 32x1 block: `descale = amax / f8e4m3_max` is rounded UP to the next
+# power-of-two e8m0 exponent, and the cast multiplies the data by the fp32 reciprocal of that
+# e8m0 scale before casting to float8_e4m3fn.
+# ---------------------------------------------------------------------------
+if _triton_kernels_available:
+    # Reuses the e8m0 RCEIL helper `_triton_calculate_scale_rceil` defined in the
+    # `_triton_kernels_available` block above (`USE_PTX` selects the hardware
+    # `cvt.rp.ue8m0x2.f32` path on Blackwell / NVIDIA and the bit-math path on ROCm). Sharing
+    # that helper keeps this kernel byte-for-byte consistent with the other mxfp8 casts, so it
+    # is gated on the same `_triton_kernels_available` (SM100+ & CUDA>=12.8, or ROCm MI350) as
+    # they are.
+
+    _MXFP8_32X32_CONFIGS = [
+        triton.Config({"CB": cb}, num_warps=w)
+        for cb in (2, 4, 8, 16)
+        for w in (2, 4, 8)
+    ]
+
+    @triton.autotune(configs=_MXFP8_32X32_CONFIGS, key=["M", "N"])
+    @triton.jit
+    def _mxfp8_32x32_kernel(
+        x_ptr,
+        y_ptr,
+        s_ptr,
+        M,
+        N,
+        sxm,
+        sxn,
+        sym,
+        syn,
+        ssm,
+        ssn,
+        CB: tl.constexpr,
+    ):
+        pid_rb = tl.program_id(0)  # 32-row block
+        pid_cb = tl.program_id(1)  # group of CB 32-col blocks
+        offs_m = pid_rb * 32 + tl.arange(0, 32)
+        offs_n = pid_cb * (CB * 32) + tl.arange(0, CB * 32)
+        n_mask = offs_n < N
+        x = tl.load(
+            x_ptr + offs_m[:, None] * sxm + offs_n[None, :] * sxn,
+            mask=n_mask[None, :],
+            other=0.0,
+        ).to(tl.float32)  # (32, CB*32)
+        xr = tl.reshape(x, (32, CB, 32))
+        # 32x32 block amax: reduce the 32 rows first, leaving (CB, 32); the helper reduces the
+        # remaining within-block-col axis. max is associative so this equals the full amax.
+        partial = tl.max(tl.abs(xr), axis=0)  # (CB, 32)
+        # e8m0 RCEIL scale + fp32 reciprocal (hardware cvt on NVIDIA, bit-math on ROCm).
+        rcp, biased = _triton_calculate_scale_rceil(
+            partial, axis=1, USE_PTX=not IS_ROCM
+        )  # both (CB,); biased is uint8
+        y = tl.reshape((xr * rcp[None, :, None]).to(tl.float8e4nv), (32, CB * 32))
+        tl.store(
+            y_ptr + offs_m[:, None] * sym + offs_n[None, :] * syn,
+            y,
+            mask=n_mask[None, :],
+        )
+        s_cols = pid_cb * CB + tl.arange(0, CB)
+        tl.store(
+            s_ptr + pid_rb * ssm + s_cols * ssn,
+            biased,
+            mask=s_cols < (N // 32),
+        )
+
+    @triton_op("torchao::triton_to_mxfp8_32x32_dim0", mutates_args={})
+    def triton_to_mxfp8_32x32_dim0(
+        x: torch.Tensor,
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        """Standalone mxfp8 cast with square 32x32 blocks (one e8m0 scale per 32x32 block).
+
+        Args:
+            x: contiguous 2D tensor with ``M % 32 == 0`` and ``N % 32 == 0``.
+
+        Returns:
+            ``(qdata, scale)`` where ``qdata`` is float8_e4m3fn of shape ``(M, N)`` and
+            ``scale`` is float8_e8m0fnu of shape ``(M // 32, N // 32)``.
+
+        Uses the shared `_triton_calculate_scale_rceil` e8m0 RCEIL helper (hardware
+        ``cvt.rp.ue8m0x2.f32`` on Blackwell, bit-math on ROCm). Registered as a custom op but
+        not used by MXTensor.
+        """
+        assert x.is_contiguous() and x.dim() == 2
+        M, N = x.shape
+        assert M % 32 == 0 and N % 32 == 0, (
+            "mxfp8_32x32 kernel needs M%32==0 and N%32==0"
+        )
+        y = torch.empty_like(x, dtype=torch.float8_e4m3fn)
+        s_u8 = torch.empty(M // 32, N // 32, dtype=torch.uint8, device=x.device)
+        grid = lambda meta: (M // 32, triton.cdiv(N, meta["CB"] * 32))  # noqa: E731
+        wrap_triton(_mxfp8_32x32_kernel)[grid](
+            x,
+            y,
+            s_u8,
+            M,
+            N,
+            x.stride(0),
+            x.stride(1),
+            y.stride(0),
+            y.stride(1),
+            s_u8.stride(0),
+            s_u8.stride(1),
+        )
+        return y, s_u8.view(torch.float8_e8m0fnu)
+
+else:
+
+    def triton_to_mxfp8_32x32_dim0(
+        x: torch.Tensor,
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        raise AssertionError("needs triton")

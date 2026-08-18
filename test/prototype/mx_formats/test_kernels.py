@@ -37,6 +37,7 @@ from torchao.prototype.mx_formats.kernels import (
     mxfp8_quantize_cuda,
     pack_uint4,
     triton_mxfp8_dequant_dim0,
+    triton_to_mxfp8_32x32_dim0,
     triton_to_mxfp8_dim0,
     triton_to_mxfp8_dim1,
     triton_to_mxfp8_dim1_reference,
@@ -44,6 +45,7 @@ from torchao.prototype.mx_formats.kernels import (
 )
 from torchao.prototype.mx_formats.mx_tensor import ScaleCalculationMode, to_dtype, to_mx
 from torchao.prototype.mx_formats.utils import to_blocked
+from torchao.quantization.utils import compute_error
 from torchao.testing._mxfp8_test_utils import (
     assert_mxfp8_semantics,
     make_f32_to_e8m0_rceil_cases,
@@ -1007,3 +1009,117 @@ def test_triton_mxfp8_dim0_large_tensor_offset_no_overflow(scaling_mode):
     assert not x_s_t.isnan().any(), "scales should not contain NaNs"
     torch.testing.assert_close(x_mx_t, x_mx_ref, rtol=0, atol=0)
     torch.testing.assert_close(x_s_t, x_s_ref, rtol=0, atol=0)
+
+
+# ---------------------------------------------------------------------------
+# Pure-PyTorch numerical reference for the standalone mxfp8 32x32 cast, ported from the
+# quant_cast_gold recipe `mxfp8_32x32_f` (eager RCEIL bit-math branch). Kept local so the test
+# depends only on torchao, and pins `triton_to_mxfp8_32x32_dim0` bit-for-bit to this definition.
+# ---------------------------------------------------------------------------
+def _ref_amax_to_e8m0_rceil(amax):
+    """amax -> e8m0 (float8_e8m0fnu) power-of-two block scale via RCEIL bit-math: descale =
+    amax / f8e4m3_max, then round descale UP to the next power-of-two e8m0 biased exponent."""
+    descale = amax.to(torch.float32) * (
+        1.0 / torch.finfo(torch.float8_e4m3fn).max
+    )  # /448
+    descale_int32 = descale.view(torch.int32)
+    biased_exponent = (descale_int32 >> 23) & 0xFF
+    mantissa = descale_int32 & 0x7FFFFF
+    # normal fp32 rounds up when any mantissa bit is set; for fp32 subnormals (biased_exp == 0),
+    # e8m0 byte 0 is 2^-127, so only values above that round to 1.
+    needs_round_up = torch.where(
+        biased_exponent == 0, mantissa > 0x400000, mantissa != 0
+    )
+    scale_biased = biased_exponent + needs_round_up.to(torch.int32)
+    scale_biased = torch.where(torch.isfinite(descale), scale_biased, 255).to(
+        torch.uint8
+    )
+    return scale_biased.view(torch.float8_e8m0fnu)
+
+
+def _ref_e8m0_to_reciprocal_fp32(scale_e8m0):
+    """e8m0 block scale -> its fp32 reciprocal pow2 factor (reciprocal biased exp = 254 - e)."""
+    biased = scale_e8m0.contiguous().view(torch.uint8).to(torch.int32)
+    reciprocal_biased = (2 * 127 - biased) & 0xFF
+    reciprocal_bits = reciprocal_biased << 23
+    reciprocal_bits = torch.where(reciprocal_biased == 0, 0x00400000, reciprocal_bits)
+    reciprocal_bits = torch.where(reciprocal_biased == 255, 0x7F800001, reciprocal_bits)
+    return reciprocal_bits.view(torch.float32)
+
+
+def _ref_mxfp8_32x32(x):
+    """mxfp8 with square 32x32 blocks (one e8m0 scale per block). Returns
+    (qdata float8_e4m3fn (M, N), scale float8_e8m0fnu (M//32, N//32))."""
+    *lead, d1, d2 = x.shape
+    n1, n2 = d1 // 32, d2 // 32
+    x_b = (
+        x.reshape(*lead, n1, 32, n2, 32)
+        .transpose(-3, -2)
+        .contiguous()
+        .reshape(*lead, n1, n2, 32 * 32)
+    )
+    amax = x_b.abs().amax(dim=-1, keepdim=True)  # (..., n1, n2, 1)
+    scale_e8m0 = _ref_amax_to_e8m0_rceil(amax)
+    qdata_b = (x_b.to(torch.float32) * _ref_e8m0_to_reciprocal_fp32(scale_e8m0)).to(
+        torch.float8_e4m3fn
+    )
+    qdata = (
+        qdata_b.reshape(*lead, n1, n2, 32, 32)
+        .transpose(-3, -2)
+        .contiguous()
+        .reshape(*lead, d1, d2)
+    )
+    return qdata, scale_e8m0.squeeze(-1)
+
+
+@pytest.mark.skipif(not has_triton(), reason="unsupported without triton")
+@pytest.mark.skipif(
+    not is_sm_at_least_100() and not is_MI350(),
+    reason="mxfp8 requires CUDA capability 10.0 or greater or ROCm gfx950 or greater.",
+)
+@pytest.mark.parametrize("M", (64, 128, 256))
+@pytest.mark.parametrize("K", (64, 128, 256))
+def test_triton_to_mxfp8_32x32_matches_reference(M, K):
+    torch.manual_seed(0)
+    x = torch.randn(M, K, dtype=torch.bfloat16, device="cuda")
+    q_t, s_t = triton_to_mxfp8_32x32_dim0(x)
+    q_ref, s_ref = _ref_mxfp8_32x32(x)
+    # Bit-exact: compare the raw fp8 / e8m0 byte patterns (avoids NaN != NaN and fp8 eq pitfalls).
+    assert torch.equal(q_t.view(torch.uint8), q_ref.view(torch.uint8))
+    assert torch.equal(s_t.view(torch.uint8), s_ref.view(torch.uint8))
+
+
+def _ref_e8m0_to_fp32(scale):
+    """Inverse of the e8m0 cast: e8m0 biased exponent -> fp32 pow2 factor (used by dequant)."""
+    biased_i32 = scale.contiguous().view(torch.uint8).to(torch.int32)
+    scale_fp32 = (biased_i32 << 23).view(torch.float32)
+    return torch.clamp(scale_fp32, min=2.0**-126)
+
+
+def _ref_mxfp8_32x32_dq(q, scale):
+    """Dequant for the 32x32 mxfp8 cast (ported from quant_cast_gold `mxfp8_32x32_dq_f`):
+    un-block the e8m0 scale over the 32x32 grid and multiply."""
+    M, N = q.shape
+    n1, n2 = M // 32, N // 32
+    s = _ref_e8m0_to_fp32(scale).reshape(n1, 1, n2, 1)
+    return (q.float().reshape(n1, 32, n2, 32) * s).reshape(M, N)
+
+
+@pytest.mark.skipif(not has_triton(), reason="unsupported without triton")
+@pytest.mark.skipif(
+    not is_sm_at_least_100() and not is_MI350(),
+    reason="mxfp8 requires CUDA capability 10.0 or greater or ROCm gfx950 or greater.",
+)
+@pytest.mark.parametrize("M", (64, 128, 256))
+@pytest.mark.parametrize("K", (64, 128, 256))
+def test_triton_to_mxfp8_32x32_dequant_sqnr(M, K):
+    torch.manual_seed(0)
+    x = torch.randn(M, K, dtype=torch.bfloat16, device="cuda")
+    q_t, s_t = triton_to_mxfp8_32x32_dim0(x)
+    x_hat = _ref_mxfp8_32x32_dq(q_t, s_t)
+    sqnr = compute_error(x.float(), x_hat.float())
+    # e8m0 pow2 scale is coarse, so the floor matches the gold recipe's mxfp8 threshold (15 dB).
+    threshold = 15.0
+    assert sqnr > threshold, (
+        f"mxfp8_32x32: sqnr={sqnr.item():.2f} dB below {threshold} dB"
+    )
