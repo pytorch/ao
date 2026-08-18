@@ -241,9 +241,9 @@ def swap_conv2d_1x1_to_linear(model, filter_fn=None):
         return PermuteSandwich(lin)
 
     if filter_fn is None:
-        filter_fn = lambda mod, *args: isinstance(
-            mod, torch.nn.Conv2d
-        ) and mod.kernel_size == (1, 1)
+        filter_fn = lambda mod, *args: (
+            isinstance(mod, torch.nn.Conv2d) and mod.kernel_size == (1, 1)
+        )
 
     _replace_with_custom_fn_if_matches_filter(
         model, replace_conv2d_1x1, filter_fn=filter_fn
@@ -975,6 +975,12 @@ class Int8StaticActivationInt8WeightConfig(AOBaseConfig):
         torch._C._log_api_usage_once(
             "torchao.quantization.Int8StaticActivationInt8WeightConfig"
         )
+        if isinstance(self.act_quant_scale, list):
+            self.act_quant_scale = torch.tensor(self.act_quant_scale)
+        if isinstance(self.act_quant_zero_point, list):
+            self.act_quant_zero_point = torch.tensor(self.act_quant_zero_point)
+        if isinstance(self.output_quant_scale, list):
+            self.output_quant_scale = torch.tensor(self.output_quant_scale)
         act_granularity, weight_granularity = Int8Tensor._normalize_granularity(
             self.granularity
         )
@@ -1040,7 +1046,9 @@ def _int8_static_activation_int8_weight_transform(
             mapping_type=config.act_mapping_type,
             reduce_range=config.reduce_range,
         ),
-        act_quant_scale=config.act_quant_scale.detach() if config.act_quant_scale is not None else None,
+        act_quant_scale=config.act_quant_scale.detach()
+        if config.act_quant_scale is not None
+        else None,
         act_quant_zero_point=act_quant_zero_point,
         output_quant_scale=output_quant_scale,
         reduce_range=config.reduce_range,
@@ -1067,6 +1075,7 @@ class Int8StaticActivationIntxWeightConfig(AOBaseConfig):
     """
     Configuration for static int8 activation quantization and intx weight quantization.
     """
+
     act_quant_scale: Optional[torch.Tensor] = None
     act_quant_zero_point: Optional[torch.Tensor] = None
     weight_dtype: torch.dtype = torch.int8
@@ -1089,8 +1098,14 @@ class Int8StaticActivationIntxWeightConfig(AOBaseConfig):
         )
         if isinstance(self.act_quant_scale, list):
             self.act_quant_scale = torch.tensor(self.act_quant_scale)
+        if isinstance(self.act_quant_zero_point, list):
+            self.act_quant_zero_point = torch.tensor(self.act_quant_zero_point)
         if isinstance(self.output_quant_scale, list):
             self.output_quant_scale = torch.tensor(self.output_quant_scale)
+        if isinstance(self.custom_weight_scale, list):
+            self.custom_weight_scale = torch.tensor(self.custom_weight_scale)
+        if isinstance(self.custom_weight_zero_point, list):
+            self.custom_weight_zero_point = torch.tensor(self.custom_weight_zero_point)
         assert self.weight_dtype in [getattr(torch, f"int{b}") for b in range(1, 9)], (
             f"weight_dtype must be torch.intx, where 1 <= x <= 8, but got {self.weight_dtype}"
         )
@@ -1141,7 +1156,11 @@ def _int8_static_activation_intx_weight_transform(
         output_quant_scale = config.output_quant_scale.detach()
 
     c_scale = custom_scale if custom_scale is not None else config.custom_weight_scale
-    c_zp = custom_zero_point if custom_zero_point is not None else config.custom_weight_zero_point
+    c_zp = (
+        custom_zero_point
+        if custom_zero_point is not None
+        else config.custom_weight_zero_point
+    )
 
     choose_qparams_algo = config.intx_choose_qparams_algorithm
     if c_scale is not None:
@@ -1158,12 +1177,17 @@ def _int8_static_activation_intx_weight_transform(
         intx_choose_qparams_algorithm=choose_qparams_algo,
         custom_scale=c_scale,
         custom_zero_point=c_zp,
-        act_quant_scale=config.act_quant_scale.detach() if config.act_quant_scale is not None else None,
+        act_quant_scale=config.act_quant_scale.detach()
+        if config.act_quant_scale is not None
+        else None,
         act_quant_zero_point=act_quant_zero_point,
         output_quant_scale=output_quant_scale,
     )
 
-    if config.weight_scale_dtype is not None and config.weight_scale_dtype != weight.dtype:
+    if (
+        config.weight_scale_dtype is not None
+        and config.weight_scale_dtype != weight.dtype
+    ):
         _adjust_scale_dtype_in_intx_unpacked_tensor(
             new_weight, weight, config.weight_scale_dtype
         )

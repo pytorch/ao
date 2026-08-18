@@ -11,6 +11,7 @@ from typing import List, Optional, Tuple
 import torch
 from torch.utils._python_dispatch import return_and_correct_aliasing
 
+from torchao.kernel import int_scaled_matmul
 from torchao.quantization.quant_primitives import (
     _DTYPE_TO_QVALUE_BOUNDS,
     MappingType,
@@ -19,7 +20,6 @@ from torchao.quantization.quant_primitives import (
     dequantize_affine,
     quantize_affine,
 )
-from torchao.kernel import int_scaled_matmul
 from torchao.quantization.quantize_.workflows.intx.intx_choose_qparams_algorithm import (
     IntxChooseQParamsAlgorithm,
 )
@@ -182,16 +182,26 @@ class IntxUnpackedToInt8Tensor(TorchAOBaseTensor):
         dtype = kwargs.pop("dtype")
         assert dtype in _FLOAT_TYPES
 
-        act_quant_scale = self.act_quant_scale.to(device=device, dtype=dtype) if self.act_quant_scale is not None else None
+        act_quant_scale = (
+            self.act_quant_scale.to(device=device, dtype=dtype)
+            if self.act_quant_scale is not None
+            else None
+        )
 
         act_quant_zero_point = None
         if self.act_quant_zero_point is not None:
             if self.act_quant_zero_point.dtype in _FLOAT_TYPES:
-                act_quant_zero_point = self.act_quant_zero_point.to(device=device, dtype=dtype)
+                act_quant_zero_point = self.act_quant_zero_point.to(
+                    device=device, dtype=dtype
+                )
             else:
                 act_quant_zero_point = self.act_quant_zero_point.to(device=device)
 
-        output_quant_scale = self.output_quant_scale.to(device=device, dtype=dtype) if self.output_quant_scale is not None else None
+        output_quant_scale = (
+            self.output_quant_scale.to(device=device, dtype=dtype)
+            if self.output_quant_scale is not None
+            else None
+        )
 
         return IntxUnpackedToInt8Tensor(
             self.qdata.to(device),
@@ -228,7 +238,7 @@ class IntxUnpackedToInt8Tensor(TorchAOBaseTensor):
         act_quant_scale: Optional[torch.Tensor] = None,
         act_quant_zero_point: Optional[torch.Tensor] = None,
         output_quant_scale: Optional[torch.Tensor] = None,
-        act_quant_kwargs = None,
+        act_quant_kwargs=None,
     ):
         """
         Create an IntxUnpackedToInt8Tensor from a high-precision tensor
@@ -386,13 +396,13 @@ def _(func, types, args, kwargs):
             == IntxUnpackedToInt8TensorActivationQuantization.INT8_SYM_STATIC
         ):
             is_cuda = input_tensor.is_cuda
-            is_per_channel = (weight_tensor.block_size[-1] == weight_tensor.shape[-1])
-            
+            is_per_channel = weight_tensor.block_size[-1] == weight_tensor.shape[-1]
+
             if is_cuda and is_per_channel:
                 act_quant_scale = weight_tensor.act_quant_scale
                 if act_quant_scale.ndim == 0:
                     act_quant_scale = act_quant_scale.view((1,) * input_tensor.ndim)
-                
+
                 input_block_size = list(input_tensor.shape)
                 input_q = quantize_affine(
                     input_tensor,
@@ -403,24 +413,28 @@ def _(func, types, args, kwargs):
                     quant_min=-128,
                     quant_max=127,
                 )
-                
+
                 tmp = input_q.reshape(-1, input_q.shape[-1])
                 w_vals_int8_t = weight_tensor.qdata.t()
-                
-                x_scales_expanded = act_quant_scale.view(-1, 1).expand(tmp.shape[0], 1).contiguous()
-                intermediate_dtype = (
-                    torch.float if act_quant_scale.dtype == torch.half else act_quant_scale.dtype
+
+                x_scales_expanded = (
+                    act_quant_scale.view(-1, 1).expand(tmp.shape[0], 1).contiguous()
                 )
-                
+                intermediate_dtype = (
+                    torch.float
+                    if act_quant_scale.dtype == torch.half
+                    else act_quant_scale.dtype
+                )
+
                 y_dot_scaled = int_scaled_matmul(
                     tmp, w_vals_int8_t, x_scales_expanded.to(intermediate_dtype)
                 ).to(output_dtype)
-                
+
                 w_scales = weight_tensor.scale
                 y = (y_dot_scaled * w_scales.flatten()).reshape(
                     *input_tensor.shape[:-1], y_dot_scaled.shape[-1]
                 )
-                
+
                 if bias is not None:
                     y += bias
             else:
@@ -435,27 +449,27 @@ def _(func, types, args, kwargs):
         y = torch.nn.functional.linear(input_tensor, w_dequant, bias)
 
     if output_quant_scale is not None:
-         block_size = list(y.shape)
-         zp = torch.zeros_like(output_quant_scale, dtype=torch.int8)
-         y_quant = quantize_affine(
-             y,
-             block_size=block_size,
-             scale=output_quant_scale,
-             zero_point=zp,
-             output_dtype=torch.int8,
-             quant_min=-128,
-             quant_max=127,
-         )
-         y = dequantize_affine(
-             input=y_quant,
-             block_size=block_size,
-             scale=output_quant_scale,
-             zero_point=zp,
-             input_dtype=torch.int8,
-             quant_min=-128,
-             quant_max=127,
-             output_dtype=output_dtype,
-         )
+        block_size = list(y.shape)
+        zp = torch.zeros_like(output_quant_scale, dtype=torch.int8)
+        y_quant = quantize_affine(
+            y,
+            block_size=block_size,
+            scale=output_quant_scale,
+            zero_point=zp,
+            output_dtype=torch.int8,
+            quant_min=-128,
+            quant_max=127,
+        )
+        y = dequantize_affine(
+            input=y_quant,
+            block_size=block_size,
+            scale=output_quant_scale,
+            zero_point=zp,
+            input_dtype=torch.int8,
+            quant_min=-128,
+            quant_max=127,
+            output_dtype=output_dtype,
+        )
 
     return y.to(output_dtype)
 
@@ -499,17 +513,17 @@ def _(func, types, args, kwargs):
         args[1],
     )
     assert isinstance(weight_tensor, IntxUnpackedToInt8Tensor)
-    
+
     padding_idx = kwargs.get("padding_idx", None)
-    
+
     if weight_tensor.block_size[0] == 1:
         sliced_qdata = weight_tensor.qdata[indices]
         sliced_scale = weight_tensor.scale[indices]
         sliced_zero_point = weight_tensor.zero_point[indices]
-        
+
         new_block_size = [1] * indices.ndim + list(weight_tensor.block_size[1:])
         qmin, qmax = _DTYPE_TO_QVALUE_BOUNDS[weight_tensor.target_dtype]
-        
+
         weight_sliced_dequant = dequantize_affine(
             sliced_qdata,
             new_block_size,
@@ -520,11 +534,15 @@ def _(func, types, args, kwargs):
             qmax,
             output_dtype=weight_tensor.dtype,
         )
-        
+
         if padding_idx is not None:
-            mask = (indices == padding_idx)
-            weight_sliced_dequant = torch.where(mask.unsqueeze(-1), torch.zeros_like(weight_sliced_dequant), weight_sliced_dequant)
-            
+            mask = indices == padding_idx
+            weight_sliced_dequant = torch.where(
+                mask.unsqueeze(-1),
+                torch.zeros_like(weight_sliced_dequant),
+                weight_sliced_dequant,
+            )
+
         return weight_sliced_dequant
     else:
         weight_tensor = weight_tensor.dequantize()
