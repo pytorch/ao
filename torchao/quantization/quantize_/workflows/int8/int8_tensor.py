@@ -599,9 +599,7 @@ def _(func, types, args, kwargs):
     if dim < 0:
         dim += tensors[0].qdata.ndim
     if not all(isinstance(t, Int8Tensor) for t in tensors):
-        raise NotImplementedError(
-            "Int8Tensor.cat only supports a list of Int8Tensor"
-        )
+        raise NotImplementedError("Int8Tensor.cat only supports a list of Int8Tensor")
     if not all(t.block_size[dim] == 1 for t in tensors):
         raise NotImplementedError(
             f"Int8Tensor only supports cat along a per-row dim "
@@ -609,6 +607,7 @@ def _(func, types, args, kwargs):
         )
 
     first = tensors[0]
+
     # All inputs must share the same activation-quant metadata, since the result
     # keeps a single set of params
     def _act_tensor_eq(x, y):
