@@ -537,42 +537,29 @@ def _implements_common_tensor_ops(cls):
         )
 
     def _same_metadata(self: TorchAOBaseTensor, src: TorchAOBaseTensor) -> bool:
-        _tensor_shape_match = all(
-            getattr(self, t_name).shape == getattr(src, t_name).shape
-            for t_name in self.tensor_data_names
-        )
-        _optional_tensor_shape_match = True
-        if hasattr(self, "optional_tensor_data_names"):
-            # either both are None or both are not Tensors and the shape match
-            _optional_tensor_shape_match = all(
-                (
-                    getattr(self, t_name).shape == getattr(src, t_name).shape
-                    if getattr(self, t_name) is not None
-                    else getattr(src, t_name) is None
-                )
-                for t_name in self.optional_tensor_data_names
-            )
+        if type(self) is not type(src):
+            return False
+        if self.shape != src.shape:
+            return False
 
-        _attr_match = all(
-            getattr(self, a_name) == getattr(src, a_name)
-            for a_name in self.tensor_attribute_names
-        )
+        try:
+            self_tensor_names, self_ctx = self.__tensor_flatten__()
+            src_tensor_names, src_ctx = src.__tensor_flatten__()
+        except NotImplementedError:
+            return False
 
-        _optional_attr_match = True
-        if hasattr(self, "optional_tensor_attribute_names"):
-            _optional_attr_match = all(
-                getattr(self, a_name) == getattr(src, a_name)
-                for a_name in self.optional_tensor_attribute_names
-            )
+        if self_tensor_names != src_tensor_names or self_ctx != src_ctx:
+            return False
 
-        return (
-            type(self) == type(src)
-            and self.shape == src.shape
-            and _tensor_shape_match
-            and _optional_tensor_shape_match
-            and _attr_match
-            and _optional_attr_match
-        )
+        for name in self_tensor_names:
+            self_tensor = getattr(self, name)
+            src_tensor = getattr(src, name)
+            if (self_tensor is None) != (src_tensor is None):
+                return False
+            if self_tensor is not None and self_tensor.shape != src_tensor.shape:
+                return False
+
+        return True
 
     @implements(aten.copy_.default)
     def _(func, types, args, kwargs):
@@ -590,70 +577,61 @@ def _implements_common_tensor_ops(cls):
     @implements(aten._to_copy.default)
     def _(func, types, args, kwargs):
         self = args[0]
-        if hasattr(self, "tensor_data_names") and hasattr(
-            self, "tensor_attribute_names"
-        ):
-            kwargs = self._get_to_kwargs(*args[1:], **kwargs)
-            device = kwargs.pop("device")
-            non_blocking = kwargs.pop("non_blocking", False)
-            tensors = [
-                getattr(self, name).to(device, non_blocking=non_blocking)
-                for name in self.tensor_data_names
-            ]
-            optional_tensors = []
-            if hasattr(self, "optional_tensor_data_names"):
-                for tensor_data_name in self.optional_tensor_data_names:
-                    maybe_tensor = getattr(self, tensor_data_name)
-                    if maybe_tensor is not None:
-                        optional_tensors.append(
-                            maybe_tensor.to(device, non_blocking=non_blocking)
-                        )
-                    else:
-                        optional_tensors.append(None)
+        try:
+            tensor_names, ctx = self.__tensor_flatten__()
+        except NotImplementedError as e:
+            raise NotImplementedError(
+                "Subclasses must implement `aten._to_copy.default` or `__tensor_flatten__`, "
+                "or specify `tensor_data_names` and `tensor_attribute_names` for the tensor class."
+            ) from e
 
-            # change device
-            tensor_attributes = [
-                getattr(self, attr_name) if attr_name != "device" else device
-                for attr_name in self.tensor_attribute_names
-            ]
-            optional_tensor_attributes = []
-            if hasattr(self, "optional_tensor_attribute_names"):
-                optional_tensor_attributes = [
-                    getattr(self, attr_name) if attr_name != "device" else device
-                    for attr_name in self.optional_tensor_attribute_names
-                ]
+        kwargs = self._get_to_kwargs(*args[1:], **kwargs)
+        device = kwargs.pop("device")
+        non_blocking = kwargs.pop("non_blocking", False)
 
-            t = self.__class__(
-                *tensors,
-                *tensor_attributes,
-                *optional_tensors,
-                *optional_tensor_attributes,
-            )
-            return return_and_correct_aliasing(func, args, kwargs, t)
+        new_tensors = {}
+        for name in tensor_names:
+            tensor = getattr(self, name)
+            if tensor is not None:
+                new_tensors[name] = tensor.to(device, non_blocking=non_blocking)
+            else:
+                new_tensors[name] = None
 
-        raise NotImplementedError(
-            "Subclasses must implement `aten._to_copy.default` or specify `tensor_data_names` and `tensor_attribute_names` for tensor class or tensor instance before using it"
+        if isinstance(ctx, dict):
+            new_ctx = {}
+            for key, val in ctx.items():
+                if key == "device":
+                    new_ctx[key] = device
+                else:
+                    new_ctx[key] = val
+        else:
+            new_ctx = ctx
+
+        t = self.__class__.__tensor_unflatten__(
+            new_tensors,
+            new_ctx,
+            None,  # outer_size parameter
+            None,  # outer_stride parameter
         )
+        return return_and_correct_aliasing(func, args, kwargs, t)
 
 
 def _torchao_base_tensor__setstate__(self, state):
-    assert hasattr(self, "tensor_data_names") and hasattr(
-        self, "tensor_attribute_names"
-    )
     torch._utils._set_obj_state(self, state)
-    for optional_tensor_data_name in getattr(self, "optional_tensor_data_names", []):
-        if optional_tensor_data_name not in self.__dict__ and not hasattr(
-            self, optional_tensor_data_name
-        ):
-            setattr(self, optional_tensor_data_name, None)
+    if hasattr(self, "tensor_data_names") and hasattr(self, "tensor_attribute_names"):
+        for optional_tensor_data_name in getattr(self, "optional_tensor_data_names", []):
+            if optional_tensor_data_name not in self.__dict__ and not hasattr(
+                self, optional_tensor_data_name
+            ):
+                setattr(self, optional_tensor_data_name, None)
 
-    for optional_tensor_attribute_name in getattr(
-        self, "optional_tensor_attribute_names", []
-    ):
-        if optional_tensor_attribute_name not in self.__dict__ and not hasattr(
-            self, optional_tensor_attribute_name
+        for optional_tensor_attribute_name in getattr(
+            self, "optional_tensor_attribute_names", []
         ):
-            setattr(self, optional_tensor_attribute_name, None)
+            if optional_tensor_attribute_name not in self.__dict__ and not hasattr(
+                self, optional_tensor_attribute_name
+            ):
+                setattr(self, optional_tensor_attribute_name, None)
 
 
 def _dispatch__torch_function__(cls, func, types, args=(), kwargs=None):
@@ -894,7 +872,13 @@ class TorchAOBaseTensor(torch.Tensor):
 
         # define the common ops and __set_state__ for BC
         # if the tensor_data_names and tensor_attribute_names are defined
-        if hasattr(cls, "tensor_data_names") and hasattr(cls, "tensor_attribute_names"):
+        # or if the subclass implements custom __tensor_flatten__ / __tensor_unflatten__
+        has_traditional_attrs = hasattr(cls, "tensor_data_names") and hasattr(cls, "tensor_attribute_names")
+        has_custom_flatten = (
+            cls.__tensor_flatten__ is not TorchAOBaseTensor.__tensor_flatten__ or
+            getattr(cls.__tensor_unflatten__, "__func__", None) is not getattr(TorchAOBaseTensor.__tensor_unflatten__, "__func__", None)
+        )
+        if has_traditional_attrs or has_custom_flatten:
             cls._implements_common_tensor_ops()
             cls.__setstate__ = _torchao_base_tensor__setstate__
 
@@ -983,75 +967,48 @@ class TorchAOBaseTensor(torch.Tensor):
         )
 
     def _apply_fn_to_data(self, fn):
-        if hasattr(self, "tensor_data_names") and hasattr(
-            self, "tensor_attribute_names"
-        ):
-            required_tensors = [
-                fn(getattr(self, attr)) for attr in self.tensor_data_names
-            ]
-            optional_tensor_dict = {}
-            if hasattr(self, "optional_tensor_data_names"):
-                for tensor_data_name in self.optional_tensor_data_names:
-                    maybe_tensor = getattr(self, tensor_data_name)
-                    if maybe_tensor is not None:
-                        optional_tensor_dict[tensor_data_name] = fn(maybe_tensor)
-                    else:
-                        optional_tensor_dict[tensor_data_name] = None
+        try:
+            tensor_names, ctx = self.__tensor_flatten__()
+        except NotImplementedError as e:
+            raise NotImplementedError(
+                "Subclasses should implement _apply_fn_to_data or __tensor_flatten__, "
+                "or specify `tensor_data_names` and `tensor_attribute_names` for the tensor class."
+            ) from e
 
-            required_attributes = [
-                getattr(self, attr) for attr in self.tensor_attribute_names
-            ]
-            optional_attribute_dict = {}
-            if hasattr(self, "optional_tensor_attribute_names"):
-                optional_attribute_dict = {
-                    attr_name: getattr(self, attr_name)
-                    for attr_name in self.optional_tensor_attribute_names
-                }
+        new_tensors = {}
+        for name in tensor_names:
+            tensor = getattr(self, name)
+            if tensor is not None:
+                new_tensors[name] = fn(tensor)
+            else:
+                new_tensors[name] = None
 
-            return self.__class__(
-                *required_tensors,
-                *required_attributes,
-                **optional_tensor_dict,
-                **optional_attribute_dict,
-            )
-
-        raise NotImplementedError(
-            "Subclasses should implement _apply_fn_to_data or specify `tensor_data_names` and `tensor_attribute_names` for tensor class or tensor instance before using it"
+        return self.__class__.__tensor_unflatten__(
+            new_tensors,
+            ctx,
+            None,  # outer_size parameter
+            None,  # outer_stride parameter
         )
 
     def __repr__(self):
-        if hasattr(self, "tensor_data_names") and hasattr(
-            self, "tensor_attribute_names"
-        ):
-            repr_str = ""
-            # required tensor data
-            repr_str += f"{self.tensor_data_names[0]}={getattr(self, self.tensor_data_names[0])}"
-            for tensor_data_name in self.tensor_data_names[1:]:
-                repr_str += f", {tensor_data_name}={getattr(self, tensor_data_name)}"
+        try:
+            tensor_names, ctx = self.__tensor_flatten__()
+        except NotImplementedError as e:
+            raise NotImplementedError(
+                "Subclasses must implement __repr__ or __tensor_flatten__, "
+                "or specify `tensor_data_names` and `tensor_attribute_names` for the tensor class."
+            ) from e
 
-            # required attributes
-            for tensor_attribute_name in self.tensor_attribute_names:
-                repr_str += (
-                    f", {tensor_attribute_name}={getattr(self, tensor_attribute_name)}"
-                )
+        repr_parts = []
+        for name in tensor_names:
+            repr_parts.append(f"{name}={getattr(self, name)}")
+        if isinstance(ctx, dict):
+            for name, val in ctx.items():
+                repr_parts.append(f"{name}={val}")
+        else:
+            repr_parts.append(f"ctx={ctx}")
 
-            # optional tensor data
-            if hasattr(self, "optional_tensor_data_names"):
-                for tensor_data_name in self.optional_tensor_data_names:
-                    repr_str += (
-                        f", {tensor_data_name}={getattr(self, tensor_data_name)}"
-                    )
-
-            # optional tensor attributes
-            if hasattr(self, "optional_tensor_attribute_names"):
-                for tensor_attribute_name in self.optional_tensor_attribute_names:
-                    repr_str += f", {tensor_attribute_name}={getattr(self, tensor_attribute_name)}"
-
-            return f"{self.__class__.__name__}({repr_str})"
-
-        raise NotImplementedError(
-            "Subclasses must implement __repr__ or specify `tensor_data_names` and `tensor_attribute_names` for tensor class or tensor instance before using it"
-        )
+        return f"{self.__class__.__name__}({', '.join(repr_parts)})"
 
     def get_layout(self):
         """
