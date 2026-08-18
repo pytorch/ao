@@ -13,7 +13,7 @@ parametrization (see ``_KERNELS``):
 
   RTNE (stochastic_rounding=False), both backends:
     - test_rht_quantize_rtne_scales_vs_reference: FP8 scale factors match the PyTorch
-      reference bitwise in swizzled layout.
+      reference within 1 fp8 ULP in swizzled layout
     - test_rht_quantize_rtne_sqnr: Dequantized output reconstructs post-RHT / raw-A
       values with SQNR >= 20 dB for both col and row paths.
     - test_rht_quantize_row_col_zero_and_near_zero_no_nan_or_saturation: zero and
@@ -74,9 +74,9 @@ if has_triton() and is_sm_at_least_100() and torch_version_at_least("2.10.0"):
     )
 
 # Shapes swept by the kernel-parametrized tests. Both kernels need M % 128 == 0 and
-# N % 128 == 0 for the swizzled scale layout; the CuteDSL kernel additionally needs
-# M % 256 == 0, so M=128 runs triton-only (see _skip_if_unsupported_shape).
-_M_VALUES = [128, 256, 512, 1024]
+# N % 128 == 0 for the swizzled scale layout. M=128/384 exercise the CuteDSL 128-row
+# supertile (M % 128 but not % 256); the other M run its tuned 256-row supertile.
+_M_VALUES = [128, 256, 384, 512, 1024]
 _N_VALUES = [128, 256, 384, 512, 1024]
 # Shape both kernels accept, for the tests that do not sweep shapes.
 _M_BOTH, _N_BOTH = 256, 256
@@ -215,8 +215,8 @@ def _skip_if_unsupported_shape(kernel: str, M: int, N: int) -> None:
     """Skip shapes the selected backend cannot handle."""
     if M % 128 != 0 or N % 128 != 0:
         pytest.skip("swizzled scales require M % 128 == 0 and N % 128 == 0")
-    if kernel == "cutedsl" and M % 256 != 0:
-        pytest.skip("cutedsl kernel requires M % 256 == 0")
+    if kernel == "cutedsl" and M % 128 != 0:
+        pytest.skip("cutedsl kernel requires M % 128 == 0")
 
 
 def _rht_amax(
@@ -304,6 +304,20 @@ def _unpack_fp4_magnitudes(codes: torch.Tensor) -> torch.Tensor:
     return _unpack_fp4_nibbles(codes) & 0x7
 
 
+def _assert_scales_adjacent(got: torch.Tensor, ref: torch.Tensor, label: str) -> None:
+    """fp8 scale bytes must be equal or on the adjacent representable value
+    (|Δ raw uint8| <= 1; positive e4m3 bytes are magnitude-monotonic). See the
+    scales_vs_reference docstring for why 1 ULP of slack exists."""
+    got_b = got.flatten().contiguous().view(torch.uint8).to(torch.int16)
+    ref_b = ref.flatten().contiguous().view(torch.uint8).to(torch.int16)
+    assert got_b.shape == ref_b.shape, f"{label}: shape mismatch"
+    diff = (got_b - ref_b).abs()
+    assert (diff <= 1).all(), (
+        f"{label}: {(diff > 1).sum().item()}/{diff.numel()} fp8 scale bytes "
+        f"differ by >1 ULP (max {diff.max().item()})"
+    )
+
+
 def _assert_scales_finite_and_nonzero(scales: torch.Tensor) -> None:
     scales_f32 = scales.to(torch.float32)
     assert torch.isfinite(scales_f32).all(), "scale factors must be finite"
@@ -351,9 +365,16 @@ def _assert_near_zero_values_do_not_saturate(
 @pytest.mark.parametrize("M", _M_VALUES, ids=lambda m: f"M{m}")
 @torch.no_grad()
 def test_rht_quantize_rtne_scales_vs_reference(kernel, M, N):
-    """FP8 scale factors must match the PyTorch reference bitwise.
+    """FP8 scale factors must match the PyTorch reference within 1 fp8 ULP.
 
     Columnwise: RHT + quantize of A.T. Rowwise: quantize raw A.
+
+    The kernels and the reference compute the same per-vector scale through
+    mathematically-equal but differently-associated f32 chains (the reference:
+    ``(vec_max/6) / (amax/2688)``; cutedsl: ``vec_max * ((2688/amax) * (1/6))``),
+    which can land 1 f32 ULP apart and flip an fp8 byte at rounding boundaries
+    for some (amax, data) draws. Scale bytes are therefore compared as equal or
+    adjacent (positive e4m3 bytes are magnitude-monotonic).
 
     Note: packed FP4 codes are NOT checked bitwise — the kernels use an approximate
     reciprocal (rcp.approx.f32, ≤2 ULP) while the reference uses correctly-rounded
@@ -374,15 +395,13 @@ def test_rht_quantize_rtne_scales_vs_reference(kernel, M, N):
         sign_vector=_HARDCODED_SIGN_VECTOR,
     )
 
-    # Rowwise scale check (plain NVFP4 quantize of A) — bitwise for both backends.
+    # Rowwise scale check (plain NVFP4 quantize of A).
     _, ref_row_sf, _ = _rht_quantize_rowwise_reference(A)
-    torch.testing.assert_close(row_sf.flatten(), to_blocked(ref_row_sf), atol=0, rtol=0)
+    _assert_scales_adjacent(row_sf, to_blocked(ref_row_sf), "row scale")
 
     if kernel == "triton":
         _, ref_col_sf, _ = _rht_quantize_reference(A)
-        torch.testing.assert_close(
-            col_sf.flatten(), to_blocked(ref_col_sf), atol=0, rtol=0
-        )
+        _assert_scales_adjacent(col_sf, to_blocked(ref_col_sf), "col scale")
 
 
 @pytest.mark.parametrize("kernel", _KERNELS)
@@ -514,7 +533,7 @@ def test_rht_quantize_row_col_zero_and_near_zero_no_nan_or_saturation(
 @_skip_no_triton
 @_skip_no_cutedsl
 @pytest.mark.parametrize("N", [256, 512], ids=lambda n: f"N{n}")
-@pytest.mark.parametrize("M", [256, 512], ids=lambda m: f"M{m}")
+@pytest.mark.parametrize("M", [256, 384, 512], ids=lambda m: f"M{m}")
 @torch.no_grad()
 def test_cutedsl_vs_triton_interchangeable(M, N):
     """Fed the SAME global amaxes, CuteDSL and Triton outputs reconstruct each other to
@@ -932,8 +951,8 @@ def test_cutedsl_rht_quantize_sr_unbiased():
 @_skip_no_cutedsl
 @pytest.mark.parametrize(
     "M,N",
-    [(128, 256), (256, 200), (384, 256)],
-    ids=["M_not_mult_256", "N_not_mult_128", "M_not_mult_256_b"],
+    [(64, 256), (256, 200), (192, 256)],
+    ids=["M_not_mult_128", "N_not_mult_128", "M_not_mult_128_b"],
 )
 @torch.no_grad()
 def test_cutedsl_rht_quantize_invalid_shape_raises(M, N):

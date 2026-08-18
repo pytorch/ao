@@ -153,8 +153,7 @@ Run environment: NVIDIA GB200, PyTorch 2.13.0a0+git1f19af4, Triton 3.7.0.
 
 Each `bench_*` script above runs **both backends** (Triton and CuteDSL) on the same shapes and
 reports the speedup. The CuteDSL (`nvidia-cutlass-dsl`) kernels do the Randomized Hadamard Transform
-on Blackwell tensor cores; they require SM100 and the same shape constraints as the Triton kernels,
-with the addition that **M must be divisible by 256**.
+on Blackwell tensor cores; they require SM100 and the same shape constraints as the Triton kernels.
 
 ```bash
 python -m benchmarks.prototype.nvfp4_training.bench_hadamard_amax --shape-set representative-models
@@ -192,7 +191,7 @@ Run environment: NVIDIA GB200, PyTorch 2.12.0a0, Triton 3.7.0, nvidia-cutlass-ds
 ### 2D Weight Quantize (`cutedsl_weight_quantize_2d` vs `triton_weight_quantize_2d`, no RHT)
 
 Both kernels emit 2D 16x16 weight block scaling.
-Requires `out_features % 256 == 0`.
+Requires `out_features % 128 == 0`.
 
 | Model | Weight | M (out) | N (in) | cutedsl_kernel_us | triton_kernel_us | speedup | cutedsl_gbps |
 |---|---|---:|---:|---:|---:|---:|---:|

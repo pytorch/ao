@@ -1036,13 +1036,37 @@ def test_mlp_colwise_rowwise_parallelize_module_cuda_graph_compile(
 # ---------------------------------------------------------------------------
 # CuteDSL tensor-parallel tests (kernel_preference=CUTEDSL). The CuteDSL amax +
 # quantize replace Triton's for both forward (RTNE) and backward (cvt.rs SR). The
-# per-rank M shard must be divisible by 256.
+# per-rank M shard must be divisible by 128 (128 * world_size for row-parallel).
 # ---------------------------------------------------------------------------
 
 _skip_no_cutedsl = pytest.mark.skipif(
     not cutedsl_nvfp4_kernels_available(),
     reason="requires SM100 + CuteDSL runtime (cuda-python, nvidia-cutlass-dsl, apache-tvm-ffi)",
 )
+
+
+def test_check_cutedsl_shard_bounds():
+    """Shape-only unit test of the TP shard validator (no process group needed).
+
+    Row-parallel (scatter_m) requires M % (128 * world_size) so the backward's
+    reduce-scattered M // world_size grad shard stays quantizable; everything else
+    requires plain % 128.
+    """
+    from torchao.prototype.moe_training.nvfp4_training.nvfp4_tensor_parallel import (
+        _check_cutedsl_shard,
+    )
+
+    x_ok = torch.empty(384, 256)
+    w_ok = torch.empty(384, 128)
+    _check_cutedsl_shard(x_ok, 2, w_ok)  # col-parallel: M % 128 suffices
+    _check_cutedsl_shard(torch.empty(512, 256), 2, scatter_m=True)  # 512 % (128*2) == 0
+
+    with pytest.raises(ValueError, match=r"M % 256 == 0"):
+        _check_cutedsl_shard(x_ok, 2, scatter_m=True)  # 384 % (128*2) != 0
+    with pytest.raises(ValueError, match="activation shard"):
+        _check_cutedsl_shard(torch.empty(192, 256), 1)
+    with pytest.raises(ValueError, match="weight shard"):
+        _check_cutedsl_shard(x_ok, 1, torch.empty(192, 128))
 
 
 def _cutedsl_tp_forward_equiv(tp_fn, seed, device, pg):
