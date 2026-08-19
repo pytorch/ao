@@ -1574,106 +1574,6 @@ if _triton_kernels_available:
         )
         return y, s_u8.view(torch.float8_e8m0fnu)
 
-    @triton.autotune(configs=_MXFP8_32X32_CONFIGS, key=["M", "N"])
-    @triton.jit
-    def _mxfp8_32x32_dim_m_swizzle_kernel(
-        x_ptr,
-        y_ptr,
-        s_ptr,
-        M,
-        N,
-        sxm,
-        sxn,
-        sym,
-        syn,
-        NCB,
-        NRB,
-        CB: tl.constexpr,
-    ):
-        pid_rb = tl.program_id(
-            0
-        )  # 32-row block (= transposed scale col, over padded ncb*4)
-        pid_cb = tl.program_id(
-            1
-        )  # group of CB 32-col blocks (= transposed rows, over nrb*128)
-        offs_m = pid_rb * 32 + tl.arange(0, 32)
-        offs_n = pid_cb * (CB * 32) + tl.arange(0, CB * 32)
-        m_mask = offs_m < M
-        n_mask = offs_n < N
-        x = tl.load(
-            x_ptr + offs_m[:, None] * sxm + offs_n[None, :] * sxn,
-            mask=m_mask[:, None] & n_mask[None, :],
-            other=0.0,
-        ).to(tl.float32)  # (32, CB*32); padded rows/cols read as 0
-        xr = tl.reshape(x, (32, CB, 32))
-        partial = tl.max(tl.abs(xr), axis=0)  # (CB, 32)
-        rcp, biased = _triton_calculate_scale_rceil(
-            partial, axis=1, USE_PTX=not IS_ROCM
-        )  # both (CB,); biased is uint8
-        y = tl.reshape((xr * rcp[None, :, None]).to(tl.float8e4nv), (32, CB * 32))
-        # transposed qdata store into (N, M): out[n, m] = y[m_in_tile, n_in_tile].
-        out_off = offs_n[:, None] * sym + offs_m[None, :] * syn
-        tl.store(y_ptr + out_off, tl.trans(y), mask=n_mask[:, None] & m_mask[None, :])
-        # swizzled scale store into the transposed (N, M//32) grid. Pre-swizzle row = n (over N),
-        # col = pid_rb (this program's 32-row-block, over M//32); block scale expanded over its
-        # 32 transposed rows. Padded transposed rows/cols are written 0.
-        row = offs_n  # (CB*32,)
-        br = row // 128
-        r128 = row % 128
-        a = r128 // 32
-        b = r128 % 32
-        bc = pid_rb // 4
-        c4 = pid_rb % 4
-        flat = ((br * NCB + bc) * 32 + b) * 16 + (a * 4 + c4)  # (CB*32,)
-        biased_exp = tl.reshape(tl.broadcast_to(biased[:, None], (CB, 32)), (CB * 32,))
-        s_bytes = tl.where(n_mask & (pid_rb < (M // 32)), biased_exp, 0)
-        # mask is OOB-safety only (offs_n >= NRB*128 -> br >= NRB); padded rows in [N, NRB*128)
-        # are valid buffer positions and get the 0 written above.
-        tl.store(s_ptr + flat, s_bytes, mask=offs_n < (NRB * 128))
-
-    @triton_op("torchao::triton_to_mxfp8_32x32_swizzle_dim1", mutates_args={})
-    def triton_to_mxfp8_32x32_swizzle_dim1(
-        x: torch.Tensor,
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
-        """Standalone mxfp8 32x32 cast in the dim1 / transposed (dim-M) frame, scale swizzled.
-
-        Args:
-            x: contiguous 2D tensor with ``M % 32 == 0`` and ``N % 32 == 0``.
-
-        Returns:
-            ``(qdata, scale)`` where ``qdata`` is float8_e4m3fn of shape ``(N, M)`` (transposed)
-            and ``scale`` is float8_e8m0fnu in the blocked/swizzled 4D grid
-            ``(ceil(N/128), ceil((M//32)/4), 32, 16)`` (``reshape(-1)`` equals ``to_blocked`` of
-            the per-block scale expanded over its 32 cols then transposed to ``(N, M//32)``).
-
-        Standalone custom op; not used by MXTensor.
-        """
-        assert x.is_contiguous() and x.dim() == 2
-        M, N = x.shape
-        assert M % 32 == 0 and N % 32 == 0, (
-            "mxfp8_32x32_swizzle_dim1 kernel needs M%32==0 and N%32==0"
-        )
-        y = torch.empty((N, M), dtype=torch.float8_e4m3fn, device=x.device)
-        nrb = (N + 127) // 128  # transposed rows = N
-        ncb = ((M // 32) + 3) // 4  # transposed cols = M//32
-        # torch.empty (not zeros): the kernel writes every slot of the padded grid itself.
-        s_u8 = torch.empty(nrb, ncb, 32, 16, dtype=torch.uint8, device=x.device)
-        grid = lambda meta: (ncb * 4, triton.cdiv(nrb * 128, meta["CB"] * 32))  # noqa: E731
-        wrap_triton(_mxfp8_32x32_dim_m_swizzle_kernel)[grid](
-            x,
-            y,
-            s_u8,
-            M,
-            N,
-            x.stride(0),
-            x.stride(1),
-            y.stride(0),
-            y.stride(1),
-            ncb,
-            nrb,
-        )
-        return y, s_u8.view(torch.float8_e8m0fnu)
-
     _MXFP8_32X32_DIM_KM_CONFIGS = [
         triton.Config({"BN": bn, "RB": rb}, num_warps=w)
         for rb in (1, 2, 4)
@@ -1683,11 +1583,10 @@ if _triton_kernels_available:
 
     @triton.autotune(configs=_MXFP8_32X32_DIM_KM_CONFIGS, key=["M", "N"])
     @triton.jit
-    def _mxfp8_32x32_dim_km_swizzle_kernel(
+    def _mxfp8_32x32_qdata_dim01_scale_swizzle_kernel(
         x_ptr,
         yk_ptr,
         sk_ptr,
-        ym_ptr,
         sm_ptr,
         M,
         N,
@@ -1695,8 +1594,6 @@ if _triton_kernels_available:
         sxn,
         sykm,
         sykn,
-        symn,
-        symm,
         NCB_K,
         NCB_M,
         BN: tl.constexpr,
@@ -1723,17 +1620,13 @@ if _triton_kernels_available:
             partial, axis=2, USE_PTX=not IS_ROCM
         )  # both (RB, CB); b is uint8
         q = tl.reshape((xr * rcp[:, None, :, None]).to(tl.float8e4nv), (BM, BN))
-        # dim-K store: qdata (M, N) as-is.
+        # dim-K store: qdata (M, N) as-is. No dim-M qdata store -- on Blackwell _scaled_mm takes the
+        # second operand row-major, so the dim-M frame reuses this qdata (transposed) and only needs
+        # its own swizzled scale below.
         tl.store(
             yk_ptr + offs_m[:, None] * sykm + offs_n[None, :] * sykn,
             q,
             mask=m_real[:, None] & n_real[None, :],
-        )
-        # dim-M store: qdata transposed into (N, M).
-        tl.store(
-            ym_ptr + offs_n[:, None] * symn + offs_m[None, :] * symm,
-            tl.trans(q),
-            mask=n_real[:, None] & m_real[None, :],
         )
         # swizzled sk store: scale (M, N//32), block scale expanded over its 32 rows -> (BM, CB).
         b_exp_k = tl.reshape(tl.broadcast_to(b[:, None, :], (RB, 32, CB)), (BM, CB))
@@ -1756,30 +1649,38 @@ if _triton_kernels_available:
         real_m = (offs_n[None, :] < N) & (col_m < (M // 32))
         tl.store(sm_ptr + flat_m, tl.where(real_m, b_exp_m, 0))
 
-    @triton_op("torchao::triton_to_mxfp8_32x32_swizzle_dim0_and_dim1", mutates_args={})
-    def triton_to_mxfp8_32x32_swizzle_dim0_and_dim1(
+    @triton_op(
+        "torchao::triton_to_mxfp8_32x32_swizzle_dim0_qdata_dim01_scale",
+        mutates_args={},
+    )
+    def triton_to_mxfp8_32x32_swizzle_dim0_qdata_dim01_scale(
         x: torch.Tensor,
-    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
-        """Standalone mxfp8 32x32 cast emitting BOTH the dim0 and dim1 swizzled outputs in one
-        pass (the block is square, so quant + per-block scale are shared).
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        """Standalone mxfp8 32x32 cast emitting one dim0 (dim-K) qdata plus BOTH swizzled scales
+        (dim0/dim-K and dim1/dim-M) in one pass, WITHOUT any transposed (dim-M) qdata. The block
+        is square, so quant and the single per-block e8m0 scale are shared between the two frames.
+        On Blackwell ``torch._scaled_mm`` accepts the second operand row-major, so the dim-M frame
+        reuses the single qdata (transposed) and contributes only its swizzled scale -- dropping
+        the transposed-qdata write is the whole point.
 
         Args:
             x: contiguous 2D tensor with ``M % 32 == 0`` and ``N % 32 == 0``.
 
         Returns:
-            ``(qk, sk, qm, sm)`` where ``qk`` is float8_e4m3fn ``(M, N)`` with swizzled scale
-            ``sk`` (as `triton_to_mxfp8_32x32_swizzle_dim0`), and ``qm`` is float8_e4m3fn
-            ``(N, M)`` with swizzled scale ``sm`` (as `triton_to_mxfp8_32x32_swizzle_dim1`).
+            ``(qk, sk, sm)`` where ``qk`` is float8_e4m3fn ``(M, N)`` (dim0/dim-K qdata) and
+            ``sk`` / ``sm`` are float8_e8m0fnu swizzled scales in the blocked 4D grid: ``sk`` is the
+            dim0/dim-K scale (per-block scale expanded over rows to ``(M, N//32)``) and ``sm`` is the
+            dim1/dim-M scale (expanded over cols, transposed to ``(N, M//32)``, i.e. for ``qk``
+            transposed to ``(N, M)``).
 
         Standalone custom op; not used by MXTensor.
         """
         assert x.is_contiguous() and x.dim() == 2
         M, N = x.shape
         assert M % 32 == 0 and N % 32 == 0, (
-            "mxfp8_32x32_swizzle_dim0_and_dim1 kernel needs M%32==0 and N%32==0"
+            "mxfp8_32x32_swizzle_dim0_qdata_dim01_scale kernel needs M%32==0 and N%32==0"
         )
         yk = torch.empty_like(x, dtype=torch.float8_e4m3fn)  # (M, N)
-        ym = torch.empty(N, M, dtype=torch.float8_e4m3fn, device=x.device)  # (N, M)
         nrb_k = (M + 127) // 128
         nrb_m = (N + 127) // 128
         ncb_k = ((N // 32) + 3) // 4
@@ -1793,11 +1694,10 @@ if _triton_kernels_available:
             triton.cdiv(mpad, meta["RB"] * 32),
             triton.cdiv(npad, meta["BN"]),
         )
-        wrap_triton(_mxfp8_32x32_dim_km_swizzle_kernel)[grid](
+        wrap_triton(_mxfp8_32x32_qdata_dim01_scale_swizzle_kernel)[grid](
             x,
             yk,
             sk,
-            ym,
             sm,
             M,
             N,
@@ -1805,15 +1705,12 @@ if _triton_kernels_available:
             x.stride(1),
             yk.stride(0),
             yk.stride(1),
-            ym.stride(0),
-            ym.stride(1),
             ncb_k,
             ncb_m,
         )
         return (
             yk,
             sk.view(torch.float8_e8m0fnu),
-            ym,
             sm.view(torch.float8_e8m0fnu),
         )
 
@@ -1829,12 +1726,7 @@ else:
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         raise AssertionError("needs triton")
 
-    def triton_to_mxfp8_32x32_swizzle_dim1(
+    def triton_to_mxfp8_32x32_swizzle_dim0_qdata_dim01_scale(
         x: torch.Tensor,
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
-        raise AssertionError("needs triton")
-
-    def triton_to_mxfp8_32x32_swizzle_dim0_and_dim1(
-        x: torch.Tensor,
-    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         raise AssertionError("needs triton")

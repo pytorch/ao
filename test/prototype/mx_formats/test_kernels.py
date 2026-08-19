@@ -39,8 +39,7 @@ from torchao.prototype.mx_formats.kernels import (
     triton_mxfp8_dequant_dim0,
     triton_to_mxfp8_32x32_dim0,
     triton_to_mxfp8_32x32_swizzle_dim0,
-    triton_to_mxfp8_32x32_swizzle_dim0_and_dim1,
-    triton_to_mxfp8_32x32_swizzle_dim1,
+    triton_to_mxfp8_32x32_swizzle_dim0_qdata_dim01_scale,
     triton_to_mxfp8_dim0,
     triton_to_mxfp8_dim1,
     triton_to_mxfp8_dim1_reference,
@@ -1181,44 +1180,24 @@ def test_triton_to_mxfp8_32x32_swizzle_dim0(M, K):
 )
 @pytest.mark.parametrize("M", (64, 128, 256))
 @pytest.mark.parametrize("K", (64, 128, 256))
-def test_triton_to_mxfp8_32x32_swizzle_dim1(M, K):
+def test_triton_to_mxfp8_32x32_swizzle_dim0_qdata_dim01_scale(M, K):
     torch.manual_seed(0)
     x = torch.randn(M, K, dtype=torch.bfloat16, device="cuda")
-    q_t, s_t = triton_to_mxfp8_32x32_swizzle_dim1(x)
-    q_ref, s_ref = _ref_mxfp8_32x32_swizzle_dim1(x)
-    # Bit-exact transposed qdata (N,M) and swizzled scale.
-    assert torch.equal(q_t.view(torch.uint8), q_ref.view(torch.uint8))
-    assert torch.equal(s_t.view(torch.uint8).reshape(-1), s_ref)
-    sqnr = _swizzle_dequant_sqnr_dim1(x, q_t, s_t)
-    assert sqnr > 15.0, (
-        f"mxfp8_32x32_swizzle_dim1: sqnr={sqnr.item():.2f} dB below 15 dB"
-    )
-
-
-@pytest.mark.skipif(not has_triton(), reason="unsupported without triton")
-@pytest.mark.skipif(
-    not is_sm_at_least_100() and not is_MI350(),
-    reason="mxfp8 requires CUDA capability 10.0 or greater or ROCm gfx950 or greater.",
-)
-@pytest.mark.parametrize("M", (64, 128, 256))
-@pytest.mark.parametrize("K", (64, 128, 256))
-def test_triton_to_mxfp8_32x32_swizzle_dim0_and_dim1(M, K):
-    torch.manual_seed(0)
-    x = torch.randn(M, K, dtype=torch.bfloat16, device="cuda")
-    qk, sk, qm, sm = triton_to_mxfp8_32x32_swizzle_dim0_and_dim1(x)
+    qk, sk, sm = triton_to_mxfp8_32x32_swizzle_dim0_qdata_dim01_scale(x)
     qk_ref, sk_ref = _ref_mxfp8_32x32_swizzle_dim0(x)
-    qm_ref, sm_ref = _ref_mxfp8_32x32_swizzle_dim1(x)
-    # dim0 (dim-K) pair bit-exact.
+    _, sm_ref = _ref_mxfp8_32x32_swizzle_dim1(x)
+    # dim-K qdata + both swizzled scales bit-exact (there is no dim-M qdata output).
     assert torch.equal(qk.view(torch.uint8), qk_ref.view(torch.uint8))
     assert torch.equal(sk.view(torch.uint8).reshape(-1), sk_ref)
-    # dim1 (dim-M / transposed) pair bit-exact.
-    assert torch.equal(qm.view(torch.uint8), qm_ref.view(torch.uint8))
     assert torch.equal(sm.view(torch.uint8).reshape(-1), sm_ref)
+    # dim-K frame dequants directly; dim-M frame reuses the shared qdata transposed.
     sqnr_k = _swizzle_dequant_sqnr_dim0(x, qk, sk)
-    sqnr_m = _swizzle_dequant_sqnr_dim1(x, qm, sm)
+    sqnr_m = _swizzle_dequant_sqnr_dim1(x, qk.t().contiguous(), sm)
     assert sqnr_k > 15.0, (
-        f"swizzle_dim0_and_dim1 (dim-k): sqnr={sqnr_k.item():.2f} dB below 15 dB"
+        f"swizzle_dim0_qdata_dim01_scale (dim-k): "
+        f"sqnr={sqnr_k.item():.2f} dB below 15 dB"
     )
     assert sqnr_m > 15.0, (
-        f"swizzle_dim0_and_dim1 (dim-m): sqnr={sqnr_m.item():.2f} dB below 15 dB"
+        f"swizzle_dim0_qdata_dim01_scale (dim-m): "
+        f"sqnr={sqnr_m.item():.2f} dB below 15 dB"
     )
