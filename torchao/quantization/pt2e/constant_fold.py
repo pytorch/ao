@@ -351,10 +351,23 @@ def constant_fold(
                 continue
             replace_node_with_constant(gm, node, constant)
 
+        # Multiple get_attr nodes can share the same target (e.g. a buffer or
+        # parameter referenced more than once in the graph). Only delete the
+        # underlying module attribute once none of the get_attr nodes for
+        # that target are still live, otherwise the graph is left with a
+        # get_attr node pointing at an attribute that no longer exists.
+        live_get_attr_targets = {
+            node.target
+            for node in gm.graph.find_nodes(op="get_attr")
+            if len(node.users) > 0
+        }
+
         erased_params = []
         for node in gm.graph.find_nodes(op="get_attr"):
             if len(node.users) == 0:
-                if hasattr(gm, node.target):
+                if node.target not in live_get_attr_targets and hasattr(
+                    gm, node.target
+                ):
                     delattr(gm, node.target)
                 erased_params.append(node)
 
