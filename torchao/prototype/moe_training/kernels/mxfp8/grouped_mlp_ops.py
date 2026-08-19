@@ -10,15 +10,15 @@ Four ops, each wrapping one ``cudnn.grouped_gemm_*_wrapper_sm100`` CuTe DSL
 kernel from the standalone cudnn-frontend python package (>= 1.27; no
 TransformerEngine involvement):
 
-* ``torchao::mxfp8_cudnn_grouped_mlp_fwd``   -- FC1 ragged grouped GEMM +
+* ``torchao::mxfp8_grouped_gemm_swiglu_fwd``   -- FC1 ragged grouped GEMM +
   SwiGLU + rowwise AND columnwise MXFP8 RCEIL quantization + BF16 pre-GLU save
   (``grouped_gemm_glu_wrapper_sm100``).
-* ``torchao::mxfp8_cudnn_grouped_mm``        -- ragged grouped GEMM on
+* ``torchao::mxfp8_grouped_gemm``        -- ragged grouped GEMM on
   prequantized operands to BF16 (``grouped_gemm_quant_wrapper_sm100``); used
   for both FC2 forward and FC1 dgrad.
-* ``torchao::mxfp8_cudnn_grouped_mlp_bwd``   -- FC2 dgrad + dSwiGLU + dual
+* ``torchao::mxfp8_grouped_gemm_dswiglu_bwd``   -- FC2 dgrad + dSwiGLU + dual
   MXFP8 quantization of dz (``grouped_gemm_dglu_wrapper_sm100``).
-* ``torchao::mxfp8_cudnn_grouped_mlp_wgrad`` -- ragged-reduction grouped
+* ``torchao::mxfp8_grouped_gemm_wgrad`` -- ragged-reduction grouped
   weight gradient (``grouped_gemm_wgrad_wrapper_sm100``, dense output mode);
   called once for FC1 and once for FC2.
 
@@ -38,7 +38,7 @@ and eager metadata identical (eager normalizes the wrapper's returned tensors
 and checks them against the same spec the fake allocates from).
 
 The user-facing wrappers live in
-``torchao.prototype.moe_training.cudnn_grouped_mlp``; importing that module
+``torchao.prototype.moe_training.mxfp8_grouped_mlp``; importing that module
 (or this one) registers the ops. ``import cudnn`` happens lazily inside op
 bodies at first real launch.
 """
@@ -47,7 +47,7 @@ from typing import Tuple
 
 import torch
 
-from torchao.prototype.moe_training.kernels.mxfp8.cudnn_grouped_mlp_validation import (
+from torchao.prototype.moe_training.kernels.mxfp8.grouped_mlp_validation import (
     ROW_GROUP_ALIGNMENT,
     SCALE_BLOCK_SIZE,
     validate_allocated_rows,
@@ -223,8 +223,8 @@ def _validate_fwd_inputs(x_q, x_sf, w13_q, w13_sf, offsets):
     return rows, model_dim, hidden, groups
 
 
-@torch.library.custom_op("torchao::mxfp8_cudnn_grouped_mlp_fwd", mutates_args=())
-def _mxfp8_cudnn_grouped_mlp_fwd(
+@torch.library.custom_op("torchao::mxfp8_grouped_gemm_swiglu_fwd", mutates_args=())
+def _mxfp8_grouped_gemm_swiglu_fwd(
     x_q: torch.Tensor,
     x_sf: torch.Tensor,
     w13_q: torch.Tensor,
@@ -296,7 +296,7 @@ def _mxfp8_cudnn_grouped_mlp_fwd(
     )
 
 
-@_mxfp8_cudnn_grouped_mlp_fwd.register_fake
+@_mxfp8_grouped_gemm_swiglu_fwd.register_fake
 def _(x_q, x_sf, w13_q, w13_sf, offsets):
     rows, _model_dim, hidden, _groups = _validate_fwd_inputs(
         x_q, x_sf, w13_q, w13_sf, offsets
@@ -368,8 +368,8 @@ def _validate_mm_inputs(a_q, a_sf, b_q, b_sf, offsets):
     return rows, out_features, contraction, groups
 
 
-@torch.library.custom_op("torchao::mxfp8_cudnn_grouped_mm", mutates_args=())
-def _mxfp8_cudnn_grouped_mm(
+@torch.library.custom_op("torchao::mxfp8_grouped_gemm", mutates_args=())
+def _mxfp8_grouped_gemm(
     a_q: torch.Tensor,
     a_sf: torch.Tensor,
     b_q: torch.Tensor,
@@ -424,7 +424,7 @@ def _mxfp8_cudnn_grouped_mm(
     return out
 
 
-@_mxfp8_cudnn_grouped_mm.register_fake
+@_mxfp8_grouped_gemm.register_fake
 def _(a_q, a_sf, b_q, b_sf, offsets):
     rows, out_features, _contraction, _groups = _validate_mm_inputs(
         a_q, a_sf, b_q, b_sf, offsets
@@ -518,8 +518,8 @@ def _validate_bwd_inputs(dy_q, dy_sf, w2_col_q, w2_col_sf, z_bf16, offsets):
     return rows, model_dim, hidden, groups
 
 
-@torch.library.custom_op("torchao::mxfp8_cudnn_grouped_mlp_bwd", mutates_args=())
-def _mxfp8_cudnn_grouped_mlp_bwd(
+@torch.library.custom_op("torchao::mxfp8_grouped_gemm_dswiglu_bwd", mutates_args=())
+def _mxfp8_grouped_gemm_dswiglu_bwd(
     dy_q: torch.Tensor,
     dy_sf: torch.Tensor,
     w2_col_q: torch.Tensor,
@@ -585,7 +585,7 @@ def _mxfp8_cudnn_grouped_mlp_bwd(
     )
 
 
-@_mxfp8_cudnn_grouped_mlp_bwd.register_fake
+@_mxfp8_grouped_gemm_dswiglu_bwd.register_fake
 def _(dy_q, dy_sf, w2_col_q, w2_col_sf, z_bf16, offsets):
     rows, _model_dim, hidden, _groups = _validate_bwd_inputs(
         dy_q, dy_sf, w2_col_q, w2_col_sf, z_bf16, offsets
@@ -664,8 +664,8 @@ def _validate_wgrad_inputs(dy_col_q, dy_col_sf, x_col_q, x_col_sf, offsets):
     return rows, out_features, in_features, groups
 
 
-@torch.library.custom_op("torchao::mxfp8_cudnn_grouped_mlp_wgrad", mutates_args=())
-def _mxfp8_cudnn_grouped_mlp_wgrad(
+@torch.library.custom_op("torchao::mxfp8_grouped_gemm_wgrad", mutates_args=())
+def _mxfp8_grouped_gemm_wgrad(
     dy_col_q: torch.Tensor,
     dy_col_sf: torch.Tensor,
     x_col_q: torch.Tensor,
@@ -720,7 +720,7 @@ def _mxfp8_cudnn_grouped_mlp_wgrad(
     return dw
 
 
-@_mxfp8_cudnn_grouped_mlp_wgrad.register_fake
+@_mxfp8_grouped_gemm_wgrad.register_fake
 def _(dy_col_q, dy_col_sf, x_col_q, x_col_sf, offsets):
     _rows, out_features, in_features, groups = _validate_wgrad_inputs(
         dy_col_q, dy_col_sf, x_col_q, x_col_sf, offsets

@@ -1,9 +1,9 @@
-# Importing cudnn_grouped_mlp_ops registers the fused grouped-MLP custom ops
-# (torchao::mxfp8_cudnn_grouped_{mlp_fwd,mm,mlp_bwd,mlp_wgrad}). The module is
-# importable with no cudnn-frontend installed; `import cudnn` is deferred into
-# the op bodies.
+# Importing grouped_mlp_ops registers the fused grouped-MLP custom ops
+# (torchao::mxfp8_grouped_gemm{_swiglu_fwd,,_dswiglu_bwd,_wgrad}). The module
+# is importable with no cudnn-frontend installed; `import cudnn` is deferred
+# into the op bodies.
 from torchao.prototype.moe_training.kernels.mxfp8 import (
-    cudnn_grouped_mlp_ops,  # noqa: F401
+    grouped_mlp_ops,  # noqa: F401
 )
 from torchao.prototype.moe_training.kernels.mxfp8.quant import (
     _mxfp8_cuda_kernels_available,  # noqa: F401

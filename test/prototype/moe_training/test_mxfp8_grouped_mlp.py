@@ -4,7 +4,10 @@
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
 
-"""Unit tests for the cuDNN-frontend MXFP8 grouped-MLP custom ops.
+"""Unit tests for the MXFP8 fused grouped-MLP custom ops.
+
+The four ops wrap the cudnn-frontend package's CuTe DSL grouped-GEMM kernels
+(``cudnn.grouped_gemm_{glu,quant,dglu,wgrad}_wrapper_sm100``).
 
 Every numerics gate is DERIVED at test time, never hard-coded:
 
@@ -20,32 +23,46 @@ Every numerics gate is DERIVED at test time, never hard-coded:
   (wrong scale blocking built and decoded the same wrong way) cannot pass it.
   Measured band: ~30-40 dB at these shapes (pure MXFP8 requantization error).
 
-Layout vocabulary (probe-derived, see agent_scratch/cudnn_fe_torchao in the
-development environment): columnwise operands are accepted in ANY major --
-"rowmajor" here means un-transposed ``[R, N]`` row-major bytes (also the
-layout the fwd/bwd ops emit for their columnwise outputs) and "native" means
-the transposed-memory layout torchao's dim1 quantizers produce. Columnwise
-scale buffers are PER-GROUP blocked (each expert's block ``to_blocked``-ed
-independently, concatenated); whole-matrix blocking has the same byte count
-and is silently wrong -- a dedicated negative control asserts the gap.
+Layout vocabulary (probe-derived): columnwise operands are accepted in ANY
+major -- "rowmajor" here means un-transposed ``[R, N]`` row-major bytes (also
+the layout the fwd/bwd ops emit for their columnwise outputs) and "native"
+means the transposed-memory layout torchao's dim1 quantizers produce.
+Columnwise scale buffers are PER-GROUP blocked (each expert's block
+``to_blocked``-ed independently, concatenated); whole-matrix blocking has the
+same byte count and is silently wrong -- a dedicated negative control asserts
+the gap.
 """
 
 import pytest
+import torch
+import torch.nn.functional as F
+from torch._subclasses.fake_tensor import FakeTensorMode
 
-torch = pytest.importorskip("torch")
+from torchao.utils import is_sm_version
 
-import torch.nn.functional as F  # noqa: E402
-from torch._subclasses.fake_tensor import FakeTensorMode  # noqa: E402
+if not (torch.cuda.is_available() and is_sm_version(10, 0)):
+    pytest.skip(
+        "MXFP8 fused grouped MLP requires CUDA SM100",
+        allow_module_level=True,
+    )
 
-from torchao.float8.float8_utils import compute_error  # noqa: E402
-from torchao.prototype.moe_training.cudnn_grouped_mlp import (  # noqa: E402
-    _cudnn_grouped_mlp_available,
-    _cudnn_unavailable_reason,
+from torchao.prototype.moe_training.mxfp8_grouped_mlp import (
+    _mxfp8_grouped_mlp_kernels_available,
+    _mxfp8_grouped_mlp_unavailable_reason,
     is_supported,
 )
-from torchao.prototype.mx_formats.config import ScaleCalculationMode  # noqa: E402
-from torchao.prototype.mx_formats.mx_tensor import to_mx  # noqa: E402
-from torchao.prototype.mx_formats.utils import from_blocked, to_blocked  # noqa: E402
+
+if not _mxfp8_grouped_mlp_kernels_available:
+    pytest.skip(
+        f"cudnn-frontend grouped-GEMM wrappers unavailable: "
+        f"{_mxfp8_grouped_mlp_unavailable_reason}",
+        allow_module_level=True,
+    )
+
+from torchao.float8.float8_utils import compute_error
+from torchao.prototype.mx_formats.config import ScaleCalculationMode
+from torchao.prototype.mx_formats.mx_tensor import to_mx
+from torchao.prototype.mx_formats.utils import from_blocked, to_blocked
 
 _E4M3 = torch.float8_e4m3fn
 _E8M0 = torch.float8_e8m0fnu
@@ -54,10 +71,6 @@ _RCEIL = ScaleCalculationMode.RCEIL
 
 _OPS = torch.ops.torchao
 
-_gpu = pytest.mark.skipif(
-    not _cudnn_grouped_mlp_available,
-    reason=f"cuDNN-frontend grouped MLP unavailable: {_cudnn_unavailable_reason}",
-)
 
 # ---------------------------------------------------------------------------
 # Pure-torch quantization / dequantization helpers.
@@ -181,7 +194,7 @@ def _zsplit(z: torch.Tensor, hidden: int):
 
 
 def _to_32block(w13_elem: torch.Tensor) -> torch.Tensor:
-    """Element-interleaved [G, F, 2, D] -> cuDNN 32-block GLU order [G, 2F, D]."""
+    """Element-interleaved [G, F, 2, D] -> 32-block GLU order [G, 2F, D]."""
     G, hidden, _, D = w13_elem.shape
     return (
         w13_elem.view(G, hidden // _BLOCK, _BLOCK, 2, D)
@@ -282,10 +295,10 @@ def dbg():
 
 def test_ops_registered():
     for name in (
-        "mxfp8_cudnn_grouped_mlp_fwd",
-        "mxfp8_cudnn_grouped_mm",
-        "mxfp8_cudnn_grouped_mlp_bwd",
-        "mxfp8_cudnn_grouped_mlp_wgrad",
+        "mxfp8_grouped_gemm_swiglu_fwd",
+        "mxfp8_grouped_gemm",
+        "mxfp8_grouped_gemm_dswiglu_bwd",
+        "mxfp8_grouped_gemm_wgrad",
     ):
         assert hasattr(_OPS, name), f"torchao::{name} is not registered"
 
@@ -307,20 +320,20 @@ def _fake_chain_shapes(R=512, D=256, hidden=256, G=2):
     w13_sf = torch.empty(G * N1 * D // _BLOCK, dtype=_E8M0, device=dev)
     offsets = torch.empty(G, dtype=torch.int32, device=dev)
     outs = {}
-    outs["fwd"] = _OPS.mxfp8_cudnn_grouped_mlp_fwd(x_q, x_sf, w13_q, w13_sf, offsets)
+    outs["fwd"] = _OPS.mxfp8_grouped_gemm_swiglu_fwd(x_q, x_sf, w13_q, w13_sf, offsets)
     w2_q = torch.empty(G, D, hidden, dtype=_E4M3, device=dev)
     w2_sf = torch.empty(G * D * hidden // _BLOCK, dtype=_E8M0, device=dev)
-    outs["mm"] = _OPS.mxfp8_cudnn_grouped_mm(
+    outs["mm"] = _OPS.mxfp8_grouped_gemm(
         outs["fwd"][1], outs["fwd"][2], w2_q, w2_sf, offsets
     )
     dy_q = torch.empty(R, D, dtype=_E4M3, device=dev)
     dy_sf = torch.empty(R * D // _BLOCK, dtype=_E8M0, device=dev)
     w2c_q = torch.empty(G, D, hidden, dtype=_E4M3, device=dev)
     w2c_sf = torch.empty(G * D * hidden // _BLOCK, dtype=_E8M0, device=dev)
-    outs["bwd"] = _OPS.mxfp8_cudnn_grouped_mlp_bwd(
+    outs["bwd"] = _OPS.mxfp8_grouped_gemm_dswiglu_bwd(
         dy_q, dy_sf, w2c_q, w2c_sf, outs["fwd"][0], offsets
     )
-    outs["wgrad"] = _OPS.mxfp8_cudnn_grouped_mlp_wgrad(
+    outs["wgrad"] = _OPS.mxfp8_grouped_gemm_wgrad(
         torch.empty(R, D, dtype=_E4M3, device=dev),
         torch.empty(D * R // _BLOCK, dtype=_E8M0, device=dev),
         torch.empty(R, hidden, dtype=_E4M3, device=dev),
@@ -332,7 +345,6 @@ def _fake_chain_shapes(R=512, D=256, hidden=256, G=2):
     return outs
 
 
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="needs a CUDA device object")
 def test_fake_contracts_match_specs():
     """All four fakes produce the documented shapes/dtypes/contiguity."""
     with FakeTensorMode():
@@ -363,20 +375,21 @@ def _run_chain(c):
     """fwd -> FC2 mm -> bwd -> FC1-dgrad mm -> wgrad x2, production layouts."""
     r = {}
     r["z"], r["h_q"], r["h_sf"], r["h_colq"], r["h_col_sf"] = (
-        _OPS.mxfp8_cudnn_grouped_mlp_fwd(
+        _OPS.mxfp8_grouped_gemm_swiglu_fwd(
             c["x_q"], c["x_sf"], c["w13_q"], c["w13_sf"], c["offsets"]
         )
     )
-    r["y"] = _OPS.mxfp8_cudnn_grouped_mm(
+    r["y"] = _OPS.mxfp8_grouped_gemm(
         r["h_q"], r["h_sf"], c["w2_q"], c["w2_sf"], c["offsets"]
     )
     r["dz_q"], r["dz_sf"], r["dz_colq"], r["dz_col_sf"] = (
-        _OPS.mxfp8_cudnn_grouped_mlp_bwd(
+        _OPS.mxfp8_grouped_gemm_dswiglu_bwd(
             c["dy_q"], c["dy_sf"], c["w2c_q"], c["w2c_sf"], r["z"], c["offsets"]
         )
     )
-    # FC1 dgrad: colwise weight cast enters op 2 TRANSPOSED into [G, N=D, K=2F].
-    r["dx"] = _OPS.mxfp8_cudnn_grouped_mm(
+    # FC1 dgrad: colwise weight cast enters the mm op TRANSPOSED into
+    # [G, N=D, K=2F].
+    r["dx"] = _OPS.mxfp8_grouped_gemm(
         r["dz_q"],
         r["dz_sf"],
         c["w13c_q"].transpose(-2, -1),
@@ -384,16 +397,15 @@ def _run_chain(c):
         c["offsets"],
     )
     # Production wgrad layout mixes: native dy x kernel h; kernel dz x native x.
-    r["dw2"] = _OPS.mxfp8_cudnn_grouped_mlp_wgrad(
+    r["dw2"] = _OPS.mxfp8_grouped_gemm_wgrad(
         c["dy_colq"], c["dy_col_sf"], r["h_colq"], r["h_col_sf"], c["offsets"]
     )
-    r["dw13"] = _OPS.mxfp8_cudnn_grouped_mlp_wgrad(
+    r["dw13"] = _OPS.mxfp8_grouped_gemm_wgrad(
         r["dz_colq"], r["dz_col_sf"], c["x_colq"], c["x_col_sf"], c["offsets"]
     )
     return r
 
 
-@_gpu
 @pytest.mark.parametrize("case", list(_CASES))
 def test_chain_numerics(case):
     D, hidden, sizes = _CASES[case]
@@ -511,25 +523,12 @@ def test_chain_numerics(case):
                 f"zero-token expert {g} weight gradients must be exactly zero"
             )
 
-    print(
-        f"\n[{case}] derived gates/bands (dB): "
-        f"z refA_gate={gate_a:.1f} (got {z_db:.1f}), "
-        f"z refB band={band_b:.1f} (got {z_db_b:.1f}), "
-        f"h band={band_h:.1f} (row {h_db:.1f}, col {h_col_db:.1f}), "
-        f"y refA_gate={y_gate:.1f} (got {y_db:.1f}), "
-        f"y refB band={y_band_b:.1f} (got {y_db_b:.1f}), "
-        f"dz band={band_dz:.1f} (got {dz_db:.1f}), "
-        f"dx refA_gate={dx_gate:.1f} (got {dx_db:.1f}), "
-        f"dw2 {dw2_db:.1f}, dw13 {dw13_db:.1f}"
-    )
-
 
 # ---------------------------------------------------------------------------
 # Wgrad stride matrix: both operands in each major, all four combinations.
 # ---------------------------------------------------------------------------
 
 
-@_gpu
 @pytest.mark.parametrize("a_native", [False, True], ids=["aRM", "aNat"])
 @pytest.mark.parametrize("b_native", [False, True], ids=["bRM", "bNat"])
 def test_wgrad_stride_matrix(dbg, a_native, b_native):
@@ -537,7 +536,7 @@ def test_wgrad_stride_matrix(dbg, a_native, b_native):
     sizes, D = c["sizes"], c["D"]
     dy_q, dy_sf = _quant_colwise_grouped(c["dy"], sizes, native=a_native)
     x_q, x_sf = _quant_colwise_grouped(c["x"], sizes, native=b_native)
-    dw = _OPS.mxfp8_cudnn_grouped_mlp_wgrad(dy_q, dy_sf, x_q, x_sf, c["offsets"])
+    dw = _OPS.mxfp8_grouped_gemm_wgrad(dy_q, dy_sf, x_q, x_sf, c["offsets"])
     dy_deq = _dequant_colwise_grouped(dy_q, dy_sf, sizes, D)
     x_deq = _dequant_colwise_grouped(x_q, x_sf, sizes, D)
     ref = torch.zeros(c["G"], D, D, dtype=torch.float32, device="cuda")
@@ -554,7 +553,6 @@ def test_wgrad_stride_matrix(dbg, a_native, b_native):
 # ---------------------------------------------------------------------------
 
 
-@_gpu
 def test_tail_a_lt_r_poisoned():
     D = hidden = 256
     sizes = [256, 0, 512, 256]
@@ -578,17 +576,17 @@ def test_tail_a_lt_r_poisoned():
     w2_q, w2_sf = _quant_weight_rowwise(w2)
     w2c_q, w2c_sf = _quant_weight_colwise(w2)
 
-    z, h_q, h_sf, h_colq, h_col_sf = _OPS.mxfp8_cudnn_grouped_mlp_fwd(
+    z, h_q, h_sf, h_colq, h_col_sf = _OPS.mxfp8_grouped_gemm_swiglu_fwd(
         x_q, x_sf, w13_q, w13_sf, offsets
     )
     assert not z[:A].isnan().any(), "active z rows contaminated by the poisoned tail"
-    y = _OPS.mxfp8_cudnn_grouped_mm(h_q, h_sf, w2_q, w2_sf, offsets)
+    y = _OPS.mxfp8_grouped_gemm(h_q, h_sf, w2_q, w2_sf, offsets)
     assert not y[:A].isnan().any(), "active y rows contaminated"
-    dz_q, dz_sf, dz_colq, dz_col_sf = _OPS.mxfp8_cudnn_grouped_mlp_bwd(
+    dz_q, dz_sf, dz_colq, dz_col_sf = _OPS.mxfp8_grouped_gemm_dswiglu_bwd(
         dy_q, dy_sf, w2c_q, w2c_sf, z, offsets
     )
     w13c_q, w13c_sf = _quant_weight_colwise(w13)
-    dx = _OPS.mxfp8_cudnn_grouped_mm(
+    dx = _OPS.mxfp8_grouped_gemm(
         dz_q, dz_sf, w13c_q.transpose(-2, -1), w13c_sf, offsets
     )
     assert not dx[:A].isnan().any(), "active dx rows contaminated"
@@ -603,7 +601,7 @@ def test_tail_a_lt_r_poisoned():
         ],
         0,
     )
-    dw2 = _OPS.mxfp8_cudnn_grouped_mlp_wgrad(
+    dw2 = _OPS.mxfp8_grouped_gemm_wgrad(
         dy_colq_full, dy_col_sf, h_colq, h_col_sf, offsets
     )
     assert not dw2.isnan().any(), "wgrad read the NaN-poisoned inactive tail"
@@ -623,7 +621,6 @@ def test_tail_a_lt_r_poisoned():
 # ---------------------------------------------------------------------------
 
 
-@_gpu
 def test_determinism_all_ops_bitwise(dbg):
     c = dbg
     r1 = _run_chain(c)
@@ -634,15 +631,14 @@ def test_determinism_all_ops_bitwise(dbg):
         )
 
 
-@_gpu
 def test_compile_fullgraph_bitwise(dbg):
     c = dbg
 
     def fwd_then_mm(x_q, x_sf, w13_q, w13_sf, w2_q, w2_sf, offsets):
-        z, h_q, h_sf, h_colq, h_col_sf = _OPS.mxfp8_cudnn_grouped_mlp_fwd(
+        z, h_q, h_sf, h_colq, h_col_sf = _OPS.mxfp8_grouped_gemm_swiglu_fwd(
             x_q, x_sf, w13_q, w13_sf, offsets
         )
-        y = _OPS.mxfp8_cudnn_grouped_mm(h_q, h_sf, w2_q, w2_sf, offsets)
+        y = _OPS.mxfp8_grouped_gemm(h_q, h_sf, w2_q, w2_sf, offsets)
         return z, h_q, y
 
     eager = fwd_then_mm(
@@ -667,12 +663,11 @@ def test_compile_fullgraph_bitwise(dbg):
         assert torch.equal(_bytes(e), _bytes(co)), f"compiled {name} != eager"
 
 
-@_gpu
 def test_r0_all_ops():
     dev = "cuda"
     D = hidden = 256
     offsets = torch.zeros(2, dtype=torch.int32, device=dev)
-    z, h_q, h_sf, h_colq, h_col_sf = _OPS.mxfp8_cudnn_grouped_mlp_fwd(
+    z, h_q, h_sf, h_colq, h_col_sf = _OPS.mxfp8_grouped_gemm_swiglu_fwd(
         torch.empty(0, D, dtype=_E4M3, device=dev),
         torch.empty(0, dtype=_E8M0, device=dev),
         torch.zeros(2, 2 * hidden, D, dtype=torch.uint8, device=dev).view(_E4M3),
@@ -681,7 +676,7 @@ def test_r0_all_ops():
     )
     assert z.shape == (0, 2 * hidden) and h_q.shape == (0, hidden)
     assert h_sf.numel() == 0 and h_col_sf.numel() == 0
-    dw = _OPS.mxfp8_cudnn_grouped_mlp_wgrad(
+    dw = _OPS.mxfp8_grouped_gemm_wgrad(
         torch.empty(0, D, dtype=_E4M3, device=dev),
         torch.empty(0, dtype=_E8M0, device=dev),
         torch.empty(0, hidden, dtype=_E4M3, device=dev),
@@ -696,7 +691,6 @@ def test_r0_all_ops():
 # ---------------------------------------------------------------------------
 
 
-@_gpu
 def test_negative_control_whole_matrix_colwise_scales(dbg):
     """Whole-matrix to_blocked colwise scales: same bytes, silently wrong order."""
     c = dbg
@@ -707,10 +701,8 @@ def test_negative_control_whole_matrix_colwise_scales(dbg):
     s_t, _ = to_mx(c["dy"].t().contiguous(), _E4M3, _BLOCK, scaling_mode=_RCEIL)
     dy_sf_wm = to_blocked(s_t.view(_E8M0)).view(_E8M0)
     assert dy_sf_wm.numel() == dy_sf_pg.numel()
-    good = _OPS.mxfp8_cudnn_grouped_mlp_wgrad(
-        dy_q, dy_sf_pg, x_q, x_sf_pg, c["offsets"]
-    )
-    bad = _OPS.mxfp8_cudnn_grouped_mlp_wgrad(dy_q, dy_sf_wm, x_q, x_sf_pg, c["offsets"])
+    good = _OPS.mxfp8_grouped_gemm_wgrad(dy_q, dy_sf_pg, x_q, x_sf_pg, c["offsets"])
+    bad = _OPS.mxfp8_grouped_gemm_wgrad(dy_q, dy_sf_wm, x_q, x_sf_pg, c["offsets"])
     dy_deq = _dequant_colwise_grouped(dy_q, dy_sf_pg, sizes, D)
     x_deq = _dequant_colwise_grouped(x_q, x_sf_pg, sizes, D)
     ref = torch.zeros(G, D, D, dtype=torch.float32, device="cuda")
@@ -727,7 +719,6 @@ def test_negative_control_whole_matrix_colwise_scales(dbg):
     )
 
 
-@_gpu
 def test_negative_control_gate_up_swap(dbg):
     """Swapping the gate/up 32-blocks must collapse h against the correct ref."""
     c = dbg
@@ -740,7 +731,7 @@ def test_negative_control_gate_up_swap(dbg):
         .contiguous()
     )
     w13_sw_q, w13_sw_sf = _quant_weight_rowwise(w13_sw)
-    _, h_q, h_sf, _, _ = _OPS.mxfp8_cudnn_grouped_mlp_fwd(
+    _, h_q, h_sf, _, _ = _OPS.mxfp8_grouped_gemm_swiglu_fwd(
         c["x_q"], c["x_sf"], w13_sw_q, w13_sw_sf, c["offsets"]
     )
     z_ref = _grouped_matmul(c["x_deq"], c["w13_deq"], c["sizes"], transpose_b=True)
@@ -750,7 +741,7 @@ def test_negative_control_gate_up_swap(dbg):
         h_ref,
         _dequant_rowwise(
             *(
-                _OPS.mxfp8_cudnn_grouped_mlp_fwd(
+                _OPS.mxfp8_grouped_gemm_swiglu_fwd(
                     c["x_q"], c["x_sf"], c["w13_q"], c["w13_sf"], c["offsets"]
                 )[1:3]
             )
@@ -763,13 +754,12 @@ def test_negative_control_gate_up_swap(dbg):
     )
 
 
-@_gpu
 def test_negative_control_scale_byte_flip(dbg):
     """One +2-code E8M0 flip (x4) in the weight scales must break refA."""
     c = dbg
     sf_bad = c["w13_sf"].view(torch.uint8).clone()
     sf_bad[sf_bad.numel() // 2] += 2
-    z_bad = _OPS.mxfp8_cudnn_grouped_mlp_fwd(
+    z_bad = _OPS.mxfp8_grouped_gemm_swiglu_fwd(
         c["x_q"], c["x_sf"], c["w13_q"], sf_bad, c["offsets"]
     )[0]
     z_ref = _grouped_matmul(c["x_deq"], c["w13_deq"], c["sizes"], transpose_b=True)
@@ -783,7 +773,6 @@ def test_negative_control_scale_byte_flip(dbg):
     )
 
 
-@_gpu
 def test_kernel_scale_mode_is_rceil(dbg):
     """The fwd op's h scale bytes must match RCEIL, and not FLOOR, quantization."""
     c = dbg
@@ -874,21 +863,19 @@ _NEGATIVES = [
 ]
 
 
-@_gpu
 @pytest.mark.parametrize("case", _NEGATIVES, ids=[c[0] for c in _NEGATIVES])
 def test_validation_negatives(case):
     _name, mutate, needle = case
     args = _valid_fwd_args()
     mutate(args)
     with pytest.raises(ValueError) as exc_info:
-        _OPS.mxfp8_cudnn_grouped_mlp_fwd(**args)
+        _OPS.mxfp8_grouped_gemm_swiglu_fwd(**args)
     assert needle.lower() in str(exc_info.value).lower(), (
         f"rejection message {str(exc_info.value)!r} does not name the defect "
         f"({needle!r})"
     )
 
 
-@_gpu
 def test_optin_offsets_validation(monkeypatch):
     args = _valid_fwd_args()
     bad = dict(args)
@@ -897,21 +884,17 @@ def test_optin_offsets_validation(monkeypatch):
     # Default build: metadata-only, misaligned VALUES are not (and cannot be)
     # caught without a D2H sync.
     monkeypatch.delenv("TORCHAO_MXFP8_VALIDATE_OFFSETS", raising=False)
-    _OPS.mxfp8_cudnn_grouped_mlp_fwd(**bad)
+    _OPS.mxfp8_grouped_gemm_swiglu_fwd(**bad)
 
     monkeypatch.setenv("TORCHAO_MXFP8_VALIDATE_OFFSETS", "1")
     with pytest.raises(ValueError, match="FIX_PAD_SIZE"):
-        _OPS.mxfp8_cudnn_grouped_mlp_fwd(**bad)
+        _OPS.mxfp8_grouped_gemm_swiglu_fwd(**bad)
 
     over = dict(args)
     over["offsets"] = torch.tensor([256, 768], dtype=torch.int32, device="cuda")
     with pytest.raises(ValueError, match="exceeds the allocated row count"):
-        _OPS.mxfp8_cudnn_grouped_mlp_fwd(**over)
+        _OPS.mxfp8_grouped_gemm_swiglu_fwd(**over)
 
     # The opt-in check must not break fake tracing (no values to read).
     with FakeTensorMode():
         _fake_chain_shapes()
-
-
-if __name__ == "__main__":
-    pytest.main([__file__, "-v"])

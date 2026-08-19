@@ -10,13 +10,13 @@ Four custom ops, each one launch of a ``cudnn.grouped_gemm_*_wrapper_sm100``
 CuTe DSL kernel from the standalone cudnn-frontend python package (>= 1.27,
 Blackwell SM 10.x; no TransformerEngine dependency):
 
-* :func:`mxfp8_cudnn_grouped_mlp_fwd`   -- FC1 ragged grouped GEMM + SwiGLU +
+* :func:`mxfp8_grouped_gemm_swiglu_fwd`   -- FC1 ragged grouped GEMM + SwiGLU +
   rowwise 1x32 AND columnwise 32x1 MXFP8 RCEIL quantization + BF16 pre-GLU.
-* :func:`mxfp8_cudnn_grouped_mm`        -- ragged grouped GEMM on prequantized
+* :func:`mxfp8_grouped_gemm`        -- ragged grouped GEMM on prequantized
   MXFP8 operands to BF16 (FC2 forward and FC1 dgrad).
-* :func:`mxfp8_cudnn_grouped_mlp_bwd`   -- FC2 dgrad + dSwiGLU + dual MXFP8
+* :func:`mxfp8_grouped_gemm_dswiglu_bwd`   -- FC2 dgrad + dSwiGLU + dual MXFP8
   quantization of the FC1 gradient.
-* :func:`mxfp8_cudnn_grouped_mlp_wgrad` -- ragged-reduction grouped weight
+* :func:`mxfp8_grouped_gemm_wgrad` -- ragged-reduction grouped weight
   gradient (FC1 and FC2).
 
 CONTRACT (stricter than the archived custom-kernel family): every per-expert
@@ -25,7 +25,7 @@ FE kernels hard-code ``FIX_PAD_SIZE = 256``, and groups that are only 128-row
 aligned corrupt results SILENTLY and NONDETERMINISTICALLY (the corruption
 locus migrates between identical-input reruns; no smoke test can prove a
 misaligned config safe). Use a token dispatcher with ``pad_multiple=256`` and
-see ``cudnn_grouped_mlp_validation`` for the two-tier enforcement
+see ``grouped_mlp_validation`` for the two-tier enforcement
 (``TORCHAO_MXFP8_VALIDATE_OFFSETS=1`` for the opt-in synchronized check).
 
 The FC1 weight must be provided in the cuDNN 32-block GLU row order
@@ -47,9 +47,9 @@ import torch
 # importable with no cudnn-frontend installed; `import cudnn` is deferred into
 # the op bodies.
 from torchao.prototype.moe_training.kernels.mxfp8 import (
-    cudnn_grouped_mlp_ops as _cudnn_grouped_mlp_ops,  # noqa: F401
+    grouped_mlp_ops as _grouped_mlp_ops,  # noqa: F401
 )
-from torchao.prototype.moe_training.kernels.mxfp8.cudnn_grouped_mlp_validation import (
+from torchao.prototype.moe_training.kernels.mxfp8.grouped_mlp_validation import (
     DIM_ALIGNMENT,
     ROW_GROUP_ALIGNMENT,
 )
@@ -58,10 +58,10 @@ __all__ = [
     "DIM_ALIGNMENT",
     "ROW_GROUP_ALIGNMENT",
     "is_supported",
-    "mxfp8_cudnn_grouped_mlp_bwd",
-    "mxfp8_cudnn_grouped_mlp_fwd",
-    "mxfp8_cudnn_grouped_mlp_wgrad",
-    "mxfp8_cudnn_grouped_mm",
+    "mxfp8_grouped_gemm_dswiglu_bwd",
+    "mxfp8_grouped_gemm_swiglu_fwd",
+    "mxfp8_grouped_gemm_wgrad",
+    "mxfp8_grouped_gemm",
 ]
 
 _REQUIRED_WRAPPERS = (
@@ -117,7 +117,7 @@ def _probe_cudnn_frontend() -> str:
     return ""
 
 
-_cudnn_unavailable_reason = (
+_mxfp8_grouped_mlp_unavailable_reason = (
     _probe_cudnn_frontend()
     if _is_sm_10x()
     else (
@@ -126,15 +126,15 @@ _cudnn_unavailable_reason = (
         else "CUDA is not available"
     )
 )
-_cudnn_grouped_mlp_available = _cudnn_unavailable_reason == ""
+_mxfp8_grouped_mlp_kernels_available = _mxfp8_grouped_mlp_unavailable_reason == ""
 
 
 def _require_available() -> None:
     """Raise a clean NotImplementedError when the kernels cannot run here."""
-    if not _cudnn_grouped_mlp_available:
+    if not _mxfp8_grouped_mlp_kernels_available:
         raise NotImplementedError(
             "cuDNN-frontend MXFP8 grouped-MLP kernels are unavailable: "
-            + _cudnn_unavailable_reason
+            + _mxfp8_grouped_mlp_unavailable_reason
         )
 
 
@@ -147,7 +147,7 @@ def is_supported(model_dim: int, hidden_dim: int) -> bool:
     row counts live in device memory and are not checkable here.
 
     Environment availability (cudnn-frontend >= 1.27, SM 10.x) is a separate
-    concern: combine with ``_cudnn_grouped_mlp_available``.
+    concern: combine with ``_mxfp8_grouped_mlp_kernels_available``.
     """
     return (
         model_dim > 0
@@ -157,22 +157,22 @@ def is_supported(model_dim: int, hidden_dim: int) -> bool:
     )
 
 
-def mxfp8_cudnn_grouped_mlp_fwd(x_q, x_sf, w13_q, w13_sf, offsets):
+def mxfp8_grouped_gemm_swiglu_fwd(x_q, x_sf, w13_q, w13_sf, offsets):
     """FC1 grouped GEMM + SwiGLU + rowwise/columnwise MXFP8 quantization.
 
-    See ``torchao::mxfp8_cudnn_grouped_mlp_fwd`` for the full ABI. ``w13_q``
+    See ``torchao::mxfp8_grouped_gemm_swiglu_fwd`` for the full ABI. ``w13_q``
     is E4M3 ``[G, 2F, D]`` contiguous with rows in 32-block GLU order; returns
     ``(z_bf16 [R, 2F], h_row_q [R, F], h_row_sf, h_col_q [R, F], h_col_sf)``
     where the columnwise scales are PER-GROUP blocked. Rows past
     ``offsets[-1]`` of every output are garbage and read-forbidden.
     """
     _require_available()
-    return torch.ops.torchao.mxfp8_cudnn_grouped_mlp_fwd(
+    return torch.ops.torchao.mxfp8_grouped_gemm_swiglu_fwd(
         x_q, x_sf, w13_q, w13_sf, offsets
     )
 
 
-def mxfp8_cudnn_grouped_mm(a_q, a_sf, b_q, b_sf, offsets):
+def mxfp8_grouped_gemm(a_q, a_sf, b_q, b_sf, offsets):
     """Ragged grouped GEMM on prequantized MXFP8 operands, BF16 output.
 
     ``b_q`` is ``[G, N, K]``-logical quantized along K with free strides
@@ -182,10 +182,10 @@ def mxfp8_cudnn_grouped_mm(a_q, a_sf, b_q, b_sf, offsets):
     uninitialized.
     """
     _require_available()
-    return torch.ops.torchao.mxfp8_cudnn_grouped_mm(a_q, a_sf, b_q, b_sf, offsets)
+    return torch.ops.torchao.mxfp8_grouped_gemm(a_q, a_sf, b_q, b_sf, offsets)
 
 
-def mxfp8_cudnn_grouped_mlp_bwd(dy_q, dy_sf, w2_col_q, w2_col_sf, z_bf16, offsets):
+def mxfp8_grouped_gemm_dswiglu_bwd(dy_q, dy_sf, w2_col_q, w2_col_sf, z_bf16, offsets):
     """FC2 dgrad + dSwiGLU + dual MXFP8 quantization of the FC1 gradient.
 
     ``z_bf16`` must be the exact fwd-op output. Returns
@@ -193,12 +193,12 @@ def mxfp8_cudnn_grouped_mlp_bwd(dy_q, dy_sf, w2_col_q, w2_col_sf, z_bf16, offset
     32-block order.
     """
     _require_available()
-    return torch.ops.torchao.mxfp8_cudnn_grouped_mlp_bwd(
+    return torch.ops.torchao.mxfp8_grouped_gemm_dswiglu_bwd(
         dy_q, dy_sf, w2_col_q, w2_col_sf, z_bf16, offsets
     )
 
 
-def mxfp8_cudnn_grouped_mlp_wgrad(dy_col_q, dy_col_sf, x_col_q, x_col_sf, offsets):
+def mxfp8_grouped_gemm_wgrad(dy_col_q, dy_col_sf, x_col_q, x_col_sf, offsets):
     """Grouped MXFP8 weight gradient ``dw[g] = dequant(dy_g).T @ dequant(x_g)``.
 
     Both operands columnwise (32x1) quantized with PER-GROUP blocked scales
@@ -206,6 +206,6 @@ def mxfp8_cudnn_grouped_mlp_wgrad(dy_col_q, dy_col_sf, x_col_q, x_col_sf, offset
     block order). Returns contiguous BF16 ``[G, N, K]``.
     """
     _require_available()
-    return torch.ops.torchao.mxfp8_cudnn_grouped_mlp_wgrad(
+    return torch.ops.torchao.mxfp8_grouped_gemm_wgrad(
         dy_col_q, dy_col_sf, x_col_q, x_col_sf, offsets
     )
