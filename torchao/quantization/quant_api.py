@@ -68,6 +68,7 @@ from torchao.quantization.quantize_.workflows import (
     IntxUnpackedToInt8Tensor,
     QuantizeTensorToFloat8Kwargs,
     QuantizeTensorToInt8Kwargs,
+    SparseKernelChoice,
 )
 from torchao.quantization.transform_module import (
     _QUANTIZE_CONFIG_HANDLER,
@@ -1154,6 +1155,9 @@ class Float8DynamicActivationFloat8WeightConfig(AOBaseConfig):
         kernel_preference (KernelPreference): kernel preference for ops like matmul, grouped matmul etc. by defalut (KernelPreference.AUTO) it will be chosen for user based on hardware or other information, this only needs to be set in weight
         set_inductor_config (bool): if True, adjusts `torchinductor` settings to recommended values.
         version (int): the version of the config, version 1 is deprecated, version 2 is using Float8Tensor (default)
+        _sparse_kernel_choice (SparseKernelChoice): for the SPARSE_2D_DATA_2D_METADATA packing format, which
+            kernel to use for the sparsity conversion and for the sparse matmul; defaults to
+            SparseKernelChoice.CUTLASS. Not consulted by SPARSE_1D_DATA_1D_METADATA.
 
     Example:
 
@@ -1172,6 +1176,7 @@ class Float8DynamicActivationFloat8WeightConfig(AOBaseConfig):
     set_inductor_config: bool = True
     version: int = 2
     alg_id: int = 0
+    _sparse_kernel_choice: SparseKernelChoice = SparseKernelChoice.CUTLASS
 
     def __post_init__(self):
         torch._C._log_api_usage_once(
@@ -1266,6 +1271,7 @@ def _float8_dynamic_activation_float8_weight_quantize_tensor(weight, config):
             float8_dtype=weight_dtype,
             granularity=weight_granularity,
             act_quant_kwargs=act_quant_kwargs,
+            sparse_kernel_choice=config._sparse_kernel_choice,
         )
         return quantized_weight
     elif packing_format == Float8PackingFormat.SPARSE_1D_DATA_1D_METADATA:
