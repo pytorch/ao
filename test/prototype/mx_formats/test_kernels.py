@@ -38,6 +38,9 @@ from torchao.prototype.mx_formats.kernels import (
     pack_uint4,
     triton_mxfp8_dequant_dim0,
     triton_to_mxfp8_32x32_dim0,
+    triton_to_mxfp8_32x32_swizzle_dim0,
+    triton_to_mxfp8_32x32_swizzle_dim0_and_dim1,
+    triton_to_mxfp8_32x32_swizzle_dim1,
     triton_to_mxfp8_dim0,
     triton_to_mxfp8_dim1,
     triton_to_mxfp8_dim1_reference,
@@ -50,7 +53,7 @@ from torchao.prototype.mx_formats.mx_tensor import (
     to_dtype,
     to_mx,
 )
-from torchao.prototype.mx_formats.utils import to_blocked
+from torchao.prototype.mx_formats.utils import from_blocked, to_blocked
 from torchao.quantization.utils import compute_error
 from torchao.testing._mxfp8_test_utils import (
     assert_mxfp8_semantics,
@@ -1104,4 +1107,118 @@ def test_triton_to_mxfp8_32x32_dequant_sqnr(M, K):
     threshold = 15.0
     assert sqnr > threshold, (
         f"mxfp8_32x32: sqnr={sqnr.item():.2f} dB below {threshold} dB"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Swizzled 32x32 variants: same square-block quant as `_ref_mxfp8_32x32`, but the per-block
+# e8m0 scale is expanded over the block's 32 rows (dim0) or 32 cols (dim1, transposed) and
+# emitted in NVIDIA's blocked/swizzled layout -- reusing torchao's `to_blocked` / `from_blocked`
+# (a 4D block grid `.reshape(-1)` equals `to_blocked`'s flat buffer).
+# ---------------------------------------------------------------------------
+def _ref_mxfp8_32x32_swizzle_dim0(x):
+    """Reference dim0 swizzle: (qdata (M,N) fp8, swizzled scale as a flat uint8 buffer)."""
+    q_ref, scale = _ref_mxfp8_32x32(x)  # (M,N), (M//32, N//32)
+    scale_exp = scale.view(torch.uint8).repeat_interleave(32, dim=0)  # (M, N//32)
+    return q_ref, to_blocked(scale_exp).view(torch.uint8)
+
+
+def _ref_mxfp8_32x32_swizzle_dim1(x):
+    """Reference dim1 (transposed) swizzle: (qdata (N,M) fp8, swizzled scale flat uint8)."""
+    q_ref, scale = _ref_mxfp8_32x32(x)  # (M,N), (M//32, N//32)
+    scale_exp = (
+        scale.view(torch.uint8).repeat_interleave(32, dim=1).t().contiguous()
+    )  # (N, M//32)
+    return q_ref.t().contiguous(), to_blocked(scale_exp).view(torch.uint8)
+
+
+def _swizzle_dequant_sqnr_dim0(x, q_t, s_t):
+    """Un-swizzle the dim0 scale back to per-block, dequant, and return SQNR vs x."""
+    M, N = x.shape
+    scale_unswz = from_blocked(
+        s_t.view(torch.uint8).reshape(-1), M, N // 32
+    )  # (M, N//32)
+    scale_blocks = scale_unswz[::32].contiguous()  # (M//32, N//32)
+    return compute_error(x.float(), _ref_mxfp8_32x32_dq(q_t, scale_blocks).float())
+
+
+def _swizzle_dequant_sqnr_dim1(x, q_t, s_t):
+    """Un-swizzle the dim1 (transposed) scale, dequant in the (N,M) frame, SQNR vs x."""
+    M, N = x.shape
+    scale_unswz = from_blocked(
+        s_t.view(torch.uint8).reshape(-1), N, M // 32
+    )  # (N, M//32)
+    scale_blocks = scale_unswz[::32].contiguous()  # (N//32, M//32)
+    x_hat_t = _ref_mxfp8_32x32_dq(q_t, scale_blocks)  # (N, M)
+    return compute_error(x.float(), x_hat_t.t().float())
+
+
+@pytest.mark.skipif(not has_triton(), reason="unsupported without triton")
+@pytest.mark.skipif(
+    not is_sm_at_least_100() and not is_MI350(),
+    reason="mxfp8 requires CUDA capability 10.0 or greater or ROCm gfx950 or greater.",
+)
+@pytest.mark.parametrize("M", (64, 128, 256))
+@pytest.mark.parametrize("K", (64, 128, 256))
+def test_triton_to_mxfp8_32x32_swizzle_dim0(M, K):
+    torch.manual_seed(0)
+    x = torch.randn(M, K, dtype=torch.bfloat16, device="cuda")
+    q_t, s_t = triton_to_mxfp8_32x32_swizzle_dim0(x)
+    q_ref, s_ref = _ref_mxfp8_32x32_swizzle_dim0(x)
+    # Bit-exact qdata (M,N) and swizzled scale (compare raw byte patterns).
+    assert torch.equal(q_t.view(torch.uint8), q_ref.view(torch.uint8))
+    assert torch.equal(s_t.view(torch.uint8).reshape(-1), s_ref)
+    sqnr = _swizzle_dequant_sqnr_dim0(x, q_t, s_t)
+    assert sqnr > 15.0, (
+        f"mxfp8_32x32_swizzle_dim0: sqnr={sqnr.item():.2f} dB below 15 dB"
+    )
+
+
+@pytest.mark.skipif(not has_triton(), reason="unsupported without triton")
+@pytest.mark.skipif(
+    not is_sm_at_least_100() and not is_MI350(),
+    reason="mxfp8 requires CUDA capability 10.0 or greater or ROCm gfx950 or greater.",
+)
+@pytest.mark.parametrize("M", (64, 128, 256))
+@pytest.mark.parametrize("K", (64, 128, 256))
+def test_triton_to_mxfp8_32x32_swizzle_dim1(M, K):
+    torch.manual_seed(0)
+    x = torch.randn(M, K, dtype=torch.bfloat16, device="cuda")
+    q_t, s_t = triton_to_mxfp8_32x32_swizzle_dim1(x)
+    q_ref, s_ref = _ref_mxfp8_32x32_swizzle_dim1(x)
+    # Bit-exact transposed qdata (N,M) and swizzled scale.
+    assert torch.equal(q_t.view(torch.uint8), q_ref.view(torch.uint8))
+    assert torch.equal(s_t.view(torch.uint8).reshape(-1), s_ref)
+    sqnr = _swizzle_dequant_sqnr_dim1(x, q_t, s_t)
+    assert sqnr > 15.0, (
+        f"mxfp8_32x32_swizzle_dim1: sqnr={sqnr.item():.2f} dB below 15 dB"
+    )
+
+
+@pytest.mark.skipif(not has_triton(), reason="unsupported without triton")
+@pytest.mark.skipif(
+    not is_sm_at_least_100() and not is_MI350(),
+    reason="mxfp8 requires CUDA capability 10.0 or greater or ROCm gfx950 or greater.",
+)
+@pytest.mark.parametrize("M", (64, 128, 256))
+@pytest.mark.parametrize("K", (64, 128, 256))
+def test_triton_to_mxfp8_32x32_swizzle_dim0_and_dim1(M, K):
+    torch.manual_seed(0)
+    x = torch.randn(M, K, dtype=torch.bfloat16, device="cuda")
+    qk, sk, qm, sm = triton_to_mxfp8_32x32_swizzle_dim0_and_dim1(x)
+    qk_ref, sk_ref = _ref_mxfp8_32x32_swizzle_dim0(x)
+    qm_ref, sm_ref = _ref_mxfp8_32x32_swizzle_dim1(x)
+    # dim0 (dim-K) pair bit-exact.
+    assert torch.equal(qk.view(torch.uint8), qk_ref.view(torch.uint8))
+    assert torch.equal(sk.view(torch.uint8).reshape(-1), sk_ref)
+    # dim1 (dim-M / transposed) pair bit-exact.
+    assert torch.equal(qm.view(torch.uint8), qm_ref.view(torch.uint8))
+    assert torch.equal(sm.view(torch.uint8).reshape(-1), sm_ref)
+    sqnr_k = _swizzle_dequant_sqnr_dim0(x, qk, sk)
+    sqnr_m = _swizzle_dequant_sqnr_dim1(x, qm, sm)
+    assert sqnr_k > 15.0, (
+        f"swizzle_dim0_and_dim1 (dim-k): sqnr={sqnr_k.item():.2f} dB below 15 dB"
+    )
+    assert sqnr_m > 15.0, (
+        f"swizzle_dim0_and_dim1 (dim-m): sqnr={sqnr_m.item():.2f} dB below 15 dB"
     )
