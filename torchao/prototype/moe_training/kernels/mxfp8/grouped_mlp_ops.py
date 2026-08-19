@@ -4,66 +4,401 @@
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
 
-"""Custom-op surface for the cuDNN-frontend MXFP8 routed-expert grouped MLP.
+"""MXFP8 routed-expert grouped-MLP ops over the cuDNN-frontend CuTe DSL kernels.
 
-Four ops, each wrapping one ``cudnn.grouped_gemm_*_wrapper_sm100`` CuTe DSL
-kernel from the standalone cudnn-frontend python package (>= 1.27; no
-TransformerEngine involvement):
+Four custom ops, each one launch of a ``cudnn.grouped_gemm_*_wrapper_sm100``
+kernel from the standalone cudnn-frontend python package (>= 1.27, Blackwell
+SM 10.x; no TransformerEngine dependency); the matching public wrappers live
+at the bottom of this module:
 
-* ``torchao::mxfp8_grouped_gemm_swiglu_fwd``   -- FC1 ragged grouped GEMM +
-  SwiGLU + rowwise AND columnwise MXFP8 RCEIL quantization + BF16 pre-GLU save
-  (``grouped_gemm_glu_wrapper_sm100``).
-* ``torchao::mxfp8_grouped_gemm``        -- ragged grouped GEMM on
-  prequantized operands to BF16 (``grouped_gemm_quant_wrapper_sm100``); used
-  for both FC2 forward and FC1 dgrad.
-* ``torchao::mxfp8_grouped_gemm_dswiglu_bwd``   -- FC2 dgrad + dSwiGLU + dual
-  MXFP8 quantization of dz (``grouped_gemm_dglu_wrapper_sm100``).
-* ``torchao::mxfp8_grouped_gemm_wgrad`` -- ragged-reduction grouped
-  weight gradient (``grouped_gemm_wgrad_wrapper_sm100``, dense output mode);
-  called once for FC1 and once for FC2.
+* :func:`mxfp8_grouped_gemm_swiglu_fwd`   -- FC1 ragged grouped GEMM + SwiGLU
+  + rowwise 1x32 AND columnwise 32x1 MXFP8 RCEIL quantization + BF16 pre-GLU.
+* :func:`mxfp8_grouped_gemm`              -- ragged grouped GEMM on
+  prequantized operands to BF16 (FC2 forward and FC1 dgrad).
+* :func:`mxfp8_grouped_gemm_dswiglu_bwd`  -- FC2 dgrad + dSwiGLU + dual MXFP8
+  quantization of the FC1 gradient.
+* :func:`mxfp8_grouped_gemm_wgrad`        -- ragged-reduction grouped weight
+  gradient (dense output mode; called once for FC1 and once for FC2).
+
+CONTRACT: every per-expert row count and the allocated row count must be
+multiples of **256** -- the cuDNN FE kernels hard-code ``FIX_PAD_SIZE = 256``,
+and groups that are only 128-row aligned corrupt results SILENTLY and
+NONDETERMINISTICALLY (the corruption locus migrates between identical-input
+reruns; no smoke test can prove a misaligned config safe). Use a token
+dispatcher with ``pad_multiple=256``. Enforcement is two-tier: metadata-only
+checks always run (memoized per signature, FakeTensor-safe, back
+``register_fake`` so torch.compile rejects at capture time); the offset
+VALUES (nondecreasing, per-expert %256, ``offsets[-1] <= R``) are checked
+only under ``TORCHAO_MXFP8_VALIDATE_OFFSETS=1`` because reading them forces a
+D2H sync. Checks raise ValueError, never assert, so ``python -O`` cannot
+strip them.
 
 All scale arguments are FLAT blocked E8M0 buffers (uint8 or float8_e8m0fnu);
 the ops build the kernel-native 6-D / 2-D views internally with probe-proven
-recipes. ``offsets`` is int32 CUDA ``[G]`` exclusive-end rows; per-expert row
-counts must be multiples of 256 (cuDNN FE ``FIX_PAD_SIZE``; see the validation
-module for the two-tier enforcement and the misalignment hazard). Rows in
-``[offsets[-1], R)``: caller-allocated outputs (the grouped-mm result and the
-weight gradients) keep their tails untouched, while kernel-allocated outputs
-(z, h, dz and their scales) carry garbage tails that are read-forbidden --
-both behaviors probe-verified with NaN-poisoned tails.
+recipes. The FC1 weight is E4M3 ``[G, 2F, D]`` with rows in the cuDNN
+32-block GLU order ``[gate0(32) | up0(32) | gate1(32) | ...]`` (gate = the
+SiLU'd operand). ``offsets`` is int32 CUDA ``[G]`` exclusive-end rows. Rows
+in ``[offsets[-1], R)``: caller-allocated outputs (the grouped-mm result and
+the weight gradients) keep their tails untouched, while kernel-allocated
+outputs (z, h, dz and their scales) carry garbage tails that are
+read-forbidden -- both behaviors probe-verified with NaN-poisoned tails.
 
-Shared ``_validate_*`` helpers back ``register_fake`` so torch.compile rejects
-unsupported calls at capture time, and shared output-spec helpers keep fake
-and eager metadata identical (eager normalizes the wrapper's returned tensors
-and checks them against the same spec the fake allocates from).
-
-The user-facing wrappers live in
-``torchao.prototype.moe_training.mxfp8_grouped_mlp``; importing that module
-(or this one) registers the ops. ``import cudnn`` happens lazily inside op
-bodies at first real launch.
+Importing this module registers the four ``torchao::`` custom ops; the
+``cudnn`` package itself is imported lazily inside the op bodies at first
+real launch. :func:`is_supported` is the static shape predicate to call
+before selecting this family.
 """
 
-from typing import Tuple
+import importlib.util
+import os
+from typing import Optional, Tuple
 
 import torch
 
-from torchao.prototype.moe_training.kernels.mxfp8.grouped_mlp_validation import (
-    ROW_GROUP_ALIGNMENT,
-    SCALE_BLOCK_SIZE,
-    host_offsets_validation_enabled,
-    validate_allocated_rows,
-    validate_blocked_scales,
-    validate_feature_dims,
-    validate_group_offsets,
-    validate_operand,
-    validate_ragged_colwise_scales,
-)
+__all__ = [
+    "DIM_ALIGNMENT",
+    "ROW_GROUP_ALIGNMENT",
+    "SCALE_BLOCK_SIZE",
+    "is_supported",
+    "mxfp8_grouped_gemm",
+    "mxfp8_grouped_gemm_dswiglu_bwd",
+    "mxfp8_grouped_gemm_swiglu_fwd",
+    "mxfp8_grouped_gemm_wgrad",
+]
 
-__all__ = ["ROW_GROUP_ALIGNMENT", "SCALE_BLOCK_SIZE"]
+# MXFP8 scaling block: 32 values share one E8M0 scale.
+SCALE_BLOCK_SIZE = 32
+# tcgen05 blocked scale tile: 128 rows x 4 columns, 512 bytes.
+SCALE_TILE_ROWS = 128
+SCALE_TILE_COLS = 4
+# Feature-dimension granularity (D and F).
+DIM_ALIGNMENT = 128
+# Row-count granularity: per-expert groups AND the allocated row count (the
+# cuDNN FE kernels' FIX_PAD_SIZE).
+ROW_GROUP_ALIGNMENT = 256
+# Byte alignment for TMA/vectorized accesses.
+_PTR_ALIGNMENT = 16
+
+_SCALE_DTYPES = (torch.uint8, torch.float8_e8m0fnu)
 
 _E4M3 = torch.float8_e4m3fn
 _E8M0 = torch.float8_e8m0fnu
 _BLOCK = SCALE_BLOCK_SIZE
+
+
+# --------------------------------------------------------------------------
+# Availability probe and the static shape predicate.
+# --------------------------------------------------------------------------
+
+_REQUIRED_WRAPPERS = (
+    "grouped_gemm_glu_wrapper_sm100",
+    "grouped_gemm_quant_wrapper_sm100",
+    "grouped_gemm_dglu_wrapper_sm100",
+    "grouped_gemm_wgrad_wrapper_sm100",
+)
+# 1.27 is required: earlier frontends reject prob_tensor=None.
+_MIN_FE_VERSION = (1, 27)
+
+
+def _fe_version_tuple(version: str) -> tuple:
+    """Numeric prefix as a tuple ('1.27.0' -> (1, 27, 0)); never compare
+    version STRINGS ('1.100' < '1.27' lexicographically)."""
+    parts = []
+    for piece in version.split("."):
+        digits = ""
+        for ch in piece:
+            if not ch.isdigit():
+                break
+            digits += ch
+        if not digits:
+            break
+        parts.append(int(digits))
+    return tuple(parts)
+
+
+def _is_sm_10x() -> bool:
+    return torch.cuda.is_available() and torch.cuda.get_device_capability()[0] == 10
+
+
+def _probe_cudnn_frontend() -> str:
+    """Empty string when usable; else the reason it is not."""
+    if importlib.util.find_spec("cudnn") is None:
+        return "the cudnn-frontend python package ('cudnn') is not installed"
+    try:
+        import cudnn
+    except Exception as exc:  # pragma: no cover - environment-specific
+        return f"'import cudnn' failed: {exc!r}"
+    version = getattr(cudnn, "__version__", "0")
+    if _fe_version_tuple(version) < _MIN_FE_VERSION:
+        return (
+            f"cudnn-frontend {version} is too old; >= "
+            f"{'.'.join(map(str, _MIN_FE_VERSION))} is required "
+            "(prob_tensor=None support)"
+        )
+    missing = [name for name in _REQUIRED_WRAPPERS if not hasattr(cudnn, name)]
+    if missing:
+        return "cudnn-frontend lacks required wrappers: " + ", ".join(missing)
+    return ""
+
+
+_mxfp8_grouped_mlp_unavailable_reason = (
+    _probe_cudnn_frontend()
+    if _is_sm_10x()
+    else (
+        "requires an SM 10.x (Blackwell) GPU"
+        if torch.cuda.is_available()
+        else "CUDA is not available"
+    )
+)
+_mxfp8_grouped_mlp_kernels_available = _mxfp8_grouped_mlp_unavailable_reason == ""
+
+
+def _require_available() -> None:
+    if not _mxfp8_grouped_mlp_kernels_available:
+        raise NotImplementedError(
+            "cuDNN-frontend MXFP8 grouped-MLP kernels are unavailable: "
+            + _mxfp8_grouped_mlp_unavailable_reason
+        )
+
+
+def is_supported(model_dim: int, hidden_dim: int) -> bool:
+    """True when D and F are positive multiples of 128. Integration code must
+    ALSO guarantee the runtime row contract (per-expert groups and the row
+    allocation padded to multiples of 256): row counts live in device memory
+    and are not checkable here. Environment availability is a separate
+    concern (``_mxfp8_grouped_mlp_kernels_available``)."""
+    return (
+        model_dim > 0
+        and hidden_dim > 0
+        and model_dim % DIM_ALIGNMENT == 0
+        and hidden_dim % DIM_ALIGNMENT == 0
+    )
+
+
+# --------------------------------------------------------------------------
+# Metadata validation helpers (see the module docstring for the two tiers).
+# --------------------------------------------------------------------------
+
+
+def _round_up(x: int, to: int) -> int:
+    return ((x + to - 1) // to) * to
+
+
+def blocked_scale_numel(rows: int, cols: int) -> int:
+    """Blocked-buffer element count for a logical [rows, cols] scale matrix
+    (``cols`` counts scale values: the reduced dimension divided by 32)."""
+    return _round_up(rows, SCALE_TILE_ROWS) * _round_up(cols, SCALE_TILE_COLS)
+
+
+def host_offsets_validation_enabled() -> bool:
+    """Opt-in offset-VALUES validation; off by default (forces a D2H sync)."""
+    return os.environ.get("TORCHAO_MXFP8_VALIDATE_OFFSETS", "0") == "1"
+
+
+def _is_fake(tensor: torch.Tensor) -> bool:
+    """True for meta/fake tensors (no usable data pointer or values)."""
+    if tensor.device.type == "meta":
+        return True
+    try:
+        from torch._subclasses.fake_tensor import FakeTensor
+    except ImportError:
+        return False
+    return isinstance(tensor, FakeTensor)
+
+
+def validate_group_offsets(
+    offsets: torch.Tensor,
+    *,
+    num_groups: int,
+    allocated_rows: int,
+    device: Optional[torch.device] = None,
+    name: str = "offsets",
+) -> None:
+    """Metadata always; VALUES only when opted in and the tensor is real."""
+    if not isinstance(offsets, torch.Tensor):
+        raise ValueError(f"{name} must be a torch.Tensor, got {type(offsets)}")
+    if num_groups < 1:
+        raise ValueError(
+            f"{name} must describe at least one expert group, got G={num_groups}"
+        )
+    if offsets.dtype != torch.int32:
+        raise ValueError(f"{name} must be int32, got {offsets.dtype}")
+    if not offsets.is_cuda:
+        raise ValueError(f"{name} must be a CUDA tensor, got device {offsets.device}")
+    if device is not None and offsets.device != device:
+        raise ValueError(
+            f"{name} must be on {device}, got {offsets.device}; all operands and "
+            "destinations must share one CUDA device"
+        )
+    if offsets.ndim != 1:
+        raise ValueError(f"{name} must be 1D, got shape {tuple(offsets.shape)}")
+    if offsets.numel() != num_groups:
+        raise ValueError(
+            f"{name} must have one entry per local expert: expected {num_groups}, "
+            f"got {offsets.numel()}"
+        )
+    if not offsets.is_contiguous():
+        raise ValueError(f"{name} must be contiguous, got stride {offsets.stride()}")
+
+    if not host_offsets_validation_enabled() or _is_fake(offsets):
+        return
+
+    values = offsets.tolist()  # d2h sync; opt-in debugging path only
+    previous = 0
+    for group, end in enumerate(values):
+        if end < previous:
+            raise ValueError(
+                f"{name} must be nondecreasing, but entry {group} is {end} "
+                f"after {previous}"
+            )
+        size = end - previous
+        if size % ROW_GROUP_ALIGNMENT != 0:
+            raise ValueError(
+                f"per-expert row counts must be multiples of {ROW_GROUP_ALIGNMENT} "
+                f"(cuDNN FE FIX_PAD_SIZE; sub-256 groups corrupt results "
+                f"nondeterministically): expert {group} has {size} rows "
+                f"(offsets {previous} -> {end})"
+            )
+        previous = end
+    if previous > allocated_rows:
+        raise ValueError(
+            f"{name}[-1] ({previous}) exceeds the allocated row count "
+            f"({allocated_rows})"
+        )
+
+
+def validate_operand(
+    tensor: torch.Tensor,
+    *,
+    name: str,
+    shape: tuple,
+    dtype: torch.dtype,
+    device: torch.device,
+    stride: Optional[tuple] = None,
+    check_pointer_alignment: bool = True,
+) -> None:
+    """dtype/shape/device, optional EXACT stride (None = any: the wrappers
+    consume both majors, every composite combination probe-proven), pointer
+    alignment. Metadata gates run before the ``data_ptr()`` gate so
+    FakeTensor tracing exercises the same checks."""
+    if tensor.dtype != dtype:
+        raise ValueError(f"{name} must be {dtype}, got {tensor.dtype}")
+    if tuple(tensor.shape) != tuple(shape):
+        raise ValueError(
+            f"{name} must have shape {tuple(shape)}, got {tuple(tensor.shape)}"
+        )
+    if stride is not None and tuple(tensor.stride()) != tuple(stride):
+        raise ValueError(
+            f"{name} must have stride {tuple(stride)}, got {tuple(tensor.stride())}. "
+            "This layout is part of the ABI; a values-equal tensor with a "
+            "different stride is not interchangeable."
+        )
+    if tensor.device != device:
+        raise ValueError(
+            f"{name} must be on {device}, got {tensor.device}; all operands and "
+            "destinations must share one CUDA device"
+        )
+    if check_pointer_alignment and not _is_fake(tensor):
+        if tensor.data_ptr() % _PTR_ALIGNMENT != 0:
+            raise ValueError(
+                f"{name} must be {_PTR_ALIGNMENT}-byte aligned, but its data "
+                f"pointer is {tensor.data_ptr() % _PTR_ALIGNMENT} bytes past an "
+                "aligned address. A contiguous view with a nonzero storage "
+                "offset can violate this."
+            )
+
+
+def validate_blocked_scales(
+    scales: torch.Tensor,
+    *,
+    name: str,
+    logical_rows: int,
+    logical_cols: int,
+    device: torch.device,
+    groups: int = 1,
+) -> None:
+    """Flat blocked E8M0 buffer with a statically known size; ``groups > 1``
+    means per-expert blocks concatenated."""
+    if scales.dtype not in _SCALE_DTYPES:
+        raise ValueError(
+            f"{name} must be uint8 or float8_e8m0fnu (raw E8M0 bytes), "
+            f"got {scales.dtype}"
+        )
+    expected = groups * blocked_scale_numel(logical_rows, logical_cols)
+    if scales.numel() != expected:
+        raise ValueError(
+            f"{name} must hold {expected} blocked scale bytes for a logical "
+            f"[{logical_rows}, {logical_cols}] scale matrix"
+            + (f" across {groups} experts" if groups > 1 else "")
+            + f", got {scales.numel()}"
+        )
+    if not scales.is_contiguous():
+        raise ValueError(f"{name} must be contiguous, got stride {scales.stride()}")
+    if scales.device != device:
+        raise ValueError(f"{name} must be on {device}, got {scales.device}")
+
+
+def validate_ragged_colwise_scales(
+    scales: torch.Tensor,
+    *,
+    name: str,
+    features: int,
+    allocated_rows: int,
+    device: torch.device,
+) -> None:
+    """Per-group columnwise scale buffer sized by ``offsets[-1]`` -- a device
+    value -- so only dtype/device/contiguity, granule divisibility, and the
+    allocated-rows maximum are host-checkable (an ``offsets[-1] < R`` buffer
+    legitimately covers fewer scale columns, probe-verified)."""
+    if scales.dtype not in _SCALE_DTYPES:
+        raise ValueError(
+            f"{name} must be uint8 or float8_e8m0fnu (raw E8M0 bytes), "
+            f"got {scales.dtype}"
+        )
+    if not scales.is_contiguous():
+        raise ValueError(f"{name} must be contiguous, got stride {scales.stride()}")
+    if scales.device != device:
+        raise ValueError(f"{name} must be on {device}, got {scales.device}")
+    rows_pad = _round_up(features, SCALE_TILE_ROWS)
+    # Each 256-row group contributes features_pad * (group_rows/32) bytes and
+    # group_rows/32 is a multiple of 8.
+    granule = rows_pad * (ROW_GROUP_ALIGNMENT // SCALE_BLOCK_SIZE)
+    if scales.numel() % granule != 0:
+        raise ValueError(
+            f"{name} numel {scales.numel()} is not a multiple of {granule} "
+            f"(= round_up({features},128) x {ROW_GROUP_ALIGNMENT // SCALE_BLOCK_SIZE} "
+            "scale columns per 256-row group)"
+        )
+    max_numel = rows_pad * (allocated_rows // SCALE_BLOCK_SIZE)
+    if scales.numel() > max_numel:
+        raise ValueError(
+            f"{name} numel {scales.numel()} exceeds the maximum {max_numel} implied "
+            f"by the allocated row count {allocated_rows}"
+        )
+
+
+def validate_feature_dims(*, model_dim: int, hidden_dim: int) -> None:
+    if model_dim <= 0 or model_dim % DIM_ALIGNMENT != 0:
+        raise ValueError(
+            f"model dimension D must be a positive multiple of {DIM_ALIGNMENT}, "
+            f"got {model_dim}"
+        )
+    if hidden_dim <= 0 or hidden_dim % DIM_ALIGNMENT != 0:
+        raise ValueError(
+            f"routed-expert hidden dimension F must be a positive multiple of "
+            f"{DIM_ALIGNMENT}, got {hidden_dim}"
+        )
+
+
+def validate_allocated_rows(rows: int, *, name: str = "R") -> None:
+    """%256 (may be zero): the allocation must be reachable by a legal offsets
+    vector plus an inactive tail, and a non-256 allocation also breaks the
+    whole-matrix == per-group-concat identity of the rowwise blocked scales."""
+    if rows % ROW_GROUP_ALIGNMENT != 0:
+        raise ValueError(
+            f"{name} must be a multiple of {ROW_GROUP_ALIGNMENT}, got {rows}"
+        )
+
 
 # Small per-(groups, dtype, device) caches for the kernels' alpha/beta and
 # norm-const tensors. Never cached: the CUDA stream (looked up per call).
@@ -95,8 +430,7 @@ _VALIDATED_SIGS_CAP = 4096
 def _meta_sig(tag: str, *tensors: torch.Tensor) -> tuple:
     # torch.Size and stride() are hashable tuples; device/dtype hash directly.
     return (tag,) + tuple(
-        (t.shape, t.stride(), t.dtype, t.device, t.storage_offset())
-        for t in tensors
+        (t.shape, t.stride(), t.dtype, t.device, t.storage_offset()) for t in tensors
     )
 
 
@@ -800,4 +1134,63 @@ def _(dy_col_q, dy_col_sf, x_col_q, x_col_sf, offsets):
         (groups, out_features, in_features),
         dtype=torch.bfloat16,
         device=dy_col_q.device,
+    )
+
+
+# --------------------------------------------------------------------------
+# Public wrappers: availability-gated entry points over the four custom ops.
+# --------------------------------------------------------------------------
+
+
+def mxfp8_grouped_gemm_swiglu_fwd(x_q, x_sf, w13_q, w13_sf, offsets):
+    """FC1 grouped GEMM + SwiGLU + rowwise/columnwise MXFP8 quantization.
+
+    See ``torchao::mxfp8_grouped_gemm_swiglu_fwd`` for the full ABI. ``w13_q``
+    is E4M3 ``[G, 2F, D]`` contiguous with rows in 32-block GLU order; returns
+    ``(z_bf16 [R, 2F], h_row_q [R, F], h_row_sf, h_col_q [R, F], h_col_sf)``
+    where the columnwise scales are PER-GROUP blocked. Rows past
+    ``offsets[-1]`` of every output are garbage and read-forbidden.
+    """
+    _require_available()
+    return torch.ops.torchao.mxfp8_grouped_gemm_swiglu_fwd(
+        x_q, x_sf, w13_q, w13_sf, offsets
+    )
+
+
+def mxfp8_grouped_gemm(a_q, a_sf, b_q, b_sf, offsets):
+    """Ragged grouped GEMM on prequantized MXFP8 operands, BF16 output.
+
+    ``b_q`` is ``[G, N, K]``-logical quantized along K with free strides
+    (rowwise casts as-is; dim1-colwise casts transposed into this
+    orientation); ``b_sf`` is always the per-group blocked ``[N, K/32]``
+    orientation. Returns BF16 ``[R, N]`` with rows past ``offsets[-1]``
+    uninitialized.
+    """
+    _require_available()
+    return torch.ops.torchao.mxfp8_grouped_gemm(a_q, a_sf, b_q, b_sf, offsets)
+
+
+def mxfp8_grouped_gemm_dswiglu_bwd(dy_q, dy_sf, w2_col_q, w2_col_sf, z_bf16, offsets):
+    """FC2 dgrad + dSwiGLU + dual MXFP8 quantization of the FC1 gradient.
+
+    ``z_bf16`` must be the exact fwd-op output. Returns
+    ``(dz_row_q [R, 2F], dz_row_sf, dz_col_q [R, 2F], dz_col_sf)`` in the same
+    32-block order.
+    """
+    _require_available()
+    return torch.ops.torchao.mxfp8_grouped_gemm_dswiglu_bwd(
+        dy_q, dy_sf, w2_col_q, w2_col_sf, z_bf16, offsets
+    )
+
+
+def mxfp8_grouped_gemm_wgrad(dy_col_q, dy_col_sf, x_col_q, x_col_sf, offsets):
+    """Grouped MXFP8 weight gradient ``dw[g] = dequant(dy_g).T @ dequant(x_g)``.
+
+    Both operands columnwise (32x1) quantized with PER-GROUP blocked scales
+    (never whole-matrix ``to_blocked`` -- same byte count, silently wrong
+    block order). Returns contiguous BF16 ``[G, N, K]``.
+    """
+    _require_available()
+    return torch.ops.torchao.mxfp8_grouped_gemm_wgrad(
+        dy_col_q, dy_col_sf, x_col_q, x_col_sf, offsets
     )
