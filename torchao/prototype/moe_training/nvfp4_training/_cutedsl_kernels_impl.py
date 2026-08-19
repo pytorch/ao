@@ -43,44 +43,61 @@ HADAMARD_DIM = 16
 
 
 @dsl_user_op
-def _cvt_rn_satfinite_e2m1x2_f32_pack4(
-    lo0: cutlass.Float32,
-    lo1: cutlass.Float32,
-    lo2: cutlass.Float32,
-    lo3: cutlass.Float32,
-    hi0: cutlass.Float32,
-    hi1: cutlass.Float32,
-    hi2: cutlass.Float32,
-    hi3: cutlass.Float32,
+def _mul_cvt_rn_e2m1x8_f32(
+    v0: cutlass.Float32,
+    v1: cutlass.Float32,
+    v2: cutlass.Float32,
+    v3: cutlass.Float32,
+    v4: cutlass.Float32,
+    v5: cutlass.Float32,
+    v6: cutlass.Float32,
+    v7: cutlass.Float32,
+    scale: cutlass.Float32,
     *,
     loc=None,
     ip=None,
 ) -> cutlass.Uint32:
-    """Pack 4 (lo, hi) FP32 pairs into 4 FP4 bytes via inline PTX."""
+    """Scale eight BF16-origin values with packed FP32 multiplies and pack to FP4."""
     return cutlass.Uint32(
         llvm.inline_asm(
             T.i32(),
             [
-                lo0.ir_value(loc=loc, ip=ip),
-                lo1.ir_value(loc=loc, ip=ip),
-                lo2.ir_value(loc=loc, ip=ip),
-                lo3.ir_value(loc=loc, ip=ip),
-                hi0.ir_value(loc=loc, ip=ip),
-                hi1.ir_value(loc=loc, ip=ip),
-                hi2.ir_value(loc=loc, ip=ip),
-                hi3.ir_value(loc=loc, ip=ip),
+                v0.ir_value(loc=loc, ip=ip),
+                v1.ir_value(loc=loc, ip=ip),
+                v2.ir_value(loc=loc, ip=ip),
+                v3.ir_value(loc=loc, ip=ip),
+                v4.ir_value(loc=loc, ip=ip),
+                v5.ir_value(loc=loc, ip=ip),
+                v6.ir_value(loc=loc, ip=ip),
+                v7.ir_value(loc=loc, ip=ip),
+                scale.ir_value(loc=loc, ip=ip),
             ],
             (
                 "{\n"
+                ".reg .b64 s2, p01, p23, p45, p67;\n"
+                ".reg .f32 a0, a1, a2, a3, a4, a5, a6, a7;\n"
                 ".reg .b8 b0, b1, b2, b3;\n"
-                "cvt.rn.satfinite.e2m1x2.f32 b0, $5, $1;\n"
-                "cvt.rn.satfinite.e2m1x2.f32 b1, $6, $2;\n"
-                "cvt.rn.satfinite.e2m1x2.f32 b2, $7, $3;\n"
-                "cvt.rn.satfinite.e2m1x2.f32 b3, $8, $4;\n"
+                "mov.b64 s2, {$9, $9};\n"
+                "mov.b64 p01, {$1, $2};\n"
+                "mov.b64 p23, {$3, $4};\n"
+                "mov.b64 p45, {$5, $6};\n"
+                "mov.b64 p67, {$7, $8};\n"
+                "mul.f32x2 p01, p01, s2;\n"
+                "mul.f32x2 p23, p23, s2;\n"
+                "mul.f32x2 p45, p45, s2;\n"
+                "mul.f32x2 p67, p67, s2;\n"
+                "mov.b64 {a1, a0}, p01;\n"
+                "mov.b64 {a3, a2}, p23;\n"
+                "mov.b64 {a5, a4}, p45;\n"
+                "mov.b64 {a7, a6}, p67;\n"
+                "cvt.rn.satfinite.e2m1x2.f32 b0, a0, a1;\n"
+                "cvt.rn.satfinite.e2m1x2.f32 b1, a2, a3;\n"
+                "cvt.rn.satfinite.e2m1x2.f32 b2, a4, a5;\n"
+                "cvt.rn.satfinite.e2m1x2.f32 b3, a6, a7;\n"
                 "mov.b32 $0, {b0, b1, b2, b3};\n"
                 "}"
             ),
-            "=r,f,f,f,f,f,f,f,f",
+            "=r,f,f,f,f,f,f,f,f,f",
             has_side_effects=False,
             is_align_stack=False,
             asm_dialect=llvm.AsmDialect.AD_ATT,
@@ -89,48 +106,154 @@ def _cvt_rn_satfinite_e2m1x2_f32_pack4(
 
 
 @dsl_user_op
-def _cvt_rs_satfinite_e2m1x4_f32_pack4(
-    lo0: cutlass.Float32,
-    lo1: cutlass.Float32,
-    lo2: cutlass.Float32,
-    lo3: cutlass.Float32,
-    hi0: cutlass.Float32,
-    hi1: cutlass.Float32,
-    hi2: cutlass.Float32,
-    hi3: cutlass.Float32,
+def _mul_cvt_rn_e2m1x8_acc_f32(
+    v0: cutlass.Float32,
+    v1: cutlass.Float32,
+    v2: cutlass.Float32,
+    v3: cutlass.Float32,
+    v4: cutlass.Float32,
+    v5: cutlass.Float32,
+    v6: cutlass.Float32,
+    v7: cutlass.Float32,
+    scale: cutlass.Float32,
+    *,
+    loc=None,
+    ip=None,
+) -> cutlass.Uint32:
+    """``_mul_cvt_rn_e2m1x8_f32`` for raw tcgen05 RHT accumulators.
+
+    Same packed multiply/convert, with the exact-mode bfloat16 round-through folded in: each
+    pair is rounded with one ``cvt.rn.bf16x2.f32`` and re-widened by shift/mask, which is what
+    the scalar path did before multiplying. The explicit clamp to +-FP4_E2M1_MAX is dropped
+    because ``cvt.rn.satfinite`` already saturates there.
+    """
+    return cutlass.Uint32(
+        llvm.inline_asm(
+            T.i32(),
+            [
+                v0.ir_value(loc=loc, ip=ip),
+                v1.ir_value(loc=loc, ip=ip),
+                v2.ir_value(loc=loc, ip=ip),
+                v3.ir_value(loc=loc, ip=ip),
+                v4.ir_value(loc=loc, ip=ip),
+                v5.ir_value(loc=loc, ip=ip),
+                v6.ir_value(loc=loc, ip=ip),
+                v7.ir_value(loc=loc, ip=ip),
+                scale.ir_value(loc=loc, ip=ip),
+            ],
+            (
+                "{\n"
+                ".reg .b64 s2, p01, p23, p45, p67;\n"
+                ".reg .b32 t01, t23, t45, t67, e0, e1, e2, e3, e4, e5, e6, e7;\n"
+                ".reg .f32 a0, a1, a2, a3, a4, a5, a6, a7;\n"
+                ".reg .b8 b0, b1, b2, b3;\n"
+                "mov.b64 s2, {$9, $9};\n"
+                "cvt.rn.bf16x2.f32 t01, $2, $1;\n"
+                "cvt.rn.bf16x2.f32 t23, $4, $3;\n"
+                "cvt.rn.bf16x2.f32 t45, $6, $5;\n"
+                "cvt.rn.bf16x2.f32 t67, $8, $7;\n"
+                "shl.b32 e0, t01, 16;\n"
+                "and.b32 e1, t01, 0xffff0000;\n"
+                "shl.b32 e2, t23, 16;\n"
+                "and.b32 e3, t23, 0xffff0000;\n"
+                "shl.b32 e4, t45, 16;\n"
+                "and.b32 e5, t45, 0xffff0000;\n"
+                "shl.b32 e6, t67, 16;\n"
+                "and.b32 e7, t67, 0xffff0000;\n"
+                "mov.b64 p01, {e0, e1};\n"
+                "mov.b64 p23, {e2, e3};\n"
+                "mov.b64 p45, {e4, e5};\n"
+                "mov.b64 p67, {e6, e7};\n"
+                "mul.f32x2 p01, p01, s2;\n"
+                "mul.f32x2 p23, p23, s2;\n"
+                "mul.f32x2 p45, p45, s2;\n"
+                "mul.f32x2 p67, p67, s2;\n"
+                "mov.b64 {a1, a0}, p01;\n"
+                "mov.b64 {a3, a2}, p23;\n"
+                "mov.b64 {a5, a4}, p45;\n"
+                "mov.b64 {a7, a6}, p67;\n"
+                "cvt.rn.satfinite.e2m1x2.f32 b0, a0, a1;\n"
+                "cvt.rn.satfinite.e2m1x2.f32 b1, a2, a3;\n"
+                "cvt.rn.satfinite.e2m1x2.f32 b2, a4, a5;\n"
+                "cvt.rn.satfinite.e2m1x2.f32 b3, a6, a7;\n"
+                "mov.b32 $0, {b0, b1, b2, b3};\n"
+                "}"
+            ),
+            "=r,f,f,f,f,f,f,f,f,f",
+            has_side_effects=False,
+            is_align_stack=False,
+            asm_dialect=llvm.AsmDialect.AD_ATT,
+        )
+    )
+
+
+@dsl_user_op
+def _mul_cvt_rs_e2m1x8_f32(
+    v0: cutlass.Float32,
+    v1: cutlass.Float32,
+    v2: cutlass.Float32,
+    v3: cutlass.Float32,
+    v4: cutlass.Float32,
+    v5: cutlass.Float32,
+    v6: cutlass.Float32,
+    v7: cutlass.Float32,
+    scale: cutlass.Float32,
     rb0: cutlass.Uint32,
     rb1: cutlass.Uint32,
     *,
     loc=None,
     ip=None,
 ) -> cutlass.Uint32:
-    """Stochastic-rounding analog of _cvt_rn_satfinite_e2m1x2_f32_pack4: same (lo,hi) arg order and
-    same packed-FP4 output, but rounds with the hardware cvt.rs using random bits rb0/rb1 (one 32-bit
-    word per 4-FP4 half). The {$6,$2,$5,$1}/{$8,$4,$7,$3} lane order reproduces the rn path's nibbles."""
+    """Stochastic-rounding analog of ``_mul_cvt_rn_e2m1x8_f32``.
+
+    Same packed FP32 multiplies, but the four ``cvt.rn.satfinite.e2m1x2.f32`` collapse into two
+    ``cvt.rs.satfinite.e2m1x4.f32``, each consuming one 32-bit random word: ``rb0`` covers
+    ``v0..v3``, ``rb1`` covers ``v4..v7``. ``cvt.rs`` takes its four sources most-significant
+    nibble first, so ``{a3, a2, a1, a0}`` lays ``v0..v3`` down in ascending nibble order.
+
+    The explicit clamp to +-FP4_E2M1_MAX the scalar path applied is dropped, as in
+    ``_mul_cvt_rn_e2m1x8_acc_f32``: ``.satfinite`` already saturates there.
+    """
     return cutlass.Uint32(
         llvm.inline_asm(
             T.i32(),
             [
-                lo0.ir_value(loc=loc, ip=ip),
-                lo1.ir_value(loc=loc, ip=ip),
-                lo2.ir_value(loc=loc, ip=ip),
-                lo3.ir_value(loc=loc, ip=ip),
-                hi0.ir_value(loc=loc, ip=ip),
-                hi1.ir_value(loc=loc, ip=ip),
-                hi2.ir_value(loc=loc, ip=ip),
-                hi3.ir_value(loc=loc, ip=ip),
+                v0.ir_value(loc=loc, ip=ip),
+                v1.ir_value(loc=loc, ip=ip),
+                v2.ir_value(loc=loc, ip=ip),
+                v3.ir_value(loc=loc, ip=ip),
+                v4.ir_value(loc=loc, ip=ip),
+                v5.ir_value(loc=loc, ip=ip),
+                v6.ir_value(loc=loc, ip=ip),
+                v7.ir_value(loc=loc, ip=ip),
+                scale.ir_value(loc=loc, ip=ip),
                 rb0.ir_value(loc=loc, ip=ip),
                 rb1.ir_value(loc=loc, ip=ip),
             ],
             (
                 "{\n"
+                ".reg .b64 s2, p01, p23, p45, p67;\n"
+                ".reg .f32 a0, a1, a2, a3, a4, a5, a6, a7;\n"
                 ".reg .b16 h0, h1;\n"
-                "cvt.rs.satfinite.e2m1x4.f32 h0, {$6, $2, $5, $1}, $9;\n"
-                "cvt.rs.satfinite.e2m1x4.f32 h1, {$8, $4, $7, $3}, $10;\n"
+                "mov.b64 s2, {$9, $9};\n"
+                "mov.b64 p01, {$1, $2};\n"
+                "mov.b64 p23, {$3, $4};\n"
+                "mov.b64 p45, {$5, $6};\n"
+                "mov.b64 p67, {$7, $8};\n"
+                "mul.f32x2 p01, p01, s2;\n"
+                "mul.f32x2 p23, p23, s2;\n"
+                "mul.f32x2 p45, p45, s2;\n"
+                "mul.f32x2 p67, p67, s2;\n"
+                "mov.b64 {a0, a1}, p01;\n"
+                "mov.b64 {a2, a3}, p23;\n"
+                "mov.b64 {a4, a5}, p45;\n"
+                "mov.b64 {a6, a7}, p67;\n"
+                "cvt.rs.satfinite.e2m1x4.f32 h0, {a3, a2, a1, a0}, $10;\n"
+                "cvt.rs.satfinite.e2m1x4.f32 h1, {a7, a6, a5, a4}, $11;\n"
                 "mov.b32 $0, {h0, h1};\n"
                 "}"
             ),
-            "=r,f,f,f,f,f,f,f,f,r,r",
+            "=r,f,f,f,f,f,f,f,f,f,r,r",
             has_side_effects=False,
             is_align_stack=False,
             asm_dialect=llvm.AsmDialect.AD_ATT,
@@ -139,16 +262,79 @@ def _cvt_rs_satfinite_e2m1x4_f32_pack4(
 
 
 @dsl_user_op
-def _cvt_rn_bf16x2_f32(
-    hi: cutlass.Float32, lo: cutlass.Float32, *, loc=None, ip=None
+def _mul_cvt_rs_e2m1x8_acc_f32(
+    v0: cutlass.Float32,
+    v1: cutlass.Float32,
+    v2: cutlass.Float32,
+    v3: cutlass.Float32,
+    v4: cutlass.Float32,
+    v5: cutlass.Float32,
+    v6: cutlass.Float32,
+    v7: cutlass.Float32,
+    scale: cutlass.Float32,
+    rb0: cutlass.Uint32,
+    rb1: cutlass.Uint32,
+    *,
+    loc=None,
+    ip=None,
 ) -> cutlass.Uint32:
-    """Round two f32 to bfloat16 in one instruction, packed as ``{hi, lo}``."""
+    """``_mul_cvt_rs_e2m1x8_f32`` for raw tcgen05 RHT accumulators.
+
+    Carries the same exact-mode bfloat16 round-through as ``_mul_cvt_rn_e2m1x8_acc_f32``.
+    """
     return cutlass.Uint32(
         llvm.inline_asm(
             T.i32(),
-            [hi.ir_value(loc=loc, ip=ip), lo.ir_value(loc=loc, ip=ip)],
-            "cvt.rn.bf16x2.f32 $0, $1, $2;",
-            "=r,f,f",
+            [
+                v0.ir_value(loc=loc, ip=ip),
+                v1.ir_value(loc=loc, ip=ip),
+                v2.ir_value(loc=loc, ip=ip),
+                v3.ir_value(loc=loc, ip=ip),
+                v4.ir_value(loc=loc, ip=ip),
+                v5.ir_value(loc=loc, ip=ip),
+                v6.ir_value(loc=loc, ip=ip),
+                v7.ir_value(loc=loc, ip=ip),
+                scale.ir_value(loc=loc, ip=ip),
+                rb0.ir_value(loc=loc, ip=ip),
+                rb1.ir_value(loc=loc, ip=ip),
+            ],
+            (
+                "{\n"
+                ".reg .b64 s2, p01, p23, p45, p67;\n"
+                ".reg .b32 t01, t23, t45, t67, e0, e1, e2, e3, e4, e5, e6, e7;\n"
+                ".reg .f32 a0, a1, a2, a3, a4, a5, a6, a7;\n"
+                ".reg .b16 h0, h1;\n"
+                "mov.b64 s2, {$9, $9};\n"
+                "cvt.rn.bf16x2.f32 t01, $2, $1;\n"
+                "cvt.rn.bf16x2.f32 t23, $4, $3;\n"
+                "cvt.rn.bf16x2.f32 t45, $6, $5;\n"
+                "cvt.rn.bf16x2.f32 t67, $8, $7;\n"
+                "shl.b32 e0, t01, 16;\n"
+                "and.b32 e1, t01, 0xffff0000;\n"
+                "shl.b32 e2, t23, 16;\n"
+                "and.b32 e3, t23, 0xffff0000;\n"
+                "shl.b32 e4, t45, 16;\n"
+                "and.b32 e5, t45, 0xffff0000;\n"
+                "shl.b32 e6, t67, 16;\n"
+                "and.b32 e7, t67, 0xffff0000;\n"
+                "mov.b64 p01, {e0, e1};\n"
+                "mov.b64 p23, {e2, e3};\n"
+                "mov.b64 p45, {e4, e5};\n"
+                "mov.b64 p67, {e6, e7};\n"
+                "mul.f32x2 p01, p01, s2;\n"
+                "mul.f32x2 p23, p23, s2;\n"
+                "mul.f32x2 p45, p45, s2;\n"
+                "mul.f32x2 p67, p67, s2;\n"
+                "mov.b64 {a0, a1}, p01;\n"
+                "mov.b64 {a2, a3}, p23;\n"
+                "mov.b64 {a4, a5}, p45;\n"
+                "mov.b64 {a6, a7}, p67;\n"
+                "cvt.rs.satfinite.e2m1x4.f32 h0, {a3, a2, a1, a0}, $10;\n"
+                "cvt.rs.satfinite.e2m1x4.f32 h1, {a7, a6, a5, a4}, $11;\n"
+                "mov.b32 $0, {h0, h1};\n"
+                "}"
+            ),
+            "=r,f,f,f,f,f,f,f,f,f,r,r",
             has_side_effects=False,
             is_align_stack=False,
             asm_dialect=llvm.AsmDialect.AD_ATT,
@@ -175,13 +361,41 @@ def _div_rn_f32(
 
 
 @dsl_user_op
-def _u32_as_f32(x: cutlass.Uint32, *, loc=None, ip=None) -> cutlass.Float32:
-    """Reinterpret 32 bits as f32 (PTX registers are untyped, so this is free)."""
+def _bf16lo_to_f32(w: cutlass.Uint32, *, loc=None, ip=None) -> cutlass.Float32:
+    """Widen the low bf16 of a packed pair to f32, in one instruction.
+
+    bfloat16 is the truncation of float32 -- same 8-bit exponent field and bias, mantissa
+    zero-filled -- so widening is exactly a shift: no rounding, and no special case for
+    subnormals, infinities or NaN payloads. Reading the pair as one u32 and shifting is what
+    ``cutlass::bfloat16_t::operator float()`` does, so it is what TransformerEngine's
+    epilogues get for free. Going through the DSL's ``BFloat16`` element type instead costs
+    two instructions per value: ptxas materializes the 16-bit extract as a ``PRMT`` and then
+    widens. Callers reach the pairs with ``cute.recast_tensor(rBlk, cutlass.Uint32)``.
+    """
     return cutlass.Float32(
         llvm.inline_asm(
             T.f32(),
-            [x.ir_value(loc=loc, ip=ip)],
-            "mov.b32 $0, $1;",
+            [w.ir_value(loc=loc, ip=ip)],
+            ("{\n.reg .b32 t;\nshl.b32 t, $1, 16;\nmov.b32 $0, t;\n}"),
+            "=f,r",
+            has_side_effects=False,
+            is_align_stack=False,
+            asm_dialect=llvm.AsmDialect.AD_ATT,
+        )
+    )
+
+
+@dsl_user_op
+def _bf16hi_to_f32(w: cutlass.Uint32, *, loc=None, ip=None) -> cutlass.Float32:
+    """Widen the high bf16 of a packed pair to f32. See ``_bf16lo_to_f32``.
+
+    The high half's shift-right-then-shift-left collapses into a single mask.
+    """
+    return cutlass.Float32(
+        llvm.inline_asm(
+            T.f32(),
+            [w.ir_value(loc=loc, ip=ip)],
+            ("{\n.reg .b32 t;\nand.b32 t, $1, 0xffff0000;\nmov.b32 $0, t;\n}"),
             "=f,r",
             has_side_effects=False,
             is_align_stack=False,
@@ -206,20 +420,19 @@ def _mulhi_u32(a: cutlass.Uint32, b: cutlass.Uint32, *, loc=None, ip=None):
     )
 
 
-# Philox-4x32-10, byte-identical to triton.language.random (PHILOX_KEY_A/B,
-# PHILOX_ROUND_A/B, 10 rounds). The triton kernels draw their stochastic-rounding bits
-# from tl.randint, so reproducing this exactly is what makes cvt.rs agree across the
-# two backends.
+# Philox-4x32-10 (PHILOX_KEY_A/B, PHILOX_ROUND_A/B, 10 rounds).
+# The generator is the same one triton.language.random uses, but the counter is not:
+# every kernel here draws through philox4_all, one counter per 16-element block with all
+# four output words consumed, rather than triton's per-packed-byte stride. So the FP4
+# codes agree with triton under RTNE and are a different, equally valid stream under
+# stochastic rounding.
 PHILOX_ROUNDS = 10
 _PHILOX_KEY_A, _PHILOX_KEY_B = 0x9E3779B9, 0xBB67AE85
 _PHILOX_ROUND_A, _PHILOX_ROUND_B = 0xD2511F53, 0xCD9E8D57
 
-# hadamard_quantize_row_col_triton passes GROUP_SIZE_N=8 to _compute_pid, and runs a
-# 128x128 tile (its larger autotune configs exhaust SM100 tensor/shared memory and are
-# pruned). One tile holds BLOCK_M * BLOCK_N / 2 packed bytes, the stride between tile_id
-# values in its stochastic-rounding Philox counter.
-_GROUP_SIZE_N = 8
-TRITON_TILE_PACKED = 128 * (128 // 2)
+# 16-element quantization blocks in one 128x128 tile, i.e. one Philox draw each, and the
+# stride between tile ids in the stochastic-rounding counter.
+TILE_BLOCKS = (128 * 128) // 16
 
 
 def philox_prep(seed_lo, seed_hi, offset_base):
@@ -231,7 +444,7 @@ def philox_prep(seed_lo, seed_hi, offset_base):
     per-element counter, and round 2's ``c0``/``c1`` are still counter-independent. The
     key schedule depends only on the round index, so all ten steps precompute too.
 
-    Returns the opaque state ``philox_c0`` consumes. Building it once per kernel keeps
+    Returns the opaque state ``philox4_all`` consumes. Building it once per kernel keeps
     the per-element cost at eight full rounds plus a two-instruction round-2 tail.
     """
     sched = [
@@ -249,70 +462,33 @@ def philox_prep(seed_lo, seed_hi, offset_base):
     return sched, c0_r2, c1_r2, c3_r1
 
 
-def philox4(state, packed_base):
-    """The four random words a 16-element chunk needs, in triton's counter order.
+def philox4_all(state, chunk_counter):
+    """The four random words a 16-element chunk needs, from a single Philox draw.
 
-    Triton draws one word per packed byte but its ``cvt.rs`` asm consumes only two of
-    every four (``$9``/``$10`` of a ``pack=4`` group), so a chunk starting at packed
-    index ``p0`` uses ``p0, p0+1, p0+4, p0+5`` -- not four consecutive counters.
-    Matching that stride is what makes the FP4 codes agree; it also means these kernels
-    issue half the Philox calls triton does.
-    """
-    return tuple(
-        philox_c0(cutlass.Uint32(packed_base + cutlass.Int32(d)), state)
-        for d in (0, 1, 4, 5)
-    )
+    These kernels once reproduced triton's counter stride, drawing one word per packed
+    byte at counters ``p0, p0+1, p0+4, p0+5`` because that is what triton's ``cvt.rs`` asm
+    consumes. That cost four full round schedules per chunk and discarded three of every
+    four output words -- 124 multiplies for 128 bits that one draw produces. Consuming a
+    single draw whole costs 34, and yields the same 128 bits.
 
-
-def triton_tile_id(pid_hidden, pid_token, num_pid_n, num_pid_m):
-    """Invert ``hadamard_utils._compute_pid``: the flat tile index triton would use.
-
-    The linear triton kernel is persistent and feeds its Philox counter the *flat*
-    ``tile_id``, not the (pid_m, pid_n) pair, so reproducing its stochastic-rounding
-    stream means undoing the GROUP_SIZE_N=8 L2 swizzle.
-
-    Forward, with ``base = group_id * num_pid_in_group`` and ``q = tile_id - base``:
-    ``pid_m = q // group_size_n`` but ``pid_n - first = (base + q) % group_size_n``, i.e.
-    the column index is taken modulo the *global* tile id. So ``q = pid_m * group_size_n
-    + (r - base) mod group_size_n``, and the ``base`` term only vanishes when
-    ``group_size_n`` divides it -- always true for a full 8-wide group, not for a short
-    trailing one (num_pid_n = 11, num_pid_m = 2 is the smallest counterexample).
-    """
-    group_id = pid_hidden // cutlass.Int32(_GROUP_SIZE_N)
-    first_pid_n = group_id * cutlass.Int32(_GROUP_SIZE_N)
-    rem = num_pid_n - first_pid_n
-    group_size_n = cutlass.select_(
-        rem < cutlass.Int32(_GROUP_SIZE_N), rem, cutlass.Int32(_GROUP_SIZE_N)
-    )
-    base = group_id * (cutlass.Int32(_GROUP_SIZE_N) * num_pid_m)
-    # (r - base) mod group_size_n, kept non-negative so the sign of % never matters.
-    r = pid_hidden - first_pid_n
-    s = (r + group_size_n - base % group_size_n) % group_size_n
-    return base + pid_token * group_size_n + s
-
-
-def philox_c0(counter, state):
-    """``tl.randint(seed, (counter << 32) | offset_base)``, given ``philox_prep`` state.
-
-    Rounds 3-10 run in full; the last drops ``c1``/``c3``, which only feed rounds that
-    no longer exist.
+    The counter must be derived from tile coordinates rather than from a running
+    per-thread value: these kernels are persistent, and the grouped one schedules through
+    CLC, so visit order is not fixed and a running counter would make the output depend on
+    scheduling rather than on position.
     """
     sched, c0_r2, c1_r2, c3_r1 = state
     A, B = cutlass.Uint32(_PHILOX_ROUND_A), cutlass.Uint32(_PHILOX_ROUND_B)
-    # Round 1 (c2 = c3 = 0): c0' = c1 ^ k0 is the only counter-dependent output.
-    c0_r1 = counter ^ sched[0][0]
-    # Round 2: c0/c1 are precomputed; c2/c3 carry the counter (c1_r1 == 0).
+    c0_r1 = chunk_counter ^ sched[0][0]
     c0, c1 = c0_r2, c1_r2
     c2 = _mulhi_u32(A, c0_r1) ^ c3_r1 ^ sched[1][1]
     c3 = A * c0_r1
     for r in range(2, PHILOX_ROUNDS):
         _c0, _c2 = c0, c2
         c0 = _mulhi_u32(B, _c2) ^ c1 ^ sched[r][0]
-        if r < PHILOX_ROUNDS - 1:
-            c2 = _mulhi_u32(A, _c0) ^ c3 ^ sched[r][1]
-            c1 = B * _c2
-            c3 = A * _c0
-    return c0
+        c2 = _mulhi_u32(A, _c0) ^ c3 ^ sched[r][1]
+        c1 = B * _c2
+        c3 = A * _c0
+    return c0, c1, c2, c3
 
 
 @dsl_user_op
@@ -343,24 +519,6 @@ def _max_f32(
             T.f32(),
             [a.ir_value(loc=loc, ip=ip), b.ir_value(loc=loc, ip=ip)],
             "max.NaN.f32 $0, $1, $2;",
-            "=f,f,f",
-            has_side_effects=False,
-            is_align_stack=False,
-            asm_dialect=llvm.AsmDialect.AD_ATT,
-        )
-    )
-
-
-@dsl_user_op
-def _min_xorsign_abs_f32(
-    a: cutlass.Float32, limit: cutlass.Float32, *, loc=None, ip=None
-) -> cutlass.Float32:
-    """Emit PTX min.xorsign.abs.f32 for symmetric clamp to +/-limit."""
-    return cutlass.Float32(
-        llvm.inline_asm(
-            T.f32(),
-            [a.ir_value(loc=loc, ip=ip), limit.ir_value(loc=loc, ip=ip)],
-            "min.xorsign.abs.f32 $0, $1, $2;",
             "=f,f,f",
             has_side_effects=False,
             is_align_stack=False,
@@ -498,31 +656,6 @@ def _set_supertile_geometry(kernel_obj, col_groups_per_supertile: int):
     kernel_obj.row_threads_w = 32 * n_row_warps
 
 
-def _pack16(q, sr: cutlass.Constexpr, rb):
-    """Pack 16 scaled f32 -> (w0, w1) packed-FP4 u32. RTNE, or stochastic rounding (hardware
-    cvt.rs) when sr, consuming the four random words in ``rb``.
-
-    ``rb`` covers the elements in groups of four -- rb[0] for q[0:4], rb[1] for q[4:8],
-    and so on -- which is the grouping triton's cvt.rs asm uses, so the caller only has
-    to hand over the same Philox draws triton would have made."""
-    if cutlass.const_expr(sr):
-        rb0, rb1, rb2, rb3 = rb
-        w0 = _cvt_rs_satfinite_e2m1x4_f32_pack4(
-            q[0], q[2], q[4], q[6], q[1], q[3], q[5], q[7], rb0, rb1
-        )
-        w1 = _cvt_rs_satfinite_e2m1x4_f32_pack4(
-            q[8], q[10], q[12], q[14], q[9], q[11], q[13], q[15], rb2, rb3
-        )
-    else:
-        w0 = _cvt_rn_satfinite_e2m1x2_f32_pack4(
-            q[0], q[2], q[4], q[6], q[1], q[3], q[5], q[7]
-        )
-        w1 = _cvt_rn_satfinite_e2m1x2_f32_pack4(
-            q[8], q[10], q[12], q[14], q[9], q[11], q[13], q[15]
-        )
-    return w0, w1
-
-
 def _round_rht_amax(amax):
     """``max|bf16(v)|`` from ``max|v|``: one rounding for a whole reduction.
 
@@ -549,33 +682,24 @@ def _abs_amax16(vals):
     return amax
 
 
-def _group16_amax(amax):
+def _group16_amax(amax, deltas: cutlass.Constexpr = (8, 4, 2, 1)):
     """Reduce a 1x16 block amax to the 16x16 (2D) block amax via a butterfly max over the
-    16-lane half-warp group. The 16 lanes hold the 16 orthogonal 1x16 strips of one 16x16
-    block, so xor offsets 8/4/2/1 (which stay within a 16-aligned lane group) leave every
-    lane holding the shared block max."""
-    for delta in (8, 4, 2, 1):
+    lane group that holds the block's 16 orthogonal 1x16 strips. With one strip per lane
+    that group is 16 lanes wide (xor offsets 8/4/2/1); a caller holding two strips per lane
+    has already folded one level in-register and passes the 8-lane offsets (4/2/1). Either
+    way the offsets stay inside an aligned lane group, so every lane ends with the shared
+    block max."""
+    for delta in deltas:
         amax = _max_f32(amax, cute.arch.shuffle_sync_bfly(amax, delta))
     return amax
 
 
-def _quant16_from_amax(
-    vals,
-    amax,
-    enc_over_fp4max,
-    dec,
-    sr: cutlass.Constexpr = False,
-    rb=None,
-    rht_acc: cutlass.Constexpr = False,
-    fast_math: cutlass.Constexpr = False,
-):
-    """Quantize 16 f32 values to NVFP4 (w0,w1 packed u32, pvscale_fp8) using a given block amax
-    (1x16 or a shared 16x16 amax). sr selects stochastic rounding over RTNE.
+def _enc_from_amax(amax, enc_over_fp4max, dec, fast_math: cutlass.Constexpr = False):
+    """Block amax -> (encode multiplier, stored E4M3 scale).
 
-    ``rht_acc`` marks ``vals`` as a raw tcgen05 RHT accumulator. Exact mode rounds it
-    through bfloat16 for TE-default compatibility; fast mode consumes FP32 directly and
-    uses TE's approximate FTZ reciprocal. The caller is responsible for rounding
-    ``amax`` in exact mode (see ``_round_rht_amax``)."""
+    Split out of ``_quant16_from_amax`` so a caller that shares one 16x16 block amax across
+    several 1x16 strips pays for the E4M3 round-trip and the exact reciprocal once.
+    """
     # Cap at FP8_E4M3_MAX only, with no lower clamp: TE emits a zero per-vector scale for an
     # all-zero vector and when a nonzero scale underflows in E4M3, so imposing a nonzero floor
     # would diverge from the TE ground truth (mirrors the triton _nvfp4_quantize). A zero
@@ -597,19 +721,102 @@ def _quant16_from_amax(
         else _div_rn_f32(cutlass.Float32(1.0), denom),
         cutlass.Float32(FP32_MAX),
     )
-    q = cute.make_rmem_tensor((16,), cutlass.Float32)
-    fp4_max = cutlass.Float32(FP4_E2M1_MAX)
-    if cutlass.const_expr(rht_acc and not fast_math):
-        for i in range(0, 16, 2):
-            packed = _cvt_rn_bf16x2_f32(vals[i + 1], vals[i])
-            lo = _u32_as_f32(packed << cutlass.Uint32(16))
-            hi = _u32_as_f32(packed & cutlass.Uint32(0xFFFF0000))
-            q[i] = _min_xorsign_abs_f32(lo * enc, fp4_max)
-            q[i + 1] = _min_xorsign_abs_f32(hi * enc, fp4_max)
+    return enc, pvscale_fp8
+
+
+def _pack16_rn_from_enc(vals, enc, rht_acc: cutlass.Constexpr = False):
+    """16 f32 values + encode multiplier -> the two packed-FP4 u32 words, RTNE.
+
+    ``rht_acc`` selects the variant that first rounds the raw accumulator through bfloat16.
+    """
+    pack8 = (
+        _mul_cvt_rn_e2m1x8_acc_f32
+        if cutlass.const_expr(rht_acc)
+        else _mul_cvt_rn_e2m1x8_f32
+    )
+    w0 = pack8(
+        vals[0], vals[1], vals[2], vals[3], vals[4], vals[5], vals[6], vals[7], enc
+    )
+    w1 = pack8(
+        vals[8],
+        vals[9],
+        vals[10],
+        vals[11],
+        vals[12],
+        vals[13],
+        vals[14],
+        vals[15],
+        enc,
+    )
+    return w0, w1
+
+
+def _pack16_rs_from_enc(vals, enc, rb, rht_acc: cutlass.Constexpr = False):
+    """16 f32 values + encode multiplier + 4 random words -> the two packed-FP4 u32 words, SR.
+
+    The stochastic-rounding twin of ``_pack16_rn_from_enc``. ``rb`` covers the values in
+    groups of four (``rb[0]`` for ``vals[0:4]``, ``rb[1]`` for ``vals[4:8]``, ...), which is
+    the grouping ``cvt.rs`` consumes.
+    """
+    pack8 = (
+        _mul_cvt_rs_e2m1x8_acc_f32
+        if cutlass.const_expr(rht_acc)
+        else _mul_cvt_rs_e2m1x8_f32
+    )
+    w0 = pack8(
+        vals[0],
+        vals[1],
+        vals[2],
+        vals[3],
+        vals[4],
+        vals[5],
+        vals[6],
+        vals[7],
+        enc,
+        rb[0],
+        rb[1],
+    )
+    w1 = pack8(
+        vals[8],
+        vals[9],
+        vals[10],
+        vals[11],
+        vals[12],
+        vals[13],
+        vals[14],
+        vals[15],
+        enc,
+        rb[2],
+        rb[3],
+    )
+    return w0, w1
+
+
+def _quant16_from_amax(
+    vals,
+    amax,
+    enc_over_fp4max,
+    dec,
+    sr: cutlass.Constexpr = False,
+    rb=None,
+    rht_acc: cutlass.Constexpr = False,
+    fast_math: cutlass.Constexpr = False,
+):
+    """Quantize 16 f32 values to NVFP4 (w0,w1 packed u32, pvscale_fp8) using a given block amax
+    (1x16 or a shared 16x16 amax). sr selects stochastic rounding over RTNE.
+
+    ``rht_acc`` marks ``vals`` as a raw tcgen05 RHT accumulator. Exact mode rounds it
+    through bfloat16 for TE-default compatibility; fast mode consumes FP32 directly and
+    uses TE's approximate FTZ reciprocal. The caller is responsible for rounding
+    ``amax`` in exact mode (see ``_round_rht_amax``)."""
+    enc, pvscale_fp8 = _enc_from_amax(amax, enc_over_fp4max, dec, fast_math)
+    # Fast math consumes the FP32 accumulator directly, so it takes the plain primitive
+    # even when vals is a raw RHT accumulator: the bfloat16 round-through is exact-mode only.
+    use_acc = cutlass.const_expr(rht_acc and not fast_math)
+    if cutlass.const_expr(sr):
+        w0, w1 = _pack16_rs_from_enc(vals, enc, rb, use_acc)
     else:
-        for i in range(16):
-            q[i] = _min_xorsign_abs_f32(vals[i] * enc, fp4_max)
-    w0, w1 = _pack16(q, sr, rb)
+        w0, w1 = _pack16_rn_from_enc(vals, enc, use_acc)
     return w0, w1, pvscale_fp8
 
 
@@ -1151,16 +1358,12 @@ class _Tcgen05RowColFused:
                 cutlass.Uint32(sr_rng_t[5]),
                 cutlass.Uint32(sr_rng_t[6]),
             )
-        # Triton tile geometry for the stochastic-rounding counter. The linear triton
-        # kernel autotunes BLOCK_M/BLOCK_N over {128,256}^2, but every config above
-        # 128x128 exhausts SM100 tensor or shared memory and is pruned at runtime, so
-        # 128x128 is what actually runs; the SR tests pin it to make that explicit.
-        # Counters are derived from global (token, hidden) coordinates rather than this
-        # kernel's supertile, so the 256-row supertile spanning two triton token tiles
-        # costs nothing. col_tiles_per_expert is num_tiles_m (N // M_TILE), the
-        # hidden-tile count -- its grouped name is moot here, since sr and grouped are
-        # never compiled together.
-        tri_tiles_tok = num_tiles_ns * cutlass.Int32(self.kw // M_TILE)
+        # Tile geometry for the stochastic-rounding counter, on a 128x128 grid. Counters
+        # are derived from global (token, hidden) coordinates rather than from this
+        # kernel's supertile or its traversal order, so the 256-row supertile spanning two
+        # token tiles costs nothing and the stream stays a pure function of position.
+        # col_tiles_per_expert is num_tiles_m (N // M_TILE), the hidden-tile count -- its
+        # grouped name is moot here, since sr and grouped are never compiled together.
         tri_tiles_hid = col_tiles_per_expert
 
         pipeline_init_wait(cluster_shape_mn=cluster_layout_vmnk)
@@ -1233,6 +1436,8 @@ class _Tcgen05RowColFused:
             row_ab_state = pipeline.make_pipeline_state(
                 pipeline.PipelineUserType.Consumer, NUM_AB_STAGE
             )
+            blk = cute.make_rmem_tensor((16,), cutlass.Float32)
+            rBlk = cute.make_rmem_tensor((16,), cutlass.BFloat16)
             for local_iter in cutlass.range(num_iters):
                 super_id = start_pid + local_iter * GRID
                 pid_m = super_id // num_tiles_ns
@@ -1249,35 +1454,33 @@ class _Tcgen05RowColFused:
                 ab_pipeline.consumer_wait(row_ab_state)  # wait sA full
                 stage = row_ab_state.index
 
-                # read this thread's M-row (128 N values across the m_mma grain), 8 SF-blocks
-                kc = k_row % cutlass.Int32(8)
-                kd = k_row // cutlass.Int32(8)
+                # read this thread's M-row (128 N values across the m_mma grain), 8 SF-blocks.
+                # The A atom is MN_SW128, so the N grain is the contiguous mode: each block of
+                # 16 is one vector copy, not 16 scalar swizzled loads (same shape as the grouped
+                # kernel's row epilogue).
+                sA_row = sA_clean[(None, k_row, stage)]
                 for b in cutlass.range_constexpr(M_TILE // 16):  # 8 blocks of 16 N
-                    blk = cute.make_rmem_tensor((16,), cutlass.Float32)
-                    for j in cutlass.range_constexpr(16):
-                        m_mma = b * 16 + j  # N position (0..127), python int
-                        blk[j] = sA_clean[
-                            ((m_mma % 64, m_mma // 64), (kc, kd), (0, stage))
-                        ].to(cutlass.Float32)
+                    cute.autovec_copy(cute.local_tile(sA_row, (16,), (b,)), rBlk)
+                    rWords = cute.recast_tensor(rBlk, cutlass.Uint32)
+                    for j in cutlass.range_constexpr(8):
+                        blk[2 * j] = _bf16lo_to_f32(rWords[j])
+                        blk[2 * j + 1] = _bf16hi_to_f32(rWords[j])
                     row_rb = None
                     if cutlass.const_expr(self.sr):
-                        # This thread owns supertile row k_row, i.e. triton token tile
-                        # pid_ns*(kw/128) + k_row//128 at local token k_row%128. Its
-                        # rowwise tile is (tokens, hidden), so the flat packed index is
-                        # token_local * (128/2) + hidden_local/2.
-                        row_rb = philox4(
+                        # This thread owns supertile row k_row, i.e. token tile
+                        # pid_ns*(kw/128) + k_row//128 at local token k_row%128. One draw
+                        # per 16-element block, indexed by its position in the rowwise
+                        # (tokens, hidden) tile.
+                        tile_id = (
+                            pid_ns * cutlass.Int32(self.kw // M_TILE)
+                            + k_row // cutlass.Int32(M_TILE)
+                        ) * tri_tiles_hid + pid_m
+                        row_rb = philox4_all(
                             row_state,
-                            triton_tile_id(
-                                pid_m,
-                                pid_ns * cutlass.Int32(self.kw // M_TILE)
-                                + k_row // cutlass.Int32(M_TILE),
-                                tri_tiles_hid,
-                                tri_tiles_tok,
-                            )
-                            * cutlass.Int32(TRITON_TILE_PACKED)
+                            tile_id * cutlass.Int32(TILE_BLOCKS)
                             + (k_row % cutlass.Int32(M_TILE))
-                            * cutlass.Int32(M_TILE // 2)
-                            + cutlass.Int32(b * 8),
+                            * cutlass.Int32(M_TILE // 16)
+                            + cutlass.Int32(b),
                         )
                     amax = _abs_amax16(blk)
                     if cutlass.const_expr(not self.apply_rht):
@@ -1377,6 +1580,10 @@ class _Tcgen05RowColFused:
             thr_copy_t2r = tiled_copy_t2r.get_slice(tidx)
             tTR_tAcc_base = thr_copy_t2r.partition_S(tAcc_epi)
             tTR_rAcc = cute.make_rmem_tensor(((16, 1), 1, 1), cutlass.Float32)
+            # Swizzled col SF: the write-view's last mode is contiguous and u indexes it,
+            # so four consecutive groups land in four adjacent bytes. Stage them in a
+            # register tile and commit one 4B store instead of four scattered STS.U8.
+            rSF4 = cute.make_rmem_tensor((4,), cutlass.Float8E4M3FN)
 
             epi_store_barrier = pipeline.NamedBarrier(
                 barrier_id=EPI_STORE_BAR, num_threads=COL_THREADS
@@ -1409,21 +1616,18 @@ class _Tcgen05RowColFused:
                     col_rb = None
                     if cutlass.const_expr(self.sr):
                         # This thread's 16 tokens start at supertile offset u*16, so they
-                        # sit in triton token tile pid_ns*(kw/128) + u//8 at local token
-                        # (u%8)*16. Its columnwise tile is (hidden, tokens), so the flat
-                        # packed index is hidden_local * (128/2) + token_local/2.
-                        col_rb = philox4(
+                        # sit in token tile pid_ns*(kw/128) + u//8 at local token
+                        # (u%8)*16. One draw per 16-element block, indexed by its position
+                        # in the columnwise (hidden, tokens) tile.
+                        tile_id = (
+                            pid_ns * cutlass.Int32(self.kw // M_TILE)
+                            + cutlass.Int32(u // (M_TILE // 16))
+                        ) * tri_tiles_hid + pid_m
+                        col_rb = philox4_all(
                             col_state,
-                            triton_tile_id(
-                                pid_m,
-                                pid_ns * cutlass.Int32(self.kw // M_TILE)
-                                + cutlass.Int32(u // (M_TILE // 16)),
-                                tri_tiles_hid,
-                                tri_tiles_tok,
-                            )
-                            * cutlass.Int32(TRITON_TILE_PACKED)
-                            + tidx * cutlass.Int32(M_TILE // 2)
-                            + cutlass.Int32((u % (M_TILE // 16)) * 8),
+                            tile_id * cutlass.Int32(TILE_BLOCKS)
+                            + tidx * cutlass.Int32(M_TILE // 16)
+                            + cutlass.Int32(u % (M_TILE // 16)),
                         )
                     w0, w1, pvscale_fp8 = _quant16(
                         vals,
@@ -1439,12 +1643,18 @@ class _Tcgen05RowColFused:
                     sFP4[tidx, u * 2 + 1] = w1
                     if cutlass.const_expr(self.swizzle_sf):
                         # swizzled SF[r=pid_m*128+tidx, c=pid_ns*16+u] -> [r//128, c//4, r%32, (r%128//32)*4 + c%4]
-                        sSF_w[
-                            0,
-                            u // 4,
-                            tidx % cutlass.Int32(32),
-                            (tidx // cutlass.Int32(32)) * cutlass.Int32(4) + (u % 4),
-                        ] = pvscale_fp8
+                        # c%4 is the contiguous mode, so u..u+3 are adjacent bytes: stage
+                        # four and store them as one word.
+                        rSF4[u % 4] = pvscale_fp8
+                        if cutlass.const_expr(u % 4 == 3):
+                            cute.autovec_copy(
+                                rSF4,
+                                cute.local_tile(
+                                    sSF_w[(0, u // 4, tidx % cutlass.Int32(32), None)],
+                                    (4,),
+                                    (tidx // cutlass.Int32(32),),
+                                ),
+                            )
                     else:
                         sSF_w[tidx, u] = pvscale_fp8
 
@@ -1505,10 +1715,16 @@ class _Tcgen05RowColFused:
             col_ab_state = pipeline.make_pipeline_state(
                 pipeline.PipelineUserType.Consumer, NUM_AB_STAGE
             )
-            # 8 col warps (256 threads) cover the 128 N-rows with 2 threads/row: nrow = the N-row,
-            # u_half selects which half of the col-group blocks this thread owns.
-            nrow = tidx % cutlass.Int32(M_TILE)
-            u_half = tidx // cutlass.Int32(M_TILE)
+            # 8 col warps (256 threads) cover the 128 N-rows two rows at a time: a thread owns
+            # the adjacent pair (nrow, nrow+1) and a quarter of the col-group blocks. N is the
+            # contiguous SMEM mode, so the pair is one 32-bit load rather than two 16-bit ones
+            # (a warp then moves the full 128B instead of 64B), and because the pair sits in the
+            # same 16x16 block both rows share one amax, one E4M3 scale and one reciprocal.
+            nrow = (tidx % cutlass.Int32(64)) * cutlass.Int32(2)
+            u_quarter = tidx // cutlass.Int32(64)
+            blk0 = cute.make_rmem_tensor((16,), cutlass.Float32)
+            blk1 = cute.make_rmem_tensor((16,), cutlass.Float32)
+            rPair = cute.make_rmem_tensor((2,), cutlass.BFloat16)
             for local_iter in cutlass.range(num_iters):
                 super_id = start_pid + local_iter * GRID
                 pid_m = super_id // num_tiles_ns
@@ -1525,27 +1741,39 @@ class _Tcgen05RowColFused:
                 ab_pipeline.consumer_wait(col_ab_state)  # wait sA full
                 stage = col_ab_state.index
                 for u_local in cutlass.range_constexpr(
-                    self.col_groups_per_supertile // 2
+                    self.col_groups_per_supertile // 4
                 ):
-                    u = cutlass.Int32(u_local) + u_half * cutlass.Int32(
-                        self.col_groups_per_supertile // 2
+                    u = cutlass.Int32(u_local) + u_quarter * cutlass.Int32(
+                        self.col_groups_per_supertile // 4
                     )
-                    blk = cute.make_rmem_tensor((16,), cutlass.Float32)
                     for i in cutlass.range_constexpr(16):
                         mpos = u * cutlass.Int32(16) + cutlass.Int32(
                             i
                         )  # M-position (0..255)
-                        # transposed read: A.t()[N-row=nrow, M-pos=mpos]
-                        blk[i] = sA_clean[
-                            ((nrow % 64, nrow // 64), (mpos % 8, mpos // 8), (0, stage))
-                        ].to(cutlass.Float32)
-                    amax = _group16_amax(_abs_amax16(blk))
-                    # Weight mode is RTNE only (asserted at compile), so no SR draw here.
-                    w0, w1, sf = _quant16_from_amax(
-                        blk, amax, enc_over_fp4max, g_dec, False, None
+                        # transposed read: A.t()[N-rows nrow, nrow+1][M-pos=mpos]
+                        cute.autovec_copy(
+                            cute.local_tile(
+                                sA_clean[(None, (mpos % 8, mpos // 8), (0, stage))],
+                                (2,),
+                                (nrow // 2,),
+                            ),
+                            rPair,
+                        )
+                        blk0[i] = rPair[0].to(cutlass.Float32)
+                        blk1[i] = rPair[1].to(cutlass.Float32)
+                    # The pair is two of the 16 strips of one 16x16 block: fold them in-register,
+                    # then butterfly over the 8 lanes holding the other 14.
+                    amax = _group16_amax(
+                        _max_f32(_abs_amax16(blk0), _abs_amax16(blk1)), (4, 2, 1)
                     )
+                    # Weight mode is RTNE only (asserted at compile), so no SR draw here.
+                    enc, sf = _enc_from_amax(amax, enc_over_fp4max, g_dec)
+                    w0, w1 = _pack16_rn_from_enc(blk0, enc)
+                    v0, v1 = _pack16_rn_from_enc(blk1, enc)
                     sFP4[nrow, u * 2] = w0
                     sFP4[nrow, u * 2 + 1] = w1
+                    sFP4[nrow + 1, u * 2] = v0
+                    sFP4[nrow + 1, u * 2 + 1] = v1
                     if cutlass.const_expr(self.swizzle_sf):
                         sSF_w[
                             0,
@@ -1554,8 +1782,16 @@ class _Tcgen05RowColFused:
                             (nrow // cutlass.Int32(32)) * cutlass.Int32(4)
                             + (u % cutlass.Int32(4)),
                         ] = sf
+                        sSF_w[
+                            0,
+                            u // cutlass.Int32(4),
+                            (nrow + 1) % cutlass.Int32(32),
+                            ((nrow + 1) // cutlass.Int32(32)) * cutlass.Int32(4)
+                            + (u % cutlass.Int32(4)),
+                        ] = sf
                     else:
                         sSF_w[nrow, u] = sf
+                        sSF_w[nrow + 1, u] = sf
 
                 cute.arch.mbarrier_arrive(
                     ab_pipeline.sync_object_empty.get_barrier(stage)
@@ -1909,18 +2145,25 @@ class _Tcgen05RhtAmax:
                 pipeline.PipelineUserType.Consumer, NUM_AB_STAGE
             )
             thread_row_max = cutlass.Float32(0.0)
-            kc = k_row % cutlass.Int32(8)
-            kd = k_row // cutlass.Int32(8)
+            rBlk = cute.make_rmem_tensor((16,), cutlass.BFloat16)
             for local_iter in cutlass.range(num_iters):
                 ab_pipeline.consumer_wait(row_ab_state)
                 stage = row_ab_state.index
+                # read this thread's M-row (128 N values across the m_mma grain). The A
+                # atom is MN_SW128, so the N grain is the contiguous mode: each block of
+                # 16 is one vector copy, not 16 scalar swizzled loads (the same shape the
+                # fused kernel's row epilogue and the grouped amax already use).
+                sA_row = sA_clean[(None, k_row, stage)]
                 for b in cutlass.range_constexpr(M_TILE // 16):  # 8 blocks of 16 N
-                    for j in cutlass.range_constexpr(16):
-                        m_mma = b * 16 + j  # N position (0..127)
-                        v = sA_clean[
-                            ((m_mma % 64, m_mma // 64), (kc, kd), (0, stage))
-                        ].to(cutlass.Float32)
-                        thread_row_max = _max_f32(thread_row_max, _abs_f32(v))
+                    cute.autovec_copy(cute.local_tile(sA_row, (16,), (b,)), rBlk)
+                    rWords = cute.recast_tensor(rBlk, cutlass.Uint32)
+                    for j in cutlass.range_constexpr(8):
+                        thread_row_max = _max_f32(
+                            thread_row_max, _abs_f32(_bf16lo_to_f32(rWords[j]))
+                        )
+                        thread_row_max = _max_f32(
+                            thread_row_max, _abs_f32(_bf16hi_to_f32(rWords[j]))
+                        )
                 cute.arch.mbarrier_arrive(
                     ab_pipeline.sync_object_empty.get_barrier(stage)
                 )
@@ -1955,7 +2198,6 @@ class _Tcgen05RhtAmax:
             thr_copy_t2r = tiled_copy_t2r.get_slice(tidx)
             tTR_tAcc_base = thr_copy_t2r.partition_S(tAcc_epi)
             tTR_rAcc = cute.make_rmem_tensor(((16, 1), 1, 1), cutlass.Float32)
-
             acc_consumer_state = pipeline.make_pipeline_state(
                 pipeline.PipelineUserType.Consumer, NUM_ACC_STAGE
             )
@@ -2138,15 +2380,21 @@ def _cutedsl_rht_amax_impl(A: torch.Tensor, sign_vector=DEFAULT_SIGN_VECTOR):
 # (device, swizzle, sr, apply_rht, grouped, col_groups_per_supertile, fast_math)
 # and every entry is a compiled kernel that a CUDA-graph capture may depend on. An eviction
 # would force a lazy recompile mid-capture, so the cache must never evict.
+#
+# Every parameter is required and every caller passes it positionally, deliberately: an
+# lru_cache key is the literal (args, kwargs) shape, so ``f(i, True, False, apply_rht=False)``
+# and ``f(i, True, False, False)`` are two entries compiling the same kernel. Defaults here
+# once let cutedsl_prepare_for_cuda_graph warm a set of keys no runtime call could hit, which
+# silently turned the whole pre-capture warm-up into a no-op.
 @functools.lru_cache(maxsize=None)
 def _compile_fused_kernel(
     device_idx,
     swizzle,
     sr,
-    apply_rht=True,
-    grouped=False,
-    col_groups_per_supertile=16,
-    fast_math=False,
+    apply_rht,
+    grouped,
+    col_groups_per_supertile,
+    fast_math,
 ):
     """Compile the fused kernel with symbolic shapes (cached per device+flags+supertile).
 
@@ -2390,8 +2638,9 @@ def _cutedsl_rht_quantize_row_col_impl(
         swizzle,
         sr,
         bool(apply_rht),
-        col_groups_per_supertile=col_groups_per_supertile,
-        fast_math=bool(use_fast_math),
+        False,  # grouped
+        col_groups_per_supertile,
+        bool(use_fast_math),
     )
     fused(
         A.t().unsqueeze(-1),
@@ -2461,11 +2710,12 @@ def _cutedsl_group_weight_quantize_2d_impl(
 
     fused = _compile_fused_kernel(
         dev.index,
-        True,
-        False,
-        apply_rht=False,
-        grouped=True,
-        col_groups_per_supertile=col_groups_per_supertile,
+        True,  # swizzle
+        False,  # sr
+        False,  # apply_rht
+        True,  # grouped
+        col_groups_per_supertile,
+        False,  # fast_math
     )
     fused(
         A.view(E * M, N).t().unsqueeze(-1),

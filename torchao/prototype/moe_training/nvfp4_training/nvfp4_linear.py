@@ -65,6 +65,7 @@ def _rht_quantize_row_col(
     row_amax: torch.Tensor,
     sign_vector_list: list[int],
     use_cutedsl: bool,
+    use_fast_math: bool,
     sr_seed: Optional[torch.Tensor] = None,
 ):
     """Fused columnwise-RHT + rowwise NVFP4 quantize on the selected backend.
@@ -72,13 +73,15 @@ def _rht_quantize_row_col(
     RTNE when sr_seed is None; stochastic rounding otherwise, with fresh offsets
     drawn from the default CUDA RNG (a first-class CUDA-graph side input — see
     the nvfp4_mm_triton docstring). Both backends take the same four Philox bases
-    and draw the same stream from them.
+    and draw the same stream from them, and both take the same ``use_fast_math``.
     """
     quantize = (
         cutedsl_rht_quantize_row_col if use_cutedsl else triton_rht_quantize_row_col
     )
     if sr_seed is None:
-        return quantize(x, col_amax, row_amax, sign_vector_list)
+        return quantize(
+            x, col_amax, row_amax, sign_vector_list, use_fast_math=use_fast_math
+        )
     offset_col = torch.randint(0, 2**32, (1,), dtype=torch.int64, device=x.device)
     offset_row = torch.randint(0, 2**32, (1,), dtype=torch.int64, device=x.device)
     return quantize(
@@ -91,6 +94,7 @@ def _rht_quantize_row_col(
         row_seed_base=sr_seed ^ 1,
         col_offset_base=offset_col,
         row_offset_base=offset_row,
+        use_fast_math=use_fast_math,
     )
 
 
@@ -150,6 +154,7 @@ class nvfp4_mm_triton(torch.autograd.Function):
         sr_seed: torch.Tensor,
         sign_vector: tuple[int, ...] | list[int],
         use_cutedsl: bool = False,
+        use_fast_math: bool = True,
     ):
         sign_vector = tuple(sign_vector)
         sign_vector_list = list(sign_vector)
@@ -170,7 +175,12 @@ class nvfp4_mm_triton(torch.autograd.Function):
         # Amaxes are separate ops so TP callers can all-reduce them before quantizing.
         x_col_amax, x_row_amax = _rht_amax(input_2d, sign_vector_list, use_cutedsl)
         x_col_codes, x_col_sf, x_row_codes, x_row_sf = _rht_quantize_row_col(
-            input_2d, x_col_amax, x_row_amax, sign_vector_list, use_cutedsl
+            input_2d,
+            x_col_amax,
+            x_row_amax,
+            sign_vector_list,
+            use_cutedsl,
+            use_fast_math,
         )
 
         # Fused weight quantization: rowwise for forward GEMM, colwise saved for dgrad
@@ -212,6 +222,7 @@ class nvfp4_mm_triton(torch.autograd.Function):
         ctx.has_bias = bias is not None
         ctx.sign_vector = sign_vector
         ctx.use_cutedsl = use_cutedsl
+        ctx.use_fast_math = use_fast_math
         return output
 
     @staticmethod
@@ -239,6 +250,7 @@ class nvfp4_mm_triton(torch.autograd.Function):
             dy_row_amax,
             sign_vector_list,
             ctx.use_cutedsl,
+            ctx.use_fast_math,
             sr_seed=sr_seed,
         )
 
@@ -284,8 +296,41 @@ class nvfp4_mm_triton(torch.autograd.Function):
             if ctx.has_bias
             else None
         )
-        # Extra Nones: sr_seed, sign_vector, use_cutedsl
-        return grad_input, grad_weight, grad_bias, None, None, None
+        # Extra Nones: sr_seed, sign_vector, use_cutedsl, use_fast_math
+        return grad_input, grad_weight, grad_bias, None, None, None, None
+
+
+def _resolve_use_cutedsl(kernel_preference: KernelPreference) -> bool:
+    """Whether this call runs on CuteDSL.
+
+    The linear analog of the grouped path's ``_resolve_backends``, and split out for
+    the same reason: AUTO is the default, so its fallback needs a test target that
+    does not require an SM100 box without the CuteDSL runtime to reach.
+
+    Unlike the grouped path there is one decision, not one per op -- the amax, the
+    quantize and the 2D weight quantize all run on the same backend, and CuteDSL
+    accepts exactly the shapes Triton does (the path's own %128, gated for both by
+    ``nvfp4_mm_triton.forward``), so there is no shape constraint to fall back on.
+    """
+    if kernel_preference not in (
+        KernelPreference.AUTO,
+        KernelPreference.TRITON,
+        KernelPreference.CUTEDSL,
+    ):
+        raise ValueError(
+            "NVFP4 training linear only supports kernel_preference AUTO, TRITON, or "
+            f"CUTEDSL, got {kernel_preference!r}"
+        )
+    if kernel_preference == KernelPreference.TRITON:
+        return False
+    if not cutedsl_nvfp4_kernels_available():
+        if kernel_preference == KernelPreference.CUTEDSL:
+            raise RuntimeError(
+                f"kernel_preference=CUTEDSL requires {CUTEDSL_NVFP4_REQUIREMENTS} "
+                f"({cutedsl_nvfp4_unavailable_reason()})."
+            )
+        return False
+    return True
 
 
 def nvfp4_linear(
@@ -296,6 +341,7 @@ def nvfp4_linear(
     sign_vector: tuple[int, ...] | list[int],
     kernel_preference: KernelPreference = KernelPreference.AUTO,
     sr_seed: Optional[torch.Tensor] = None,
+    use_fast_math: bool = True,
 ) -> torch.Tensor:
     """Convenience wrapper around the nvfp4_mm_triton autograd function.
 
@@ -315,26 +361,14 @@ def nvfp4_linear(
             loudly, raising rather than falling back.
         sr_seed: Fixed int64 seed tensor (size=(1,)) for SR Philox key. Allocated
             fresh if None. For reproducibility, pass a pre-allocated module buffer.
+        use_fast_math: Select the RHT quantize variant that consumes the FP32 accumulator
+            directly and takes an approximate reciprocal, matching TransformerEngine under
+            ``NVTE_USE_FAST_MATH=1``. Defaults on because it is worth a large fraction of
+            the quantize stage. Both backends implement it and stay bitwise identical to
+            each other and to TE, so the choice does not depend on kernel_preference; only
+            the 2D weight quantize is unaffected, having no RHT accumulator to skip.
     """
-    if kernel_preference not in (
-        KernelPreference.AUTO,
-        KernelPreference.TRITON,
-        KernelPreference.CUTEDSL,
-    ):
-        raise ValueError(
-            "NVFP4 training linear only supports kernel_preference AUTO, TRITON, or "
-            f"CUTEDSL, got {kernel_preference!r}"
-        )
-    use_cutedsl = kernel_preference != KernelPreference.TRITON
-    if use_cutedsl and not cutedsl_nvfp4_kernels_available():
-        if kernel_preference == KernelPreference.CUTEDSL:
-            raise RuntimeError(
-                f"kernel_preference=CUTEDSL requires {CUTEDSL_NVFP4_REQUIREMENTS} "
-                f"({cutedsl_nvfp4_unavailable_reason()})."
-            )
-        use_cutedsl = False
-    # No shape fallback: CuteDSL now accepts exactly the shapes Triton does, and
-    # nvfp4_mm_triton.forward's shared % 128 gate rejects the rest for both.
+    use_cutedsl = _resolve_use_cutedsl(kernel_preference)
 
     if sr_seed is None:
         sr_seed = torch.randint(
@@ -347,4 +381,5 @@ def nvfp4_linear(
         sr_seed,
         sign_vector,
         use_cutedsl,
+        use_fast_math,
     )

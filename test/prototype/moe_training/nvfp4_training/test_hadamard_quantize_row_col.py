@@ -32,11 +32,32 @@ parametrization (see ``_KERNELS``):
       [1.0, 1.5] midpoint (1.25) round to each neighbor ~50% of the time for both
       columnwise and rowwise paths. Columnwise input is constructed via inverse RHT so
       post-RHT values are exactly 1.25; rowwise input has 1.25 placed directly in A.
-    - test_triton_rht_quantize_rs_at_most_one_fp4_step_from_rtne (triton): RS code is at
+    - test_rht_quantize_rs_at_most_one_fp4_step_from_rtne (both backends): RS code is at
       most 1 FP4 magnitude index step from the RTNE code for every element, for both
-      columnwise and rowwise paths.
+      columnwise and rowwise paths, over one tile, several tiles and a short trailing
+      column group. This is the structural guard on SR: it pins every SR code against an
+      RTNE code that IS bitwise-checked against triton and TE.
     - test_cutedsl_rht_quantize_sr_unbiased (cutedsl): the HW ``cvt.rs`` path is unbiased
       at the same 1.25 midpoint.
+
+  Fast math (use_fast_math=True, the nvfp4_linear default), both backends:
+    - test_fast_math_matches_transformer_engine: byte-identical to real TE under
+      NVTE_USE_FAST_MATH=1, over the full shape sweep. This is why triton can act as the
+      fast-path oracle where the PyTorch reference cannot -- TE's fast encode scale is
+      ``rcp.approx.ftz.f32`` and no ATen op lowers to that instruction, so
+      ``nvfp4_reference`` models the exact path only.
+    - test_rht_quantize_fast_math_sqnr: fast reconstructs the exact path (which IS
+      bitwise-checked against nvfp4_reference) at 30+ dB, floored at 25 -- above NVFP4's
+      own 20 dB quantization noise. Nearly all of the cost is the columnwise bfloat16
+      round-through that fast math skips; the reciprocal swap alone leaves the rowwise
+      output bitwise identical on most shapes.
+    - the SR and interchangeability tests below run under both math modes.
+
+  The two backends are byte-for-byte interchangeable under RTNE, in both math modes
+  (test_cutedsl_vs_triton_interchangeable). Neither reproduces the other's Philox
+  stream: both CuteDSL kernels draw one counter per 16-element block and consume all
+  four output words, rather than triton's per-packed-byte stride. SR is therefore judged
+  on the structural and statistical properties above.
 
 Coverage:
   RS=F, RW=F  — TE bitwise scales + mx_formats scale compatibility + rtne_sqnr
@@ -178,13 +199,14 @@ def _quantize_row_col(
     stochastic_rounding: bool = False,
     seed: torch.Tensor | None = None,
     offset: torch.Tensor | None = None,
+    use_fast_math: bool = False,
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
     """Dispatch to the selected backend's fused RHT row/col quantize.
 
     Returns (col_codes, col_sf, row_codes, row_sf). The two ops take the same four
-    Philox bases, so the only difference here is which one is called. With
-    ``stochastic_rounding=True``, ``seed``/``offset`` default to fresh random int64
-    buffers.
+    Philox bases and the same ``use_fast_math`` flag, so the only difference here is
+    which one is called. With ``stochastic_rounding=True``, ``seed``/``offset`` default
+    to fresh random int64 buffers.
     """
     quantize = (
         triton_rht_quantize_row_col
@@ -208,6 +230,7 @@ def _quantize_row_col(
         row_amax,
         list(sign_vector),
         stochastic_rounding=stochastic_rounding,
+        use_fast_math=use_fast_math,
         **sr_kwargs,
     )
 
@@ -283,15 +306,23 @@ def test_rht_quantize_rtne_vs_transformer_engine_reference(kernel, M, N, input_k
             )
 
 
-@_skip_no_cutedsl
+@pytest.mark.parametrize("kernel", _KERNELS)
+@pytest.mark.parametrize("N", _N_VALUES, ids=lambda n: f"N{n}")
+@pytest.mark.parametrize("M", _M_VALUES, ids=lambda m: f"M{m}")
 @torch.no_grad()
-def test_cutedsl_fast_math_matches_transformer_engine(monkeypatch):
-    """The compile-specialized fast path is byte-identical to actual TE fast math."""
+def test_fast_math_matches_transformer_engine(kernel, M, N, monkeypatch):
+    """Both fast paths are byte-identical to actual TE fast math.
+
+    This is what lets Triton stand in as the fast-path oracle. The PyTorch reference
+    cannot: TE's fast encode scale is ``rcp.approx.ftz.f32`` and no ATen op lowers to
+    that instruction, so ``nvfp4_reference`` models the exact path only.
+    """
+    _skip_if_unsupported_shape(kernel, M, N)
     monkeypatch.setenv("NVTE_USE_FAST_MATH", "1")
     te = pytest.importorskip("transformer_engine.pytorch")
 
     torch.manual_seed(123)
-    A = torch.randn((256, 256), dtype=torch.bfloat16, device="cuda")
+    A = torch.randn((M, N), dtype=torch.bfloat16, device="cuda")
     quantizer = te.NVFP4Quantizer(
         fp4_dtype=te.DType.kFloat4E2M1,
         rowwise=True,
@@ -306,12 +337,13 @@ def test_cutedsl_fast_math_matches_transformer_engine(monkeypatch):
     quantizer.optimize_for_gemm = True
     expected = quantizer(A)
 
-    col_amax, row_amax = cutedsl_rht_amax(A, list(_HARDCODED_SIGN_VECTOR))
-    col_codes, col_sf, row_codes, row_sf = cutedsl_rht_quantize_row_col(
+    col_amax, row_amax = _rht_amax(kernel, A, sign_vector=_HARDCODED_SIGN_VECTOR)
+    col_codes, col_sf, row_codes, row_sf = _quantize_row_col(
+        kernel,
         A,
-        col_amax,
-        row_amax,
-        list(_HARDCODED_SIGN_VECTOR),
+        col_amax=col_amax,
+        row_amax=row_amax,
+        sign_vector=_HARDCODED_SIGN_VECTOR,
         use_fast_math=True,
     )
 
@@ -410,6 +442,65 @@ def test_rht_quantize_rtne_sqnr(kernel, M, N):
 
 
 @pytest.mark.parametrize("kernel", _KERNELS)
+@pytest.mark.parametrize("N", _N_VALUES, ids=lambda n: f"N{n}")
+@pytest.mark.parametrize("M", _M_VALUES, ids=lambda m: f"M{m}")
+@torch.no_grad()
+def test_rht_quantize_fast_math_sqnr(kernel, M, N):
+    """Fast math costs little against the exact path it replaces.
+
+    This is the bound that grounds fast math in the PyTorch oracle, which cannot host it
+    directly: the exact path is bitwise-checked against ``nvfp4_reference`` (and against
+    TE), and fast math is held to a tight SQNR of that exact path.
+
+    Columnwise carries essentially all of the cost and is stable: 30.2-32.6 dB across
+    this sweep, ~1.2% of packed code bytes differing. Skipping the bfloat16 round-through
+    perturbs the pre-quantization value by only ~2**-9, but an element sitting near an
+    E2M1 midpoint then flips a whole FP4 step, so the error is large-and-rare rather than
+    small-and-everywhere. Compare NVFP4's own quantization noise, floored at 20 dB by
+    test_rht_quantize_rtne_sqnr: fast math moves the result less than quantizing it did.
+
+    Rowwise has no accumulator to skip, so only the reciprocal changes -- but it shares
+    the same loose floor rather than a tighter one, deliberately. Block scales are
+    identical between the modes, so a rowwise flip requires ``rcp.approx`` and ``div_rn``
+    to disagree on ``pvscale_fp8 * global_decode_scale``, and that product takes only a
+    handful of distinct values per tensor. Either none of them disagrees and the output is
+    bitwise identical (SQNR inf, 24 of 25 shapes here), or one does and every element
+    sharing that scale becomes eligible at once. The result is lumpy and data-dependent
+    -- inf, inf, 49 dB, 41 dB across the grouped fixtures -- so a tight rowwise bound
+    would be flaky by construction rather than more sensitive.
+    """
+    _skip_if_unsupported_shape(kernel, M, N)
+
+    torch.manual_seed(42)
+    A = torch.randn(M, N, dtype=torch.bfloat16, device="cuda")
+
+    # The amax kernels have no fast-math variant (neither do TE's), so both modes are
+    # fed the identical global amaxes and only the quantize arithmetic differs.
+    col_amax, row_amax = _rht_amax(kernel, A, sign_vector=_HARDCODED_SIGN_VECTOR)
+    kwargs = dict(
+        col_amax=col_amax, row_amax=row_amax, sign_vector=_HARDCODED_SIGN_VECTOR
+    )
+    e_col_codes, e_col_sf, e_row_codes, e_row_sf = _quantize_row_col(
+        kernel, A, use_fast_math=False, **kwargs
+    )
+    f_col_codes, f_col_sf, f_row_codes, f_row_sf = _quantize_row_col(
+        kernel, A, use_fast_math=True, **kwargs
+    )
+
+    col_sqnr = compute_error(
+        _dequantize(e_col_codes, e_col_sf, col_amax),
+        _dequantize(f_col_codes, f_col_sf, col_amax),
+    )
+    assert col_sqnr >= 25.0, f"Col fast-vs-exact SQNR {col_sqnr:.2f} dB < 25.0 dB"
+
+    row_sqnr = compute_error(
+        _dequantize(e_row_codes, e_row_sf, row_amax),
+        _dequantize(f_row_codes, f_row_sf, row_amax),
+    )
+    assert row_sqnr >= 25.0, f"Row fast-vs-exact SQNR {row_sqnr:.2f} dB < 25.0 dB"
+
+
+@pytest.mark.parametrize("kernel", _KERNELS)
 @pytest.mark.parametrize(
     "stochastic_rounding",
     [pytest.param(False, id="rtne"), pytest.param(True, id="stochastic_rounding")],
@@ -498,13 +589,16 @@ def test_rht_quantize_row_col_zero_and_near_zero_no_nan_or_saturation(
 @_skip_no_cutedsl
 @pytest.mark.parametrize("N", [256, 512], ids=lambda n: f"N{n}")
 @pytest.mark.parametrize("M", [256, 384, 512], ids=lambda m: f"M{m}")
+@pytest.mark.parametrize("use_fast_math", [False, True], ids=["exact", "fast"])
 @torch.no_grad()
-def test_cutedsl_vs_triton_interchangeable(M, N):
+def test_cutedsl_vs_triton_interchangeable(M, N, use_fast_math):
     """Fed the same global amaxes, the two backends are byte-for-byte interchangeable.
 
     Both the amaxes themselves and all four quantize outputs. The backends share the
-    RHT rounding (bf16), the scale chain (div_rn, one-rounding association) and the FP4
-    encode PTX, so nothing is left to differ.
+    RHT rounding (bf16 in exact mode, none in fast), the scale chain (the one-rounding
+    association, and div_rn or rcp.approx.ftz per mode) and the FP4 encode PTX, so
+    nothing is left to differ. Covering both modes is what keeps AUTO and TRITON
+    interchangeable now that fast math is the default.
     """
     torch.manual_seed(0)
     A = torch.randn(M, N, dtype=torch.bfloat16, device="cuda")
@@ -516,68 +610,10 @@ def test_cutedsl_vs_triton_interchangeable(M, N):
 
     col_amax, row_amax = t_amax
     kwargs = dict(
-        col_amax=col_amax, row_amax=row_amax, sign_vector=_HARDCODED_SIGN_VECTOR
-    )
-    cutedsl = _quantize_row_col("cutedsl", A, **kwargs)
-    triton_out = _quantize_row_col("triton", A, **kwargs)
-    for name, c, t in zip(("qd", "sfd", "qa", "sfa"), cutedsl, triton_out):
-        assert torch.equal(c, t), f"{name} differs between backends"
-
-
-@pytest.fixture
-def pinned_triton_tile():
-    """Pin the Triton autotune to the 128x128 config the CuteDSL SR counter assumes.
-
-    Reproducing Triton's stochastic-rounding stream means reproducing its Philox
-    counter, which is keyed on the flat tile index and therefore on BLOCK_M/BLOCK_N.
-    Every config above 128x128 exhausts SM100 tensor or shared memory and is pruned at
-    runtime, so 128x128 is what actually runs -- but that is an emergent property of the
-    hardware, not a contract, so the SR test states it rather than relying on it.
-    """
-    import triton
-
-    from torchao.prototype.moe_training.nvfp4_training import (
-        hadamard_quantize_row_col_triton as hq,
-    )
-
-    saved = list(hq.HADAMARD_QUANTIZE_CONFIGS)
-    pinned = triton.Config(
-        {"BLOCK_M": 128, "BLOCK_N": 128, "NUM_STAGES": 3}, num_warps=4, num_stages=3
-    )
-    hq.HADAMARD_QUANTIZE_CONFIGS[:] = [pinned]
-    hq._hadamard_quantize_row_col_kernel.configs = hq.HADAMARD_QUANTIZE_CONFIGS
-    try:
-        yield
-    finally:
-        hq.HADAMARD_QUANTIZE_CONFIGS[:] = saved
-        hq._hadamard_quantize_row_col_kernel.configs = hq.HADAMARD_QUANTIZE_CONFIGS
-
-
-@_skip_no_triton
-@_skip_no_cutedsl
-@pytest.mark.parametrize(
-    "M,N",
-    [(256, 512), (384, 1024), (128, 128), (256, 1408), (1024, 2432)],
-    ids=["base", "supertile128", "single-tile", "short-group", "short-group-b"],
-)
-@torch.no_grad()
-def test_cutedsl_vs_triton_stochastic_rounding_bitwise(pinned_triton_tile, M, N):
-    """SR draws the identical Philox words on both backends, so the codes are identical.
-
-    The last two shapes have ``(N // 128) % 8 != 0``, i.e. a short trailing column group
-    in Triton's L2 swizzle -- the case where inverting ``_compute_pid`` needs the
-    ``(r - base) mod group_size_n`` term rather than plain ``r``.
-    """
-    torch.manual_seed(5)
-    A = torch.randn(M, N, dtype=torch.bfloat16, device="cuda")
-    col_amax, row_amax = _rht_amax("triton", A, sign_vector=_HARDCODED_SIGN_VECTOR)
-    kwargs = dict(
         col_amax=col_amax,
         row_amax=row_amax,
         sign_vector=_HARDCODED_SIGN_VECTOR,
-        stochastic_rounding=True,
-        seed=torch.tensor([0x5EED1234], dtype=torch.int64, device="cuda"),
-        offset=torch.tensor([0x0FF5E7], dtype=torch.int64, device="cuda"),
+        use_fast_math=use_fast_math,
     )
     cutedsl = _quantize_row_col("cutedsl", A, **kwargs)
     triton_out = _quantize_row_col("triton", A, **kwargs)
@@ -681,31 +717,47 @@ def test_triton_rht_quantize_rs_midpoint_distribution():
     )
 
 
-@_skip_no_triton
+@pytest.mark.parametrize("kernel", _KERNELS)
+@pytest.mark.parametrize(
+    "M,N",
+    [(128, 128), (256, 512), (1024, 2432)],
+    ids=["single-tile", "multi-tile", "short-group"],
+)
+@pytest.mark.parametrize("use_fast_math", [False, True], ids=["exact", "fast"])
 @torch.no_grad()
-def test_triton_rht_quantize_rs_at_most_one_fp4_step_from_rtne():
+def test_rht_quantize_rs_at_most_one_fp4_step_from_rtne(kernel, M, N, use_fast_math):
     """RS code must be at most 1 FP4 magnitude index step from the RTNE code.
 
     RS picks the floor or ceil of the scaled value on the FP4 magnitude grid.
     RTNE also picks floor or ceil (nearest). Therefore |rs_mag_idx - rtne_mag_idx| <= 1
     must hold for every element, and signs must agree.
 
-    Both columnwise and rowwise paths are tested.
+    Both columnwise and rowwise paths are tested, on both backends. This is the
+    structural guard on the SR path now that neither backend reproduces the other's
+    Philox stream: it pins every SR code against the RTNE code that IS bitwise-checked
+    against triton and TE, so a wrong nibble order, scale or block index fails here even
+    though no bitwise SR oracle exists. The shapes span one tile, several tiles, and a
+    short trailing column group, which is where a tile-derived counter is most likely to
+    collide or run off the end.
+
+    Each math mode is compared against its own RTNE codes: fast math shifts both, so
+    crossing the modes would measure the arithmetic change rather than the rounding.
     """
-    M, N = 128, 128
+    _skip_if_unsupported_shape(kernel, M, N)
     N_SAMPLES = 16
     torch.manual_seed(42)
     A = torch.randn(M, N, dtype=torch.bfloat16, device="cuda")
 
     col_amax_rtne, row_amax_rtne = _rht_amax(
-        "triton", A, sign_vector=_HARDCODED_SIGN_VECTOR
+        kernel, A, sign_vector=_HARDCODED_SIGN_VECTOR
     )
     col_rn, _, row_rn, _ = _quantize_row_col(
-        "triton",
+        kernel,
         A,
         col_amax=col_amax_rtne,
         row_amax=row_amax_rtne,
         sign_vector=_HARDCODED_SIGN_VECTOR,
+        use_fast_math=use_fast_math,
     )
     col_rn_nibs = unpack_fp4_nibbles(col_rn)
     col_rn_sign = col_rn_nibs >> 3
@@ -717,15 +769,16 @@ def test_triton_rht_quantize_rs_at_most_one_fp4_step_from_rtne():
 
     for _ in range(N_SAMPLES):
         col_amax_rs, row_amax_rs = _rht_amax(
-            "triton", A, sign_vector=_HARDCODED_SIGN_VECTOR
+            kernel, A, sign_vector=_HARDCODED_SIGN_VECTOR
         )
         col_rs, _, row_rs, _ = _quantize_row_col(
-            "triton",
+            kernel,
             A,
             col_amax=col_amax_rs,
             row_amax=row_amax_rs,
             sign_vector=_HARDCODED_SIGN_VECTOR,
             stochastic_rounding=True,
+            use_fast_math=use_fast_math,
         )
 
         col_rs_nibs = unpack_fp4_nibbles(col_rs)
@@ -914,8 +967,9 @@ def test_cutedsl_rht_quantize_sr_requires_seed_offset():
 
 
 @_skip_no_cutedsl
+@pytest.mark.parametrize("use_fast_math", [False, True], ids=["exact", "fast"])
 @torch.no_grad()
-def test_cutedsl_rht_quantize_sr_unbiased():
+def test_cutedsl_rht_quantize_sr_unbiased(use_fast_math):
     """Hardware stochastic rounding (cvt.rs) is unbiased. Feed the row path elements that land
     EXACTLY halfway between FP4 grid points (1.25, between 1.0 and 1.5) -- the maximal-bias case
     RTNE always pins to one side -- and confirm averaging many SR draws converges to 1.25 with a
@@ -932,7 +986,12 @@ def test_cutedsl_rht_quantize_sr_unbiased():
 
     # RTNE pins every halfway element to a single side (no spread).
     _, _, rtne_codes, rtne_sf = _quantize_row_col(
-        "cutedsl", A, col_amax=amax, row_amax=amax, sign_vector=_HARDCODED_SIGN_VECTOR
+        "cutedsl",
+        A,
+        col_amax=amax,
+        row_amax=amax,
+        sign_vector=_HARDCODED_SIGN_VECTOR,
+        use_fast_math=use_fast_math,
     )
     assert _dequantize(rtne_codes, rtne_sf, amax)[:, halfway].unique().numel() == 1
 
@@ -951,6 +1010,7 @@ def test_cutedsl_rht_quantize_sr_unbiased():
             stochastic_rounding=True,
             seed=seed,
             offset=offset,
+            use_fast_math=use_fast_math,
         )
         vals = _dequantize(codes, sf, amax)[:, halfway]
         acc[:, halfway] += vals

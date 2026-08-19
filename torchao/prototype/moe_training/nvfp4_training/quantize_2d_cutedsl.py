@@ -30,7 +30,7 @@ def cutedsl_weight_quantize_2d(
     """2D NVFP4 E2M1 weight quantization without RHT (CuteDSL, SM100+).
 
     Args:
-        A:           (M, N) bfloat16, row-major. M == out_features must be divisible by,
+        A:           (M, N) bfloat16, row-major. M == out_features must be divisible by 128,
                      N == in_features by 128.
         global_amax: scalar float32 ``A.float().abs().max()`` (caller may all-reduce for TP).
 

@@ -145,6 +145,11 @@ def _validate_grouped_hadamard_inputs(
             logical_packed_length[0] % BLOCK_M == 0,
             "logical_packed_length must be divisible by 128",
         )
+        if shape_rep == SAME_BOTH_DIMS:
+            torch.ops.aten._assert_async.msg(
+                logical_packed_length[0] == packed_sequence_length,
+                "SAME_BOTH_DIMS does not support spare packed capacity",
+            )
         if shape_rep == VARYING_FIRST_DIM:
             torch.ops.aten._assert_async.msg(
                 torch.all(offsets % BLOCK_M == 0),
