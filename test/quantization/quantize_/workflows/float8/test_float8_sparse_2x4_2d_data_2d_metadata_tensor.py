@@ -95,7 +95,7 @@ def _is_sm90a():
 
 
 class TestFloat8Sparse2x4_2DData2DMetadataTensor(common_utils.TestCase):
-    def test_tensor_unflatten_defaults_missing_sparse_backend(self):
+    def test_tensor_unflatten_defaults_missing_sparse_kernel_choice(self):
         qdata = torch.empty((8, 16), dtype=torch.float8_e4m3fn)
         sparse_metadata = torch.empty((64, 16), dtype=torch.uint8)
         scale = torch.ones((8, 1), dtype=torch.bfloat16)
@@ -115,15 +115,15 @@ class TestFloat8Sparse2x4_2DData2DMetadataTensor(common_utils.TestCase):
             None,
         )
 
-        self.assertEqual(tensor._sparse_backend, "cutedsl")
+        self.assertEqual(tensor._sparse_kernel_choice, SparseKernelChoice.CUTLASS)
 
-    def test_config_sparse_backend_default(self):
+    def test_config_sparse_kernel_choice_default(self):
         config = Float8DynamicActivationFloat8WeightConfig(
             version=2,
             packing_format=Float8PackingFormat.SPARSE_2D_DATA_2D_METADATA,
             granularity=PerRow(),
         )
-        self.assertEqual(config.sparse_backend, SparseKernelChoice.CUTEDSL)
+        self.assertEqual(config._sparse_kernel_choice, SparseKernelChoice.CUTLASS)
 
     @unittest.skipIf(not is_sm_at_least_90(), "Need H100 to run")
     @unittest.skipIf(not _cutedsl_runtime_available(), "CuTeDSL runtime unavailable")
@@ -158,10 +158,8 @@ class TestFloat8Sparse2x4_2DData2DMetadataTensor(common_utils.TestCase):
     @common_utils.parametrize("bias", [True, False])
     @common_utils.parametrize("shape", [(16, 16, 32), (128, 256, 256)])
     def test_cutedsl_sparse_linear(self, shape, bias):
-        # Not bitwise-identical to the legacy CUTLASS path: the two kernels
-        # use different GEMM tile schedules, so floating-point accumulation
-        # order (and thus rounding) differs, unlike the pure byte-copy
-        # conversion kernel above, which does match bitwise.
+        # Measured bitwise-identical to legacy CUTLASS; rtol=1e-5 leaves slack
+        # for a future CUTLASS/nvidia-cutlass-dsl version changing rounding.
         m, n, k = shape
         input = torch.randn((m, k), dtype=torch.bfloat16, device="cuda").to(
             torch.float8_e4m3fn
@@ -196,7 +194,7 @@ class TestFloat8Sparse2x4_2DData2DMetadataTensor(common_utils.TestCase):
             bias_tensor,
             torch.bfloat16,
         )
-        torch.testing.assert_close(legacy, cutedsl, atol=1e-1, rtol=1e-2)
+        torch.testing.assert_close(legacy, cutedsl, rtol=1e-5, atol=0)
 
     @unittest.skipIf(not is_sm_at_least_90(), "Need H100 to run")
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
@@ -264,7 +262,7 @@ class TestFloat8Sparse2x4_2DData2DMetadataTensor(common_utils.TestCase):
                     version=2,
                     packing_format=Float8PackingFormat.SPARSE_2D_DATA_2D_METADATA,
                     granularity=PerRow(),
-                    sparse_backend=backend,
+                    _sparse_kernel_choice=backend,
                 ),
             )
             if compile:

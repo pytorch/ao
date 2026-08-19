@@ -503,17 +503,19 @@ def _to_sparse_semi_structured_cutedsl(
     )
     total_work = max(total_metadata, total_padding) if has_padding else total_metadata
     num_blocks = (total_work + 255) // 256
+    # The --enable-tvm-ffi runtime is positional-only, so this must match
+    # ToSparseSemiStructured.__call__'s parameter order exactly.
     compiled(
-        weight=weight,
-        output=output,
-        metadata=metadata,
-        rows=rows,
-        cols=cols,
-        compressed_cols=compressed_cols,
-        metadata_cols=metadata_cols,
-        metadata_rows=metadata_rows,
-        num_blocks=num_blocks,
-        stream=torch.cuda.current_stream(),
+        weight,
+        output,
+        metadata,
+        rows,
+        cols,
+        compressed_cols,
+        metadata_cols,
+        metadata_rows,
+        num_blocks,
+        torch.cuda.current_stream(),
     )
     return output, metadata
 
@@ -1561,6 +1563,8 @@ def _rowwise_scaled_linear_sparse_cutedsl(
         "Expected fp16 or bf16 output"
     )
     if bias is not None:
+        # Matches the legacy CUTLASS kernel's own requirement (it runtime-checks
+        # bias.scalar_type() == Y.scalar_type()), not a CuTeDSL-specific limitation.
         assert bias.dtype == output_dtype, "Bias dtype must match output dtype"
         assert bias.dim() == 1, "Expected bias to be 1D"
 
@@ -1625,26 +1629,27 @@ def _rowwise_scaled_linear_sparse_cutedsl(
         weight_meta.shape[0] >= cta_weight_rows,
         mma_per_wg,
     )
+    num_n_blocks = (n + cta_weight_rows - 1) // cta_weight_rows
+    num_m_blocks = (m + _WGMMA_INPUT_ROWS - 1) // _WGMMA_INPUT_ROWS
+    raster_group_n = _RASTER_GROUP_N if num_n_blocks > 32 else num_n_blocks
+    # The --enable-tvm-ffi runtime is positional-only, so this must match
+    # the kernel's __call__ parameter order exactly (not the order above).
     compiled(
-        input=input_2d,
-        input_scale=input_scale_1d,
-        weight=weight,
-        weight_meta=weight_meta,
-        weight_scale=weight_scale_1d,
-        bias=bias_arg,
-        output=output,
-        m_size=m,
-        n_size=n,
-        k_size=k,
-        metadata_rows=weight_meta.shape[0],
-        num_n_blocks=(n + cta_weight_rows - 1) // cta_weight_rows,
-        raster_group_n=(
-            _RASTER_GROUP_N
-            if (n + cta_weight_rows - 1) // cta_weight_rows > 32
-            else (n + cta_weight_rows - 1) // cta_weight_rows
-        ),
-        num_m_blocks=(m + _WGMMA_INPUT_ROWS - 1) // _WGMMA_INPUT_ROWS,
-        stream=torch.cuda.current_stream(),
+        input_2d,
+        input_scale_1d,
+        weight,
+        weight_meta,
+        weight_scale_1d,
+        bias_arg,
+        output,
+        m,
+        n,
+        k,
+        weight_meta.shape[0],
+        num_n_blocks,
+        num_m_blocks,
+        raster_group_n,
+        torch.cuda.current_stream(),
     )
     return output.reshape(*input.shape[:-1], n)
 
