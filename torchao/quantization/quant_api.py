@@ -1271,7 +1271,7 @@ def _float8_dynamic_activation_float8_weight_quantize_tensor(weight, config):
             float8_dtype=weight_dtype,
             granularity=weight_granularity,
             act_quant_kwargs=act_quant_kwargs,
-            sparse_backend=config._sparse_kernel_choice,
+            sparse_kernel_choice=config._sparse_kernel_choice,
         )
         return quantized_weight
     elif packing_format == Float8PackingFormat.SPARSE_1D_DATA_1D_METADATA:

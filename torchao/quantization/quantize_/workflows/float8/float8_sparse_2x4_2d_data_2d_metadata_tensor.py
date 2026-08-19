@@ -50,14 +50,8 @@ class SparseKernelChoice(str, Enum):
     Kernel choice for the FP8 2:4 sparse conversion and linear operators.
     """
 
-    CUTLASS = "cutlass"
-    """
-    Hand-written CUTLASS C++ kernels, built as part of the torchao extension.
-    """
-    CUTEDSL = "cutedsl"
-    """
-    CuTeDSL kernels, JIT-compiled on first use through nvidia-cutlass-dsl.
-    """
+    CUTLASS = "cutlass"  # hand-written CUTLASS C++ kernels
+    CUTEDSL = "cutedsl"  # CuTeDSL kernels, JIT-compiled via nvidia-cutlass-dsl
 
 
 torch.serialization.add_safe_globals([SparseKernelChoice])
@@ -80,8 +74,8 @@ class Float8Sparse2x4_2DData2DMetadataTensor(TorchAOBaseTensor):
         sharing the same set of quantization parameters (scale), have the same rank as qdata or
         is an empty list (representing per tensor quantization)
         act_quant_kwargs (QuantizeTensorToFloat8Kwargs): the kwargs for Sparse2x4Float8Tensor.from_hp
-        packing_format (Float8PackingFormat): the preference for quantize, mm etc. kernel to use,
-        by default, this will be chosen for user based on hardware, library availabilities etc.
+        _sparse_kernel_choice (SparseKernelChoice): which kernel implementation to use for the
+        sparse conversion and sparse matmul; defaults to SparseKernelChoice.CUTLASS
         dtype: Original Tensor dtype
     """
 
@@ -187,7 +181,7 @@ class Float8Sparse2x4_2DData2DMetadataTensor(TorchAOBaseTensor):
         hp_value_lb: Optional[float] = None,
         hp_value_ub: Optional[float] = None,
         act_quant_kwargs: Optional[QuantizeTensorToFloat8Kwargs] = None,
-        sparse_backend: SparseKernelChoice = SparseKernelChoice.CUTLASS,
+        sparse_kernel_choice: SparseKernelChoice = SparseKernelChoice.CUTLASS,
     ):
         block_size = get_block_size(hp_tensor.shape, granularity)
         block_size = list(block_size)
@@ -216,13 +210,12 @@ class Float8Sparse2x4_2DData2DMetadataTensor(TorchAOBaseTensor):
         )
         assert hp_value_lb is None, "CUTLASS sparse kernel does not support hp_value_lb"
 
-        sparse_backend = SparseKernelChoice(sparse_backend)
-        if sparse_backend is SparseKernelChoice.CUTEDSL:
+        if sparse_kernel_choice is SparseKernelChoice.CUTEDSL:
             qdata, sparse_metadata = _to_sparse_semi_structured_cutedsl(data)
-        elif sparse_backend is SparseKernelChoice.CUTLASS:
+        elif sparse_kernel_choice is SparseKernelChoice.CUTLASS:
             qdata, sparse_metadata = to_sparse_semi_structured_cutlass_sm9x_f8(data)
         else:
-            raise ValueError(f"Unsupported sparse backend: {sparse_backend.value}")
+            raise ValueError(f"Unsupported sparse backend: {sparse_kernel_choice}")
 
         return Float8Sparse2x4_2DData2DMetadataTensor(
             qdata,
@@ -230,7 +223,7 @@ class Float8Sparse2x4_2DData2DMetadataTensor(TorchAOBaseTensor):
             scale,
             block_size=block_size,
             act_quant_kwargs=act_quant_kwargs,
-            _sparse_kernel_choice=sparse_backend,
+            _sparse_kernel_choice=sparse_kernel_choice,
             dtype=hp_dtype,
         )
 
@@ -266,14 +259,14 @@ def _(func, types, args, kwargs):
     weight_meta = weight_tensor.sparse_metadata
     weight_scale = weight_tensor.scale.squeeze(1)
     out_dtype = input_tensor.dtype
-    sparse_backend = weight_tensor._sparse_kernel_choice
+    sparse_kernel_choice = weight_tensor._sparse_kernel_choice
 
-    if sparse_backend is SparseKernelChoice.CUTEDSL:
+    if sparse_kernel_choice is SparseKernelChoice.CUTEDSL:
         linear_op = _rowwise_scaled_linear_sparse_cutedsl
-    elif sparse_backend is SparseKernelChoice.CUTLASS:
+    elif sparse_kernel_choice is SparseKernelChoice.CUTLASS:
         linear_op = rowwise_scaled_linear_sparse_cutlass_f8f8
     else:
-        raise ValueError(f"Unsupported sparse backend: {sparse_backend.value}")
+        raise ValueError(f"Unsupported sparse backend: {sparse_kernel_choice}")
 
     out = linear_op(
         input,

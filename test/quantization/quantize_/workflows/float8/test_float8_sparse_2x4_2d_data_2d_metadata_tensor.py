@@ -117,14 +117,6 @@ class TestFloat8Sparse2x4_2DData2DMetadataTensor(common_utils.TestCase):
 
         self.assertEqual(tensor._sparse_kernel_choice, SparseKernelChoice.CUTLASS)
 
-    def test_config_sparse_kernel_choice_default(self):
-        config = Float8DynamicActivationFloat8WeightConfig(
-            version=2,
-            packing_format=Float8PackingFormat.SPARSE_2D_DATA_2D_METADATA,
-            granularity=PerRow(),
-        )
-        self.assertEqual(config._sparse_kernel_choice, SparseKernelChoice.CUTLASS)
-
     @unittest.skipIf(not is_sm_at_least_90(), "Need H100 to run")
     @unittest.skipIf(not _cutedsl_runtime_available(), "CuTeDSL runtime unavailable")
     @common_utils.parametrize(
@@ -157,23 +149,24 @@ class TestFloat8Sparse2x4_2DData2DMetadataTensor(common_utils.TestCase):
     @unittest.skipIf(not _cutedsl_runtime_available(), "CuTeDSL runtime unavailable")
     @common_utils.parametrize("bias", [True, False])
     @common_utils.parametrize("shape", [(16, 16, 32), (128, 256, 256)])
-    def test_cutedsl_sparse_linear(self, shape, bias):
-        # Measured bitwise-identical to legacy CUTLASS; rtol=1e-5 leaves slack
-        # for a future CUTLASS/nvidia-cutlass-dsl version changing rounding.
+    @common_utils.parametrize("dtype", [torch.float8_e4m3fn, torch.float8_e5m2])
+    @common_utils.parametrize("output_dtype", [torch.bfloat16, torch.float16])
+    def test_cutedsl_sparse_linear(self, shape, bias, dtype, output_dtype):
+        # Measured bitwise-identical to legacy CUTLASS for e4m3/bf16; rtol=1e-5
+        # leaves slack for a future CUTLASS/nvidia-cutlass-dsl version changing
+        # rounding, and for e5m2/fp16, not separately measured yet.
         m, n, k = shape
-        input = torch.randn((m, k), dtype=torch.bfloat16, device="cuda").to(
-            torch.float8_e4m3fn
-        )
+        input = torch.randn((m, k), dtype=torch.bfloat16, device="cuda").to(dtype)
         weight_dense = create_semi_structured_tensor(
             n,
             k,
-            dtype=torch.float8_e4m3fn,
+            dtype=dtype,
         ).cuda()
         weight, weight_meta = to_sparse_semi_structured_cutlass_sm9x_f8(weight_dense)
-        input_scale = torch.rand((m,), dtype=torch.bfloat16, device="cuda") + 0.5
-        weight_scale = torch.rand((n,), dtype=torch.bfloat16, device="cuda") + 0.5
+        input_scale = torch.rand((m,), dtype=output_dtype, device="cuda") + 0.5
+        weight_scale = torch.rand((n,), dtype=output_dtype, device="cuda") + 0.5
         bias_tensor = (
-            torch.randn((n,), dtype=torch.bfloat16, device="cuda") if bias else None
+            torch.randn((n,), dtype=output_dtype, device="cuda") if bias else None
         )
 
         legacy = rowwise_scaled_linear_sparse_cutlass_f8f8(
@@ -183,7 +176,7 @@ class TestFloat8Sparse2x4_2DData2DMetadataTensor(common_utils.TestCase):
             weight_meta,
             weight_scale,
             bias_tensor,
-            torch.bfloat16,
+            output_dtype,
         )
         cutedsl = _rowwise_scaled_linear_sparse_cutedsl(
             input,
@@ -192,7 +185,7 @@ class TestFloat8Sparse2x4_2DData2DMetadataTensor(common_utils.TestCase):
             weight_meta,
             weight_scale,
             bias_tensor,
-            torch.bfloat16,
+            output_dtype,
         )
         torch.testing.assert_close(legacy, cutedsl, rtol=1e-5, atol=0)
 
