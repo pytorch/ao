@@ -50,6 +50,7 @@ import torch
 from torchao.prototype.moe_training.kernels.mxfp8.grouped_mlp_validation import (
     ROW_GROUP_ALIGNMENT,
     SCALE_BLOCK_SIZE,
+    host_offsets_validation_enabled,
     validate_allocated_rows,
     validate_blocked_scales,
     validate_feature_dims,
@@ -76,6 +77,32 @@ def _cached_ones(numel: int, dtype: torch.dtype, device: torch.device) -> torch.
         out = torch.ones(numel, dtype=dtype, device=device)
         _ones_cache[key] = out
     return out
+
+
+# The always-on validation tier is metadata-only, so its verdict is a pure
+# function of the operands' metadata (the pointer-alignment gate is covered
+# by storage_offset: torch's CUDA caching allocator hands out aligned storage
+# bases). A training step calls each op hundreds of times with identical
+# metadata; the full battery runs once per distinct signature and repeats
+# skip straight to the derived dims. Signatures are recorded only AFTER
+# validation passes, so a rejected call never poisons the cache. The opt-in
+# offsets-VALUES check (TORCHAO_MXFP8_VALIDATE_OFFSETS) reads data, not
+# metadata, so it runs on every call while enabled.
+_validated_sigs: set = set()
+_VALIDATED_SIGS_CAP = 4096
+
+
+def _meta_sig(tag: str, *tensors: torch.Tensor) -> tuple:
+    # torch.Size and stride() are hashable tuples; device/dtype hash directly.
+    return (tag,) + tuple(
+        (t.shape, t.stride(), t.dtype, t.device, t.storage_offset())
+        for t in tensors
+    )
+
+
+def _remember_sig(sig: tuple) -> None:
+    if len(_validated_sigs) < _VALIDATED_SIGS_CAP:
+        _validated_sigs.add(sig)
 
 
 def _require_cuda_device(device: torch.device, name: str) -> None:
@@ -161,6 +188,15 @@ def _allocate_from_specs(specs, device) -> Tuple[torch.Tensor, ...]:
 
 
 def _validate_fwd_inputs(x_q, x_sf, w13_q, w13_sf, offsets):
+    sig = _meta_sig("fwd", x_q, x_sf, w13_q, w13_sf, offsets)
+    if sig in _validated_sigs:
+        rows, model_dim = x_q.shape
+        groups, two_hidden, _ = w13_q.shape
+        if host_offsets_validation_enabled():
+            validate_group_offsets(
+                offsets, num_groups=groups, allocated_rows=rows, device=x_q.device
+            )
+        return rows, model_dim, two_hidden // 2, groups
     if x_q.ndim != 2:
         raise ValueError(f"x_q must be 2D [R, D], got shape {tuple(x_q.shape)}")
     if w13_q.ndim != 3:
@@ -220,6 +256,7 @@ def _validate_fwd_inputs(x_q, x_sf, w13_q, w13_sf, offsets):
         device=device,
         groups=groups,
     )
+    _remember_sig(sig)
     return rows, model_dim, hidden, groups
 
 
@@ -310,6 +347,15 @@ def _(x_q, x_sf, w13_q, w13_sf, offsets):
 
 
 def _validate_mm_inputs(a_q, a_sf, b_q, b_sf, offsets):
+    sig = _meta_sig("mm", a_q, a_sf, b_q, b_sf, offsets)
+    if sig in _validated_sigs:
+        rows, contraction = a_q.shape
+        groups, out_features, _ = b_q.shape
+        if host_offsets_validation_enabled():
+            validate_group_offsets(
+                offsets, num_groups=groups, allocated_rows=rows, device=a_q.device
+            )
+        return rows, out_features, contraction, groups
     if a_q.ndim != 2:
         raise ValueError(f"a_q must be 2D [R, K], got shape {tuple(a_q.shape)}")
     if b_q.ndim != 3:
@@ -365,6 +411,7 @@ def _validate_mm_inputs(a_q, a_sf, b_q, b_sf, offsets):
         device=device,
         groups=groups,
     )
+    _remember_sig(sig)
     return rows, out_features, contraction, groups
 
 
@@ -448,6 +495,15 @@ def _bwd_output_specs(rows: int, hidden: int):
 
 
 def _validate_bwd_inputs(dy_q, dy_sf, w2_col_q, w2_col_sf, z_bf16, offsets):
+    sig = _meta_sig("bwd", dy_q, dy_sf, w2_col_q, w2_col_sf, z_bf16, offsets)
+    if sig in _validated_sigs:
+        rows, model_dim = dy_q.shape
+        groups, _, hidden = w2_col_q.shape
+        if host_offsets_validation_enabled():
+            validate_group_offsets(
+                offsets, num_groups=groups, allocated_rows=rows, device=dy_q.device
+            )
+        return rows, model_dim, hidden, groups
     if dy_q.ndim != 2:
         raise ValueError(f"dy_q must be 2D [R, D], got shape {tuple(dy_q.shape)}")
     if w2_col_q.ndim != 3:
@@ -515,6 +571,7 @@ def _validate_bwd_inputs(dy_q, dy_sf, w2_col_q, w2_col_sf, z_bf16, offsets):
         device=device,
         groups=groups,
     )
+    _remember_sig(sig)
     return rows, model_dim, hidden, groups
 
 
@@ -599,6 +656,19 @@ def _(dy_q, dy_sf, w2_col_q, w2_col_sf, z_bf16, offsets):
 
 
 def _validate_wgrad_inputs(dy_col_q, dy_col_sf, x_col_q, x_col_sf, offsets):
+    sig = _meta_sig("wgrad", dy_col_q, dy_col_sf, x_col_q, x_col_sf, offsets)
+    if sig in _validated_sigs:
+        rows, out_features = dy_col_q.shape
+        in_features = x_col_q.shape[1]
+        groups = offsets.numel()
+        if host_offsets_validation_enabled():
+            validate_group_offsets(
+                offsets,
+                num_groups=groups,
+                allocated_rows=rows,
+                device=dy_col_q.device,
+            )
+        return rows, out_features, in_features, groups
     if dy_col_q.ndim != 2 or x_col_q.ndim != 2:
         raise ValueError(
             "dy_col_q and x_col_q must both be 2D logical [R, N] / [R, K], got "
@@ -661,6 +731,7 @@ def _validate_wgrad_inputs(dy_col_q, dy_col_sf, x_col_q, x_col_sf, offsets):
     # by the ALLOCATED rows while a composite-produced operand's are sized by
     # the ROUTED total offsets[-1] -- mixing the two is legitimate and
     # probe-proven (tail case); the kernel reads only within offsets.
+    _remember_sig(sig)
     return rows, out_features, in_features, groups
 
 
