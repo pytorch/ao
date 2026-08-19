@@ -6,6 +6,7 @@ from .float8.float8_sparse_2x4_1d_data_1d_metadata_tensor import (
 )
 from .float8.float8_sparse_2x4_2d_data_2d_metadata_tensor import (
     Float8Sparse2x4_2DData2DMetadataTensor,
+    SparseKernelChoice,
 )
 from .float8.float8_tensor import (
     Float8Tensor,
@@ -61,5 +62,6 @@ __all__ = [
     "QuantizeTensorToFloat8Kwargs",
     "QuantizeTensorToInt8Kwargs",
     "Sparse2x4CUTLASSFloat8Tensor",
+    "SparseKernelChoice",
     "to_nf4",
 ]
