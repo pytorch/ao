@@ -50,8 +50,11 @@ from ._cutedsl_kernels_impl import (
     FP8_E4M3_MAX,
     FP32_MAX,
     HADAMARD_DIM,
+    TILE_BLOCKS,
     _abs_f32,
     _atom_max_f32_nonneg,
+    _bf16hi_to_f32,
+    _bf16lo_to_f32,
     _div_rn_f32,
     _get_rht_buffer,
     _get_sr_rng_buffer,
@@ -59,7 +62,7 @@ from ._cutedsl_kernels_impl import (
     _min_f32,
     _quant16,
     _round_rht_amax,
-    philox4,
+    philox4_all,
     philox_prep,
 )
 
@@ -78,7 +81,8 @@ CLC_RESPONSE_I32 = 4  # 16-byte cluster-launch-control response
 
 # Mainloop stage count from the SM100 shared-memory budget (TE :1257-1264). The
 # A tile dominates; the reserve covers sB, every pipeline's mbarriers, the CLC
-# response, the TMEM holding buffer, and the per-group amax staging arrays.
+# response, and the TMEM holding buffer. The epilogues reduce in registers and
+# atomic straight to global, so there is no per-group amax staging in SMEM.
 _SMEM_CAPACITY = 232448
 _A_TILE_BYTES = M_TILE * TOKEN_TILE * 2
 _SMEM_RESERVE = 2048
@@ -114,10 +118,26 @@ ROW_TOK_PER_PASS = ROW_THREADS // ROW_HB  # 32 tokens per pass
 ROW_PASSES = TOKEN_TILE // ROW_TOK_PER_PASS  # 4
 
 
-# Group lookup is a fixed-depth binary search, so the group count is capped at
-# 2**GROUP_SEARCH_STEPS. TE caps at the same 64 (kMaxTensorsPerKernel).
+# Group lookup is a binary search unrolled to a constexpr depth -- chosen to keep the
+# epilogues branch-free -- so it resolves exactly 2**GROUP_SEARCH_STEPS groups and the
+# group count is capped there. Raising the cap means raising the depth with it: at
+# E > 2**GROUP_SEARCH_STEPS the search exits with hi - lo > 1 and returns a group index
+# off by one, which is a silently wrong amax rather than a failure. Keep the two in
+# sync; ``test_cutedsl_group_rht_amax_rejects_too_many_groups`` pins the boundary.
+#
+# The 64 is ours, not inherited: TE's grouped NVFP4 kernels also cap at 64, but for
+# unrelated reasons -- the pointer-list kernels (kMaxTensorsPerKernel) are bounded by
+# the 4 KB kernel-argument limit, and the graph-safe ones by a shared-memory scratch
+# array. TE's graph-safe kernels, which are the ones this design mirrors (packed input
+# plus device-side offsets, no pointer arrays), use an unbounded `while` search and have
+# no depth limit at all. Nothing here forces 64; it is comfortably above the local
+# expert counts these models train at (671B at EP=64 gives 4).
 MAX_GROUPS = 64
 GROUP_SEARCH_STEPS = 6
+assert MAX_GROUPS <= 2**GROUP_SEARCH_STEPS, (
+    f"MAX_GROUPS={MAX_GROUPS} exceeds what a depth-{GROUP_SEARCH_STEPS} search resolves "
+    f"({2**GROUP_SEARCH_STEPS})"
+)
 
 
 def _group_idx(token, offsets_t, num_groups):
@@ -167,8 +187,10 @@ def _group_at_work_item(tile_n_base, offsets_t, num_groups):
     A work item is K_TILE_MAX consecutive token tiles, so one search covers all
     of them unless a tile crosses out of the returned group; the epilogues
     re-search on that crossing rather than stepping ``g``, which keeps the
-    result identical to a per-tile lookup even when a group is empty. Searching
-    ``offsets_t`` in place keeps the group count unbounded.
+    result identical to a per-tile lookup even when a group is empty. Both
+    searches go through ``_group_idx``, so both inherit its ``MAX_GROUPS`` /
+    ``GROUP_SEARCH_STEPS`` depth cap -- raising one without the other returns a
+    silently wrong group index rather than failing.
     """
     g = _group_idx(tile_n_base * cutlass.Int32(TOKEN_TILE), offsets_t, num_groups)
     return g, offsets_t[g]
@@ -313,10 +335,7 @@ class _Tcgen05GroupRowColFused(_GroupRhtMainloop):
     the row warp group (which reads the same SMEM bytes for the rowwise path).
     """
 
-    def __init__(
-        self, swizzle_sf: bool = True, sr: bool = False, fast_math: bool = False
-    ):
-        self.swizzle_sf = swizzle_sf
+    def __init__(self, sr: bool = False, fast_math: bool = False):
         self.sr = sr
         self.fast_math = fast_math
 
@@ -327,7 +346,7 @@ class _Tcgen05GroupRowColFused(_GroupRhtMainloop):
         mB: cute.Tensor,  # (16, 16, 1) bf16 = H^T
         mColFP4: cute.Tensor,  # (hidden, tokens//8) u32
         mColSF: cute.Tensor,  # flat u32 concatenation of per-group swizzled scales
-        mRowFP4: cute.Tensor,  # (tokens, hidden//8) u32
+        mRowFP4: cute.Tensor,  # (tokens, hidden//16) u64: the row code pair per store
         mRowSF: cute.Tensor,  # (tokens//128, hidden//64, 32, 16) e4m3
         row_amax_t: cute.Tensor,  # (num_tensors,) f32
         col_amax_t: cute.Tensor,  # (num_tensors,) f32
@@ -567,14 +586,13 @@ class _Tcgen05GroupRowColFused(_GroupRhtMainloop):
         # Graph-safe work bound: the scheduler is sized from host-known capacity,
         # but how much of that capacity holds real tokens is only known on device
         # (TE derives the same bound from offsets[num_tensors] at :224). Tiles at
-        # or past this point are never loaded; the epilogues zero-fill them so the
-        # capacity rows read back as zero, matching the triton op's contract.
+        # or past this point are never loaded or stored.
         tiles_in_n_valid = logical_len_t[0] // cutlass.Int32(TOKEN_TILE)
-        zero_sf = _zero_sf()
-        # Triton's grid is (cdiv(tokens,128) * cdiv(hidden,128),) with
-        # pid_m = tile_idx // num_tiles_hidden over tokens, so its tile index is
-        # tile_n * tiles_in_h + tile_m. Reconstructing it arithmetically makes the
-        # SR stream independent of this kernel's CLC traversal order.
+        # tile_n * tiles_in_h + tile_m gives each tile a stable identity from its
+        # coordinates alone. This kernel's CLC scheduler is persistent, so which tile a
+        # CTA visits next is not fixed; deriving the SR Philox counter from coordinates
+        # rather than from a running per-thread counter is what keeps the stream a pure
+        # function of position and makes the same rng_state reproduce the same codes.
         tiles_in_h = hidden // cutlass.Int32(M_TILE)
 
         # ==================== TMA warp (mainloop producer) ====================
@@ -743,99 +761,71 @@ class _Tcgen05GroupRowColFused(_GroupRhtMainloop):
             )
             while work_tile.is_valid_tile:
                 tile_m, tile_n_base = _work_tile_coord(work_tile)
-                n_all = _k_tile_count(tile_n_base, tiles_in_n)
-                n_cnt = _valid_tile_count(tile_n_base, n_all, tiles_in_n_valid)
-                g, g_end = _group_at_work_item(tile_n_base, offsets_t, num_tensors)
-                _, dec, enc_over_fp4max = _global_scale(col_amax_t[g])
-                for k_tile in cutlass.range(n_cnt, unroll=1):
-                    tile_n = tile_n_base + k_tile
-                    token = tile_n * cutlass.Int32(TOKEN_TILE)
-                    if token >= g_end:
-                        g = _group_idx(token, offsets_t, num_tensors)
-                        g_end = offsets_t[g]
-                        _, dec, enc_over_fp4max = _global_scale(col_amax_t[g])
-                    h_global = tile_m * cutlass.Int32(M_TILE) + h_local
-                    tile_id = tile_n * tiles_in_h + tile_m
+                n_cnt = _valid_tile_count(
+                    tile_n_base,
+                    _k_tile_count(tile_n_base, tiles_in_n),
+                    tiles_in_n_valid,
+                )
+                if n_cnt > cutlass.Int32(0):
+                    g, g_end = _group_at_work_item(tile_n_base, offsets_t, num_tensors)
+                    _, dec, enc_over_fp4max = _global_scale(col_amax_t[g])
+                    for k_tile in cutlass.range(n_cnt, unroll=1):
+                        tile_n = tile_n_base + k_tile
+                        token = tile_n * cutlass.Int32(TOKEN_TILE)
+                        if token >= g_end:
+                            g = _group_idx(token, offsets_t, num_tensors)
+                            g_end = offsets_t[g]
+                            _, dec, enc_over_fp4max = _global_scale(col_amax_t[g])
+                        h_global = tile_m * cutlass.Int32(M_TILE) + h_local
+                        tile_id = tile_n * tiles_in_h + tile_m
 
-                    acc_pipeline.consumer_wait(acc_consumer_state)
-                    cute.copy(
-                        bulk_tiled_copy_t2r,
-                        bulk_tTR_tAcc[(None, None, None, acc_consumer_state.index)],
-                        bulk_tTR_rAcc,
-                    )
-                    bulk_vals = bulk_tTR_rAcc.load().reshape((16, 8))
-                    cute.arch.fence_view_async_tmem_load()
-                    with cute.arch.elect_one():
-                        acc_pipeline.consumer_release(acc_consumer_state)
-                    acc_consumer_state.advance()
-
-                    for u in cutlass.range_constexpr(EPI_UNROLL):
-                        vals = bulk_vals[(None, u)]
-                        col_rb = None
-                        if cutlass.const_expr(self.sr):
-                            # Triton's columnwise scaled tile is (hidden, tokens), so its
-                            # flat packed index is h_local * (128/2) + token_local/2.
-                            col_rb = philox4(
-                                col_state,
-                                tile_id * cutlass.Int32(TILE_PACKED)
-                                + h_local * cutlass.Int32(TOKEN_TILE // 2)
-                                + cutlass.Int32(u * 8),
-                            )
-                        w0, w1, sf = _quant16(
-                            vals,
-                            enc_over_fp4max,
-                            dec,
-                            self.sr,
-                            col_rb,
-                            rht_acc=True,
-                            fast_math=self.fast_math,
+                        acc_pipeline.consumer_wait(acc_consumer_state)
+                        cute.copy(
+                            bulk_tiled_copy_t2r,
+                            bulk_tTR_tAcc[(None, None, None, acc_consumer_state.index)],
+                            bulk_tTR_rAcc,
                         )
-                        rCol[u * 2] = w0
-                        rCol[u * 2 + 1] = w1
-                        rColSF[u] = sf
+                        bulk_vals = bulk_tTR_rAcc.load().reshape((16, 8))
+                        cute.arch.fence_view_async_tmem_load()
+                        with cute.arch.elect_one():
+                            acc_pipeline.consumer_release(acc_consumer_state)
+                        acc_consumer_state.advance()
 
-                    gCol = cute.local_tile(
-                        mColFP4, (M_TILE, TOKEN_TILE // 8), (tile_m, tile_n)
-                    )
-                    cute.autovec_copy(rCol, gCol[(h_local, None)])
-                    _store_grouped_col_sf_u32(
-                        mColSF,
-                        rColSF,
-                        h_global,
-                        tile_n * cutlass.Int32(TOKEN_TILE // 16),
-                        g,
-                        offsets_t,
-                        hidden,
-                    )
+                        for u in cutlass.range_constexpr(EPI_UNROLL):
+                            vals = bulk_vals[(None, u)]
+                            col_rb = None
+                            if cutlass.const_expr(self.sr):
+                                # One draw per 16-element block, indexed by its position in
+                                # the columnwise (hidden, tokens) tile.
+                                col_rb = philox4_all(
+                                    col_state,
+                                    tile_id * cutlass.Int32(TILE_BLOCKS)
+                                    + h_local * cutlass.Int32(TOKEN_TILE // 16)
+                                    + cutlass.Int32(u),
+                                )
+                            w0, w1, sf = _quant16(
+                                vals,
+                                enc_over_fp4max,
+                                dec,
+                                self.sr,
+                                col_rb,
+                                rht_acc=True,
+                                fast_math=self.fast_math,
+                            )
+                            rCol[u * 2] = w0
+                            rCol[u * 2 + 1] = w1
+                            rColSF[u] = sf
 
-                # Capacity tiles: never loaded, so write zeros without touching
-                # the accumulator pipeline (its producer skipped them too).
-                for i in cutlass.range_constexpr(2 * EPI_UNROLL):
-                    rCol[i] = cutlass.Uint32(0)
-                for i in cutlass.range_constexpr(EPI_UNROLL):
-                    rColSF[i] = zero_sf
-                for k_tile in cutlass.range(n_cnt, n_all, 1, unroll=1):
-                    tile_n = tile_n_base + k_tile
-                    gCol = cute.local_tile(
-                        mColFP4, (M_TILE, TOKEN_TILE // 8), (tile_m, tile_n)
-                    )
-                    cute.autovec_copy(rCol, gCol[(h_local, None)])
-                    # Triton masks its columnwise scale store with
-                    # cb_idx < cdiv(group_len, 64), which admits capacity tiles only
-                    # when the caller folds the pad into the last group
-                    # (offsets[-1] == packed rows). Past offsets[-1] nothing addresses
-                    # these bytes, and storing anyway would run word_col beyond
-                    # words_per_hidden_block and overwrite the next hidden block's
-                    # scales. The tile is 128 tokens and group boundaries are
-                    # 128-aligned, so this per-tile test is that per-word mask.
-                    token = tile_n * cutlass.Int32(TOKEN_TILE)
-                    if token < offsets_t[num_tensors - cutlass.Int32(1)]:
+                        gCol = cute.local_tile(
+                            mColFP4, (M_TILE, TOKEN_TILE // 8), (tile_m, tile_n)
+                        )
+                        cute.autovec_copy(rCol, gCol[(h_local, None)])
                         _store_grouped_col_sf_u32(
                             mColSF,
                             rColSF,
-                            tile_m * cutlass.Int32(M_TILE) + h_local,
+                            h_global,
                             tile_n * cutlass.Int32(TOKEN_TILE // 16),
-                            _group_idx(token, offsets_t, num_tensors),
+                            g,
                             offsets_t,
                             hidden,
                         )
@@ -858,6 +848,7 @@ class _Tcgen05GroupRowColFused(_GroupRhtMainloop):
 
             blk = cute.make_rmem_tensor((16,), cutlass.Float32)
             rBlk = cute.make_rmem_tensor((16,), cutlass.BFloat16)
+            rPair = cute.make_rmem_tensor((2,), cutlass.Uint32)
             row_state = None
             if cutlass.const_expr(self.sr):
                 row_state = philox_prep(
@@ -870,81 +861,80 @@ class _Tcgen05GroupRowColFused(_GroupRhtMainloop):
             )
             while work_tile.is_valid_tile:
                 tile_m, tile_n_base = _work_tile_coord(work_tile)
-                n_all = _k_tile_count(tile_n_base, tiles_in_n)
-                n_cnt = _valid_tile_count(tile_n_base, n_all, tiles_in_n_valid)
-                g, g_end = _group_at_work_item(tile_n_base, offsets_t, num_tensors)
-                _, r_dec, r_enc_over_fp4max = _global_scale(row_amax_t[g])
-                for k_tile in cutlass.range(n_cnt, unroll=1):
-                    token = (tile_n_base + k_tile) * cutlass.Int32(TOKEN_TILE)
-                    if token >= g_end:
-                        g = _group_idx(token, offsets_t, num_tensors)
-                        g_end = offsets_t[g]
-                        _, r_dec, r_enc_over_fp4max = _global_scale(row_amax_t[g])
+                n_cnt = _valid_tile_count(
+                    tile_n_base,
+                    _k_tile_count(tile_n_base, tiles_in_n),
+                    tiles_in_n_valid,
+                )
+                if n_cnt > cutlass.Int32(0):
+                    g, g_end = _group_at_work_item(tile_n_base, offsets_t, num_tensors)
+                    _, r_dec, r_enc_over_fp4max = _global_scale(row_amax_t[g])
+                    for k_tile in cutlass.range(n_cnt, unroll=1):
+                        token = (tile_n_base + k_tile) * cutlass.Int32(TOKEN_TILE)
+                        if token >= g_end:
+                            g = _group_idx(token, offsets_t, num_tensors)
+                            g_end = offsets_t[g]
+                            _, r_dec, r_enc_over_fp4max = _global_scale(row_amax_t[g])
 
-                    ab_pipeline.consumer_wait(ab_consumer_state)
-                    stage = ab_consumer_state.index
-                    tile_n = tile_n_base + k_tile
-                    gRow = cute.local_tile(
-                        mRowFP4, (TOKEN_TILE, M_TILE // 8), (tile_n, tile_m)
-                    )
-                    for p in cutlass.range_constexpr(ROW_PASSES):
-                        tok = p * cutlass.Int32(ROW_TOK_PER_PASS) + t0
-                        cute.autovec_copy(
-                            cute.local_tile(sA_clean[(None, tok, stage)], (16,), (hb,)),
-                            rBlk,
+                        ab_pipeline.consumer_wait(ab_consumer_state)
+                        stage = ab_consumer_state.index
+                        tile_n = tile_n_base + k_tile
+                        gRow = cute.local_tile(
+                            mRowFP4, (TOKEN_TILE, M_TILE // 16), (tile_n, tile_m)
                         )
-                        for j in cutlass.range_constexpr(16):
-                            blk[j] = rBlk[j].to(cutlass.Float32)
-                        row_rb = None
                         if cutlass.const_expr(self.sr):
-                            # Triton's rowwise scaled tile is (tokens, hidden), so its
-                            # flat packed index is tok * (128/2) + hidden_local/2.
-                            row_rb = philox4(
-                                row_state,
-                                (tile_n * tiles_in_h + tile_m)
-                                * cutlass.Int32(TILE_PACKED)
-                                + tok * cutlass.Int32(M_TILE // 2)
-                                + hb * cutlass.Int32(8),
+                            tile_id = tile_n * tiles_in_h + tile_m
+                        for p in cutlass.range_constexpr(ROW_PASSES):
+                            tok = p * cutlass.Int32(ROW_TOK_PER_PASS) + t0
+                            cute.autovec_copy(
+                                cute.local_tile(
+                                    sA_clean[(None, tok, stage)], (16,), (hb,)
+                                ),
+                                rBlk,
                             )
-                        w0, w1, sf = _quant16(
-                            blk,
-                            r_enc_over_fp4max,
-                            r_dec,
-                            self.sr,
-                            row_rb,
-                            fast_math=self.fast_math,
+                            rWords = cute.recast_tensor(rBlk, cutlass.Uint32)
+                            for j in cutlass.range_constexpr(8):
+                                blk[2 * j] = _bf16lo_to_f32(rWords[j])
+                                blk[2 * j + 1] = _bf16hi_to_f32(rWords[j])
+                            row_rb = None
+                            if cutlass.const_expr(self.sr):
+                                # One draw per 16-element block, indexed by its position in
+                                # the rowwise (tokens, hidden) tile.
+                                row_rb = philox4_all(
+                                    row_state,
+                                    tile_id * cutlass.Int32(TILE_BLOCKS)
+                                    + tok * cutlass.Int32(M_TILE // 16)
+                                    + hb,
+                                )
+                            w0, w1, sf = _quant16(
+                                blk,
+                                r_enc_over_fp4max,
+                                r_dec,
+                                self.sr,
+                                row_rb,
+                                fast_math=self.fast_math,
+                            )
+                            # One 64-bit store, not two 32-bit ones. A warp covers 4
+                            # tokens x ROW_HB hidden blocks, so consecutive lanes differ in
+                            # hb: as two u32 stores each wrote 4B at an 8B lane stride,
+                            # spanning 64B to fill 32B, and every sector came back half
+                            # wasted (8.00 sectors/instruction against an ideal of 4.00).
+                            # Storing the pair makes the lanes contiguous and lands at the
+                            # ideal, which is what TE's STG.E.64 already does here.
+                            rPair[0] = w0
+                            rPair[1] = w1
+                            pair64 = cute.recast_tensor(rPair, cutlass.Uint64)
+                            gRow[(tok, hb)] = pair64[0]
+                            _store_sf_byte(
+                                mRowSF,
+                                sf,
+                                tile_n * cutlass.Int32(TOKEN_TILE) + tok,
+                                tile_m * cutlass.Int32(ROW_HB) + hb,
+                            )
+                        ab_pipeline.consumer_release(
+                            ab_consumer_state, pipeline.PipelineOp.AsyncThread
                         )
-                        gRow[(tok, hb * cutlass.Int32(2))] = w0
-                        gRow[(tok, hb * cutlass.Int32(2) + cutlass.Int32(1))] = w1
-                        _store_sf_byte(
-                            mRowSF,
-                            sf,
-                            tile_n * cutlass.Int32(TOKEN_TILE) + tok,
-                            tile_m * cutlass.Int32(ROW_HB) + hb,
-                        )
-                    ab_pipeline.consumer_release(
-                        ab_consumer_state, pipeline.PipelineOp.AsyncThread
-                    )
-                    ab_consumer_state.advance()
-
-                # Capacity tiles: no mainloop stage was produced for them.
-                for k_tile in cutlass.range(n_cnt, n_all, 1, unroll=1):
-                    tile_n = tile_n_base + k_tile
-                    gRow = cute.local_tile(
-                        mRowFP4, (TOKEN_TILE, M_TILE // 8), (tile_n, tile_m)
-                    )
-                    for p in cutlass.range_constexpr(ROW_PASSES):
-                        tok = p * cutlass.Int32(ROW_TOK_PER_PASS) + t0
-                        gRow[(tok, hb * cutlass.Int32(2))] = cutlass.Uint32(0)
-                        gRow[(tok, hb * cutlass.Int32(2) + cutlass.Int32(1))] = (
-                            cutlass.Uint32(0)
-                        )
-                        _store_sf_byte(
-                            mRowSF,
-                            zero_sf,
-                            tile_n * cutlass.Int32(TOKEN_TILE) + tok,
-                            tile_m * cutlass.Int32(ROW_HB) + hb,
-                        )
+                        ab_consumer_state.advance()
 
                 clc_pipeline.consumer_wait(clc_consumer_state)
                 work_tile = tile_sched.get_current_work()
@@ -952,10 +942,12 @@ class _Tcgen05GroupRowColFused(_GroupRhtMainloop):
                 clc_consumer_state.advance()
 
 
-@functools.lru_cache(maxsize=16)
-def _compile_group_fused_kernel(
-    device_idx: int, swizzle: bool, sr: bool, fast_math: bool = False
-):
+# maxsize=None and no defaults, for the reasons spelled out over ``_compile_fused_kernel``:
+# an entry is a compiled kernel a CUDA-graph capture may depend on, so the cache must never
+# evict, and the key is the literal (args, kwargs) shape, so every caller passes all three
+# positionally or the pre-capture warm-up warms keys nothing will look up.
+@functools.lru_cache(maxsize=None)
+def _compile_group_fused_kernel(device_idx: int, sr: bool, fast_math: bool):
     """Compile the grouped fused kernel with symbolic shapes (cached per device+flags).
 
     ``sym_int`` divisibilities let one compiled kernel serve any
@@ -984,10 +976,14 @@ def _compile_group_fused_kernel(
         assumed_align=16,
     )
     fake_col_sf = make_fake_tensor(cutlass.Uint32, (free(),), stride=(1,))
+    # u64: the row epilogue stores the two code words of a 16-hidden block together.
+    # The allocation is torch.empty (256B) and hidden % 128 == 0 makes the row stride
+    # hidden/2 bytes, a multiple of 64B, so every row start is 16B aligned.
     fake_row_fp4 = make_fake_tensor(
-        cutlass.Uint32,
-        (t_sym, cute.sym_int(divisibility=M_TILE // 8)),
+        cutlass.Uint64,
+        (t_sym, cute.sym_int(divisibility=M_TILE // 16)),
         stride=(free(), 1),
+        assumed_align=16,
     )
     fake_row_sf = make_fake_tensor(
         cutlass.Float8E4M3FN, (free(), free(), 32, 16), stride=(free(), 512, 16, 1)
@@ -999,7 +995,7 @@ def _compile_group_fused_kernel(
     fake_offsets = make_fake_tensor(cutlass.Int32, (free(),), stride=(1,))
 
     return cute.compile(
-        _Tcgen05GroupRowColFused(swizzle_sf=swizzle, sr=sr, fast_math=fast_math),
+        _Tcgen05GroupRowColFused(sr=sr, fast_math=fast_math),
         fake_a,
         fake_b,
         fake_col_fp4,
@@ -1068,14 +1064,14 @@ def _cutedsl_group_rht_quantize_row_col_impl(
 
     stream = cuda.CUstream(int(torch.cuda.current_stream(dev).cuda_stream))
     compiled = _compile_group_fused_kernel(
-        dev.index, True, bool(stochastic_rounding), bool(use_fast_math)
+        dev.index, bool(stochastic_rounding), bool(use_fast_math)
     )
     compiled(
         A.t().unsqueeze(-1),
         rht_nk,
         col_fp4,
         col_sf.view(torch.uint32).flatten(),
-        row_fp4,
+        row_fp4.view(torch.uint64),
         row_sf,
         row_global_amax,
         col_global_amax,
@@ -1453,38 +1449,47 @@ class _Tcgen05GroupRhtAmax(_GroupRhtMainloop):
                     _k_tile_count(tile_n_base, tiles_in_n),
                     tiles_in_n_valid,
                 )
-                g, g_end = _group_at_work_item(tile_n_base, offsets_t, num_tensors)
-                run_max = cutlass.Float32(0.0)
-                for k_tile in cutlass.range(n_cnt, unroll=1):
-                    token = (tile_n_base + k_tile) * cutlass.Int32(TOKEN_TILE)
-                    if token >= g_end:
-                        # Crossing out of the cached group is the only point the
-                        # running max has to reach memory: everything before it
-                        # belongs to `g`, everything after to the next group.
-                        _flush_group_max(run_max, col_amax_t, g, lane)
-                        run_max = cutlass.Float32(0.0)
-                        g = _group_idx(token, offsets_t, num_tensors)
-                        g_end = offsets_t[g]
-                    acc_pipeline.consumer_wait(acc_consumer_state)
-                    tile_max = cutlass.Float32(0.0)
-                    for u in cutlass.range_constexpr(EPI_UNROLL):
-                        cute.copy(
-                            tiled_copy_t2r,
-                            tTR_tAcc[
-                                (None, None, None, 0, 0, u, acc_consumer_state.index)
-                            ],
-                            tTR_rAcc,
-                        )
-                        vals = tTR_rAcc.load().reshape((16,))
-                        for i in cutlass.range_constexpr(16):
-                            tile_max = _max_f32(tile_max, _abs_f32(vals[i]))
-                    cute.arch.fence_view_async_tmem_load()
-                    with cute.arch.elect_one():
-                        acc_pipeline.consumer_release(acc_consumer_state)
-                    acc_consumer_state.advance()
+                if n_cnt > cutlass.Int32(0):
+                    g, g_end = _group_at_work_item(tile_n_base, offsets_t, num_tensors)
+                    run_max = cutlass.Float32(0.0)
+                    for k_tile in cutlass.range(n_cnt, unroll=1):
+                        token = (tile_n_base + k_tile) * cutlass.Int32(TOKEN_TILE)
+                        if token >= g_end:
+                            # Crossing out of the cached group is the only point the
+                            # running max has to reach memory: everything before it
+                            # belongs to `g`, everything after to the next group.
+                            _flush_group_max(run_max, col_amax_t, g, lane)
+                            run_max = cutlass.Float32(0.0)
+                            g = _group_idx(token, offsets_t, num_tensors)
+                            g_end = offsets_t[g]
+                        acc_pipeline.consumer_wait(acc_consumer_state)
+                        tile_max = cutlass.Float32(0.0)
+                        for u in cutlass.range_constexpr(EPI_UNROLL):
+                            cute.copy(
+                                tiled_copy_t2r,
+                                tTR_tAcc[
+                                    (
+                                        None,
+                                        None,
+                                        None,
+                                        0,
+                                        0,
+                                        u,
+                                        acc_consumer_state.index,
+                                    )
+                                ],
+                                tTR_rAcc,
+                            )
+                            vals = tTR_rAcc.load().reshape((16,))
+                            for i in cutlass.range_constexpr(16):
+                                tile_max = _max_f32(tile_max, _abs_f32(vals[i]))
+                        cute.arch.fence_view_async_tmem_load()
+                        with cute.arch.elect_one():
+                            acc_pipeline.consumer_release(acc_consumer_state)
+                        acc_consumer_state.advance()
 
-                    run_max = _max_f32(run_max, _round_rht_amax(tile_max))
-                _flush_group_max(run_max, col_amax_t, g, lane)
+                        run_max = _max_f32(run_max, _round_rht_amax(tile_max))
+                    _flush_group_max(run_max, col_amax_t, g, lane)
 
                 clc_pipeline.consumer_wait(clc_consumer_state)
                 work_tile = tile_sched.get_current_work()
@@ -1513,35 +1518,42 @@ class _Tcgen05GroupRhtAmax(_GroupRhtMainloop):
                     _k_tile_count(tile_n_base, tiles_in_n),
                     tiles_in_n_valid,
                 )
-                g, g_end = _group_at_work_item(tile_n_base, offsets_t, num_tensors)
-                run_max = cutlass.Float32(0.0)
-                for k_tile in cutlass.range(n_cnt, unroll=1):
-                    token = (tile_n_base + k_tile) * cutlass.Int32(TOKEN_TILE)
-                    if token >= g_end:
-                        _flush_group_max(run_max, row_amax_t, g, lane)
-                        run_max = cutlass.Float32(0.0)
-                        g = _group_idx(token, offsets_t, num_tensors)
-                        g_end = offsets_t[g]
-                    ab_pipeline.consumer_wait(ab_consumer_state)
-                    stage = ab_consumer_state.index
-                    tile_max = cutlass.Float32(0.0)
-                    for p in cutlass.range_constexpr(ROW_PASSES):
-                        tok = p * cutlass.Int32(ROW_TOK_PER_PASS) + t0
-                        cute.autovec_copy(
-                            cute.local_tile(sA_clean[(None, tok, stage)], (16,), (hb,)),
-                            rBlk,
-                        )
-                        for j in cutlass.range_constexpr(16):
-                            tile_max = _max_f32(
-                                tile_max, _abs_f32(rBlk[j].to(cutlass.Float32))
+                if n_cnt > cutlass.Int32(0):
+                    g, g_end = _group_at_work_item(tile_n_base, offsets_t, num_tensors)
+                    run_max = cutlass.Float32(0.0)
+                    for k_tile in cutlass.range(n_cnt, unroll=1):
+                        token = (tile_n_base + k_tile) * cutlass.Int32(TOKEN_TILE)
+                        if token >= g_end:
+                            _flush_group_max(run_max, row_amax_t, g, lane)
+                            run_max = cutlass.Float32(0.0)
+                            g = _group_idx(token, offsets_t, num_tensors)
+                            g_end = offsets_t[g]
+                        ab_pipeline.consumer_wait(ab_consumer_state)
+                        stage = ab_consumer_state.index
+                        tile_max = cutlass.Float32(0.0)
+                        for p in cutlass.range_constexpr(ROW_PASSES):
+                            tok = p * cutlass.Int32(ROW_TOK_PER_PASS) + t0
+                            cute.autovec_copy(
+                                cute.local_tile(
+                                    sA_clean[(None, tok, stage)], (16,), (hb,)
+                                ),
+                                rBlk,
                             )
-                    ab_pipeline.consumer_release(
-                        ab_consumer_state, pipeline.PipelineOp.AsyncThread
-                    )
-                    ab_consumer_state.advance()
+                            rWords = cute.recast_tensor(rBlk, cutlass.Uint32)
+                            for j in cutlass.range_constexpr(8):
+                                tile_max = _max_f32(
+                                    tile_max, _abs_f32(_bf16lo_to_f32(rWords[j]))
+                                )
+                                tile_max = _max_f32(
+                                    tile_max, _abs_f32(_bf16hi_to_f32(rWords[j]))
+                                )
+                        ab_pipeline.consumer_release(
+                            ab_consumer_state, pipeline.PipelineOp.AsyncThread
+                        )
+                        ab_consumer_state.advance()
 
-                    run_max = _max_f32(run_max, tile_max)
-                _flush_group_max(run_max, row_amax_t, g, lane)
+                        run_max = _max_f32(run_max, tile_max)
+                    _flush_group_max(run_max, row_amax_t, g, lane)
 
                 clc_pipeline.consumer_wait(clc_consumer_state)
                 work_tile = tile_sched.get_current_work()
@@ -1549,7 +1561,7 @@ class _Tcgen05GroupRhtAmax(_GroupRhtMainloop):
                 clc_consumer_state.advance()
 
 
-@functools.lru_cache(maxsize=4)
+@functools.lru_cache(maxsize=None)
 def _compile_group_amax_kernel(device_idx: int):
     """Compile the grouped RHT amax kernel with symbolic shapes."""
     free = cute.sym_int
@@ -1641,30 +1653,10 @@ def _k_tile_count(tile_n_base, tiles_in_n):
 
 
 def _valid_tile_count(tile_n_base, n_all, tiles_in_n_valid):
-    """Of this work item's ``n_all`` tiles, how many hold real tokens.
-
-    The remainder are capacity tiles: the producers skip them entirely and the
-    epilogues zero-fill them, so every role agrees on the split without any
-    data-dependent branching inside a pipelined loop.
-    """
+    """Of this work item's ``n_all`` tiles, how many precede the logical bound."""
     rem = tiles_in_n_valid - tile_n_base
     rem = cutlass.select_(rem > cutlass.Int32(0), rem, cutlass.Int32(0))
     return cutlass.select_(rem < n_all, rem, n_all)
-
-
-# Packed bytes in one 128x128 triton tile: the stride between consecutive tile_id
-# values in triton's stochastic-rounding Philox counter (hadamard_utils._pack_fp4).
-TILE_PACKED = TOKEN_TILE * (M_TILE // 2)
-
-
-def _zero_sf():
-    """Float8E4M3FN zero; the DSL has no fp8 literal, so convert from f32."""
-    z = cute.make_rmem_tensor((4,), cutlass.Float32)
-    for i in range(4):
-        z[i] = cutlass.Float32(0.0)
-    f8 = cute.make_rmem_tensor((4,), cutlass.Float8E4M3FN)
-    f8.store(z.load().to(cutlass.Float8E4M3FN))
-    return f8[0]
 
 
 def _store_grouped_col_sf_u32(mSF_u32, rSF, r, c_base, g, offsets_t, hidden):

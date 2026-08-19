@@ -221,6 +221,7 @@ class nvfp4_col_parallel_mm(torch.autograd.Function):
         world_size: int,
         sign_vector: tuple[int, ...] | list[int],
         use_cutedsl: bool = False,
+        use_fast_math: bool = True,
     ) -> torch.Tensor:
         sign_vector = tuple(int(v) for v in sign_vector)
         sign_vector_list = list(sign_vector)
@@ -244,7 +245,7 @@ class nvfp4_col_parallel_mm(torch.autograd.Function):
 
         # --- Quantize x with global amaxes ---
         qx_col_codes, qx_col_sf, qx_row_codes, qx_row_sf = _rht_quantize_row_col(
-            x, col_amax, row_amax, sign_vector_list, use_cutedsl
+            x, col_amax, row_amax, sign_vector_list, use_cutedsl, use_fast_math
         )
 
         # --- 2D weight quantization ---
@@ -295,6 +296,7 @@ class nvfp4_col_parallel_mm(torch.autograd.Function):
         ctx.local_M = M_local
         ctx.sign_vector = sign_vector
         ctx.use_cutedsl = use_cutedsl
+        ctx.use_fast_math = use_fast_math
         return output
 
     @staticmethod
@@ -324,6 +326,7 @@ class nvfp4_col_parallel_mm(torch.autograd.Function):
             dy_row_amax,
             sign_vector_list,
             ctx.use_cutedsl,
+            ctx.use_fast_math,
             sr_seed=sr_seed,
         )
 
@@ -383,8 +386,9 @@ class nvfp4_col_parallel_mm(torch.autograd.Function):
         )
 
         grad_bias = grad_output.sum(dim=0) if ctx.has_bias else None
-        # Nones for: bias, sr_seed, tp_group, world_size, sign_vector, use_cutedsl
-        return dx, dw, grad_bias, None, None, None, None, None
+        # Nones for: bias, sr_seed, tp_group, world_size, sign_vector, use_cutedsl,
+        # use_fast_math
+        return dx, dw, grad_bias, None, None, None, None, None, None
 
 
 def nvfp4_col_parallel_linear(
@@ -397,6 +401,7 @@ def nvfp4_col_parallel_linear(
     *,
     sign_vector: tuple[int, ...] | list[int],
     use_cutedsl: bool = False,
+    use_fast_math: bool = True,
 ) -> torch.Tensor:
     """Convenience wrapper around nvfp4_col_parallel_mm.
 
@@ -411,6 +416,12 @@ def nvfp4_col_parallel_linear(
             match across TP ranks.
         use_cutedsl: Use the CuteDSL amax + quantize for both forward (RTNE) and the
             backward SR (cvt.rs) paths. Requires the per-rank M shard % 128 == 0.
+        use_fast_math: Match TransformerEngine under ``NVTE_USE_FAST_MATH=1``: the RHT
+            quantize consumes the FP32 accumulator directly and takes an approximate
+            reciprocal instead of a correctly rounded divide. On by default. Both
+            backends implement it and stay bitwise identical to TE and to each other,
+            so it is independent of ``use_cutedsl``; the 2D weight quantize is
+            unaffected, having no RHT accumulator to skip.
     """
     if tp_group is None:
         raise ValueError("tp_group is required for nvfp4_col_parallel_linear")
@@ -421,7 +432,15 @@ def nvfp4_col_parallel_linear(
             -(2**63), 2**63 - 1, (1,), dtype=torch.int64, device=x.device
         )
     return nvfp4_col_parallel_mm.apply(
-        x, w, bias, sr_seed, tp_group, world_size, sign_vector, use_cutedsl
+        x,
+        w,
+        bias,
+        sr_seed,
+        tp_group,
+        world_size,
+        sign_vector,
+        use_cutedsl,
+        use_fast_math,
     )
 
 
@@ -453,6 +472,7 @@ class nvfp4_row_parallel_mm(torch.autograd.Function):
         world_size: int,
         sign_vector: tuple[int, ...] | list[int],
         use_cutedsl: bool = False,
+        use_fast_math: bool = True,
     ) -> torch.Tensor:
         sign_vector = tuple(int(v) for v in sign_vector)
         sign_vector_list = list(sign_vector)
@@ -476,7 +496,7 @@ class nvfp4_row_parallel_mm(torch.autograd.Function):
 
         # --- Quantize x with local amax ---
         qx_col_codes, qx_col_sf, qx_row_codes, qx_row_sf = _rht_quantize_row_col(
-            x, col_amax, row_amax, sign_vector_list, use_cutedsl
+            x, col_amax, row_amax, sign_vector_list, use_cutedsl, use_fast_math
         )
 
         # --- 2D weight quantization ---
@@ -533,6 +553,7 @@ class nvfp4_row_parallel_mm(torch.autograd.Function):
         ctx.local_M = M_local
         ctx.sign_vector = sign_vector
         ctx.use_cutedsl = use_cutedsl
+        ctx.use_fast_math = use_fast_math
         return output
 
     @staticmethod
@@ -570,6 +591,7 @@ class nvfp4_row_parallel_mm(torch.autograd.Function):
             dy_row_amax,
             sign_vector_list,
             ctx.use_cutedsl,
+            ctx.use_fast_math,
             sr_seed=sr_seed,
         )
 
@@ -634,8 +656,9 @@ class nvfp4_row_parallel_mm(torch.autograd.Function):
         else:
             grad_bias = None
 
-        # Nones for: bias, sr_seed, tp_group, world_size, sign_vector, use_cutedsl
-        return dx, dw, grad_bias, None, None, None, None, None
+        # Nones for: bias, sr_seed, tp_group, world_size, sign_vector, use_cutedsl,
+        # use_fast_math
+        return dx, dw, grad_bias, None, None, None, None, None, None
 
 
 def nvfp4_row_parallel_linear(
@@ -648,6 +671,7 @@ def nvfp4_row_parallel_linear(
     *,
     sign_vector: tuple[int, ...] | list[int],
     use_cutedsl: bool = False,
+    use_fast_math: bool = True,
 ) -> torch.Tensor:
     """Convenience wrapper around nvfp4_row_parallel_mm.
 
@@ -662,6 +686,12 @@ def nvfp4_row_parallel_linear(
             match across TP ranks.
         use_cutedsl: Use the CuteDSL amax + quantize for both forward (RTNE) and the
             backward SR (cvt.rs) paths. Requires the per-rank M shard % 128 == 0.
+        use_fast_math: Match TransformerEngine under ``NVTE_USE_FAST_MATH=1``: the RHT
+            quantize consumes the FP32 accumulator directly and takes an approximate
+            reciprocal instead of a correctly rounded divide. On by default. Both
+            backends implement it and stay bitwise identical to TE and to each other,
+            so it is independent of ``use_cutedsl``; the 2D weight quantize is
+            unaffected, having no RHT accumulator to skip.
     """
     if tp_group is None:
         raise ValueError("tp_group is required for nvfp4_row_parallel_linear")
@@ -672,7 +702,15 @@ def nvfp4_row_parallel_linear(
             -(2**63), 2**63 - 1, (1,), dtype=torch.int64, device=x.device
         )
     return nvfp4_row_parallel_mm.apply(
-        x, w, bias, sr_seed, tp_group, world_size, sign_vector, use_cutedsl
+        x,
+        w,
+        bias,
+        sr_seed,
+        tp_group,
+        world_size,
+        sign_vector,
+        use_cutedsl,
+        use_fast_math,
     )
 
 

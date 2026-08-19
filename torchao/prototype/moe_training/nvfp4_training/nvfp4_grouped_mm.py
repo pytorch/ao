@@ -114,6 +114,7 @@ def _to_nvfp4_rht_rs_then_scaled_grouped_mm(
     bias: Optional[torch.Tensor] = None,
     pad_token_groups_for_grouped_mm: bool = False,
     kernel_preference: KernelPreference = KernelPreference.AUTO,
+    use_fast_math: bool = True,
 ) -> torch.Tensor:
     """Quantize and multiply grouped activations and expert weights.
 
@@ -125,6 +126,14 @@ def _to_nvfp4_rht_rs_then_scaled_grouped_mm(
     op on CuteDSL where it can and falls back to Triton per op; TRITON forces Triton;
     CUTEDSL demands CuteDSL and raises if it cannot run. The per-expert weight amax
     is Triton on every path -- it has no CuteDSL twin.
+
+    ``use_fast_math`` selects the RHT quantize variant that consumes the FP32 accumulator
+    directly and takes an approximate reciprocal, matching TransformerEngine under
+    ``NVTE_USE_FAST_MATH=1``. It is worth about 25% of the quantize stage at production
+    shapes, which is why it defaults on. Both backends implement it and both stay bitwise
+    identical to TE and to each other, so AUTO and TRITON agree either way. The per-expert
+    weight amax and the 2D weight quantize are unaffected: without an RHT there is no
+    accumulator round-through to skip, which is also why TE has no 2D fast path.
     """
     output = _NVFP4GroupedMM.apply(
         A,
@@ -134,6 +143,7 @@ def _to_nvfp4_rht_rs_then_scaled_grouped_mm(
         offs,
         pad_token_groups_for_grouped_mm,
         kernel_preference,
+        use_fast_math,
     )
     if bias is not None:
         output = output + bias.to(output.dtype)
@@ -153,6 +163,7 @@ class _NVFP4GroupedMM(torch.autograd.Function):
         group_end_offsets: Optional[torch.Tensor],
         pad_token_groups_for_grouped_mm: bool,
         kernel_preference: KernelPreference,
+        use_fast_math: bool,
     ) -> torch.Tensor:
         if input_act.ndim != 2:
             raise ValueError(f"input_act must be 2D, got {input_act.ndim}D")
@@ -270,6 +281,7 @@ class _NVFP4GroupedMM(torch.autograd.Function):
             rng_state=None,
             enable_stochastic_rounding=False,
             logical_packed_length=logical_packed_length,
+            use_fast_math=use_fast_math,
         )
 
         weight_amax = triton_group_weight_amax(weight, num_experts)
@@ -321,6 +333,7 @@ class _NVFP4GroupedMM(torch.autograd.Function):
         ctx.num_tokens = num_tokens
         ctx.sign_vector = sign_vector
         ctx.use_cutedsl_rht = use_cutedsl_rht
+        ctx.use_fast_math = use_fast_math
         return output
 
     @staticmethod
@@ -390,6 +403,7 @@ class _NVFP4GroupedMM(torch.autograd.Function):
             rng_state,
             enable_stochastic_rounding=True,
             logical_packed_length=logical_packed_length,
+            use_fast_math=ctx.use_fast_math,
         )
 
         grad_input = F.scaled_grouped_mm(
@@ -427,4 +441,7 @@ class _NVFP4GroupedMM(torch.autograd.Function):
                 kernel_preference=KernelPreference.TRITON,
             )
 
-        return grad_input, grad_weight, None, None, None, None, None
+        # One gradient per forward input: input_act, weight, sign_vector, sr_seed,
+        # group_end_offsets, pad_token_groups_for_grouped_mm, kernel_preference,
+        # use_fast_math.
+        return grad_input, grad_weight, None, None, None, None, None, None

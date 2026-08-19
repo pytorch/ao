@@ -9,6 +9,12 @@
 A single pass over ``A`` produces both the columnwise RHT output and the rowwise plain
 NVFP4 cast. The two global amaxes are taken as input: the caller computes them first via
 ``cutedsl_rht_amax``.
+
+Byte-for-byte identical to ``triton_rht_quantize_row_col`` under RTNE. Under stochastic
+rounding the outputs are statistically equivalent but not bitwise equal: this kernel
+draws one Philox counter per 16-element block and consumes all four output words rather
+than reproducing triton's per-packed-byte counter stride. The stream is a pure function
+of tile coordinates and the caller's seed/offset, so results stay reproducible.
 """
 
 from typing import List, Optional, Tuple

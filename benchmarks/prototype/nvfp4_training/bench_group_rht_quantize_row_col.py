@@ -14,7 +14,7 @@ on the DeepSeek-V3 expert-weight shapes, with the cutedsl-vs-triton speedup.
 
     python -m benchmarks.prototype.nvfp4_training.bench_group_rht_quantize_row_col
     python -m benchmarks.prototype.nvfp4_training.bench_group_rht_quantize_row_col \
-        --experts 64 --rounding rs
+        --experts 64 --rounding rs --math fast
 """
 
 import argparse
@@ -45,6 +45,11 @@ BACKENDS = ("triton", "cutedsl")
 ROUNDING_MODES = ("rtne", "rs")
 ROUNDING_CHOICES = (*ROUNDING_MODES, "all")
 
+# Exact is TE's default arithmetic; fast matches TE under NVTE_USE_FAST_MATH=1 (fp32
+# accumulator consumed directly, approximate reciprocal). Both backends implement both.
+MATH_MODES = ("exact", "fast")
+MATH_CHOICES = (*MATH_MODES, "all")
+
 RHT_SIGN_VECTOR = (1, 1, 1, -1, 1, -1, -1, -1, -1, -1, -1, 1, -1, 1, -1, -1)
 
 
@@ -54,6 +59,7 @@ class ExperimentConfig:
     m: int
     n: int
     rounding: str = "rtne"
+    math: str = "exact"
     model: str = ""
     projection: str = ""
 
@@ -72,6 +78,10 @@ class Experiment:
 
 def get_roundings(rounding: str) -> List[str]:
     return list(ROUNDING_MODES if rounding == "all" else (rounding,))
+
+
+def get_math_modes(math: str) -> List[str]:
+    return list(MATH_MODES if math == "all" else (math,))
 
 
 def get_peak_mem_bw_gbps() -> Optional[float]:
@@ -94,6 +104,7 @@ def make_runner(
     rng_state: Optional[torch.Tensor],
     stochastic_rounding: bool,
     logical_packed_length: torch.Tensor,
+    use_fast_math: bool = False,
 ) -> Optional[Callable[[], object]]:
     """No-arg callable running ``backend``'s grouped quantize op, or None if unavailable."""
     psl, hidden = A.shape
@@ -129,6 +140,7 @@ def make_runner(
         rng_state,
         stochastic_rounding,
         logical_packed_length=logical_packed_length,
+        use_fast_math=use_fast_math,
     )
 
 
@@ -162,6 +174,7 @@ def run_experiment(config: ExperimentConfig) -> Optional[ExperimentResult]:
             rng_state,
             stochastic_rounding,
             logical_packed_length,
+            config.math == "fast",
         )
         if runner is not None:
             us[backend] = kernel_time_us(runner)
@@ -182,6 +195,7 @@ def print_results(experiments: List[Experiment], peak_mem_bw_gbps: Optional[floa
         "M",
         "N",
         "rounding",
+        "math",
         "cutedsl_us",
         "triton_us",
         "speedup",
@@ -203,6 +217,7 @@ def print_results(experiments: List[Experiment], peak_mem_bw_gbps: Optional[floa
                 e.config.m,
                 e.config.n,
                 e.config.rounding,
+                e.config.math,
                 round(c, 2) if c else "n/a",
                 round(t, 2) if t else "n/a",
                 speedup,
@@ -229,6 +244,12 @@ def main() -> None:
         help="Quantization rounding mode to benchmark.",
     )
     parser.add_argument(
+        "--math",
+        choices=MATH_CHOICES,
+        default="all",
+        help="Quantize arithmetic to benchmark: TE-default exact, TE fast math, or both.",
+    )
+    parser.add_argument(
         "--experts",
         type=int,
         default=4,
@@ -247,11 +268,13 @@ def main() -> None:
             shape.m,
             shape.n,
             rounding=rounding,
+            math=math,
             model=shape.model,
             projection=shape.projection,
         )
         for shape in get_deepseek_v3_weight_shapes(factorized_experts=args.experts)
         for rounding in get_roundings(args.rounding)
+        for math in get_math_modes(args.math)
     ]
 
     peak_mem_bw_gbps = get_peak_mem_bw_gbps()
