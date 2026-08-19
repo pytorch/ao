@@ -4,6 +4,7 @@
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
 import copy
+import importlib.util
 import logging
 import unittest
 
@@ -12,6 +13,7 @@ from torch import nn
 from torch.ao.pruning import WeightNormSparsifier
 from torch.testing._internal import common_utils
 
+from torchao.ops import to_sparse_semi_structured_cutlass_sm9x_f8
 from torchao.quantization import (
     Float8DynamicActivationFloat8WeightConfig,
 )
@@ -21,6 +23,9 @@ from torchao.quantization.quant_api import (
 )
 from torchao.quantization.quantize_.workflows import (
     Float8PackingFormat,
+)
+from torchao.quantization.quantize_.workflows.float8.kernels import (
+    _to_sparse_semi_structured_cutedsl,
 )
 from torchao.quantization.utils import compute_error
 from torchao.utils import is_sm_at_least_90
@@ -45,7 +50,58 @@ def apply_fake_sparsity(model):
     sparsifier.squash_mask()
 
 
+def create_semi_structured_tensor(r, c, dtype):
+    """Returns a 1:2 sparse matrix of size (r, c), which is also 2:4 sparse."""
+    choice_indices = torch.randint(0, 2, (r * c // 2,)).cuda()
+    mask = (
+        torch.nn.functional.one_hot(choice_indices, num_classes=2)
+        .reshape(r, c)
+        .contiguous()
+        .to(torch.int32)
+    )
+    sparse_weight = mask + (torch.rand(r, c).cuda() * mask)
+    return sparse_weight.to(dtype)
+
+
+def _cutedsl_runtime_available():
+    for module in ("cutlass", "cutlass.cute", "tvm_ffi"):
+        try:
+            if importlib.util.find_spec(module) is None:
+                return False
+        except ModuleNotFoundError:
+            return False
+    return True
+
+
 class TestFloat8Sparse2x4_2DData2DMetadataTensor(common_utils.TestCase):
+    @unittest.skipIf(not is_sm_at_least_90(), "Need H100 to run")
+    @unittest.skipIf(not _cutedsl_runtime_available(), "CuTeDSL runtime unavailable")
+    @common_utils.parametrize(
+        "rows, cols",
+        [
+            (128, 64),
+            (256, 128),
+            (1024, 1024),
+            (2048, 8192),
+        ],
+    )
+    @common_utils.parametrize(
+        "dtype",
+        [torch.float8_e4m3fn, torch.float8_e5m2],
+    )
+    def test_cutedsl_sparse_conversion(self, rows, cols, dtype):
+        weight = create_semi_structured_tensor(
+            rows,
+            cols,
+            dtype=dtype,
+        ).cuda()
+
+        legacy_data, legacy_meta = to_sparse_semi_structured_cutlass_sm9x_f8(weight)
+        cutedsl_data, cutedsl_meta = _to_sparse_semi_structured_cutedsl(weight)
+
+        self.assertEqual(legacy_data, cutedsl_data)
+        self.assertEqual(legacy_meta, cutedsl_meta)
+
     @unittest.skipIf(not is_sm_at_least_90(), "Need H100 to run")
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     @common_utils.parametrize("compile", [True, False])
