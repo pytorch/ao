@@ -15,7 +15,6 @@ from torchao.core.config import AOBaseConfig
 
 logger = logging.getLogger(__name__)
 
-from torchao.quantization.quant_api import _linear_extra_repr
 from torchao.quantization.quant_primitives import MappingType
 from torchao.quantization.quantize_.workflows import (
     Int4ChooseQParamsAlgorithm,
@@ -23,6 +22,7 @@ from torchao.quantization.quantize_.workflows import (
 from torchao.quantization.transform_module import (
     register_quantize_module_handler,
 )
+from torchao.quantization.utils import _linear_extra_repr
 
 from .int4_opaque_tensor import Int4OpaqueTensor
 
