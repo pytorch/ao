@@ -40,17 +40,26 @@ from torch._subclasses.fake_tensor import FakeTensorMode
 
 from torchao.utils import is_sm_version
 
+# Exactly SM 10.0, matching the ops module's availability gate: the wrapped
+# cudnn kernels are *_sm100-specific.
 if not (torch.cuda.is_available() and is_sm_version(10, 0)):
     pytest.skip(
         "MXFP8 fused grouped MLP requires CUDA SM100",
         allow_module_level=True,
     )
 
-from torchao.prototype.moe_training.kernels.mxfp8.cutedsl_grouped_mlp import (
-    _mxfp8_grouped_mlp_kernels_available,
-    _mxfp8_grouped_mlp_unavailable_reason,
-    is_supported,
-)
+try:
+    from torchao.prototype.moe_training.kernels.mxfp8.cutedsl_grouped_mlp import (
+        _mxfp8_grouped_mlp_kernels_available,
+        _mxfp8_grouped_mlp_unavailable_reason,
+        is_supported,
+        validate_group_offsets,
+    )
+except ImportError:
+    pytest.skip(
+        "installed torchao does not provide the cutedsl_grouped_mlp module",
+        allow_module_level=True,
+    )
 
 if not _mxfp8_grouped_mlp_kernels_available:
     pytest.skip(
@@ -141,14 +150,22 @@ def _quant_weight_rowwise(w: torch.Tensor):
     return torch.stack(qs).view(_E4M3), _cat8(sfs)
 
 
-def _quant_weight_colwise(w: torch.Tensor):
-    """[G, N, K] quantized along N (dim1-native strides per group)."""
+def _quant_weight_colwise(w: torch.Tensor, native: bool = False):
+    """[G, N, K] quantized along N.
+
+    native=False: contiguous row-major [G, N, K] bytes.
+    native=True: the dim1-quantizer memory-transposed major -- [G, N, K]
+    logical with per-group (1, N) strides (values identical).
+    """
     qs, sfs = [], []
     for g in range(w.shape[0]):
         q, sf = _quant_colwise(w[g], native=False)
         qs.append(q.view(torch.uint8))
         sfs.append(sf.reshape(-1))
-    return torch.stack(qs).view(_E4M3), _cat8(sfs)
+    q = torch.stack(qs).view(_E4M3)
+    if native:
+        q = q.transpose(-2, -1).contiguous().transpose(-2, -1)
+    return q, _cat8(sfs)
 
 
 def _dequant_rowwise(q: torch.Tensor, sf_flat: torch.Tensor):
@@ -548,6 +565,34 @@ def test_wgrad_stride_matrix(dbg, a_native, b_native):
     assert db >= 50.0, f"wgrad[{a_native=} {b_native=}] {db:.1f} dB < 50"
 
 
+def test_native_weight_major_mm_bwd(dbg):
+    """Ops 2 and 3 accept the production dim1-native (memory-transposed)
+    colwise weight major. Both majors carry identical logical values, so each
+    native arm must agree with the rowmajor arm far above any
+    reduction-order band."""
+    c = dbg
+    r = _run_chain(c)
+    # Op 3: dim1-native w2 colwise major.
+    w2c_nat, w2c_nat_sf = _quant_weight_colwise(c["w2"], native=True)
+    assert not w2c_nat.is_contiguous()
+    assert torch.equal(_bytes(w2c_nat), _bytes(c["w2c_q"]))
+    dz_q, dz_sf, _, _ = _OPS.mxfp8_grouped_gemm_dswiglu_bwd(
+        c["dy_q"], c["dy_sf"], w2c_nat, w2c_nat_sf, r["z"], c["offsets"]
+    )
+    db = compute_error(
+        _dequant_rowwise(r["dz_q"], r["dz_sf"]), _dequant_rowwise(dz_q, dz_sf)
+    ).item()
+    assert db >= 50.0, f"native-major w2 dz vs rowmajor arm: {db:.1f} dB < 50"
+    # Op 2 (FC1 dgrad): dim1-native w13 colwise major, transposed into
+    # [G, N=D, K=2F] exactly like the production call.
+    w13c_nat, w13c_nat_sf = _quant_weight_colwise(c["w13"], native=True)
+    dx_nat = _OPS.mxfp8_grouped_gemm(
+        r["dz_q"], r["dz_sf"], w13c_nat.transpose(-2, -1), w13c_nat_sf, c["offsets"]
+    )
+    db = compute_error(r["dx"].float(), dx_nat.float()).item()
+    assert db >= 50.0, f"native-major w13 dx vs rowmajor arm: {db:.1f} dB < 50"
+
+
 # ---------------------------------------------------------------------------
 # A < R strict tail with planted garbage.
 # ---------------------------------------------------------------------------
@@ -676,6 +721,24 @@ def test_r0_all_ops():
     )
     assert z.shape == (0, 2 * hidden) and h_q.shape == (0, hidden)
     assert h_sf.numel() == 0 and h_col_sf.numel() == 0
+    y = _OPS.mxfp8_grouped_gemm(
+        torch.empty(0, hidden, dtype=_E4M3, device=dev),
+        torch.empty(0, dtype=_E8M0, device=dev),
+        torch.zeros(2, D, hidden, dtype=torch.uint8, device=dev).view(_E4M3),
+        torch.empty(2 * D * hidden // _BLOCK, dtype=_E8M0, device=dev),
+        offsets,
+    )
+    assert y.shape == (0, D) and y.dtype == torch.bfloat16
+    dz_q, dz_sf, dz_colq, dz_col_sf = _OPS.mxfp8_grouped_gemm_dswiglu_bwd(
+        torch.empty(0, D, dtype=_E4M3, device=dev),
+        torch.empty(0, dtype=_E8M0, device=dev),
+        torch.zeros(2, D, hidden, dtype=torch.uint8, device=dev).view(_E4M3),
+        torch.empty(2 * hidden * D // _BLOCK, dtype=_E8M0, device=dev),
+        torch.empty(0, 2 * hidden, dtype=torch.bfloat16, device=dev),
+        offsets,
+    )
+    assert dz_q.shape == (0, 2 * hidden) and dz_sf.numel() == 0
+    assert dz_colq.shape == (0, 2 * hidden) and dz_col_sf.numel() == 0
     dw = _OPS.mxfp8_grouped_gemm_wgrad(
         torch.empty(0, D, dtype=_E4M3, device=dev),
         torch.empty(0, dtype=_E8M0, device=dev),
@@ -877,21 +940,37 @@ def test_validation_negatives(case):
 
 
 def test_optin_offsets_validation(monkeypatch):
+    """Offset VALUES are checked only under TORCHAO_MXFP8_VALIDATE_OFFSETS=1.
+
+    The default-build non-rejection of a 128-row group is asserted on the
+    validator directly: launching a kernel with misaligned offsets is the
+    exact out-of-contract config the module documents as corrupting silently
+    and nondeterministically, so this test must never perform that launch.
+    The opt-in rejections DO go through the ops, which raise before any
+    launch.
+    """
     args = _valid_fwd_args()
-    bad = dict(args)
-    bad["offsets"] = torch.tensor([128, 512], dtype=torch.int32, device="cuda")
+    bad_offsets = torch.tensor([128, 512], dtype=torch.int32, device="cuda")
 
     # Default build: metadata-only, misaligned VALUES are not (and cannot be)
     # caught without a D2H sync.
     monkeypatch.delenv("TORCHAO_MXFP8_VALIDATE_OFFSETS", raising=False)
-    _OPS.mxfp8_grouped_gemm_swiglu_fwd(**bad)
+    validate_group_offsets(
+        bad_offsets, num_groups=2, allocated_rows=512, device=bad_offsets.device
+    )
 
     monkeypatch.setenv("TORCHAO_MXFP8_VALIDATE_OFFSETS", "1")
+    bad = dict(args, offsets=bad_offsets)
     with pytest.raises(ValueError, match="FIX_PAD_SIZE"):
         _OPS.mxfp8_grouped_gemm_swiglu_fwd(**bad)
 
-    over = dict(args)
-    over["offsets"] = torch.tensor([256, 768], dtype=torch.int32, device="cuda")
+    dec = dict(args, offsets=torch.tensor([512, 256], dtype=torch.int32, device="cuda"))
+    with pytest.raises(ValueError, match="nondecreasing"):
+        _OPS.mxfp8_grouped_gemm_swiglu_fwd(**dec)
+
+    over = dict(
+        args, offsets=torch.tensor([256, 768], dtype=torch.int32, device="cuda")
+    )
     with pytest.raises(ValueError, match="exceeds the allocated row count"):
         _OPS.mxfp8_grouped_gemm_swiglu_fwd(**over)
 

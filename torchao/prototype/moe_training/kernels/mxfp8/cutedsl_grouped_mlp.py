@@ -8,8 +8,8 @@
 
 Four custom ops, each one launch of a ``cudnn.grouped_gemm_*_wrapper_sm100``
 kernel from the standalone cudnn-frontend python package (>= 1.27, Blackwell
-SM 10.x; no TransformerEngine dependency); the matching public wrappers live
-at the bottom of this module:
+SM 10.0 exactly -- the wrappers are sm100-specific; no TransformerEngine
+dependency); the matching public wrappers live at the bottom of this module:
 
 * :func:`mxfp8_grouped_gemm_swiglu_fwd`   -- FC1 ragged grouped GEMM + SwiGLU
   + rowwise 1x32 AND columnwise 32x1 MXFP8 RCEIL quantization + BF16 pre-GLU.
@@ -116,8 +116,10 @@ def _fe_version_tuple(version: str) -> tuple:
     return tuple(parts)
 
 
-def _is_sm_10x() -> bool:
-    return torch.cuda.is_available() and torch.cuda.get_device_capability()[0] == 10
+def _is_sm100() -> bool:
+    # Exactly capability (10, 0): the cudnn wrappers are *_sm100-specific and
+    # unproven on other SM 10.x parts.
+    return torch.cuda.is_available() and torch.cuda.get_device_capability() == (10, 0)
 
 
 def _probe_cudnn_frontend() -> str:
@@ -143,9 +145,9 @@ def _probe_cudnn_frontend() -> str:
 
 _mxfp8_grouped_mlp_unavailable_reason = (
     _probe_cudnn_frontend()
-    if _is_sm_10x()
+    if _is_sm100()
     else (
-        "requires an SM 10.x (Blackwell) GPU"
+        "requires an SM 10.0 (Blackwell) GPU; the cudnn wrappers are sm100-specific"
         if torch.cuda.is_available()
         else "CUDA is not available"
     )
@@ -267,6 +269,19 @@ def validate_group_offsets(
         )
 
 
+def _check_pointer_alignment(tensor: torch.Tensor, *, name: str) -> None:
+    """16-byte data_ptr gate (TMA/vectorized accesses); fakes have no pointer."""
+    if _is_fake(tensor):
+        return
+    if tensor.data_ptr() % _PTR_ALIGNMENT != 0:
+        raise ValueError(
+            f"{name} must be {_PTR_ALIGNMENT}-byte aligned, but its data "
+            f"pointer is {tensor.data_ptr() % _PTR_ALIGNMENT} bytes past an "
+            "aligned address. A contiguous view with a nonzero storage "
+            "offset can violate this."
+        )
+
+
 def validate_operand(
     tensor: torch.Tensor,
     *,
@@ -298,14 +313,8 @@ def validate_operand(
             f"{name} must be on {device}, got {tensor.device}; all operands and "
             "destinations must share one CUDA device"
         )
-    if check_pointer_alignment and not _is_fake(tensor):
-        if tensor.data_ptr() % _PTR_ALIGNMENT != 0:
-            raise ValueError(
-                f"{name} must be {_PTR_ALIGNMENT}-byte aligned, but its data "
-                f"pointer is {tensor.data_ptr() % _PTR_ALIGNMENT} bytes past an "
-                "aligned address. A contiguous view with a nonzero storage "
-                "offset can violate this."
-            )
+    if check_pointer_alignment:
+        _check_pointer_alignment(tensor, name=name)
 
 
 def validate_blocked_scales(
@@ -336,6 +345,7 @@ def validate_blocked_scales(
         raise ValueError(f"{name} must be contiguous, got stride {scales.stride()}")
     if scales.device != device:
         raise ValueError(f"{name} must be on {device}, got {scales.device}")
+    _check_pointer_alignment(scales, name=name)
 
 
 def validate_ragged_colwise_scales(
@@ -375,17 +385,26 @@ def validate_ragged_colwise_scales(
             f"{name} numel {scales.numel()} exceeds the maximum {max_numel} implied "
             f"by the allocated row count {allocated_rows}"
         )
+    _check_pointer_alignment(scales, name=name)
 
 
-def validate_feature_dims(*, model_dim: int, hidden_dim: int) -> None:
+def validate_feature_dims(
+    *,
+    model_dim: int,
+    hidden_dim: int,
+    model_dim_name: str = "model dimension D",
+    hidden_dim_name: str = "routed-expert hidden dimension F",
+) -> None:
+    """The name arguments let mm/wgrad call sites report their generic N/K
+    dims instead of the fwd/bwd ops' D/F."""
     if model_dim <= 0 or model_dim % DIM_ALIGNMENT != 0:
         raise ValueError(
-            f"model dimension D must be a positive multiple of {DIM_ALIGNMENT}, "
+            f"{model_dim_name} must be a positive multiple of {DIM_ALIGNMENT}, "
             f"got {model_dim}"
         )
     if hidden_dim <= 0 or hidden_dim % DIM_ALIGNMENT != 0:
         raise ValueError(
-            f"routed-expert hidden dimension F must be a positive multiple of "
+            f"{hidden_dim_name} must be a positive multiple of "
             f"{DIM_ALIGNMENT}, got {hidden_dim}"
         )
 
@@ -401,16 +420,25 @@ def validate_allocated_rows(rows: int, *, name: str = "R") -> None:
 
 
 # Small per-(groups, dtype, device) caches for the kernels' alpha/beta and
-# norm-const tensors. Never cached: the CUDA stream (looked up per call).
+# norm-const tensors, each stored with the event recorded after its fill:
+# the fill runs on the FIRST caller's stream, so a cache hit on any other
+# stream must order after it (the buffer is immutable once filled, so one
+# event covers every later consumer). Never cached: the CUDA stream itself
+# (looked up per call).
 _ones_cache: dict = {}
 
 
 def _cached_ones(numel: int, dtype: torch.dtype, device: torch.device) -> torch.Tensor:
     key = (numel, dtype, device)
-    out = _ones_cache.get(key)
-    if out is None:
+    hit = _ones_cache.get(key)
+    if hit is None:
         out = torch.ones(numel, dtype=dtype, device=device)
-        _ones_cache[key] = out
+        event = torch.cuda.Event()
+        event.record(torch.cuda.current_stream(device))
+        _ones_cache[key] = (out, event)
+        return out
+    out, event = hit
+    event.wait(torch.cuda.current_stream(device))
     return out
 
 
@@ -419,22 +447,40 @@ def _cached_ones(numel: int, dtype: torch.dtype, device: torch.device) -> torch.
 # by storage_offset: torch's CUDA caching allocator hands out aligned storage
 # bases). A training step calls each op hundreds of times with identical
 # metadata; the full battery runs once per distinct signature and repeats
-# skip straight to the derived dims. Signatures are recorded only AFTER
-# validation passes, so a rejected call never poisons the cache. The opt-in
-# offsets-VALUES check (TORCHAO_MXFP8_VALIDATE_OFFSETS) reads data, not
-# metadata, so it runs on every call while enabled.
+# skip straight to the derived dims. Signatures are recorded only AFTER a
+# REAL-tensor pass (a rejected call never poisons the cache; a fake pass has
+# no data pointer to prove alignment). The opt-in offsets-VALUES check
+# (TORCHAO_MXFP8_VALIDATE_OFFSETS) reads data, not metadata, so it runs on
+# every call while enabled.
 _validated_sigs: set = set()
 _VALIDATED_SIGS_CAP = 4096
 
 
-def _meta_sig(tag: str, *tensors: torch.Tensor) -> tuple:
+# SymInt ships with every torch new enough to compile these ops; the empty
+# tuple keeps the isinstance gate a no-op elsewhere.
+_SYMBOLIC_TYPES = (torch.SymInt,) if hasattr(torch, "SymInt") else ()
+
+
+def _meta_sig(tag: str, *tensors: torch.Tensor) -> Optional[tuple]:
     # torch.Size and stride() are hashable tuples; device/dtype hash directly.
+    # Symbolic metadata (SymInt dims/strides/offsets under dynamic-shape
+    # compile) is unhashable, so those calls get no signature and never touch
+    # the memo; the full battery still runs.
+    for t in tensors:
+        for d in (*t.shape, *t.stride(), t.storage_offset()):
+            if isinstance(d, _SYMBOLIC_TYPES):
+                return None
     return (tag,) + tuple(
         (t.shape, t.stride(), t.dtype, t.device, t.storage_offset()) for t in tensors
     )
 
 
-def _remember_sig(sig: tuple) -> None:
+def _remember_sig(sig: Optional[tuple], *tensors: torch.Tensor) -> None:
+    # Fake passes skip the data_ptr alignment gates, so a fake-recorded
+    # signature would exempt the first REAL call from them: record only
+    # real-tensor passes (fakes revalidate every time; metadata is cheap).
+    if sig is None or any(_is_fake(t) for t in tensors):
+        return
     if len(_validated_sigs) < _VALIDATED_SIGS_CAP:
         _validated_sigs.add(sig)
 
@@ -523,7 +569,7 @@ def _allocate_from_specs(specs, device) -> Tuple[torch.Tensor, ...]:
 
 def _validate_fwd_inputs(x_q, x_sf, w13_q, w13_sf, offsets):
     sig = _meta_sig("fwd", x_q, x_sf, w13_q, w13_sf, offsets)
-    if sig in _validated_sigs:
+    if sig is not None and sig in _validated_sigs:
         rows, model_dim = x_q.shape
         groups, two_hidden, _ = w13_q.shape
         if host_offsets_validation_enabled():
@@ -550,9 +596,10 @@ def _validate_fwd_inputs(x_q, x_sf, w13_q, w13_sf, offsets):
     _require_cuda_device(device, "x_q")
     validate_feature_dims(model_dim=model_dim, hidden_dim=hidden)
     validate_allocated_rows(rows)
-    if rows * two_hidden >= 2**31:
+    if rows * max(model_dim, two_hidden) >= 2**31:
         raise ValueError(
-            f"R * 2F = {rows * two_hidden} does not fit an int32 element index"
+            f"R * max(D, 2F) = {rows * max(model_dim, two_hidden)} does not "
+            "fit an int32 element index"
         )
     validate_group_offsets(
         offsets, num_groups=groups, allocated_rows=rows, device=device
@@ -590,7 +637,7 @@ def _validate_fwd_inputs(x_q, x_sf, w13_q, w13_sf, offsets):
         device=device,
         groups=groups,
     )
-    _remember_sig(sig)
+    _remember_sig(sig, x_q, x_sf, w13_q, w13_sf, offsets)
     return rows, model_dim, hidden, groups
 
 
@@ -682,7 +729,7 @@ def _(x_q, x_sf, w13_q, w13_sf, offsets):
 
 def _validate_mm_inputs(a_q, a_sf, b_q, b_sf, offsets):
     sig = _meta_sig("mm", a_q, a_sf, b_q, b_sf, offsets)
-    if sig in _validated_sigs:
+    if sig is not None and sig in _validated_sigs:
         rows, contraction = a_q.shape
         groups, out_features, _ = b_q.shape
         if host_offsets_validation_enabled():
@@ -702,7 +749,12 @@ def _validate_mm_inputs(a_q, a_sf, b_q, b_sf, offsets):
 
     _require_cuda_device(device, "a_q")
     # N and K are both feature dims here (D/F/2F at the two call sites).
-    validate_feature_dims(model_dim=out_features, hidden_dim=contraction)
+    validate_feature_dims(
+        model_dim=out_features,
+        hidden_dim=contraction,
+        model_dim_name="b_q's output feature dim N",
+        hidden_dim_name="the contraction dim K",
+    )
     validate_allocated_rows(rows)
     if rows * max(out_features, contraction) >= 2**31:
         raise ValueError(
@@ -745,7 +797,7 @@ def _validate_mm_inputs(a_q, a_sf, b_q, b_sf, offsets):
         device=device,
         groups=groups,
     )
-    _remember_sig(sig)
+    _remember_sig(sig, a_q, a_sf, b_q, b_sf, offsets)
     return rows, out_features, contraction, groups
 
 
@@ -830,7 +882,7 @@ def _bwd_output_specs(rows: int, hidden: int):
 
 def _validate_bwd_inputs(dy_q, dy_sf, w2_col_q, w2_col_sf, z_bf16, offsets):
     sig = _meta_sig("bwd", dy_q, dy_sf, w2_col_q, w2_col_sf, z_bf16, offsets)
-    if sig in _validated_sigs:
+    if sig is not None and sig in _validated_sigs:
         rows, model_dim = dy_q.shape
         groups, _, hidden = w2_col_q.shape
         if host_offsets_validation_enabled():
@@ -858,9 +910,10 @@ def _validate_bwd_inputs(dy_q, dy_sf, w2_col_q, w2_col_sf, z_bf16, offsets):
     _require_cuda_device(device, "dy_q")
     validate_feature_dims(model_dim=model_dim, hidden_dim=hidden)
     validate_allocated_rows(rows)
-    if rows * 2 * hidden >= 2**31:
+    if rows * max(model_dim, 2 * hidden) >= 2**31:
         raise ValueError(
-            f"R * 2F = {rows * 2 * hidden} does not fit an int32 element index"
+            f"R * max(D, 2F) = {rows * max(model_dim, 2 * hidden)} does not "
+            "fit an int32 element index"
         )
     validate_group_offsets(
         offsets, num_groups=groups, allocated_rows=rows, device=device
@@ -905,7 +958,7 @@ def _validate_bwd_inputs(dy_q, dy_sf, w2_col_q, w2_col_sf, z_bf16, offsets):
         device=device,
         groups=groups,
     )
-    _remember_sig(sig)
+    _remember_sig(sig, dy_q, dy_sf, w2_col_q, w2_col_sf, z_bf16, offsets)
     return rows, model_dim, hidden, groups
 
 
@@ -991,7 +1044,7 @@ def _(dy_q, dy_sf, w2_col_q, w2_col_sf, z_bf16, offsets):
 
 def _validate_wgrad_inputs(dy_col_q, dy_col_sf, x_col_q, x_col_sf, offsets):
     sig = _meta_sig("wgrad", dy_col_q, dy_col_sf, x_col_q, x_col_sf, offsets)
-    if sig in _validated_sigs:
+    if sig is not None and sig in _validated_sigs:
         rows, out_features = dy_col_q.shape
         in_features = x_col_q.shape[1]
         groups = offsets.numel()
@@ -1019,7 +1072,12 @@ def _validate_wgrad_inputs(dy_col_q, dy_col_sf, x_col_q, x_col_sf, offsets):
 
     _require_cuda_device(device, "dy_col_q")
     validate_allocated_rows(rows)
-    validate_feature_dims(model_dim=out_features, hidden_dim=in_features)
+    validate_feature_dims(
+        model_dim=out_features,
+        hidden_dim=in_features,
+        model_dim_name="dy_col_q's feature dim N",
+        hidden_dim_name="x_col_q's feature dim K",
+    )
     if rows * max(out_features, in_features) >= 2**31:
         raise ValueError(
             f"R * max(N, K) = {rows * max(out_features, in_features)} does not "
@@ -1065,7 +1123,7 @@ def _validate_wgrad_inputs(dy_col_q, dy_col_sf, x_col_q, x_col_sf, offsets):
     # by the ALLOCATED rows while a composite-produced operand's are sized by
     # the ROUTED total offsets[-1] -- mixing the two is legitimate and
     # probe-proven (tail case); the kernel reads only within offsets.
-    _remember_sig(sig)
+    _remember_sig(sig, dy_col_q, dy_col_sf, x_col_q, x_col_sf, offsets)
     return rows, out_features, in_features, groups
 
 
