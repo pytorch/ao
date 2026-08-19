@@ -29,6 +29,7 @@ from torchao.quantization.quantize_.workflows import (
 )
 from torchao.quantization.quantize_.workflows.float8.float8_sparse_2x4_2d_data_2d_metadata_tensor import (
     Float8Sparse2x4_2DData2DMetadataTensor,
+    SparseKernelChoice,
 )
 from torchao.quantization.quantize_.workflows.float8.kernels import (
     _rowwise_scaled_linear_sparse_cutedsl,
@@ -94,7 +95,7 @@ def _is_sm90a():
 
 
 class TestFloat8Sparse2x4_2DData2DMetadataTensor(common_utils.TestCase):
-    def test_tensor_unflatten_defaults_missing_sparse_backend(self):
+    def test_tensor_unflatten_defaults_missing_sparse_kernel_choice(self):
         qdata = torch.empty((8, 16), dtype=torch.float8_e4m3fn)
         sparse_metadata = torch.empty((64, 16), dtype=torch.uint8)
         scale = torch.ones((8, 1), dtype=torch.bfloat16)
@@ -114,7 +115,7 @@ class TestFloat8Sparse2x4_2DData2DMetadataTensor(common_utils.TestCase):
             None,
         )
 
-        self.assertEqual(tensor._sparse_backend, "legacy")
+        self.assertEqual(tensor._sparse_kernel_choice, SparseKernelChoice.CUTLASS)
 
     @unittest.skipIf(not is_sm_at_least_90(), "Need H100 to run")
     @unittest.skipIf(not _cutedsl_runtime_available(), "CuTeDSL runtime unavailable")
@@ -149,10 +150,8 @@ class TestFloat8Sparse2x4_2DData2DMetadataTensor(common_utils.TestCase):
     @common_utils.parametrize("bias", [True, False])
     @common_utils.parametrize("shape", [(16, 16, 32), (128, 256, 256)])
     def test_cutedsl_sparse_linear(self, shape, bias):
-        # Not bitwise-identical to the legacy CUTLASS path: the two kernels
-        # use different GEMM tile schedules, so floating-point accumulation
-        # order (and thus rounding) differs, unlike the pure byte-copy
-        # conversion kernel above, which does match bitwise.
+        # Measured bitwise-identical to legacy CUTLASS; rtol=1e-5 leaves slack
+        # for a future CUTLASS/nvidia-cutlass-dsl version changing rounding.
         m, n, k = shape
         input = torch.randn((m, k), dtype=torch.bfloat16, device="cuda").to(
             torch.float8_e4m3fn
@@ -187,7 +186,7 @@ class TestFloat8Sparse2x4_2DData2DMetadataTensor(common_utils.TestCase):
             bias_tensor,
             torch.bfloat16,
         )
-        torch.testing.assert_close(legacy, cutedsl, atol=1e-1, rtol=1e-2)
+        torch.testing.assert_close(legacy, cutedsl, rtol=1e-5, atol=0)
 
     @unittest.skipIf(not is_sm_at_least_90(), "Need H100 to run")
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
