@@ -6,8 +6,16 @@
 
 import pytest
 import torch
+from torch.nn import functional as F
+from torch.utils._triton import has_triton
 
-from torchao.utils import is_MI300, is_MI350, is_sm_at_least_90
+from torchao.utils import (
+    is_MI300,
+    is_MI350,
+    is_sm_at_least_90,
+    is_sm_at_least_100,
+    torch_version_at_least,
+)
 
 if not (
     torch.cuda.is_available() and (is_sm_at_least_90() or is_MI300() or is_MI350())
@@ -25,6 +33,11 @@ from torchao.prototype.moe_training.nvfp4_grouped_mm import (
 from torchao.prototype.moe_training.utils import generate_jagged_offs
 from torchao.prototype.mx_formats.nvfp4_tensor import nvfp4_quantize
 from torchao.testing.utils import skip_if_rocm
+
+if has_triton() and is_sm_at_least_100() and torch_version_at_least("2.10.0"):
+    from torchao.prototype.moe_training.nvfp4_training.nvfp4_grouped_mm import (
+        _to_nvfp4_rht_rs_then_scaled_grouped_mm,
+    )
 
 BLOCK_SIZE = 16
 
@@ -122,6 +135,133 @@ def test_emulated_nvfp4_grouped_gemm_2d_2d(M, K, N, num_experts):
     sqnr = compute_error(ref_out, out)
     min_sqnr = 16.0
     assert sqnr >= min_sqnr, f"sqnr {sqnr} is too low, must be >= {min_sqnr}"
+
+
+@skip_if_rocm("ROCm not supported")
+@pytest.mark.skipif(not has_triton(), reason="unsupported without triton")
+@pytest.mark.skipif(not is_sm_at_least_100(), reason="Requires SM100+")
+@pytest.mark.skipif(
+    not torch_version_at_least("2.10.0"), reason="requires PyTorch 2.10+"
+)
+# Keep the ungrouped dim above 128 here. The columnwise scale buffer is
+# (ungrouped // 128, tokens // 64, 32, 16), so at or below one 128-row tile the
+# per-group and whole-extent block layouts are the same permutation and wgrad
+# layout bugs are invisible at any expert count -- 8 experts at K=N=128 scores
+# the same 15.06 dB with or without such a bug. Expert count is not the axis
+# that gives this coverage; the ungrouped dim is.
+@pytest.mark.parametrize("M,K,N", [(1024, 1024, 1024)])
+@pytest.mark.parametrize("num_experts", (1, 8))
+def test_nvfp4_grouped_gemm_fwd_bwd(M, K, N, num_experts):
+    torch.manual_seed(42)
+    x = torch.randn(M, K, dtype=torch.bfloat16, device="cuda", requires_grad=True)
+    weight = torch.randn(
+        num_experts,
+        N,
+        K,
+        dtype=torch.bfloat16,
+        device="cuda",
+        requires_grad=True,
+    )
+    offs = generate_jagged_offs(num_experts, M, multiple_of=128, dtype=torch.int32)
+    sign_vector = tuple(1 if i % 2 == 0 else -1 for i in range(16))
+    sr_seed = torch.tensor([1234], dtype=torch.int64, device="cuda")
+
+    x_ref = x.detach().clone().requires_grad_(True)
+    weight_ref = weight.detach().clone().requires_grad_(True)
+    out_ref = torch._grouped_mm(
+        x_ref,
+        weight_ref.transpose(-2, -1),
+        offs=offs.clone(),
+        out_dtype=torch.bfloat16,
+    )
+    out = _to_nvfp4_rht_rs_then_scaled_grouped_mm(
+        x,
+        weight,
+        sign_vector,
+        sr_seed,
+        offs=offs,
+        pad_token_groups_for_grouped_mm=False,
+    )
+
+    assert out.shape == out_ref.shape == (M, N)
+    output_sqnr = compute_error(out_ref, out)
+    assert output_sqnr >= 15.0, f"Output SQNR {output_sqnr} is below 15.0"
+
+    labels = torch.ones_like(out_ref)
+    F.mse_loss(out_ref, labels).backward()
+    F.mse_loss(out, labels).backward()
+
+    assert x.grad.shape == x_ref.grad.shape == (M, K)
+    input_grad_sqnr = compute_error(x_ref.grad, x.grad)
+    assert input_grad_sqnr >= 14.0, f"Input grad SQNR {input_grad_sqnr} is below 14.0"
+
+    assert weight.grad.shape == weight_ref.grad.shape == (num_experts, N, K)
+    # One bound for any expert count. The multi-expert case had been relaxed to
+    # 5.0, which hid a columnwise scale-layout bug in the wgrad GEMM that put it
+    # at ~6.7 dB; that is fixed. 12.0 keeps this a regression test for it while
+    # clearing the tightest legitimate shape (8 experts x 128 rows measures
+    # 13.4 dB -- fewer tokens per expert means less averaging of quantization
+    # noise). Single-expert shapes run ~15.5 dB.
+    min_weight_grad_sqnr = 12.0
+    weight_grad_sqnr = compute_error(weight_ref.grad, weight.grad)
+    assert weight_grad_sqnr >= min_weight_grad_sqnr, (
+        f"Weight grad SQNR {weight_grad_sqnr} is below {min_weight_grad_sqnr}"
+    )
+
+
+@skip_if_rocm("ROCm not supported")
+@pytest.mark.skipif(not has_triton(), reason="unsupported without triton")
+@pytest.mark.skipif(not is_sm_at_least_100(), reason="Requires SM100+")
+@pytest.mark.skipif(
+    not torch_version_at_least("2.10.0"), reason="requires PyTorch 2.10+"
+)
+def test_nvfp4_grouped_gemm_unaligned_padding():
+    # K=N=256, not 128: this is the only coverage of the padded/unaligned group
+    # path, and that path depends on the padding restoring the 128-aligned group
+    # boundaries the columnwise scale store requires. At 128 the scale layout is
+    # a single row-tile and degenerate (see the note above the fwd/bwd shapes),
+    # so the test cannot see a layout error in the path it exists to guard.
+    M, K, N, num_experts = 256, 256, 256, 2
+    torch.manual_seed(42)
+    x = torch.randn(M, K, dtype=torch.bfloat16, device="cuda", requires_grad=True)
+    weight = torch.randn(
+        num_experts,
+        N,
+        K,
+        dtype=torch.bfloat16,
+        device="cuda",
+        requires_grad=True,
+    )
+    offs = torch.tensor([64, M], dtype=torch.int32, device="cuda")
+    sign_vector = tuple(1 if i % 2 == 0 else -1 for i in range(16))
+    sr_seed = torch.tensor([1234], dtype=torch.int64, device="cuda")
+
+    x_ref = x.detach().clone().requires_grad_(True)
+    weight_ref = weight.detach().clone().requires_grad_(True)
+    out_ref = torch._grouped_mm(
+        x_ref,
+        weight_ref.transpose(-2, -1),
+        offs=offs,
+        out_dtype=torch.bfloat16,
+    )
+    out = _to_nvfp4_rht_rs_then_scaled_grouped_mm(
+        x,
+        weight,
+        sign_vector,
+        sr_seed,
+        offs=offs,
+        pad_token_groups_for_grouped_mm=True,
+    )
+    labels = torch.ones_like(out)
+    F.mse_loss(out_ref, labels).backward()
+    F.mse_loss(out, labels).backward()
+
+    assert out.shape == out_ref.shape == (M, N)
+    assert compute_error(out_ref, out) >= 15.0
+    assert x.grad.shape == x_ref.grad.shape == (M, K)
+    assert compute_error(x_ref.grad, x.grad) >= 14.0
+    assert weight.grad.shape == weight_ref.grad.shape == (num_experts, N, K)
+    assert compute_error(weight_ref.grad, weight.grad) >= 12.0
 
 
 def test_nvfp4_dequant_roundtrip():
