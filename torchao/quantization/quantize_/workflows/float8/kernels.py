@@ -503,17 +503,19 @@ def _to_sparse_semi_structured_cutedsl(
     )
     total_work = max(total_metadata, total_padding) if has_padding else total_metadata
     num_blocks = (total_work + 255) // 256
+    # The --enable-tvm-ffi runtime is positional-only, so this must match
+    # ToSparseSemiStructured.__call__'s parameter order exactly.
     compiled(
-        weight=weight,
-        output=output,
-        metadata=metadata,
-        rows=rows,
-        cols=cols,
-        compressed_cols=compressed_cols,
-        metadata_cols=metadata_cols,
-        metadata_rows=metadata_rows,
-        num_blocks=num_blocks,
-        stream=torch.cuda.current_stream(),
+        weight,
+        output,
+        metadata,
+        rows,
+        cols,
+        compressed_cols,
+        metadata_cols,
+        metadata_rows,
+        num_blocks,
+        torch.cuda.current_stream(),
     )
     return output, metadata
 

@@ -238,19 +238,37 @@ def assert_mxfp8_semantics(
     actual_scales: torch.Tensor,
     cases: MXFP8SemanticCases,
 ) -> None:
-    """Assert exact bytes and report the semantic case name on a mismatch."""
+    """Assert exact finite bytes and report all semantic case mismatches.
+
+    E4M3FN has positive and negative NaN encodings (0x7f and 0xff). Their sign
+    is not semantically meaningful and can differ between hardware conversion
+    instructions, so treat the two encodings as equivalent.
+    """
     actual_data = actual_data.view(torch.uint8).cpu()
     actual_scales = actual_scales.view(torch.uint8).cpu()
     assert actual_data.shape == cases.expected_data.shape
     assert actual_scales.shape == cases.expected_scales.shape
 
+    errors = []
     for case_idx, case_name in enumerate(cases.names):
-        assert torch.equal(actual_scales[case_idx], cases.expected_scales[case_idx]), (
-            f"scale mismatch for {case_name}"
-        )
-        assert torch.equal(actual_data[case_idx], cases.expected_data[case_idx]), (
-            f"data mismatch for {case_name}"
-        )
+        actual_scale = actual_scales[case_idx]
+        expected_scale = cases.expected_scales[case_idx]
+        if not torch.equal(actual_scale, expected_scale):
+            errors.append(
+                f"scale mismatch for {case_name}: "
+                f"actual={actual_scale.tolist()}, expected={expected_scale.tolist()}"
+            )
+
+        actual = actual_data[case_idx]
+        expected = cases.expected_data[case_idx]
+        actual_normalized = torch.where(actual == 0xFF, 0x7F, actual)
+        if not torch.equal(actual_normalized, expected):
+            errors.append(
+                f"data mismatch for {case_name}: "
+                f"actual={actual.tolist()}, expected={expected.tolist()}"
+            )
+
+    assert not errors, "\n" + "\n".join(errors)
 
 
 def make_f32_to_e8m0_rceil_cases(*, device):

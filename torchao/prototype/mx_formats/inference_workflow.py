@@ -409,37 +409,3 @@ torch.serialization.add_safe_globals(
         ScaleCalculationMode,
     ]
 )
-
-
-import torch.nn as nn
-
-
-def _auto_filter_for_nfp4(mod: nn.Module, fqn: str) -> bool:
-    """Generic Filter fn for NVFP4 that is best practice for most models."""
-    # Define any FQNs you want to exclude directly in the function
-    filter_fqns = ["embedder", "embed", "embedding", "time_text_embed"]
-
-    # Only support Linear modules
-    if not isinstance(mod, nn.Linear):
-        return False
-
-    # If the fqn matches any filtered fqn, then we should not convert this module
-    is_filtered_fqn = any(filter_fqn in fqn for filter_fqn in filter_fqns)
-    if is_filtered_fqn:
-        return False
-
-    # All dims must be divisible by 16 due to float8 hardware requirements.
-    N, K = mod.weight.shape
-    dims_multiples_of_16 = K % 16 == 0 and N % 16 == 0
-    if not dims_multiples_of_16:
-        return False
-    if N <= 64:
-        print("skiping small linear layer")
-        # TODO cublas doesn't like this one
-        return False
-
-    # Dims below these thresholds may result in worse performance
-    if K <= 1024 and N <= 1024:
-        print("skiping small linear layer")
-        return False
-    return True

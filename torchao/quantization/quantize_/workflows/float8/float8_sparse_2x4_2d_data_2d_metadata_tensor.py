@@ -49,14 +49,14 @@ class SparseKernelChoice(str, Enum):
     Kernel choice for the FP8 2:4 sparse conversion and linear operators.
     """
 
+    CUTLASS = "cutlass"
     """
     Hand-written CUTLASS C++ kernels, built as part of the torchao extension.
     """
-    LEGACY = "legacy"
+    CUTEDSL = "cutedsl"
     """
     CuTeDSL kernels, JIT-compiled on first use through nvidia-cutlass-dsl.
     """
-    CUTEDSL = "cutedsl"
 
 
 torch.serialization.add_safe_globals([SparseKernelChoice])
@@ -170,7 +170,7 @@ class Float8Sparse2x4_2DData2DMetadataTensor(TorchAOBaseTensor):
         hp_value_lb: Optional[float] = None,
         hp_value_ub: Optional[float] = None,
         act_quant_kwargs: Optional[QuantizeTensorToFloat8Kwargs] = None,
-        sparse_backend: SparseKernelChoice = SparseKernelChoice.LEGACY,
+        sparse_backend: SparseKernelChoice = SparseKernelChoice.CUTLASS,
     ):
         block_size = get_block_size(hp_tensor.shape, granularity)
         block_size = list(block_size)
@@ -202,10 +202,10 @@ class Float8Sparse2x4_2DData2DMetadataTensor(TorchAOBaseTensor):
         sparse_backend = SparseKernelChoice(sparse_backend)
         if sparse_backend is SparseKernelChoice.CUTEDSL:
             qdata, sparse_metadata = _to_sparse_semi_structured_cutedsl(data)
-        elif sparse_backend is SparseKernelChoice.LEGACY:
+        elif sparse_backend is SparseKernelChoice.CUTLASS:
             qdata, sparse_metadata = to_sparse_semi_structured_cutlass_sm9x_f8(data)
         else:
-            raise ValueError(f"Unsupported sparse backend: {sparse_backend}")
+            raise ValueError(f"Unsupported sparse backend: {sparse_backend.value}")
 
         return Float8Sparse2x4_2DData2DMetadataTensor(
             qdata,
