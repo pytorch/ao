@@ -46,7 +46,7 @@ if not (torch.cuda.is_available() and is_sm_version(10, 0)):
         allow_module_level=True,
     )
 
-from torchao.prototype.moe_training.kernels.mxfp8.grouped_mlp_ops import (
+from torchao.prototype.moe_training.kernels.mxfp8.cutedsl_grouped_mlp import (
     _mxfp8_grouped_mlp_kernels_available,
     _mxfp8_grouped_mlp_unavailable_reason,
     is_supported,
