@@ -8,22 +8,6 @@ $$
 
 In this implementation, weights are smoothed (equalized) and quantized to int8 during quantization. Activations are smoothed and quantized to int8 at runtime. Quantization is done either dynamically or statically. For dynamic quantization, activations are quantized per token. And for static quantization, activations are quantized per tensor.
 
-## Quick start
-
-Run the example code with
-
-```bash
-python example.py --model <MODEL_ID>  --device <cuda/cpu>
-# An example
-python example.py --model meta-llama/Llama-2-7b-chat-hf
-```
-
-To save a quantized model for reuse, specify `--model_save_path`
-
-```bash
-python example.py --model <MODEL_ID> --model_save_path ./model_smoothquant.pt
-```
-
 ## Usage of API
 
 `SmoothQuantConfig` configures applying SmoothQuant to each linear layer of the model. Use it with `torchao.quantization.quantize_`. For example:
