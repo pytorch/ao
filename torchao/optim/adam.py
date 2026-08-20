@@ -7,13 +7,19 @@ from typing import Optional
 
 import torch
 from torch import Tensor
-from torch.distributed._tensor import DTensor
 from torch.optim import Optimizer
 
 from .quant_utils import _fp32_to_bf16_sr
 from .subclass_4bit import OptimState4bit
 from .subclass_8bit import OptimState8bit
 from .subclass_fp8 import OptimStateFp8
+
+if torch.distributed.is_available():
+    from torch.distributed.tensor import DTensor
+else:
+    # torch built with USE_DISTRIBUTED=0 has no DTensor, so the isinstance()
+    # checks below are always False.
+    DTensor = ()
 
 
 class _AdamBase(Optimizer):
