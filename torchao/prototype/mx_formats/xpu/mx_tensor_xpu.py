@@ -1,4 +1,4 @@
-"""Intel XPU MXTensor subclass for MX format inference."""
+"""Intel XPU MXTensor subclass for MX format."""
 
 import torch
 import torch.nn.functional as F
