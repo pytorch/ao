@@ -8,16 +8,35 @@ from contextlib import nullcontext
 
 import fire
 import torch
+from datasets import load_dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from transformers.models.olmoe.modeling_olmoe import OlmoeExperts
 from transformers.quantizers.quantizer_torchao import TorchAoHfQuantizer
 
-from torchao.prototype.gptq.gptq_example import prepare_dataset
 from torchao.prototype.mx_formats.inference_workflow import (
     NVFP4DynamicActivationNVFP4WeightConfig,
 )
 from torchao.prototype.mx_formats.nvfp4_tensor import NVFP4Tensor
 from torchao.quantization import FqnToConfig, quantize_
+
+
+def prepare_c4_dataset(tokenizer, max_sequence_length, num_calibration_samples):
+    dataset = load_dataset("allenai/c4", "en", split="train", streaming=True).shuffle(
+        seed=42, buffer_size=1_000
+    )
+
+    samples = []
+    for i, sample in enumerate(dataset):
+        if i == num_calibration_samples:
+            break
+        tokenized_sample = tokenizer(
+            sample["text"],
+            max_length=max_sequence_length,
+            truncation=True,
+            return_tensors="pt",
+        )
+        samples.append(tokenized_sample["input_ids"])
+    return samples
 
 
 def install_expert_counters(model):
@@ -125,12 +144,10 @@ def main(
 
         expert_counts, hooks = install_expert_counters(model)
 
-        dataset = prepare_dataset(
+        dataset = prepare_c4_dataset(
             tokenizer,
             max_sequence_length,
-            num_calibration_samples=num_calibration_samples,
-            dataset_id="c4",
-            dataset_split="train",
+            num_calibration_samples,
         )
         print(f"Running calibration on {len(dataset)} C4 samples...")
         with torch.no_grad():
