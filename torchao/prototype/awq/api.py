@@ -10,13 +10,15 @@ from dataclasses import dataclass
 import torch
 
 from torchao.core.config import AOBaseConfig
+from torchao.quantization.quant_api import (
+    _linear_extra_repr,
+)
 from torchao.quantization.quantize_.common import SupportsActivationPreScaling
 from torchao.quantization.quantize_.common.quantization_step import QuantizationStep
 from torchao.quantization.transform_module import (
     _QUANTIZE_CONFIG_HANDLER,
     register_quantize_module_handler,
 )
-from torchao.quantization.utils import _linear_extra_repr
 from torchao.utils import DummyModule
 
 from .core import (

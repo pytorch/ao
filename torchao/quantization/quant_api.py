@@ -75,7 +75,9 @@ from torchao.quantization.transform_module import (
 )
 from torchao.quantization.utils import (
     _fp8_mm_compat,
+    _linear_extra_repr,
     _module_extra_repr,
+    _quantization_type,
 )
 from torchao.utils import (
     is_MI300,
@@ -244,6 +246,30 @@ def swap_conv2d_1x1_to_linear(model, filter_fn=None):
     _replace_with_custom_fn_if_matches_filter(
         model, replace_conv2d_1x1, filter_fn=filter_fn
     )
+
+
+def _embedding_extra_repr(self):
+    return f"num_embeddings={self.weight.shape[0]}, embedding_dim={self.weight.shape[1]}, weight={_quantization_type(self.weight)}"
+
+
+def _get_linear_subclass_inserter(
+    constructor, *, allow_requires_grad=False, propagate_bias=False, **kwargs
+):
+    """Helper function to apply the constructor that quantizes the weight Tensor (with additional kwargs)
+    to the weight of linear module
+    """
+
+    def insert_subclass(lin):
+        requires_grad = allow_requires_grad and lin.weight.requires_grad
+        if propagate_bias == True:
+            kwargs["bias"] = lin.bias
+        lin.weight = torch.nn.Parameter(
+            constructor(lin.weight, **kwargs), requires_grad=requires_grad
+        )
+        lin.extra_repr = types.MethodType(_linear_extra_repr, lin)
+        return lin
+
+    return insert_subclass
 
 
 def quantize_(
