@@ -230,7 +230,7 @@ def swap_conv2d_1x1_to_linear(model, filter_fn=None):
     def replace_conv2d_1x1(conv):
         assert conv.kernel_size == (1, 1)
         lin = torch.nn.Linear(
-            conv.in_channels, conv.out_channels, bias=(conv.bias is None)
+            conv.in_channels, conv.out_channels, bias=(conv.bias is not None)
         )
         lin.weight = torch.nn.Parameter(conv.weight.squeeze(-1, -2))
         lin.bias = conv.bias
