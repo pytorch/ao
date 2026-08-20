@@ -11,7 +11,7 @@ import time
 from functools import reduce
 from importlib.metadata import version
 from math import gcd
-from typing import Any, Optional, Union
+from typing import Any, Dict, Optional, Type, Union
 
 import torch
 import torch.nn.utils.parametrize as parametrize
@@ -715,6 +715,27 @@ def _get_to_kwargs(self, *args, **kwargs):
         "non_blocking": non_blocking,
     }
     return kwargs
+
+
+# Device-specific tensor registry
+# Maps (generic_tensor_type, device_type) to specific_tensor_type
+_AOTENSOR_TABLE: Dict[Type, Dict[str, Type]] = {}
+
+
+def register_ao_tensor(
+    generic_type: Type, device: str, specific_type: Type
+) -> None:
+    """Register a device-specific tensor for a generic tensor type.
+
+    """
+    if generic_type not in _AOTENSOR_TABLE:
+        _AOTENSOR_TABLE[generic_type] = {}
+    _AOTENSOR_TABLE[generic_type][device] = specific_type
+
+
+def get_ao_tensor(generic_type: Type, device: str) -> Type:
+    """Get the device-specific tensor for a generic tensor type. Falls back to generic_type."""
+    return _AOTENSOR_TABLE.get(generic_type, {}).get(device, generic_type)
 
 
 class TorchAOBaseTensor(torch.Tensor):

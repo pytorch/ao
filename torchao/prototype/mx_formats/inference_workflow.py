@@ -31,7 +31,7 @@ from torchao.quantization.transform_module import (
     register_quantize_module_handler,
 )
 from torchao.quantization.utils import _module_extra_repr, _quantization_type
-from torchao.utils import is_sm_at_least_100
+from torchao.utils import get_ao_tensor, is_sm_at_least_100
 
 
 class NVFP4ObservedLinear(torch.nn.Linear):
@@ -135,6 +135,11 @@ def _mx_inference_linear_transform(
     assert weight.dtype == torch.bfloat16, (
         f"Only supporting bf16 out dtype for now, got {weight.dtype}"
     )
+
+    # Select device-appropriate MXTensor class
+    device_type = weight.device.type
+    mx_cls = get_ao_tensor(MXTensor, device_type)
+
     act_quant_kwargs = QuantizeTensorToMXKwargs(
         elem_dtype=config.activation_dtype,
         block_size=config.block_size,
@@ -144,7 +149,7 @@ def _mx_inference_linear_transform(
     )
 
     # Convert weight to MX Tensor
-    quantized_weight = MXTensor.to_mx(
+    quantized_weight = mx_cls.to_mx(
         weight,
         config.weight_dtype,
         block_size=config.block_size,
