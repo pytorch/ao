@@ -1,0 +1,80 @@
+name: Run CUDA Nightly Regression Tests (12.8, 12.9)
+
+on:
+  # TODO: Remove push/pull_request trigger after initial CI validation
+  push:
+    branches:
+      - main
+      - 'gh/**'
+  pull_request:
+    branches:
+      - main
+      - 'gh/**'
+  schedule:
+    # 7 am PST every day
+    - cron: "0 15 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: regression_test_cuda_nightly-${{ github.workflow }}-${{ github.ref == 'refs/heads/main' && github.run_number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  HF_TOKEN: ${{ secrets.HF_TOKEN }}
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # CUDA 12.8 on H100
+          - name: CUDA 12.8 H100
+            runs-on: linux.aws.h100
+            torch-spec: '--pre torch --index-url https://download.pytorch.org/whl/nightly/cu128'
+            gpu-arch-type: "cuda"
+            gpu-arch-version: "12.8"
+
+          # CUDA 12.8 on A100
+          - name: CUDA 12.8 A100
+            runs-on: linux.aws.a100
+            torch-spec: '--pre torch --index-url https://download.pytorch.org/whl/nightly/cu128'
+            gpu-arch-type: "cuda"
+            gpu-arch-version: "12.8"
+
+          # CUDA 12.9 on H100
+          - name: CUDA 12.9 H100
+            runs-on: linux.aws.h100
+            torch-spec: '--pre torch --index-url https://download.pytorch.org/whl/nightly/cu129'
+            gpu-arch-type: "cuda"
+            gpu-arch-version: "12.9"
+
+          # CUDA 12.9 on A100
+          - name: CUDA 12.9 A100
+            runs-on: linux.aws.a100
+            torch-spec: '--pre torch --index-url https://download.pytorch.org/whl/nightly/cu129'
+            gpu-arch-type: "cuda"
+            gpu-arch-version: "12.9"
+
+    permissions:
+      id-token: write
+      contents: read
+    uses: pytorch/test-infra/.github/workflows/linux_job_v2.yml@main
+    with:
+      timeout: 180
+      runner: ${{ matrix.runs-on }}
+      gpu-arch-type: ${{ matrix.gpu-arch-type }}
+      gpu-arch-version: ${{ matrix.gpu-arch-version }}
+      submodules: recursive
+      script: |
+        conda create -n venv python=3.10 -y
+        conda activate venv
+        export PATH=/opt/rh/devtoolset-10/root/usr/bin/:$PATH
+        python -m pip install --upgrade pip
+        pip install ${{ matrix.torch-spec }}
+        pip install -r dev-requirements.txt
+        pip install . --no-build-isolation
+        export CONDA=$(dirname $(dirname $(which conda)))
+        export LD_LIBRARY_PATH=$CONDA/lib/:$LD_LIBRARY_PATH
+        pytest test --verbose -s
+
