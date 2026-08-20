@@ -64,7 +64,7 @@ class MXTensorXPU(MXTensor):
 
 def _xpu_addmm_dispatch(a, b, aten_op, bias=None):
     """XPU-specific MX gemm dispatch."""
-    if not isinstance(a, MXTensor):
+    if not isinstance(a, MXTensorXPU):
         assert b.act_quant_kwargs is not None, "weight-only quant not yet supported"
         k = b.act_quant_kwargs
         a = MXTensorXPU.to_mx(
@@ -78,7 +78,10 @@ def _xpu_addmm_dispatch(a, b, aten_op, bias=None):
 
     # AUTO: XPU-specific gemm
     M, K, N = a.shape[0], a.shape[1], b.shape[1]
-    assert a.block_size == 32 and b.block_size == 32
+    assert a.qdata.is_contiguous()
+    assert b.qdata.t().is_contiguous()
+    assert a.block_size == 32, f"Invalid block size {a.block_size}"
+    assert b.block_size == 32, f"Invalid block size {b.block_size}"
 
     a_scale = a.scale.view(M, K // 32)
     b_scale = b.scale.t().view(N, K // 32)
@@ -117,26 +120,41 @@ xpu_implements = MXTensorXPU.implements
 
 @xpu_implements([aten.mm.default, aten.matmul.default])
 def xpu_mx_mm(func, types, args, kwargs):
-    return _xpu_addmm_dispatch(args[0], args[1], func)
+    a = args[0]
+    b = args[1]
+    assert isinstance(b, MXTensorXPU)
+
+    return _xpu_addmm_dispatch(a, b, func)
 
 
 @xpu_implements([aten.addmm.default])
 def xpu_mx_addmm(func, types, args, kwargs):
-    return _xpu_addmm_dispatch(args[1], args[2], func, bias=args[0])
+    assert isinstance(args[0], torch.Tensor) and isinstance(args[2], MXTensorXPU)
+    bias = args[0]
+    a = args[1]
+    b = args[2]
+    return _xpu_addmm_dispatch(a, b, func, bias=bias)
 
 
 @xpu_implements([aten.linear.default])
 def xpu_mx_linear(func, types, args, kwargs):
+    assert isinstance(args[0], torch.Tensor) and isinstance(args[1], MXTensorXPU)
     a = args[0]
-    orig_shape = a.shape
-    a_2d = a.view(-1, orig_shape[-1])
+
+    # make a 2d
+    orig_a_shape = a.shape
+    a_2d = a.view(-1, orig_a_shape[-1])
+
     b = args[1].t()
-    bias = args[2] if len(args) > 2 else None
-    if bias is not None:
+    if len(args) > 2:
+        bias = args[2]
         res = _xpu_addmm_dispatch(a_2d, b, aten.addmm.default, bias)
     else:
         res = _xpu_addmm_dispatch(a_2d, b, aten.mm.default)
-    return res.view(*orig_shape[:-1], res.shape[-1])
+
+    # reshape back to original shape
+    res = res.view(*orig_a_shape[:-1], res.shape[-1])
+    return res
 
 
 @xpu_implements([aten._pin_memory.default])
@@ -156,8 +174,9 @@ def xpu_mx_pin_memory(func, types, args, kwargs):
 
 @xpu_implements([aten.t.default])
 def xpu_mx_t(func, types, args, kwargs):
+    # For now, only transpose(input, 0, 1) is supported.
     old = args[0]
-    return MXTensorXPU(
+    new = MXTensorXPU(
         old.qdata.t(),
         old.scale.t(),
         old.elem_dtype,
@@ -167,6 +186,7 @@ def xpu_mx_t(func, types, args, kwargs):
         old.act_quant_kwargs,
         old.is_swizzled_scales,
     )
+    return new
 
 
 @xpu_implements([aten.view.default])
@@ -174,6 +194,7 @@ def xpu_mx_view_op(func, types, args, kwargs):
     data = args[0].qdata
     new_size = args[1]
     if args[0].elem_dtype == torch.float4_e2m1fn_x2:
+        # special case fp4 as we pack two elements per byte
         new_size = tensor_size_hp_to_fp4x2(new_size, data.is_contiguous())
     new_data = func(data, new_size, *args[2:], **kwargs)
     return MXTensorXPU(
@@ -191,9 +212,12 @@ def xpu_mx_view_op(func, types, args, kwargs):
 @xpu_implements([aten.slice.Tensor])
 def xpu_mx_slice(func, types, args, kwargs):
     x, dim, start, end, step = fill_defaults(args, 5, [0, None, None, 1])
+
     if step != 1:
         raise ValueError("Only support aten.slice with step=1")
+
     sliced_data, sliced_scale = _swizzle_aware_slice(x, dim, start, end, step)
+
     return return_and_correct_aliasing(
         func,
         args,

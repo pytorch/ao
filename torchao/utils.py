@@ -11,7 +11,7 @@ import time
 from functools import reduce
 from importlib.metadata import version
 from math import gcd
-from typing import Any, Dict, Optional, Type, Union
+from typing import Any, Optional, Union
 
 import torch
 import torch.nn.utils.parametrize as parametrize
@@ -717,23 +717,6 @@ def _get_to_kwargs(self, *args, **kwargs):
     return kwargs
 
 
-# Device-specific tensor registry
-# Maps (generic_tensor_type, device_type) to specific_tensor_type
-_AOTENSOR_TABLE: Dict[Type, Dict[str, Type]] = {}
-
-
-def register_ao_tensor(generic_type: Type, device: str, specific_type: Type) -> None:
-    """Register a device-specific tensor for a generic tensor type."""
-    if generic_type not in _AOTENSOR_TABLE:
-        _AOTENSOR_TABLE[generic_type] = {}
-    _AOTENSOR_TABLE[generic_type][device] = specific_type
-
-
-def get_ao_tensor(generic_type: Type, device: str) -> Type:
-    """Get the device-specific tensor for a generic tensor type. Falls back to generic_type."""
-    return _AOTENSOR_TABLE.get(generic_type, {}).get(device, generic_type)
-
-
 class TorchAOBaseTensor(torch.Tensor):
     r"""A util tensor subclass that provides commonly used functions
     new tensor subclass can inherit to get all the utility functions
@@ -1082,6 +1065,32 @@ class TorchAOBaseTensor(torch.Tensor):
         if not hasattr(self, "_layout"):
             return None
         return self._layout
+
+
+# Device-specific tensor registry
+# Maps (generic_tensor_type, device_type) to specific_tensor_type
+_AOTENSOR_TABLE: dict[type[TorchAOBaseTensor], dict[str, type[TorchAOBaseTensor]]] = {}
+
+
+def register_ao_tensor(
+    generic_type: type[TorchAOBaseTensor],
+    device: str,
+    specific_type: type[TorchAOBaseTensor],
+) -> None:
+    """Register a device-specific tensor for a generic tensor type."""
+    assert issubclass(specific_type, generic_type), (
+        f"specific_type must be a subclass of {generic_type}, got {specific_type}"
+    )
+    if generic_type not in _AOTENSOR_TABLE:
+        _AOTENSOR_TABLE[generic_type] = {}
+    _AOTENSOR_TABLE[generic_type][device] = specific_type
+
+
+def get_ao_tensor(
+    generic_type: type[TorchAOBaseTensor], device: str
+) -> type[TorchAOBaseTensor]:
+    """Get the device-specific tensor for a generic tensor type. Falls back to generic_type."""
+    return _AOTENSOR_TABLE.get(generic_type, {}).get(device, generic_type)
 
 
 def fill_defaults(args, n, defaults_tail):
