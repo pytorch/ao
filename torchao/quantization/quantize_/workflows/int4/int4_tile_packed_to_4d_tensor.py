@@ -82,6 +82,30 @@ class Int4TilePackedTo4dTensor(TorchAOBaseTensor):
         shape: torch.Size,
         act_pre_scale: Optional[torch.Tensor] = None,
     ):
+        # qdata is packed as [..., n/8, k_padded/(inner_k_tiles*16), 32,
+        # inner_k_tiles/2] (inner_k_tiles fixed to 8, see `from_hp`), so the
+        # actual packed K extent is always recoverable from qdata's shape
+        # regardless of block_size. scale_and_zero holds one (scale, zero)
+        # pair per group along that same K extent, at
+        # [..., num_groups, n_padded, 2]. Cross-check block_size's groupsize
+        # against both so a checkpoint whose block_size metadata is
+        # inconsistent with the actual packed tensors (e.g. edited to declare
+        # a smaller group_size without re-packing qdata/scale_and_zero) is
+        # rejected here, instead of causing tinygemm's `_weight_int4pack_mm`
+        # to read past the end of `scale_and_zero`.
+        groupsize = block_size[-1]
+        k_padded = qdata.shape[-3] * 128
+        num_groups = scale_and_zero.shape[-3]
+        torch._check(
+            k_padded == num_groups * groupsize,
+            lambda: (
+                f"Int4TilePackedTo4dTensor block_size {block_size} (groupsize="
+                f"{groupsize}) is inconsistent with the packed tensors: qdata "
+                f"implies {k_padded} K elements, but scale_and_zero has "
+                f"{num_groups} groups ({num_groups * groupsize} elements at "
+                f"this groupsize)"
+            ),
+        )
         self.qdata = qdata
         self.scale_and_zero = scale_and_zero
         self.block_size = block_size
