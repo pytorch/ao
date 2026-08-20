@@ -2317,6 +2317,41 @@ class TestQuantizePT2E(PT2EQuantizationTestCase):
     def test_move_exported_model_dropout_inplace(self):
         self._test_move_exported_model_dropout(inplace=True)
 
+    def test_move_exported_model_dropout_preserves_custom_p(self):
+        """
+        Regression test for https://github.com/pytorch/ao/issues/2980.
+
+        move_exported_model_to_eval/train used to always rewrite dropout's
+        `p` to a hardcoded 0.5, silently discarding any custom dropout rate.
+        """
+
+        class M(torch.nn.Module):
+            def __init__(self) -> None:
+                super().__init__()
+                self.dropout = torch.nn.Dropout(0.7)
+
+            def forward(self, x):
+                return self.dropout(x)
+
+        example_inputs = (torch.randn(1),)
+        m = M().train()
+        m = torch.export.export(m, example_inputs, strict=True).module()
+        target = torch.ops.aten.dropout.default
+
+        dropout_node = self._get_node(m, target)
+        self.assertEqual(dropout_node.args[1], 0.7)
+        self.assertTrue(dropout_node.args[2])
+
+        torchao.quantization.pt2e.move_exported_model_to_eval(m)
+        dropout_node = self._get_node(m, target)
+        self.assertEqual(dropout_node.args[1], 0.7)
+        self.assertFalse(dropout_node.args[2])
+
+        torchao.quantization.pt2e.move_exported_model_to_train(m)
+        dropout_node = self._get_node(m, target)
+        self.assertEqual(dropout_node.args[1], 0.7)
+        self.assertTrue(dropout_node.args[2])
+
     def _get_bn_train_eval_ops(self):
         return (
             torch.ops.aten.batch_norm.default,
@@ -2367,6 +2402,40 @@ class TestQuantizePT2E(PT2EQuantizationTestCase):
         bn_node = self._get_node(m, bn_train_op)
         self.assertTrue(bn_node is not None)
         self.assertTrue(bn_node.args[5])
+
+    def test_move_exported_model_bn_preserves_custom_momentum_and_eps(self):
+        """
+        Regression test for https://github.com/pytorch/ao/issues/2980.
+
+        move_exported_model_to_eval/train used to always rewrite batch_norm's
+        momentum/eps to torch's defaults (0.1/1e-5), silently discarding any
+        custom values, which can noticeably affect accuracy (e.g. YOLO-style
+        configs commonly use eps=1e-3).
+        """
+
+        class M(torch.nn.Module):
+            def __init__(self) -> None:
+                super().__init__()
+                self.bn = torch.nn.BatchNorm2d(3, eps=1e-3, momentum=0.3)
+
+            def forward(self, x):
+                return self.bn(x)
+
+        m = M().train()
+        example_inputs = (torch.randn(1, 3, 3, 3),)
+        m = torch.export.export(m, example_inputs, strict=True).module()
+        bn_op = torch.ops.aten.batch_norm.default
+
+        def _assert_momentum_and_eps(m):
+            bn_node = self._get_node(m, bn_op)
+            self.assertEqual(bn_node.args[6], 0.3)
+            self.assertEqual(bn_node.args[7], 1e-3)
+
+        _assert_momentum_and_eps(m)
+        torchao.quantization.pt2e.move_exported_model_to_eval(m)
+        _assert_momentum_and_eps(m)
+        torchao.quantization.pt2e.move_exported_model_to_train(m)
+        _assert_momentum_and_eps(m)
 
     def test_disallow_eval_train(self):
         m = TestHelperModules.ConvWithBNRelu(relu=True)
