@@ -16,8 +16,15 @@ from torch.distributed.device_mesh import DeviceMesh
 from torch.distributed.fsdp import MixedPrecisionPolicy
 
 from torchao.prototype.moe_training.config import (
+    Float8TrainingOpConfig,
     MXFP8TrainingOpConfig,
     TrainingOpBaseConfig,
+)
+from torchao.float8.config import (
+    CastConfig,
+    Float8GemmConfig,
+    Float8LinearConfig,
+    ScalingType,
 )
 from torchao.prototype.moe_training.mxfp8_linear import _to_mxfp8_then_scaled_mm
 from torchao.prototype.moe_training.utils import (
@@ -335,3 +342,16 @@ class MXFP8TrainingWeightWrapperTensor(TrainingWeightWrapperBaseTensor):
             # the wrapping behavior of the super() impl, go directly to dispatch
             with torch._C.DisableTorchFunctionSubclass():
                 return func(*args, **kwargs)
+
+
+# These types comprise the serialized Float8 training-weight wrapper state.
+torch.serialization.add_safe_globals(
+    [
+        Float8TrainingWeightWrapperTensor,
+        Float8TrainingOpConfig,
+        Float8LinearConfig,
+        CastConfig,
+        Float8GemmConfig,
+        ScalingType,
+    ]
+)
