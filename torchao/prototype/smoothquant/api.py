@@ -10,10 +10,7 @@ from typing import Optional
 import torch
 
 from torchao.core.config import AOBaseConfig
-from torchao.quantization.quant_api import (
-    _QUANTIZE_CONFIG_HANDLER,
-    _linear_extra_repr,
-)
+from torchao.quantization.quant_api import _QUANTIZE_CONFIG_HANDLER
 from torchao.quantization.quantize_.common import (
     IsStaticQuantizationConfig,
     SupportsActivationPreScaling,
@@ -22,6 +19,7 @@ from torchao.quantization.quantize_.common.quantization_step import Quantization
 from torchao.quantization.transform_module import (
     register_quantize_module_handler,
 )
+from torchao.quantization.utils import _linear_extra_repr
 from torchao.utils import DummyModule
 
 from .core import (
