@@ -722,12 +722,8 @@ def _get_to_kwargs(self, *args, **kwargs):
 _AOTENSOR_TABLE: Dict[Type, Dict[str, Type]] = {}
 
 
-def register_ao_tensor(
-    generic_type: Type, device: str, specific_type: Type
-) -> None:
-    """Register a device-specific tensor for a generic tensor type.
-
-    """
+def register_ao_tensor(generic_type: Type, device: str, specific_type: Type) -> None:
+    """Register a device-specific tensor for a generic tensor type."""
     if generic_type not in _AOTENSOR_TABLE:
         _AOTENSOR_TABLE[generic_type] = {}
     _AOTENSOR_TABLE[generic_type][device] = specific_type
