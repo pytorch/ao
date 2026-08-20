@@ -1078,9 +1078,6 @@ def register_ao_tensor(
     specific_type: type[TorchAOBaseTensor],
 ) -> None:
     """Register a device-specific tensor for a generic tensor type."""
-    assert issubclass(specific_type, generic_type), (
-        f"specific_type must be a subclass of {generic_type}, got {specific_type}"
-    )
     if generic_type not in _AOTENSOR_TABLE:
         _AOTENSOR_TABLE[generic_type] = {}
     _AOTENSOR_TABLE[generic_type][device] = specific_type
