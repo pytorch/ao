@@ -215,9 +215,14 @@ class _NVFP4GroupedMM(torch.autograd.Function):
                 torch.all(group_sizes > 0), "offs must describe non-empty groups"
             )
             torch.ops.aten._assert_async.msg(
-                group_end_offsets[-1] == num_tokens,
-                "the final group-end offset must equal A.shape[0]",
+                group_end_offsets[-1] <= num_tokens,
+                "the final group-end offset must not exceed A.shape[0]",
             )
+            if pad_token_groups_for_grouped_mm:
+                torch.ops.aten._assert_async.msg(
+                    group_end_offsets[-1] == num_tokens,
+                    "internally padded input offsets must cover A.shape[0]",
+                )
             if not pad_token_groups_for_grouped_mm:
                 torch.ops.aten._assert_async.msg(
                     torch.all(group_sizes % _ALIGNMENT == 0),

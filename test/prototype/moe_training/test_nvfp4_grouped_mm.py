@@ -323,6 +323,47 @@ def test_nvfp4_grouped_gemm_unaligned_padding():
     assert compute_error(weight_ref.grad, weight.grad) >= 12.0
 
 
+@skip_if_rocm("ROCm not supported")
+@pytest.mark.skipif(not has_triton(), reason="unsupported without triton")
+@pytest.mark.skipif(not is_sm_at_least_100(), reason="Requires SM100+")
+@pytest.mark.skipif(
+    not torch_version_at_least("2.10.0"), reason="requires PyTorch 2.10+"
+)
+@torch.no_grad()
+def test_nvfp4_grouped_gemm_masks_allocation_tail(monkeypatch):
+    """Dispatcher capacity past the final expert must remain unaddressable."""
+    logical_rows, capacity_rows, K, N = 128, 256, 128, 128
+    torch.manual_seed(42)
+    valid = torch.randn(logical_rows, K, dtype=torch.bfloat16, device="cuda")
+    capacity = torch.empty(capacity_rows, K, dtype=torch.bfloat16, device="cuda")
+    capacity[:logical_rows].copy_(valid)
+    capacity[logical_rows:].fill_(1000.0)
+    weight = torch.randn(1, N, K, dtype=torch.bfloat16, device="cuda")
+    offs = torch.tensor([logical_rows], dtype=torch.int32, device="cuda")
+    sign_vector = tuple(1 if i % 2 == 0 else -1 for i in range(16))
+    sr_seed = torch.tensor([1234], dtype=torch.int64, device="cuda")
+    monkeypatch.setattr(nvfp4_grouped_mm, "_DEVICE_ASSERTS", True)
+
+    expected = _to_nvfp4_rht_rs_then_scaled_grouped_mm(
+        valid,
+        weight,
+        sign_vector,
+        sr_seed,
+        offs=offs,
+        pad_token_groups_for_grouped_mm=False,
+    )
+    actual = _to_nvfp4_rht_rs_then_scaled_grouped_mm(
+        capacity,
+        weight,
+        sign_vector,
+        sr_seed,
+        offs=offs,
+        pad_token_groups_for_grouped_mm=False,
+    )
+
+    assert torch.equal(actual[:logical_rows], expected)
+
+
 def test_nvfp4_dequant_roundtrip():
     """Test that quantize -> dequantize preserves values approximately."""
     from torchao.prototype.moe_training.nvfp4_grouped_mm import (
