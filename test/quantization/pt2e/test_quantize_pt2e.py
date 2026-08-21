@@ -1911,6 +1911,41 @@ class TestQuantizePT2E(PT2EQuantizationTestCase):
             m_not_fold.code
         )
 
+    def test_constant_fold_preserves_shared_get_attr_target(self):
+        # Regression test for https://github.com/pytorch/ao/issues/4420.
+        # When an FX graph has multiple get_attr nodes referencing the same
+        # buffer and only some of them are dead, constant_fold must not
+        # delete the underlying module attribute, or the surviving get_attr
+        # node will dangle and graph.lint() will fail.
+        from torchao.quantization.pt2e.constant_fold import (
+            constant_fold as ao_constant_fold,
+        )
+
+        graph = torch.fx.Graph()
+        x = graph.placeholder("x")
+        live = graph.get_attr("shared")
+        # Used in a placeholder-dependent op so the folder can't fold it away.
+        out = graph.call_function(torch.ops.aten.add.Tensor, args=(x, live))
+        graph.get_attr("shared")  # second, dead reference to the same target
+        graph.output(out)
+
+        root = torch.nn.Module()
+        root.register_buffer("shared", torch.ones(2))
+        gm = torch.fx.GraphModule(root, graph)
+
+        ao_constant_fold(gm)
+
+        self.assertTrue(hasattr(gm, "shared"))
+        # The dead get_attr node must still be erased: exactly one get_attr
+        # referencing "shared" (the live one) should remain after folding, so
+        # the test pins down both halves of the behavior -- the attribute is
+        # preserved AND the dead node is removed.
+        remaining_shared_get_attrs = [
+            n for n in gm.graph.find_nodes(op="get_attr") if n.target == "shared"
+        ]
+        self.assertEqual(len(remaining_shared_get_attrs), 1)
+        gm(torch.zeros(2))
+
     def test_save_load(self):
         """Test save/load a quantized model"""
         m = self._get_pt2e_quantized_linear()
