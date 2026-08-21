@@ -586,11 +586,6 @@ class MXTensor(TorchAOBaseTensor):
     def _quantization_type(self):
         return f"{self.elem_dtype=}, {self.block_size=}, {self.orig_dtype=}, {self.kernel_preference=}, {self.act_quant_kwargs=}"
 
-    @property
-    def is_swizzled_scales(self):
-        """Backward-compat property for shared code in utils.py."""
-        return self.swizzle_type != SwizzleType.NO_SWIZZLE
-
     def dequantize(self, output_dtype: Optional[torch.dtype] = None) -> torch.Tensor:
         if output_dtype is None:
             output_dtype = self.dtype
@@ -811,6 +806,7 @@ def _addmm_mx_dispatch(
             case SwizzleType.SWIZZLE_32_4_4:
                 b_scale_block = b.scale.t()
             case SwizzleType.NO_SWIZZLE:
+                # Row-major: (N, K//32) for fp4, transposed to (K//32, N) for fp8 v1
                 b_scale_block = b.scale.t().view(N, K // b.block_size).contiguous()
 
         if a.elem_dtype == torch.float8_e4m3fn:
@@ -818,7 +814,7 @@ def _addmm_mx_dispatch(
             a_scale_v1 = a_scale_block.view(torch.float8_e8m0fnu)
             b_scale_v1 = b_scale_block.view(torch.float8_e8m0fnu)
             if b.swizzle_type == SwizzleType.NO_SWIZZLE:
-                # Row-major scales: v1 API expects scale_b as (K//32, N)
+                # v1 API expects scale_b as (K//32, N)
                 b_scale_v1 = b_scale_v1.t().contiguous()
             res = torch._scaled_mm(
                 a.qdata,
