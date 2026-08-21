@@ -201,7 +201,7 @@ if _cutedsl_runtime_available():
             cutlass.Int32(0).ir_value(loc=loc, ip=ip),
             nvvm.CVTPackFloatKind.UE8M0x2,
             nvvm.CVTPackFloatKind.BF16x2,
-            rnd=nvvm.RoundingModeKind.RN,
+            rnd=nvvm.FPRoundingMode.RN,
             sat=nvvm.SaturationModeKind.NONE,
             loc=loc,
             ip=ip,
@@ -243,7 +243,7 @@ if _cutedsl_runtime_available():
             Tuple of (scale_biased, inv_scale)
         """
         descale = amax * INV_F8_MAX
-        scale_e8m0 = _cvt_f32_to_ue8m0(descale, rounding_mode=nvvm.RoundingModeKind.RP)
+        scale_e8m0 = _cvt_f32_to_ue8m0(descale, rounding_mode=nvvm.FPRoundingMode.RP)
         return view_as(scale_e8m0, cutlass.Uint8), _reciprocal_scale(scale_e8m0)
 
     @cute.jit
@@ -257,7 +257,7 @@ if _cutedsl_runtime_available():
             Tuple of (scale_biased, inv_scale)
         """
         descale = amax * cutlass.Float32(1.0 / 256.0)
-        scale_e8m0 = _cvt_f32_to_ue8m0(descale, rounding_mode=nvvm.RoundingModeKind.RZ)
+        scale_e8m0 = _cvt_f32_to_ue8m0(descale, rounding_mode=nvvm.FPRoundingMode.RZ)
         return view_as(scale_e8m0, cutlass.Uint8), _reciprocal_scale(scale_e8m0)
 
     @cute.jit
