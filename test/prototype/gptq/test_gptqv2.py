@@ -177,7 +177,7 @@ class TestGPTQObserverTensor:
     @pytest.mark.skipif(not torch.cuda.is_available(), reason="Need CUDA available")
     @pytest.mark.skipif(
         torch.version.hip is not None,
-        reason="Order-dependent / flaky on ROCm: fails in full suite but passes when run alone",
+        reason="Order-dependent hessian mismatch in full suite on ROCm; passes in isolation",
     )
     def test_bmm_operation_with_observer(self):
         """Test torch.bmm with GPTQObserverTensor updates Hessian correctly."""
