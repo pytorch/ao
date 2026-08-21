@@ -12,6 +12,7 @@ from typing import Optional
 import torch
 import torch.nn.functional as F
 from torch import Tensor
+from torch.nn.functional import SwizzleType
 
 from torchao.core.config import AOBaseConfig
 from torchao.prototype.mx_formats.config import _validate_elem_dtype
@@ -85,7 +86,7 @@ class MXDynamicActivationMXWeightConfig(AOBaseConfig):
     This module provides support for running inference with float8 quantization using MX formats.
 
     Requirements:
-    - NVIDIA SM100+ hardware (Blackwell or newer) is required for execution
+    - NVIDIA SM100+ hardware (Blackwell or newer) or Intel XPU (BMG or newer)
     - PyTorch 2.5+ for proper serialization support
 
     Example (mxfp8):
@@ -110,6 +111,10 @@ class MXDynamicActivationMXWeightConfig(AOBaseConfig):
 
     # How to calculate the block scales
     scaling_mode: ScaleCalculationMode = ScaleCalculationMode.RCEIL
+
+    # How to store block scales.
+    # CUDA uses SWIZZLE_32_4_4 (blocked layout), XPU uses NO_SWIZZLE.
+    swizzle_type: SwizzleType = SwizzleType.SWIZZLE_32_4_4
 
     def __post_init__(self):
         assert self.activation_dtype == self.weight_dtype, (
@@ -139,7 +144,7 @@ def _mx_inference_linear_transform(
         elem_dtype=config.activation_dtype,
         block_size=config.block_size,
         kernel_preference=config.kernel_preference,
-        is_swizzled_scales=True,
+        swizzle_type=config.swizzle_type,
         scaling_mode=config.scaling_mode,
     )
 
@@ -150,7 +155,7 @@ def _mx_inference_linear_transform(
         block_size=config.block_size,
         kernel_preference=config.kernel_preference,
         act_quant_kwargs=act_quant_kwargs,
-        is_swizzled_scales=True,
+        swizzle_type=config.swizzle_type,
         scaling_mode=config.scaling_mode,
     )
 
@@ -409,3 +414,37 @@ torch.serialization.add_safe_globals(
         ScaleCalculationMode,
     ]
 )
+
+
+import torch.nn as nn
+
+
+def _auto_filter_for_nfp4(mod: nn.Module, fqn: str) -> bool:
+    """Generic Filter fn for NVFP4 that is best practice for most models."""
+    # Define any FQNs you want to exclude directly in the function
+    filter_fqns = ["embedder", "embed", "embedding", "time_text_embed"]
+
+    # Only support Linear modules
+    if not isinstance(mod, nn.Linear):
+        return False
+
+    # If the fqn matches any filtered fqn, then we should not convert this module
+    is_filtered_fqn = any(filter_fqn in fqn for filter_fqn in filter_fqns)
+    if is_filtered_fqn:
+        return False
+
+    # All dims must be divisible by 16 due to float8 hardware requirements.
+    N, K = mod.weight.shape
+    dims_multiples_of_16 = K % 16 == 0 and N % 16 == 0
+    if not dims_multiples_of_16:
+        return False
+    if N <= 64:
+        print("skiping small linear layer")
+        # TODO cublas doesn't like this one
+        return False
+
+    # Dims below these thresholds may result in worse performance
+    if K <= 1024 and N <= 1024:
+        print("skiping small linear layer")
+        return False
+    return True
