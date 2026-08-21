@@ -8,6 +8,7 @@ import sys
 from typing import Tuple
 
 import torch
+from torch.nn.functional import SwizzleType
 
 from torchao.prototype.mx_formats.config import (
     MXFP8Dim1CastKernelChoice,
@@ -158,7 +159,7 @@ def _to_mxfp8_dim1_kernel_wrapper(
     # TODO(future PR): split this utils file in two
     from torchao.prototype.mx_formats.mx_tensor import MXTensor, to_mx
 
-    is_swizzled_scales = False
+    swizzle_type = SwizzleType.NO_SWIZZLE
 
     if kernel_preference == KernelPreference.EMULATED:
         a_scale, a_data = to_mx(
@@ -207,9 +208,9 @@ def _to_mxfp8_dim1_kernel_wrapper(
             scaling_mode=scale_calculation_mode.value,
             blocked_scale_output=True,
         )
-        is_swizzled_scales = True
+        swizzle_type = SwizzleType.SWIZZLE_32_4_4
     elif cast_kernel_choice == MXFP8Dim1CastKernelChoice.FLYDSL:
-        # AMD via FlyDSL. FlyDSL kernels leave is_swizzled_scales=False
+        # AMD via FlyDSL. FlyDSL kernels leave swizzle_type=NO_SWIZZLE
         # (no tcgen05 blocked layout on AMD).
         assert scale_calculation_mode in (
             ScaleCalculationMode.FLOOR,
@@ -239,7 +240,7 @@ def _to_mxfp8_dim1_kernel_wrapper(
         hp_dtype,
         kernel_preference,
         None,
-        is_swizzled_scales,
+        swizzle_type,
     )
     return mx_tensor
 
@@ -259,7 +260,9 @@ def _swizzle_aware_slice(
     # it back to the format which matches the shape of `qdata`.
     # TODO(future PR): update this
 
-    if x.is_swizzled_scales:
+    if getattr(x, "swizzle_type", None) == SwizzleType.SWIZZLE_32_4_4 or getattr(
+        x, "is_swizzled_scales", False
+    ):
         scale_rows = M
         scale_cols = K // x.block_size
         n_row_blocks = ceil_div(scale_rows, 128)
@@ -426,7 +429,9 @@ def _swizzle_aware_slice(
     else:
         # multiply by 2 to convert from bytes to num_elements
         sliced_K = sliced_data.shape[1] * 2
-    if x.is_swizzled_scales:
+    if getattr(x, "swizzle_type", None) == SwizzleType.SWIZZLE_32_4_4 or getattr(
+        x, "is_swizzled_scales", False
+    ):
         if x.block_size == 16:
             scale_M, scale_K = hp_data_dims_to_swizzled_scale_dims_nvfp4(
                 sliced_M, sliced_K
