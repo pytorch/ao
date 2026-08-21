@@ -82,7 +82,7 @@ from torchao.quantization.quantize_.common import (
     QuantizeTensorKwargs,
 )
 from torchao.quantization.quantize_.common.kernel_preference import KernelPreference
-from torchao.utils import TorchAOBaseTensor, fill_defaults
+from torchao.utils import TorchAOBaseTensor, fill_defaults, get_ao_tensor
 
 aten = torch.ops.aten
 
@@ -646,6 +646,20 @@ class MXTensor(TorchAOBaseTensor):
         is_swizzled_scales: bool = False,
         mxfp8_dim0_cast_kernel_choice: MXFP8Dim0CastKernelChoice = MXFP8Dim0CastKernelChoice.TORCH,
     ):
+        # Dispatch to device-specific subclass if registered
+        target_cls = get_ao_tensor(MXTensor, data_hp.device.type)
+        if target_cls is not MXTensor:
+            return target_cls.to_mx(
+                data_hp,
+                elem_dtype,
+                block_size,
+                scaling_mode,
+                kernel_preference,
+                act_quant_kwargs,
+                is_swizzled_scales,
+                mxfp8_dim0_cast_kernel_choice,
+            )
+
         assert mxfp8_dim0_cast_kernel_choice in (
             MXFP8Dim0CastKernelChoice.TRITON,
             MXFP8Dim0CastKernelChoice.TORCH,
