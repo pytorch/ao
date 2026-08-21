@@ -1419,6 +1419,66 @@ def test_cutedsl_kernels_work_with_valid_128_multiple_groups():
     assert y_32x1.shape == (M, K)
 
 
+@pytest.mark.skipif(
+    not _is_sm_10x(),
+    reason="MXFP8 requires CUDA SM 10.x",
+)
+@pytest.mark.skipif(
+    not _mxfp8_cutedsl_kernels_available,
+    reason="MXFP8 cutedsl kernels not available",
+)
+@skip_if_rocm("ROCm enablement in progress")
+@pytest.mark.parametrize("kernel", ["1x32", "32x1"])
+@pytest.mark.parametrize("group_sizes", [[128], [128, 256, 128], [256, 128]])
+def test_cutedsl_offs_does_not_affect_covered_rows(kernel, group_sizes):
+    """Rows inside ``offs`` must not depend on how much slack follows them.
+
+    Callers size the input for the worst case -- DeepEP's expand layout hands the
+    kernel a fixed slab that is typically ~10% occupied -- so the tensor is much
+    taller than ``offs[-1]``. Quantizing the oversized tensor must give bitwise the
+    same result for the covered rows as quantizing a tightly sized one, and the
+    kernel must not read or write past the last group.
+    """
+    device, K = "cuda", 1024
+    quantize = (
+        mxfp8_quantize_2d_1x32_cutedsl
+        if kernel == "1x32"
+        else mxfp8_quantize_2d_32x1_cutedsl
+    )
+    covered = sum(group_sizes)
+    offs = torch.cumsum(torch.tensor(group_sizes), dim=0).to(device).to(torch.int32)
+
+    torch.manual_seed(0)
+    tight = torch.randn(covered, K, dtype=torch.bfloat16, device=device)
+    # Same leading rows, then 7x as much slack the groups never reference.
+    slab = torch.randn(covered * 8, K, dtype=torch.bfloat16, device=device)
+    slab[:covered] = tight
+
+    y_tight, s_tight = quantize(tight, block_size=32, scaling_mode="rceil", offs=offs)
+    y_slab, s_slab = quantize(slab, block_size=32, scaling_mode="rceil", offs=offs)
+
+    assert y_slab.shape == slab.shape, "qdata should keep the input shape"
+    torch.testing.assert_close(
+        y_slab[:covered].view(torch.uint8),
+        y_tight[:covered].view(torch.uint8),
+        rtol=0,
+        atol=0,
+        msg="covered qdata rows changed when the input had trailing slack",
+    )
+    if kernel == "1x32":
+        # 1x32 returns row-indexed scales, so the covered rows line up directly.
+        # 32x1 returns a flat swizzled buffer whose layout is a function of the row
+        # count, so its leading elements do not map to the same rows across the two
+        # sizes and cannot be compared elementwise.
+        torch.testing.assert_close(
+            s_slab[:covered].view(torch.uint8),
+            s_tight[:covered].view(torch.uint8),
+            rtol=0,
+            atol=0,
+            msg="covered scale rows changed when the input had trailing slack",
+        )
+
+
 # =============================================================================
 # FlyDSL MXFP8 quantize kernels (AMD CDNA3+ via FlyDSL).
 #
