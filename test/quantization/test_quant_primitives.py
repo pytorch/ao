@@ -10,13 +10,14 @@ import unittest
 
 import torch
 
-from torchao.quantization.granularity import PerRow
+from torchao.quantization.granularity import PerRow, PerTensor
 from torchao.quantization.quant_primitives import (
     MappingType,
     ZeroPointDomain,
     _choose_qparams_affine_tinygemm,
     _choose_qparams_and_quantize_scale_only_sinq,
     _choose_scale_float8,
+    _dequantize_affine_float8,
     _fake_quantize_affine,
     _fake_quantize_affine_cachemask,
     _maybe_expand_scale_to_tensor_shape,
@@ -910,6 +911,50 @@ class TestQuantPrimitives(unittest.TestCase):
 
         assert scale.shape == (B, 1, N)
         assert data.shape == (B, K, N)
+
+    def test_float8_scaling_all_zeros(self):
+        """
+        An all-zero tensor has an amax of zero, which used to give a zero scale
+        and turn every value into NaN. See https://github.com/pytorch/ao/issues/4713
+        """
+        hp_tensor = torch.zeros(64, 128, dtype=torch.float)
+        block_sizes = [
+            get_block_size(hp_tensor.shape, PerRow()),
+            get_block_size(hp_tensor.shape, PerTensor()),
+            (32, 32),
+        ]
+
+        for block_size in block_sizes:
+            scale = _choose_scale_float8(
+                hp_tensor,
+                float8_dtype=torch.float8_e4m3fn,
+                block_size=block_size,
+            )
+            data = _quantize_affine_float8(hp_tensor, scale, torch.float8_e4m3fn)
+            dequantized = _dequantize_affine_float8(data, scale, torch.float)
+
+            self.assertTrue(torch.isfinite(scale).all())
+            self.assertTrue((scale > 0).all())
+            self.assertEqual(dequantized.abs().max().item(), 0.0)
+
+    def test_float8_scaling_single_zero_row(self):
+        """
+        A zeroed row inside an otherwise normal tensor should stay finite.
+        """
+        hp_tensor = torch.randn(16, 32, dtype=torch.float)
+        hp_tensor[7] = 0.0
+
+        block_size = get_block_size(hp_tensor.shape, PerRow())
+        scale = _choose_scale_float8(
+            hp_tensor,
+            float8_dtype=torch.float8_e4m3fn,
+            block_size=block_size,
+        )
+        data = _quantize_affine_float8(hp_tensor, scale, torch.float8_e4m3fn)
+        dequantized = _dequantize_affine_float8(data, scale, torch.float)
+
+        self.assertTrue(torch.isfinite(dequantized).all())
+        self.assertEqual(dequantized[7].abs().max().item(), 0.0)
 
 
 if __name__ == "__main__":
