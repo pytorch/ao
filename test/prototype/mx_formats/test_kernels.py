@@ -499,6 +499,49 @@ def test_triton_mxfp8_dim1_randn(M, K, scaling_mode):
     not is_sm_at_least_100() and not is_MI350(),
     reason="mxfp8 requires CUDA capability 10.0 or greater or ROCm gfx950 or greater.",
 )
+@pytest.mark.parametrize("M", (128, 384))
+@pytest.mark.parametrize("K", (128, 384))
+@pytest.mark.parametrize("row_tile_size", (128, 256, 512))
+@pytest.mark.parametrize("col_tile_size", (128, 256))
+def test_triton_mxfp8_dim1_partial_tile(M, K, row_tile_size, col_tile_size):
+    """
+    ROW_TILE_SIZE and COL_TILE_SIZE are autotuned over, and are not guaranteed to
+    divide the shape being quantized (the autotune key does not even include
+    n_rows, so a config chosen for one shape is reused for others). Pin each
+    config from the sweep in turn and check that a tile which overhangs the end
+    of the tensor does not corrupt the scales of the neighboring columns.
+    """
+    import triton
+
+    from torchao.prototype.mx_formats.kernels import to_mxfp8_dim1_kernel
+
+    x = torch.randn(M, K, dtype=torch.bfloat16, device="cuda")
+    x_mx_ref, x_s_ref = triton_to_mxfp8_dim1_reference(x, block_size=32)
+
+    orig_configs, orig_cache = to_mxfp8_dim1_kernel.configs, to_mxfp8_dim1_kernel.cache
+    to_mxfp8_dim1_kernel.configs = [
+        triton.Config(
+            {"ROW_TILE_SIZE": row_tile_size, "COL_TILE_SIZE": col_tile_size},
+            num_warps=4,
+            num_stages=2,
+        )
+    ]
+    to_mxfp8_dim1_kernel.cache = {}
+    try:
+        x_mx_t, x_s_t = triton_to_mxfp8_dim1(x, inner_block_size=32)
+    finally:
+        to_mxfp8_dim1_kernel.configs = orig_configs
+        to_mxfp8_dim1_kernel.cache = orig_cache
+
+    torch.testing.assert_close(x_mx_t, x_mx_ref, rtol=0, atol=0)
+    torch.testing.assert_close(x_s_t, x_s_ref, rtol=0, atol=0)
+
+
+@pytest.mark.skipif(not has_triton(), reason="unsupported without triton")
+@pytest.mark.skipif(
+    not is_sm_at_least_100() and not is_MI350(),
+    reason="mxfp8 requires CUDA capability 10.0 or greater or ROCm gfx950 or greater.",
+)
 @pytest.mark.parametrize("M", (128, 256))
 @pytest.mark.parametrize("K", (128, 256))
 @pytest.mark.parametrize(
