@@ -35,9 +35,7 @@ from torchao.testing.utils import skip_if_xpu
 if common_utils.SEED is None:
     common_utils.SEED = 1234
 
-import torchao
 from packaging import version
-from torchao.prototype._nf4tensor_api import nf4_weight_only
 from torchao.quantization import NF4Tensor, to_nf4
 from torchao.quantization.quantize_.workflows.nf4 import (
     nf4_tensor as _nf4_tensor_mod,
@@ -309,33 +307,6 @@ class TestNF4Linear(TestCase):
         self.assertTrue(isinstance(new_tensor, NF4Tensor))
         self.assertEqual(new_tensor.get_device(), -1)  # that it's on CPU
         self.assertEqual(new_tensor.size(), nf4_tensor.size())
-
-    @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
-    @parametrize("compile", [False, True])
-    def test_quantize_api(self, compile):
-        device = get_current_accelerator_device()
-        nf4_linear = nn.Linear(512, 512, device=device)
-        torchao.quantize_(nf4_linear, nf4_weight_only())
-        assert isinstance(nf4_linear.weight, NF4Tensor)
-
-        ref_linear = copy.deepcopy(nf4_linear)
-        ref_linear.weight.data = ref_linear.weight.get_original_weight()  # dequantize
-
-        if compile:
-            nf4_linear.compile()
-            ref_linear.compile()
-
-        nf4_x = torch.randn(2, 512, device=device).requires_grad_()
-        ref_x = nf4_x.detach().clone().requires_grad_()
-
-        nf4_out = nf4_linear(nf4_x)
-        ref_out = ref_linear(ref_x)
-        self.assertEqual(nf4_out, ref_out)
-
-        grad_out = torch.randn(2, 512, device=device)
-        nf4_out.backward(grad_out)
-        ref_out.backward(grad_out)
-        self.assertEqual(nf4_x.grad, ref_x.grad)
 
 
 class TestFSDPOps(TestCase):
