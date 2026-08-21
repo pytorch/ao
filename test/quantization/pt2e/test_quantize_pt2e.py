@@ -1911,6 +1911,39 @@ class TestQuantizePT2E(PT2EQuantizationTestCase):
             m_not_fold.code
         )
 
+    def test_constant_fold_shared_get_attr(self):
+        """constant_fold must not delete an attribute that is still referenced
+        by a live get_attr node when another get_attr for the same target is
+        dead. Regression test for https://github.com/pytorch/ao/issues/4420"""
+        from torchao.quantization.pt2e.constant_fold import constant_fold
+
+        class Root(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.register_buffer("shared", torch.arange(4.0))
+
+        root = Root().eval()
+        g = torch.fx.Graph()
+        x = g.placeholder("x")
+
+        shared0 = g.get_attr("shared")
+        folded = g.call_function(torch.ops.aten.neg.default, (shared0,))
+
+        shared1 = g.get_attr("shared")
+        live = g.call_function(torch.ops.aten.add.Tensor, (x, shared1))
+
+        g.output((folded, live))
+        gm = torch.fx.GraphModule(root, g)
+
+        constant_fold(gm)
+
+        self.assertTrue(
+            hasattr(gm, "shared"),
+            "shared attribute was deleted even though a live get_attr still references it",
+        )
+        result = gm(torch.ones(4))
+        self.assertEqual(result[1], torch.ones(4) + torch.arange(4.0))
+
     def test_save_load(self):
         """Test save/load a quantized model"""
         m = self._get_pt2e_quantized_linear()
