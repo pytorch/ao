@@ -179,6 +179,27 @@ class TestQuantFlow(TestCase):
         scale, _ = obs.calculate_qparams()  # ignore zero_point for symmetric quant
         self.assertTrue(torch.allclose(scale, torch.ones(2048)))
 
+        obs = AffineQuantizedFixedQParamObserver(
+            MappingType.ASYMMETRIC,
+            torch.uint8,
+            granularity=PerAxis(0),
+            scale_dtype=torch.float32,
+            zero_point_dtype=torch.int64,
+            scale=torch.tensor([0.5, 0.25], dtype=torch.float64),
+            zero_point=torch.tensor([0, 1], dtype=torch.int32),
+        )
+        scale, zero_point = obs.calculate_qparams()
+        self.assertEqual(scale, torch.tensor([0.5, 0.25], dtype=torch.float32))
+        self.assertEqual(zero_point, torch.tensor([0, 1], dtype=torch.int64))
+
+        obs.set_qparams(
+            torch.tensor([0.125, 0.0625], dtype=torch.float64),
+            torch.tensor([2, 3], dtype=torch.int32),
+        )
+        scale, zero_point = obs.calculate_qparams()
+        self.assertEqual(scale, torch.tensor([0.125, 0.0625], dtype=torch.float32))
+        self.assertEqual(zero_point, torch.tensor([2, 3], dtype=torch.int64))
+
     def test_keepdim_per_axis(self):
         """Test keepdim option for per-axis quantization."""
         # Test with keepdim=False (default)
