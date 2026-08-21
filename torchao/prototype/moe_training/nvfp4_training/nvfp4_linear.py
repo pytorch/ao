@@ -65,47 +65,36 @@ def _rht_quantize_row_col(
     row_amax: torch.Tensor,
     sign_vector_list: list[int],
     use_cutedsl: bool,
+    use_fast_math: bool,
     sr_seed: Optional[torch.Tensor] = None,
 ):
     """Fused columnwise-RHT + rowwise NVFP4 quantize on the selected backend.
 
     RTNE when sr_seed is None; stochastic rounding otherwise, with fresh offsets
     drawn from the default CUDA RNG (a first-class CUDA-graph side input — see
-    the nvfp4_mm_triton docstring). CuteDSL derives its col/row streams from a
-    single (seed, offset) base internally; Triton takes separate col/row bases.
+    the nvfp4_mm_triton docstring). Both backends take the same four Philox bases
+    and draw the same stream from them, and both take the same ``use_fast_math``.
     """
+    quantize = (
+        cutedsl_rht_quantize_row_col if use_cutedsl else triton_rht_quantize_row_col
+    )
     if sr_seed is None:
-        if use_cutedsl:
-            return cutedsl_rht_quantize_row_col(x, col_amax, row_amax, sign_vector_list)
-        return triton_rht_quantize_row_col(
-            x,
-            stochastic_rounding=False,
-            sign_vector=sign_vector_list,
-            col_global_amax=col_amax,
-            row_global_amax=row_amax,
+        return quantize(
+            x, col_amax, row_amax, sign_vector_list, use_fast_math=use_fast_math
         )
     offset_col = torch.randint(0, 2**32, (1,), dtype=torch.int64, device=x.device)
-    if use_cutedsl:
-        return cutedsl_rht_quantize_row_col(
-            x,
-            col_amax,
-            row_amax,
-            sign_vector_list,
-            stochastic_rounding=True,
-            seed=sr_seed,
-            offset=offset_col,
-        )
     offset_row = torch.randint(0, 2**32, (1,), dtype=torch.int64, device=x.device)
-    return triton_rht_quantize_row_col(
+    return quantize(
         x,
+        col_amax,
+        row_amax,
+        sign_vector_list,
         stochastic_rounding=True,
-        sign_vector=sign_vector_list,
         col_seed_base=sr_seed,
         row_seed_base=sr_seed ^ 1,
         col_offset_base=offset_col,
         row_offset_base=offset_row,
-        col_global_amax=col_amax,
-        row_global_amax=row_amax,
+        use_fast_math=use_fast_math,
     )
 
 
@@ -122,7 +111,8 @@ def _weight_quantize_2d(x: torch.Tensor, use_cutedsl: bool):
     # The grouped weight amax at E=1. Bit-exact with the inf-norm it replaces --
     # max is exact, and neither materializes the weight in fp32 -- but it keeps
     # enough loads in flight to saturate HBM where the TensorIterator reduce does
-    # not: 1.7-2.0x over 29 MB to 470 MB of weights.
+    # not: 1.5-2.0x over 29 MB to 470 MB of weights in a hot loop, 1.4-1.66x once
+    # L2 is flushed, rising with size as the fixed launch cost amortizes.
     global_amax = triton_group_weight_amax(x.unsqueeze(0), 1)[0]
     quantize = cutedsl_weight_quantize_2d if use_cutedsl else triton_weight_quantize_2d
     codes, sf, t_codes, t_sf = quantize(x, global_amax)
@@ -164,6 +154,7 @@ class nvfp4_mm_triton(torch.autograd.Function):
         sr_seed: torch.Tensor,
         sign_vector: tuple[int, ...] | list[int],
         use_cutedsl: bool = False,
+        use_fast_math: bool = True,
     ):
         sign_vector = tuple(sign_vector)
         sign_vector_list = list(sign_vector)
@@ -179,24 +170,17 @@ class nvfp4_mm_triton(torch.autograd.Function):
                 f"nvfp4_mm_triton requires M, K, N all divisible by 128; "
                 f"got M={M}, K={K}, N={N}"
             )
-        if use_cutedsl and M % 256 != 0:
-            # The outer M % 128 gate is too coarse for CuteDSL: M=128 reaches the amax
-            # kernel and silently returns zero amaxes.
-            raise ValueError(
-                f"kernel_preference=CUTEDSL requires M divisible by 256, got M={M}"
-            )
-        if use_cutedsl and N % 256 != 0:
-            # The CuteDSL weight quantize maps the weight as (out=N, in=K) into the fused kernel,
-            # whose M tiler needs out_features % 256 (stricter than the Triton weight kernel's %128).
-            raise ValueError(
-                f"kernel_preference=CUTEDSL requires N (out_features) divisible by 256, got N={N}"
-            )
         input_2d = input_hp.reshape(-1, K).contiguous()
 
         # Amaxes are separate ops so TP callers can all-reduce them before quantizing.
         x_col_amax, x_row_amax = _rht_amax(input_2d, sign_vector_list, use_cutedsl)
         x_col_codes, x_col_sf, x_row_codes, x_row_sf = _rht_quantize_row_col(
-            input_2d, x_col_amax, x_row_amax, sign_vector_list, use_cutedsl
+            input_2d,
+            x_col_amax,
+            x_row_amax,
+            sign_vector_list,
+            use_cutedsl,
+            use_fast_math,
         )
 
         # Fused weight quantization: rowwise for forward GEMM, colwise saved for dgrad
@@ -238,6 +222,7 @@ class nvfp4_mm_triton(torch.autograd.Function):
         ctx.has_bias = bias is not None
         ctx.sign_vector = sign_vector
         ctx.use_cutedsl = use_cutedsl
+        ctx.use_fast_math = use_fast_math
         return output
 
     @staticmethod
@@ -265,6 +250,7 @@ class nvfp4_mm_triton(torch.autograd.Function):
             dy_row_amax,
             sign_vector_list,
             ctx.use_cutedsl,
+            ctx.use_fast_math,
             sr_seed=sr_seed,
         )
 
@@ -310,8 +296,41 @@ class nvfp4_mm_triton(torch.autograd.Function):
             if ctx.has_bias
             else None
         )
-        # Extra Nones: sr_seed, sign_vector, use_cutedsl
-        return grad_input, grad_weight, grad_bias, None, None, None
+        # Extra Nones: sr_seed, sign_vector, use_cutedsl, use_fast_math
+        return grad_input, grad_weight, grad_bias, None, None, None, None
+
+
+def _resolve_use_cutedsl(kernel_preference: KernelPreference) -> bool:
+    """Whether this call runs on CuteDSL.
+
+    The linear analog of the grouped path's ``_resolve_backends``, and split out for
+    the same reason: AUTO is the default, so its fallback needs a test target that
+    does not require an SM100 box without the CuteDSL runtime to reach.
+
+    Unlike the grouped path there is one decision, not one per op -- the amax, the
+    quantize and the 2D weight quantize all run on the same backend, and CuteDSL
+    accepts exactly the shapes Triton does (the path's own %128, gated for both by
+    ``nvfp4_mm_triton.forward``), so there is no shape constraint to fall back on.
+    """
+    if kernel_preference not in (
+        KernelPreference.AUTO,
+        KernelPreference.TRITON,
+        KernelPreference.CUTEDSL,
+    ):
+        raise ValueError(
+            "NVFP4 training linear only supports kernel_preference AUTO, TRITON, or "
+            f"CUTEDSL, got {kernel_preference!r}"
+        )
+    if kernel_preference == KernelPreference.TRITON:
+        return False
+    if not cutedsl_nvfp4_kernels_available():
+        if kernel_preference == KernelPreference.CUTEDSL:
+            raise RuntimeError(
+                f"kernel_preference=CUTEDSL requires {CUTEDSL_NVFP4_REQUIREMENTS} "
+                f"({cutedsl_nvfp4_unavailable_reason()})."
+            )
+        return False
+    return True
 
 
 def nvfp4_linear(
@@ -320,8 +339,9 @@ def nvfp4_linear(
     bias: Optional[torch.Tensor] = None,
     *,
     sign_vector: tuple[int, ...] | list[int],
-    kernel_preference: KernelPreference = KernelPreference.TRITON,
+    kernel_preference: KernelPreference = KernelPreference.AUTO,
     sr_seed: Optional[torch.Tensor] = None,
+    use_fast_math: bool = True,
 ) -> torch.Tensor:
     """Convenience wrapper around the nvfp4_mm_triton autograd function.
 
@@ -333,23 +353,22 @@ def nvfp4_linear(
         weight_hp: High precision weight [out_features, in_features]
         bias: Optional bias [out_features]
         sign_vector: RHT sign vector used for amax and quantization.
-        kernel_preference: Backend for quantization, TRITON (default) or CUTEDSL.
-            CUTEDSL runs the full path on CuteDSL — the amax, the forward RTNE quantize, the
-            backward SR (cvt.rs) quantize, and the 2D weight quantize (requires out_features % 256).
+        kernel_preference: Backend for quantization, AUTO (default), TRITON, or CUTEDSL.
+            CuteDSL runs the full path — the amax, the forward RTNE quantize, the backward
+            SR (cvt.rs) quantize, and the 2D weight quantize — and accepts exactly the
+            shapes Triton does (the path's own %128). AUTO takes CuteDSL when the runtime
+            allows and falls back to Triton otherwise; CUTEDSL is the same choice made
+            loudly, raising rather than falling back.
         sr_seed: Fixed int64 seed tensor (size=(1,)) for SR Philox key. Allocated
             fresh if None. For reproducibility, pass a pre-allocated module buffer.
+        use_fast_math: Select the RHT quantize variant that consumes the FP32 accumulator
+            directly and takes an approximate reciprocal, matching TransformerEngine under
+            ``NVTE_USE_FAST_MATH=1``. Defaults on because it is worth a large fraction of
+            the quantize stage. Both backends implement it and stay bitwise identical to
+            each other and to TE, so the choice does not depend on kernel_preference; only
+            the 2D weight quantize is unaffected, having no RHT accumulator to skip.
     """
-    if kernel_preference not in (KernelPreference.TRITON, KernelPreference.CUTEDSL):
-        raise ValueError(
-            "NVFP4 training linear only supports kernel_preference TRITON or CUTEDSL, "
-            f"got {kernel_preference!r}"
-        )
-    use_cutedsl = kernel_preference == KernelPreference.CUTEDSL
-    if use_cutedsl and not cutedsl_nvfp4_kernels_available():
-        raise RuntimeError(
-            f"kernel_preference=CUTEDSL requires {CUTEDSL_NVFP4_REQUIREMENTS} "
-            f"({cutedsl_nvfp4_unavailable_reason()})."
-        )
+    use_cutedsl = _resolve_use_cutedsl(kernel_preference)
 
     if sr_seed is None:
         sr_seed = torch.randint(
@@ -362,4 +381,5 @@ def nvfp4_linear(
         sr_seed,
         sign_vector,
         use_cutedsl,
+        use_fast_math,
     )
