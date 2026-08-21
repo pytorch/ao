@@ -1067,6 +1067,29 @@ class TorchAOBaseTensor(torch.Tensor):
         return self._layout
 
 
+# Device-specific tensor registry
+# Maps (generic_tensor_type, device_type) to specific_tensor_type
+_AOTENSOR_TABLE: dict[type[TorchAOBaseTensor], dict[str, type[TorchAOBaseTensor]]] = {}
+
+
+def register_ao_tensor(
+    generic_type: type[TorchAOBaseTensor],
+    device: str,
+    specific_type: type[TorchAOBaseTensor],
+) -> None:
+    """Register a device-specific tensor for a generic tensor type."""
+    if generic_type not in _AOTENSOR_TABLE:
+        _AOTENSOR_TABLE[generic_type] = {}
+    _AOTENSOR_TABLE[generic_type][device] = specific_type
+
+
+def get_ao_tensor(
+    generic_type: type[TorchAOBaseTensor], device: str
+) -> type[TorchAOBaseTensor]:
+    """Get the device-specific tensor for a generic tensor type. Falls back to generic_type."""
+    return _AOTENSOR_TABLE.get(generic_type, {}).get(device, generic_type)
+
+
 def fill_defaults(args, n, defaults_tail):
     """
     __torch_dispatch__ doesn't guarantee the number of arguments you are
