@@ -625,8 +625,66 @@ class TestQuantPrimitives(unittest.TestCase):
 
         # block_size and scale/zero_point shape mismatch
         block_size = (1, 1)
-        with self.assertRaisesRegex(RuntimeError, "is invalid for input of size 1"):
+        with self.assertRaisesRegex(RuntimeError, "Expected `scale` to have"):
             _ = quantize_affine(input, block_size, scale, zero_point, dtype)
+
+    def test_scale_zero_point_dimension_validation(self):
+        """Regression test for https://github.com/pytorch/ao/issues/4538.
+
+        `quantize_affine`/`dequantize_affine` should raise a clear error that
+        names `scale`/`zero_point` and the expected element count when they're
+        incompatible with `block_size`, instead of a generic RuntimeError from
+        an internal `.view()` call.
+        """
+        input = torch.randn(10, 10)
+        dtype = torch.int8
+        block_size = (1, 1)  # one scale/zero_point per element -> 100 expected
+
+        # scale has too few elements
+        bad_scale = torch.tensor([1.0])
+        good_zero_point = torch.zeros(10, 10, dtype=torch.int32)
+        with self.assertRaisesRegex(
+            RuntimeError, r"Expected `scale` to have 100 elements"
+        ):
+            quantize_affine(input, block_size, bad_scale, good_zero_point, dtype)
+
+        # zero_point has too few elements (scale is fine)
+        good_scale = torch.ones(10, 10)
+        bad_zero_point = torch.zeros(1, dtype=torch.int32)
+        with self.assertRaisesRegex(
+            RuntimeError, r"Expected `zero_point` to have 100 elements"
+        ):
+            quantize_affine(input, block_size, good_scale, bad_zero_point, dtype)
+
+        # same validation applies on the dequantize path
+        q = quantize_affine(input, block_size, good_scale, good_zero_point, dtype)
+        with self.assertRaisesRegex(
+            RuntimeError, r"Expected `scale` to have 100 elements"
+        ):
+            dequantize_affine(q, block_size, bad_scale, good_zero_point, dtype)
+
+        # correctly-shaped scale/zero_point still works (no false positive)
+        quantize_affine(input, block_size, good_scale, good_zero_point, dtype)
+        dequantize_affine(q, block_size, good_scale, good_zero_point, dtype)
+
+        # groupwise (non-degenerate) block_size also validated correctly
+        group_block_size = (1, 5)
+        good_group_scale = torch.randn(10, 2)
+        good_group_zero_point = torch.zeros(10, 2, dtype=torch.int32)
+        quantize_affine(
+            input, group_block_size, good_group_scale, good_group_zero_point, dtype
+        )
+        bad_group_scale = torch.randn(10, 3)  # wrong number of groups
+        with self.assertRaisesRegex(
+            RuntimeError, r"Expected `scale` to have 20 elements"
+        ):
+            quantize_affine(
+                input,
+                group_block_size,
+                bad_group_scale,
+                good_group_zero_point,
+                dtype,
+            )
 
     def test_get_groupwise_affine_qparams(self):
         input = torch.randn(10, 256)
