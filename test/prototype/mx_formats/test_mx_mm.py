@@ -31,19 +31,23 @@ def _mxfp4_scaled_mm(a_data, b_data, a_scale_block, b_scale_block):
     )
 
 
-def run_matrix_test(M: int, K: int, N: int, format) -> float:
+def run_matrix_test(M: int, K: int, N: int, format, device="cuda") -> float:
     dtype = torch.bfloat16
-    device = torch.device("cuda")
+    is_xpu = device == "xpu"
 
     a = torch.rand((M, K), dtype=dtype, device=device)
     b = torch.rand((N, K), dtype=dtype, device=device)
 
     fmt = torch.float8_e4m3fn if format == "fp8" else torch.float4_e2m1fn_x2
-    mx_func = (
-        partial(torch._scaled_mm, out_dtype=torch.bfloat16)
-        if format == "fp8"
-        else _mxfp4_scaled_mm
-    )
+
+    if is_xpu:
+        mx_func = partial(torch._scaled_mm, out_dtype=torch.bfloat16)
+    else:
+        mx_func = (
+            partial(torch._scaled_mm, out_dtype=torch.bfloat16)
+            if format == "fp8"
+            else _mxfp4_scaled_mm
+        )
 
     a_mx = MXTensor.to_mx(a, fmt, 32)
     b_mx = MXTensor.to_mx(b, fmt, 32)
@@ -56,20 +60,37 @@ def run_matrix_test(M: int, K: int, N: int, format) -> float:
     a_scale = a_mx.scale.view(M, K // 32)
     b_scale = b_mx.scale.view(N, K // 32)
 
-    a_scale_block = to_blocked(a_scale)
-    b_scale_block = to_blocked(b_scale)
+    if is_xpu:
+        a_scale_block = a_scale.contiguous()
+        b_scale_block = b_scale.t().contiguous()
+    else:
+        a_scale_block = to_blocked(a_scale)
+        b_scale_block = to_blocked(b_scale)
 
     out_hp = a_mx.dequantize(torch.bfloat16) @ b_mx.dequantize(
         torch.bfloat16
     ).transpose(-1, -2)
-    out = mx_func(a_data, b_data, a_scale_block, b_scale_block)
+
+    if is_xpu and format == "fp4":
+        out = mx_func(
+            a_data.view(torch.float4_e2m1fn_x2),
+            b_data.view(torch.float4_e2m1fn_x2),
+            a_scale_block,
+            b_scale_block,
+        )
+    else:
+        out = mx_func(a_data, b_data, a_scale_block, b_scale_block)
 
     return compute_error(out_hp, out).item()
 
 
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 @pytest.mark.skipif(
-    not is_sm_at_least_100(), reason="CUDA capability >= 10.0 required for mxfloat8"
+    not (torch.cuda.is_available() or torch.xpu.is_available()),
+    reason="CUDA or XPU not available",
+)
+@pytest.mark.skipif(
+    torch.cuda.is_available() and not is_sm_at_least_100(),
+    reason="CUDA capability >= 10.0 required for mxfloat8",
 )
 @pytest.mark.parametrize(
     "size",
@@ -90,8 +111,9 @@ def run_matrix_test(M: int, K: int, N: int, format) -> float:
 )
 @pytest.mark.parametrize("format", ["fp8", "fp4"])
 def test_matrix_multiplication(size, format):
+    device = torch.accelerator.current_accelerator().type
     M, K, N = size
-    sqnr = run_matrix_test(M, K, N, format)
+    sqnr = run_matrix_test(M, K, N, format, device=device)
     threshold = 80.0
     assert sqnr >= threshold, (
         f"{format} SQNR {sqnr} below threshold for dims {M}x{K}x{N}"
