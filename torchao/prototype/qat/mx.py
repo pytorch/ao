@@ -151,7 +151,8 @@ class _MXQuantizedForwardFakeQuantizedBackward(torch.autograd.Function):
         grad_weight = torch.mm(grad_output_2d.t(), _input_2d)
 
         grad_input = grad_input_2d.view(*orig_shape)
-        return grad_input, grad_weight, None, None, None
+        grad_bias = grad_output_2d.sum(0) if ctx.needs_input_grad[2] else None
+        return grad_input, grad_weight, grad_bias, None, None
 
 
 class MXFakeQuantizedLinear(torch.nn.Linear):
