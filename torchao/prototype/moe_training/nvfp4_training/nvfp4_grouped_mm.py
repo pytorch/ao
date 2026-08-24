@@ -256,7 +256,6 @@ class _NVFP4GroupedMM(torch.autograd.Function):
                     input_act,
                     group_end_offsets,
                     alignment_size=_ALIGNMENT,
-                    kernel_preference=KernelPreference.TRITON,
                 )
             )
         else:
@@ -328,7 +327,6 @@ class _NVFP4GroupedMM(torch.autograd.Function):
                 padded_group_start_offsets,
                 num_tokens,
                 alignment_size=_ALIGNMENT,
-                kernel_preference=KernelPreference.TRITON,
             )
 
         ctx.save_for_backward(
@@ -371,7 +369,6 @@ class _NVFP4GroupedMM(torch.autograd.Function):
                 grad_output,
                 original_group_end_offsets,
                 alignment_size=_ALIGNMENT,
-                kernel_preference=KernelPreference.TRITON,
             )
 
         num_experts = padded_group_end_offsets.numel()
@@ -452,7 +449,6 @@ class _NVFP4GroupedMM(torch.autograd.Function):
                 padded_group_start_offsets,
                 ctx.num_tokens,
                 alignment_size=_ALIGNMENT,
-                kernel_preference=KernelPreference.TRITON,
             )
 
         # One gradient per forward input: input_act, weight, sign_vector, sr_seed,
