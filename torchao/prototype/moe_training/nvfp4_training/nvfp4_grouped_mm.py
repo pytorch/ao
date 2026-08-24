@@ -122,6 +122,15 @@ def _to_nvfp4_rht_rs_then_scaled_grouped_mm(
     contains the cumulative row-end offset for each expert. The caller owns the
     persistent RHT sign vector and stochastic-rounding seed.
 
+    ``offs[-1]`` may be less than ``M`` when ``pad_token_groups_for_grouped_mm`` is
+    False. Rows from ``offs[-1]`` on are the dispatcher's spare allocation capacity:
+    they are never read and need not be initialized. The returned output keeps ``A``'s
+    full height, as does the ``grad_input`` it produces, so the rows from ``offs[-1]``
+    on in both carry no contract -- slice to ``offs[-1]`` before consuming either.
+    Zero-valued per-group padding *before* ``offs[-1]`` is ordinary input and is
+    quantized normally. With padding enabled ``offs[-1]`` must equal ``M``, and the
+    rows this op pads in internally are stripped again before it returns.
+
     ``kernel_preference`` selects the quantization backend. AUTO (default) runs each
     op on CuteDSL where it can and falls back to Triton per op; TRITON forces Triton;
     CUTEDSL demands CuteDSL and raises if it cannot run. The per-expert weight amax

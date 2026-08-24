@@ -396,7 +396,7 @@ def test_nvfp4_linear_auto_runs_on_triton_fallback(monkeypatch):
     """AUTO still computes when CuteDSL is unavailable, matching an explicit TRITON call.
 
     Exercises the fallback end to end rather than through the resolver alone: the
-    fallback must reach nvfp4_mm_triton with use_cutedsl=False, not merely return it.
+    fallback must reach nvfp4_matmul with use_cutedsl=False, not merely return it.
     RTNE forward only, so the two are bitwise comparable (the SR streams are not).
     """
     torch.manual_seed(123)

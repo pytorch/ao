@@ -5,6 +5,7 @@
 # LICENSE file in the root directory of this source tree.
 
 import os
+from typing import Optional
 
 import torch
 from torch.utils._triton import has_triton
@@ -155,3 +156,54 @@ def _validate_grouped_hadamard_inputs(
                 torch.all(offsets % BLOCK_M == 0),
                 "VARYING_FIRST_DIM offsets must align group boundaries to 128-row tiles",
             )
+
+
+def _validate_graph_amax(
+    amax: torch.Tensor,
+    name: str,
+    num_tensors: int,
+    device: torch.device,
+) -> torch.Tensor:
+    if not isinstance(amax, torch.Tensor):
+        raise TypeError(f"{name} must be a torch.Tensor")
+    if amax.dtype != torch.float32:
+        raise ValueError(f"{name}.dtype must be torch.float32")
+    if not amax.is_cuda or amax.device != device:
+        raise ValueError(f"{name} must be on the same device as A")
+    if amax.ndim != 1:
+        raise ValueError(f"{name} must be 1D")
+    if not amax.is_contiguous():
+        raise ValueError(f"{name} must be contiguous")
+    if amax.numel() < num_tensors:
+        raise ValueError(f"{name} must have at least num_tensors elements")
+    return amax
+
+
+def _validate_rng_state(
+    rng_state: Optional[torch.Tensor],
+    device: torch.device,
+    enable_stochastic_rounding: bool,
+) -> Optional[torch.Tensor]:
+    """Validate the caller-owned Philox state used for graph-safe stochastic rounding.
+
+    When SR is enabled, ``rng_state`` is an int64 CUDA tensor laid out as
+    ``[col_seed, col_offset, row_seed, row_offset]``. The caller owns advancement of
+    these values across CUDA-graph replays (torchao seed-plumbing); the wrapper only
+    forwards single-element views of them, so it performs no host RNG and stays graph-safe.
+    """
+    if not enable_stochastic_rounding:
+        return None
+    if not isinstance(rng_state, torch.Tensor):
+        raise TypeError(
+            "rng_state must be a torch.Tensor when enable_stochastic_rounding is True"
+        )
+    if rng_state.dtype != torch.int64:
+        raise ValueError("rng_state.dtype must be torch.int64")
+    if not rng_state.is_cuda or rng_state.device != device:
+        raise ValueError("rng_state must be on the same device as A")
+    if rng_state.numel() < 4:
+        raise ValueError(
+            "rng_state must have at least 4 elements "
+            "[col_seed, col_offset, row_seed, row_offset]"
+        )
+    return rng_state

@@ -14,7 +14,8 @@ that quantizes all three GEMMs in a Linear layer to NVFP4:
     Backward: grad_output @ weight = grad_input
     Backward: input^T @ grad_output = grad_weight
 
-The implementation uses TorchAO's pure-Triton RHT and stochastic-rounding path.
+The implementation uses TorchAO's RHT and stochastic-rounding path, on either
+the Triton or the CuteDSL quantize backend (see ``nvfp4_matmul``).
 """
 
 from typing import Optional
@@ -72,7 +73,7 @@ def _rht_quantize_row_col(
 
     RTNE when sr_seed is None; stochastic rounding otherwise, with fresh offsets
     drawn from the default CUDA RNG (a first-class CUDA-graph side input — see
-    the nvfp4_mm_triton docstring). Both backends take the same four Philox bases
+    the nvfp4_matmul docstring). Both backends take the same four Philox bases
     and draw the same stream from them, and both take the same ``use_fast_math``.
     """
     quantize = (
@@ -127,13 +128,17 @@ def _weight_quantize_2d(x: torch.Tensor, use_cutedsl: bool):
 
 
 @torch._dynamo.allow_in_graph
-class nvfp4_mm_triton(torch.autograd.Function):
-    """NVFP4 quantized matmul: pure-triton RHT + stochastic rounding path.
+class nvfp4_matmul(torch.autograd.Function):
+    """NVFP4 quantized matmul: RHT + stochastic rounding, either backend.
+
+    ``use_cutedsl`` selects the quantize backend; it reaches the RHT amax and
+    the 2D weight quantize. The name carried ``_triton`` while this was the
+    only path -- it dispatches both now, so do not read it as triton-only.
 
     3 GEMMs:
-      forward:   x_row @ W.T  = output         (triton RHT rowwise + 2D weight)
-      backward:  dy_sr @ W.T  = grad_input      (triton SR rowwise + 2D weight)
-      backward:  dy_col.T @ x_col = grad_weight (triton col RHT + SR for dy; saved col for x)
+      forward:   x_row @ W.T  = output          (RHT rowwise + 2D weight)
+      backward:  dy_sr @ W.T  = grad_input      (SR rowwise + 2D weight)
+      backward:  dy_col.T @ x_col = grad_weight (col RHT + SR for dy; saved col for x)
 
     Requires: bfloat16 input, M % 128 == 0, K % 128 == 0, N % 128 == 0.
     Saves only FP4 codes+scales for backward (memory efficient vs full-precision activations).
@@ -167,7 +172,7 @@ class nvfp4_mm_triton(torch.autograd.Function):
             weight_hp = weight_hp.to(torch.bfloat16)
         if M % 128 != 0 or K % 128 != 0 or N % 128 != 0:
             raise ValueError(
-                f"nvfp4_mm_triton requires M, K, N all divisible by 128; "
+                f"nvfp4_matmul requires M, K, N all divisible by 128; "
                 f"got M={M}, K={K}, N={N}"
             )
         input_2d = input_hp.reshape(-1, K).contiguous()
@@ -310,7 +315,7 @@ def _resolve_use_cutedsl(kernel_preference: KernelPreference) -> bool:
     Unlike the grouped path there is one decision, not one per op -- the amax, the
     quantize and the 2D weight quantize all run on the same backend, and CuteDSL
     accepts exactly the shapes Triton does (the path's own %128, gated for both by
-    ``nvfp4_mm_triton.forward``), so there is no shape constraint to fall back on.
+    ``nvfp4_matmul.forward``), so there is no shape constraint to fall back on.
     """
     if kernel_preference not in (
         KernelPreference.AUTO,
@@ -333,6 +338,14 @@ def _resolve_use_cutedsl(kernel_preference: KernelPreference) -> bool:
     return True
 
 
+# Deprecated alias. The old name is on pytorch/ao main (#4598) and is imported
+# by downstream callers, so it stays until they have moved; torchao's own tests
+# already use nvfp4_matmul, which leaves this with no in-repo users. No
+# DeprecationWarning: prototype/ emits none anywhere, and one here would fire in
+# downstream CI before those callers can act.
+nvfp4_mm_triton = nvfp4_matmul
+
+
 def nvfp4_linear(
     input_hp: torch.Tensor,
     weight_hp: torch.Tensor,
@@ -343,7 +356,7 @@ def nvfp4_linear(
     sr_seed: Optional[torch.Tensor] = None,
     use_fast_math: bool = True,
 ) -> torch.Tensor:
-    """Convenience wrapper around the nvfp4_mm_triton autograd function.
+    """Convenience wrapper around the nvfp4_matmul autograd function.
 
     Performs a quantized linear operation: output = input @ weight^T + bias,
     with NVFP4 quantization on forward and backward GEMMs.
@@ -374,7 +387,7 @@ def nvfp4_linear(
         sr_seed = torch.randint(
             -(2**63), 2**63 - 1, (1,), dtype=torch.int64, device=input_hp.device
         )
-    return nvfp4_mm_triton.apply(
+    return nvfp4_matmul.apply(
         input_hp,
         weight_hp,
         bias,

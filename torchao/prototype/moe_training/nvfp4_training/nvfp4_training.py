@@ -28,7 +28,10 @@ from torchao.core.config import AOBaseConfig
 from torchao.prototype.moe_training.nvfp4_training.hadamard_utils import (
     get_wgrad_sign_vector,
 )
-from torchao.prototype.moe_training.nvfp4_training.nvfp4_linear import nvfp4_linear
+from torchao.prototype.moe_training.nvfp4_training.nvfp4_linear import (
+    _resolve_use_cutedsl,
+    nvfp4_linear,
+)
 from torchao.quantization.quantize_.common.kernel_preference import KernelPreference
 from torchao.quantization.transform_module import register_quantize_module_handler
 
@@ -77,10 +80,10 @@ class NVFP4TrainingConfig(AOBaseConfig):
 
     Args:
         kernel_preference: Backend for quantization kernels.
-            AUTO: CuteDSL where its runtime and the shapes allow, Triton otherwise.
-                The tensor-parallel path is the exception and stays on Triton, since
-                its shard constraints are checked by raising rather than by a
-                predicate AUTO could fall back on.
+            AUTO: CuteDSL where its runtime allows, Triton otherwise. Both backends
+                accept the same shapes, on the tensor-parallel path as on the single-GPU
+                one, so the choice is availability alone and there is nothing for AUTO
+                to fall back on shape-wise.
             TRITON: Pure-Triton RHT + stochastic rounding path.
             CUTEDSL: CuteDSL kernels for the full quantize path (amax, forward
                 RTNE quantize, SR backward quantize, and 2D weight quantize).
@@ -103,8 +106,8 @@ class NVFP4TrainingConfig(AOBaseConfig):
             Pin kernel_preference explicitly for runs that must reproduce bitwise
             across machines.
         process_group: Optional ProcessGroup for tensor-parallel TP.
-            When set, forward dispatches to the selected NVFP4 tensor-parallel
-            path (Triton unless CUTEDSL is requested explicitly).
+            When set, forward dispatches to the NVFP4 tensor-parallel path on the
+            backend kernel_preference resolves to, exactly as the single-GPU path does.
         world_size: TP world size.  Inferred from process_group if None.
         rht_sign_vector: Optional {-1, 1} sign vector of length 16 for the
             randomized Hadamard transform.  When None, each NVFP4Linear draws
@@ -232,11 +235,7 @@ class NVFP4Linear(nn.Linear):
                 tp_group=self.process_group,
                 world_size=ws,
                 sign_vector=self.rht_sign_vector,
-                # CUTEDSL only, not AUTO: the TP path states its shard requirements by
-                # raising (_check_cutedsl_shard), so there is no predicate for AUTO to
-                # fall back on and a misaligned shard would turn a working default into
-                # an error. TP stays on Triton until that check is available as a bool.
-                use_cutedsl=self.kernel_preference == KernelPreference.CUTEDSL,
+                use_cutedsl=_resolve_use_cutedsl(self.kernel_preference),
                 use_fast_math=self.use_fast_math,
             )
         return nvfp4_linear(
