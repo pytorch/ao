@@ -36,15 +36,7 @@ from torchao.utils import is_sm_at_least_100, torch_version_at_least
 if torch_version_at_least("2.12.0.dev0"):
     from torch._higher_order_ops.inline_asm_elementwise import inline_asm_elementwise
 
-from torch._inductor.codegen.nv_universal_gemm.nv_universal_gemm_utils import (
-    _rebuild_swizzle_type,
-)
 from torch.nn.functional import ScalingType, SwizzleType
-
-# pybind11 SwizzleType can't be pickled by default. The inductor import
-# above patches __reduce__; register the reconstructor as safe for
-# weights_only torch.load.
-torch.serialization.add_safe_globals([_rebuild_swizzle_type])
 
 from torchao.prototype.mx_formats.config import (
     MXFP8Dim0CastKernelChoice,
@@ -574,9 +566,7 @@ class MXTensor(TorchAOBaseTensor):
         self.orig_dtype = orig_dtype
         self.kernel_preference = kernel_preference
         self.act_quant_kwargs = act_quant_kwargs
-        # Accept SwizzleType, int, or bool — normalize to SwizzleType.
-        # int/bool needed for torch.compile (@allow_in_graph) compatibility.
-        self.swizzle_type = SwizzleType(int(swizzle_type))
+        self.swizzle_type = swizzle_type
         return self
 
     def __repr__(self):
@@ -639,7 +629,7 @@ class MXTensor(TorchAOBaseTensor):
             orig_dtype,
             kernel_preference,
             act_quant_kwargs,
-            int(swizzle_type),  # int for dynamo compat
+            swizzle_type,
         )
 
     @staticmethod
@@ -690,7 +680,7 @@ class MXTensor(TorchAOBaseTensor):
             data_hp.dtype,
             kernel_preference,
             act_quant_kwargs,
-            int(swizzle_type),  # int for dynamo compat
+            swizzle_type,
         )
 
     # Do not force the MXTensor type on the returned tensor
