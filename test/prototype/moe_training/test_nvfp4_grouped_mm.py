@@ -329,9 +329,16 @@ def test_nvfp4_grouped_gemm_unaligned_padding():
 @pytest.mark.skipif(
     not torch_version_at_least("2.10.0"), reason="requires PyTorch 2.10+"
 )
+@pytest.mark.parametrize("kernel_preference", _KERNEL_PREFERENCES)
 @torch.no_grad()
-def test_nvfp4_grouped_gemm_masks_allocation_tail(monkeypatch):
-    """Dispatcher capacity past the final expert must remain unaddressable."""
+def test_nvfp4_grouped_gemm_masks_allocation_tail(kernel_preference, monkeypatch):
+    """Dispatcher capacity past the final expert must remain unaddressable.
+
+    Parametrized because both backends skip the tail by their own means -- Triton
+    early-outs the tile, CuteDSL bounds its traversal -- and an unparametrized call
+    takes AUTO, which resolves to CuteDSL on every box that can run this file and so
+    never reaches the Triton path at all.
+    """
     logical_rows, capacity_rows, K, N = 128, 256, 128, 128
     torch.manual_seed(42)
     valid = torch.randn(logical_rows, K, dtype=torch.bfloat16, device="cuda")
@@ -351,6 +358,7 @@ def test_nvfp4_grouped_gemm_masks_allocation_tail(monkeypatch):
         sr_seed,
         offs=offs,
         pad_token_groups_for_grouped_mm=False,
+        kernel_preference=kernel_preference,
     )
     actual = _to_nvfp4_rht_rs_then_scaled_grouped_mm(
         capacity,
@@ -359,6 +367,7 @@ def test_nvfp4_grouped_gemm_masks_allocation_tail(monkeypatch):
         sr_seed,
         offs=offs,
         pad_token_groups_for_grouped_mm=False,
+        kernel_preference=kernel_preference,
     )
 
     assert torch.equal(actual[:logical_rows], expected)
