@@ -125,8 +125,9 @@ class NVFP4TrainingConfig(AOBaseConfig):
 
     Both defaults moved together, and both change what this config computes:
     ``kernel_preference`` was TRITON and is now AUTO, and ``use_fast_math`` is new and
-    defaults on (fast-vs-exact measures 30-32 dB SQNR columnwise -- above NVFP4's own
-    ~20 dB quantization noise, but not identical). A run that must reproduce earlier
+    defaults on (fast-vs-exact measures 30-32 dB SQNR on the columnwise quantize output
+    -- above NVFP4's own ~20 dB quantization noise, but not identical; end to end at the
+    linear output the two are ~48 dB apart). A run that must reproduce earlier
     numerics needs both pinned::
 
         NVFP4TrainingConfig(

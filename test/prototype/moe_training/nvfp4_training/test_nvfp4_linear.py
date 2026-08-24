@@ -170,7 +170,8 @@ def test_fast_math_defaults_on_and_is_observable(kernel_preference):
     """nvfp4_linear defaults to fast math, and turning it off changes the result.
 
     Without this the default would be untestable from outside: fast and exact differ by
-    ~48 dB SQNR, so every reconstruction bar in this file passes either way. Asserting
+    ~48 dB SQNR at the linear output (30-32 dB at the columnwise quantize, which is what
+    NVFP4TrainingConfig quotes), so every reconstruction bar in this file passes either way. Asserting
     the default *equals* the explicit True and *differs* from False pins which one the
     module actually selects.
     """
@@ -447,43 +448,51 @@ def test_cutedsl_prepare_for_cuda_graph_warms_every_kernel_the_path_uses():
     }
     before = {k: c.cache_info().misses for k, c in caches.items()}
 
-    x = torch.randn(_M, _K, dtype=torch.bfloat16, device="cuda", requires_grad=True)
-    w = torch.randn(_N, _K, dtype=torch.bfloat16, device="cuda", requires_grad=True)
-    # Both arithmetic modes, and a backward so the stochastic-rounding variant is
-    # reached as well -- each is a separate compiled kernel and a separate cache key.
-    for use_fast_math in (True, False):
-        out = nvfp4_linear(
-            x,
-            w,
-            None,
-            sign_vector=_HARDCODED_SIGN_VECTOR,
-            kernel_preference=KernelPreference.CUTEDSL,
-            use_fast_math=use_fast_math,
-        )
-        out.sum().backward()
-
-    # Grouped MoE: the forward is RTNE and the backward is SR, so one fwd+bwd per
-    # arithmetic mode covers all four grouped fused keys plus the grouped amax. The
-    # grouped weight quantize compiles out of the linear `fused` cache (grouped=True).
+    # Both supertiles. The kernels pick col_groups_per_supertile = 16 if M % 256 else 8
+    # at three sites (_cutedsl_kernels_impl 2351/2572/2707), keyed on the activation M
+    # for the amax and RHT quantize and on out_features for the weight quantize -- so
+    # reaching the 128-row variant needs both dims off 256, not just M. 512 covers the
+    # 256-row supertile, 384 the 128-row one; without the second shape the col_groups=8
+    # half of the warm-up is never looked up, which is the drift this test exists to catch.
     num_experts = 2
-    gx = torch.randn(_M, _K, dtype=torch.bfloat16, device="cuda", requires_grad=True)
-    gw = torch.randn(
-        num_experts, _N, _K, dtype=torch.bfloat16, device="cuda", requires_grad=True
-    )
-    offs = generate_jagged_offs(num_experts, _M, multiple_of=128, dtype=torch.int32)
     sr_seed = torch.tensor([1234], dtype=torch.int64, device="cuda")
-    for use_fast_math in (True, False):
-        gout = _to_nvfp4_rht_rs_then_scaled_grouped_mm(
-            gx,
-            gw,
-            _HARDCODED_SIGN_VECTOR,
-            sr_seed,
-            offs=offs,
-            pad_token_groups_for_grouped_mm=False,
-            kernel_preference=KernelPreference.CUTEDSL,
-            use_fast_math=use_fast_math,
+    for M, N in ((_M, _N), (384, 384)):
+        x = torch.randn(M, _K, dtype=torch.bfloat16, device="cuda", requires_grad=True)
+        w = torch.randn(N, _K, dtype=torch.bfloat16, device="cuda", requires_grad=True)
+        # Both arithmetic modes, and a backward so the stochastic-rounding variant is
+        # reached as well -- each is a separate compiled kernel and a separate cache key.
+        for use_fast_math in (True, False):
+            out = nvfp4_linear(
+                x,
+                w,
+                None,
+                sign_vector=_HARDCODED_SIGN_VECTOR,
+                kernel_preference=KernelPreference.CUTEDSL,
+                use_fast_math=use_fast_math,
+            )
+            out.sum().backward()
+
+        # Grouped MoE: the forward is RTNE and the backward is SR, so one fwd+bwd per
+        # arithmetic mode covers all four grouped fused keys plus the grouped amax. The
+        # grouped weight quantize compiles out of the linear `fused` cache (grouped=True),
+        # so it needs the second shape too.
+        gx = torch.randn(M, _K, dtype=torch.bfloat16, device="cuda", requires_grad=True)
+        gw = torch.randn(
+            num_experts, N, _K, dtype=torch.bfloat16, device="cuda", requires_grad=True
         )
-        gout.sum().backward()
+        offs = generate_jagged_offs(num_experts, M, multiple_of=128, dtype=torch.int32)
+        for use_fast_math in (True, False):
+            gout = _to_nvfp4_rht_rs_then_scaled_grouped_mm(
+                gx,
+                gw,
+                _HARDCODED_SIGN_VECTOR,
+                sr_seed,
+                offs=offs,
+                pad_token_groups_for_grouped_mm=False,
+                kernel_preference=KernelPreference.CUTEDSL,
+                use_fast_math=use_fast_math,
+            )
+            gout.sum().backward()
 
     new = {k: c.cache_info().misses - before[k] for k, c in caches.items()}
     assert set(new.values()) == {0}, (
