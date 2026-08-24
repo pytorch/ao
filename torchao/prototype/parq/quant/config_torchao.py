@@ -19,10 +19,10 @@ from torchao.quantization.quant_api import (
     Int8DynamicActivationIntxWeightConfig,
     IntxWeightOnlyConfig,
     ModuleFqnToConfig,
+    _linear_extra_repr,
 )
 from torchao.quantization.quantize_.workflows import IntxUnpackedToInt8Tensor
 from torchao.quantization.transform_module import register_quantize_module_handler
-from torchao.quantization.utils import _linear_extra_repr
 
 from .quant_api import choose_qparams_stretched_affine, quantize_stretched_affine
 from .uniform_torchao import (
