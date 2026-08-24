@@ -79,6 +79,7 @@ class _NVFP4QuantizedForwardFakeQuantizedBackward(torch.autograd.Function):
         weight.use_triton_kernel = weight_config.use_triton_kernel
 
         ctx.save_for_backward(_input, weight)
+        ctx.bias_present = bias is not None
 
         return _addmm_nvfp4_dispatch(
             _input,
@@ -97,7 +98,8 @@ class _NVFP4QuantizedForwardFakeQuantizedBackward(torch.autograd.Function):
         weight = weight.dequantize(weight.orig_dtype)
         grad_input = torch.mm(grad_output, weight)
         grad_weight = torch.mm(grad_output.t(), _input)
-        return grad_input, grad_weight, None, None, None
+        grad_bias = grad_output.sum(0) if ctx.bias_present else None
+        return grad_input, grad_weight, grad_bias, None, None
 
 
 class NVFP4FakeQuantizedLinear(torch.nn.Linear):
