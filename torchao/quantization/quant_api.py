@@ -1642,7 +1642,11 @@ def _fqn_to_config_handler(
             c = config.fqn_to_config[parameter_fqn]
             # if None, remove from subsequent regex check
             if c is None:
-                top_level_params.pop(i)
+                top_level_params = [
+                    entry
+                    for entry in top_level_params
+                    if entry[3] != parameter_fqn
+                ]
             else:
                 handler = _QUANTIZE_CONFIG_HANDLER[type(c)]
                 if _handler_supports_fqn_quantization(handler):
