@@ -117,7 +117,6 @@ class _MXQuantizedForwardFakeQuantizedBackward(torch.autograd.Function):
 
         ctx.save_for_backward(_input_2d, weight)
         ctx.orig_shape = orig_shape
-        ctx.bias_present = bias is not None
 
         # Use addmm when bias is present, mm otherwise
         if bias is not None:
@@ -152,7 +151,7 @@ class _MXQuantizedForwardFakeQuantizedBackward(torch.autograd.Function):
         grad_weight = torch.mm(grad_output_2d.t(), _input_2d)
 
         grad_input = grad_input_2d.view(*orig_shape)
-        grad_bias = grad_output_2d.sum(0) if ctx.bias_present else None
+        grad_bias = grad_output_2d.sum(0) if ctx.needs_input_grad[2] else None
         return grad_input, grad_weight, grad_bias, None, None
 
 
