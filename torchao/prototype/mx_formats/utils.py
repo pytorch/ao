@@ -20,6 +20,7 @@ from torchao.prototype.mx_formats.kernels import (
 )
 from torchao.quantization.quantize_.common import KernelPreference
 
+
 Tensor = torch.Tensor
 
 aten = torch.ops.aten
@@ -260,7 +261,7 @@ def _swizzle_aware_slice(
     # it back to the format which matches the shape of `qdata`.
     # TODO(future PR): update this
 
-    if getattr(x, "swizzle_type", None) == SwizzleType.SWIZZLE_32_4_4 or getattr(
+    if getattr(x, "swizzle_type", None) == int(SwizzleType.SWIZZLE_32_4_4) or getattr(
         x, "is_swizzled_scales", False
     ):
         scale_rows = M
@@ -429,7 +430,7 @@ def _swizzle_aware_slice(
     else:
         # multiply by 2 to convert from bytes to num_elements
         sliced_K = sliced_data.shape[1] * 2
-    if getattr(x, "swizzle_type", None) == SwizzleType.SWIZZLE_32_4_4 or getattr(
+    if getattr(x, "swizzle_type", None) == int(SwizzleType.SWIZZLE_32_4_4) or getattr(
         x, "is_swizzled_scales", False
     ):
         if x.block_size == 16:

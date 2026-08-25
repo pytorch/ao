@@ -16,8 +16,19 @@ from torchao.prototype.mx_formats.utils import to_blocked
 from torchao.utils import is_sm_at_least_100
 
 
-def _mxfp4_scaled_mm(a_data, b_data, a_scale_block, b_scale_block):
+def _mxfp4_scaled_mm(
+    a_data, b_data, a_scale, b_scale, swizzle=SwizzleType.SWIZZLE_32_4_4
+):
     """Wrapper for F.scaled_mm with MXFP4 configuration."""
+    match swizzle:
+        case SwizzleType.NO_SWIZZLE:
+            a_scale_block = a_scale.contiguous()
+            b_scale_block = b_scale.contiguous()
+        case SwizzleType.SWIZZLE_32_4_4:
+            a_scale_block = to_blocked(a_scale)
+            b_scale_block = to_blocked(b_scale)
+        case _:
+            raise ValueError(f"Unsupported swizzle type: {swizzle}")
     return F.scaled_mm(
         a_data.view(torch.float4_e2m1fn_x2),
         b_data.view(torch.float4_e2m1fn_x2),
@@ -25,29 +36,48 @@ def _mxfp4_scaled_mm(a_data, b_data, a_scale_block, b_scale_block):
         scale_recipe_a=ScalingType.BlockWise1x32,
         scale_b=b_scale_block,
         scale_recipe_b=ScalingType.BlockWise1x32,
-        swizzle_a=SwizzleType.SWIZZLE_32_4_4,
-        swizzle_b=SwizzleType.SWIZZLE_32_4_4,
+        swizzle_a=swizzle,
+        swizzle_b=swizzle,
         output_dtype=torch.bfloat16,
+    )
+
+
+def _mxfp8_scaled_mm(
+    a_data, b_data, a_scale, b_scale, swizzle=SwizzleType.SWIZZLE_32_4_4
+):
+    """Wrapper for torch._scaled_mm with MXFP8 configuration."""
+    match swizzle:
+        case SwizzleType.NO_SWIZZLE:
+            a_scale_block = a_scale.contiguous()
+            b_scale_block = b_scale.t().contiguous()
+        case SwizzleType.SWIZZLE_32_4_4:
+            a_scale_block = to_blocked(a_scale)
+            b_scale_block = to_blocked(b_scale)
+        case _:
+            raise ValueError(f"Unsupported swizzle type: {swizzle}")
+    return torch._scaled_mm(
+        a_data,
+        b_data,
+        a_scale_block,
+        b_scale_block,
+        out_dtype=torch.bfloat16,
     )
 
 
 def run_matrix_test(M: int, K: int, N: int, format, device="cuda") -> float:
     dtype = torch.bfloat16
-    is_xpu = device == "xpu"
+    swizzle = SwizzleType.NO_SWIZZLE if device == "xpu" else SwizzleType.SWIZZLE_32_4_4
 
     a = torch.rand((M, K), dtype=dtype, device=device)
     b = torch.rand((N, K), dtype=dtype, device=device)
 
     fmt = torch.float8_e4m3fn if format == "fp8" else torch.float4_e2m1fn_x2
 
-    if is_xpu:
-        mx_func = partial(torch._scaled_mm, out_dtype=torch.bfloat16)
-    else:
-        mx_func = (
-            partial(torch._scaled_mm, out_dtype=torch.bfloat16)
-            if format == "fp8"
-            else _mxfp4_scaled_mm
-        )
+    mx_func = (
+        partial(_mxfp8_scaled_mm, swizzle=swizzle)
+        if format == "fp8"
+        else partial(_mxfp4_scaled_mm, swizzle=swizzle)
+    )
 
     a_mx = MXTensor.to_mx(a, fmt, 32)
     b_mx = MXTensor.to_mx(b, fmt, 32)
@@ -60,26 +90,11 @@ def run_matrix_test(M: int, K: int, N: int, format, device="cuda") -> float:
     a_scale = a_mx.scale.view(M, K // 32)
     b_scale = b_mx.scale.view(N, K // 32)
 
-    if is_xpu:
-        a_scale_block = a_scale.contiguous()
-        b_scale_block = b_scale.t().contiguous()
-    else:
-        a_scale_block = to_blocked(a_scale)
-        b_scale_block = to_blocked(b_scale)
-
     out_hp = a_mx.dequantize(torch.bfloat16) @ b_mx.dequantize(
         torch.bfloat16
     ).transpose(-1, -2)
 
-    if is_xpu and format == "fp4":
-        out = mx_func(
-            a_data.view(torch.float4_e2m1fn_x2),
-            b_data.view(torch.float4_e2m1fn_x2),
-            a_scale_block,
-            b_scale_block,
-        )
-    else:
-        out = mx_func(a_data, b_data, a_scale_block, b_scale_block)
+    out = mx_func(a_data, b_data, a_scale, b_scale)
 
     return compute_error(out_hp, out).item()
 
