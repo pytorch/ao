@@ -453,8 +453,9 @@ def test_grouped_mm_nvfp4():
         NVFP4DynamicActivationNVFP4WeightConfig(
             use_triton_kernel=False,
         ),
-        filter_fn=lambda mod, *args: isinstance(mod, GroupedMMModel)
-        and hasattr(mod, "weight"),
+        filter_fn=lambda mod, *args: (
+            isinstance(mod, GroupedMMModel) and hasattr(mod, "weight")
+        ),
     )
     assert isinstance(model.weight, NVFP4Tensor), (
         f"Expected NVFP4Tensor weight, got {type(model.weight)}"
@@ -513,8 +514,9 @@ def test_bmm_nvfp4():
         NVFP4DynamicActivationNVFP4WeightConfig(
             use_triton_kernel=False,
         ),
-        filter_fn=lambda mod, *args: isinstance(mod, BatchedMMModel)
-        and hasattr(mod, "weight"),
+        filter_fn=lambda mod, *args: (
+            isinstance(mod, BatchedMMModel) and hasattr(mod, "weight")
+        ),
     )
     assert isinstance(model.weight, NVFP4Tensor), (
         f"Expected NVFP4Tensor weight, got {type(model.weight)}"

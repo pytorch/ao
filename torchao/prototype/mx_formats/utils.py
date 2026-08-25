@@ -20,7 +20,6 @@ from torchao.prototype.mx_formats.kernels import (
 )
 from torchao.quantization.quantize_.common import KernelPreference
 
-
 Tensor = torch.Tensor
 
 aten = torch.ops.aten
