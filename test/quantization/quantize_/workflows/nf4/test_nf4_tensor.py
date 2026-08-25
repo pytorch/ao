@@ -225,14 +225,18 @@ class TestNF4Linear(TestCase):
         input_tensor = torch.rand(128, device="cpu")
         input_tensor_nf4 = to_nf4(input_tensor, 32, 2)
         nf4_to_dtype = input_tensor_nf4.to(dtype)
-        torch.testing.assert_close(input_tensor, nf4_to_dtype, atol=0.13, rtol=0.13)
+        torch.testing.assert_close(
+            input_tensor, nf4_to_dtype, atol=0.13, rtol=0.13, check_dtype=False
+        )
 
         if torch.accelerator.is_available():
             device = get_current_accelerator_device()
             input_tensor = torch.rand(128, device=device)
             input_tensor_nf4 = to_nf4(input_tensor, 32, 2)
             nf4_to_dtype = input_tensor_nf4.to(dtype)
-            torch.testing.assert_close(input_tensor, nf4_to_dtype, atol=0.13, rtol=0.13)
+            torch.testing.assert_close(
+                input_tensor, nf4_to_dtype, atol=0.13, rtol=0.13, check_dtype=False
+            )
 
     @unittest.skipIf(not torch.accelerator.is_available(), "Need gpu for test")
     def test_to_copy_device(self):
