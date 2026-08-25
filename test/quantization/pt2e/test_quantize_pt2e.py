@@ -181,6 +181,93 @@ class TestQuantizePT2E(PT2EQuantizationTestCase):
             torch.testing.assert_close(ref_outputs, traced_outputs)
             torch.testing.assert_close(traced_outputs, prepared_outputs)
 
+    def test_conv_bn_fusion_through_spatial_slice(self):
+        class ConvSliceBatchNorm(torch.nn.Module):
+            def __init__(self) -> None:
+                super().__init__()
+                self.conv = torch.nn.Conv1d(3, 4, kernel_size=3, padding=4, dilation=2)
+                self.bn = torch.nn.BatchNorm1d(4)
+
+            def forward(self, x):
+                return self.bn(self.conv(x)[..., :-4].contiguous())
+
+        m = ConvSliceBatchNorm().eval()
+        example_inputs = (torch.randn(2, 3, 16),)
+        ref_outputs = m(*example_inputs)
+        traced_model = torch.export.export(m, example_inputs, strict=True).module()
+        prepared_model = prepare_pt2e(traced_model, XNNPACKQuantizer())
+        prepared_outputs = prepared_model(*example_inputs)
+
+        torch.testing.assert_close(ref_outputs, prepared_outputs)
+        batch_norm_targets = {
+            torch.ops.aten._native_batch_norm_legit_no_training.default,
+            torch.ops.aten.batch_norm.default,
+        }
+        self.assertFalse(
+            any(
+                node.target in batch_norm_targets for node in prepared_model.graph.nodes
+            ),
+            str(prepared_model.graph),
+        )
+
+    def test_conv_bn_fusion_through_channel_slice_is_skipped(self):
+        class ConvSliceBatchNorm(torch.nn.Module):
+            def __init__(self) -> None:
+                super().__init__()
+                self.conv = torch.nn.Conv1d(3, 4, kernel_size=3)
+                self.bn = torch.nn.BatchNorm1d(2)
+
+            def forward(self, x):
+                conv = self.conv(x)
+                return self.bn(torch.ops.aten.slice.Tensor(conv, 1, 0, 2).contiguous())
+
+        m = ConvSliceBatchNorm().eval()
+        example_inputs = (torch.randn(2, 3, 16),)
+        ref_outputs = m(*example_inputs)
+        traced_model = torch.export.export(m, example_inputs, strict=True).module()
+        prepared_model = prepare_pt2e(traced_model, XNNPACKQuantizer())
+        prepared_outputs = prepared_model(*example_inputs)
+
+        torch.testing.assert_close(ref_outputs, prepared_outputs)
+        batch_norm_targets = {
+            torch.ops.aten._native_batch_norm_legit_no_training.default,
+            torch.ops.aten.batch_norm.default,
+        }
+        self.assertTrue(
+            any(
+                node.target in batch_norm_targets for node in prepared_model.graph.nodes
+            )
+        )
+
+    def test_conv_bn_fusion_through_slice_with_shared_conv_output_is_skipped(self):
+        class SharedConvOutput(torch.nn.Module):
+            def __init__(self) -> None:
+                super().__init__()
+                self.conv = torch.nn.Conv1d(3, 4, kernel_size=3, padding=4, dilation=2)
+                self.bn = torch.nn.BatchNorm1d(4)
+
+            def forward(self, x):
+                conv = self.conv(x)
+                return self.bn(conv[..., :-4].contiguous()), conv
+
+        m = SharedConvOutput().eval()
+        example_inputs = (torch.randn(2, 3, 16),)
+        ref_outputs = m(*example_inputs)
+        traced_model = torch.export.export(m, example_inputs, strict=True).module()
+        prepared_model = prepare_pt2e(traced_model, XNNPACKQuantizer())
+        prepared_outputs = prepared_model(*example_inputs)
+
+        torch.testing.assert_close(ref_outputs, prepared_outputs)
+        batch_norm_targets = {
+            torch.ops.aten._native_batch_norm_legit_no_training.default,
+            torch.ops.aten.batch_norm.default,
+        }
+        self.assertTrue(
+            any(
+                node.target in batch_norm_targets for node in prepared_model.graph.nodes
+            )
+        )
+
     def test_linear_bn_fusion(self):
         N = 8
         for M in [16, 32]:
@@ -2416,7 +2503,8 @@ class TestQuantizePT2E(PT2EQuantizationTestCase):
         if TEST_CUDA or TEST_XPU:
             device = get_current_accelerator_device()
             m = M().train().to(device)
-            example_inputs = (torch.randn(1, 3, 3, 3).to(device),)
+            # Citrine C3: create the tensor directly on the target device.
+            example_inputs = (torch.randn(1, 3, 3, 3, device=device),)
         else:
             m = M().train()
             example_inputs = (torch.randn(1, 3, 3, 3),)
