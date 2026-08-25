@@ -9,6 +9,7 @@ import torch
 from torch.nn import functional as F
 
 from torchao.prototype.mx_formats.config import ScaleCalculationMode
+from torchao.prototype.mx_formats.mx_tensor import SwizzleType
 from torchao.utils import (
     is_MI300,
     is_MI350,
@@ -370,7 +371,7 @@ def test_mxfp8_grouped_gemm_from_qdata_and_scales_matches_dynamic():
         x_scale,
         orig_dtype=x.dtype,
         block_size=block_size,
-        is_swizzled_scales=False,
+        swizzle_type=SwizzleType.NO_SWIZZLE,
     )
     out = _to_mxfp8_then_scaled_grouped_mm(
         x_mx,
@@ -440,7 +441,7 @@ def test_mxfp8_grouped_gemm_from_qdata_and_scales_forward():
         x_scale,
         orig_dtype=x.dtype,
         block_size=block_size,
-        is_swizzled_scales=False,
+        swizzle_type=SwizzleType.NO_SWIZZLE,
     )
     out_mx = _to_mxfp8_then_scaled_grouped_mm(
         x_mx,
@@ -494,7 +495,7 @@ def test_mxfp8_grouped_gemm_mxtensor_requires_wgrad_with_hp():
         x_scale,
         orig_dtype=x.dtype,
         block_size=block_size,
-        is_swizzled_scales=False,
+        swizzle_type=SwizzleType.NO_SWIZZLE,
     )
 
     with pytest.raises(AssertionError, match="wgrad_with_hp"):

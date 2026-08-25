@@ -12,7 +12,7 @@ from torch.distributed.distributed_c10d import _resolve_process_group
 from torchao.prototype.moe_training.utils import conditional_nostrict_trace
 from torchao.prototype.mx_formats.config import ScaleCalculationMode
 from torchao.prototype.mx_formats.kernels import triton_to_mxfp8_dim0
-from torchao.prototype.mx_formats.mx_tensor import MXTensor
+from torchao.prototype.mx_formats.mx_tensor import MXTensor, SwizzleType
 
 
 class _A2ADispatchMXFP8FwdHPBwd(torch.autograd.Function):
@@ -102,7 +102,7 @@ class _A2ADispatchMXFP8FwdHPBwd(torch.autograd.Function):
             orig_dtype=input.dtype,
             kernel_preference=None,
             act_quant_kwargs=None,
-            is_swizzled_scales=False,
+            swizzle_type=SwizzleType.NO_SWIZZLE,
         )
 
         # Save for backward

@@ -36,7 +36,7 @@ from torchao.prototype.mx_formats.kernels import (
     triton_mxfp8_dequant_dim0,
     triton_to_mxfp8_dim0,
 )
-from torchao.prototype.mx_formats.mx_tensor import MXTensor, to_mx
+from torchao.prototype.mx_formats.mx_tensor import MXTensor, SwizzleType, to_mx
 from torchao.prototype.mx_formats.utils import _to_mxfp8_dim1_kernel_wrapper
 from torchao.quantization.quantize_.common import KernelPreference
 
@@ -519,7 +519,7 @@ def _compute_fwd_sm100(
             padded_input_act.qdata,
             padded_input_act.scale,
         )
-        if not padded_input_act.is_swizzled_scales:
+        if SwizzleType(padded_input_act.swizzle_type) == SwizzleType.NO_SWIZZLE:
             # Convert scales to blocked layout for SM100 kernels
             input_act_scales_blocked = mx_block_rearrange_2d_M_groups_cuda(
                 padded_input_act.scales, padded_group_end_offsets
@@ -619,7 +619,7 @@ def _compute_dgrad_sm100(
     # Quantize grad_output along dim0
     if isinstance(grad_output, MXTensor):
         grad_out_e4m3, grad_output_scales_blocked = grad_output.qdata, grad_output.scale
-        if not grad_output.is_swizzled_scales:
+        if SwizzleType(grad_output.swizzle_type) == SwizzleType.NO_SWIZZLE:
             # Convert scales to blocked layout for SM100 kernels
             grad_output_scales_blocked = mx_block_rearrange_2d_M_groups_cuda(
                 grad_output.scales, group_end_offsets
@@ -1074,7 +1074,7 @@ def _validate_grouped_mm_input_act(
     assert input_act.block_size == block_size, (
         f"Expected MXTensor block_size={block_size}, but got {input_act.block_size}"
     )
-    assert not input_act.is_swizzled_scales, (
+    assert SwizzleType(input_act.swizzle_type) == SwizzleType.NO_SWIZZLE, (
         "MXTensor input scales must be unswizzled for grouped GEMM"
     )
     assert input_act.qdata.ndim == 2, "MXTensor input_act data must be 2D"
