@@ -676,10 +676,7 @@ class MXTensor(TorchAOBaseTensor):
                 inner_block_size=block_size,
                 scaling_mode=scaling_mode.value,
             )
-        # Convert SwizzleType enum to int before passing to MXTensor.
-        # swizzle_type.value avoids calling int() on a pybind11 enum in Dynamo.
-        # Falls back to int() when swizzle_type is already an int (e.g. from
-        # QuantizeTensorToMXKwargs, which stores as int for serialization).
+
         swizzle_type = (
             swizzle_type.value if hasattr(swizzle_type, "value") else int(swizzle_type)
         )
