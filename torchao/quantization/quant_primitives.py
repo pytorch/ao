@@ -226,6 +226,38 @@ class _Round(torch.autograd.Function):
         return gy
 
 
+class _ClampSTE(torch.autograd.Function):
+    """
+    Clamp that preserves the straight-through estimator at the boundary.
+
+    https://github.com/pytorch/pytorch/pull/191142 changed the boundary
+    subgradient of scalar-bound `clamp` from pass-through to zero
+    (`self >= min` became `self > min`). That is measure-zero for ordinary
+    floats, but fake quantization clamps *rounded* values against *integer*
+    bounds, so every saturated element sits exactly on quant_min/quant_max and
+    loses its gradient.
+
+    Backward selects with `torch.where` rather than multiplying by a 0/1 mask so
+    that a NaN or Inf incoming gradient at an out-of-range position is replaced
+    by exactly 0 instead of contaminating the result (`0 * nan == nan`). That
+    matches `aten::clamp`, which selects with `where` both before and after the
+    PR above.
+    """
+
+    @staticmethod
+    def forward(ctx, x: torch.Tensor, lo: float, hi: float) -> torch.Tensor:
+        ctx.save_for_backward(x)
+        ctx.lo, ctx.hi = lo, hi
+        return torch.clamp(x, lo, hi)
+
+    @staticmethod
+    def backward(ctx, gy: torch.Tensor):
+        (x,) = ctx.saved_tensors
+        in_range = (x >= ctx.lo) & (x <= ctx.hi)
+        zero = torch.zeros((), dtype=gy.dtype, device=gy.device)
+        return torch.where(in_range, gy, zero), None, None
+
+
 class _RoundToFloat8(torch.autograd.Function):
     """
     Implementation of `tensor.to(float8_dtype)` with backward STE.
@@ -477,7 +509,7 @@ def _quantize_affine_no_dtype_cast(
         # with numel=0 which we handle by unifying the two
         zero_point = None
 
-    quant = torch.clamp(
+    quant = _ClampSTE.apply(
         _Round.apply(input * (1.0 / scale)) + zero_point, quant_min, quant_max
     )
     quant = quant.view(original_shape)
@@ -593,7 +625,9 @@ def _quantize_affine_tinygemm_no_dtype_cast(
 
     mid_point = (quant_max + quant_min + 1) / 2
     min_val = zero_point - scale * mid_point
-    quant = torch.clamp(_Round.apply((input - min_val) / scale), quant_min, quant_max)
+    quant = _ClampSTE.apply(
+        _Round.apply((input - min_val) / scale), quant_min, quant_max
+    )
     quant = quant.view(original_shape)
 
     return quant
@@ -706,7 +740,7 @@ def _quantize_affine_no_zero_point_no_dtype_cast(
         # with numel=0 which we handle by unifying the two
         zero_point = None
 
-    quant = torch.clamp(_Round.apply(input * (1.0 / scale)), quant_min, quant_max)
+    quant = _ClampSTE.apply(_Round.apply(input * (1.0 / scale)), quant_min, quant_max)
     quant = quant.view(original_shape)
 
     return quant
