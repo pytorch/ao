@@ -131,13 +131,20 @@ __device__ __forceinline__ float max_nan_f32(float a, float b) {
   return result;
 }
 
-// max(|current|, |a|, |b|), with NaN propagation, in one instruction.
+// max(|current|, |a|, |b|), with NaN propagation. The three-input max form
+// requires PTX ISA 8.8 and SM100+. CUDA_VERSION guards assembler syntax, while
+// __CUDA_ARCH__ guards target support.
 __device__ __forceinline__ float abs_max_nan_f32(float current, float a,
                                                  float b) {
+#if CUDA_VERSION >= 12090 && defined(__CUDA_ARCH__) &&                     \
+    __CUDA_ARCH__ >= MIN_CUDA_SM
   asm("max.NaN.abs.f32 %0, %1, %2, %3;"
       : "=f"(current)
       : "f"(current), "f"(a), "f"(b));
   return current;
+#else
+  return max_nan_f32(max_nan_f32(fabsf(current), fabsf(a)), fabsf(b));
+#endif
 }
 
 // Constants for MXFP8 kernel

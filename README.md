@@ -54,7 +54,7 @@
 
 TorchAO is an easy to use quantization library for native PyTorch. TorchAO works out-of-the-box with `torch.compile()` and `FSDP2` across most HuggingFace PyTorch models.
 
-For a detailed overview of stable and prototype workflows for different hardware and dtypes, see the [Workflows documentation](https://docs.pytorch.org/ao/main/workflows.html).
+For a detailed overview of stable and prototype workflows for different hardware and dtypes, see the [Workflows documentation](https://docs.pytorch.org/ao/main/workflows/index.html).
 
 Check out our [docs](https://docs.pytorch.org/ao/main/) for more details!
 

@@ -37,8 +37,6 @@ from torchao.prototype.mx_formats.kernels import (
     mxfp8_quantize_cuda,
     pack_uint4,
     triton_mxfp8_dequant_dim0,
-    triton_to_mxfp8_32x32_dim0,
-    triton_to_mxfp8_32x32_swizzle_dim0,
     triton_to_mxfp8_32x32_swizzle_dim0_qdata_dim01_scale,
     triton_to_mxfp8_dim0,
     triton_to_mxfp8_dim1,
@@ -1022,7 +1020,7 @@ def test_triton_mxfp8_dim0_large_tensor_offset_no_overflow(scaling_mode):
 # ---------------------------------------------------------------------------
 # Pure-PyTorch numerical reference for the standalone mxfp8 32x32 cast, ported from the
 # quant_cast_gold recipe `mxfp8_32x32_f` (eager RCEIL bit-math branch). Kept local so the test
-# depends only on torchao, and pins `triton_to_mxfp8_32x32_dim0` bit-for-bit to this definition.
+# depends only on torchao, and pins the standalone 32x32 mxfp8 cast bit-for-bit to this definition.
 # ---------------------------------------------------------------------------
 def _ref_mxfp8_32x32(x):
     """mxfp8 with square 32x32 blocks (one e8m0 scale per block). Returns
@@ -1056,23 +1054,6 @@ def _ref_mxfp8_32x32(x):
     return qdata, scale_biased.view(torch.float8_e8m0fnu).squeeze(-1)
 
 
-@pytest.mark.skipif(not has_triton(), reason="unsupported without triton")
-@pytest.mark.skipif(
-    not is_sm_at_least_100() and not is_MI350(),
-    reason="mxfp8 requires CUDA capability 10.0 or greater or ROCm gfx950 or greater.",
-)
-@pytest.mark.parametrize("M", (64, 128, 256))
-@pytest.mark.parametrize("K", (64, 128, 256))
-def test_triton_to_mxfp8_32x32_matches_reference(M, K):
-    torch.manual_seed(0)
-    x = torch.randn(M, K, dtype=torch.bfloat16, device="cuda")
-    q_t, s_t = triton_to_mxfp8_32x32_dim0(x)
-    q_ref, s_ref = _ref_mxfp8_32x32(x)
-    # Bit-exact: compare the raw fp8 / e8m0 byte patterns (avoids NaN != NaN and fp8 eq pitfalls).
-    assert torch.equal(q_t.view(torch.uint8), q_ref.view(torch.uint8))
-    assert torch.equal(s_t.view(torch.uint8), s_ref.view(torch.uint8))
-
-
 def _ref_e8m0_to_fp32(scale):
     """Inverse of the e8m0 cast: e8m0 biased exponent -> fp32 pow2 factor (used by dequant)."""
     biased_i32 = scale.contiguous().view(torch.uint8).to(torch.int32)
@@ -1087,26 +1068,6 @@ def _ref_mxfp8_32x32_dq(q, scale):
     n1, n2 = M // 32, N // 32
     s = _ref_e8m0_to_fp32(scale).reshape(n1, 1, n2, 1)
     return (q.float().reshape(n1, 32, n2, 32) * s).reshape(M, N)
-
-
-@pytest.mark.skipif(not has_triton(), reason="unsupported without triton")
-@pytest.mark.skipif(
-    not is_sm_at_least_100() and not is_MI350(),
-    reason="mxfp8 requires CUDA capability 10.0 or greater or ROCm gfx950 or greater.",
-)
-@pytest.mark.parametrize("M", (64, 128, 256))
-@pytest.mark.parametrize("K", (64, 128, 256))
-def test_triton_to_mxfp8_32x32_dequant_sqnr(M, K):
-    torch.manual_seed(0)
-    x = torch.randn(M, K, dtype=torch.bfloat16, device="cuda")
-    q_t, s_t = triton_to_mxfp8_32x32_dim0(x)
-    x_hat = _ref_mxfp8_32x32_dq(q_t, s_t)
-    sqnr = compute_error(x.float(), x_hat.float())
-    # e8m0 pow2 scale is coarse, so the floor matches the gold recipe's mxfp8 threshold (15 dB).
-    threshold = 15.0
-    assert sqnr > threshold, (
-        f"mxfp8_32x32: sqnr={sqnr.item():.2f} dB below {threshold} dB"
-    )
 
 
 # ---------------------------------------------------------------------------
@@ -1150,27 +1111,6 @@ def _swizzle_dequant_sqnr_dim1(x, q_t, s_t):
     scale_blocks = scale_unswz[::32].contiguous()  # (N//32, M//32)
     x_hat_t = _ref_mxfp8_32x32_dq(q_t, scale_blocks)  # (N, M)
     return compute_error(x.float(), x_hat_t.t().float())
-
-
-@pytest.mark.skipif(not has_triton(), reason="unsupported without triton")
-@pytest.mark.skipif(
-    not is_sm_at_least_100() and not is_MI350(),
-    reason="mxfp8 requires CUDA capability 10.0 or greater or ROCm gfx950 or greater.",
-)
-@pytest.mark.parametrize("M", (64, 128, 256))
-@pytest.mark.parametrize("K", (64, 128, 256))
-def test_triton_to_mxfp8_32x32_swizzle_dim0(M, K):
-    torch.manual_seed(0)
-    x = torch.randn(M, K, dtype=torch.bfloat16, device="cuda")
-    q_t, s_t = triton_to_mxfp8_32x32_swizzle_dim0(x)
-    q_ref, s_ref = _ref_mxfp8_32x32_swizzle_dim0(x)
-    # Bit-exact qdata (M,N) and swizzled scale (compare raw byte patterns).
-    assert torch.equal(q_t.view(torch.uint8), q_ref.view(torch.uint8))
-    assert torch.equal(s_t.view(torch.uint8).reshape(-1), s_ref)
-    sqnr = _swizzle_dequant_sqnr_dim0(x, q_t, s_t)
-    assert sqnr > 15.0, (
-        f"mxfp8_32x32_swizzle_dim0: sqnr={sqnr.item():.2f} dB below 15 dB"
-    )
 
 
 @pytest.mark.skipif(not has_triton(), reason="unsupported without triton")
