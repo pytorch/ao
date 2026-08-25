@@ -403,7 +403,7 @@ def to_mx(
     scale_e8m0_biased = scale_e8m0_biased.squeeze(-1)
 
     # if user requested scale swizzling, do it here
-    if swizzle_type != SwizzleType.NO_SWIZZLE:
+    if swizzle_type == SwizzleType.SWIZZLE_32_4_4:
         leading_dims, M, K = orig_shape[:-2], orig_shape[-2], orig_shape[-1]
         scale_shape = (math.prod(leading_dims) * M, K // block_size)
         scale = maybe_dtensor_to_blocked(scale_e8m0_biased.view(scale_shape)).flatten()
@@ -585,7 +585,7 @@ class MXTensor(TorchAOBaseTensor):
             output_dtype = self.dtype
 
         scale = self.scale
-        if SwizzleType(self.swizzle_type) != SwizzleType.NO_SWIZZLE:
+        if SwizzleType(self.swizzle_type) == SwizzleType.SWIZZLE_32_4_4:
             is_transposed = self.qdata.stride(-2) < self.qdata.stride(-1)
             if is_transposed:
                 leading_dims, M, K = self.shape[:-2], self.shape[-1], self.shape[-2]
