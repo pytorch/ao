@@ -2205,11 +2205,20 @@ def _choose_scale_float8(
     ]
     scale = scale.reshape(output_shape)
 
+    # A block of all zeros has max_abs == 0 and so gets a zero scale, and
+    # dividing the data by that scale gives NaN. Floor the scale at the
+    # smallest positive normal float32 value, like the eps clamp the affine
+    # qparams helpers above use. This runs before the e8m0 conversion because
+    # log2(0) is -inf.
+    scale = scale.to(dtype=torch.float32).clamp(
+        min=torch.finfo(torch.float32).smallest_normal
+    )
+
     if scale_dtype is not torch.float32:
         # Shielding for Version > 2.8
         assert scale_dtype is torch.float8_e8m0fnu, "Only float8_e8m0fnuz is supported"
         scale = torch.exp2(_Round.apply(torch.log2(scale)))
-    return scale.to(dtype=torch.float32)
+    return scale
 
 
 def _maybe_expand_scale_to_tensor_shape(
