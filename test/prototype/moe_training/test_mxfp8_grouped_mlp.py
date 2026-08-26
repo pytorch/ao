@@ -9,7 +9,7 @@
 The four ops wrap the cudnn-frontend package's CuTe DSL grouped-GEMM kernels
 (``cudnn.grouped_gemm_{glu,quant,dglu,wgrad}_wrapper_sm100``).
 
-Every numerics gate is DERIVED at test time, never hard-coded:
+The full-chain numerics gates are DERIVED at test time, never hard-coded:
 
 * ``refA`` (GEMM-exactness) gates come from the variability between two
   legitimate evaluations of the same dequantized-operand reference that differ
@@ -22,6 +22,11 @@ Every numerics gate is DERIVED at test time, never hard-coded:
   shares NO layout helper with the op inputs, so a self-consistent layout bug
   (wrong scale blocking built and decoded the same wrong way) cannot pass it.
   Measured band: ~30-40 dB at these shapes (pure MXFP8 requantization error).
+
+Every op ALSO has a standalone plain-PyTorch reference (the ``_ref_*``
+functions: dequantization, per-expert FP32 ``torch`` matmuls, and
+``F.silu``/``torch.sigmoid`` only) with a per-op test asserting the op output
+matches it under fixed ``min_sqnr`` gates.
 
 Layout vocabulary (probe-derived): columnwise operands are accepted in ANY
 major -- "rowmajor" here means un-transposed ``[R, N]`` row-major bytes (also
@@ -383,6 +388,174 @@ def test_fake_contracts_match_specs():
     assert tuple(dzc_q.shape) == (R, N1) and dzc_sf.numel() == N1 * R // _BLOCK
     dw = outs["wgrad"]
     assert tuple(dw.shape) == (2, D, hidden) and dw.dtype == torch.bfloat16
+
+
+# ---------------------------------------------------------------------------
+# Per-op plain-PyTorch references: each op is validated in isolation against
+# a reference built from nothing but dequantization, per-expert FP32 torch
+# matmuls, and F.silu / torch.sigmoid.
+# ---------------------------------------------------------------------------
+
+# The op output is an FP32-accumulated GEMM over the same dequantized operands
+# as the reference, so agreement is GEMM-exactness: measured 85-160 dB at
+# these shapes, while layout/scale bugs land at 2-25 dB.
+_MIN_SQNR_GEMM_EXACT = 50.0
+# Requantized op outputs carry one extra MXFP8 quantization that the FP32
+# reference does not; the requantization band alone measures ~30-40 dB here.
+_MIN_SQNR_REQUANT = 27.0
+
+
+def _sizes_from_offsets(offsets: torch.Tensor):
+    ends = offsets.tolist()
+    return [end - start for start, end in zip([0] + ends[:-1], ends)]
+
+
+def _ref_grouped_gemm_swiglu_fwd(x_q, x_sf, w13_q, w13_sf, offsets):
+    """Plain-PyTorch reference for mxfp8_grouped_gemm_swiglu_fwd_cudnn:
+    dequantize both operands, per-expert FP32 matmul, split the 32-block
+    interleaved gate/up halves, SwiGLU. Returns FP32 (z_ref, h_ref)."""
+    sizes = _sizes_from_offsets(offsets)
+    G, two_hidden, _ = w13_q.shape
+    x_deq = _dequant_rowwise(x_q, x_sf)
+    w13_deq = [_dequant_rowwise(w13_q[g], w13_sf.view(G, -1)[g]) for g in range(G)]
+    z_ref = _grouped_matmul(x_deq, w13_deq, sizes, transpose_b=True)
+    gate, up = _zsplit(z_ref, two_hidden // 2)
+    return z_ref, F.silu(gate) * up
+
+
+def _ref_grouped_gemm(a_q, a_sf, b_q, b_sf, offsets):
+    """Plain-PyTorch reference for mxfp8_grouped_gemm_cudnn:
+    out[r] = dequant(a[r]) @ dequant(b[g(r)]).T in FP32."""
+    sizes = _sizes_from_offsets(offsets)
+    G = b_q.shape[0]
+    a_deq = _dequant_rowwise(a_q, a_sf)
+    b_deq = [_dequant_rowwise(b_q[g], b_sf.view(G, -1)[g]) for g in range(G)]
+    return _grouped_matmul(a_deq, b_deq, sizes, transpose_b=True)
+
+
+def _ref_grouped_gemm_dswiglu_bwd(dy_q, dy_sf, w2_col_q, w2_col_sf, z_bf16, offsets):
+    """Plain-PyTorch reference for mxfp8_grouped_gemm_dswiglu_bwd_cudnn:
+    dh = dequant(dy) @ dequant(w2_col) per expert, then the closed-form
+    dSwiGLU against z's gate/up halves, re-interleaved into the 32-block
+    order. Returns FP32 dz_ref [R, 2F]."""
+    sizes = _sizes_from_offsets(offsets)
+    G, model_dim, hidden = w2_col_q.shape
+    R = dy_q.shape[0]
+    dy_deq = _dequant_rowwise(dy_q, dy_sf)
+    w2_deq = [
+        _dequant_colwise_grouped(
+            w2_col_q[g], w2_col_sf.view(G, -1)[g], [model_dim], hidden
+        )
+        for g in range(G)
+    ]
+    dh = _grouped_matmul(dy_deq, w2_deq, sizes, transpose_b=False)
+    gate, up = _zsplit(z_bf16.float(), hidden)
+    dgate, dup = _dswiglu(dh, gate, up)
+    dz_ref = torch.empty(R, 2 * hidden, dtype=torch.float32, device=dy_q.device)
+    v = dz_ref.view(R, hidden // _BLOCK, 2, _BLOCK)
+    v[:, :, 0, :] = dgate.view(R, hidden // _BLOCK, _BLOCK)
+    v[:, :, 1, :] = dup.view(R, hidden // _BLOCK, _BLOCK)
+    return dz_ref
+
+
+def _ref_grouped_gemm_wgrad(dy_col_q, dy_col_sf, x_col_q, x_col_sf, offsets):
+    """Plain-PyTorch reference for mxfp8_grouped_gemm_wgrad_cudnn:
+    dw[g] = dequant(dy_g).T @ dequant(x_g) per expert in FP32."""
+    sizes = _sizes_from_offsets(offsets)
+    out_features, in_features = dy_col_q.shape[1], x_col_q.shape[1]
+    dy_deq = _dequant_colwise_grouped(dy_col_q, dy_col_sf, sizes, out_features)
+    x_deq = _dequant_colwise_grouped(x_col_q, x_col_sf, sizes, in_features)
+    dw_ref = torch.zeros(
+        len(sizes),
+        out_features,
+        in_features,
+        dtype=torch.float32,
+        device=dy_col_q.device,
+    )
+    off = 0
+    for g, m in enumerate(sizes):
+        dw_ref[g] = dy_deq[off : off + m].t() @ x_deq[off : off + m]
+        off += m
+    return dw_ref
+
+
+@pytest.mark.parametrize("case", list(_CASES))
+def test_mxfp8_grouped_gemm_swiglu_fwd_cudnn_matches_reference(case):
+    c = _build_case(*_CASES[case])
+    z, h_q, h_sf, h_colq, h_col_sf = _OPS.mxfp8_grouped_gemm_swiglu_fwd_cudnn(
+        c["x_q"], c["x_sf"], c["w13_q"], c["w13_sf"], c["offsets"]
+    )
+    z_ref, h_ref = _ref_grouped_gemm_swiglu_fwd(
+        c["x_q"], c["x_sf"], c["w13_q"], c["w13_sf"], c["offsets"]
+    )
+    sqnr = compute_error(z_ref.bfloat16(), z).item()
+    assert sqnr >= _MIN_SQNR_GEMM_EXACT, (
+        f"z sqnr {sqnr} is too low, must be >= {_MIN_SQNR_GEMM_EXACT}"
+    )
+    for name, deq in (
+        ("h_row", _dequant_rowwise(h_q, h_sf)),
+        ("h_col", _dequant_colwise_grouped(h_colq, h_col_sf, c["sizes"], c["F"])),
+    ):
+        sqnr = compute_error(h_ref, deq).item()
+        assert sqnr >= _MIN_SQNR_REQUANT, (
+            f"{name} sqnr {sqnr} is too low, must be >= {_MIN_SQNR_REQUANT}"
+        )
+
+
+@pytest.mark.parametrize("case", list(_CASES))
+def test_mxfp8_grouped_gemm_cudnn_matches_reference(case):
+    c = _build_case(*_CASES[case])
+    torch.manual_seed(11)
+    a = torch.randn(c["R"], c["F"], dtype=torch.bfloat16, device="cuda") * 0.5
+    a_q, a_sf = _quant_rowwise(a)
+    out = _OPS.mxfp8_grouped_gemm_cudnn(a_q, a_sf, c["w2_q"], c["w2_sf"], c["offsets"])
+    ref = _ref_grouped_gemm(a_q, a_sf, c["w2_q"], c["w2_sf"], c["offsets"])
+    sqnr = compute_error(ref.bfloat16(), out).item()
+    assert sqnr >= _MIN_SQNR_GEMM_EXACT, (
+        f"sqnr {sqnr} is too low, must be >= {_MIN_SQNR_GEMM_EXACT}"
+    )
+
+
+@pytest.mark.parametrize("case", list(_CASES))
+def test_mxfp8_grouped_gemm_dswiglu_bwd_cudnn_matches_reference(case):
+    c = _build_case(*_CASES[case])
+    torch.manual_seed(12)
+    # Any BF16 [R, 2F] tensor is a valid z for isolated numerics (the kernel
+    # computes dSwiGLU from the z it is given); the chain test covers the
+    # production case where z is the exact fwd-op output.
+    z = torch.randn(c["R"], 2 * c["F"], dtype=torch.bfloat16, device="cuda")
+    dz_q, dz_sf, dz_colq, dz_col_sf = _OPS.mxfp8_grouped_gemm_dswiglu_bwd_cudnn(
+        c["dy_q"], c["dy_sf"], c["w2c_q"], c["w2c_sf"], z, c["offsets"]
+    )
+    dz_ref = _ref_grouped_gemm_dswiglu_bwd(
+        c["dy_q"], c["dy_sf"], c["w2c_q"], c["w2c_sf"], z, c["offsets"]
+    )
+    for name, deq in (
+        ("dz_row", _dequant_rowwise(dz_q, dz_sf)),
+        (
+            "dz_col",
+            _dequant_colwise_grouped(dz_colq, dz_col_sf, c["sizes"], 2 * c["F"]),
+        ),
+    ):
+        sqnr = compute_error(dz_ref, deq).item()
+        assert sqnr >= _MIN_SQNR_REQUANT, (
+            f"{name} sqnr {sqnr} is too low, must be >= {_MIN_SQNR_REQUANT}"
+        )
+
+
+@pytest.mark.parametrize("case", list(_CASES))
+def test_mxfp8_grouped_gemm_wgrad_cudnn_matches_reference(case):
+    c = _build_case(*_CASES[case])
+    dw = _OPS.mxfp8_grouped_gemm_wgrad_cudnn(
+        c["dy_colq"], c["dy_col_sf"], c["x_colq"], c["x_col_sf"], c["offsets"]
+    )
+    dw_ref = _ref_grouped_gemm_wgrad(
+        c["dy_colq"], c["dy_col_sf"], c["x_colq"], c["x_col_sf"], c["offsets"]
+    )
+    sqnr = compute_error(dw_ref.bfloat16(), dw).item()
+    assert sqnr >= _MIN_SQNR_GEMM_EXACT, (
+        f"sqnr {sqnr} is too low, must be >= {_MIN_SQNR_GEMM_EXACT}"
+    )
 
 
 # ---------------------------------------------------------------------------
