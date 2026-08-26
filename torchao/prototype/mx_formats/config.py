@@ -16,21 +16,21 @@ from torchao.utils import register_as_pytree_constant
 
 @dataclass(frozen=True)
 class SwizzleGranularity:
-    """Base class for MX scale swizzle layout."""
+    """Base class for scale swizzle layout."""
 
     pass
 
 
 @dataclass(frozen=True)
 class NoSwizzle(SwizzleGranularity):
-    """Row-major scale layout (no swizzling)."""
+    """No swizzling."""
 
     pass
 
 
 @dataclass(frozen=True)
 class Swizzle_32_4_4(SwizzleGranularity):
-    """32x4x4 blocked scale layout for NVIDIA Blackwell."""
+    """32x4x4 blocked scale layout for NVIDIA."""
 
     pass
 

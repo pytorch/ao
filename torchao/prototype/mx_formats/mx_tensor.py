@@ -761,7 +761,7 @@ def maybe_dtensor_to_blocked(t: torch.Tensor) -> torch.Tensor:
 
 
 def _to_pytorch_swizzle(swizzle: SwizzleGranularity) -> SwizzleType:
-    """Convert SwizzleGranularity to PyTorch's SwizzleType for scaled_mm calls."""
+    """Convert SwizzleGranularity to PyTorch's SwizzleType."""
     if isinstance(swizzle, Swizzle_32_4_4):
         return SwizzleType.SWIZZLE_32_4_4
     return SwizzleType.NO_SWIZZLE
