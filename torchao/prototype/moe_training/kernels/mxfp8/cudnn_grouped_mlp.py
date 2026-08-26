@@ -11,13 +11,13 @@ kernel from the standalone cudnn-frontend python package (>= 1.27, Blackwell
 SM 10.0 exactly -- the wrappers are sm100-specific; no TransformerEngine
 dependency); the matching public wrappers live at the bottom of this module:
 
-* :func:`mxfp8_grouped_gemm_swiglu_fwd`   -- FC1 ragged grouped GEMM + SwiGLU
+* :func:`mxfp8_grouped_gemm_swiglu_fwd_cudnn`   -- FC1 ragged grouped GEMM + SwiGLU
   + rowwise 1x32 AND columnwise 32x1 MXFP8 RCEIL quantization + BF16 pre-GLU.
-* :func:`mxfp8_grouped_gemm`              -- ragged grouped GEMM on
+* :func:`mxfp8_grouped_gemm_cudnn`              -- ragged grouped GEMM on
   prequantized operands to BF16 (FC2 forward and FC1 dgrad).
-* :func:`mxfp8_grouped_gemm_dswiglu_bwd`  -- FC2 dgrad + dSwiGLU + dual MXFP8
+* :func:`mxfp8_grouped_gemm_dswiglu_bwd_cudnn`  -- FC2 dgrad + dSwiGLU + dual MXFP8
   quantization of the FC1 gradient.
-* :func:`mxfp8_grouped_gemm_wgrad`        -- ragged-reduction grouped weight
+* :func:`mxfp8_grouped_gemm_wgrad_cudnn`        -- ragged-reduction grouped weight
   gradient (dense output mode; called once for FC1 and once for FC2).
 
 CONTRACT: every per-expert row count and the allocated row count must be
@@ -60,10 +60,10 @@ __all__ = [
     "ROW_GROUP_ALIGNMENT",
     "SCALE_BLOCK_SIZE",
     "is_supported",
-    "mxfp8_grouped_gemm",
-    "mxfp8_grouped_gemm_dswiglu_bwd",
-    "mxfp8_grouped_gemm_swiglu_fwd",
-    "mxfp8_grouped_gemm_wgrad",
+    "mxfp8_grouped_gemm_cudnn",
+    "mxfp8_grouped_gemm_dswiglu_bwd_cudnn",
+    "mxfp8_grouped_gemm_swiglu_fwd_cudnn",
+    "mxfp8_grouped_gemm_wgrad_cudnn",
 ]
 
 # MXFP8 scaling block: 32 values share one E8M0 scale.
@@ -641,8 +641,10 @@ def _validate_fwd_inputs(x_q, x_sf, w13_q, w13_sf, offsets):
     return rows, model_dim, hidden, groups
 
 
-@torch.library.custom_op("torchao::mxfp8_grouped_gemm_swiglu_fwd", mutates_args=())
-def _mxfp8_grouped_gemm_swiglu_fwd(
+@torch.library.custom_op(
+    "torchao::mxfp8_grouped_gemm_swiglu_fwd_cudnn", mutates_args=()
+)
+def _mxfp8_grouped_gemm_swiglu_fwd_cudnn(
     x_q: torch.Tensor,
     x_sf: torch.Tensor,
     w13_q: torch.Tensor,
@@ -714,7 +716,7 @@ def _mxfp8_grouped_gemm_swiglu_fwd(
     )
 
 
-@_mxfp8_grouped_gemm_swiglu_fwd.register_fake
+@_mxfp8_grouped_gemm_swiglu_fwd_cudnn.register_fake
 def _(x_q, x_sf, w13_q, w13_sf, offsets):
     rows, _model_dim, hidden, _groups = _validate_fwd_inputs(
         x_q, x_sf, w13_q, w13_sf, offsets
@@ -801,8 +803,8 @@ def _validate_mm_inputs(a_q, a_sf, b_q, b_sf, offsets):
     return rows, out_features, contraction, groups
 
 
-@torch.library.custom_op("torchao::mxfp8_grouped_gemm", mutates_args=())
-def _mxfp8_grouped_gemm(
+@torch.library.custom_op("torchao::mxfp8_grouped_gemm_cudnn", mutates_args=())
+def _mxfp8_grouped_gemm_cudnn(
     a_q: torch.Tensor,
     a_sf: torch.Tensor,
     b_q: torch.Tensor,
@@ -857,7 +859,7 @@ def _mxfp8_grouped_gemm(
     return out
 
 
-@_mxfp8_grouped_gemm.register_fake
+@_mxfp8_grouped_gemm_cudnn.register_fake
 def _(a_q, a_sf, b_q, b_sf, offsets):
     rows, out_features, _contraction, _groups = _validate_mm_inputs(
         a_q, a_sf, b_q, b_sf, offsets
@@ -962,8 +964,10 @@ def _validate_bwd_inputs(dy_q, dy_sf, w2_col_q, w2_col_sf, z_bf16, offsets):
     return rows, model_dim, hidden, groups
 
 
-@torch.library.custom_op("torchao::mxfp8_grouped_gemm_dswiglu_bwd", mutates_args=())
-def _mxfp8_grouped_gemm_dswiglu_bwd(
+@torch.library.custom_op(
+    "torchao::mxfp8_grouped_gemm_dswiglu_bwd_cudnn", mutates_args=()
+)
+def _mxfp8_grouped_gemm_dswiglu_bwd_cudnn(
     dy_q: torch.Tensor,
     dy_sf: torch.Tensor,
     w2_col_q: torch.Tensor,
@@ -1029,7 +1033,7 @@ def _mxfp8_grouped_gemm_dswiglu_bwd(
     )
 
 
-@_mxfp8_grouped_gemm_dswiglu_bwd.register_fake
+@_mxfp8_grouped_gemm_dswiglu_bwd_cudnn.register_fake
 def _(dy_q, dy_sf, w2_col_q, w2_col_sf, z_bf16, offsets):
     rows, _model_dim, hidden, _groups = _validate_bwd_inputs(
         dy_q, dy_sf, w2_col_q, w2_col_sf, z_bf16, offsets
@@ -1127,8 +1131,8 @@ def _validate_wgrad_inputs(dy_col_q, dy_col_sf, x_col_q, x_col_sf, offsets):
     return rows, out_features, in_features, groups
 
 
-@torch.library.custom_op("torchao::mxfp8_grouped_gemm_wgrad", mutates_args=())
-def _mxfp8_grouped_gemm_wgrad(
+@torch.library.custom_op("torchao::mxfp8_grouped_gemm_wgrad_cudnn", mutates_args=())
+def _mxfp8_grouped_gemm_wgrad_cudnn(
     dy_col_q: torch.Tensor,
     dy_col_sf: torch.Tensor,
     x_col_q: torch.Tensor,
@@ -1183,7 +1187,7 @@ def _mxfp8_grouped_gemm_wgrad(
     return dw
 
 
-@_mxfp8_grouped_gemm_wgrad.register_fake
+@_mxfp8_grouped_gemm_wgrad_cudnn.register_fake
 def _(dy_col_q, dy_col_sf, x_col_q, x_col_sf, offsets):
     _rows, out_features, in_features, groups = _validate_wgrad_inputs(
         dy_col_q, dy_col_sf, x_col_q, x_col_sf, offsets
@@ -1200,22 +1204,22 @@ def _(dy_col_q, dy_col_sf, x_col_q, x_col_sf, offsets):
 # --------------------------------------------------------------------------
 
 
-def mxfp8_grouped_gemm_swiglu_fwd(x_q, x_sf, w13_q, w13_sf, offsets):
+def mxfp8_grouped_gemm_swiglu_fwd_cudnn(x_q, x_sf, w13_q, w13_sf, offsets):
     """FC1 grouped GEMM + SwiGLU + rowwise/columnwise MXFP8 quantization.
 
-    See ``torchao::mxfp8_grouped_gemm_swiglu_fwd`` for the full ABI. ``w13_q``
+    See ``torchao::mxfp8_grouped_gemm_swiglu_fwd_cudnn`` for the full ABI. ``w13_q``
     is E4M3 ``[G, 2F, D]`` contiguous with rows in 32-block GLU order; returns
     ``(z_bf16 [R, 2F], h_row_q [R, F], h_row_sf, h_col_q [R, F], h_col_sf)``
     where the columnwise scales are PER-GROUP blocked. Rows past
     ``offsets[-1]`` of every output are garbage and read-forbidden.
     """
     _require_available()
-    return torch.ops.torchao.mxfp8_grouped_gemm_swiglu_fwd(
+    return torch.ops.torchao.mxfp8_grouped_gemm_swiglu_fwd_cudnn(
         x_q, x_sf, w13_q, w13_sf, offsets
     )
 
 
-def mxfp8_grouped_gemm(a_q, a_sf, b_q, b_sf, offsets):
+def mxfp8_grouped_gemm_cudnn(a_q, a_sf, b_q, b_sf, offsets):
     """Ragged grouped GEMM on prequantized MXFP8 operands, BF16 output.
 
     ``b_q`` is ``[G, N, K]``-logical quantized along K with free strides
@@ -1225,10 +1229,12 @@ def mxfp8_grouped_gemm(a_q, a_sf, b_q, b_sf, offsets):
     uninitialized.
     """
     _require_available()
-    return torch.ops.torchao.mxfp8_grouped_gemm(a_q, a_sf, b_q, b_sf, offsets)
+    return torch.ops.torchao.mxfp8_grouped_gemm_cudnn(a_q, a_sf, b_q, b_sf, offsets)
 
 
-def mxfp8_grouped_gemm_dswiglu_bwd(dy_q, dy_sf, w2_col_q, w2_col_sf, z_bf16, offsets):
+def mxfp8_grouped_gemm_dswiglu_bwd_cudnn(
+    dy_q, dy_sf, w2_col_q, w2_col_sf, z_bf16, offsets
+):
     """FC2 dgrad + dSwiGLU + dual MXFP8 quantization of the FC1 gradient.
 
     ``z_bf16`` must be the exact fwd-op output. Returns
@@ -1236,12 +1242,12 @@ def mxfp8_grouped_gemm_dswiglu_bwd(dy_q, dy_sf, w2_col_q, w2_col_sf, z_bf16, off
     32-block order.
     """
     _require_available()
-    return torch.ops.torchao.mxfp8_grouped_gemm_dswiglu_bwd(
+    return torch.ops.torchao.mxfp8_grouped_gemm_dswiglu_bwd_cudnn(
         dy_q, dy_sf, w2_col_q, w2_col_sf, z_bf16, offsets
     )
 
 
-def mxfp8_grouped_gemm_wgrad(dy_col_q, dy_col_sf, x_col_q, x_col_sf, offsets):
+def mxfp8_grouped_gemm_wgrad_cudnn(dy_col_q, dy_col_sf, x_col_q, x_col_sf, offsets):
     """Grouped MXFP8 weight gradient ``dw[g] = dequant(dy_g).T @ dequant(x_g)``.
 
     Both operands columnwise (32x1) quantized with PER-GROUP blocked scales
@@ -1249,6 +1255,6 @@ def mxfp8_grouped_gemm_wgrad(dy_col_q, dy_col_sf, x_col_q, x_col_sf, offsets):
     block order). Returns contiguous BF16 ``[G, N, K]``.
     """
     _require_available()
-    return torch.ops.torchao.mxfp8_grouped_gemm_wgrad(
+    return torch.ops.torchao.mxfp8_grouped_gemm_wgrad_cudnn(
         dy_col_q, dy_col_sf, x_col_q, x_col_sf, offsets
     )

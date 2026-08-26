@@ -49,7 +49,7 @@ if not (torch.cuda.is_available() and is_sm_version(10, 0)):
     )
 
 try:
-    from torchao.prototype.moe_training.kernels.mxfp8.cutedsl_grouped_mlp import (
+    from torchao.prototype.moe_training.kernels.mxfp8.cudnn_grouped_mlp import (
         _mxfp8_grouped_mlp_kernels_available,
         _mxfp8_grouped_mlp_unavailable_reason,
         is_supported,
@@ -57,7 +57,7 @@ try:
     )
 except ImportError:
     pytest.skip(
-        "installed torchao does not provide the cutedsl_grouped_mlp module",
+        "installed torchao does not provide the cudnn_grouped_mlp module",
         allow_module_level=True,
     )
 
@@ -312,10 +312,10 @@ def dbg():
 
 def test_ops_registered():
     for name in (
-        "mxfp8_grouped_gemm_swiglu_fwd",
-        "mxfp8_grouped_gemm",
-        "mxfp8_grouped_gemm_dswiglu_bwd",
-        "mxfp8_grouped_gemm_wgrad",
+        "mxfp8_grouped_gemm_swiglu_fwd_cudnn",
+        "mxfp8_grouped_gemm_cudnn",
+        "mxfp8_grouped_gemm_dswiglu_bwd_cudnn",
+        "mxfp8_grouped_gemm_wgrad_cudnn",
     ):
         assert hasattr(_OPS, name), f"torchao::{name} is not registered"
 
@@ -337,20 +337,22 @@ def _fake_chain_shapes(R=512, D=256, hidden=256, G=2):
     w13_sf = torch.empty(G * N1 * D // _BLOCK, dtype=_E8M0, device=dev)
     offsets = torch.empty(G, dtype=torch.int32, device=dev)
     outs = {}
-    outs["fwd"] = _OPS.mxfp8_grouped_gemm_swiglu_fwd(x_q, x_sf, w13_q, w13_sf, offsets)
+    outs["fwd"] = _OPS.mxfp8_grouped_gemm_swiglu_fwd_cudnn(
+        x_q, x_sf, w13_q, w13_sf, offsets
+    )
     w2_q = torch.empty(G, D, hidden, dtype=_E4M3, device=dev)
     w2_sf = torch.empty(G * D * hidden // _BLOCK, dtype=_E8M0, device=dev)
-    outs["mm"] = _OPS.mxfp8_grouped_gemm(
+    outs["mm"] = _OPS.mxfp8_grouped_gemm_cudnn(
         outs["fwd"][1], outs["fwd"][2], w2_q, w2_sf, offsets
     )
     dy_q = torch.empty(R, D, dtype=_E4M3, device=dev)
     dy_sf = torch.empty(R * D // _BLOCK, dtype=_E8M0, device=dev)
     w2c_q = torch.empty(G, D, hidden, dtype=_E4M3, device=dev)
     w2c_sf = torch.empty(G * D * hidden // _BLOCK, dtype=_E8M0, device=dev)
-    outs["bwd"] = _OPS.mxfp8_grouped_gemm_dswiglu_bwd(
+    outs["bwd"] = _OPS.mxfp8_grouped_gemm_dswiglu_bwd_cudnn(
         dy_q, dy_sf, w2c_q, w2c_sf, outs["fwd"][0], offsets
     )
-    outs["wgrad"] = _OPS.mxfp8_grouped_gemm_wgrad(
+    outs["wgrad"] = _OPS.mxfp8_grouped_gemm_wgrad_cudnn(
         torch.empty(R, D, dtype=_E4M3, device=dev),
         torch.empty(D * R // _BLOCK, dtype=_E8M0, device=dev),
         torch.empty(R, hidden, dtype=_E4M3, device=dev),
@@ -392,21 +394,21 @@ def _run_chain(c):
     """fwd -> FC2 mm -> bwd -> FC1-dgrad mm -> wgrad x2, production layouts."""
     r = {}
     r["z"], r["h_q"], r["h_sf"], r["h_colq"], r["h_col_sf"] = (
-        _OPS.mxfp8_grouped_gemm_swiglu_fwd(
+        _OPS.mxfp8_grouped_gemm_swiglu_fwd_cudnn(
             c["x_q"], c["x_sf"], c["w13_q"], c["w13_sf"], c["offsets"]
         )
     )
-    r["y"] = _OPS.mxfp8_grouped_gemm(
+    r["y"] = _OPS.mxfp8_grouped_gemm_cudnn(
         r["h_q"], r["h_sf"], c["w2_q"], c["w2_sf"], c["offsets"]
     )
     r["dz_q"], r["dz_sf"], r["dz_colq"], r["dz_col_sf"] = (
-        _OPS.mxfp8_grouped_gemm_dswiglu_bwd(
+        _OPS.mxfp8_grouped_gemm_dswiglu_bwd_cudnn(
             c["dy_q"], c["dy_sf"], c["w2c_q"], c["w2c_sf"], r["z"], c["offsets"]
         )
     )
     # FC1 dgrad: colwise weight cast enters the mm op TRANSPOSED into
     # [G, N=D, K=2F].
-    r["dx"] = _OPS.mxfp8_grouped_gemm(
+    r["dx"] = _OPS.mxfp8_grouped_gemm_cudnn(
         r["dz_q"],
         r["dz_sf"],
         c["w13c_q"].transpose(-2, -1),
@@ -414,10 +416,10 @@ def _run_chain(c):
         c["offsets"],
     )
     # Production wgrad layout mixes: native dy x kernel h; kernel dz x native x.
-    r["dw2"] = _OPS.mxfp8_grouped_gemm_wgrad(
+    r["dw2"] = _OPS.mxfp8_grouped_gemm_wgrad_cudnn(
         c["dy_colq"], c["dy_col_sf"], r["h_colq"], r["h_col_sf"], c["offsets"]
     )
-    r["dw13"] = _OPS.mxfp8_grouped_gemm_wgrad(
+    r["dw13"] = _OPS.mxfp8_grouped_gemm_wgrad_cudnn(
         r["dz_colq"], r["dz_col_sf"], c["x_colq"], c["x_col_sf"], c["offsets"]
     )
     return r
@@ -553,7 +555,7 @@ def test_wgrad_stride_matrix(dbg, a_native, b_native):
     sizes, D = c["sizes"], c["D"]
     dy_q, dy_sf = _quant_colwise_grouped(c["dy"], sizes, native=a_native)
     x_q, x_sf = _quant_colwise_grouped(c["x"], sizes, native=b_native)
-    dw = _OPS.mxfp8_grouped_gemm_wgrad(dy_q, dy_sf, x_q, x_sf, c["offsets"])
+    dw = _OPS.mxfp8_grouped_gemm_wgrad_cudnn(dy_q, dy_sf, x_q, x_sf, c["offsets"])
     dy_deq = _dequant_colwise_grouped(dy_q, dy_sf, sizes, D)
     x_deq = _dequant_colwise_grouped(x_q, x_sf, sizes, D)
     ref = torch.zeros(c["G"], D, D, dtype=torch.float32, device="cuda")
@@ -576,7 +578,7 @@ def test_native_weight_major_mm_bwd(dbg):
     w2c_nat, w2c_nat_sf = _quant_weight_colwise(c["w2"], native=True)
     assert not w2c_nat.is_contiguous()
     assert torch.equal(_bytes(w2c_nat), _bytes(c["w2c_q"]))
-    dz_q, dz_sf, _, _ = _OPS.mxfp8_grouped_gemm_dswiglu_bwd(
+    dz_q, dz_sf, _, _ = _OPS.mxfp8_grouped_gemm_dswiglu_bwd_cudnn(
         c["dy_q"], c["dy_sf"], w2c_nat, w2c_nat_sf, r["z"], c["offsets"]
     )
     db = compute_error(
@@ -586,7 +588,7 @@ def test_native_weight_major_mm_bwd(dbg):
     # Op 2 (FC1 dgrad): dim1-native w13 colwise major, transposed into
     # [G, N=D, K=2F] exactly like the production call.
     w13c_nat, w13c_nat_sf = _quant_weight_colwise(c["w13"], native=True)
-    dx_nat = _OPS.mxfp8_grouped_gemm(
+    dx_nat = _OPS.mxfp8_grouped_gemm_cudnn(
         r["dz_q"], r["dz_sf"], w13c_nat.transpose(-2, -1), w13c_nat_sf, c["offsets"]
     )
     db = compute_error(r["dx"].float(), dx_nat.float()).item()
@@ -621,17 +623,17 @@ def test_tail_a_lt_r_poisoned():
     w2_q, w2_sf = _quant_weight_rowwise(w2)
     w2c_q, w2c_sf = _quant_weight_colwise(w2)
 
-    z, h_q, h_sf, h_colq, h_col_sf = _OPS.mxfp8_grouped_gemm_swiglu_fwd(
+    z, h_q, h_sf, h_colq, h_col_sf = _OPS.mxfp8_grouped_gemm_swiglu_fwd_cudnn(
         x_q, x_sf, w13_q, w13_sf, offsets
     )
     assert not z[:A].isnan().any(), "active z rows contaminated by the poisoned tail"
-    y = _OPS.mxfp8_grouped_gemm(h_q, h_sf, w2_q, w2_sf, offsets)
+    y = _OPS.mxfp8_grouped_gemm_cudnn(h_q, h_sf, w2_q, w2_sf, offsets)
     assert not y[:A].isnan().any(), "active y rows contaminated"
-    dz_q, dz_sf, dz_colq, dz_col_sf = _OPS.mxfp8_grouped_gemm_dswiglu_bwd(
+    dz_q, dz_sf, dz_colq, dz_col_sf = _OPS.mxfp8_grouped_gemm_dswiglu_bwd_cudnn(
         dy_q, dy_sf, w2c_q, w2c_sf, z, offsets
     )
     w13c_q, w13c_sf = _quant_weight_colwise(w13)
-    dx = _OPS.mxfp8_grouped_gemm(
+    dx = _OPS.mxfp8_grouped_gemm_cudnn(
         dz_q, dz_sf, w13c_q.transpose(-2, -1), w13c_sf, offsets
     )
     assert not dx[:A].isnan().any(), "active dx rows contaminated"
@@ -646,7 +648,7 @@ def test_tail_a_lt_r_poisoned():
         ],
         0,
     )
-    dw2 = _OPS.mxfp8_grouped_gemm_wgrad(
+    dw2 = _OPS.mxfp8_grouped_gemm_wgrad_cudnn(
         dy_colq_full, dy_col_sf, h_colq, h_col_sf, offsets
     )
     assert not dw2.isnan().any(), "wgrad read the NaN-poisoned inactive tail"
@@ -680,10 +682,10 @@ def test_compile_fullgraph_bitwise(dbg):
     c = dbg
 
     def fwd_then_mm(x_q, x_sf, w13_q, w13_sf, w2_q, w2_sf, offsets):
-        z, h_q, h_sf, h_colq, h_col_sf = _OPS.mxfp8_grouped_gemm_swiglu_fwd(
+        z, h_q, h_sf, h_colq, h_col_sf = _OPS.mxfp8_grouped_gemm_swiglu_fwd_cudnn(
             x_q, x_sf, w13_q, w13_sf, offsets
         )
-        y = _OPS.mxfp8_grouped_gemm(h_q, h_sf, w2_q, w2_sf, offsets)
+        y = _OPS.mxfp8_grouped_gemm_cudnn(h_q, h_sf, w2_q, w2_sf, offsets)
         return z, h_q, y
 
     eager = fwd_then_mm(
@@ -712,7 +714,7 @@ def test_r0_all_ops():
     dev = "cuda"
     D = hidden = 256
     offsets = torch.zeros(2, dtype=torch.int32, device=dev)
-    z, h_q, h_sf, h_colq, h_col_sf = _OPS.mxfp8_grouped_gemm_swiglu_fwd(
+    z, h_q, h_sf, h_colq, h_col_sf = _OPS.mxfp8_grouped_gemm_swiglu_fwd_cudnn(
         torch.empty(0, D, dtype=_E4M3, device=dev),
         torch.empty(0, dtype=_E8M0, device=dev),
         torch.zeros(2, 2 * hidden, D, dtype=torch.uint8, device=dev).view(_E4M3),
@@ -721,7 +723,7 @@ def test_r0_all_ops():
     )
     assert z.shape == (0, 2 * hidden) and h_q.shape == (0, hidden)
     assert h_sf.numel() == 0 and h_col_sf.numel() == 0
-    y = _OPS.mxfp8_grouped_gemm(
+    y = _OPS.mxfp8_grouped_gemm_cudnn(
         torch.empty(0, hidden, dtype=_E4M3, device=dev),
         torch.empty(0, dtype=_E8M0, device=dev),
         torch.zeros(2, D, hidden, dtype=torch.uint8, device=dev).view(_E4M3),
@@ -729,7 +731,7 @@ def test_r0_all_ops():
         offsets,
     )
     assert y.shape == (0, D) and y.dtype == torch.bfloat16
-    dz_q, dz_sf, dz_colq, dz_col_sf = _OPS.mxfp8_grouped_gemm_dswiglu_bwd(
+    dz_q, dz_sf, dz_colq, dz_col_sf = _OPS.mxfp8_grouped_gemm_dswiglu_bwd_cudnn(
         torch.empty(0, D, dtype=_E4M3, device=dev),
         torch.empty(0, dtype=_E8M0, device=dev),
         torch.zeros(2, D, hidden, dtype=torch.uint8, device=dev).view(_E4M3),
@@ -739,7 +741,7 @@ def test_r0_all_ops():
     )
     assert dz_q.shape == (0, 2 * hidden) and dz_sf.numel() == 0
     assert dz_colq.shape == (0, 2 * hidden) and dz_col_sf.numel() == 0
-    dw = _OPS.mxfp8_grouped_gemm_wgrad(
+    dw = _OPS.mxfp8_grouped_gemm_wgrad_cudnn(
         torch.empty(0, D, dtype=_E4M3, device=dev),
         torch.empty(0, dtype=_E8M0, device=dev),
         torch.empty(0, hidden, dtype=_E4M3, device=dev),
@@ -764,8 +766,12 @@ def test_negative_control_whole_matrix_colwise_scales(dbg):
     s_t, _ = to_mx(c["dy"].t().contiguous(), _E4M3, _BLOCK, scaling_mode=_RCEIL)
     dy_sf_wm = to_blocked(s_t.view(_E8M0)).view(_E8M0)
     assert dy_sf_wm.numel() == dy_sf_pg.numel()
-    good = _OPS.mxfp8_grouped_gemm_wgrad(dy_q, dy_sf_pg, x_q, x_sf_pg, c["offsets"])
-    bad = _OPS.mxfp8_grouped_gemm_wgrad(dy_q, dy_sf_wm, x_q, x_sf_pg, c["offsets"])
+    good = _OPS.mxfp8_grouped_gemm_wgrad_cudnn(
+        dy_q, dy_sf_pg, x_q, x_sf_pg, c["offsets"]
+    )
+    bad = _OPS.mxfp8_grouped_gemm_wgrad_cudnn(
+        dy_q, dy_sf_wm, x_q, x_sf_pg, c["offsets"]
+    )
     dy_deq = _dequant_colwise_grouped(dy_q, dy_sf_pg, sizes, D)
     x_deq = _dequant_colwise_grouped(x_q, x_sf_pg, sizes, D)
     ref = torch.zeros(G, D, D, dtype=torch.float32, device="cuda")
@@ -794,7 +800,7 @@ def test_negative_control_gate_up_swap(dbg):
         .contiguous()
     )
     w13_sw_q, w13_sw_sf = _quant_weight_rowwise(w13_sw)
-    _, h_q, h_sf, _, _ = _OPS.mxfp8_grouped_gemm_swiglu_fwd(
+    _, h_q, h_sf, _, _ = _OPS.mxfp8_grouped_gemm_swiglu_fwd_cudnn(
         c["x_q"], c["x_sf"], w13_sw_q, w13_sw_sf, c["offsets"]
     )
     z_ref = _grouped_matmul(c["x_deq"], c["w13_deq"], c["sizes"], transpose_b=True)
@@ -804,7 +810,7 @@ def test_negative_control_gate_up_swap(dbg):
         h_ref,
         _dequant_rowwise(
             *(
-                _OPS.mxfp8_grouped_gemm_swiglu_fwd(
+                _OPS.mxfp8_grouped_gemm_swiglu_fwd_cudnn(
                     c["x_q"], c["x_sf"], c["w13_q"], c["w13_sf"], c["offsets"]
                 )[1:3]
             )
@@ -822,7 +828,7 @@ def test_negative_control_scale_byte_flip(dbg):
     c = dbg
     sf_bad = c["w13_sf"].view(torch.uint8).clone()
     sf_bad[sf_bad.numel() // 2] += 2
-    z_bad = _OPS.mxfp8_grouped_gemm_swiglu_fwd(
+    z_bad = _OPS.mxfp8_grouped_gemm_swiglu_fwd_cudnn(
         c["x_q"], c["x_sf"], c["w13_q"], sf_bad, c["offsets"]
     )[0]
     z_ref = _grouped_matmul(c["x_deq"], c["w13_deq"], c["sizes"], transpose_b=True)
@@ -932,7 +938,7 @@ def test_validation_negatives(case):
     args = _valid_fwd_args()
     mutate(args)
     with pytest.raises(ValueError) as exc_info:
-        _OPS.mxfp8_grouped_gemm_swiglu_fwd(**args)
+        _OPS.mxfp8_grouped_gemm_swiglu_fwd_cudnn(**args)
     assert needle.lower() in str(exc_info.value).lower(), (
         f"rejection message {str(exc_info.value)!r} does not name the defect "
         f"({needle!r})"
@@ -962,17 +968,17 @@ def test_optin_offsets_validation(monkeypatch):
     monkeypatch.setenv("TORCHAO_MXFP8_VALIDATE_OFFSETS", "1")
     bad = dict(args, offsets=bad_offsets)
     with pytest.raises(ValueError, match="FIX_PAD_SIZE"):
-        _OPS.mxfp8_grouped_gemm_swiglu_fwd(**bad)
+        _OPS.mxfp8_grouped_gemm_swiglu_fwd_cudnn(**bad)
 
     dec = dict(args, offsets=torch.tensor([512, 256], dtype=torch.int32, device="cuda"))
     with pytest.raises(ValueError, match="nondecreasing"):
-        _OPS.mxfp8_grouped_gemm_swiglu_fwd(**dec)
+        _OPS.mxfp8_grouped_gemm_swiglu_fwd_cudnn(**dec)
 
     over = dict(
         args, offsets=torch.tensor([256, 768], dtype=torch.int32, device="cuda")
     )
     with pytest.raises(ValueError, match="exceeds the allocated row count"):
-        _OPS.mxfp8_grouped_gemm_swiglu_fwd(**over)
+        _OPS.mxfp8_grouped_gemm_swiglu_fwd_cudnn(**over)
 
     # The opt-in check must not break fake tracing (no values to read).
     with FakeTensorMode():
