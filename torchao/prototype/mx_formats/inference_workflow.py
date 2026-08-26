@@ -15,7 +15,6 @@ from torch import Tensor
 
 from torchao.core.config import AOBaseConfig
 from torchao.prototype.mx_formats.config import (
-    NoSwizzle,
     Swizzle_32_4_4,
     SwizzleGranularity,
     _validate_elem_dtype,

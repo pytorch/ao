@@ -8,8 +8,7 @@ import pytest
 import torch
 from torch.nn import functional as F
 
-from torchao.prototype.mx_formats.config import ScaleCalculationMode
-from torchao.prototype.mx_formats.config import NoSwizzle
+from torchao.prototype.mx_formats.config import NoSwizzle, ScaleCalculationMode
 from torchao.utils import (
     is_MI300,
     is_MI350,

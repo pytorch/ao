@@ -10,9 +10,9 @@ from contextlib import contextmanager
 import pytest
 import torch
 import torch.nn as nn
-from torchao.prototype.mx_formats.config import NoSwizzle, Swizzle_32_4_4
 from torch.profiler import ProfilerActivity, profile
 
+from torchao.prototype.mx_formats.config import NoSwizzle, Swizzle_32_4_4
 from torchao.prototype.mx_formats.inference_workflow import (
     MXDynamicActivationMXWeightConfig,
     NVFP4DynamicActivationNVFP4WeightConfig,

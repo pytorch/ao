@@ -12,10 +12,10 @@ import torch
 from torch._functorch.compile_utils import fx_graph_cse
 from torch._inductor.utils import run_and_get_code
 from torch.fx.experimental.proxy_tensor import make_fx
-from torchao.prototype.mx_formats.config import NoSwizzle, Swizzle_32_4_4
 from torch.testing import FileCheck
 
 import torchao.prototype.mx_formats.mx_tensor as mx_tensor_module
+from torchao.prototype.mx_formats.config import NoSwizzle, Swizzle_32_4_4
 from torchao.prototype.mx_formats.constants import (
     DTYPE_FP6_E2M3,
     DTYPE_FP6_E3M2,

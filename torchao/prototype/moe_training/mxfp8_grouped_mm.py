@@ -26,6 +26,7 @@ from torchao.prototype.moe_training.utils import (
 )
 from torchao.prototype.mx_formats.config import (
     MXFP8Dim1CastKernelChoice,
+    NoSwizzle,
     ScaleCalculationMode,
 )
 from torchao.prototype.mx_formats.kernels import (
@@ -36,7 +37,6 @@ from torchao.prototype.mx_formats.kernels import (
     triton_mxfp8_dequant_dim0,
     triton_to_mxfp8_dim0,
 )
-from torchao.prototype.mx_formats.config import NoSwizzle
 from torchao.prototype.mx_formats.mx_tensor import MXTensor, to_mx
 from torchao.prototype.mx_formats.utils import _to_mxfp8_dim1_kernel_wrapper
 from torchao.quantization.quantize_.common import KernelPreference
