@@ -75,14 +75,22 @@ _ = torch.load('{fname}', weights_only=True)
     assert subprocess_out.returncode == 0, "failed weights-only load"
 
 
+@pytest.mark.skipif(
+    not torch.accelerator.is_available(),
+    reason="CUDA or XPU not available",
+)
+@pytest.mark.skipif(
+    torch.cuda.is_available() and not is_sm_at_least_100(),
+    reason="needs CUDA capability 10.0+",
+)
 def test_load_old_format_is_swizzled_scales():
     """
     Regression test: load a state_dict saved with the old bool-based
     `is_swizzled_scales` field (both top-level MXTensor attribute and nested
     QuantizeTensorToMXKwargs). Verifies backward compat shims work.
     """
-    # Create a quantized model using emulated kernels (no accelerator needed)
-    m = nn.Linear(32, 64, bias=False, dtype=torch.bfloat16, device="cpu")
+    device = torch.accelerator.current_accelerator().type
+    m = nn.Linear(32, 64, bias=False, dtype=torch.bfloat16, device=device)
     config = MXDynamicActivationMXWeightConfig(
         activation_dtype=torch.float8_e4m3fn,
         weight_dtype=torch.float8_e4m3fn,
@@ -128,13 +136,21 @@ print("OK")
     assert result.returncode == 0, f"Failed: {result.stderr}"
 
 
+@pytest.mark.skipif(
+    not torch.accelerator.is_available(),
+    reason="CUDA or XPU not available",
+)
+@pytest.mark.skipif(
+    torch.cuda.is_available() and not is_sm_at_least_100(),
+    reason="needs CUDA capability 10.0+",
+)
 def test_load_old_format_top_level_is_swizzled_scales():
     """
     Regression test: MXTensor.__tensor_unflatten__ converts old
     is_swizzled_scales metadata to swizzle_type.
     """
-    # Create MXTensor with emulated kernel
-    m = nn.Linear(32, 64, bias=False, dtype=torch.bfloat16, device="cpu")
+    device = torch.accelerator.current_accelerator().type
+    m = nn.Linear(32, 64, bias=False, dtype=torch.bfloat16, device=device)
     config = MXDynamicActivationMXWeightConfig(
         activation_dtype=torch.float8_e4m3fn,
         weight_dtype=torch.float8_e4m3fn,
