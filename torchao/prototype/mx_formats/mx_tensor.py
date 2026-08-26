@@ -110,6 +110,13 @@ class QuantizeTensorToMXKwargs(QuantizeTensorKwargs):
     kernel_preference: KernelPreference = KernelPreference.EMULATED
     swizzle_type: SwizzleType = NO_SWIZZLE()
 
+    def __setstate__(self, state):
+        # Backward compat: migrate old is_swizzled_scales to swizzle_type
+        if "is_swizzled_scales" in state and "swizzle_type" not in state:
+            is_swizzled = state.pop("is_swizzled_scales")
+            state["swizzle_type"] = SWIZZLE_32_4_4() if is_swizzled else NO_SWIZZLE()
+        self.__dict__.update(state)
+
 
 def _f32_to_e8m0_rceil(value: torch.Tensor) -> torch.Tensor:
     # We can't just use value.to(float8_e8m0fnu) because it doesn't support
