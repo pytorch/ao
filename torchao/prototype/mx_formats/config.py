@@ -15,27 +15,27 @@ from torchao.utils import register_as_pytree_constant
 
 
 @dataclass(frozen=True)
-class SwizzleGranularity:
+class SwizzleType:
     """Base class for scale swizzle layout."""
 
     pass
 
 
 @dataclass(frozen=True)
-class NoSwizzle(SwizzleGranularity):
+class NO_SWIZZLE(SwizzleType):
     """No swizzling."""
 
     pass
 
 
 @dataclass(frozen=True)
-class Swizzle_32_4_4(SwizzleGranularity):
+class SWIZZLE_32_4_4(SwizzleType):
     """32x4x4 blocked scale layout for NVIDIA."""
 
     pass
 
 
-torch.serialization.add_safe_globals([NoSwizzle, Swizzle_32_4_4])
+torch.serialization.add_safe_globals([NO_SWIZZLE, SWIZZLE_32_4_4])
 
 
 class MXFP8Dim0CastKernelChoice(Enum):

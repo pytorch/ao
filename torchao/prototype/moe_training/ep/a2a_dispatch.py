@@ -10,7 +10,7 @@ from torch.distributed._functional_collectives import all_to_all_single
 from torch.distributed.distributed_c10d import _resolve_process_group
 
 from torchao.prototype.moe_training.utils import conditional_nostrict_trace
-from torchao.prototype.mx_formats.config import NoSwizzle, ScaleCalculationMode
+from torchao.prototype.mx_formats.config import NO_SWIZZLE, ScaleCalculationMode
 from torchao.prototype.mx_formats.kernels import triton_to_mxfp8_dim0
 from torchao.prototype.mx_formats.mx_tensor import MXTensor
 
@@ -102,7 +102,7 @@ class _A2ADispatchMXFP8FwdHPBwd(torch.autograd.Function):
             orig_dtype=input.dtype,
             kernel_preference=None,
             act_quant_kwargs=None,
-            swizzle_type=NoSwizzle(),
+            swizzle_type=NO_SWIZZLE(),
         )
 
         # Save for backward

@@ -1,7 +1,7 @@
 import torch
 import torch.distributed as dist
 
-from torchao.prototype.mx_formats.config import NoSwizzle
+from torchao.prototype.mx_formats.config import NO_SWIZZLE
 from torchao.prototype.mx_formats.mx_tensor import MXTensor
 from torchao.utils import is_sm_at_least_90
 
@@ -38,7 +38,7 @@ def _test_allgather(local_rank):
         orig_dtype=torch.float32,
         kernel_preference=None,
         act_quant_kwargs=None,
-        swizzle_type=NoSwizzle(),
+        swizzle_type=NO_SWIZZLE(),
     )
 
     local_rank = torch.distributed.get_rank()
@@ -58,7 +58,7 @@ def _test_allgather(local_rank):
         orig_dtype=torch.float32,
         kernel_preference=None,
         act_quant_kwargs=None,
-        swizzle_type=NoSwizzle(),
+        swizzle_type=NO_SWIZZLE(),
     )
 
     # Perform all_gather

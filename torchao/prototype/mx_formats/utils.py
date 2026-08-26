@@ -10,10 +10,10 @@ from typing import Tuple
 import torch
 
 from torchao.prototype.mx_formats.config import (
+    NO_SWIZZLE,
+    SWIZZLE_32_4_4,
     MXFP8Dim1CastKernelChoice,
-    NoSwizzle,
     ScaleCalculationMode,
-    Swizzle_32_4_4,
 )
 from torchao.prototype.mx_formats.kernels import (
     triton_mx_block_rearrange,
@@ -160,7 +160,7 @@ def _to_mxfp8_dim1_kernel_wrapper(
     # TODO(future PR): split this utils file in two
     from torchao.prototype.mx_formats.mx_tensor import MXTensor, to_mx
 
-    swizzle_type = NoSwizzle()
+    swizzle_type = NO_SWIZZLE()
 
     if kernel_preference == KernelPreference.EMULATED:
         a_scale, a_data = to_mx(
@@ -209,7 +209,7 @@ def _to_mxfp8_dim1_kernel_wrapper(
             scaling_mode=scale_calculation_mode.value,
             blocked_scale_output=True,
         )
-        swizzle_type = Swizzle_32_4_4()
+        swizzle_type = SWIZZLE_32_4_4()
     elif cast_kernel_choice == MXFP8Dim1CastKernelChoice.FLYDSL:
         # AMD via FlyDSL. FlyDSL kernels leave swizzle_type=NO_SWIZZLE
         # (no tcgen05 blocked layout on AMD).
@@ -261,7 +261,7 @@ def _swizzle_aware_slice(
     # it back to the format which matches the shape of `qdata`.
     # TODO(future PR): update this
 
-    if isinstance(getattr(x, "swizzle_type", None), Swizzle_32_4_4) or getattr(
+    if isinstance(getattr(x, "swizzle_type", None), SWIZZLE_32_4_4) or getattr(
         x, "is_swizzled_scales", False
     ):
         scale_rows = M
@@ -430,7 +430,7 @@ def _swizzle_aware_slice(
     else:
         # multiply by 2 to convert from bytes to num_elements
         sliced_K = sliced_data.shape[1] * 2
-    if isinstance(getattr(x, "swizzle_type", None), Swizzle_32_4_4) or getattr(
+    if isinstance(getattr(x, "swizzle_type", None), SWIZZLE_32_4_4) or getattr(
         x, "is_swizzled_scales", False
     ):
         if x.block_size == 16:
