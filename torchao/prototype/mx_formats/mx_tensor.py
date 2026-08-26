@@ -40,7 +40,10 @@ from torch.nn.functional import ScalingType, SwizzleType
 
 from torchao.prototype.mx_formats.config import (
     MXFP8Dim0CastKernelChoice,
+    NoSwizzle,
     ScaleCalculationMode,
+    Swizzle_32_4_4,
+    SwizzleGranularity,
 )
 from torchao.prototype.mx_formats.constants import (
     BLOCK_SIZE_DEFAULT,
@@ -105,11 +108,7 @@ class QuantizeTensorToMXKwargs(QuantizeTensorKwargs):
     # TODO(future PR): flip the scaling_mode default to RCEIL
     scaling_mode: ScaleCalculationMode = ScaleCalculationMode.FLOOR
     kernel_preference: KernelPreference = KernelPreference.EMULATED
-    swizzle_type: int = int(SwizzleType.NO_SWIZZLE)
-
-    def __post_init__(self):
-        # Normalize pybind11 SwizzleType to int for serialization safety
-        self.swizzle_type = int(self.swizzle_type)
+    swizzle_type: SwizzleGranularity = NoSwizzle()
 
 
 def _f32_to_e8m0_rceil(value: torch.Tensor) -> torch.Tensor:
@@ -234,7 +233,7 @@ def to_mx(
     elem_dtype: Union[torch.dtype, str],
     block_size: int,
     scaling_mode: ScaleCalculationMode = ScaleCalculationMode.FLOOR,
-    swizzle_type: SwizzleType = SwizzleType.NO_SWIZZLE,
+    swizzle_type: SwizzleGranularity = NoSwizzle(),
 ):
     """
     Takes a high precision tensor and converts to MX scale and raw data, in
@@ -403,7 +402,7 @@ def to_mx(
     scale_e8m0_biased = scale_e8m0_biased.squeeze(-1)
 
     # if user requested scale swizzling, do it here
-    if swizzle_type == SwizzleType.SWIZZLE_32_4_4:
+    if isinstance(swizzle_type, Swizzle_32_4_4):
         leading_dims, M, K = orig_shape[:-2], orig_shape[-2], orig_shape[-1]
         scale_shape = (math.prod(leading_dims) * M, K // block_size)
         scale = maybe_dtensor_to_blocked(scale_e8m0_biased.view(scale_shape)).flatten()
@@ -570,7 +569,7 @@ class MXTensor(TorchAOBaseTensor):
         self.orig_dtype = orig_dtype
         self.kernel_preference = kernel_preference
         self.act_quant_kwargs = act_quant_kwargs
-        self.swizzle_type = int(swizzle_type)
+        self.swizzle_type = swizzle_type
         return self
 
     def __repr__(self):
@@ -585,7 +584,7 @@ class MXTensor(TorchAOBaseTensor):
             output_dtype = self.dtype
 
         scale = self.scale
-        if SwizzleType(self.swizzle_type) == SwizzleType.SWIZZLE_32_4_4:
+        if isinstance(self.swizzle_type, Swizzle_32_4_4):
             is_transposed = self.qdata.stride(-2) < self.qdata.stride(-1)
             if is_transposed:
                 leading_dims, M, K = self.shape[:-2], self.shape[-1], self.shape[-2]
@@ -617,7 +616,7 @@ class MXTensor(TorchAOBaseTensor):
         block_size: int = BLOCK_SIZE_DEFAULT,
         kernel_preference: Optional[KernelPreference] = None,
         act_quant_kwargs: Optional[QuantizeTensorToMXKwargs] = None,
-        swizzle_type: SwizzleType = SwizzleType.NO_SWIZZLE,
+        swizzle_type: SwizzleGranularity = NoSwizzle(),
     ) -> Union["MXTensor", DTensor]:
         assert qdata.dtype != torch.uint8, (
             "from_qdata_and_scales only supports typed MX qdata; "
@@ -633,7 +632,7 @@ class MXTensor(TorchAOBaseTensor):
             orig_dtype,
             kernel_preference,
             act_quant_kwargs,
-            int(swizzle_type),
+            swizzle_type,
         )
 
     @staticmethod
@@ -647,7 +646,7 @@ class MXTensor(TorchAOBaseTensor):
         # TODO(future PR): switch default gemm to cublas
         kernel_preference: KernelPreference = KernelPreference.EMULATED,
         act_quant_kwargs: Optional[QuantizeTensorToMXKwargs] = None,
-        swizzle_type: SwizzleType = SwizzleType.NO_SWIZZLE,
+        swizzle_type: SwizzleGranularity = NoSwizzle(),
         mxfp8_dim0_cast_kernel_choice: MXFP8Dim0CastKernelChoice = MXFP8Dim0CastKernelChoice.TORCH,
     ):
         assert mxfp8_dim0_cast_kernel_choice in (
@@ -657,8 +656,8 @@ class MXTensor(TorchAOBaseTensor):
             f"unsupported kernel choice for mxfp8_dim0_cast_kernel_choice: {mxfp8_dim0_cast_kernel_choice}"
         )
 
-        triton_kernel_supported = (
-            elem_dtype == torch.float8_e4m3fn and swizzle_type == SwizzleType.NO_SWIZZLE
+        triton_kernel_supported = elem_dtype == torch.float8_e4m3fn and isinstance(
+            swizzle_type, NoSwizzle
         )
         if (
             mxfp8_dim0_cast_kernel_choice == MXFP8Dim0CastKernelChoice.TORCH
@@ -677,9 +676,6 @@ class MXTensor(TorchAOBaseTensor):
                 scaling_mode=scaling_mode.value,
             )
 
-        swizzle_type = (
-            swizzle_type.value if hasattr(swizzle_type, "value") else int(swizzle_type)
-        )
         return MXTensor(
             data_lp,
             scale_e8m0_biased,
@@ -764,6 +760,13 @@ def maybe_dtensor_to_blocked(t: torch.Tensor) -> torch.Tensor:
     return out
 
 
+def _to_pytorch_swizzle(swizzle: SwizzleGranularity) -> SwizzleType:
+    """Convert SwizzleGranularity to PyTorch's SwizzleType for scaled_mm calls."""
+    if isinstance(swizzle, Swizzle_32_4_4):
+        return SwizzleType.SWIZZLE_32_4_4
+    return SwizzleType.NO_SWIZZLE
+
+
 def _addmm_mx_dispatch(
     a: torch.Tensor, b: MXTensor, aten_op, bias: Optional[torch.Tensor] = None
 ) -> torch.Tensor:
@@ -794,12 +797,12 @@ def _addmm_mx_dispatch(
         assert a.block_size == 32, f"Invalid block size {a.block_size}"
         assert b.block_size == 32, f"Invalid block size {b.block_size}"
 
-        if SwizzleType(a.swizzle_type) == SwizzleType.SWIZZLE_32_4_4:
+        if isinstance(a.swizzle_type, Swizzle_32_4_4):
             a_scale_block = a.scale
         else:
             a_scale_block = a.scale.view(M, K // a.block_size).contiguous()
 
-        if SwizzleType(b.swizzle_type) == SwizzleType.SWIZZLE_32_4_4:
+        if isinstance(b.swizzle_type, Swizzle_32_4_4):
             b_scale_block = b.scale.t()
         else:
             b_scale_block = b.scale.t().view(N, K // b.block_size).contiguous()
@@ -808,7 +811,7 @@ def _addmm_mx_dispatch(
             assert b.elem_dtype == torch.float8_e4m3fn
             a_scale_v1 = a_scale_block.view(torch.float8_e8m0fnu)
             b_scale_v1 = b_scale_block.view(torch.float8_e8m0fnu)
-            if SwizzleType(b.swizzle_type) == SwizzleType.NO_SWIZZLE:
+            if isinstance(b.swizzle_type, NoSwizzle):
                 # v1 API expects scale_b as (K//32, N)
                 b_scale_v1 = b_scale_v1.t().contiguous()
             res = torch._scaled_mm(
@@ -822,7 +825,7 @@ def _addmm_mx_dispatch(
         else:
             assert a.elem_dtype == torch.float4_e2m1fn_x2
             assert b.elem_dtype == torch.float4_e2m1fn_x2
-            swizzle = SwizzleType(a.swizzle_type)
+            swizzle = _to_pytorch_swizzle(a.swizzle_type)
             res = F.scaled_mm(
                 a.qdata.view(torch.float4_e2m1fn_x2),
                 b.qdata.view(torch.float4_e2m1fn_x2),
@@ -996,9 +999,7 @@ def mx_select(func, types, args, kwargs):
     assert len(old_mx_tensor.qdata.shape) == len(old_mx_tensor.scale.shape), (
         "unsupported"
     )
-    assert SwizzleType(old_mx_tensor.swizzle_type) == SwizzleType.NO_SWIZZLE, (
-        "unsupported"
-    )
+    assert isinstance(old_mx_tensor.swizzle_type, NoSwizzle), "unsupported"
     new_mx_tensor = old_mx_tensor.__class__(
         old_mx_tensor.qdata[index],
         old_mx_tensor.scale[index],

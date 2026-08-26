@@ -4,6 +4,7 @@
 # This source code is licensed under the license found in the
 # LICENSE file in the root directory of this source tree.
 
+from dataclasses import dataclass
 from enum import Enum
 
 import torch
@@ -11,6 +12,30 @@ import torch
 from torchao.prototype.mx_formats.constants import SUPPORTED_ELEM_DTYPES
 from torchao.quantization.quantize_.common.kernel_preference import KernelPreference
 from torchao.utils import register_as_pytree_constant
+
+
+@dataclass(frozen=True)
+class SwizzleGranularity:
+    """Base class for MX scale swizzle layout."""
+
+    pass
+
+
+@dataclass(frozen=True)
+class NoSwizzle(SwizzleGranularity):
+    """Row-major scale layout (no swizzling)."""
+
+    pass
+
+
+@dataclass(frozen=True)
+class Swizzle_32_4_4(SwizzleGranularity):
+    """32x4x4 blocked scale layout for NVIDIA Blackwell."""
+
+    pass
+
+
+torch.serialization.add_safe_globals([NoSwizzle, Swizzle_32_4_4])
 
 
 class MXFP8Dim0CastKernelChoice(Enum):

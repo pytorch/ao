@@ -12,7 +12,7 @@ import torch
 from torch._functorch.compile_utils import fx_graph_cse
 from torch._inductor.utils import run_and_get_code
 from torch.fx.experimental.proxy_tensor import make_fx
-from torch.nn.functional import SwizzleType
+from torchao.prototype.mx_formats.config import NoSwizzle, Swizzle_32_4_4
 from torch.testing import FileCheck
 
 import torchao.prototype.mx_formats.mx_tensor as mx_tensor_module
@@ -589,7 +589,7 @@ def test_exponent_nan_out(elem_dtype):
         torch.float,
         KernelPreference.EMULATED,
         None,
-        SwizzleType.NO_SWIZZLE,
+        NoSwizzle(),
     )
     tensor_hp = tensor_mx.dequantize(torch.float)
     assert torch.all(torch.isnan(tensor_hp.flatten()[0:4]))
@@ -1052,7 +1052,7 @@ def test_swizzle(elem_dtype, transpose, shape):
         elem_dtype,
         block_size,
         ScaleCalculationMode.FLOOR,
-        swizzle_type=SwizzleType.SWIZZLE_32_4_4,
+        swizzle_type=Swizzle_32_4_4(),
     )
 
     if transpose:

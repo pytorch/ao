@@ -12,7 +12,8 @@ from torch.distributed.distributed_c10d import _resolve_process_group
 from torchao.prototype.moe_training.utils import conditional_nostrict_trace
 from torchao.prototype.mx_formats.config import ScaleCalculationMode
 from torchao.prototype.mx_formats.kernels import triton_to_mxfp8_dim0
-from torchao.prototype.mx_formats.mx_tensor import MXTensor, SwizzleType
+from torchao.prototype.mx_formats.config import NoSwizzle
+from torchao.prototype.mx_formats.mx_tensor import MXTensor
 
 
 class _A2ACombineHPFwdMXFP8Bwd(torch.autograd.Function):
@@ -142,7 +143,7 @@ class _A2ACombineHPFwdMXFP8Bwd(torch.autograd.Function):
                 orig_dtype=ctx.hp_dtype,
                 kernel_preference=None,
                 act_quant_kwargs=None,
-                swizzle_type=SwizzleType.NO_SWIZZLE,
+                swizzle_type=NoSwizzle(),
             )
         else:
             # BF16 backward path: Just do inverse all-to-all in bf16
