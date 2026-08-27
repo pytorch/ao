@@ -12,7 +12,7 @@ import torch
 import torch.nn as nn
 from torch.profiler import ProfilerActivity, profile
 
-from torchao.prototype.mx_formats.config import NO_SWIZZLE, SWIZZLE_32_4_4
+from torchao.prototype.mx_formats.config import NoSwizzle, Swizzle_32_4_4
 from torchao.prototype.mx_formats.inference_workflow import (
     MXDynamicActivationMXWeightConfig,
     NVFP4DynamicActivationNVFP4WeightConfig,
@@ -109,7 +109,7 @@ def test_inference_workflow_mx(
         activation_dtype=elem_dtype,
         weight_dtype=elem_dtype,
         kernel_preference=kernel_choice,
-        swizzle_type=NO_SWIZZLE() if device == "xpu" else SWIZZLE_32_4_4(),
+        swizzle_type=NoSwizzle() if device == "xpu" else Swizzle_32_4_4(),
     )
     quantize_(m_mx, config=config)
     if compile:

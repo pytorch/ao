@@ -22,20 +22,20 @@ class SwizzleType:
 
 
 @dataclass(frozen=True)
-class NO_SWIZZLE(SwizzleType):
+class NoSwizzle(SwizzleType):
     """No swizzling."""
 
     pass
 
 
 @dataclass(frozen=True)
-class SWIZZLE_32_4_4(SwizzleType):
+class Swizzle_32_4_4(SwizzleType):
     """32x4x4 blocked scale layout for NVIDIA."""
 
     pass
 
 
-torch.serialization.add_safe_globals([NO_SWIZZLE, SWIZZLE_32_4_4])
+torch.serialization.add_safe_globals([NoSwizzle, Swizzle_32_4_4])
 
 
 class MXFP8Dim0CastKernelChoice(Enum):

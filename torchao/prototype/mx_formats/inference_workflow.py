@@ -15,7 +15,7 @@ from torch import Tensor
 
 from torchao.core.config import AOBaseConfig
 from torchao.prototype.mx_formats.config import (
-    SWIZZLE_32_4_4,
+    Swizzle_32_4_4,
     SwizzleType,
     _validate_elem_dtype,
 )
@@ -116,8 +116,8 @@ class MXDynamicActivationMXWeightConfig(AOBaseConfig):
     scaling_mode: ScaleCalculationMode = ScaleCalculationMode.RCEIL
 
     # How to store block scales.
-    # CUDA uses SWIZZLE_32_4_4 (blocked layout), XPU uses NO_SWIZZLE.
-    swizzle_type: SwizzleType = SWIZZLE_32_4_4()
+    # CUDA uses Swizzle_32_4_4 (blocked layout), XPU uses NoSwizzle.
+    swizzle_type: SwizzleType = Swizzle_32_4_4()
 
     def __post_init__(self):
         assert self.activation_dtype == self.weight_dtype, (
