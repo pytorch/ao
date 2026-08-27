@@ -25,13 +25,7 @@ multiples of **256** -- the cuDNN FE kernels hard-code ``FIX_PAD_SIZE = 256``,
 and groups that are only 128-row aligned corrupt results SILENTLY and
 NONDETERMINISTICALLY (the corruption locus migrates between identical-input
 reruns; no smoke test can prove a misaligned config safe). Use a token
-dispatcher with ``pad_multiple=256``. Enforcement is two-tier: metadata-only
-checks always run (memoized per signature, FakeTensor-safe, back
-``register_fake`` so torch.compile rejects at capture time); the offset
-VALUES (nondecreasing, per-expert %256, ``offsets[-1] <= R``) are checked
-only under ``TORCHAO_MXFP8_VALIDATE_OFFSETS=1`` because reading them forces a
-D2H sync. Checks raise ValueError, never assert, so ``python -O`` cannot
-strip them.
+dispatcher with ``pad_multiple=256``.
 
 All scale arguments are FLAT blocked E8M0 buffers (uint8 or float8_e8m0fnu);
 the ops build the kernel-native 6-D / 2-D views internally with probe-proven
@@ -50,8 +44,7 @@ before selecting this family.
 """
 
 import importlib.util
-import os
-from typing import Optional, Tuple
+from typing import Tuple
 
 import torch
 
@@ -68,18 +61,11 @@ __all__ = [
 
 # MXFP8 scaling block: 32 values share one E8M0 scale.
 SCALE_BLOCK_SIZE = 32
-# tcgen05 blocked scale tile: 128 rows x 4 columns, 512 bytes.
-SCALE_TILE_ROWS = 128
-SCALE_TILE_COLS = 4
 # Feature-dimension granularity (D and F).
 DIM_ALIGNMENT = 128
 # Row-count granularity: per-expert groups AND the allocated row count (the
 # cuDNN FE kernels' FIX_PAD_SIZE).
 ROW_GROUP_ALIGNMENT = 256
-# Byte alignment for TMA/vectorized accesses.
-_PTR_ALIGNMENT = 16
-
-_SCALE_DTYPES = (torch.uint8, torch.float8_e8m0fnu)
 
 _E4M3 = torch.float8_e4m3fn
 _E8M0 = torch.float8_e8m0fnu
@@ -177,248 +163,6 @@ def is_supported(model_dim: int, hidden_dim: int) -> bool:
     )
 
 
-# --------------------------------------------------------------------------
-# Metadata validation helpers (see the module docstring for the two tiers).
-# --------------------------------------------------------------------------
-
-
-def _round_up(x: int, to: int) -> int:
-    return ((x + to - 1) // to) * to
-
-
-def blocked_scale_numel(rows: int, cols: int) -> int:
-    """Blocked-buffer element count for a logical [rows, cols] scale matrix
-    (``cols`` counts scale values: the reduced dimension divided by 32)."""
-    return _round_up(rows, SCALE_TILE_ROWS) * _round_up(cols, SCALE_TILE_COLS)
-
-
-def host_offsets_validation_enabled() -> bool:
-    """Opt-in offset-VALUES validation; off by default (forces a D2H sync)."""
-    return os.environ.get("TORCHAO_MXFP8_VALIDATE_OFFSETS", "0") == "1"
-
-
-def _is_fake(tensor: torch.Tensor) -> bool:
-    """True for meta/fake tensors (no usable data pointer or values)."""
-    if tensor.device.type == "meta":
-        return True
-    try:
-        from torch._subclasses.fake_tensor import FakeTensor
-    except ImportError:
-        return False
-    return isinstance(tensor, FakeTensor)
-
-
-def validate_group_offsets(
-    offsets: torch.Tensor,
-    *,
-    num_groups: int,
-    allocated_rows: int,
-    device: Optional[torch.device] = None,
-    name: str = "offsets",
-) -> None:
-    """Metadata always; VALUES only when opted in and the tensor is real."""
-    if not isinstance(offsets, torch.Tensor):
-        raise ValueError(f"{name} must be a torch.Tensor, got {type(offsets)}")
-    if num_groups < 1:
-        raise ValueError(
-            f"{name} must describe at least one expert group, got G={num_groups}"
-        )
-    if offsets.dtype != torch.int32:
-        raise ValueError(f"{name} must be int32, got {offsets.dtype}")
-    if not offsets.is_cuda:
-        raise ValueError(f"{name} must be a CUDA tensor, got device {offsets.device}")
-    if device is not None and offsets.device != device:
-        raise ValueError(
-            f"{name} must be on {device}, got {offsets.device}; all operands and "
-            "destinations must share one CUDA device"
-        )
-    if offsets.ndim != 1:
-        raise ValueError(f"{name} must be 1D, got shape {tuple(offsets.shape)}")
-    if offsets.numel() != num_groups:
-        raise ValueError(
-            f"{name} must have one entry per local expert: expected {num_groups}, "
-            f"got {offsets.numel()}"
-        )
-    if not offsets.is_contiguous():
-        raise ValueError(f"{name} must be contiguous, got stride {offsets.stride()}")
-
-    if not host_offsets_validation_enabled() or _is_fake(offsets):
-        return
-
-    values = offsets.tolist()  # d2h sync; opt-in debugging path only
-    previous = 0
-    for group, end in enumerate(values):
-        if end < previous:
-            raise ValueError(
-                f"{name} must be nondecreasing, but entry {group} is {end} "
-                f"after {previous}"
-            )
-        size = end - previous
-        if size % ROW_GROUP_ALIGNMENT != 0:
-            raise ValueError(
-                f"per-expert row counts must be multiples of {ROW_GROUP_ALIGNMENT} "
-                f"(cuDNN FE FIX_PAD_SIZE; sub-256 groups corrupt results "
-                f"nondeterministically): expert {group} has {size} rows "
-                f"(offsets {previous} -> {end})"
-            )
-        previous = end
-    if previous > allocated_rows:
-        raise ValueError(
-            f"{name}[-1] ({previous}) exceeds the allocated row count "
-            f"({allocated_rows})"
-        )
-
-
-def _check_pointer_alignment(tensor: torch.Tensor, *, name: str) -> None:
-    """16-byte data_ptr gate (TMA/vectorized accesses); fakes have no pointer."""
-    if _is_fake(tensor):
-        return
-    if tensor.data_ptr() % _PTR_ALIGNMENT != 0:
-        raise ValueError(
-            f"{name} must be {_PTR_ALIGNMENT}-byte aligned, but its data "
-            f"pointer is {tensor.data_ptr() % _PTR_ALIGNMENT} bytes past an "
-            "aligned address. A contiguous view with a nonzero storage "
-            "offset can violate this."
-        )
-
-
-def validate_operand(
-    tensor: torch.Tensor,
-    *,
-    name: str,
-    shape: tuple,
-    dtype: torch.dtype,
-    device: torch.device,
-    stride: Optional[tuple] = None,
-    check_pointer_alignment: bool = True,
-) -> None:
-    """dtype/shape/device, optional EXACT stride (None = any: the wrappers
-    consume both majors, every composite combination probe-proven), pointer
-    alignment. Metadata gates run before the ``data_ptr()`` gate so
-    FakeTensor tracing exercises the same checks."""
-    if tensor.dtype != dtype:
-        raise ValueError(f"{name} must be {dtype}, got {tensor.dtype}")
-    if tuple(tensor.shape) != tuple(shape):
-        raise ValueError(
-            f"{name} must have shape {tuple(shape)}, got {tuple(tensor.shape)}"
-        )
-    if stride is not None and tuple(tensor.stride()) != tuple(stride):
-        raise ValueError(
-            f"{name} must have stride {tuple(stride)}, got {tuple(tensor.stride())}. "
-            "This layout is part of the ABI; a values-equal tensor with a "
-            "different stride is not interchangeable."
-        )
-    if tensor.device != device:
-        raise ValueError(
-            f"{name} must be on {device}, got {tensor.device}; all operands and "
-            "destinations must share one CUDA device"
-        )
-    if check_pointer_alignment:
-        _check_pointer_alignment(tensor, name=name)
-
-
-def validate_blocked_scales(
-    scales: torch.Tensor,
-    *,
-    name: str,
-    logical_rows: int,
-    logical_cols: int,
-    device: torch.device,
-    groups: int = 1,
-) -> None:
-    """Flat blocked E8M0 buffer with a statically known size; ``groups > 1``
-    means per-expert blocks concatenated."""
-    if scales.dtype not in _SCALE_DTYPES:
-        raise ValueError(
-            f"{name} must be uint8 or float8_e8m0fnu (raw E8M0 bytes), "
-            f"got {scales.dtype}"
-        )
-    expected = groups * blocked_scale_numel(logical_rows, logical_cols)
-    if scales.numel() != expected:
-        raise ValueError(
-            f"{name} must hold {expected} blocked scale bytes for a logical "
-            f"[{logical_rows}, {logical_cols}] scale matrix"
-            + (f" across {groups} experts" if groups > 1 else "")
-            + f", got {scales.numel()}"
-        )
-    if not scales.is_contiguous():
-        raise ValueError(f"{name} must be contiguous, got stride {scales.stride()}")
-    if scales.device != device:
-        raise ValueError(f"{name} must be on {device}, got {scales.device}")
-    _check_pointer_alignment(scales, name=name)
-
-
-def validate_ragged_colwise_scales(
-    scales: torch.Tensor,
-    *,
-    name: str,
-    features: int,
-    allocated_rows: int,
-    device: torch.device,
-) -> None:
-    """Per-group columnwise scale buffer, sized by the ALLOCATED rows.
-
-    The cudnn wrapper sizes its scale descriptor as
-    ``[round_up(features, 128), allocated_rows/32]`` and validates that shape
-    only on the cold plan-building call -- warm calls reuse a cached plan
-    object and skip the check -- so a buffer sized by a smaller
-    ``offsets[-1]`` would be accepted or rejected depending on call HISTORY.
-    Require the R-sized buffer unconditionally instead. When
-    ``offsets[-1] < R`` the kernels read only the per-group prefix
-    (probe-verified), so callers pad with dead bytes."""
-    if scales.dtype not in _SCALE_DTYPES:
-        raise ValueError(
-            f"{name} must be uint8 or float8_e8m0fnu (raw E8M0 bytes), "
-            f"got {scales.dtype}"
-        )
-    if not scales.is_contiguous():
-        raise ValueError(f"{name} must be contiguous, got stride {scales.stride()}")
-    if scales.device != device:
-        raise ValueError(f"{name} must be on {device}, got {scales.device}")
-    rows_pad = _round_up(features, SCALE_TILE_ROWS)
-    expected = rows_pad * (allocated_rows // SCALE_BLOCK_SIZE)
-    if scales.numel() != expected:
-        raise ValueError(
-            f"{name} numel {scales.numel()} != {expected} blocked scale bytes "
-            f"(round_up({features},128) x allocated-rows/32) implied by the "
-            f"allocated row count {allocated_rows}; the kernel sizes its scale "
-            "descriptor from the allocated rows even when offsets[-1] is "
-            "smaller -- pad the buffer, the padding is never read"
-        )
-    _check_pointer_alignment(scales, name=name)
-
-
-def validate_feature_dims(
-    *,
-    model_dim: int,
-    hidden_dim: int,
-    model_dim_name: str = "model dimension D",
-    hidden_dim_name: str = "routed-expert hidden dimension F",
-) -> None:
-    """The name arguments let mm/wgrad call sites report their generic N/K
-    dims instead of the fwd/bwd ops' D/F."""
-    if model_dim <= 0 or model_dim % DIM_ALIGNMENT != 0:
-        raise ValueError(
-            f"{model_dim_name} must be a positive multiple of {DIM_ALIGNMENT}, "
-            f"got {model_dim}"
-        )
-    if hidden_dim <= 0 or hidden_dim % DIM_ALIGNMENT != 0:
-        raise ValueError(
-            f"{hidden_dim_name} must be a positive multiple of "
-            f"{DIM_ALIGNMENT}, got {hidden_dim}"
-        )
-
-
-def validate_allocated_rows(rows: int, *, name: str = "R") -> None:
-    """%256 (may be zero): the allocation must be reachable by a legal offsets
-    vector plus an inactive tail, and a non-256 allocation also breaks the
-    whole-matrix == per-group-concat identity of the rowwise blocked scales."""
-    if rows % ROW_GROUP_ALIGNMENT != 0:
-        raise ValueError(
-            f"{name} must be a multiple of {ROW_GROUP_ALIGNMENT}, got {rows}"
-        )
-
-
 # Small per-(groups, dtype, device) caches for the kernels' alpha/beta and
 # norm-const tensors, each stored with the event recorded after its fill:
 # the fill runs on the FIRST caller's stream, so a cache hit on any other
@@ -440,57 +184,6 @@ def _cached_ones(numel: int, dtype: torch.dtype, device: torch.device) -> torch.
     out, event = hit
     event.wait(torch.cuda.current_stream(device))
     return out
-
-
-# The always-on validation tier is metadata-only, so its verdict is a pure
-# function of the operands' metadata (the pointer-alignment gate is covered
-# by storage_offset: torch's CUDA caching allocator hands out aligned storage
-# bases). A training step calls each op hundreds of times with identical
-# metadata; the full battery runs once per distinct signature and repeats
-# skip straight to the derived dims. Signatures are recorded only AFTER a
-# REAL-tensor pass (a rejected call never poisons the cache; a fake pass has
-# no data pointer to prove alignment). The opt-in offsets-VALUES check
-# (TORCHAO_MXFP8_VALIDATE_OFFSETS) reads data, not metadata, so it runs on
-# every call while enabled.
-_validated_sigs: set = set()
-_VALIDATED_SIGS_CAP = 4096
-
-
-# SymInt ships with every torch new enough to compile these ops; the empty
-# tuple keeps the isinstance gate a no-op elsewhere.
-_SYMBOLIC_TYPES = (torch.SymInt,) if hasattr(torch, "SymInt") else ()
-
-
-def _meta_sig(tag: str, *tensors: torch.Tensor) -> Optional[tuple]:
-    # torch.Size and stride() are hashable tuples; device/dtype hash directly.
-    # Symbolic metadata (SymInt dims/strides/offsets under dynamic-shape
-    # compile) is unhashable, so those calls get no signature and never touch
-    # the memo; the full battery still runs.
-    for t in tensors:
-        for d in (*t.shape, *t.stride(), t.storage_offset()):
-            if isinstance(d, _SYMBOLIC_TYPES):
-                return None
-    return (tag,) + tuple(
-        (t.shape, t.stride(), t.dtype, t.device, t.storage_offset()) for t in tensors
-    )
-
-
-def _remember_sig(sig: Optional[tuple], *tensors: torch.Tensor) -> None:
-    # Fake passes skip the data_ptr alignment gates, so a fake-recorded
-    # signature would exempt the first REAL call from them: record only
-    # real-tensor passes (fakes revalidate every time; metadata is cheap).
-    if sig is None or any(_is_fake(t) for t in tensors):
-        return
-    if len(_validated_sigs) < _VALIDATED_SIGS_CAP:
-        _validated_sigs.add(sig)
-
-
-def _require_cuda_device(device: torch.device, name: str) -> None:
-    if device.type != "cuda":
-        raise ValueError(
-            f"{name} must be a CUDA tensor, got device {device}; these kernels "
-            "run only on CUDA SM100 devices"
-        )
 
 
 def _as_e8m0(scales: torch.Tensor) -> torch.Tensor:
@@ -567,78 +260,10 @@ def _allocate_from_specs(specs, device) -> Tuple[torch.Tensor, ...]:
     )
 
 
-def _validate_fwd_inputs(x_q, x_sf, w13_q, w13_sf, offsets):
-    sig = _meta_sig("fwd", x_q, x_sf, w13_q, w13_sf, offsets)
-    if sig is not None and sig in _validated_sigs:
-        rows, model_dim = x_q.shape
-        groups, two_hidden, _ = w13_q.shape
-        if host_offsets_validation_enabled():
-            validate_group_offsets(
-                offsets, num_groups=groups, allocated_rows=rows, device=x_q.device
-            )
-        return rows, model_dim, two_hidden // 2, groups
-    if x_q.ndim != 2:
-        raise ValueError(f"x_q must be 2D [R, D], got shape {tuple(x_q.shape)}")
-    if w13_q.ndim != 3:
-        raise ValueError(f"w13_q must be 3D [G, 2F, D], got shape {tuple(w13_q.shape)}")
+def _fwd_dims(x_q, w13_q):
     rows, model_dim = x_q.shape
-    groups, two_hidden, w_k = w13_q.shape
-    if w_k != model_dim:
-        raise ValueError(f"w13_q contraction dim {w_k} must match x_q's D {model_dim}")
-    if two_hidden % 2 != 0:
-        raise ValueError(
-            f"w13_q's row dim must be 2F (32-block interleaved gate/up), "
-            f"got {two_hidden}"
-        )
-    hidden = two_hidden // 2
-    device = x_q.device
-
-    _require_cuda_device(device, "x_q")
-    validate_feature_dims(model_dim=model_dim, hidden_dim=hidden)
-    validate_allocated_rows(rows)
-    if rows * max(model_dim, two_hidden) >= 2**31:
-        raise ValueError(
-            f"R * max(D, 2F) = {rows * max(model_dim, two_hidden)} does not "
-            "fit an int32 element index"
-        )
-    validate_group_offsets(
-        offsets, num_groups=groups, allocated_rows=rows, device=device
-    )
-    validate_operand(
-        x_q,
-        name="x_q",
-        shape=(rows, model_dim),
-        stride=(model_dim, 1),
-        dtype=_E4M3,
-        device=device,
-    )
-    # The rowwise weight cast delivers a contiguous [G, 2F, D] stack; the
-    # kernel-facing (2F, D, G) view is built from exactly that layout.
-    validate_operand(
-        w13_q,
-        name="w13_q",
-        shape=(groups, two_hidden, model_dim),
-        stride=(two_hidden * model_dim, model_dim, 1),
-        dtype=_E4M3,
-        device=device,
-    )
-    validate_blocked_scales(
-        x_sf,
-        name="x_sf",
-        logical_rows=rows,
-        logical_cols=model_dim // _BLOCK,
-        device=device,
-    )
-    validate_blocked_scales(
-        w13_sf,
-        name="w13_sf",
-        logical_rows=two_hidden,
-        logical_cols=model_dim // _BLOCK,
-        device=device,
-        groups=groups,
-    )
-    _remember_sig(sig, x_q, x_sf, w13_q, w13_sf, offsets)
-    return rows, model_dim, hidden, groups
+    groups, two_hidden, _ = w13_q.shape
+    return rows, model_dim, two_hidden // 2, groups
 
 
 @torch.library.custom_op(
@@ -661,7 +286,7 @@ def _mxfp8_grouped_gemm_swiglu_fwd_cudnn(
               cuDNN 32-BLOCK GLU order ``[gate0(32) | up0(32) | gate1 | ...]``.
       w13_sf  per-group flat blocked E8M0, logical ``[2F, D/32]`` per expert.
       offsets int32 CUDA ``[G]`` exclusive end rows; per-expert counts %256
-              (caller invariant; see the validation module).
+              (caller invariant).
 
     Returns ``(z_bf16, h_row_q, h_row_sf, h_col_q, h_col_sf)``:
       z_bf16   BF16 ``[R, 2F]`` contiguous pre-activation in the same 32-block
@@ -673,11 +298,9 @@ def _mxfp8_grouped_gemm_swiglu_fwd_cudnn(
 
     Rows past ``offsets[-1]`` of every output are GARBAGE (kernel-computed from
     the quantized input tail) and read-forbidden. ``R == 0`` returns empty
-    outputs without touching cudnn; ``G == 0`` raises ValueError.
+    outputs without touching cudnn.
     """
-    rows, model_dim, hidden, groups = _validate_fwd_inputs(
-        x_q, x_sf, w13_q, w13_sf, offsets
-    )
+    rows, model_dim, hidden, groups = _fwd_dims(x_q, w13_q)
     specs = _fwd_output_specs(rows, hidden)
     if rows == 0:
         return _allocate_from_specs(specs, x_q.device)
@@ -718,9 +341,7 @@ def _mxfp8_grouped_gemm_swiglu_fwd_cudnn(
 
 @_mxfp8_grouped_gemm_swiglu_fwd_cudnn.register_fake
 def _(x_q, x_sf, w13_q, w13_sf, offsets):
-    rows, _model_dim, hidden, _groups = _validate_fwd_inputs(
-        x_q, x_sf, w13_q, w13_sf, offsets
-    )
+    rows, _model_dim, hidden, _groups = _fwd_dims(x_q, w13_q)
     return _allocate_from_specs(_fwd_output_specs(rows, hidden), x_q.device)
 
 
@@ -729,77 +350,9 @@ def _(x_q, x_sf, w13_q, w13_sf, offsets):
 # --------------------------------------------------------------------------
 
 
-def _validate_mm_inputs(a_q, a_sf, b_q, b_sf, offsets):
-    sig = _meta_sig("mm", a_q, a_sf, b_q, b_sf, offsets)
-    if sig is not None and sig in _validated_sigs:
-        rows, contraction = a_q.shape
-        groups, out_features, _ = b_q.shape
-        if host_offsets_validation_enabled():
-            validate_group_offsets(
-                offsets, num_groups=groups, allocated_rows=rows, device=a_q.device
-            )
-        return rows, out_features, contraction, groups
-    if a_q.ndim != 2:
-        raise ValueError(f"a_q must be 2D [R, K], got shape {tuple(a_q.shape)}")
-    if b_q.ndim != 3:
-        raise ValueError(f"b_q must be 3D [G, N, K], got shape {tuple(b_q.shape)}")
+def _mm_dims(a_q, b_q):
     rows, contraction = a_q.shape
-    groups, out_features, b_k = b_q.shape
-    if b_k != contraction:
-        raise ValueError(f"b_q contraction dim {b_k} must match a_q's K {contraction}")
-    device = a_q.device
-
-    _require_cuda_device(device, "a_q")
-    # N and K are both feature dims here (D/F/2F at the two call sites).
-    validate_feature_dims(
-        model_dim=out_features,
-        hidden_dim=contraction,
-        model_dim_name="b_q's output feature dim N",
-        hidden_dim_name="the contraction dim K",
-    )
-    validate_allocated_rows(rows)
-    if rows * max(out_features, contraction) >= 2**31:
-        raise ValueError(
-            f"R * max(N, K) = {rows * max(out_features, contraction)} does not "
-            "fit an int32 element index"
-        )
-    validate_group_offsets(
-        offsets, num_groups=groups, allocated_rows=rows, device=device
-    )
-    validate_operand(
-        a_q,
-        name="a_q",
-        shape=(rows, contraction),
-        stride=(contraction, 1),
-        dtype=_E4M3,
-        device=device,
-    )
-    # b_q strides are free: rowwise weight casts arrive [G, N, K] contiguous
-    # and dim1-colwise casts arrive transposed to [G, N, K] (also row-major in
-    # this orientation); the wrapper reads the strides (both probe-proven).
-    validate_operand(
-        b_q,
-        name="b_q",
-        shape=(groups, out_features, contraction),
-        dtype=_E4M3,
-        device=device,
-    )
-    validate_blocked_scales(
-        a_sf,
-        name="a_sf",
-        logical_rows=rows,
-        logical_cols=contraction // _BLOCK,
-        device=device,
-    )
-    validate_blocked_scales(
-        b_sf,
-        name="b_sf",
-        logical_rows=out_features,
-        logical_cols=contraction // _BLOCK,
-        device=device,
-        groups=groups,
-    )
-    _remember_sig(sig, a_q, a_sf, b_q, b_sf, offsets)
+    groups, out_features, _ = b_q.shape
     return rows, out_features, contraction, groups
 
 
@@ -828,9 +381,7 @@ def _mxfp8_grouped_gemm_cudnn(
     ``offsets[-1]`` are left uninitialized (probe-verified untouched).
     ``R == 0`` returns an empty output without touching cudnn.
     """
-    rows, out_features, contraction, groups = _validate_mm_inputs(
-        a_q, a_sf, b_q, b_sf, offsets
-    )
+    rows, out_features, contraction, groups = _mm_dims(a_q, b_q)
     out = torch.empty(rows, out_features, dtype=torch.bfloat16, device=a_q.device)
     if rows == 0:
         return out
@@ -861,9 +412,7 @@ def _mxfp8_grouped_gemm_cudnn(
 
 @_mxfp8_grouped_gemm_cudnn.register_fake
 def _(a_q, a_sf, b_q, b_sf, offsets):
-    rows, out_features, _contraction, _groups = _validate_mm_inputs(
-        a_q, a_sf, b_q, b_sf, offsets
-    )
+    rows, out_features, _contraction, _groups = _mm_dims(a_q, b_q)
     return torch.empty(rows, out_features, dtype=torch.bfloat16, device=a_q.device)
 
 
@@ -882,85 +431,9 @@ def _bwd_output_specs(rows: int, hidden: int):
     )
 
 
-def _validate_bwd_inputs(dy_q, dy_sf, w2_col_q, w2_col_sf, z_bf16, offsets):
-    sig = _meta_sig("bwd", dy_q, dy_sf, w2_col_q, w2_col_sf, z_bf16, offsets)
-    if sig is not None and sig in _validated_sigs:
-        rows, model_dim = dy_q.shape
-        groups, _, hidden = w2_col_q.shape
-        if host_offsets_validation_enabled():
-            validate_group_offsets(
-                offsets, num_groups=groups, allocated_rows=rows, device=dy_q.device
-            )
-        return rows, model_dim, hidden, groups
-    if dy_q.ndim != 2:
-        raise ValueError(f"dy_q must be 2D [R, D], got shape {tuple(dy_q.shape)}")
-    if w2_col_q.ndim != 3:
-        raise ValueError(
-            f"w2_col_q must be 3D [G, D, F], got shape {tuple(w2_col_q.shape)}"
-        )
+def _bwd_dims(dy_q, w2_col_q):
     rows, model_dim = dy_q.shape
-    groups, w_d, hidden = w2_col_q.shape
-    if w_d != model_dim:
-        raise ValueError(f"w2_col_q's D dim {w_d} must match dy_q's D {model_dim}")
-    if z_bf16.ndim != 2 or tuple(z_bf16.shape) != (rows, 2 * hidden):
-        raise ValueError(
-            f"z_bf16 must be [{rows}, {2 * hidden}] (32-block interleaved, the "
-            f"exact fwd-op output), got shape {tuple(z_bf16.shape)}"
-        )
-    device = dy_q.device
-
-    _require_cuda_device(device, "dy_q")
-    validate_feature_dims(model_dim=model_dim, hidden_dim=hidden)
-    validate_allocated_rows(rows)
-    if rows * max(model_dim, 2 * hidden) >= 2**31:
-        raise ValueError(
-            f"R * max(D, 2F) = {rows * max(model_dim, 2 * hidden)} does not "
-            "fit an int32 element index"
-        )
-    validate_group_offsets(
-        offsets, num_groups=groups, allocated_rows=rows, device=device
-    )
-    validate_operand(
-        dy_q,
-        name="dy_q",
-        shape=(rows, model_dim),
-        stride=(model_dim, 1),
-        dtype=_E4M3,
-        device=device,
-    )
-    # Colwise-quantized w2; strides free (dim1-native layout probe-proven).
-    validate_operand(
-        w2_col_q,
-        name="w2_col_q",
-        shape=(groups, model_dim, hidden),
-        dtype=_E4M3,
-        device=device,
-    )
-    validate_operand(
-        z_bf16,
-        name="z_bf16",
-        shape=(rows, 2 * hidden),
-        stride=(2 * hidden, 1),
-        dtype=torch.bfloat16,
-        device=device,
-    )
-    validate_blocked_scales(
-        dy_sf,
-        name="dy_sf",
-        logical_rows=rows,
-        logical_cols=model_dim // _BLOCK,
-        device=device,
-    )
-    # Colwise weight scales: logical [F, D/32] per expert.
-    validate_blocked_scales(
-        w2_col_sf,
-        name="w2_col_sf",
-        logical_rows=hidden,
-        logical_cols=model_dim // _BLOCK,
-        device=device,
-        groups=groups,
-    )
-    _remember_sig(sig, dy_q, dy_sf, w2_col_q, w2_col_sf, z_bf16, offsets)
+    groups, _, hidden = w2_col_q.shape
     return rows, model_dim, hidden, groups
 
 
@@ -991,9 +464,7 @@ def _mxfp8_grouped_gemm_dswiglu_bwd_cudnn(
     (columnwise: un-transposed kernel bytes, PER-GROUP flat blocked scales).
     Tails garbage/read-forbidden as in the fwd op.
     """
-    rows, model_dim, hidden, groups = _validate_bwd_inputs(
-        dy_q, dy_sf, w2_col_q, w2_col_sf, z_bf16, offsets
-    )
+    rows, model_dim, hidden, groups = _bwd_dims(dy_q, w2_col_q)
     specs = _bwd_output_specs(rows, hidden)
     if rows == 0:
         return _allocate_from_specs(specs, dy_q.device)
@@ -1035,9 +506,7 @@ def _mxfp8_grouped_gemm_dswiglu_bwd_cudnn(
 
 @_mxfp8_grouped_gemm_dswiglu_bwd_cudnn.register_fake
 def _(dy_q, dy_sf, w2_col_q, w2_col_sf, z_bf16, offsets):
-    rows, _model_dim, hidden, _groups = _validate_bwd_inputs(
-        dy_q, dy_sf, w2_col_q, w2_col_sf, z_bf16, offsets
-    )
+    rows, _model_dim, hidden, _groups = _bwd_dims(dy_q, w2_col_q)
     return _allocate_from_specs(_bwd_output_specs(rows, hidden), dy_q.device)
 
 
@@ -1046,83 +515,10 @@ def _(dy_q, dy_sf, w2_col_q, w2_col_sf, z_bf16, offsets):
 # --------------------------------------------------------------------------
 
 
-def _validate_wgrad_inputs(dy_col_q, dy_col_sf, x_col_q, x_col_sf, offsets):
-    sig = _meta_sig("wgrad", dy_col_q, dy_col_sf, x_col_q, x_col_sf, offsets)
-    if sig is not None and sig in _validated_sigs:
-        rows, out_features = dy_col_q.shape
-        in_features = x_col_q.shape[1]
-        groups = offsets.numel()
-        if host_offsets_validation_enabled():
-            validate_group_offsets(
-                offsets,
-                num_groups=groups,
-                allocated_rows=rows,
-                device=dy_col_q.device,
-            )
-        return rows, out_features, in_features, groups
-    if dy_col_q.ndim != 2 or x_col_q.ndim != 2:
-        raise ValueError(
-            "dy_col_q and x_col_q must both be 2D logical [R, N] / [R, K], got "
-            f"{tuple(dy_col_q.shape)} and {tuple(x_col_q.shape)}"
-        )
+def _wgrad_dims(dy_col_q, x_col_q, offsets):
     rows, out_features = dy_col_q.shape
-    x_rows, in_features = x_col_q.shape
-    if x_rows != rows:
-        raise ValueError(
-            f"dy_col_q and x_col_q must share the row dim: {rows} vs {x_rows}"
-        )
-    groups = offsets.numel() if isinstance(offsets, torch.Tensor) else 0
-    device = dy_col_q.device
-
-    _require_cuda_device(device, "dy_col_q")
-    validate_allocated_rows(rows)
-    validate_feature_dims(
-        model_dim=out_features,
-        hidden_dim=in_features,
-        model_dim_name="dy_col_q's feature dim N",
-        hidden_dim_name="x_col_q's feature dim K",
-    )
-    if rows * max(out_features, in_features) >= 2**31:
-        raise ValueError(
-            f"R * max(N, K) = {rows * max(out_features, in_features)} does not "
-            "fit an int32 element index"
-        )
-    validate_group_offsets(
-        offsets, num_groups=groups, allocated_rows=rows, device=device
-    )
-    # Both operands accept ANY major: dim1-native transposed memory, the fwd/
-    # bwd ops' un-transposed kernel bytes, and mixes -- all four combinations
-    # probe-proven.
-    validate_operand(
-        dy_col_q,
-        name="dy_col_q",
-        shape=(rows, out_features),
-        dtype=_E4M3,
-        device=device,
-    )
-    validate_operand(
-        x_col_q,
-        name="x_col_q",
-        shape=(rows, in_features),
-        dtype=_E4M3,
-        device=device,
-    )
-    validate_ragged_colwise_scales(
-        dy_col_sf,
-        name="dy_col_sf",
-        features=out_features,
-        allocated_rows=rows,
-        device=device,
-    )
-    validate_ragged_colwise_scales(
-        x_col_sf,
-        name="x_col_sf",
-        features=in_features,
-        allocated_rows=rows,
-        device=device,
-    )
-    _remember_sig(sig, dy_col_q, dy_col_sf, x_col_q, x_col_sf, offsets)
-    return rows, out_features, in_features, groups
+    in_features = x_col_q.shape[1]
+    return rows, out_features, in_features, offsets.numel()
 
 
 @torch.library.custom_op("torchao::mxfp8_grouped_gemm_wgrad_cudnn", mutates_args=())
@@ -1151,9 +547,7 @@ def _mxfp8_grouped_gemm_wgrad_cudnn(
     experts ARE written (all-zero slices, probe-verified); ``R == 0`` returns
     zeros without launching. FC1 wgrad: N=2F, K=D. FC2 wgrad: N=D, K=F.
     """
-    rows, out_features, in_features, groups = _validate_wgrad_inputs(
-        dy_col_q, dy_col_sf, x_col_q, x_col_sf, offsets
-    )
+    rows, out_features, in_features, groups = _wgrad_dims(dy_col_q, x_col_q, offsets)
     dw = torch.empty(
         (groups, out_features, in_features),
         dtype=torch.bfloat16,
@@ -1183,9 +577,7 @@ def _mxfp8_grouped_gemm_wgrad_cudnn(
 
 @_mxfp8_grouped_gemm_wgrad_cudnn.register_fake
 def _(dy_col_q, dy_col_sf, x_col_q, x_col_sf, offsets):
-    _rows, out_features, in_features, groups = _validate_wgrad_inputs(
-        dy_col_q, dy_col_sf, x_col_q, x_col_sf, offsets
-    )
+    _rows, out_features, in_features, groups = _wgrad_dims(dy_col_q, x_col_q, offsets)
     return torch.empty(
         (groups, out_features, in_features),
         dtype=torch.bfloat16,
