@@ -528,6 +528,7 @@ class MXTensor(TorchAOBaseTensor):
         is_swizzled_scales,
     ):
         new_size = qdata.size()
+        new_strides = qdata.stride()
         if elem_dtype == torch.float4_e2m1fn_x2:
             # set the tensor size to what it would be without 2x4 packing
             # Note: `is_contiguous` is going to return True for a tensor of size
@@ -538,10 +539,17 @@ class MXTensor(TorchAOBaseTensor):
                 new_size,
                 qdata.is_contiguous(),
             )
+            if qdata.is_contiguous():
+                stride = 1
+                contiguous_strides = []
+                for size in reversed(new_size):
+                    contiguous_strides.append(stride)
+                    stride *= size
+                new_strides = tuple(reversed(contiguous_strides))
         self = torch.Tensor._make_wrapper_subclass(
             cls,
             new_size,
-            strides=qdata.stride(),
+            strides=new_strides,
             storage_offset=qdata.storage_offset(),
             layout=qdata.layout,
             dtype=orig_dtype,
@@ -602,6 +610,79 @@ class MXTensor(TorchAOBaseTensor):
             self.block_size,
             output_dtype,
         )
+
+    def fsdp_pre_all_gather(self, mesh):
+        """Pack the MX payload and scale into one byte all-gather input."""
+        qdata_uint8 = self.qdata.contiguous().view(torch.uint8)
+        scale_uint8 = self.scale.contiguous().view(torch.uint8)
+        packed = torch.cat((qdata_uint8.flatten(), scale_uint8.flatten()))
+        return (packed,), (
+            self.qdata.dtype,
+            self.qdata.shape,
+            self.scale.shape,
+            self.elem_dtype,
+            self.block_size,
+            self.kernel_preference,
+            self.act_quant_kwargs,
+            self.is_swizzled_scales,
+        )
+
+    def fsdp_post_all_gather(
+        self,
+        all_gather_outputs,
+        metadata,
+        param_dtype,
+        *,
+        out=None,
+    ):
+        """Rebuild an MXTensor from the gathered payload/scale byte buffer."""
+        (packed,) = all_gather_outputs
+        (
+            qdata_dtype,
+            local_qdata_shape,
+            local_scale_shape,
+            elem_dtype,
+            block_size,
+            kernel_preference,
+            act_quant_kwargs,
+            is_swizzled_scales,
+        ) = metadata
+        local_qdata_numel = math.prod(local_qdata_shape)
+        local_scale_numel = math.prod(local_scale_shape)
+        local_packed_numel = local_qdata_numel + local_scale_numel
+        if packed.numel() % local_packed_numel != 0:
+            raise RuntimeError(
+                "The gathered MXTensor buffer size must be divisible by the "
+                f"local packed size, got {packed.numel()} and {local_packed_numel}"
+            )
+        world_size = packed.numel() // local_packed_numel
+        packed = packed.view(world_size, local_packed_numel)
+        qdata = (
+            packed[:, :local_qdata_numel]
+            .reshape(world_size * local_qdata_shape[0], *local_qdata_shape[1:])
+            .view(qdata_dtype)
+        )
+        scale_uint8 = packed[:, local_qdata_numel:]
+        scale = scale_uint8.reshape(
+            world_size * local_scale_shape[0], *local_scale_shape[1:]
+        ).view(torch.float8_e8m0fnu)
+        if out is not None:
+            if not isinstance(out, MXTensor):
+                raise TypeError(f"Expected MXTensor output, got {type(out)}")
+            out.qdata.copy_(qdata)
+            out.scale.view(torch.uint8).copy_(scale.view(torch.uint8))
+            return
+        mx_tensor = MXTensor(
+            qdata,
+            scale,
+            elem_dtype,
+            block_size,
+            param_dtype,
+            kernel_preference,
+            act_quant_kwargs,
+            is_swizzled_scales,
+        )
+        return mx_tensor, (qdata, scale)
 
     @staticmethod
     @torch._dynamo.allow_in_graph
@@ -963,6 +1044,74 @@ def mx_slice(func, types, args, kwargs):
             x.is_swizzled_scales,
         ),
     )
+
+
+@implements([aten.split.Tensor])
+def mx_split(func, types, args, kwargs):
+    x, split_size = args[:2]
+    dim = args[2] if len(args) > 2 else kwargs.get("dim", 0)
+    dim = dim if dim >= 0 else dim + x.dim()
+    if not isinstance(split_size, int) or split_size <= 0:
+        raise ValueError(f"Expected a positive integer split size, got {split_size}")
+    if dim != 0:
+        raise NotImplementedError(
+            f"MXTensor aten.split.Tensor only supports dim=0, got dim={dim}"
+        )
+    return [
+        aten.slice.Tensor(x, dim, start, min(start + split_size, x.size(dim)), 1)
+        for start in range(0, x.size(dim), split_size)
+    ]
+
+
+@implements([aten.new_zeros.default])
+def mx_new_zeros(func, types, args, kwargs):
+    x, size = args[:2]
+    size = torch.Size(size)
+    if len(size) != 2 or size[1:] != x.shape[1:] or not x.is_contiguous():
+        raise NotImplementedError(
+            f"MXTensor aten.new_zeros only supports resizing dim 0 of a "
+            f"contiguous 2D tensor, got "
+            f"input shape {tuple(x.shape)} and output shape {tuple(size)}"
+        )
+    if "dtype" in kwargs and kwargs["dtype"] != x.dtype:
+        raise NotImplementedError(
+            "MXTensor aten.new_zeros does not support dtype changes"
+        )
+    device = kwargs.get("device", x.device)
+    qdata_size = size
+    if x.elem_dtype == torch.float4_e2m1fn_x2:
+        qdata_size = torch.Size(tensor_size_hp_to_fp4x2(size, True))
+    if x.is_swizzled_scales:
+        scale_size = hp_data_dims_to_swizzled_scale_dims_mx(size[0], size[1])
+    else:
+        scale_size = (size[0], size[1] // x.block_size)
+    return MXTensor(
+        x.qdata.new_zeros(qdata_size, device=device),
+        x.scale.new_zeros(scale_size, device=device),
+        x.elem_dtype,
+        x.block_size,
+        x.orig_dtype,
+        x.kernel_preference,
+        x.act_quant_kwargs,
+        x.is_swizzled_scales,
+    )
+
+
+@implements([aten.as_strided.default])
+def mx_as_strided(func, types, args, kwargs):
+    x, size, stride = args[:3]
+    storage_offset = args[3] if len(args) > 3 else kwargs.get("storage_offset", None)
+    if (
+        torch.Size(size) != x.shape
+        or tuple(stride) != x.stride()
+        or storage_offset not in (None, 0)
+    ):
+        raise NotImplementedError(
+            "MXTensor aten.as_strided only supports preserving the logical shape "
+            "and stride with zero storage offset"
+        )
+    result = x._apply_fn_to_data(aten.alias.default)
+    return return_and_correct_aliasing(func, args, kwargs, result)
 
 
 @implements([aten.clone.default])
