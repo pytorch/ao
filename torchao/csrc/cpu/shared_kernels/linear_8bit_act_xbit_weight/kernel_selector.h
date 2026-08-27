@@ -179,7 +179,7 @@ void register_ukernel_config_universal(
                prefill_mr,
                &kernel::packed_activations_size,
                &kernel::packed_activations_offset,
-               &kernel::pack_activations<prefill_mr, kr, sr>,
+               &kernel::pack_activations_interleaved<prefill_mr, kr, sr>,
                &kernel::
                    kernel_4x8x16_f32_neondot<weight_nbit, has_weight_zeros>});
           constexpr int large_prefill_mr = 8;
@@ -189,7 +189,10 @@ void register_ukernel_config_universal(
                large_prefill_mr,
                &kernel::packed_activations_size,
                &kernel::packed_activations_offset,
-               &kernel::pack_activations<large_prefill_mr, kr, sr>,
+               &kernel::pack_activations_interleaved<
+                   large_prefill_mr,
+                   kr,
+                   sr>,
                &kernel::
                    kernel_8x8x16_f32_neondot<weight_nbit, has_weight_zeros>});
         }
@@ -223,7 +226,7 @@ void register_ukernel_config_universal(
                prefill_mr,
                &kernel::packed_activations_size,
                &kernel::packed_activations_offset,
-               &kernel::pack_activations<prefill_mr, kr, sr>,
+               &kernel::pack_activations_interleaved<prefill_mr, kr, sr>,
                &kernel::
                    kernel_4x8x16_f32_neondot<weight_nbit, has_weight_zeros>});
           constexpr int large_prefill_mr = 8;
@@ -233,7 +236,10 @@ void register_ukernel_config_universal(
                large_prefill_mr,
                &kernel::packed_activations_size,
                &kernel::packed_activations_offset,
-               &kernel::pack_activations<large_prefill_mr, kr, sr>,
+               &kernel::pack_activations_interleaved<
+                   large_prefill_mr,
+                   kr,
+                   sr>,
                &kernel::
                    kernel_8x8x16_f32_neondot<weight_nbit, has_weight_zeros>});
         }

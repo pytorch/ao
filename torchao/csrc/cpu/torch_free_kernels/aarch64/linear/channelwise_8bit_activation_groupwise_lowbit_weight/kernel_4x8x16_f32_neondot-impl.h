@@ -99,8 +99,10 @@ inline void transpose_4x4_f32(
 
 TORCHAO_ALWAYS_INLINE inline void dot_4_rows_8_cols(
     int32x4_t* accumulators,
-    const char** activation_ptrs,
-    int row_base,
+    int8x16_t activations_0_3,
+    int8x16_t activations_4_7,
+    int8x16_t activations_8_11,
+    int8x16_t activations_12_15,
     int8x16_t weights01_0,
     int8x16_t weights23_0,
     int8x16_t weights45_0,
@@ -109,26 +111,6 @@ TORCHAO_ALWAYS_INLINE inline void dot_4_rows_8_cols(
     int8x16_t weights23_1,
     int8x16_t weights45_1,
     int8x16_t weights67_1) {
-  int8x16_t activation_rows[4];
-  for (int row = 0; row < 4; row++) {
-    activation_rows[row] = vld1q_s8(
-        reinterpret_cast<const int8_t*>(activation_ptrs[row_base + row]));
-    activation_ptrs[row_base + row] += 16;
-  }
-  int8x16_t activations_0_3;
-  int8x16_t activations_4_7;
-  int8x16_t activations_8_11;
-  int8x16_t activations_12_15;
-  transpose_4x16_s8(
-      activation_rows[0],
-      activation_rows[1],
-      activation_rows[2],
-      activation_rows[3],
-      activations_0_3,
-      activations_4_7,
-      activations_8_11,
-      activations_12_15);
-
   accumulators[0] =
       vdotq_laneq_s32(accumulators[0], activations_0_3, weights01_0, 0);
   accumulators[0] =
@@ -230,28 +212,24 @@ void kernel_4x8x16_f32_neondot(
 
   int m_idx = 0;
   for (; m_idx + mr <= m; m_idx += mr) {
-    float activation_scales[mr];
+    const char* activation_block =
+        activation_data_bytes + m_idx * activation_row_size;
+    float32x4_t activation_scale_vec =
+        vld1q_f32(reinterpret_cast<const float*>(activation_block));
+    activation_block += mr * sizeof(float);
     int32_t activation_zeros[mr];
-    const char* activation_qvals[mr];
     for (int row = 0; row < mr; row++) {
-      const char* row_data =
-          activation_data_bytes + (m_idx + row) * activation_row_size;
-      activation_scales[row] = *reinterpret_cast<const float*>(row_data);
-      row_data += sizeof(float);
       activation_zeros[row] =
-          static_cast<int32_t>(*reinterpret_cast<const int8_t*>(row_data));
-      activation_qvals[row] = row_data + sizeof(int8_t);
+          static_cast<int32_t>(*reinterpret_cast<const int8_t*>(
+              activation_block + row * sizeof(int8_t)));
     }
-    float32x4_t activation_scale_vec = vld1q_f32(activation_scales);
+    activation_block += mr * sizeof(int8_t);
     int32x4_t activation_zero_vec = vld1q_s32(activation_zeros);
 
     const char* weight_data_bytes = static_cast<const char*>(weight_data);
     for (int n_idx = 0; n_idx < n; n_idx += nr) {
-      const char* activation_ptrs[mr];
+      const char* activation_ptr = activation_block;
       float32x4_t results[nr];
-      for (int row = 0; row < mr; row++) {
-        activation_ptrs[row] = activation_qvals[row];
-      }
       for (int col = 0; col < nr; col++) {
         results[col] = vdupq_n_f32(0.0f);
       }
@@ -283,10 +261,21 @@ void kernel_4x8x16_f32_neondot(
               reinterpret_cast<const uint8_t*>(weight_data_bytes));
           weight_data_bytes += bytes_per_128_weight_values;
 
+          int8x16_t activations_0_3 =
+              vld1q_s8(reinterpret_cast<const int8_t*>(activation_ptr));
+          int8x16_t activations_4_7 =
+              vld1q_s8(reinterpret_cast<const int8_t*>(activation_ptr + 16));
+          int8x16_t activations_8_11 =
+              vld1q_s8(reinterpret_cast<const int8_t*>(activation_ptr + 32));
+          int8x16_t activations_12_15 =
+              vld1q_s8(reinterpret_cast<const int8_t*>(activation_ptr + 48));
+          activation_ptr += 64;
           internal::dot_4_rows_8_cols(
               accumulators,
-              activation_ptrs,
-              /*row_base=*/0,
+              activations_0_3,
+              activations_4_7,
+              activations_8_11,
+              activations_12_15,
               weights01_0,
               weights23_0,
               weights45_0,
@@ -311,13 +300,9 @@ void kernel_4x8x16_f32_neondot(
 
         int32x4_t activation_qvals_sum_vec;
         if constexpr (has_weight_zeros) {
-          int32_t activation_qvals_sums[mr];
-          for (int row = 0; row < mr; row++) {
-            activation_qvals_sums[row] =
-                *reinterpret_cast<const int32_t*>(activation_ptrs[row]);
-            activation_ptrs[row] += sizeof(int32_t);
-          }
-          activation_qvals_sum_vec = vld1q_s32(activation_qvals_sums);
+          activation_qvals_sum_vec =
+              vld1q_s32(reinterpret_cast<const int32_t*>(activation_ptr));
+          activation_ptr += mr * sizeof(int32_t);
         }
 
         for (int col = 0; col < nr; col++) {

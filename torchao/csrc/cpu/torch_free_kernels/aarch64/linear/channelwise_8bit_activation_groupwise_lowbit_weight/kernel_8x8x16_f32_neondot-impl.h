@@ -46,29 +46,23 @@ void kernel_8x8x16_f32_neondot(
 
   int m_idx = 0;
   for (; m_idx + mr <= m; m_idx += mr) {
-    float activation_scales[mr];
-    int32_t activation_zeros[mr];
-    const char* activation_qvals[mr];
-    for (int row = 0; row < mr; row++) {
-      const char* row_data =
-          activation_data_bytes + (m_idx + row) * activation_row_size;
-      activation_scales[row] = *reinterpret_cast<const float*>(row_data);
-      row_data += sizeof(float);
-      activation_zeros[row] =
-          static_cast<int32_t>(*reinterpret_cast<const int8_t*>(row_data));
-      activation_qvals[row] = row_data + sizeof(int8_t);
-    }
+    const char* activation_block =
+        activation_data_bytes + m_idx * activation_row_size;
     float32x4_t activation_scale_vec[row_blocks] = {
-        vld1q_f32(activation_scales), vld1q_f32(activation_scales + 4)};
+        vld1q_f32(reinterpret_cast<const float*>(activation_block)),
+        vld1q_f32(reinterpret_cast<const float*>(activation_block + 16))};
+    activation_block += mr * sizeof(float);
+    int8x8_t activation_zeros_s8 =
+        vld1_s8(reinterpret_cast<const int8_t*>(activation_block));
+    activation_block += mr * sizeof(int8_t);
+    int16x8_t activation_zeros_s16 = vmovl_s8(activation_zeros_s8);
     int32x4_t activation_zero_vec[row_blocks] = {
-        vld1q_s32(activation_zeros), vld1q_s32(activation_zeros + 4)};
+        vmovl_s16(vget_low_s16(activation_zeros_s16)),
+        vmovl_s16(vget_high_s16(activation_zeros_s16))};
 
     const char* weight_data_bytes = static_cast<const char*>(weight_data);
     for (int n_idx = 0; n_idx < n; n_idx += nr) {
-      const char* activation_ptrs[mr];
-      for (int row = 0; row < mr; row++) {
-        activation_ptrs[row] = activation_qvals[row];
-      }
+      const char* activation_ptr = activation_block;
       float32x4_t results[row_blocks][nr];
       for (int block = 0; block < row_blocks; block++) {
         for (int col = 0; col < nr; col++) {
@@ -105,30 +99,31 @@ void kernel_8x8x16_f32_neondot(
               reinterpret_cast<const uint8_t*>(weight_data_bytes));
           weight_data_bytes += bytes_per_128_weight_values;
 
-          internal::dot_4_rows_8_cols(
-              accumulators[0],
-              activation_ptrs,
-              /*row_base=*/0,
-              weights01_0,
-              weights23_0,
-              weights45_0,
-              weights67_0,
-              weights01_1,
-              weights23_1,
-              weights45_1,
-              weights67_1);
-          internal::dot_4_rows_8_cols(
-              accumulators[1],
-              activation_ptrs,
-              /*row_base=*/4,
-              weights01_0,
-              weights23_0,
-              weights45_0,
-              weights67_0,
-              weights01_1,
-              weights23_1,
-              weights45_1,
-              weights67_1);
+          for (int block = 0; block < row_blocks; block++) {
+            int8x16_t activations_0_3 =
+                vld1q_s8(reinterpret_cast<const int8_t*>(activation_ptr));
+            int8x16_t activations_4_7 =
+                vld1q_s8(reinterpret_cast<const int8_t*>(activation_ptr + 16));
+            int8x16_t activations_8_11 =
+                vld1q_s8(reinterpret_cast<const int8_t*>(activation_ptr + 32));
+            int8x16_t activations_12_15 =
+                vld1q_s8(reinterpret_cast<const int8_t*>(activation_ptr + 48));
+            activation_ptr += 64;
+            internal::dot_4_rows_8_cols(
+                accumulators[block],
+                activations_0_3,
+                activations_4_7,
+                activations_8_11,
+                activations_12_15,
+                weights01_0,
+                weights23_0,
+                weights45_0,
+                weights67_0,
+                weights01_1,
+                weights23_1,
+                weights45_1,
+                weights67_1);
+          }
         }
 
         const float* weight_scales =
@@ -145,14 +140,11 @@ void kernel_8x8x16_f32_neondot(
 
         int32x4_t activation_qvals_sum_vec[row_blocks];
         if constexpr (has_weight_zeros) {
-          int32_t activation_qvals_sums[mr];
-          for (int row = 0; row < mr; row++) {
-            activation_qvals_sums[row] =
-                *reinterpret_cast<const int32_t*>(activation_ptrs[row]);
-            activation_ptrs[row] += sizeof(int32_t);
-          }
-          activation_qvals_sum_vec[0] = vld1q_s32(activation_qvals_sums);
-          activation_qvals_sum_vec[1] = vld1q_s32(activation_qvals_sums + 4);
+          activation_qvals_sum_vec[0] =
+              vld1q_s32(reinterpret_cast<const int32_t*>(activation_ptr));
+          activation_qvals_sum_vec[1] =
+              vld1q_s32(reinterpret_cast<const int32_t*>(activation_ptr + 16));
+          activation_ptr += mr * sizeof(int32_t);
         }
 
         for (int block = 0; block < row_blocks; block++) {

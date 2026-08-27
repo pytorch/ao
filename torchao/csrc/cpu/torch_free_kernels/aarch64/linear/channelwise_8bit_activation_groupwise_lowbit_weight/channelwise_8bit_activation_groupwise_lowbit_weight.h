@@ -71,6 +71,24 @@ void pack_activations(
       packed_activations, m, k, group_size, activations, has_weight_zeros);
 }
 
+template <int mr_, int kr_, int sr_>
+void pack_activations_interleaved(
+    void* packed_activations,
+    int m,
+    int k,
+    int group_size,
+    const float* activations,
+    bool has_weight_zeros,
+    int mr,
+    int kr,
+    int sr) {
+  (void)mr;
+  (void)kr;
+  (void)sr;
+  activation_packing::pack_activations_interleaved<mr_, kr_, sr_>(
+      packed_activations, m, k, group_size, activations, has_weight_zeros);
+}
+
 template <int weight_nbit, int nr_, int kr_, int sr_>
 void pack_weights_with_lut(
     // Output
