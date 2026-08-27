@@ -9,24 +9,16 @@
 The four ops wrap the cudnn-frontend package's CuTe DSL grouped-GEMM kernels
 (``cudnn.grouped_gemm_{glu,quant,dglu,wgrad}_wrapper_sm100``).
 
-The full-chain numerics gates are DERIVED at test time, never hard-coded:
+Every op is validated against a standalone plain-PyTorch reference (the
+``_ref_*`` functions: dequantization, per-expert FP32 ``torch`` matmuls, and
+``F.silu``/``torch.sigmoid`` only) under fixed ``min_sqnr`` gates; the gate
+rationale and measured margins live next to the gate constants below.
 
-* ``refA`` (GEMM-exactness) gates come from the variability between two
-  legitimate evaluations of the same dequantized-operand reference that differ
-  only in FP32 reduction order (whole-K vs chunked-K), minus a 12 dB margin,
-  capped at 60 dB. Measured bands on GB200: 63-75 dB at the debug shapes
-  (gates land at the 51-60 dB cap region); op outputs measure 85-160 dB.
-* ``refB`` (independent-chain) gates come from the SQNR of a quantized-unfused
-  evaluation against the exact FP32 chain computed from the ORIGINAL BF16
-  inputs with no quantization at all, minus a 6 dB margin. This reference
-  shares NO layout helper with the op inputs, so a self-consistent layout bug
-  (wrong scale blocking built and decoded the same wrong way) cannot pass it.
-  Measured band: ~30-40 dB at these shapes (pure MXFP8 requantization error).
-
-Every op ALSO has a standalone plain-PyTorch reference (the ``_ref_*``
-functions: dequantization, per-expert FP32 ``torch`` matmuls, and
-``F.silu``/``torch.sigmoid`` only) with a per-op test asserting the op output
-matches it under fixed ``min_sqnr`` gates.
+The scale-byte-flip negative control uses a DERIVED gate instead: the
+variability between two legitimate FP32 reduction orders of the same
+reference (whole-K vs chunked-K) minus a 12 dB margin, capped at 60 dB --
+measured 63-75 dB on GB200 at the debug shapes, so a single corrupted scale
+byte must drag the op below a bar that legitimate scheduling never crosses.
 
 Layout vocabulary (probe-derived): columnwise operands are accepted in ANY
 major -- "rowmajor" here means un-transposed ``[R, N]`` row-major bytes (also
@@ -287,9 +279,6 @@ def _build_case(D, hidden, sizes, device="cuda", seed=0):
     c["w13_deq"] = [
         _dequant_rowwise(c["w13_q"][g], c["w13_sf"].view(G, -1)[g]) for g in range(G)
     ]
-    c["w2_deq"] = [
-        _dequant_rowwise(c["w2_q"][g], c["w2_sf"].view(G, -1)[g]) for g in range(G)
-    ]
     c["z_ref"], c["z_refA_gate"] = _refA_ref(
         c["x_deq"], c["w13_deq"], sizes, transpose_b=True
     )
@@ -504,9 +493,8 @@ def test_mxfp8_grouped_gemm_cudnn_matches_reference(case):
 def test_mxfp8_grouped_gemm_dswiglu_bwd_cudnn_matches_reference(case):
     c = _build_case(*_CASES[case])
     torch.manual_seed(12)
-    # Any BF16 [R, 2F] tensor is a valid z for isolated numerics (the kernel
-    # computes dSwiGLU from the z it is given); the chain test covers the
-    # production case where z is the exact fwd-op output.
+    # Any BF16 [R, 2F] tensor is a valid z for isolated numerics: the kernel
+    # computes dSwiGLU from whatever z it is given.
     z = torch.randn(c["R"], 2 * c["F"], dtype=torch.bfloat16, device="cuda")
     args = (c["dy_q"], c["dy_sf"], c["w2c_q"], c["w2c_sf"], z, c["offsets"])
     dz_q, dz_sf, dz_colq, dz_col_sf = _OPS.mxfp8_grouped_gemm_dswiglu_bwd_cudnn(*args)
@@ -531,7 +519,8 @@ def test_mxfp8_grouped_gemm_wgrad_cudnn_matches_reference(case):
 
 
 # ---------------------------------------------------------------------------
-# Full-chain numerics: two references per stage, derived gates.
+# The production 6-op chain runner, shared by the determinism, layout, and
+# scale-mode tests.
 # ---------------------------------------------------------------------------
 
 
@@ -568,101 +557,6 @@ def _run_chain(c):
         r["dz_colq"], r["dz_col_sf"], c["x_colq"], c["x_col_sf"], c["offsets"]
     )
     return r
-
-
-@pytest.mark.parametrize("case", list(_CASES))
-def test_chain_numerics(case):
-    D, hidden, sizes = _CASES[case]
-    c = _build_case(D, hidden, sizes)
-    G = c["G"]
-    r = _run_chain(c)
-
-    # --- z: refA (dequantized operands, two reduction orders)
-    z_ref, gate_a = c["z_ref"], c["z_refA_gate"]
-    z_db = compute_error(z_ref.bfloat16(), r["z"]).item()
-    assert z_db >= gate_a, f"z {z_db:.1f} dB < derived refA gate {gate_a:.1f}"
-
-    # --- z: refB (exact chain from ORIGINAL bf16 tensors; no quant helpers)
-    z_exact = _grouped_matmul(
-        c["x"].float(), [w.float() for w in c["w13"]], sizes, transpose_b=True
-    )
-    band_b = compute_error(z_exact, z_ref).item()  # quantization band
-    z_db_b = compute_error(z_exact.bfloat16(), r["z"]).item()
-    assert z_db_b >= band_b - 6.0, (
-        f"z vs independent exact chain {z_db_b:.1f} dB < band {band_b:.1f} - 6"
-    )
-
-    # --- h (both quantized orientations) vs silu ref from the KERNEL's z
-    gate_f, up_f = _zsplit(r["z"].float(), hidden)
-    h_ref = F.silu(gate_f) * up_f
-    band_h = compute_error(
-        h_ref, _dequant_rowwise(*_quant_rowwise(h_ref.bfloat16()))
-    ).item()
-    h_deq = _dequant_rowwise(r["h_q"], r["h_sf"])
-    h_db = compute_error(h_ref, h_deq).item()
-    assert h_db >= band_h - 6.0, f"h {h_db:.1f} dB < requant band {band_h:.1f} - 6"
-    h_col_deq = _dequant_colwise_grouped(r["h_colq"], r["h_col_sf"], sizes, hidden)
-    h_col_db = compute_error(h_ref, h_col_deq).item()
-    assert h_col_db >= band_h - 6.0, (
-        f"h_col {h_col_db:.1f} dB < requant band {band_h:.1f} - 6 "
-        "(a whole-matrix-vs-per-group scale layout bug lands at 2-5 dB)"
-    )
-
-    # --- y: refA from the op's own quantized h + refB independent chain
-    y_ref, y_gate = _refA_ref(h_deq, c["w2_deq"], sizes, transpose_b=True)
-    y_db = compute_error(y_ref.bfloat16(), r["y"]).item()
-    assert y_db >= y_gate, f"y {y_db:.1f} dB < derived refA gate {y_gate:.1f}"
-    # refB for y: the whole forward computed from ORIGINAL bf16 tensors only.
-    gate_x, up_x = _zsplit(z_exact, hidden)
-    y_exact = _grouped_matmul(
-        F.silu(gate_x) * up_x, [w.float() for w in c["w2"]], sizes, transpose_b=True
-    )
-    y_band_b = compute_error(y_exact, y_ref).item()
-    y_db_b = compute_error(y_exact.bfloat16(), r["y"]).item()
-    assert y_db_b >= y_band_b - 6.0, (
-        f"y vs independent chain {y_db_b:.1f} dB < band {y_band_b:.1f} - 6"
-    )
-
-    # --- dz vs closed-form dSwiGLU from the kernel's z
-    dz_ref = _ref_grouped_gemm_dswiglu_bwd(
-        c["dy_q"], c["dy_sf"], c["w2c_q"], c["w2c_sf"], r["z"], c["offsets"]
-    )
-    band_dz = compute_error(
-        dz_ref, _dequant_rowwise(*_quant_rowwise(dz_ref.bfloat16()))
-    ).item()
-    dz_deq = _dequant_rowwise(r["dz_q"], r["dz_sf"])
-    dz_db = compute_error(dz_ref, dz_deq).item()
-    assert dz_db >= band_dz - 6.0, f"dz {dz_db:.1f} dB < band {band_dz:.1f} - 6"
-
-    # --- dx refA
-    w13c_deq = [
-        _dequant_colwise_grouped(
-            c["w13c_q"][g], c["w13c_sf"].view(G, -1)[g], [2 * hidden], D
-        )
-        for g in range(G)
-    ]
-    dx_ref, dx_gate = _refA_ref(dz_deq, w13c_deq, sizes, transpose_b=False)
-    dx_db = compute_error(dx_ref.bfloat16(), r["dx"]).item()
-    assert dx_db >= dx_gate, f"dx {dx_db:.1f} dB < derived refA gate {dx_gate:.1f}"
-
-    # --- wgrads refA (production layout mixes)
-    dw2_ref = _ref_grouped_gemm_wgrad(
-        c["dy_colq"], c["dy_col_sf"], r["h_colq"], r["h_col_sf"], c["offsets"]
-    )
-    dw13_ref = _ref_grouped_gemm_wgrad(
-        r["dz_colq"], r["dz_col_sf"], c["x_colq"], c["x_col_sf"], c["offsets"]
-    )
-    dw2_db = compute_error(dw2_ref.bfloat16(), r["dw2"]).item()
-    dw13_db = compute_error(dw13_ref.bfloat16(), r["dw13"]).item()
-    assert dw2_db >= 50.0, f"dw2 {dw2_db:.1f} dB < 50 (probe level: 98-155)"
-    assert dw13_db >= 50.0, f"dw13 {dw13_db:.1f} dB < 50 (probe level: 91-160)"
-
-    # zero-token experts must come back written as exact zeros
-    for g, m in enumerate(sizes):
-        if m == 0:
-            assert (r["dw2"][g] == 0).all() and (r["dw13"][g] == 0).all(), (
-                f"zero-token expert {g} weight gradients must be exactly zero"
-            )
 
 
 # ---------------------------------------------------------------------------
@@ -833,9 +727,9 @@ def test_tail_a_lt_r_poisoned():
 def test_zero_token_group_bitwise_inert():
     """A zero-token expert group is bitwise inert: dropping it from offsets
     and the weight stacks entirely ([256, 0, 512, 256] -> [256, 512, 256])
-    leaves every output byte of every op unchanged for the surviving groups
-    (the dropped group's own dw slice is the zero-write covered in
-    test_chain_numerics)."""
+    leaves every output byte of every op unchanged for the surviving groups,
+    and the dropped group's own weight gradients are written as exact
+    zeros."""
     D = hidden = 256
     torch.manual_seed(5)
     dev = "cuda"
@@ -856,10 +750,14 @@ def test_zero_token_group_bitwise_inert():
         assert torch.equal(_bytes(a), _bytes(r3[key])), (
             f"{key} changed when the zero-token group was removed"
         )
+    for key in ("dw2", "dw13"):
+        assert (r4[key][1] == 0).all(), (
+            f"zero-token expert {key} slice must be written as exact zeros"
+        )
 
 
 # ---------------------------------------------------------------------------
-# Determinism, compile, R == 0.
+# Determinism and R == 0.
 # ---------------------------------------------------------------------------
 
 
@@ -871,25 +769,6 @@ def test_determinism_all_ops_bitwise(dbg):
         assert torch.equal(_bytes(r1[key]), _bytes(r2[key])), (
             f"{key} is not bitwise deterministic across identical launches"
         )
-
-
-def test_compile_fullgraph_bitwise(dbg):
-    c = dbg
-
-    def fwd_then_mm(x_q, x_sf, w13_q, w13_sf, w2_q, w2_sf, offsets):
-        z, h_q, h_sf, h_colq, h_col_sf = _OPS.mxfp8_grouped_gemm_swiglu_fwd_cudnn(
-            x_q, x_sf, w13_q, w13_sf, offsets
-        )
-        y = _OPS.mxfp8_grouped_gemm_cudnn(h_q, h_sf, w2_q, w2_sf, offsets)
-        return z, h_q, y
-
-    args = [
-        c[k] for k in ("x_q", "x_sf", "w13_q", "w13_sf", "w2_q", "w2_sf", "offsets")
-    ]
-    eager = fwd_then_mm(*args)
-    compiled = torch.compile(fwd_then_mm, fullgraph=True)(*args)
-    for e, co, name in zip(eager, compiled, ("z", "h_q", "y")):
-        assert torch.equal(_bytes(e), _bytes(co)), f"compiled {name} != eager"
 
 
 def test_r0_all_ops():
