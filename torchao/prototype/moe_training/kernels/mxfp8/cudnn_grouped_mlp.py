@@ -43,7 +43,6 @@ real launch. :func:`is_supported` is the static shape predicate to call
 before selecting this family.
 """
 
-import importlib.util
 from typing import Tuple
 
 import torch
@@ -72,89 +71,11 @@ _E8M0 = torch.float8_e8m0fnu
 _BLOCK = SCALE_BLOCK_SIZE
 
 
-# --------------------------------------------------------------------------
-# Availability probe and the static shape predicate.
-# --------------------------------------------------------------------------
-
-_REQUIRED_WRAPPERS = (
-    "grouped_gemm_glu_wrapper_sm100",
-    "grouped_gemm_quant_wrapper_sm100",
-    "grouped_gemm_dglu_wrapper_sm100",
-    "grouped_gemm_wgrad_wrapper_sm100",
-)
-# 1.27 is required: earlier frontends reject prob_tensor=None.
-_MIN_FE_VERSION = (1, 27)
-
-
-def _fe_version_tuple(version: str) -> tuple:
-    """Numeric prefix as a tuple ('1.27.0' -> (1, 27, 0)); never compare
-    version STRINGS ('1.100' < '1.27' lexicographically)."""
-    parts = []
-    for piece in version.split("."):
-        digits = ""
-        for ch in piece:
-            if not ch.isdigit():
-                break
-            digits += ch
-        if not digits:
-            break
-        parts.append(int(digits))
-    return tuple(parts)
-
-
-def _is_sm100() -> bool:
-    # Exactly capability (10, 0): the cudnn wrappers are *_sm100-specific and
-    # unproven on other SM 10.x parts.
-    return torch.cuda.is_available() and torch.cuda.get_device_capability() == (10, 0)
-
-
-def _probe_cudnn_frontend() -> str:
-    """Empty string when usable; else the reason it is not."""
-    if importlib.util.find_spec("cudnn") is None:
-        return "the cudnn-frontend python package ('cudnn') is not installed"
-    try:
-        import cudnn
-    except Exception as exc:  # pragma: no cover - environment-specific
-        return f"'import cudnn' failed: {exc!r}"
-    version = getattr(cudnn, "__version__", "0")
-    if _fe_version_tuple(version) < _MIN_FE_VERSION:
-        return (
-            f"cudnn-frontend {version} is too old; >= "
-            f"{'.'.join(map(str, _MIN_FE_VERSION))} is required "
-            "(prob_tensor=None support)"
-        )
-    missing = [name for name in _REQUIRED_WRAPPERS if not hasattr(cudnn, name)]
-    if missing:
-        return "cudnn-frontend lacks required wrappers: " + ", ".join(missing)
-    return ""
-
-
-_mxfp8_grouped_mlp_unavailable_reason = (
-    _probe_cudnn_frontend()
-    if _is_sm100()
-    else (
-        "requires an SM 10.0 (Blackwell) GPU; the cudnn wrappers are sm100-specific"
-        if torch.cuda.is_available()
-        else "CUDA is not available"
-    )
-)
-_mxfp8_grouped_mlp_kernels_available = _mxfp8_grouped_mlp_unavailable_reason == ""
-
-
-def _require_available() -> None:
-    if not _mxfp8_grouped_mlp_kernels_available:
-        raise NotImplementedError(
-            "cuDNN-frontend MXFP8 grouped-MLP kernels are unavailable: "
-            + _mxfp8_grouped_mlp_unavailable_reason
-        )
-
-
 def is_supported(model_dim: int, hidden_dim: int) -> bool:
     """True when D and F are positive multiples of 128. Integration code must
     ALSO guarantee the runtime row contract (per-expert groups and the row
     allocation padded to multiples of 256): row counts live in device memory
-    and are not checkable here. Environment availability is a separate
-    concern (``_mxfp8_grouped_mlp_kernels_available``)."""
+    and are not checkable here."""
     return (
         model_dim > 0
         and hidden_dim > 0
@@ -599,7 +520,6 @@ def mxfp8_grouped_gemm_swiglu_fwd_cudnn(x_q, x_sf, w13_q, w13_sf, offsets):
     where the columnwise scales are PER-GROUP blocked. Rows past
     ``offsets[-1]`` of every output are garbage and read-forbidden.
     """
-    _require_available()
     return torch.ops.torchao.mxfp8_grouped_gemm_swiglu_fwd_cudnn(
         x_q, x_sf, w13_q, w13_sf, offsets
     )
@@ -614,7 +534,6 @@ def mxfp8_grouped_gemm_cudnn(a_q, a_sf, b_q, b_sf, offsets):
     orientation. Returns BF16 ``[R, N]`` with rows past ``offsets[-1]``
     uninitialized.
     """
-    _require_available()
     return torch.ops.torchao.mxfp8_grouped_gemm_cudnn(a_q, a_sf, b_q, b_sf, offsets)
 
 
@@ -627,7 +546,6 @@ def mxfp8_grouped_gemm_dswiglu_bwd_cudnn(
     ``(dz_row_q [R, 2F], dz_row_sf, dz_col_q [R, 2F], dz_col_sf)`` in the same
     32-block order.
     """
-    _require_available()
     return torch.ops.torchao.mxfp8_grouped_gemm_dswiglu_bwd_cudnn(
         dy_q, dy_sf, w2_col_q, w2_col_sf, z_bf16, offsets
     )
@@ -640,7 +558,6 @@ def mxfp8_grouped_gemm_wgrad_cudnn(dy_col_q, dy_col_sf, x_col_q, x_col_sf, offse
     (never whole-matrix ``to_blocked`` -- same byte count, silently wrong
     block order). Returns contiguous BF16 ``[G, N, K]``.
     """
-    _require_available()
     return torch.ops.torchao.mxfp8_grouped_gemm_wgrad_cudnn(
         dy_col_q, dy_col_sf, x_col_q, x_col_sf, offsets
     )

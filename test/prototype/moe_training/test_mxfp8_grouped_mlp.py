@@ -35,20 +35,11 @@ if not (torch.cuda.is_available() and is_sm_version(10, 0)):
     )
 
 try:
-    from torchao.prototype.moe_training.kernels.mxfp8.cudnn_grouped_mlp import (
-        _mxfp8_grouped_mlp_kernels_available,
-        _mxfp8_grouped_mlp_unavailable_reason,
-    )
+    # Importing the module registers the four torchao:: custom ops.
+    import torchao.prototype.moe_training.kernels.mxfp8.cudnn_grouped_mlp  # noqa: F401
 except ImportError:
     pytest.skip(
         "installed torchao does not provide the cudnn_grouped_mlp module",
-        allow_module_level=True,
-    )
-
-if not _mxfp8_grouped_mlp_kernels_available:
-    pytest.skip(
-        f"cudnn-frontend grouped-GEMM wrappers unavailable: "
-        f"{_mxfp8_grouped_mlp_unavailable_reason}",
         allow_module_level=True,
     )
 
