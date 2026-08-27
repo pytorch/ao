@@ -11,6 +11,7 @@
 #include <torchao/csrc/cpu/torch_free_kernels/aarch64/bitpacking/bitpack.h>
 #include <torchao/csrc/cpu/torch_free_kernels/aarch64/linear/channelwise_8bit_activation_groupwise_lowbit_weight/kernel_1x8x16_f32_neondot-impl.h>
 #include <torchao/csrc/cpu/torch_free_kernels/aarch64/linear/channelwise_8bit_activation_groupwise_lowbit_weight/kernel_2x8x16_f32_neondot-impl.h>
+#include <algorithm>
 #include <cassert>
 #include <cstddef>
 
@@ -211,7 +212,8 @@ void kernel_4x8x16_f32_neondot(
   const auto* activation_data_bytes = static_cast<const char*>(activation_data);
 
   int m_idx = 0;
-  for (; m_idx + mr <= m; m_idx += mr) {
+  for (; m_idx + 3 <= m; m_idx += mr) {
+    const int tile_m = std::min(mr, m - m_idx);
     const char* activation_block =
         activation_data_bytes + m_idx * activation_row_size;
     float32x4_t activation_scale_vec =
@@ -361,7 +363,7 @@ void kernel_4x8x16_f32_neondot(
           output_4567[2],
           output_4567[3]);
       const int remaining = n - n_idx;
-      for (int row = 0; row < mr; row++) {
+      for (int row = 0; row < tile_m; row++) {
         internal::store_8_f32(
             output + (m_idx + row) * output_m_stride + n_idx,
             remaining,

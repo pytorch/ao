@@ -131,21 +131,25 @@ void inline pack_interleaved_block(
     int k,
     int group_size,
     const float* activations,
-    bool has_weight_zeros) {
+    bool has_weight_zeros,
+    int valid_rows = mr) {
   static_assert(mr == 4 || mr == 8);
+  assert(valid_rows >= 1 && valid_rows <= mr);
 
-  float scales[mr];
-  int zeros[mr];
+  float scales[mr]{};
+  int zeros[mr]{};
   int qmin, qmax;
   torchao::quantization::get_qvals_range(
       qmin, qmax, /*nbit=*/8, /*is_symmetric=*/false);
 
-  for (int row = 0; row < mr; row++) {
+  for (int row = 0; row < valid_rows; row++) {
     float vmin, vmax;
     torchao::kernels::cpu::aarch64::reduction::find_min_and_max(
         vmin, vmax, activations + row * k, k);
     torchao::quantization::get_scale_and_zero(
         scales[row], zeros[row], vmin, vmax, qmin, qmax);
+  }
+  for (int row = 0; row < mr; row++) {
     std::memcpy(packed, &scales[row], sizeof(float));
     packed += sizeof(float);
   }
@@ -156,8 +160,8 @@ void inline pack_interleaved_block(
   for (int k_idx = 0; k_idx < k; k_idx += group_size) {
     int32_t qvals_sums[mr]{};
     for (int i = 0; i < group_size; i += 16) {
-      int8_t qvals[mr][16];
-      for (int row = 0; row < mr; row++) {
+      int8_t qvals[mr][16]{};
+      for (int row = 0; row < valid_rows; row++) {
         torchao::kernels::cpu::aarch64::quantization::quantize(
             qvals[row],
             activations + row * k + k_idx + i,
@@ -220,6 +224,16 @@ void inline pack_activations_interleaved(
           packed, k, group_size, activations + m_idx * k, has_weight_zeros);
       m_idx += 4;
     }
+  }
+  if (m_idx + 3 == m) {
+    internal::pack_interleaved_block<4>(
+        packed,
+        k,
+        group_size,
+        activations + m_idx * k,
+        has_weight_zeros,
+        /*valid_rows=*/3);
+    m_idx += 3;
   }
   if (m_idx < m) {
     pack_activations<1, kr, sr>(

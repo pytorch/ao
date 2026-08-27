@@ -63,10 +63,10 @@ void kernel_8x8x16_f32_neondot(
     const char* weight_data_bytes = static_cast<const char*>(weight_data);
     for (int n_idx = 0; n_idx < n; n_idx += nr) {
       const char* activation_ptr = activation_block;
-      float32x4_t results[row_blocks][nr];
-      for (int block = 0; block < row_blocks; block++) {
-        for (int col = 0; col < nr; col++) {
-          results[block][col] = vdupq_n_f32(0.0f);
+      float32x4_t results[nr][row_blocks];
+      for (int col = 0; col < nr; col++) {
+        for (int block = 0; block < row_blocks; block++) {
+          results[col][block] = vdupq_n_f32(0.0f);
         }
       }
 
@@ -147,12 +147,13 @@ void kernel_8x8x16_f32_neondot(
           activation_ptr += mr * sizeof(int32_t);
         }
 
-        for (int block = 0; block < row_blocks; block++) {
-          for (int col = 0; col < nr; col++) {
+        for (int col = 0; col < nr; col++) {
+          const int32_t weight_qvals_sum = weight_qvals_sums[col];
+          const float weight_scale = weight_scales[col];
+          for (int block = 0; block < row_blocks; block++) {
             int32x4_t corrected = vsubq_s32(
                 accumulators[block][col],
-                vmulq_n_s32(
-                    activation_zero_vec[block], weight_qvals_sums[col]));
+                vmulq_n_s32(activation_zero_vec[block], weight_qvals_sum));
             if constexpr (has_weight_zeros) {
               corrected = vsubq_s32(
                   corrected,
@@ -165,9 +166,9 @@ void kernel_8x8x16_f32_neondot(
                       group_size * weight_zeros[col]));
             }
             float32x4_t scale_factor =
-                vmulq_n_f32(activation_scale_vec[block], weight_scales[col]);
-            results[block][col] = vmlaq_f32(
-                results[block][col], scale_factor, vcvtq_f32_s32(corrected));
+                vmulq_n_f32(activation_scale_vec[block], weight_scale);
+            results[col][block] = vmlaq_f32(
+                results[col][block], scale_factor, vcvtq_f32_s32(corrected));
           }
         }
       }
@@ -175,10 +176,10 @@ void kernel_8x8x16_f32_neondot(
       if (has_bias) {
         const float* bias = reinterpret_cast<const float*>(weight_data_bytes);
         weight_data_bytes += nr * sizeof(float);
-        for (int block = 0; block < row_blocks; block++) {
-          for (int col = 0; col < nr; col++) {
-            results[block][col] =
-                vaddq_f32(results[block][col], vdupq_n_f32(bias[col]));
+        for (int col = 0; col < nr; col++) {
+          for (int block = 0; block < row_blocks; block++) {
+            results[col][block] =
+                vaddq_f32(results[col][block], vdupq_n_f32(bias[col]));
           }
         }
       }
@@ -187,8 +188,8 @@ void kernel_8x8x16_f32_neondot(
         float32x4_t vec_max = vdupq_n_f32(clamp_max);
         for (int block = 0; block < row_blocks; block++) {
           for (int col = 0; col < nr; col++) {
-            results[block][col] =
-                internal::vec_clamp(results[block][col], vec_min, vec_max);
+            results[col][block] =
+                internal::vec_clamp(results[col][block], vec_min, vec_max);
           }
         }
       }
@@ -197,19 +198,19 @@ void kernel_8x8x16_f32_neondot(
         float32x4_t output_0123[4];
         float32x4_t output_4567[4];
         internal::transpose_4x4_f32(
-            results[block][0],
-            results[block][1],
-            results[block][2],
-            results[block][3],
+            results[0][block],
+            results[1][block],
+            results[2][block],
+            results[3][block],
             output_0123[0],
             output_0123[1],
             output_0123[2],
             output_0123[3]);
         internal::transpose_4x4_f32(
-            results[block][4],
-            results[block][5],
-            results[block][6],
-            results[block][7],
+            results[4][block],
+            results[5][block],
+            results[6][block],
+            results[7][block],
             output_4567[0],
             output_4567[1],
             output_4567[2],

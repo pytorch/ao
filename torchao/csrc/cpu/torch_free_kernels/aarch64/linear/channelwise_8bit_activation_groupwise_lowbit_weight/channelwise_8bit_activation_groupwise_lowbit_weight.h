@@ -32,11 +32,15 @@ inline size_t packed_activations_size(
     int mr,
     int kr,
     int sr) {
-  (void)mr; // unused
   (void)kr; // unused
   (void)sr; // unused
-  return activation_packing::packed_activations_size(
+  size_t size = activation_packing::packed_activations_size(
       m, k, group_size, has_weight_zeros);
+  if (mr > 1 && m % 4 == 3) {
+    size += activation_packing::packed_activations_size(
+        1, k, group_size, has_weight_zeros);
+  }
+  return size;
 }
 
 inline size_t packed_activations_offset(
@@ -87,6 +91,30 @@ void pack_activations_interleaved(
   (void)sr;
   activation_packing::pack_activations_interleaved<mr_, kr_, sr_>(
       packed_activations, m, k, group_size, activations, has_weight_zeros);
+}
+
+template <int kr_, int sr_>
+void pack_activations_small_prefill(
+    void* packed_activations,
+    int m,
+    int k,
+    int group_size,
+    const float* activations,
+    bool has_weight_zeros,
+    int mr,
+    int kr,
+    int sr) {
+  (void)mr;
+  (void)kr;
+  (void)sr;
+  assert(m >= 1 && m <= 3);
+  if (m == 3) {
+    activation_packing::pack_activations_interleaved<4, kr_, sr_>(
+        packed_activations, m, k, group_size, activations, has_weight_zeros);
+  } else {
+    activation_packing::pack_activations<2, kr_, sr_>(
+        packed_activations, m, k, group_size, activations, has_weight_zeros);
+  }
 }
 
 template <int weight_nbit, int nr_, int kr_, int sr_>
@@ -320,6 +348,54 @@ void kernel_4x8x16_f32_neondot(
       clamp_max,
       has_bias,
       has_clamp);
+}
+
+template <int weight_nbit, bool has_weight_zeros>
+void kernel_small_prefill_f32_neondot(
+    float32_t* output,
+    int output_m_stride,
+    int m,
+    int n,
+    int k,
+    int group_size,
+    const void* packed_weights,
+    const void* packed_activations,
+    float clamp_min,
+    float clamp_max,
+    bool has_weight_zeros_,
+    bool has_bias,
+    bool has_clamp) {
+  (void)has_weight_zeros_;
+  assert(m >= 1 && m <= 3);
+  if (m == 3) {
+    kernel::kernel_4x8x16_f32_neondot<weight_nbit, has_weight_zeros>(
+        output,
+        output_m_stride,
+        m,
+        n,
+        k,
+        group_size,
+        packed_weights,
+        packed_activations,
+        clamp_min,
+        clamp_max,
+        has_bias,
+        has_clamp);
+  } else {
+    kernel::kernel_2x8x16_f32_neondot<weight_nbit, has_weight_zeros>(
+        output,
+        output_m_stride,
+        m,
+        n,
+        k,
+        group_size,
+        packed_weights,
+        packed_activations,
+        clamp_min,
+        clamp_max,
+        has_bias,
+        has_clamp);
+  }
 }
 
 template <int weight_nbit, bool has_weight_zeros>

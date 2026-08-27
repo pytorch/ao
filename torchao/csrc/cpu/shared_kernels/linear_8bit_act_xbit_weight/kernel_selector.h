@@ -169,9 +169,10 @@ void register_ukernel_config_universal(
                small_prefill_mr,
                &kernel::packed_activations_size,
                &kernel::packed_activations_offset,
-               &kernel::pack_activations<small_prefill_mr, kr, sr>,
-               &kernel::
-                   kernel_2x8x16_f32_neondot<weight_nbit, has_weight_zeros>});
+               &kernel::pack_activations_small_prefill<kr, sr>,
+               &kernel::kernel_small_prefill_f32_neondot<
+                   weight_nbit,
+                   has_weight_zeros>});
           constexpr int prefill_mr = 4;
           constexpr int prefill_m_step = 4;
           uk.linear_configs[2] = UKernelConfig::linear_config_type(
@@ -216,9 +217,10 @@ void register_ukernel_config_universal(
                small_prefill_mr,
                &kernel::packed_activations_size,
                &kernel::packed_activations_offset,
-               &kernel::pack_activations<small_prefill_mr, kr, sr>,
-               &kernel::
-                   kernel_2x8x16_f32_neondot<weight_nbit, has_weight_zeros>});
+               &kernel::pack_activations_small_prefill<kr, sr>,
+               &kernel::kernel_small_prefill_f32_neondot<
+                   weight_nbit,
+                   has_weight_zeros>});
           constexpr int prefill_mr = 4;
           constexpr int prefill_m_step = 4;
           uk.linear_configs[2] = UKernelConfig::linear_config_type(
