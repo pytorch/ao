@@ -712,65 +712,150 @@ def test_native_weight_major_mm_bwd(dbg):
 
 
 # ---------------------------------------------------------------------------
-# A < R strict tail with planted garbage.
+# Bitwise invariance: poisoned A < R tails and zero-token-group removal.
 # ---------------------------------------------------------------------------
 
 
+def _quant_and_run_chain(x, dy, w13, w2, sizes, r_alloc):
+    """Quantize raw [A, D] activations and run the production 6-op chain with
+    the activation buffers allocated at ``r_alloc`` rows. When ``r_alloc``
+    exceeds the routed total the extra rows are POISONED: NaN/Inf activations
+    (so the rowwise qdata tail is garbage), NaN-byte colwise qdata, and
+    NaN-byte (0xFF) scale padding out to the R-sized colwise buffers the ops
+    require -- none of which the kernels may read."""
+    dev = x.device
+    a_rows = sum(sizes)
+    offsets = _mk_offsets(sizes, dev)
+    x_colq, x_col_sf = _quant_colwise_grouped(x, sizes, native=True)
+    dy_colq, dy_col_sf = _quant_colwise_grouped(dy, sizes, native=True)
+    if r_alloc > a_rows:
+        nan_rows = torch.full(
+            (r_alloc - a_rows, x.shape[1]), float("nan"), dtype=x.dtype, device=dev
+        )
+        dy_tail = nan_rows.clone()
+        dy_tail[::2] = float("inf")
+        x = torch.cat([x, nan_rows])
+        dy = torch.cat([dy, dy_tail])
+
+        def _poison_cols(q):
+            tail = torch.full(
+                (r_alloc - a_rows, q.shape[1]), 0x7F, dtype=torch.uint8, device=dev
+            ).view(_E4M3)
+            return _cat8([q.contiguous(), tail], 0)
+
+        def _sf_pad(sf, feats):
+            pad = torch.full(
+                (feats * (r_alloc - a_rows) // _BLOCK,),
+                0xFF,
+                dtype=torch.uint8,
+                device=dev,
+            ).view(_E8M0)
+            return _cat8([sf, pad])
+
+        x_colq, dy_colq = _poison_cols(x_colq), _poison_cols(dy_colq)
+        x_col_sf = _sf_pad(x_col_sf, x.shape[1])
+        dy_col_sf = _sf_pad(dy_col_sf, dy.shape[1])
+    x_q, x_sf = _quant_rowwise(x)
+    dy_q, dy_sf = _quant_rowwise(dy)
+    w13_q, w13_sf = _quant_weight_rowwise(w13)
+    w2_q, w2_sf = _quant_weight_rowwise(w2)
+    w13c_q, w13c_sf = _quant_weight_colwise(w13)
+    w2c_q, w2c_sf = _quant_weight_colwise(w2)
+    r = {}
+    r["z"], r["h_q"], r["h_sf"], r["h_colq"], r["h_col_sf"] = (
+        _OPS.mxfp8_grouped_gemm_swiglu_fwd_cudnn(x_q, x_sf, w13_q, w13_sf, offsets)
+    )
+    r["y"] = _OPS.mxfp8_grouped_gemm_cudnn(r["h_q"], r["h_sf"], w2_q, w2_sf, offsets)
+    r["dz_q"], r["dz_sf"], r["dz_colq"], r["dz_col_sf"] = (
+        _OPS.mxfp8_grouped_gemm_dswiglu_bwd_cudnn(
+            dy_q, dy_sf, w2c_q, w2c_sf, r["z"], offsets
+        )
+    )
+    r["dx"] = _OPS.mxfp8_grouped_gemm_cudnn(
+        r["dz_q"], r["dz_sf"], w13c_q.transpose(-2, -1), w13c_sf, offsets
+    )
+    r["dw2"] = _OPS.mxfp8_grouped_gemm_wgrad_cudnn(
+        dy_colq, dy_col_sf, r["h_colq"], r["h_col_sf"], offsets
+    )
+    r["dw13"] = _OPS.mxfp8_grouped_gemm_wgrad_cudnn(
+        r["dz_colq"], r["dz_col_sf"], x_colq, x_col_sf, offsets
+    )
+    return r
+
+
 def test_tail_a_lt_r_poisoned():
+    """A < R allocation with a poisoned tail: every active-region output of
+    the padded chain must be BITWISE identical to the same chain run at exact
+    size. NaN/Inf activation rows, NaN-byte colwise qdata, and NaN-byte scale
+    padding are planted past ``offsets[-1]``, so ANY tail read shows up as a
+    byte difference against the finite exact-size run."""
     D = hidden = 256
     sizes = [256, 0, 512, 256]
     A, R = sum(sizes), 1280
     torch.manual_seed(3)
     dev = "cuda"
-    offsets = _mk_offsets(sizes, dev)
-    x = torch.randn(R, D, dtype=torch.bfloat16, device=dev) * 0.5
-    dy = torch.randn(R, D, dtype=torch.bfloat16, device=dev) * 0.5
-    x[A:] = float("nan")
-    dy[A::2] = float("inf")
-    dy[A + 1 :: 2] = float("nan")
+    x = torch.randn(A, D, dtype=torch.bfloat16, device=dev) * 0.5
+    dy = torch.randn(A, D, dtype=torch.bfloat16, device=dev) * 0.5
     w13 = _to_32block(
         torch.randn(4, hidden, 2, D, dtype=torch.bfloat16, device=dev) * 0.02
     )
     w2 = torch.randn(4, D, hidden, dtype=torch.bfloat16, device=dev) * 0.02
+    rp = _quant_and_run_chain(x, dy, w13, w2, sizes, R)
+    re = _quant_and_run_chain(x, dy, w13, w2, sizes, A)
+    for key in ("y", "dw2", "dw13"):
+        assert re[key].float().isfinite().all(), f"exact-size {key} is not finite"
+    for key in ("z", "h_q", "h_colq", "y", "dz_q", "dz_colq", "dx"):
+        assert torch.equal(_bytes(rp[key][:A]), _bytes(re[key])), (
+            f"{key}: active rows differ between the padded and exact-size runs"
+        )
+    for key, feat in (("h_sf", hidden), ("dz_sf", 2 * hidden)):
+        padded = from_blocked(rp[key].view(_E8M0), R, feat // _BLOCK)[:A]
+        exact = from_blocked(re[key].view(_E8M0), A, feat // _BLOCK)
+        assert torch.equal(_bytes(padded), _bytes(exact)), f"{key} active rows differ"
+    for key in ("h_col_sf", "dz_col_sf"):
+        n = re[key].numel()
+        assert torch.equal(_bytes(rp[key][:n]), _bytes(re[key])), f"{key} differs"
+    for key in ("dw2", "dw13"):
+        assert torch.equal(_bytes(rp[key]), _bytes(re[key])), f"{key} differs"
+    # A routed-A-sized colwise scale buffer must be rejected up front: cudnn
+    # validates the R-derived scale shape only on cold plan-building calls, so
+    # accepting it would make the op's behavior depend on call history.
+    with pytest.raises(ValueError, match="allocated row count"):
+        _OPS.mxfp8_grouped_gemm_wgrad_cudnn(
+            torch.zeros(R, D, dtype=_E4M3, device=dev),
+            torch.zeros(D * A // _BLOCK, dtype=_E8M0, device=dev),
+            torch.zeros(R, hidden, dtype=_E4M3, device=dev),
+            torch.zeros(hidden * R // _BLOCK, dtype=_E8M0, device=dev),
+            _mk_offsets(sizes, dev),
+        )
 
-    x_q, x_sf = _quant_rowwise(x)
-    dy_q, dy_sf = _quant_rowwise(dy)
-    w13_q, w13_sf = _quant_weight_rowwise(w13)
-    w2_q, w2_sf = _quant_weight_rowwise(w2)
-    w2c_q, w2c_sf = _quant_weight_colwise(w2)
 
-    z, h_q, h_sf, h_colq, h_col_sf = _OPS.mxfp8_grouped_gemm_swiglu_fwd_cudnn(
-        x_q, x_sf, w13_q, w13_sf, offsets
+def test_zero_token_group_bitwise_inert():
+    """A zero-token expert group is bitwise inert: dropping it from offsets
+    and the weight stacks entirely ([256, 0, 512, 256] -> [256, 512, 256])
+    leaves every output byte of every op unchanged for the surviving groups
+    (the dropped group's own dw slice is the zero-write covered in
+    test_chain_numerics)."""
+    D = hidden = 256
+    torch.manual_seed(5)
+    dev = "cuda"
+    A = 1024
+    x = torch.randn(A, D, dtype=torch.bfloat16, device=dev) * 0.5
+    dy = torch.randn(A, D, dtype=torch.bfloat16, device=dev) * 0.5
+    w13 = _to_32block(
+        torch.randn(4, hidden, 2, D, dtype=torch.bfloat16, device=dev) * 0.02
     )
-    assert not z[:A].isnan().any(), "active z rows contaminated by the poisoned tail"
-    y = _OPS.mxfp8_grouped_gemm_cudnn(h_q, h_sf, w2_q, w2_sf, offsets)
-    assert not y[:A].isnan().any(), "active y rows contaminated"
-    dz_q, dz_sf, dz_colq, dz_col_sf = _OPS.mxfp8_grouped_gemm_dswiglu_bwd_cudnn(
-        dy_q, dy_sf, w2c_q, w2c_sf, z, offsets
+    w2 = torch.randn(4, D, hidden, dtype=torch.bfloat16, device=dev) * 0.02
+    keep = [0, 2, 3]
+    r4 = _quant_and_run_chain(x, dy, w13, w2, [256, 0, 512, 256], A)
+    r3 = _quant_and_run_chain(
+        x, dy, w13[keep].contiguous(), w2[keep].contiguous(), [256, 512, 256], A
     )
-    w13c_q, w13c_sf = _quant_weight_colwise(w13)
-    dx = _OPS.mxfp8_grouped_gemm_cudnn(
-        dz_q, dz_sf, w13c_q.transpose(-2, -1), w13c_sf, offsets
-    )
-    assert not dx[:A].isnan().any(), "active dx rows contaminated"
-
-    # wgrad: colwise scales cover only the routed A rows; the qdata tail is
-    # additionally poisoned with NaN bytes and must never be read.
-    dy_colq, dy_col_sf = _quant_colwise_grouped(dy[:A], sizes, native=True)
-    dy_colq_full = _cat8(
-        [
-            dy_colq.contiguous(),
-            torch.full((R - A, D), 0x7F, dtype=torch.uint8, device=dev).view(_E4M3),
-        ],
-        0,
-    )
-    dw2 = _OPS.mxfp8_grouped_gemm_wgrad_cudnn(
-        dy_colq_full, dy_col_sf, h_colq, h_col_sf, offsets
-    )
-    assert not dw2.isnan().any(), "wgrad read the NaN-poisoned inactive tail"
-    ref = _ref_grouped_gemm_wgrad(dy_colq, dy_col_sf, h_colq[:A], h_col_sf, offsets)
-    db = compute_error(ref.bfloat16(), dw2).item()
-    assert db >= 50.0, f"tail-poisoned dw2 {db:.1f} dB < 50"
+    for key in r4:
+        a = r4[key][keep] if key in ("dw2", "dw13") else r4[key]
+        assert torch.equal(_bytes(a), _bytes(r3[key])), (
+            f"{key} changed when the zero-token group was removed"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -924,6 +1009,50 @@ def test_kernel_scale_mode_is_rceil(dbg):
     assert rceil_frac > floor_frac + 0.1, (
         f"RCEIL ({rceil_frac:.3f}) does not dominate FLOOR ({floor_frac:.3f})"
     )
+
+
+def test_zero_amax_requant_block():
+    """An h 32-block that is EXACTLY zero (its up-half weight block zeroed)
+    must requantize like ``to_mx(RCEIL)``: the kernel's scale byte matches the
+    reference zero-block scale and the qdata dequantizes to exactly zero. The
+    kernel preserves the sign of ``silu(gate) * (+-0)``, so the block's bytes
+    are {0x00, 0x80} rather than all-zero. A NaN or junk scale here would
+    poison the wgrad that consumes these scales."""
+    D = hidden = 256
+    sizes = [512, 512]
+    A = sum(sizes)
+    torch.manual_seed(7)
+    dev = "cuda"
+    x = torch.randn(A, D, dtype=torch.bfloat16, device=dev) * 0.5
+    w13 = _to_32block(
+        torch.randn(2, hidden, 2, D, dtype=torch.bfloat16, device=dev) * 0.02
+    )
+    blk = 1  # zero expert 0's up-half 32-block: rows [blk*64+32, blk*64+64)
+    w13[0, blk * 64 + 32 : blk * 64 + 64] = 0
+    x_q, x_sf = _quant_rowwise(x)
+    w13_q, w13_sf = _quant_weight_rowwise(w13)
+    _, h_q, h_sf, h_colq, h_col_sf = _OPS.mxfp8_grouped_gemm_swiglu_fwd_cudnn(
+        x_q, x_sf, w13_q, w13_sf, _mk_offsets(sizes, dev)
+    )
+    rows, cols = slice(0, sizes[0]), slice(32 * blk, 32 * blk + 32)
+    s_ref, _ = to_mx(
+        torch.zeros(1, 32, dtype=torch.bfloat16, device=dev),
+        _E4M3,
+        _BLOCK,
+        scaling_mode=_RCEIL,
+    )
+    ref_byte = s_ref.view(torch.uint8).item()
+    for name, q in (("h_row", h_q[rows, cols]), ("h_col", h_colq[rows, cols])):
+        codes = q.contiguous().view(torch.uint8).unique().tolist()
+        assert set(codes) <= {0x00, 0x80}, f"{name} zero-block codes {codes}"
+    row_scales = from_blocked(h_sf.view(_E8M0), A, hidden // _BLOCK)
+    got = row_scales.view(torch.uint8)[rows, blk].unique().tolist()
+    assert got == [ref_byte], f"rowwise zero-block scale {got} != RCEIL {ref_byte}"
+    g0 = from_blocked(
+        h_col_sf[: hidden * sizes[0] // _BLOCK].view(_E8M0), hidden, sizes[0] // _BLOCK
+    )
+    got = g0.view(torch.uint8)[cols].unique().tolist()
+    assert got == [ref_byte], f"colwise zero-block scale {got} != RCEIL {ref_byte}"
 
 
 # ---------------------------------------------------------------------------

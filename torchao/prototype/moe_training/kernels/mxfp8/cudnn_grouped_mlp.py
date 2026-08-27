@@ -356,10 +356,16 @@ def validate_ragged_colwise_scales(
     allocated_rows: int,
     device: torch.device,
 ) -> None:
-    """Per-group columnwise scale buffer sized by ``offsets[-1]`` -- a device
-    value -- so only dtype/device/contiguity, granule divisibility, and the
-    allocated-rows maximum are host-checkable (an ``offsets[-1] < R`` buffer
-    legitimately covers fewer scale columns, probe-verified)."""
+    """Per-group columnwise scale buffer, sized by the ALLOCATED rows.
+
+    The cudnn wrapper sizes its scale descriptor as
+    ``[round_up(features, 128), allocated_rows/32]`` and validates that shape
+    only on the cold plan-building call -- warm calls reuse a cached plan
+    object and skip the check -- so a buffer sized by a smaller
+    ``offsets[-1]`` would be accepted or rejected depending on call HISTORY.
+    Require the R-sized buffer unconditionally instead. When
+    ``offsets[-1] < R`` the kernels read only the per-group prefix
+    (probe-verified), so callers pad with dead bytes."""
     if scales.dtype not in _SCALE_DTYPES:
         raise ValueError(
             f"{name} must be uint8 or float8_e8m0fnu (raw E8M0 bytes), "
@@ -370,20 +376,14 @@ def validate_ragged_colwise_scales(
     if scales.device != device:
         raise ValueError(f"{name} must be on {device}, got {scales.device}")
     rows_pad = _round_up(features, SCALE_TILE_ROWS)
-    # Each 256-row group contributes features_pad * (group_rows/32) bytes and
-    # group_rows/32 is a multiple of 8.
-    granule = rows_pad * (ROW_GROUP_ALIGNMENT // SCALE_BLOCK_SIZE)
-    if scales.numel() % granule != 0:
+    expected = rows_pad * (allocated_rows // SCALE_BLOCK_SIZE)
+    if scales.numel() != expected:
         raise ValueError(
-            f"{name} numel {scales.numel()} is not a multiple of {granule} "
-            f"(= round_up({features},128) x {ROW_GROUP_ALIGNMENT // SCALE_BLOCK_SIZE} "
-            "scale columns per 256-row group)"
-        )
-    max_numel = rows_pad * (allocated_rows // SCALE_BLOCK_SIZE)
-    if scales.numel() > max_numel:
-        raise ValueError(
-            f"{name} numel {scales.numel()} exceeds the maximum {max_numel} implied "
-            f"by the allocated row count {allocated_rows}"
+            f"{name} numel {scales.numel()} != {expected} blocked scale bytes "
+            f"(round_up({features},128) x allocated-rows/32) implied by the "
+            f"allocated row count {allocated_rows}; the kernel sizes its scale "
+            "descriptor from the allocated rows even when offsets[-1] is "
+            "smaller -- pad the buffer, the padding is never read"
         )
     _check_pointer_alignment(scales, name=name)
 
@@ -1107,8 +1107,6 @@ def _validate_wgrad_inputs(dy_col_q, dy_col_sf, x_col_q, x_col_sf, offsets):
         dtype=_E4M3,
         device=device,
     )
-    # Columnwise scale buffers are sized by offsets[-1] (a device value), not
-    # by R: only dtype/device/divisibility are host-checkable.
     validate_ragged_colwise_scales(
         dy_col_sf,
         name="dy_col_sf",
@@ -1123,10 +1121,6 @@ def _validate_wgrad_inputs(dy_col_q, dy_col_sf, x_col_q, x_col_sf, offsets):
         allocated_rows=rows,
         device=device,
     )
-    # No cross-buffer size check: a kernel-produced operand's scales are sized
-    # by the ALLOCATED rows while a composite-produced operand's are sized by
-    # the ROUTED total offsets[-1] -- mixing the two is legitimate and
-    # probe-proven (tail case); the kernel reads only within offsets.
     _remember_sig(sig, dy_col_q, dy_col_sf, x_col_q, x_col_sf, offsets)
     return rows, out_features, in_features, groups
 
@@ -1144,8 +1138,8 @@ def _mxfp8_grouped_gemm_wgrad_cudnn(
     Inputs:
       dy_col_q  E4M3 logical ``[R, N]``, columnwise (32x1) quantized, ANY major.
       dy_col_sf PER-GROUP flat blocked scales (each expert's ``[N, rows_g/32]``
-                block concatenated; the K-groups layout). Sized by the routed
-                total ``offsets[-1]``, which may be < R.
+                block concatenated; the K-groups layout), padded with dead
+                bytes to ``round_up(N,128) * R/32`` when ``offsets[-1] < R``.
       x_col_q / x_col_sf  likewise for logical ``[R, K]``.
       offsets   int32 CUDA ``[G]`` exclusive ends over the shared row axis.
 
