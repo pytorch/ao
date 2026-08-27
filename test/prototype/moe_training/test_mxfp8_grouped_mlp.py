@@ -74,8 +74,9 @@ if not _mxfp8_grouped_mlp_kernels_available:
     )
 
 from torchao.float8.float8_utils import compute_error
+from torchao.prototype.moe_training.kernels.mxfp8 import torch_to_blocked_per_group_3d
 from torchao.prototype.mx_formats.config import ScaleCalculationMode
-from torchao.prototype.mx_formats.mx_tensor import to_mx
+from torchao.prototype.mx_formats.mx_tensor import get_fp_scale, to_mx
 from torchao.prototype.mx_formats.utils import from_blocked, to_blocked
 
 _E4M3 = torch.float8_e4m3fn
@@ -95,23 +96,15 @@ def _bytes(t: torch.Tensor) -> torch.Tensor:
     return t.contiguous().view(torch.uint8)
 
 
-def _e8m0_to_f64(s: torch.Tensor) -> torch.Tensor:
-    u = s.view(torch.uint8).to(torch.int32)
-    out = torch.exp2((u - 127).to(torch.float64))
-    return torch.where(u == 255, torch.full_like(out, float("nan")), out)
-
-
 def _quant_rowwise(x: torch.Tensor):
     """[M, K] -> (qdata [M, K] e4m3 row-major, flat blocked scales)."""
     s, q = to_mx(x, _E4M3, _BLOCK, scaling_mode=_RCEIL)
     return q, to_blocked(s.view(_E8M0)).view(_E8M0)
 
 
-def _quant_colwise(x: torch.Tensor, native: bool):
-    """[M, K] quantized along M in 32-blocks.
+def _quant_colwise(x: torch.Tensor):
+    """[M, K] quantized along M in 32-blocks, un-transposed row-major bytes.
 
-    native=False: un-transposed row-major [M, K] bytes ("rowmajor").
-    native=True: the dim1-quantizer layout, [M, K] logical with (1, M) strides.
     Scales: flat blocked of the transposed [K, M/32] scale matrix (one group).
     """
     M, K = x.shape
@@ -121,8 +114,7 @@ def _quant_colwise(x: torch.Tensor, native: bool):
             torch.empty(0, dtype=_E8M0, device=x.device),
         )
     s_t, q_t = to_mx(x.t().contiguous(), _E4M3, _BLOCK, scaling_mode=_RCEIL)
-    q = q_t.t() if native else q_t.t().contiguous()
-    return q, to_blocked(s_t.view(_E8M0)).view(_E8M0)
+    return q_t.t().contiguous(), to_blocked(s_t.view(_E8M0)).view(_E8M0)
 
 
 def _cat8(ts, dim=0):
@@ -135,7 +127,7 @@ def _quant_colwise_grouped(x: torch.Tensor, sizes, native: bool):
     qs, sfs = [], []
     off = 0
     for m in sizes:
-        q, sf = _quant_colwise(x[off : off + m], native=False)
+        q, sf = _quant_colwise(x[off : off + m])
         qs.append(q)
         sfs.append(sf.reshape(-1))
         off += m
@@ -147,12 +139,8 @@ def _quant_colwise_grouped(x: torch.Tensor, sizes, native: bool):
 
 def _quant_weight_rowwise(w: torch.Tensor):
     """[G, N, K] quantized along K -> (contiguous stack, per-group blocked)."""
-    qs, sfs = [], []
-    for g in range(w.shape[0]):
-        q, sf = _quant_rowwise(w[g])
-        qs.append(q.view(torch.uint8))
-        sfs.append(sf.reshape(-1))
-    return torch.stack(qs).view(_E4M3), _cat8(sfs)
+    s, q = to_mx(w, _E4M3, _BLOCK, scaling_mode=_RCEIL)
+    return q, torch_to_blocked_per_group_3d(s.view(_E8M0)).reshape(-1)
 
 
 def _quant_weight_colwise(w: torch.Tensor, native: bool = False):
@@ -162,20 +150,18 @@ def _quant_weight_colwise(w: torch.Tensor, native: bool = False):
     native=True: the dim1-quantizer memory-transposed major -- [G, N, K]
     logical with per-group (1, N) strides (values identical).
     """
-    qs, sfs = [], []
-    for g in range(w.shape[0]):
-        q, sf = _quant_colwise(w[g], native=False)
-        qs.append(q.view(torch.uint8))
-        sfs.append(sf.reshape(-1))
-    q = torch.stack(qs).view(_E4M3)
-    if native:
-        q = q.transpose(-2, -1).contiguous().transpose(-2, -1)
-    return q, _cat8(sfs)
+    s_t, q_t = to_mx(
+        w.transpose(-2, -1).contiguous(), _E4M3, _BLOCK, scaling_mode=_RCEIL
+    )
+    q = q_t.transpose(-2, -1)
+    if not native:
+        q = q.contiguous()
+    return q, torch_to_blocked_per_group_3d(s_t.view(_E8M0)).reshape(-1)
 
 
 def _dequant_rowwise(q: torch.Tensor, sf_flat: torch.Tensor):
     M, K = q.shape
-    s = _e8m0_to_f64(from_blocked(sf_flat.view(_E8M0), M, K // _BLOCK))
+    s = get_fp_scale(from_blocked(sf_flat.view(_E8M0), M, K // _BLOCK)).double()
     return (q.to(torch.float64) * s.repeat_interleave(_BLOCK, dim=1)).to(torch.float32)
 
 
@@ -188,9 +174,9 @@ def _dequant_colwise_grouped(q: torch.Tensor, sf_flat: torch.Tensor, sizes, K: i
         if m == 0:
             continue
         n = K * (m // _BLOCK)
-        s_t = _e8m0_to_f64(
+        s_t = get_fp_scale(
             from_blocked(sf_flat[soff : soff + n].view(_E8M0), K, m // _BLOCK)
-        )
+        ).double()
         block = q[off : off + m].to(torch.float64)
         out[off : off + m] = (block * s_t.t().repeat_interleave(_BLOCK, dim=0)).to(
             torch.float32
@@ -249,10 +235,12 @@ def _grouped_matmul(a_f32, b_f32_per_group, sizes, transpose_b: bool, chunks: in
     return out
 
 
-def _refA_gate(ref_whole: torch.Tensor, ref_chunked: torch.Tensor) -> float:
-    """GEMM-exactness gate from the reduction-order variability band - 12 dB."""
-    band = compute_error(ref_whole.bfloat16(), ref_chunked.bfloat16()).item()
-    return min(band - 12.0, 60.0)
+def _refA_ref(a_f32, b_f32_per_group, sizes, transpose_b):
+    """Reference GEMM + its derived exactness gate (reduction-order band - 12 dB)."""
+    ref = _grouped_matmul(a_f32, b_f32_per_group, sizes, transpose_b)
+    ref2 = _grouped_matmul(a_f32, b_f32_per_group, sizes, transpose_b, chunks=4)
+    band = compute_error(ref.bfloat16(), ref2.bfloat16()).item()
+    return ref, min(band - 12.0, 60.0)
 
 
 def _dswiglu(dh, gate, up):
@@ -302,6 +290,9 @@ def _build_case(D, hidden, sizes, device="cuda", seed=0):
     c["w2_deq"] = [
         _dequant_rowwise(c["w2_q"][g], c["w2_sf"].view(G, -1)[g]) for g in range(G)
     ]
+    c["z_ref"], c["z_refA_gate"] = _refA_ref(
+        c["x_deq"], c["w13_deq"], sizes, transpose_b=True
+    )
     return c
 
 
@@ -405,6 +396,11 @@ _MIN_SQNR_GEMM_EXACT = 50.0
 _MIN_SQNR_REQUANT = 27.0
 
 
+def _assert_sqnr(ref, actual, min_db, label):
+    sqnr = compute_error(ref, actual).item()
+    assert sqnr >= min_db, f"{label} sqnr {sqnr} is too low, must be >= {min_db}"
+
+
 def _sizes_from_offsets(offsets: torch.Tensor):
     ends = offsets.tolist()
     return [end - start for start, end in zip([0] + ends[:-1], ends)]
@@ -482,24 +478,15 @@ def _ref_grouped_gemm_wgrad(dy_col_q, dy_col_sf, x_col_q, x_col_sf, offsets):
 @pytest.mark.parametrize("case", list(_CASES))
 def test_mxfp8_grouped_gemm_swiglu_fwd_cudnn_matches_reference(case):
     c = _build_case(*_CASES[case])
-    z, h_q, h_sf, h_colq, h_col_sf = _OPS.mxfp8_grouped_gemm_swiglu_fwd_cudnn(
-        c["x_q"], c["x_sf"], c["w13_q"], c["w13_sf"], c["offsets"]
-    )
-    z_ref, h_ref = _ref_grouped_gemm_swiglu_fwd(
-        c["x_q"], c["x_sf"], c["w13_q"], c["w13_sf"], c["offsets"]
-    )
-    sqnr = compute_error(z_ref.bfloat16(), z).item()
-    assert sqnr >= _MIN_SQNR_GEMM_EXACT, (
-        f"z sqnr {sqnr} is too low, must be >= {_MIN_SQNR_GEMM_EXACT}"
-    )
+    args = (c["x_q"], c["x_sf"], c["w13_q"], c["w13_sf"], c["offsets"])
+    z, h_q, h_sf, h_colq, h_col_sf = _OPS.mxfp8_grouped_gemm_swiglu_fwd_cudnn(*args)
+    z_ref, h_ref = _ref_grouped_gemm_swiglu_fwd(*args)
+    _assert_sqnr(z_ref.bfloat16(), z, _MIN_SQNR_GEMM_EXACT, "z")
     for name, deq in (
         ("h_row", _dequant_rowwise(h_q, h_sf)),
         ("h_col", _dequant_colwise_grouped(h_colq, h_col_sf, c["sizes"], c["F"])),
     ):
-        sqnr = compute_error(h_ref, deq).item()
-        assert sqnr >= _MIN_SQNR_REQUANT, (
-            f"{name} sqnr {sqnr} is too low, must be >= {_MIN_SQNR_REQUANT}"
-        )
+        _assert_sqnr(h_ref, deq, _MIN_SQNR_REQUANT, name)
 
 
 @pytest.mark.parametrize("case", list(_CASES))
@@ -510,10 +497,7 @@ def test_mxfp8_grouped_gemm_cudnn_matches_reference(case):
     a_q, a_sf = _quant_rowwise(a)
     out = _OPS.mxfp8_grouped_gemm_cudnn(a_q, a_sf, c["w2_q"], c["w2_sf"], c["offsets"])
     ref = _ref_grouped_gemm(a_q, a_sf, c["w2_q"], c["w2_sf"], c["offsets"])
-    sqnr = compute_error(ref.bfloat16(), out).item()
-    assert sqnr >= _MIN_SQNR_GEMM_EXACT, (
-        f"sqnr {sqnr} is too low, must be >= {_MIN_SQNR_GEMM_EXACT}"
-    )
+    _assert_sqnr(ref.bfloat16(), out, _MIN_SQNR_GEMM_EXACT, "y")
 
 
 @pytest.mark.parametrize("case", list(_CASES))
@@ -524,12 +508,9 @@ def test_mxfp8_grouped_gemm_dswiglu_bwd_cudnn_matches_reference(case):
     # computes dSwiGLU from the z it is given); the chain test covers the
     # production case where z is the exact fwd-op output.
     z = torch.randn(c["R"], 2 * c["F"], dtype=torch.bfloat16, device="cuda")
-    dz_q, dz_sf, dz_colq, dz_col_sf = _OPS.mxfp8_grouped_gemm_dswiglu_bwd_cudnn(
-        c["dy_q"], c["dy_sf"], c["w2c_q"], c["w2c_sf"], z, c["offsets"]
-    )
-    dz_ref = _ref_grouped_gemm_dswiglu_bwd(
-        c["dy_q"], c["dy_sf"], c["w2c_q"], c["w2c_sf"], z, c["offsets"]
-    )
+    args = (c["dy_q"], c["dy_sf"], c["w2c_q"], c["w2c_sf"], z, c["offsets"])
+    dz_q, dz_sf, dz_colq, dz_col_sf = _OPS.mxfp8_grouped_gemm_dswiglu_bwd_cudnn(*args)
+    dz_ref = _ref_grouped_gemm_dswiglu_bwd(*args)
     for name, deq in (
         ("dz_row", _dequant_rowwise(dz_q, dz_sf)),
         (
@@ -537,25 +518,16 @@ def test_mxfp8_grouped_gemm_dswiglu_bwd_cudnn_matches_reference(case):
             _dequant_colwise_grouped(dz_colq, dz_col_sf, c["sizes"], 2 * c["F"]),
         ),
     ):
-        sqnr = compute_error(dz_ref, deq).item()
-        assert sqnr >= _MIN_SQNR_REQUANT, (
-            f"{name} sqnr {sqnr} is too low, must be >= {_MIN_SQNR_REQUANT}"
-        )
+        _assert_sqnr(dz_ref, deq, _MIN_SQNR_REQUANT, name)
 
 
 @pytest.mark.parametrize("case", list(_CASES))
 def test_mxfp8_grouped_gemm_wgrad_cudnn_matches_reference(case):
     c = _build_case(*_CASES[case])
-    dw = _OPS.mxfp8_grouped_gemm_wgrad_cudnn(
-        c["dy_colq"], c["dy_col_sf"], c["x_colq"], c["x_col_sf"], c["offsets"]
-    )
-    dw_ref = _ref_grouped_gemm_wgrad(
-        c["dy_colq"], c["dy_col_sf"], c["x_colq"], c["x_col_sf"], c["offsets"]
-    )
-    sqnr = compute_error(dw_ref.bfloat16(), dw).item()
-    assert sqnr >= _MIN_SQNR_GEMM_EXACT, (
-        f"sqnr {sqnr} is too low, must be >= {_MIN_SQNR_GEMM_EXACT}"
-    )
+    args = (c["dy_colq"], c["dy_col_sf"], c["x_colq"], c["x_col_sf"], c["offsets"])
+    dw = _OPS.mxfp8_grouped_gemm_wgrad_cudnn(*args)
+    dw_ref = _ref_grouped_gemm_wgrad(*args)
+    _assert_sqnr(dw_ref.bfloat16(), dw, _MIN_SQNR_GEMM_EXACT, "dw")
 
 
 # ---------------------------------------------------------------------------
@@ -602,15 +574,11 @@ def _run_chain(c):
 def test_chain_numerics(case):
     D, hidden, sizes = _CASES[case]
     c = _build_case(D, hidden, sizes)
-    G, R = c["G"], c["R"]
+    G = c["G"]
     r = _run_chain(c)
 
     # --- z: refA (dequantized operands, two reduction orders)
-    z_ref = _grouped_matmul(c["x_deq"], c["w13_deq"], sizes, transpose_b=True)
-    z_ref2 = _grouped_matmul(
-        c["x_deq"], c["w13_deq"], sizes, transpose_b=True, chunks=4
-    )
-    gate_a = _refA_gate(z_ref, z_ref2)
+    z_ref, gate_a = c["z_ref"], c["z_refA_gate"]
     z_db = compute_error(z_ref.bfloat16(), r["z"]).item()
     assert z_db >= gate_a, f"z {z_db:.1f} dB < derived refA gate {gate_a:.1f}"
 
@@ -641,10 +609,7 @@ def test_chain_numerics(case):
     )
 
     # --- y: refA from the op's own quantized h + refB independent chain
-    w2_deq = c["w2_deq"]
-    y_ref = _grouped_matmul(h_deq, w2_deq, sizes, transpose_b=True)
-    y_ref2 = _grouped_matmul(h_deq, w2_deq, sizes, transpose_b=True, chunks=4)
-    y_gate = _refA_gate(y_ref, y_ref2)
+    y_ref, y_gate = _refA_ref(h_deq, c["w2_deq"], sizes, transpose_b=True)
     y_db = compute_error(y_ref.bfloat16(), r["y"]).item()
     assert y_db >= y_gate, f"y {y_db:.1f} dB < derived refA gate {y_gate:.1f}"
     # refB for y: the whole forward computed from ORIGINAL bf16 tensors only.
@@ -659,17 +624,9 @@ def test_chain_numerics(case):
     )
 
     # --- dz vs closed-form dSwiGLU from the kernel's z
-    dy_deq = _dequant_rowwise(c["dy_q"], c["dy_sf"])
-    w2c_deq = [
-        _dequant_colwise_grouped(c["w2c_q"][g], c["w2c_sf"].view(G, -1)[g], [D], hidden)
-        for g in range(G)
-    ]
-    dh_ref = _grouped_matmul(dy_deq, w2c_deq, sizes, transpose_b=False)
-    dgate, dup = _dswiglu(dh_ref, gate_f, up_f)
-    dz_ref = torch.empty(R, 2 * hidden, dtype=torch.float32, device="cuda")
-    v = dz_ref.view(R, hidden // _BLOCK, 2, _BLOCK)
-    v[:, :, 0, :] = dgate.view(R, hidden // _BLOCK, _BLOCK)
-    v[:, :, 1, :] = dup.view(R, hidden // _BLOCK, _BLOCK)
+    dz_ref = _ref_grouped_gemm_dswiglu_bwd(
+        c["dy_q"], c["dy_sf"], c["w2c_q"], c["w2c_sf"], r["z"], c["offsets"]
+    )
     band_dz = compute_error(
         dz_ref, _dequant_rowwise(*_quant_rowwise(dz_ref.bfloat16()))
     ).item()
@@ -684,25 +641,17 @@ def test_chain_numerics(case):
         )
         for g in range(G)
     ]
-    dx_ref = _grouped_matmul(dz_deq, w13c_deq, sizes, transpose_b=False)
-    dx_ref2 = _grouped_matmul(dz_deq, w13c_deq, sizes, transpose_b=False, chunks=4)
-    dx_gate = _refA_gate(dx_ref, dx_ref2)
+    dx_ref, dx_gate = _refA_ref(dz_deq, w13c_deq, sizes, transpose_b=False)
     dx_db = compute_error(dx_ref.bfloat16(), r["dx"]).item()
     assert dx_db >= dx_gate, f"dx {dx_db:.1f} dB < derived refA gate {dx_gate:.1f}"
 
     # --- wgrads refA (production layout mixes)
-    dy_col_deq = _dequant_colwise_grouped(c["dy_colq"], c["dy_col_sf"], sizes, D)
-    dz_col_deq = _dequant_colwise_grouped(
-        r["dz_colq"], r["dz_col_sf"], sizes, 2 * hidden
+    dw2_ref = _ref_grouped_gemm_wgrad(
+        c["dy_colq"], c["dy_col_sf"], r["h_colq"], r["h_col_sf"], c["offsets"]
     )
-    x_col_deq = _dequant_colwise_grouped(c["x_colq"], c["x_col_sf"], sizes, D)
-    off = 0
-    dw2_ref = torch.zeros(G, D, hidden, dtype=torch.float32, device="cuda")
-    dw13_ref = torch.zeros(G, 2 * hidden, D, dtype=torch.float32, device="cuda")
-    for g, m in enumerate(sizes):
-        dw2_ref[g] = dy_col_deq[off : off + m].t() @ h_col_deq[off : off + m]
-        dw13_ref[g] = dz_col_deq[off : off + m].t() @ x_col_deq[off : off + m]
-        off += m
+    dw13_ref = _ref_grouped_gemm_wgrad(
+        r["dz_colq"], r["dz_col_sf"], c["x_colq"], c["x_col_sf"], c["offsets"]
+    )
     dw2_db = compute_error(dw2_ref.bfloat16(), r["dw2"]).item()
     dw13_db = compute_error(dw13_ref.bfloat16(), r["dw13"]).item()
     assert dw2_db >= 50.0, f"dw2 {dw2_db:.1f} dB < 50 (probe level: 98-155)"
@@ -725,17 +674,11 @@ def test_chain_numerics(case):
 @pytest.mark.parametrize("b_native", [False, True], ids=["bRM", "bNat"])
 def test_wgrad_stride_matrix(dbg, a_native, b_native):
     c = dbg
-    sizes, D = c["sizes"], c["D"]
+    sizes = c["sizes"]
     dy_q, dy_sf = _quant_colwise_grouped(c["dy"], sizes, native=a_native)
     x_q, x_sf = _quant_colwise_grouped(c["x"], sizes, native=b_native)
     dw = _OPS.mxfp8_grouped_gemm_wgrad_cudnn(dy_q, dy_sf, x_q, x_sf, c["offsets"])
-    dy_deq = _dequant_colwise_grouped(dy_q, dy_sf, sizes, D)
-    x_deq = _dequant_colwise_grouped(x_q, x_sf, sizes, D)
-    ref = torch.zeros(c["G"], D, D, dtype=torch.float32, device="cuda")
-    off = 0
-    for g, m in enumerate(sizes):
-        ref[g] = dy_deq[off : off + m].t() @ x_deq[off : off + m]
-        off += m
+    ref = _ref_grouped_gemm_wgrad(dy_q, dy_sf, x_q, x_sf, c["offsets"])
     db = compute_error(ref.bfloat16(), dw).item()
     assert db >= 50.0, f"wgrad[{a_native=} {b_native=}] {db:.1f} dB < 50"
 
@@ -825,13 +768,7 @@ def test_tail_a_lt_r_poisoned():
         dy_colq_full, dy_col_sf, h_colq, h_col_sf, offsets
     )
     assert not dw2.isnan().any(), "wgrad read the NaN-poisoned inactive tail"
-    dy_col_deq = _dequant_colwise_grouped(dy_colq, dy_col_sf, sizes, D)
-    h_col_deq = _dequant_colwise_grouped(h_colq[:A], h_col_sf, sizes, hidden)
-    ref = torch.zeros(4, D, hidden, dtype=torch.float32, device=dev)
-    off = 0
-    for g, m in enumerate(sizes):
-        ref[g] = dy_col_deq[off : off + m].t() @ h_col_deq[off : off + m]
-        off += m
+    ref = _ref_grouped_gemm_wgrad(dy_colq, dy_col_sf, h_colq[:A], h_col_sf, offsets)
     db = compute_error(ref.bfloat16(), dw2).item()
     assert db >= 50.0, f"tail-poisoned dw2 {db:.1f} dB < 50"
 
@@ -861,24 +798,11 @@ def test_compile_fullgraph_bitwise(dbg):
         y = _OPS.mxfp8_grouped_gemm_cudnn(h_q, h_sf, w2_q, w2_sf, offsets)
         return z, h_q, y
 
-    eager = fwd_then_mm(
-        c["x_q"],
-        c["x_sf"],
-        c["w13_q"],
-        c["w13_sf"],
-        c["w2_q"],
-        c["w2_sf"],
-        c["offsets"],
-    )
-    compiled = torch.compile(fwd_then_mm, fullgraph=True)(
-        c["x_q"],
-        c["x_sf"],
-        c["w13_q"],
-        c["w13_sf"],
-        c["w2_q"],
-        c["w2_sf"],
-        c["offsets"],
-    )
+    args = [
+        c[k] for k in ("x_q", "x_sf", "w13_q", "w13_sf", "w2_q", "w2_sf", "offsets")
+    ]
+    eager = fwd_then_mm(*args)
+    compiled = torch.compile(fwd_then_mm, fullgraph=True)(*args)
     for e, co, name in zip(eager, compiled, ("z", "h_q", "y")):
         assert torch.equal(_bytes(e), _bytes(co)), f"compiled {name} != eager"
 
@@ -887,40 +811,25 @@ def test_r0_all_ops():
     dev = "cuda"
     D = hidden = 256
     offsets = torch.zeros(2, dtype=torch.int32, device=dev)
-    z, h_q, h_sf, h_colq, h_col_sf = _OPS.mxfp8_grouped_gemm_swiglu_fwd_cudnn(
-        torch.empty(0, D, dtype=_E4M3, device=dev),
-        torch.empty(0, dtype=_E8M0, device=dev),
-        torch.zeros(2, 2 * hidden, D, dtype=torch.uint8, device=dev).view(_E4M3),
-        torch.empty(2 * 2 * hidden * D // _BLOCK, dtype=_E8M0, device=dev),
-        offsets,
-    )
+    args = _valid_fwd_args(R=0)
+    args["offsets"] = offsets  # the builder's row offsets assume R=512
+    z, h_q, h_sf, h_colq, h_col_sf = _OPS.mxfp8_grouped_gemm_swiglu_fwd_cudnn(**args)
     assert z.shape == (0, 2 * hidden) and h_q.shape == (0, hidden)
     assert h_sf.numel() == 0 and h_col_sf.numel() == 0
-    y = _OPS.mxfp8_grouped_gemm_cudnn(
-        torch.empty(0, hidden, dtype=_E4M3, device=dev),
-        torch.empty(0, dtype=_E8M0, device=dev),
-        torch.zeros(2, D, hidden, dtype=torch.uint8, device=dev).view(_E4M3),
-        torch.empty(2 * D * hidden // _BLOCK, dtype=_E8M0, device=dev),
-        offsets,
-    )
+    a0 = torch.empty(0, D, dtype=_E4M3, device=dev)
+    h0 = torch.empty(0, hidden, dtype=_E4M3, device=dev)
+    sf0 = torch.empty(0, dtype=_E8M0, device=dev)
+    w2_q = torch.zeros(2, D, hidden, dtype=_E4M3, device=dev)
+    w2_sf = torch.empty(2 * D * hidden // _BLOCK, dtype=_E8M0, device=dev)
+    y = _OPS.mxfp8_grouped_gemm_cudnn(h0, sf0, w2_q, w2_sf, offsets)
     assert y.shape == (0, D) and y.dtype == torch.bfloat16
+    z0 = torch.empty(0, 2 * hidden, dtype=torch.bfloat16, device=dev)
     dz_q, dz_sf, dz_colq, dz_col_sf = _OPS.mxfp8_grouped_gemm_dswiglu_bwd_cudnn(
-        torch.empty(0, D, dtype=_E4M3, device=dev),
-        torch.empty(0, dtype=_E8M0, device=dev),
-        torch.zeros(2, D, hidden, dtype=torch.uint8, device=dev).view(_E4M3),
-        torch.empty(2 * hidden * D // _BLOCK, dtype=_E8M0, device=dev),
-        torch.empty(0, 2 * hidden, dtype=torch.bfloat16, device=dev),
-        offsets,
+        a0, sf0, w2_q, w2_sf, z0, offsets
     )
     assert dz_q.shape == (0, 2 * hidden) and dz_sf.numel() == 0
     assert dz_colq.shape == (0, 2 * hidden) and dz_col_sf.numel() == 0
-    dw = _OPS.mxfp8_grouped_gemm_wgrad_cudnn(
-        torch.empty(0, D, dtype=_E4M3, device=dev),
-        torch.empty(0, dtype=_E8M0, device=dev),
-        torch.empty(0, hidden, dtype=_E4M3, device=dev),
-        torch.empty(0, dtype=_E8M0, device=dev),
-        offsets,
-    )
+    dw = _OPS.mxfp8_grouped_gemm_wgrad_cudnn(a0, sf0, h0, sf0, offsets)
     assert dw.shape == (2, D, hidden) and (dw == 0).all()
 
 
@@ -932,7 +841,7 @@ def test_r0_all_ops():
 def test_negative_control_whole_matrix_colwise_scales(dbg):
     """Whole-matrix to_blocked colwise scales: same bytes, silently wrong order."""
     c = dbg
-    sizes, D, G = c["sizes"], c["D"], c["G"]
+    sizes = c["sizes"]
     dy_q, dy_sf_pg = _quant_colwise_grouped(c["dy"], sizes, native=False)
     x_q, x_sf_pg = _quant_colwise_grouped(c["x"], sizes, native=False)
     # Rebuild the SAME logical scales in whole-matrix blocked order.
@@ -945,13 +854,7 @@ def test_negative_control_whole_matrix_colwise_scales(dbg):
     bad = _OPS.mxfp8_grouped_gemm_wgrad_cudnn(
         dy_q, dy_sf_wm, x_q, x_sf_pg, c["offsets"]
     )
-    dy_deq = _dequant_colwise_grouped(dy_q, dy_sf_pg, sizes, D)
-    x_deq = _dequant_colwise_grouped(x_q, x_sf_pg, sizes, D)
-    ref = torch.zeros(G, D, D, dtype=torch.float32, device="cuda")
-    off = 0
-    for g, m in enumerate(sizes):
-        ref[g] = dy_deq[off : off + m].t() @ x_deq[off : off + m]
-        off += m
+    ref = _ref_grouped_gemm_wgrad(dy_q, dy_sf_pg, x_q, x_sf_pg, c["offsets"])
     good_db = compute_error(ref.bfloat16(), good).item()
     bad_db = compute_error(ref.bfloat16(), bad).item()
     assert good_db >= 50.0
@@ -976,19 +879,12 @@ def test_negative_control_gate_up_swap(dbg):
     _, h_q, h_sf, _, _ = _OPS.mxfp8_grouped_gemm_swiglu_fwd_cudnn(
         c["x_q"], c["x_sf"], w13_sw_q, w13_sw_sf, c["offsets"]
     )
-    z_ref = _grouped_matmul(c["x_deq"], c["w13_deq"], c["sizes"], transpose_b=True)
-    gate_f, up_f = _zsplit(z_ref, hidden)
+    gate_f, up_f = _zsplit(c["z_ref"], hidden)
     h_ref = F.silu(gate_f) * up_f
-    good_db = compute_error(
-        h_ref,
-        _dequant_rowwise(
-            *(
-                _OPS.mxfp8_grouped_gemm_swiglu_fwd_cudnn(
-                    c["x_q"], c["x_sf"], c["w13_q"], c["w13_sf"], c["offsets"]
-                )[1:3]
-            )
-        ),
-    ).item()
+    _, h_q_good, h_sf_good, _, _ = _OPS.mxfp8_grouped_gemm_swiglu_fwd_cudnn(
+        c["x_q"], c["x_sf"], c["w13_q"], c["w13_sf"], c["offsets"]
+    )
+    good_db = compute_error(h_ref, _dequant_rowwise(h_q_good, h_sf_good)).item()
     bad_db = compute_error(h_ref, _dequant_rowwise(h_q, h_sf)).item()
     assert bad_db < good_db - 10.0, (
         f"gate/up swap only moved h from {good_db:.1f} to {bad_db:.1f} dB -- "
@@ -1004,12 +900,8 @@ def test_negative_control_scale_byte_flip(dbg):
     z_bad = _OPS.mxfp8_grouped_gemm_swiglu_fwd_cudnn(
         c["x_q"], c["x_sf"], c["w13_q"], sf_bad, c["offsets"]
     )[0]
-    z_ref = _grouped_matmul(c["x_deq"], c["w13_deq"], c["sizes"], transpose_b=True)
-    z_ref2 = _grouped_matmul(
-        c["x_deq"], c["w13_deq"], c["sizes"], transpose_b=True, chunks=4
-    )
-    gate = _refA_gate(z_ref, z_ref2)
-    bad_db = compute_error(z_ref.bfloat16(), z_bad).item()
+    gate = c["z_refA_gate"]
+    bad_db = compute_error(c["z_ref"].bfloat16(), z_bad).item()
     assert bad_db < gate, (
         f"single scale-byte flip still passes refA ({bad_db:.1f} >= {gate:.1f} dB)"
     )
