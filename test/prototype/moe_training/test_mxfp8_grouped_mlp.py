@@ -9,7 +9,7 @@
 The four ops wrap the cudnn-frontend package's CuTe DSL grouped-GEMM kernels
 (``cudnn.grouped_gemm_{glu,quant,dglu,wgrad}_wrapper_sm100``).
 
-Every op is validated against a standalone plain-PyTorch reference (the
+Every op is validated against a standalone PyTorch reference (the
 ``_ref_*`` functions: dequantization, per-expert FP32 ``torch`` matmuls, and
 ``F.silu``/``torch.sigmoid`` only) under fixed ``min_sqnr`` gates; the gate
 rationale and measured margins live next to the gate constants below.
@@ -227,7 +227,7 @@ def _build_case(D, hidden, sizes, device="cuda", seed=0):
 
 
 # ---------------------------------------------------------------------------
-# Per-op plain-PyTorch references: each op is validated in isolation against
+# Per-op PyTorch references: each op is validated in isolation against
 # a reference built from nothing but dequantization, per-expert FP32 torch
 # matmuls, and F.silu / torch.sigmoid.
 # ---------------------------------------------------------------------------
@@ -252,7 +252,7 @@ def _sizes_from_offsets(offsets: torch.Tensor):
 
 
 def _ref_grouped_gemm_swiglu_fwd(x_q, x_sf, w13_q, w13_sf, offsets):
-    """Plain-PyTorch reference for mxfp8_grouped_gemm_swiglu_fwd_cudnn:
+    """PyTorch reference for mxfp8_grouped_gemm_swiglu_fwd_cudnn:
     dequantize both operands, per-expert FP32 matmul, split the 32-block
     interleaved gate/up halves, SwiGLU. Returns FP32 (z_ref, h_ref)."""
     sizes = _sizes_from_offsets(offsets)
@@ -265,7 +265,7 @@ def _ref_grouped_gemm_swiglu_fwd(x_q, x_sf, w13_q, w13_sf, offsets):
 
 
 def _ref_grouped_gemm(a_q, a_sf, b_q, b_sf, offsets):
-    """Plain-PyTorch reference for mxfp8_grouped_gemm_cudnn:
+    """PyTorch reference for mxfp8_grouped_gemm_cudnn:
     out[r] = dequant(a[r]) @ dequant(b[g(r)]).T in FP32."""
     sizes = _sizes_from_offsets(offsets)
     G = b_q.shape[0]
@@ -275,7 +275,7 @@ def _ref_grouped_gemm(a_q, a_sf, b_q, b_sf, offsets):
 
 
 def _ref_grouped_gemm_dswiglu_bwd(dy_q, dy_sf, w2_col_q, w2_col_sf, z_bf16, offsets):
-    """Plain-PyTorch reference for mxfp8_grouped_gemm_dswiglu_bwd_cudnn:
+    """PyTorch reference for mxfp8_grouped_gemm_dswiglu_bwd_cudnn:
     dh = dequant(dy) @ dequant(w2_col) per expert, then the closed-form
     dSwiGLU against z's gate/up halves, re-interleaved into the 32-block
     order. Returns FP32 dz_ref [R, 2F]."""
@@ -300,7 +300,7 @@ def _ref_grouped_gemm_dswiglu_bwd(dy_q, dy_sf, w2_col_q, w2_col_sf, z_bf16, offs
 
 
 def _ref_grouped_gemm_wgrad(dy_col_q, dy_col_sf, x_col_q, x_col_sf, offsets):
-    """Plain-PyTorch reference for mxfp8_grouped_gemm_wgrad_cudnn:
+    """PyTorch reference for mxfp8_grouped_gemm_wgrad_cudnn:
     dw[g] = dequant(dy_g).T @ dequant(x_g) per expert in FP32."""
     sizes = _sizes_from_offsets(offsets)
     out_features, in_features = dy_col_q.shape[1], x_col_q.shape[1]
