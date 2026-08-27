@@ -846,6 +846,45 @@ def _copy_over_q_dq_args(original_node: Node, replacement_node: Node):
     )
 
 
+_BATCH_NORM_QUALNAMES = (
+    "torch.nn.modules.batchnorm.BatchNorm1d",
+    "torch.nn.modules.batchnorm.BatchNorm2d",
+    "torch.nn.modules.batchnorm.BatchNorm3d",
+)
+
+
+def _is_from_batch_norm(node: Node) -> bool:
+    """Whether ``node`` was traced from a BatchNorm module.
+
+    ``nn_module_stack`` holds the module type either as a class or as its
+    qualified name depending on the capture path, so compare on the string.
+    """
+    stack = node.meta.get("nn_module_stack") or {}
+    return any(
+        any(qualname in str(entry[1]) for qualname in _BATCH_NORM_QUALNAMES)
+        for entry in stack.values()
+    )
+
+
+def _is_one(arg: Any, m: GraphModule) -> bool:
+    """Whether ``arg`` is the constant 1, literal or lifted.
+
+    ``export`` may lift the ``+ 1`` of BatchNorm's ``num_batches_tracked``
+    increment into a tensor constant, in which case the argument is a
+    ``get_attr`` node rather than the literal.
+    """
+    if arg == 1:
+        return True
+    if not isinstance(arg, Node) or arg.op != "get_attr":
+        return False
+    value = getattr(m, str(arg.target), None)
+    return (
+        isinstance(value, torch.Tensor)
+        and value.numel() == 1
+        and int(value.item()) == 1
+    )
+
+
 def _fold_conv_bn_qat(m: GraphModule) -> GraphModule:
     # Example inputs for quantized and folded conv-bn1d patterns used in convert
     _quantized_conv1d_bn_example_inputs = (
@@ -889,10 +928,12 @@ def _fold_conv_bn_qat(m: GraphModule) -> GraphModule:
     for node in m.graph.nodes:
         if (
             node.target == torch.ops.aten.add_.Tensor
+            # a model that reads num_batches_tracked keeps the increment live
+            and not node.users
+            and isinstance(node.args[0], Node)
             and node.args[0].op == "get_attr"
-            and node.args[1] == 1
-            and "torch.nn.modules.batchnorm.BatchNorm2d"
-            in [val[1] for _, val in node.meta["nn_module_stack"].items()]
+            and _is_one(node.args[1], m)
+            and _is_from_batch_norm(node)
         ):
             m.graph.erase_node(node)
 

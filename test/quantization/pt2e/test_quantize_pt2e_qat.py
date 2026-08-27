@@ -767,6 +767,114 @@ class TestQuantizePT2EQAT_ConvBn_Base(PT2EQATTestCase):
         self.assertEqual(dq_qmax, 2**31 - 1)
         self.assertEqual(dq_dtype, torch.int32)
 
+    def test_is_one_accepts_lifted_constant(self):
+        """`_is_one` must accept the `+ 1` whether it is a literal or lifted.
+
+        `export` may lift the `1` of BatchNorm's `num_batches_tracked` increment
+        into a tensor constant, so the argument reaching `_fold_conv_bn_qat` is a
+        `get_attr` node. Comparing against the literal alone silently skips the
+        erase and leaves a live mutated buffer behind.
+        """
+        from torchao.quantization.pt2e.qat_utils import _is_one
+
+        root = torch.nn.Module()
+        root.register_buffer("_constant_one", torch.tensor(1))
+        root.register_buffer("_constant_two", torch.tensor(2))
+        root.register_buffer("_constant_ones", torch.tensor([1, 1]))
+        graph = torch.fx.Graph()
+        node_one = graph.get_attr("_constant_one")
+        node_two = graph.get_attr("_constant_two")
+        node_ones = graph.get_attr("_constant_ones")
+        graph.output(node_one)
+        gm = torch.fx.GraphModule(root, graph)
+
+        self.assertTrue(_is_one(1, gm))
+        self.assertTrue(_is_one(node_one, gm))
+        self.assertFalse(_is_one(2, gm))
+        self.assertFalse(_is_one(node_two, gm))
+        # a multi-element tensor is not the scalar 1
+        self.assertFalse(_is_one(node_ones, gm))
+
+    def test_qat_conv_bn_drops_num_batches_tracked(self):
+        """The folded-away BatchNorm must not leave its counter behind.
+
+        `_fold_conv_bn_qat` erases BatchNorm's `num_batches_tracked += 1` once the
+        BatchNorm is folded into the conv. `export` may lift that `1` into a
+        tensor constant, in which case the argument is a `get_attr` node rather
+        than the literal and the erase used to be skipped -- leaving a live,
+        *mutated* `num_batches_tracked` buffer in a graph whose BatchNorm no
+        longer exists. Backends that map mutated buffers to graph I/O then see one
+        spurious input and output per BatchNorm.
+
+        Captured in train mode on purpose: an eval-mode capture never increments
+        the counter, so it does not reproduce.
+        """
+        m = self._get_conv_bn_model().train()
+        example_inputs = self.example_inputs
+        m = torch.export.export(m, example_inputs, strict=True).module()
+        quantizer = XNNPACKQuantizer()
+        quantizer.set_global(get_symmetric_quantization_config(is_qat=True))
+        m = prepare_qat_pt2e(m, quantizer)
+        m(*example_inputs)
+        m = convert_pt2e(m)
+
+        counters = [
+            n
+            for n in m.graph.nodes
+            if n.op == "get_attr" and "num_batches_tracked" in str(n.target)
+        ]
+        self.assertEqual(
+            counters,
+            [],
+            f"num_batches_tracked survived the fold: {counters}",
+        )
+        increments = [
+            n for n in m.graph.nodes if n.target is torch.ops.aten.add_.Tensor
+        ]
+        self.assertEqual(
+            increments,
+            [],
+            f"in-place BatchNorm counter increment survived the fold: {increments}",
+        )
+
+    def test_qat_conv_bn_keeps_read_num_batches_tracked(self):
+        """A model that reads the counter keeps it -- the increment is not dead.
+
+        `_fold_conv_bn_qat` erases the `num_batches_tracked += 1` on the
+        assumption that nothing consumes it. When the model reads the counter the
+        increment feeds real users, so erasing it raises out of `erase_node` and
+        takes down `convert_pt2e`.
+        """
+
+        class M(torch.nn.Module):
+            def __init__(self, conv_class, bn_class):
+                super().__init__()
+                self.conv = conv_class(3, 3, 3)
+                self.bn = bn_class(3)
+
+            def forward(self, x):
+                x = self.bn(self.conv(x))
+                counter = self.bn.num_batches_tracked
+                return x + counter.to(dtype=x.dtype)
+
+        m = M(self.conv_class, self.bn_class).train()
+        example_inputs = self.example_inputs
+        m = torch.export.export(m, example_inputs, strict=True).module()
+        quantizer = XNNPACKQuantizer()
+        quantizer.set_global(get_symmetric_quantization_config(is_qat=True))
+        m = prepare_qat_pt2e(m, quantizer)
+        m(*example_inputs)
+        m = convert_pt2e(m)
+
+        counters = [
+            n
+            for n in m.graph.nodes
+            if n.op == "get_attr" and "num_batches_tracked" in str(n.target)
+        ]
+        self.assertNotEqual(
+            counters, [], "a read num_batches_tracked must survive the fold"
+        )
+
     def _do_test_qat_conv_transpose_bn(self, has_relu: bool):
         # Use different in/out channel sizes to test if conv weight is
         # properly transposed in QAT pattern
