@@ -101,6 +101,14 @@ _TORCH_VERSION_AT_LEAST_2_13 = torch_version_at_least("2.13.0.dev0")
 _TORCH_VERSION_AT_LEAST_2_14 = torch_version_at_least("2.14.0.dev0")
 
 
+def _migrate_is_swizzled_scales(d: dict) -> None:
+    """In-place migration of old ``is_swizzled_scales: bool`` to ``swizzle_type``."""
+    if "is_swizzled_scales" in d and "swizzle_type" not in d:
+        d["swizzle_type"] = (
+            Swizzle_32_4_4() if d.pop("is_swizzled_scales") else NoSwizzle()
+        )
+
+
 @dataclass
 class QuantizeTensorToMXKwargs(QuantizeTensorKwargs):
     elem_dtype: Union[torch.dtype, str] = torch.float8_e4m3fn
@@ -111,10 +119,7 @@ class QuantizeTensorToMXKwargs(QuantizeTensorKwargs):
     swizzle_type: SwizzleType = NoSwizzle()
 
     def __setstate__(self, state):
-        # Backward compat: migrate old is_swizzled_scales to swizzle_type
-        if "is_swizzled_scales" in state and "swizzle_type" not in state:
-            is_swizzled = state.pop("is_swizzled_scales")
-            state["swizzle_type"] = Swizzle_32_4_4() if is_swizzled else NoSwizzle()
+        _migrate_is_swizzled_scales(state)
         self.__dict__.update(state)
 
 
@@ -583,15 +588,8 @@ class MXTensor(TorchAOBaseTensor):
     def __tensor_unflatten__(
         cls, tensor_data_dict, tensor_attributes, outer_size, outer_stride
     ):
-        # Backward compat: convert old is_swizzled_scales to swizzle_type
-        if (
-            "is_swizzled_scales" in tensor_attributes
-            and "swizzle_type" not in tensor_attributes
-        ):
-            is_swizzled = tensor_attributes.pop("is_swizzled_scales")
-            tensor_attributes["swizzle_type"] = (
-                Swizzle_32_4_4() if is_swizzled else NoSwizzle()
-            )
+        # Backward compat: __tensor_unflatten__ is called by Dynamo tracing.
+        _migrate_is_swizzled_scales(tensor_attributes)
         return super().__tensor_unflatten__(
             tensor_data_dict, tensor_attributes, outer_size, outer_stride
         )
@@ -716,6 +714,20 @@ class MXTensor(TorchAOBaseTensor):
 
 
 implements = MXTensor.implements
+
+
+# Override __setstate__ set by TorchAOBaseTensor.__init_subclass__ to add
+# backward compat for old checkpoints with is_swizzled_scales bool.
+_base_setstate = MXTensor.__setstate__
+
+
+def _mx_tensor_setstate(self, state):
+    if isinstance(state, dict):
+        _migrate_is_swizzled_scales(state)
+    _base_setstate(self, state)
+
+
+MXTensor.__setstate__ = _mx_tensor_setstate
 
 
 @implements([aten.detach.default, aten.alias.default])
