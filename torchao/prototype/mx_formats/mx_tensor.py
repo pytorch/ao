@@ -402,7 +402,7 @@ def to_mx(
     if is_swizzled_scales:
         leading_dims, M, K = orig_shape[:-2], orig_shape[-2], orig_shape[-1]
         scale_shape = (math.prod(leading_dims) * M, K // block_size)
-        scale = to_blocked(scale_e8m0_biased.view(scale_shape)).flatten()
+        scale = maybe_dtensor_to_blocked(scale_e8m0_biased.view(scale_shape)).flatten()
         scale_M, scale_K = hp_data_dims_to_swizzled_scale_dims_mx(M, K)
         scale_e8m0_biased = scale.view(*leading_dims, scale_M, scale_K)
 
@@ -789,22 +789,25 @@ def _addmm_mx_dispatch(
         if a.is_swizzled_scales:
             a_scale_block = a.scale
         else:
-            a_scale = a.scale.view(M, K // a.block_size)
-            a_scale_block = maybe_dtensor_to_blocked(a_scale)
+            a_scale_block = a.scale.view(M, K // a.block_size).contiguous()
 
         if b.is_swizzled_scales:
             b_scale_block = b.scale.t()
         else:
-            b_scale = b.scale.t().view(N, K // b.block_size)
-            b_scale_block = maybe_dtensor_to_blocked(b_scale)
+            b_scale_block = b.scale.view(N, K // b.block_size)
 
         if a.elem_dtype == torch.float8_e4m3fn:
             assert b.elem_dtype == torch.float8_e4m3fn
+            a_scale_v1 = a_scale_block.view(torch.float8_e8m0fnu)
+            b_scale_v1 = b_scale_block.view(torch.float8_e8m0fnu)
+            if not b.is_swizzled_scales:
+                # v1 API expects scale_b as (K//32, N)
+                b_scale_v1 = b_scale_v1.t().contiguous()
             res = torch._scaled_mm(
                 a.qdata,
                 b.qdata,
-                a_scale_block.view(torch.float8_e8m0fnu),
-                b_scale_block.view(torch.float8_e8m0fnu),
+                a_scale_v1,
+                b_scale_v1,
                 bias=bias,
                 out_dtype=torch.bfloat16,
             )
@@ -812,6 +815,11 @@ def _addmm_mx_dispatch(
             assert a.elem_dtype == torch.float4_e2m1fn_x2
             assert b.elem_dtype == torch.float4_e2m1fn_x2
             # FP4 operations using F.scaled_mm
+            swizzle = (
+                SwizzleType.SWIZZLE_32_4_4
+                if a.is_swizzled_scales
+                else SwizzleType.NO_SWIZZLE
+            )
             res = F.scaled_mm(
                 a.qdata.view(torch.float4_e2m1fn_x2),
                 b.qdata.view(torch.float4_e2m1fn_x2),
@@ -819,8 +827,8 @@ def _addmm_mx_dispatch(
                 scale_recipe_a=ScalingType.BlockWise1x32,
                 scale_b=b_scale_block,
                 scale_recipe_b=ScalingType.BlockWise1x32,
-                swizzle_a=SwizzleType.SWIZZLE_32_4_4,
-                swizzle_b=SwizzleType.SWIZZLE_32_4_4,
+                swizzle_a=swizzle,
+                swizzle_b=swizzle,
                 bias=bias,
                 output_dtype=torch.bfloat16,
             )
