@@ -247,8 +247,8 @@ def triton_fp8_gemm_1x128_128x128_kernel(
         b = tl.load(b_ptrs, mask=b_mask, other=0.0)
 
         # Reciprocal scales to scale back to dynamic range of output dtype
-        a_s = tl.load(a_s_base_ptr + k * a_s_stride_dim_1, mask=offs_m < M, other=0.0)
-        b_s = tl.load(b_s_base_ptr + k * b_s_stride_dim_0, mask=offs_n < N, other=0.0)
+        a_s = tl.load(a_s_base_ptr + k * a_s_stride_dim_1)
+        b_s = tl.load(b_s_base_ptr + k * b_s_stride_dim_0)
         accumulator += tl.dot(a, b) * a_s[:, None] * b_s
 
         a_ptrs += BLOCK_SIZE_K * a_stride_dim_1
@@ -365,8 +365,8 @@ def triton_fp8_gemm_1x128_128x1_kernel(
         b = tl.load(b_ptrs, mask=b_mask, other=0.0)
 
         # Reciprocal scales to scale back to dynamic range of output dtype
-        a_s = tl.load(a_s_base_ptr + k * a_s_stride_dim_1, mask=offs_m < M, other=0.0)
-        b_s = tl.load(b_s_base_ptr + k * b_s_stride_dim_0, mask=offs_n < N, other=0.0)
+        a_s = tl.load(a_s_base_ptr + k * a_s_stride_dim_1)
+        b_s = tl.load(b_s_base_ptr + k * b_s_stride_dim_0)
 
         accumulator += tl.dot(a, b) * a_s[:, None] * b_s[None, :]
 
