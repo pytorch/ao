@@ -22,6 +22,7 @@ def _mxfp4_scaled_mm(
     """Wrapper for F.scaled_mm with MXFP4 configuration."""
     match swizzle:
         case SwizzleType.NO_SWIZZLE:
+            assert a_scale.is_contiguous()
             a_scale_block = a_scale
             b_scale_block = b_scale
         case SwizzleType.SWIZZLE_32_4_4:
@@ -48,6 +49,7 @@ def _mxfp8_scaled_mm(
     """Wrapper for torch._scaled_mm with MXFP8 configuration."""
     match swizzle:
         case SwizzleType.NO_SWIZZLE:
+            assert a_scale.is_contiguous()
             a_scale_block = a_scale
             b_scale_block = b_scale.t()
         case SwizzleType.SWIZZLE_32_4_4:
