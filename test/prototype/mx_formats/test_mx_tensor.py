@@ -942,10 +942,7 @@ def test_cast_to_float8_e4m3fn_saturation_behavior(input_dtype):
 )
 def test_to_blocked_from_blocked_roundtrip(shape, use_triton_kernel: bool):
     rows, cols = shape
-    if torch.cuda.is_available() or torch.xpu.is_available():
-        device = torch.accelerator.current_accelerator().type
-    else:
-        device = "cpu"
+    device = "cuda" if torch.cuda.is_available() else "cpu"
 
     original = torch.randint(0, 255, (rows, cols), device=device, dtype=torch.uint8)
 
