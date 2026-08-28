@@ -111,8 +111,8 @@ class MXDynamicActivationMXWeightConfig(AOBaseConfig):
     # How to calculate the block scales
     scaling_mode: ScaleCalculationMode = ScaleCalculationMode.RCEIL
 
-    # Whether to store block scales in swizzled (blocked) layout.
-    # CUDA uses True (blocked layout), XPU uses False (row-major).
+    # How to store block scales.
+    # CUDA uses swizzle layout, XPU uses not swizzle.
     is_swizzled_scales: bool = True
 
     def __post_init__(self):
