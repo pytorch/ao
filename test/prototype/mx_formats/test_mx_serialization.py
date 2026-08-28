@@ -91,14 +91,11 @@ def test_setstate_migrates_old_is_swizzled_scales(old_is_swizzled):
     the exact code path ``torch.load``).
     """
     device = torch.accelerator.current_accelerator().type
-    # NoSwizzle() is used here only to create valid tensor data for the test;
-    # the actual backward-compat migration is driven by old_is_swizzled below.
     m = nn.Linear(32, 64, bias=False, dtype=torch.bfloat16, device=device)
     config = MXDynamicActivationMXWeightConfig(
         activation_dtype=torch.float8_e4m3fn,
         weight_dtype=torch.float8_e4m3fn,
         kernel_preference=KernelPreference.EMULATED,
-        swizzle_type=NoSwizzle(),
     )
     quantize_(m, config=config)
 
@@ -151,14 +148,11 @@ def test_tensor_unflatten_migrates_old_is_swizzled_scales(old_is_swizzled):
     (this is the exact code path Dynamo tracing takes).
     """
     device = torch.accelerator.current_accelerator().type
-    # NoSwizzle() is used here only to create valid tensor data for the test;
-    # the actual backward-compat migration is driven by old_is_swizzled below.
     m = nn.Linear(32, 64, bias=False, dtype=torch.bfloat16, device=device)
     config = MXDynamicActivationMXWeightConfig(
         activation_dtype=torch.float8_e4m3fn,
         weight_dtype=torch.float8_e4m3fn,
         kernel_preference=KernelPreference.EMULATED,
-        swizzle_type=NoSwizzle(),
     )
     quantize_(m, config=config)
 

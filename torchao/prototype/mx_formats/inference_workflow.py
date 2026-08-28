@@ -16,7 +16,6 @@ from torch import Tensor
 from torchao.core.config import AOBaseConfig
 from torchao.prototype.mx_formats.config import (
     Swizzle_32_4_4,
-    SwizzleType,
     _validate_elem_dtype,
 )
 from torchao.prototype.mx_formats.mx_tensor import (
@@ -115,10 +114,6 @@ class MXDynamicActivationMXWeightConfig(AOBaseConfig):
     # How to calculate the block scales
     scaling_mode: ScaleCalculationMode = ScaleCalculationMode.RCEIL
 
-    # How to store block scales.
-    # CUDA uses Swizzle_32_4_4 (blocked layout), XPU uses NoSwizzle.
-    swizzle_type: SwizzleType = Swizzle_32_4_4()
-
     def __post_init__(self):
         assert self.activation_dtype == self.weight_dtype, (
             "For now - we only support matching input/weight dtypes."
@@ -147,7 +142,7 @@ def _mx_inference_linear_transform(
         elem_dtype=config.activation_dtype,
         block_size=config.block_size,
         kernel_preference=config.kernel_preference,
-        swizzle_type=config.swizzle_type,
+        swizzle_type=Swizzle_32_4_4(),
         scaling_mode=config.scaling_mode,
     )
 
@@ -158,7 +153,7 @@ def _mx_inference_linear_transform(
         block_size=config.block_size,
         kernel_preference=config.kernel_preference,
         act_quant_kwargs=act_quant_kwargs,
-        swizzle_type=config.swizzle_type,
+        swizzle_type=Swizzle_32_4_4(),
         scaling_mode=config.scaling_mode,
     )
 
