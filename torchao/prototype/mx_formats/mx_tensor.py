@@ -816,7 +816,6 @@ def _addmm_mx_dispatch(
                 else SwizzleType.NO_SWIZZLE
             )
             if not b.is_swizzled_scales:
-                # v1 API expects scale_b as (K//32, N)
                 b_scale_block = b_scale_block.t()
             res = F.scaled_mm(
                 a.qdata.view(torch.float4_e2m1fn_x2),
