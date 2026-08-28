@@ -75,10 +75,13 @@ class PruneOptimizer(Optimizer):
 
     def __getattribute__(self, name: str):
         try:
-            attr = super(Optimizer, self).__getattribute__(name)
+            return super(Optimizer, self).__getattribute__(name)
         except AttributeError:
-            attr = self.base_optimizer.__getattribute__(name)
-        return attr
+            # Not `self.base_optimizer`: that re-enters this method, so on an
+            # instance built by __new__ without __init__ (pickle, copy) the
+            # lookup recurses until the stack overflows.
+            base_optimizer = object.__getattribute__(self, "base_optimizer")
+            return base_optimizer.__getattribute__(name)
 
     def __repr__(self) -> str:
         base_optimizer = "\n    ".join(self.base_optimizer.__repr__().split("\n"))
