@@ -145,6 +145,7 @@ There are multiple ways to actually quantize the model. Here we walk through the
 
    from torchao.quantization import Int8Tensor
    from torchao.quantization import PerRow, PerTensor
+   from torchao.quantization.quant_primitives import MappingType
    from torchao.quantization.quantize_.workflows.int8.int8_tensor import (
        QuantizeTensorToInt8Kwargs,
    )
@@ -185,7 +186,9 @@ There are multiple ways to actually quantize the model. Here we walk through the
                granularity=PerRow(),
                scale=weight_scale,
                zero_point=weight_zero_point,
-               act_quant_kwargs=QuantizeTensorToInt8Kwargs(granularity=PerTensor()),
+               act_quant_kwargs=QuantizeTensorToInt8Kwargs(
+                   granularity=PerTensor(), mapping_type=MappingType.ASYMMETRIC
+               ),
                act_quant_scale=act_scale,
                act_quant_zero_point=act_zero_point,
            )
