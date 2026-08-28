@@ -809,6 +809,7 @@ def _addmm_mx_dispatch(
         else:
             assert a.elem_dtype == torch.float4_e2m1fn_x2
             assert b.elem_dtype == torch.float4_e2m1fn_x2
+            assert a.is_swizzled_scales == b.is_swizzled_scales
             # FP4 operations using F.scaled_mm
             swizzle = (
                 SwizzleType.SWIZZLE_32_4_4

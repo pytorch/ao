@@ -114,7 +114,7 @@ class MXDynamicActivationMXWeightConfig(AOBaseConfig):
 
     # How to store block scales.
     # CUDA uses swizzle layout, XPU uses not swizzle.
-    swizzled_type: bool = SwizzleType.SWIZZLE_32_4_4
+    swizzled_type: SwizzleType = SwizzleType.SWIZZLE_32_4_4
 
     def __post_init__(self):
         assert self.activation_dtype == self.weight_dtype, (
@@ -144,9 +144,7 @@ def _mx_inference_linear_transform(
         elem_dtype=config.activation_dtype,
         block_size=config.block_size,
         kernel_preference=config.kernel_preference,
-        is_swizzled_scales=True
-        if config.swizzled_type == SwizzleType.SWIZZLE_32_4_4
-        else False,
+        is_swizzled_scales=config.swizzled_type == SwizzleType.SWIZZLE_32_4_4,
         scaling_mode=config.scaling_mode,
     )
 
@@ -157,9 +155,7 @@ def _mx_inference_linear_transform(
         block_size=config.block_size,
         kernel_preference=config.kernel_preference,
         act_quant_kwargs=act_quant_kwargs,
-        is_swizzled_scales=True
-        if config.swizzled_type == SwizzleType.SWIZZLE_32_4_4
-        else False,
+        is_swizzled_scales=config.swizzled_type == SwizzleType.SWIZZLE_32_4_4,
         scaling_mode=config.scaling_mode,
     )
 
