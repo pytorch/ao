@@ -802,7 +802,7 @@ def _addmm_mx_dispatch(
             b_scale_v1 = b_scale_block.view(torch.float8_e8m0fnu)
             if not b.is_swizzled_scales:
                 # v1 API expects scale_b as (K//32, N)
-                b_scale_v1 = b_scale_v1.t().contiguous()
+                b_scale_v1 = b_scale_v1.t()
             res = torch._scaled_mm(
                 a.qdata,
                 b.qdata,

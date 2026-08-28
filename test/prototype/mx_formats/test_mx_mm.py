@@ -22,8 +22,8 @@ def _mxfp4_scaled_mm(
     """Wrapper for F.scaled_mm with MXFP4 configuration."""
     match swizzle:
         case SwizzleType.NO_SWIZZLE:
-            a_scale_block = a_scale.contiguous()
-            b_scale_block = b_scale.contiguous()
+            a_scale_block = a_scale
+            b_scale_block = b_scale
         case SwizzleType.SWIZZLE_32_4_4:
             a_scale_block = to_blocked(a_scale)
             b_scale_block = to_blocked(b_scale)
@@ -48,8 +48,8 @@ def _mxfp8_scaled_mm(
     """Wrapper for torch._scaled_mm with MXFP8 configuration."""
     match swizzle:
         case SwizzleType.NO_SWIZZLE:
-            a_scale_block = a_scale.contiguous()
-            b_scale_block = b_scale.t().contiguous()
+            a_scale_block = a_scale
+            b_scale_block = b_scale.t()
         case SwizzleType.SWIZZLE_32_4_4:
             a_scale_block = to_blocked(a_scale)
             b_scale_block = to_blocked(b_scale)
@@ -84,6 +84,7 @@ def run_matrix_test(M: int, K: int, N: int, format, device="cuda") -> float:
 
     a_data = a_mx.qdata
     b_data = b_mx.qdata
+    assert a_data.is_contiguous()
     assert b_data.is_contiguous()
     b_data = b_data.transpose(-1, -2)
 

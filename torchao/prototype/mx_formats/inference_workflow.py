@@ -12,6 +12,7 @@ from typing import Optional
 import torch
 import torch.nn.functional as F
 from torch import Tensor
+from torch.nn.functional import SwizzleType
 
 from torchao.core.config import AOBaseConfig
 from torchao.prototype.mx_formats.config import _validate_elem_dtype
@@ -113,7 +114,7 @@ class MXDynamicActivationMXWeightConfig(AOBaseConfig):
 
     # How to store block scales.
     # CUDA uses swizzle layout, XPU uses not swizzle.
-    is_swizzled_scales: bool = True
+    swizzled_type: bool = SwizzleType.SWIZZLE_32_4_4
 
     def __post_init__(self):
         assert self.activation_dtype == self.weight_dtype, (
@@ -143,7 +144,9 @@ def _mx_inference_linear_transform(
         elem_dtype=config.activation_dtype,
         block_size=config.block_size,
         kernel_preference=config.kernel_preference,
-        is_swizzled_scales=config.is_swizzled_scales,
+        is_swizzled_scales=True
+        if config.swizzled_type == SwizzleType.SWIZZLE_32_4_4
+        else False,
         scaling_mode=config.scaling_mode,
     )
 
@@ -154,7 +157,9 @@ def _mx_inference_linear_transform(
         block_size=config.block_size,
         kernel_preference=config.kernel_preference,
         act_quant_kwargs=act_quant_kwargs,
-        is_swizzled_scales=config.is_swizzled_scales,
+        is_swizzled_scales=True
+        if config.swizzled_type == SwizzleType.SWIZZLE_32_4_4
+        else False,
         scaling_mode=config.scaling_mode,
     )
 

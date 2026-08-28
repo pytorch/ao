@@ -11,6 +11,7 @@ import tempfile
 import pytest
 import torch
 import torch.nn as nn
+from torch.nn.functional import SwizzleType
 
 from torchao.prototype.mx_formats.inference_workflow import (
     MXDynamicActivationMXWeightConfig,
@@ -47,6 +48,9 @@ def test_serialization(recipe_name):
                 activation_dtype=torch.float8_e4m3fn,
                 weight_dtype=torch.float8_e4m3fn,
                 kernel_preference=KernelPreference.EMULATED,
+                swizzled_type=SwizzleType.SWIZZLE_32_4_4
+                if device == "cuda"
+                else SwizzleType.NO_SWIZZLE,
             )
         else:
             assert recipe_name == "nvfp4", "unsupported"

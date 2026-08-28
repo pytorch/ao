@@ -10,6 +10,7 @@ from contextlib import contextmanager
 import pytest
 import torch
 import torch.nn as nn
+from torch.nn.functional import SwizzleType
 from torch.profiler import ProfilerActivity, profile
 
 from torchao.prototype.mx_formats.inference_workflow import (
@@ -108,7 +109,9 @@ def test_inference_workflow_mx(
         activation_dtype=elem_dtype,
         weight_dtype=elem_dtype,
         kernel_preference=kernel_choice,
-        is_swizzled_scales=device != "xpu",
+        swizzled_type=SwizzleType.SWIZZLE_32_4_4
+        if device == "cuda"
+        else SwizzleType.NO_SWIZZLE,
     )
     quantize_(m_mx, config=config)
     if compile:
