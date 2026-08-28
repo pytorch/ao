@@ -68,6 +68,7 @@ def cuda_kernel_profiler(kernel_pattern):
 @pytest.mark.parametrize("emulate", [True, False])
 @pytest.mark.parametrize("use_inference_mode", [True, False])
 @pytest.mark.parametrize("x_rank", [2, 3])
+@pytest.mark.parametrize("k", [64, 128, 256])
 @torch.no_grad()
 @skip_if_rocm(
     "ROCm float4 gemm require gfx950"
@@ -79,6 +80,7 @@ def test_inference_workflow_mx(
     emulate: bool,
     use_inference_mode: bool,
     x_rank: int,
+    k: int,
 ):
     """
     Smoke test for inference compile
@@ -98,7 +100,7 @@ def test_inference_workflow_mx(
             # TODO(future PR): investigate and fix this
             pytest.skip("mxfp4 + compile currently does not work, low SQNR")
 
-    m = nn.Linear(32, 128, bias=bias, dtype=torch.bfloat16, device=device)
+    m = nn.Linear(k, 128, bias=bias, dtype=torch.bfloat16, device=device)
     m_mx = copy.deepcopy(m)
 
     if emulate:
@@ -117,7 +119,7 @@ def test_inference_workflow_mx(
     if compile:
         m_mx = torch.compile(m_mx, fullgraph=True)
 
-    x = torch.randn(128, 32, device=device, dtype=torch.bfloat16)
+    x = torch.randn(128, k, device=device, dtype=torch.bfloat16)
     if x_rank == 3:
         x = x.unsqueeze(0)
 
