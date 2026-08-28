@@ -88,7 +88,7 @@ class MXDynamicActivationMXWeightConfig(AOBaseConfig):
     This module provides support for running inference with float8 quantization using MX formats.
 
     Requirements:
-    - NVIDIA SM100+ hardware (Blackwell or newer) or Intel XPU (BMG or newer)
+    - NVIDIA SM100+ hardware (Blackwell or newer) is required for execution
     - PyTorch 2.5+ for proper serialization support
 
     Example (mxfp8):
