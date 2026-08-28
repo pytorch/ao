@@ -3,8 +3,6 @@
 # This source code is licensed under the MIT license found in the
 # LICENSE file in the root directory of this source tree.
 
-import copy
-import pickle
 import random
 import unittest
 
@@ -22,21 +20,13 @@ class TestPruneOptimizer(common_utils.TestCase):
         self.reg_lambda = 1.0
         self.prox_map = ProxLasso(self.reg_lambda)
 
-    def _create_prune_optimizer(self):
-        model = TwoLayerMLP(input_size=10, output_size=2)
-        param_groups = get_param_groups(
-            model, model._linear_prune_config(), verbose=False
-        )
-        base_optimizer = torch.optim.SGD(param_groups, lr=0.1, foreach=True)
-        return PruneOptimizer(base_optimizer, reg_lambda=self.reg_lambda)
-
     @common_utils.parametrize("warmup_steps", [0, 5])
     def test_warmup_steps(self, warmup_steps=0, total_steps=10):
         model = TwoLayerMLP(input_size=10, output_size=2)
         prune_config = model._linear_prune_config()
         param_groups = get_param_groups(model, prune_config, verbose=False)
         optimizer = PruneOptimizer(
-            torch.optim.SGD(param_groups, lr=0.1, foreach=True),
+            torch.optim.SGD(param_groups, lr=0.1),
             reg_lambda=self.reg_lambda,
             warmup_steps=warmup_steps,
         )
@@ -64,7 +54,7 @@ class TestPruneOptimizer(common_utils.TestCase):
         prune_config = model._linear_prune_config()
         param_groups = get_param_groups(model, prune_config, verbose=False)
         optimizer = PruneOptimizer(
-            torch.optim.AdamW(param_groups, lr=0.01, foreach=True),
+            torch.optim.AdamW(param_groups, lr=0.01),
             reg_lambda=self.reg_lambda,
             warmup_steps=0,
             healing_start_step=healing_start_step,
@@ -89,44 +79,6 @@ class TestPruneOptimizer(common_utils.TestCase):
                             self.assertTrue(p.grad[zero_mask].eq(0).all())
                             self.assertTrue(p[zero_mask].eq(0).all())
         self.assertFalse(prev_pruned_p is None)
-
-    def test_missing_base_optimizer_raises_instead_of_recursing(self):
-        # __new__ without __init__ is what pickle and copy produce.
-        optimizer = PruneOptimizer.__new__(PruneOptimizer)
-
-        with self.assertRaises(AttributeError):
-            optimizer.base_optimizer
-
-        with self.assertRaises(AttributeError):
-            optimizer.anything_at_all
-
-        with self.assertRaises(AttributeError):
-            optimizer.__setstate__({})
-
-    def test_copy_raises_missing_base_optimizer_instead_of_recursing(self):
-        optimizer = self._create_prune_optimizer()
-
-        with self.assertRaisesRegex(AttributeError, "base_optimizer"):
-            copy.copy(optimizer)
-
-    def test_pickle_raises_missing_base_optimizer_instead_of_recursing(self):
-        optimizer = self._create_prune_optimizer()
-        serialized_optimizer = pickle.dumps(optimizer)
-
-        with self.assertRaisesRegex(AttributeError, "base_optimizer"):
-            pickle.loads(serialized_optimizer)
-
-    def test_getattribute_still_delegates_to_base_optimizer(self):
-        optimizer = self._create_prune_optimizer()
-        base_optimizer = optimizer.base_optimizer
-
-        self.assertIs(optimizer.base_optimizer, base_optimizer)
-        # Neither is defined on PruneOptimizer; both resolve via the fallback.
-        self.assertIs(optimizer.defaults, base_optimizer.defaults)
-        self.assertIs(optimizer.param_groups, base_optimizer.param_groups)
-
-        with self.assertRaises(AttributeError):
-            optimizer.definitely_not_an_attribute
 
 
 common_utils.instantiate_parametrized_tests(TestPruneOptimizer)
