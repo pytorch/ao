@@ -10,6 +10,7 @@ import copy
 import gc
 import tempfile
 import unittest
+from collections import OrderedDict
 
 import torch
 from torch.testing._internal import common_utils
@@ -605,6 +606,27 @@ class TestQuantFlow(TestCase):
 
 
 common_utils.instantiate_parametrized_tests(TestQuantFlow)
+
+
+class TestFqnToConfigNoneParams(TestCase):
+    def test_fqn_to_config_multiple_none_params(self):
+        """Regression: excluding multiple params via None should not IndexError."""
+
+        class M(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.lin = torch.nn.Linear(4, 4)
+
+        m = M()
+        cfg = FqnToConfig(
+            fqn_to_config=OrderedDict(
+                [
+                    ("lin.weight", None),
+                    ("lin.bias", None),
+                ]
+            )
+        )
+        quantize_(m, cfg, filter_fn=None)
 
 
 @unittest.skipIf(not torch.accelerator.is_available(), "Need CUDA available")
