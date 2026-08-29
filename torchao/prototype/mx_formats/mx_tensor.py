@@ -785,6 +785,7 @@ def _addmm_mx_dispatch(
         assert b.qdata.t().is_contiguous()
         assert a.block_size == 32, f"Invalid block size {a.block_size}"
         assert b.block_size == 32, f"Invalid block size {b.block_size}"
+        assert a.is_swizzled_scales == b.is_swizzled_scales
 
         if a.is_swizzled_scales:
             a_scale_block = a.scale
@@ -798,6 +799,7 @@ def _addmm_mx_dispatch(
 
         if a.elem_dtype == torch.float8_e4m3fn:
             assert b.elem_dtype == torch.float8_e4m3fn
+            # torch._scaled_mm expects scale_b as (K//32, N)
             res = torch._scaled_mm(
                 a.qdata,
                 b.qdata,
@@ -809,13 +811,13 @@ def _addmm_mx_dispatch(
         else:
             assert a.elem_dtype == torch.float4_e2m1fn_x2
             assert b.elem_dtype == torch.float4_e2m1fn_x2
-            assert a.is_swizzled_scales == b.is_swizzled_scales
             # FP4 operations using F.scaled_mm
             swizzle = (
                 SwizzleType.SWIZZLE_32_4_4
                 if a.is_swizzled_scales
                 else SwizzleType.NO_SWIZZLE
             )
+            # F.scaled_mm expects scale_b as (N, K//32)
             if not b.is_swizzled_scales:
                 b_scale_block = b_scale_block.t()
             res = F.scaled_mm(
