@@ -408,6 +408,19 @@ and dispatching to these implementations.
 """
 
 
+def _op_display_name(op):
+    """Derive a descriptive name from an aten op or torch function for stack traces.
+
+    For example:
+    - torch.ops.aten.narrow.default -> "impl_aten_narrow_default"
+    - torch.nn.functional.linear -> "impl_linear"
+    """
+    name = getattr(op, "__name__", None)
+    if name is None:
+        name = str(op)
+    name = name.replace(".", "_").replace("::", "_")
+    return f"impl_{name}"
+
 def _implements(cls, aten_ops):
     """Decorator for implementing aten ops like `torch.ops.aten.linear.default` for
     tensor subclass, the implemented functions are called in ``__torch_dispatch__`` callback
@@ -436,6 +449,8 @@ def _implements(cls, aten_ops):
             def wrapper(f, types, args, kwargs, _func=func):
                 return _func(f, types, args, kwargs)
 
+            wrapper.__name__ = _op_display_name(op)
+            wrapper.__qualname__ = _op_display_name(op)
             cls._ATEN_OP_TABLE[cls][op] = wrapper
         return func
 
@@ -471,6 +486,8 @@ def _implements_torch_function(cls, torch_fns):
             def wrapper(f, types, args, kwargs, _func=func):
                 return _func(f, types, args, kwargs)
 
+            wrapper.__name__ = _op_display_name(fn)
+            wrapper.__qualname__ = _op_display_name(fn)
             cls._TORCH_FN_TABLE[cls][fn] = wrapper
         return func
 
