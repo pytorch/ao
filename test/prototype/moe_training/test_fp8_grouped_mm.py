@@ -88,7 +88,7 @@ def test_fp8_rowwise_scaled_grouped_mm(m, n, k, n_groups):
         b_t,
         offs=offs,
         out_dtype=config.out_dtype,
-        float8_dtyep=config.float8_dtype,
+        float8_dtype=config.float8_dtype,
     )
 
     # Validate result.
