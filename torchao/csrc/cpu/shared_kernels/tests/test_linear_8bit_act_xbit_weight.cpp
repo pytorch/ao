@@ -425,6 +425,15 @@ TEST(test_linear_8bit_act_xbit_weight, Standard) {
       /*m=*/13, /*n=*/8 * 10 + 3, /*k=*/16 * 3, /*group_size=*/16);
 }
 
+TEST(test_linear_8bit_act_xbit_weight, ThreeBitDecodeUnsignedWeights) {
+  test_linear_8bit_act_xbit_weight<
+      3 /*weight_nbit*/,
+      true /*has_weight_zeros*/,
+      true /*has_bias*/,
+      true /*has_clamp*/>(
+      /*m=*/1, /*n=*/8 * 3 + 5, /*k=*/16 * 8, /*group_size=*/64);
+}
+
 TEST(test_linear_8bit_act_xbit_weight, HasWeightZeros) {
   test_linear_8bit_act_xbit_weight<
       4 /*weight_nbit*/,

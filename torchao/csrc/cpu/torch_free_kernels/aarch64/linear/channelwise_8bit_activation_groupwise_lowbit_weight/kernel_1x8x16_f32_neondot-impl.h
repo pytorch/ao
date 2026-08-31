@@ -190,6 +190,26 @@ void kernel_1x8x16_f32_neondot(
                 weight_q_cols67_1,
                 (uint8_t*)weight_data_byte_ptr,
                 lut);
+          } else if constexpr (weight_nbit == 3 && has_weight_zeros) {
+            uint8x16_t unsigned_weights[8];
+            torchao::bitpacking::vec_unpack_128_uintx_values<3>(
+                unsigned_weights[0],
+                unsigned_weights[1],
+                unsigned_weights[2],
+                unsigned_weights[3],
+                unsigned_weights[4],
+                unsigned_weights[5],
+                unsigned_weights[6],
+                unsigned_weights[7],
+                reinterpret_cast<const uint8_t*>(weight_data_byte_ptr));
+            weight_q_cols01_0 = vreinterpretq_s8_u8(unsigned_weights[0]);
+            weight_q_cols23_0 = vreinterpretq_s8_u8(unsigned_weights[1]);
+            weight_q_cols45_0 = vreinterpretq_s8_u8(unsigned_weights[2]);
+            weight_q_cols67_0 = vreinterpretq_s8_u8(unsigned_weights[3]);
+            weight_q_cols01_1 = vreinterpretq_s8_u8(unsigned_weights[4]);
+            weight_q_cols23_1 = vreinterpretq_s8_u8(unsigned_weights[5]);
+            weight_q_cols45_1 = vreinterpretq_s8_u8(unsigned_weights[6]);
+            weight_q_cols67_1 = vreinterpretq_s8_u8(unsigned_weights[7]);
           } else {
             torchao::bitpacking::vec_unpack_128_lowbit_values<weight_nbit>(
                 weight_q_cols01_0,
@@ -275,8 +295,13 @@ void kernel_1x8x16_f32_neondot(
           int32x4_t weight_zeros = vld1q_s32((int32_t*)weight_data_byte_ptr);
           weight_data_byte_ptr += 16;
 
-          int32x4_t term2_0123 =
-              vmulq_n_s32(weight_zeros, activation_qvals_sum);
+          int32x4_t term2_0123;
+          if constexpr (weight_nbit == 3 && !has_lut) {
+            term2_0123 = vmulq_n_s32(
+                vaddq_s32(weight_zeros, vdupq_n_s32(4)), activation_qvals_sum);
+          } else {
+            term2_0123 = vmulq_n_s32(weight_zeros, activation_qvals_sum);
+          }
 
           int32x4_t term3_0123 =
               vmulq_n_s32(weight_zeros, group_size * activation_zero);
@@ -284,8 +309,13 @@ void kernel_1x8x16_f32_neondot(
           weight_zeros = vld1q_s32((int32_t*)weight_data_byte_ptr);
           weight_data_byte_ptr += 16;
 
-          int32x4_t term2_4567 =
-              vmulq_n_s32(weight_zeros, activation_qvals_sum);
+          int32x4_t term2_4567;
+          if constexpr (weight_nbit == 3 && !has_lut) {
+            term2_4567 = vmulq_n_s32(
+                vaddq_s32(weight_zeros, vdupq_n_s32(4)), activation_qvals_sum);
+          } else {
+            term2_4567 = vmulq_n_s32(weight_zeros, activation_qvals_sum);
+          }
 
           int32x4_t term3_4567 =
               vmulq_n_s32(weight_zeros, group_size * activation_zero);
