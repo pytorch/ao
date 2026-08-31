@@ -17,6 +17,7 @@
 #include <torchao/csrc/cpu/torch_free_kernels/aarch64/linear/channelwise_8bit_activation_groupwise_lowbit_weight/kernel_1x1x32_f32_neondot-impl.h>
 #include <torchao/csrc/cpu/torch_free_kernels/aarch64/linear/channelwise_8bit_activation_groupwise_lowbit_weight/kernel_1x4x16_f32_neondot-impl.h>
 #include <torchao/csrc/cpu/torch_free_kernels/aarch64/linear/channelwise_8bit_activation_groupwise_lowbit_weight/kernel_1x8x16_f32_neondot-impl.h>
+#include <torchao/csrc/cpu/torch_free_kernels/aarch64/linear/channelwise_8bit_activation_groupwise_lowbit_weight/kernel_2x8x16_f32_neondot-impl.h>
 
 namespace torchao::kernels::cpu::aarch64::linear::
     channelwise_8bit_activation_groupwise_lowbit_weight {
@@ -225,6 +226,37 @@ void kernel_1x8x16_f32_neondot(
     bool has_clamp) {
   (void)has_weight_zeros_; // unused
   kernel::kernel_1x8x16_f32_neondot<weight_nbit, has_weight_zeros, has_lut>(
+      output,
+      output_m_stride,
+      m,
+      n,
+      k,
+      group_size,
+      packed_weights,
+      packed_activations,
+      clamp_min,
+      clamp_max,
+      has_bias,
+      has_clamp);
+}
+
+template <int weight_nbit, bool has_weight_zeros>
+void kernel_2x8x16_f32_neondot(
+    float32_t* output,
+    int output_m_stride,
+    int m,
+    int n,
+    int k,
+    int group_size,
+    const void* packed_weights,
+    const void* packed_activations,
+    float clamp_min,
+    float clamp_max,
+    bool has_weight_zeros_,
+    bool has_bias,
+    bool has_clamp) {
+  (void)has_weight_zeros_;
+  kernel::kernel_2x8x16_f32_neondot<weight_nbit, has_weight_zeros>(
       output,
       output_m_stride,
       m,

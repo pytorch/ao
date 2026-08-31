@@ -141,7 +141,13 @@ void register_ukernel_config_universal(
 
 #if defined(TORCHAO_ENABLE_ARM_NEON_DOT)
     if (cpuinfo_has_arm_neon_dot()) {
-      log_registration(format, "universal: kernel_1x8x16_f32_neondot");
+      if constexpr (weight_nbit == 3) {
+        log_registration(
+            format,
+            "universal: kernel_1x8x16_f32_neondot, kernel_2x8x16_f32_neondot");
+      } else {
+        log_registration(format, "universal: kernel_1x8x16_f32_neondot");
+      }
 
       if (format.has_weight_zeros) {
         constexpr bool has_weight_zeros = true;
@@ -155,6 +161,18 @@ void register_ukernel_config_universal(
                  weight_nbit,
                  has_weight_zeros,
                  has_lut>});
+        if constexpr (weight_nbit == 3) {
+          constexpr int small_prefill_mr = 2;
+          constexpr int small_prefill_m_step = 2;
+          uk.linear_configs[1] = UKernelConfig::linear_config_type(
+              {small_prefill_m_step,
+               small_prefill_mr,
+               &kernel::packed_activations_size,
+               &kernel::packed_activations_offset,
+               &kernel::pack_activations<small_prefill_mr, kr, sr>,
+               &kernel::
+                   kernel_2x8x16_f32_neondot<weight_nbit, has_weight_zeros>});
+        }
       } else {
         constexpr bool has_weight_zeros = false;
         uk.linear_configs[0] = UKernelConfig::linear_config_type(
@@ -167,6 +185,18 @@ void register_ukernel_config_universal(
                  weight_nbit,
                  has_weight_zeros,
                  has_lut>});
+        if constexpr (weight_nbit == 3) {
+          constexpr int small_prefill_mr = 2;
+          constexpr int small_prefill_m_step = 2;
+          uk.linear_configs[1] = UKernelConfig::linear_config_type(
+              {small_prefill_m_step,
+               small_prefill_mr,
+               &kernel::packed_activations_size,
+               &kernel::packed_activations_offset,
+               &kernel::pack_activations<small_prefill_mr, kr, sr>,
+               &kernel::
+                   kernel_2x8x16_f32_neondot<weight_nbit, has_weight_zeros>});
+        }
       }
 
       table.register_ukernel_config(format, uarch, std::move(uk));
