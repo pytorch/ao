@@ -550,6 +550,21 @@ TEST(test_linear_8bit_act_xbit_weight, ThreeBitPrefillAllOptions) {
       /*m=*/31, /*n=*/8 * 3 + 5, /*k=*/16 * 8, /*group_size=*/64);
 }
 
+TEST(test_linear_8bit_act_xbit_weight, ThreeBitParallelActivationPacking) {
+  test_linear_8bit_act_xbit_weight<
+      3 /*weight_nbit*/,
+      true /*has_weight_zeros*/,
+      true /*has_bias*/,
+      true /*has_clamp*/>(
+      /*m=*/65, /*n=*/8 * 3 + 5, /*k=*/16 * 8, /*group_size=*/64);
+  test_linear_8bit_act_xbit_weight<
+      3 /*weight_nbit*/,
+      true /*has_weight_zeros*/,
+      true /*has_bias*/,
+      true /*has_clamp*/>(
+      /*m=*/1025, /*n=*/8 * 3 + 5, /*k=*/16 * 8, /*group_size=*/64);
+}
+
 TEST(test_linear_8bit_act_xbit_weight, HasWeightZeros) {
   test_linear_8bit_act_xbit_weight<
       4 /*weight_nbit*/,
