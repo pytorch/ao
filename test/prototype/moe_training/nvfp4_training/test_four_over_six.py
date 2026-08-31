@@ -239,11 +239,28 @@ def test_row_scaled_matches_per_row_quantization():
 
 
 @_skip_no_cuda
-def test_row_scaled_rejects_16x16():
+def test_per_row_amax_16x16_matches_per_tile_slices():
+    """A tile-uniform per-row amax vector with 16x16 blocks == quantizing
+    each 16-row slice with its scalar amax (the stacked-expert-weight
+    contract)."""
+    torch.manual_seed(0)
     x = torch.randn(64, 256, dtype=torch.bfloat16, device="cuda")
-    row_amax = x.abs().amax(dim=1).to(torch.float32)
-    with pytest.raises(ValueError, match="1x16 blocks only"):
-        four_over_six_quantize(x, row_amax, block="16x16")
+    slice_amax = x.float().abs().view(4, 16 * 256).amax(dim=1)
+    expanded = slice_amax.repeat_interleave(16)
+    codes, scales = four_over_six_quantize(x, expanded, block="16x16")
+    for s in range(4):
+        ref_codes, ref_scales = four_over_six_quantize(
+            x[s * 16 : (s + 1) * 16].contiguous(), slice_amax[s], block="16x16"
+        )
+        torch.testing.assert_close(
+            codes[s * 16 : (s + 1) * 16], ref_codes, atol=0, rtol=0
+        )
+        torch.testing.assert_close(
+            scales[s * 16 : (s + 1) * 16].view(torch.uint8),
+            ref_scales.view(torch.uint8),
+            atol=0,
+            rtol=0,
+        )
 
 
 @_skip_no_cuda
@@ -262,11 +279,16 @@ def test_dequant_sqnr(block):
 @pytest.mark.parametrize("row_scaled", [False, True])
 def test_dequantize_roundtrip(block, row_scaled):
     """nvfp4_dequantize reconstructs the quantized values."""
-    if row_scaled and block == "16x16":
-        pytest.skip("row-scaled is 1x16 only")
     torch.manual_seed(0)
     x = torch.randn(128, 512, dtype=torch.bfloat16, device="cuda")
-    amax = (x.abs().amax(dim=1) if row_scaled else x.abs().amax()).to(torch.float32)
+    if row_scaled and block == "16x16":
+        # Per-row amaxes with 16x16 tiles follow the stacked-expert-weight
+        # contract: constant within every 16-row tile.
+        amax = x.float().abs().view(8, 16 * 512).amax(dim=1).repeat_interleave(16)
+    elif row_scaled:
+        amax = x.abs().amax(dim=1).to(torch.float32)
+    else:
+        amax = x.abs().amax().to(torch.float32)
     codes, scales = four_over_six_quantize(x, amax, block=block)
     dq = nvfp4_dequantize(codes, scales, amax, out_dtype=torch.float32)
     assert compute_error(x.float(), dq).item() > 14.0
@@ -560,8 +582,6 @@ def test_cutedsl_bitwise_matches_reference(
     cases: rounding-boundary straddles, dtype-max saturation, bf16
     subnormals, and negative zeros.
     """
-    if row_scaled and block == "16x16":
-        pytest.skip("row-scaled is 1x16 only")
     shapes = [(128, 256), (64, 1024), (384, 256)]
     if block == "1x16":
         shapes.append((100, 320))

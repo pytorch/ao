@@ -188,8 +188,13 @@ def four_over_six_quantize(
 
     Args:
         x: (R, C) bfloat16 or float32, C % 16 == 0 (R % 16 == 0 for 16x16).
-        global_amax: scalar FP32 amax, or a (R,) per-row amax vector for the
-            row-scaled variant (1x16 blocks only).
+        global_amax: scalar FP32 amax, or a (R,) per-row amax vector — the
+            row-scaled activation variant for 1x16 blocks, or per-expert
+            amaxes expanded over expert rows for stacked expert weights.
+            With 16x16 blocks the vector must be constant within every
+            16-row tile (each row of a tile derives the tile's scale chain
+            from its own amax entry; the grouped path's expert boundaries
+            keep tiles amax-uniform).
         block: "1x16" (activations/gradient operands) or "16x16" (weights).
         err_mode: "mae" or "mse" candidate-selection error metric.
         e4m3_scale_bound: 256 (default, leaves map-to-4 headroom) or 448.
@@ -212,8 +217,6 @@ def four_over_six_quantize(
     if block == "16x16" and rows % 16 != 0:
         raise ValueError(f"16x16 blocks require R divisible by 16, got R={rows}")
     row_scaled = global_amax.dim() == 1 and global_amax.numel() == rows
-    if row_scaled and block != "1x16":
-        raise ValueError("row-scaled four-over-six supports 1x16 blocks only")
     if not row_scaled and global_amax.numel() != 1:
         raise ValueError(
             f"global_amax must be a scalar or a ({rows},) row vector, "

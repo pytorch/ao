@@ -606,7 +606,8 @@ def four_over_six_quantize_cutedsl(
 
     Args:
         x:                (R, C) bfloat16 or float32, contiguous, C % 64 == 0.
-        global_amax:      scalar FP32 amax, or (R,) per-row amax (1x16 only).
+        global_amax:      scalar FP32 amax, or (R,) per-row amax (with 16x16
+            blocks, constant within every 16-row tile; see the quantizer).
         block:            "1x16" or "16x16".
         err_mode:         "mae" or "mse".
         e4m3_scale_bound: 256 or 448.
