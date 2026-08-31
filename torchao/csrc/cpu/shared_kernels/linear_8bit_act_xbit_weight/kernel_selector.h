@@ -157,16 +157,31 @@ void register_ukernel_config_universal(
                  has_lut>});
       } else {
         constexpr bool has_weight_zeros = false;
-        uk.linear_configs[0] = UKernelConfig::linear_config_type(
-            {m_step,
-             mr,
-             &kernel::packed_activations_size,
-             &kernel::packed_activations_offset,
-             &kernel::pack_activations<mr, kr, sr>,
-             &kernel::kernel_1x8x16_f32_neondot<
-                 weight_nbit,
-                 has_weight_zeros,
-                 has_lut>});
+        if constexpr (weight_nbit == 3) {
+          constexpr bool has_activation_qvals_sum = true;
+          uk.linear_configs[0] = UKernelConfig::linear_config_type(
+              {m_step,
+               mr,
+               &kernel::packed_activations_with_qvals_sum_size,
+               &kernel::packed_activations_with_qvals_sum_offset,
+               &kernel::pack_activations_with_qvals_sum<mr, kr, sr>,
+               &kernel::kernel_1x8x16_f32_neondot<
+                   weight_nbit,
+                   has_weight_zeros,
+                   has_lut,
+                   has_activation_qvals_sum>});
+        } else {
+          uk.linear_configs[0] = UKernelConfig::linear_config_type(
+              {m_step,
+               mr,
+               &kernel::packed_activations_size,
+               &kernel::packed_activations_offset,
+               &kernel::pack_activations<mr, kr, sr>,
+               &kernel::kernel_1x8x16_f32_neondot<
+                   weight_nbit,
+                   has_weight_zeros,
+                   has_lut>});
+        }
       }
 
       table.register_ukernel_config(format, uarch, std::move(uk));
