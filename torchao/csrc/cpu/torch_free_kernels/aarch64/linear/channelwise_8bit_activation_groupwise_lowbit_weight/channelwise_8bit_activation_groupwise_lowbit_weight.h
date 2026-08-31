@@ -14,6 +14,7 @@
 #include <torchao/csrc/cpu/torch_free_kernels/aarch64/linear/channelwise_8bit_activation_groupwise_lowbit_weight/pack_weights.h>
 #include <torchao/csrc/cpu/torch_free_kernels/weight_packing/weight_packing.h>
 
+#include <torchao/csrc/cpu/torch_free_kernels/aarch64/linear/channelwise_8bit_activation_groupwise_lowbit_weight/kernel_16x8x16_f32_neondot-impl.h>
 #include <torchao/csrc/cpu/torch_free_kernels/aarch64/linear/channelwise_8bit_activation_groupwise_lowbit_weight/kernel_1x1x32_f32_neondot-impl.h>
 #include <torchao/csrc/cpu/torch_free_kernels/aarch64/linear/channelwise_8bit_activation_groupwise_lowbit_weight/kernel_1x4x16_f32_neondot-impl.h>
 #include <torchao/csrc/cpu/torch_free_kernels/aarch64/linear/channelwise_8bit_activation_groupwise_lowbit_weight/kernel_1x8x16_f32_neondot-impl.h>
@@ -29,9 +30,11 @@ inline size_t packed_activations_size(
     int mr,
     int kr,
     int sr) {
-  (void)mr; // unused
   (void)kr; // unused
   (void)sr; // unused
+  if (mr > 1) {
+    m = ((m + mr - 1) / mr) * mr;
+  }
   return activation_packing::packed_activations_size(
       m, k, group_size, has_weight_zeros);
 }
@@ -114,6 +117,24 @@ void pack_activations_with_qvals_sum(
   (void)sr;
   activation_packing::pack_activations<mr_, kr_, sr_>(
       packed_activations, m, k, group_size, activations, true);
+}
+
+template <int mr_, int kr_, int sr_>
+void pack_activations_interleaved(
+    void* packed_activations,
+    int m,
+    int k,
+    int group_size,
+    const float* activations,
+    bool has_weight_zeros,
+    int mr,
+    int kr,
+    int sr) {
+  (void)mr;
+  (void)kr;
+  (void)sr;
+  activation_packing::pack_activations_interleaved<mr_, kr_, sr_>(
+      packed_activations, m, k, group_size, activations, has_weight_zeros);
 }
 
 template <int weight_nbit, int nr_, int kr_, int sr_>
@@ -281,6 +302,38 @@ void kernel_1x8x16_f32_neondot(
       has_weight_zeros,
       has_lut,
       has_activation_qvals_sum>(
+      output,
+      output_m_stride,
+      m,
+      n,
+      k,
+      group_size,
+      packed_weights,
+      packed_activations,
+      clamp_min,
+      clamp_max,
+      has_bias,
+      has_clamp);
+}
+
+template <int weight_nbit, bool has_weight_zeros>
+void kernel_8x8x16_f32_neondot(
+    float32_t* output,
+    int output_m_stride,
+    int m,
+    int n,
+    int k,
+    int group_size,
+    const void* packed_weights,
+    const void* packed_activations,
+    float clamp_min,
+    float clamp_max,
+    bool has_weight_zeros_,
+    bool has_bias,
+    bool has_clamp) {
+  (void)has_weight_zeros_;
+  static_assert(weight_nbit == 3);
+  kernel::kernel_16x8x16_f32_neondot<has_weight_zeros>(
       output,
       output_m_stride,
       m,
