@@ -795,43 +795,25 @@ def _addmm_mx_dispatch(
         if b.is_swizzled_scales:
             b_scale_block = b.scale.t()
         else:
-            b_scale_block = b.scale.view(K // b.block_size, N)
+            b_scale_block = b.scale.view(K // b.block_size, N).t()
 
-        if a.elem_dtype == torch.float8_e4m3fn:
-            assert b.elem_dtype == torch.float8_e4m3fn
-            # torch._scaled_mm expects scale_b as (K//32, N)
-            res = torch._scaled_mm(
-                a.qdata,
-                b.qdata,
-                a_scale_block.view(torch.float8_e8m0fnu),
-                b_scale_block.view(torch.float8_e8m0fnu),
-                bias=bias,
-                out_dtype=torch.bfloat16,
-            )
-        else:
-            assert a.elem_dtype == torch.float4_e2m1fn_x2
-            assert b.elem_dtype == torch.float4_e2m1fn_x2
-            # FP4 operations using F.scaled_mm
-            swizzle = (
-                SwizzleType.SWIZZLE_32_4_4
-                if a.is_swizzled_scales
-                else SwizzleType.NO_SWIZZLE
-            )
-            # F.scaled_mm expects scale_b as (N, K//32)
-            if not b.is_swizzled_scales:
-                b_scale_block = b_scale_block.t()
-            res = F.scaled_mm(
-                a.qdata.view(torch.float4_e2m1fn_x2),
-                b.qdata.view(torch.float4_e2m1fn_x2),
-                scale_a=a_scale_block,
-                scale_recipe_a=ScalingType.BlockWise1x32,
-                scale_b=b_scale_block,
-                scale_recipe_b=ScalingType.BlockWise1x32,
-                swizzle_a=swizzle,
-                swizzle_b=swizzle,
-                bias=bias,
-                output_dtype=torch.bfloat16,
-            )
+        swizzle = (
+            SwizzleType.SWIZZLE_32_4_4
+            if a.is_swizzled_scales
+            else SwizzleType.NO_SWIZZLE
+        )
+        res = F.scaled_mm(
+            a.qdata.view(a.elem_dtype),
+            b.qdata.view(b.elem_dtype),
+            scale_a=a_scale_block.view(torch.float8_e8m0fnu),
+            scale_recipe_a=ScalingType.BlockWise1x32,
+            scale_b=b_scale_block.view(torch.float8_e8m0fnu),
+            scale_recipe_b=ScalingType.BlockWise1x32,
+            swizzle_a=swizzle,
+            swizzle_b=swizzle,
+            bias=bias,
+            output_dtype=torch.bfloat16,
+        )
 
     else:
         assert gemm_choice == KernelPreference.EMULATED, "unimplemented"

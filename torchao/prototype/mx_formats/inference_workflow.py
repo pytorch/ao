@@ -113,7 +113,6 @@ class MXDynamicActivationMXWeightConfig(AOBaseConfig):
     scaling_mode: ScaleCalculationMode = ScaleCalculationMode.RCEIL
 
     # How to store block scales.
-    # CUDA uses swizzle layout, XPU uses not swizzle.
     swizzled_type: SwizzleType = SwizzleType.SWIZZLE_32_4_4
 
     def __post_init__(self):
