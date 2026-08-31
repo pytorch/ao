@@ -144,7 +144,7 @@ void register_ukernel_config_universal(
       if constexpr (weight_nbit == 3) {
         log_registration(
             format,
-            "universal: kernel_1x8x16_f32_neondot, kernel_2x8x16_f32_neondot, kernel_4x8x16_f32_neondot");
+            "universal: kernel_1x8x16_f32_neondot, kernel_2x8x16_f32_neondot, kernel_4x8x16_f32_neondot, kernel_8x8x16_f32_neondot");
       } else {
         log_registration(format, "universal: kernel_1x8x16_f32_neondot");
       }
@@ -182,6 +182,16 @@ void register_ukernel_config_universal(
                &kernel::pack_activations<prefill_mr, kr, sr>,
                &kernel::
                    kernel_4x8x16_f32_neondot<weight_nbit, has_weight_zeros>});
+          constexpr int large_prefill_mr = 8;
+          constexpr int large_prefill_m_step = 8;
+          uk.linear_configs[3] = UKernelConfig::linear_config_type(
+              {large_prefill_m_step,
+               large_prefill_mr,
+               &kernel::packed_activations_size,
+               &kernel::packed_activations_offset,
+               &kernel::pack_activations<large_prefill_mr, kr, sr>,
+               &kernel::
+                   kernel_8x8x16_f32_neondot<weight_nbit, has_weight_zeros>});
         }
       } else {
         constexpr bool has_weight_zeros = false;
@@ -216,6 +226,16 @@ void register_ukernel_config_universal(
                &kernel::pack_activations<prefill_mr, kr, sr>,
                &kernel::
                    kernel_4x8x16_f32_neondot<weight_nbit, has_weight_zeros>});
+          constexpr int large_prefill_mr = 8;
+          constexpr int large_prefill_m_step = 8;
+          uk.linear_configs[3] = UKernelConfig::linear_config_type(
+              {large_prefill_m_step,
+               large_prefill_mr,
+               &kernel::packed_activations_size,
+               &kernel::packed_activations_offset,
+               &kernel::pack_activations<large_prefill_mr, kr, sr>,
+               &kernel::
+                   kernel_8x8x16_f32_neondot<weight_nbit, has_weight_zeros>});
         }
       }
 

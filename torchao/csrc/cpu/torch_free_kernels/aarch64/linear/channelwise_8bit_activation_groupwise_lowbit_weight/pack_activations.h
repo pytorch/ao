@@ -63,7 +63,7 @@ void inline pack_activations(
     bool has_weight_zeros) {
   // The universal multi-row kernels use the same row-major packing.
   // kr/sr do not affect activation packing for these kernels.
-  static_assert(mr == 1 || mr == 2 || mr == 4);
+  static_assert(mr == 1 || mr == 2 || mr == 4 || mr == 8);
 
   auto activation_data_byte_ptr = (char*)activation_data;
 
