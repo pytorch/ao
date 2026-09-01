@@ -601,6 +601,41 @@ def test_rearrange(shape):
     not is_cuda_version_at_least(12, 8),
     reason="CUDA version >= 12.8 required for MXFP8 CUDA kernels",
 )
+def test_cuda_mx_quantize_on_a_fresh_thread():
+    """The kernel must work when it is the first CUDA call on its thread.
+
+    It encodes TMA descriptors through the driver API, which needs a current
+    context. A thread that has not used CUDA yet does not have one, and a
+    DeviceGuard does not bind it when the device already matches. Autograd runs
+    backward on worker threads, so this is the common case for an MXFP8
+    backward. Without the fix the kernel raises a cudaErrorIllegalInstruction.
+    """
+    import threading
+
+    x = torch.randn(64, 128, device="cuda", dtype=torch.bfloat16)
+    failure = []
+
+    def run():
+        try:
+            mxfp8_quantize_cuda(x, rowwise=False, colwise=True, scaling_mode="rceil")
+            torch.cuda.synchronize()
+        except Exception as e:  # noqa: BLE001
+            failure.append(e)
+
+    thread = threading.Thread(target=run)
+    thread.start()
+    thread.join()
+    assert not failure, f"quantize failed on a fresh thread: {failure[0]}"
+
+
+@pytest.mark.skipif(
+    not is_sm_at_least_100(),
+    reason="MXFP8 requires CUDA capability 10.0 or greater",
+)
+@pytest.mark.skipif(
+    not is_cuda_version_at_least(12, 8),
+    reason="CUDA version >= 12.8 required for MXFP8 CUDA kernels",
+)
 @pytest.mark.parametrize("M", (32, 256))
 @pytest.mark.parametrize("K", (32, 256))
 @pytest.mark.parametrize("input_dtype", (torch.float32, torch.bfloat16))
