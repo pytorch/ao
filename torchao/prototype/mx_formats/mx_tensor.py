@@ -795,7 +795,7 @@ def _addmm_mx_dispatch(
         if b.is_swizzled_scales:
             b_scale_block = b.scale.t()
         else:
-            b_scale_block = b.scale.view(K // b.block_size, N).t()
+            b_scale_block = b.scale.t().view(N, K // b.block_size)
 
         swizzle = (
             SwizzleType.SWIZZLE_32_4_4
