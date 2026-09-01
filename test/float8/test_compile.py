@@ -14,6 +14,11 @@ import torch
 import torch.nn as nn
 from torch._dynamo.test_case import TestCase as DynamoTestCase
 from torch._dynamo.testing import CompileCounterWithBackend
+from torch._dynamo.utils import counters
+from torch._functorch import config as functorch_config
+from torch._inductor import config as inductor_config
+from torch._inductor.codecache import PyCodeCache
+from torch._inductor.utils import fresh_cache
 
 from torchao.float8.config import (
     CastConfig,
@@ -220,6 +225,60 @@ def test_inductor_from_recipe(recipe_name):
         config,
         dtype,
     )
+
+
+@inductor_config.patch(
+    {
+        "compile_threads": 1,
+        "fx_graph_cache": True,
+        "fx_graph_remote_cache": False,
+    }
+)
+@functorch_config.patch(
+    {
+        "autograd_cache_allow_custom_autograd_functions": True,
+        "enable_autograd_cache": True,
+        "strict_autograd_cache": True,
+    }
+)
+@unittest.skipIf(not torch.accelerator.is_available(), "GPU not available")
+@unittest.skipIf(
+    torch.cuda.is_available() and not is_sm_at_least_90(),
+    "CUDA with capability 9.0 or greater not available",
+)
+def test_inductor_aot_autograd_cache_rowwise_with_gw_hp():
+    torch._dynamo.reset()
+    device = torch.accelerator.current_accelerator()
+    config = Float8LinearConfig.from_recipe_name(
+        Float8LinearRecipeName.ROWWISE_WITH_GW_HP
+    )
+    model = Float8Linear.from_float(
+        nn.Linear(16, 32, bias=True, device=device, dtype=torch.bfloat16),
+        config,
+    )
+    compiled_model = torch.compile(model, backend="inductor", fullgraph=True)
+
+    counters.clear()
+    with fresh_cache():
+        x = torch.randn(16, 16, device=device, dtype=torch.bfloat16, requires_grad=True)
+        compiled_model(x).sum().backward()
+
+        assert counters["aot_autograd"]["autograd_cache_miss"] == 1
+        assert counters["aot_autograd"]["autograd_cache_hit"] == 0
+        assert counters["aot_autograd"]["autograd_cache_saved"] == 1
+        assert counters["aot_autograd"]["autograd_cache_bypass"] == 0
+
+        torch._dynamo.reset()
+        PyCodeCache.cache_clear(purge=True)
+
+        model.zero_grad(set_to_none=True)
+        x = torch.randn(16, 16, device=device, dtype=torch.bfloat16, requires_grad=True)
+        compiled_model(x).sum().backward()
+
+        assert counters["aot_autograd"]["autograd_cache_miss"] == 1
+        assert counters["aot_autograd"]["autograd_cache_hit"] == 1
+        assert counters["aot_autograd"]["autograd_cache_saved"] == 1
+        assert counters["aot_autograd"]["autograd_cache_bypass"] == 0
 
 
 class TestGraphBreaks(DynamoTestCase):
