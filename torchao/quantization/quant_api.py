@@ -908,7 +908,7 @@ def _int8_dynamic_activation_int8_weight_quantize_tensor(weight, config):
     return quantized_weight
 
 def _register_qlinear_cpu_lowering_passes(device):
-    # register inductor fusion partterns that lower int8 activation linears to onednn::qlinear on CPU
+    # register inductor fusion patterns that lower int8 activation linears to onednn::qlinear on CPU
     if device.type != "cpu":
         return
 
