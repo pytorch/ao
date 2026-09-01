@@ -790,7 +790,7 @@ def _addmm_mx_dispatch(
         if a.is_swizzled_scales:
             a_scale_block = a.scale
         else:
-            a_scale_block = a.scale.view(M, K // a.block_size).contiguous()
+            a_scale_block = a.scale.view(M, K // a.block_size)
 
         if b.is_swizzled_scales:
             b_scale_block = b.scale.t()
