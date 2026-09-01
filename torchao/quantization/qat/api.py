@@ -200,6 +200,7 @@ def _qat_config_transform(
     # TODO: rewrite this using a registration API so
     # specific quantization schemes do not leak here
     from torchao.prototype.qat import (
+        CodebookFakeQuantizer,
         MXFakeQuantizeConfig,
         MXFakeQuantizedLinear,
         NVFP4FakeQuantizeConfig,
@@ -268,14 +269,25 @@ def _qat_config_transform(
         # This is only for range learning and only applies to weights
         kwargs = {}
         has_custom_scale_and_zero_point = False
+        weight_fake_quantizer = getattr(module, "weight_fake_quantizer", None)
         if (
-            hasattr(module, "weight_fake_quantizer")
-            and isinstance(module.weight_fake_quantizer.config, IntxFakeQuantizeConfig)
-            and module.weight_fake_quantizer.config.range_learning
+            weight_fake_quantizer is not None
+            and isinstance(weight_fake_quantizer.config, IntxFakeQuantizeConfig)
+            and weight_fake_quantizer.config.range_learning
         ):
-            kwargs["custom_scale"] = module.weight_fake_quantizer.scale
-            kwargs["custom_zero_point"] = module.weight_fake_quantizer.zero_point
+            kwargs["custom_scale"] = weight_fake_quantizer.scale
+            kwargs["custom_zero_point"] = weight_fake_quantizer.zero_point
             has_custom_scale_and_zero_point = True
+
+        # For codebook QAT, reuse the codebook that training last computed so the
+        # deployed quantization grid matches what QAT optimized against, instead
+        # of re-clustering on the final weights. Only applies if at least one
+        # forward pass populated the cached codebook during training.
+        if (
+            isinstance(weight_fake_quantizer, CodebookFakeQuantizer)
+            and weight_fake_quantizer._codebook is not None
+        ):
+            kwargs["custom_codebook"] = weight_fake_quantizer._codebook
 
         # Swap FakeQuantizedLinear -> nn.Linear
         # Swap FakeQuantizedEmbedding -> nn.Embedding
