@@ -98,79 +98,6 @@ def _to_mxfp8_then_scaled_mm(
     )
 
 
-def quantize_weight_for_mxfp8_cache(
-    weight_hp: torch.Tensor,
-    scale_calculation_mode: ScaleCalculationMode = ScaleCalculationMode.RCEIL,
-    kernel_preference: KernelPreference = KernelPreference.AUTO,
-) -> MXTensor:
-    """Quantize a dense linear weight to the MXFP8 MXTensor used by the forward.
-
-    Produces exactly the ``weight_mx_dim0`` that ``_mx_mm_forward`` would compute,
-    so a caller can quantize a static weight once (e.g. per inference weight update)
-    and pass the returned MXTensor as the ``weight`` to skip the per-forward weight
-    quant. The result is bitwise-identical to the dynamic path for the same weight.
-
-    The MXTensor is built under ``torch.inference_mode()`` on purpose. Generation
-    runs the forward under ``torch.inference_mode()`` and does ``weight_mx.t()``;
-    that MXTensor view dispatches through ``return_and_correct_aliasing``. If the
-    cached weight were an ordinary tensor (built outside inference mode, e.g. during
-    a weight sync running under ``torch.no_grad()``), the transpose would try to set
-    a version counter on the inference-mode output view and raise "Cannot set
-    version_counter for inference tensor". When the cached weight is itself an
-    inference tensor, the aliasing machinery skips the version counter and the
-    transpose works. This is safe: the cache is inference-only (no backward).
-    """
-    with torch.inference_mode():
-        return MXTensor.to_mx(
-            weight_hp,
-            torch.float8_e4m3fn,
-            32,
-            scale_calculation_mode,
-            kernel_preference,
-            mxfp8_dim0_cast_kernel_choice=MXFP8Dim0CastKernelChoice.TRITON,
-        )
-
-
-def mxfp8_mm_cached_weight(
-    input_hp: torch.Tensor,
-    weight_mx: MXTensor,
-    kernel_preference: KernelPreference,
-    scale_calculation_mode: ScaleCalculationMode,
-) -> torch.Tensor:
-    """Forward-only mxfp8 matmul that reuses a pre-quantized weight (inference cache).
-
-    Mirrors the forward math of ``_mx_mm_forward`` -- quantize the input to MXFP8
-    (dim0) and compute ``input @ weight_t`` -- but with no autograd machinery. The
-    cached ``weight_mx`` is built during a weight sync and is typically an inference
-    tensor; routing it through the ``mx_mm`` / ``mx_mm_fwd_bf16_bwd``
-    autograd.Function would call ``ctx.save_for_backward`` on it, which fails with
-    "Cannot set version_counter for inference tensor". Generation never needs the
-    backward, so this plain function skips ``save_for_backward`` entirely.
-
-    The result is bitwise-identical to the dynamic path for the same weight: the
-    input quant uses the same dtype / block_size / kernel choices as
-    ``_mx_mm_forward``, and ``weight_mx`` is exactly what
-    ``quantize_weight_for_mxfp8_cache`` (hence the dynamic weight quant) produces.
-    """
-    in_elem_dtype = torch.float8_e4m3fn
-    block_size = 32
-    mxfp8_dim0_cast_kernel_choice = MXFP8Dim0CastKernelChoice.TRITON
-
-    input_orig_shape = input_hp.shape
-    input_hp_r = input_hp.reshape(-1, input_orig_shape[-1])
-    input_mx_r_dim0 = MXTensor.to_mx(
-        input_hp_r,
-        in_elem_dtype,
-        block_size,
-        scale_calculation_mode,
-        kernel_preference,
-        mxfp8_dim0_cast_kernel_choice=mxfp8_dim0_cast_kernel_choice,
-    )
-    output = torch.mm(input_mx_r_dim0, weight_mx.t())
-    output = output.reshape(*input_orig_shape[:-1], output.shape[-1])
-    return output
-
-
 def _mx_mm_forward(
     ctx,
     input_hp: torch.Tensor,
@@ -211,21 +138,14 @@ def _mx_mm_forward(
         kernel_preference,
         mxfp8_dim0_cast_kernel_choice=mxfp8_dim0_cast_kernel_choice,
     )
-    # weight_hp may already be a pre-quantized MXTensor (inference weight cache):
-    # the weight is static between updates, so callers can quantize it once and
-    # pass the MXTensor here to skip the per-forward weight quant. When it is a
-    # plain high-precision tensor (training), quantize it as usual.
-    if isinstance(weight_hp, MXTensor):
-        weight_mx_dim0 = weight_hp
-    else:
-        weight_mx_dim0 = MXTensor.to_mx(
-            weight_hp,
-            w_elem_dtype,
-            block_size,
-            scale_calculation_mode,
-            kernel_preference,
-            mxfp8_dim0_cast_kernel_choice=mxfp8_dim0_cast_kernel_choice,
-        )
+    weight_mx_dim0 = MXTensor.to_mx(
+        weight_hp,
+        w_elem_dtype,
+        block_size,
+        scale_calculation_mode,
+        kernel_preference,
+        mxfp8_dim0_cast_kernel_choice=mxfp8_dim0_cast_kernel_choice,
+    )
     output = torch.mm(input_mx_r_dim0, weight_mx_dim0.t())
     output = output.reshape(*input_orig_shape[:-1], output.shape[-1])
     return output
