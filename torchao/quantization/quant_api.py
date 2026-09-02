@@ -65,8 +65,8 @@ from torchao.quantization.quantize_.workflows import (
     IntxChooseQParamsAlgorithm,
     IntxOpaqueTensor,
     IntxPackingFormat,
+    IntxStaticActivationTensor,
     IntxUnpackedToInt8Tensor,
-    IntxUnpackedToInt8TensorActivationQuantization,
     QuantizeTensorToFloat8Kwargs,
     QuantizeTensorToInt8Kwargs,
 )
@@ -1168,12 +1168,11 @@ def _int8_static_activation_intx_weight_transform(
         if c_zp is None:
             c_zp = torch.zeros_like(c_scale, dtype=torch.int8)
 
-    new_weight = IntxUnpackedToInt8Tensor.from_hp(
+    new_weight = IntxStaticActivationTensor.from_hp(
         weight,
         block_size,
         config.weight_dtype,
         mapping_type=config.weight_mapping_type,
-        activation_quantization=IntxUnpackedToInt8TensorActivationQuantization.INT8_SYM_STATIC,
         intx_choose_qparams_algorithm=choose_qparams_algo,
         custom_scale=c_scale,
         custom_zero_point=c_zp,

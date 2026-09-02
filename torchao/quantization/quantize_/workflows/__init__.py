@@ -34,6 +34,9 @@ from .intx.intx_opaque_tensor import (
 from .intx.intx_packing_format import (
     IntxPackingFormat,
 )
+from .intx.intx_static_activation_tensor import (
+    IntxStaticActivationTensor,
+)
 from .intx.intx_unpacked_to_int8_tensor import (
     IntxUnpackedToInt8Tensor,
     IntxUnpackedToInt8TensorActivationQuantization,
@@ -57,6 +60,7 @@ __all__ = [
     "IntxChooseQParamsAlgorithm",
     "IntxOpaqueTensor",
     "IntxPackingFormat",
+    "IntxStaticActivationTensor",
     "IntxUnpackedToInt8Tensor",
     "IntxUnpackedToInt8TensorActivationQuantization",
     "NF4Tensor",
