@@ -927,12 +927,13 @@ def _int8_dynamic_activation_int8_weight_transform(
 ) -> torch.nn.Module:
     if config.set_inductor_config:
         torchao.quantization.utils.recommended_inductor_config_setter()
+        _register_qlinear_cpu_lowering_passes(getattr(module, parameter_name).device)
 
     assert hasattr(module, parameter_name), (
         f"applying int8 dynamic activation int8 weight quant requires module to have {parameter_name} attribute"
         + f" but {module} does not have one"
     )
-    _register_qlinear_cpu_lowering_passes(getattr(module, parameter_name).device)
+
     new_weight = _int8_dynamic_activation_int8_weight_quantize_tensor(
         getattr(module, parameter_name), config
     )
@@ -1031,12 +1032,11 @@ def _int8_static_activation_int8_weight_transform(
 
     if config.set_inductor_config:
         torchao.quantization.utils.recommended_inductor_config_setter()
+        _register_qlinear_cpu_lowering_passes(getattr(module, parameter_name).device)
 
     act_quant_zero_point = None
     if config.act_quant_zero_point is not None:
         act_quant_zero_point = config.act_quant_zero_point.detach()
-    
-    _register_qlinear_cpu_lowering_passes(getattr(module, parameter_name).device)
 
     quantized_tensor = Int8Tensor.from_hp(
         getattr(module, parameter_name),
