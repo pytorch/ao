@@ -53,14 +53,29 @@ UKernelConfig get_ukernel_config() {
       &torchao::weight_packing::pack_weights<weight_nbit, nr, kr, sr>,
       /*linear_configs*/ {});
 
-  uk.linear_configs[0] = UKernelConfig::linear_config_type{
-      m_step,
-      mr,
-      &kernel::packed_activations_size,
-      &kernel::packed_activations_offset,
-      &kernel::pack_activations<mr, kr, sr>,
-      &kernel::
-          kernel_1x8x16_f32_neondot<weight_nbit, has_weight_zeros, has_lut>};
+  if constexpr (weight_nbit == 3 && !has_weight_zeros && !has_lut) {
+    constexpr bool has_activation_qvals_sum = true;
+    uk.linear_configs[0] = UKernelConfig::linear_config_type{
+        m_step,
+        mr,
+        &kernel::packed_activations_with_qvals_sum_size,
+        &kernel::packed_activations_with_qvals_sum_offset,
+        &kernel::pack_activations_with_qvals_sum<mr, kr, sr>,
+        &kernel::kernel_1x8x16_f32_neondot<
+            weight_nbit,
+            has_weight_zeros,
+            has_lut,
+            has_activation_qvals_sum>};
+  } else {
+    uk.linear_configs[0] = UKernelConfig::linear_config_type{
+        m_step,
+        mr,
+        &kernel::packed_activations_size,
+        &kernel::packed_activations_offset,
+        &kernel::pack_activations<mr, kr, sr>,
+        &kernel::
+            kernel_1x8x16_f32_neondot<weight_nbit, has_weight_zeros, has_lut>};
+  }
 
   if constexpr (has_lut) {
     uk.packed_weights_size = &kernel::packed_weights_with_lut_size;
@@ -423,6 +438,24 @@ TEST(test_linear_8bit_act_xbit_weight, Standard) {
       false /*has_bias*/,
       false /*has_clamp*/>(
       /*m=*/13, /*n=*/8 * 10 + 3, /*k=*/16 * 3, /*group_size=*/16);
+}
+
+TEST(test_linear_8bit_act_xbit_weight, ThreeBitDecodeUnsignedWeights) {
+  test_linear_8bit_act_xbit_weight<
+      3 /*weight_nbit*/,
+      true /*has_weight_zeros*/,
+      true /*has_bias*/,
+      true /*has_clamp*/>(
+      /*m=*/1, /*n=*/8 * 3 + 5, /*k=*/16 * 8, /*group_size=*/64);
+}
+
+TEST(test_linear_8bit_act_xbit_weight, ThreeBitDecodeUnsignedSymmetricWeights) {
+  test_linear_8bit_act_xbit_weight<
+      3 /*weight_nbit*/,
+      false /*has_weight_zeros*/,
+      true /*has_bias*/,
+      true /*has_clamp*/>(
+      /*m=*/3, /*n=*/8 * 3 + 5, /*k=*/16 * 8, /*group_size=*/64);
 }
 
 TEST(test_linear_8bit_act_xbit_weight, HasWeightZeros) {

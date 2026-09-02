@@ -50,6 +50,35 @@ inline size_t packed_activations_offset(
   return (m_idx / mr) * packed_activations_size_mr_rows;
 }
 
+// The symmetric W3 decode kernel keeps packed weights in their unsigned 0..7
+// representation. Store activation sums so it can remove the resulting +4
+// offset after the dot product without changing the weight format.
+inline size_t packed_activations_with_qvals_sum_size(
+    int m,
+    int k,
+    int group_size,
+    bool has_weight_zeros,
+    int mr,
+    int kr,
+    int sr) {
+  (void)has_weight_zeros;
+  return packed_activations_size(
+      m, k, group_size, true, mr, kr, sr);
+}
+
+inline size_t packed_activations_with_qvals_sum_offset(
+    int m_idx,
+    int k,
+    int group_size,
+    bool has_weight_zeros,
+    int mr,
+    int kr,
+    int sr) {
+  (void)has_weight_zeros;
+  return packed_activations_offset(
+      m_idx, k, group_size, true, mr, kr, sr);
+}
+
 template <int mr_, int kr_, int sr_>
 void pack_activations(
     void* packed_activations,
@@ -66,6 +95,25 @@ void pack_activations(
   (void)sr; // unused
   activation_packing::pack_activations<mr_, kr_, sr_>(
       packed_activations, m, k, group_size, activations, has_weight_zeros);
+}
+
+template <int mr_, int kr_, int sr_>
+void pack_activations_with_qvals_sum(
+    void* packed_activations,
+    int m,
+    int k,
+    int group_size,
+    const float* activations,
+    bool has_weight_zeros,
+    int mr,
+    int kr,
+    int sr) {
+  (void)has_weight_zeros;
+  (void)mr;
+  (void)kr;
+  (void)sr;
+  activation_packing::pack_activations<mr_, kr_, sr_>(
+      packed_activations, m, k, group_size, activations, true);
 }
 
 template <int weight_nbit, int nr_, int kr_, int sr_>
@@ -205,7 +253,11 @@ void kernel_1x4x16_f32_neondot(
       has_clamp);
 }
 
-template <int weight_nbit, bool has_weight_zeros, bool has_lut>
+template <
+    int weight_nbit,
+    bool has_weight_zeros,
+    bool has_lut,
+    bool has_activation_qvals_sum = has_weight_zeros>
 void kernel_1x8x16_f32_neondot(
     // Outputs
     float32_t* output,
@@ -224,7 +276,11 @@ void kernel_1x8x16_f32_neondot(
     bool has_bias,
     bool has_clamp) {
   (void)has_weight_zeros_; // unused
-  kernel::kernel_1x8x16_f32_neondot<weight_nbit, has_weight_zeros, has_lut>(
+  kernel::kernel_1x8x16_f32_neondot<
+      weight_nbit,
+      has_weight_zeros,
+      has_lut,
+      has_activation_qvals_sum>(
       output,
       output_m_stride,
       m,
