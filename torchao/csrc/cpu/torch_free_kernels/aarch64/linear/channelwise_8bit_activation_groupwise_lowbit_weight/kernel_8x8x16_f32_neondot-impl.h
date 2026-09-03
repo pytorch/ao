@@ -17,6 +17,8 @@ namespace torchao::kernels::cpu::aarch64::linear::
     channelwise_8bit_activation_groupwise_lowbit_weight::kernel {
 namespace internal {
 
+// Accumulator lanes represent four rows. Select four weight bytes at a time so
+// the same two output columns can be accumulated for all four rows.
 TORCHAO_ALWAYS_INLINE inline void dot_4_rows_2_cols(
     int32x4_t& accumulator0,
     int32x4_t& accumulator1,
@@ -33,6 +35,7 @@ TORCHAO_ALWAYS_INLINE inline void dot_4_rows_2_cols(
   accumulator1 = vdotq_laneq_s32(accumulator1, activations[3], weights_8_15, 3);
 }
 
+// Convert four column vectors into four row vectors for contiguous stores.
 inline void transpose_4x4_f32(
     float32x4_t col0,
     float32x4_t col1,
@@ -53,6 +56,7 @@ inline void transpose_4x4_f32(
   row3 = vcombine_f32(vget_high_f32(cols01_hi), vget_high_f32(cols23_hi));
 }
 
+// Store one row of an 8-column tile without writing past an N tail.
 inline void store_8_f32(
     float* output,
     int remaining,
@@ -91,6 +95,8 @@ TORCHAO_ALWAYS_INLINE inline void decode_4_cols_w3(
     int8x16_t& weights23_1,
     const uint8_t* packed_weights) {
   static_assert(column_half == 0 || column_half == 1);
+  // An 8-column by 16-K W3 panel occupies 48 bytes. Decode either four-column
+  // half into the layout consumed by the lane dot-product instructions.
   const uint8x16_t packed0 = vld1q_u8(packed_weights);
   const uint8x16_t packed1 = vld1q_u8(packed_weights + 16);
   const uint8x16_t packed2 = vld1q_u8(packed_weights + 32);
@@ -113,6 +119,7 @@ TORCHAO_ALWAYS_INLINE inline void decode_4_cols_w3(
   }
 
   if constexpr (shift_weights_to_signed) {
+    // Packed W3 codes are 0..7; symmetric weights use signed values -4..3.
     const int8x16_t unshift = vdupq_n_s8(-4);
     weights01_0 = vaddq_s8(weights01_0, unshift);
     weights01_1 = vaddq_s8(weights01_1, unshift);
@@ -131,6 +138,8 @@ TORCHAO_ALWAYS_INLINE inline void dot_rows_8_cols_w3(
   int8x16_t weights01_1;
   int8x16_t weights23_0;
   int8x16_t weights23_1;
+  // Each row block contains four interleaved rows. Decode each weight half
+  // once and reuse it across one or two row blocks (four or eight rows).
   int8x16_t activations[row_blocks][4];
   for (int block = 0; block < row_blocks; block++) {
     const int8_t* ptr = packed_activations + block * 64;
@@ -193,6 +202,8 @@ TORCHAO_ALWAYS_INLINE inline void accumulate_rows_column(
     const float32x4_t& weight_scale_vec,
     const int32x4_t& weight_zero_vec,
     const int32x4_t (&activation_qvals_sum_vec)[row_blocks]) {
+  // Correct the integer dot product, apply both quantization scales, and add
+  // this K group's contribution to the FP32 result.
   for (int block = 0; block < row_blocks; block++) {
     int32x4_t corrected = vmlsq_laneq_s32(
         accumulators[block][col],
@@ -220,6 +231,7 @@ TORCHAO_ALWAYS_INLINE inline void accumulate_16_row_column(
     const float32x4_t& weight_scale_vec,
     const int32x4_t& weight_zero_vec,
     const int32x4_t (&activation_qvals_sum_vec)[4]) {
+  // The 16-row path uses four independent four-row accumulator blocks.
   for (int row_block = 0; row_block < 4; row_block++) {
     int32x4_t corrected = vmlsq_laneq_s32(
         accumulators[row_block][col],
@@ -272,6 +284,7 @@ __attribute__((noinline)) void kernel_rows_8x16_w3(
   constexpr int nr = 8;
   constexpr int bytes_per_128_weight_values = 48;
 
+  // Read the per-row quantization header from one packed eight-row block.
   float32x4_t activation_scale_vec[row_blocks];
   for (int block = 0; block < row_blocks; block++) {
     activation_scale_vec[block] = vld1q_f32(
@@ -301,6 +314,7 @@ __attribute__((noinline)) void kernel_rows_8x16_w3(
     }
   }
 
+  // Accumulate and dequantize one K group at a time.
   for (int k_idx = 0; k_idx < k; k_idx += group_size) {
     int32x4_t accumulators[row_blocks][nr];
     for (int block = 0; block < row_blocks; block++) {
@@ -319,6 +333,7 @@ __attribute__((noinline)) void kernel_rows_8x16_w3(
       activation_ptr += mr * 16;
     }
 
+    // Packed group metadata follows the W3 values for this group.
     const float* weight_scales = reinterpret_cast<const float*>(weight_ptr);
     const float32x4_t weight_scales_0123 = vld1q_f32(weight_scales);
     const float32x4_t weight_scales_4567 = vld1q_f32(weight_scales + 4);
@@ -386,6 +401,7 @@ __attribute__((noinline)) void kernel_rows_8x16_w3(
 #undef TORCHAO_ACCUMULATE_ROWS
   }
 
+  // Apply optional post-ops after all K groups have accumulated.
   if (has_bias) {
     const float* bias = reinterpret_cast<const float*>(weight_ptr);
     for (int col = 0; col < nr; col++) {
@@ -406,6 +422,7 @@ __attribute__((noinline)) void kernel_rows_8x16_w3(
     }
   }
 
+  // Accumulators are column-major; transpose them before row-major stores.
   for (int block = 0; block < row_blocks; block++) {
     const int block_rows = std::min(4, valid_rows - block * 4);
     if (block_rows <= 0) {
@@ -457,6 +474,7 @@ __attribute__((noinline)) void kernel_1x8x16_w3_interleaved(
   constexpr int mr = 8;
   constexpr int nr = 8;
   constexpr int bytes_per_128_weight_values = 48;
+  // Extract one requested row from the same eight-row interleaved layout.
   const float activation_scale =
       reinterpret_cast<const float*>(activation_block)[row];
   const int32_t activation_zero = static_cast<int32_t>(
@@ -475,6 +493,7 @@ __attribute__((noinline)) void kernel_1x8x16_w3_interleaved(
         vdupq_n_s32(0),
         vdupq_n_s32(0)};
     for (int i = 0; i < group_size; i += 16) {
+      // Deinterleave four rows and select the row needed by this tail path.
       const int32x4x4_t rows = vld4q_s32(
           reinterpret_cast<const int32_t*>(
               activation_ptr + (row / 4) * 64));
@@ -610,6 +629,8 @@ __attribute__((noinline)) void kernel_16x4x16_w3(
   constexpr int column_offset = column_half * 4;
   assert(valid_rows >= 9 && valid_rows <= 16);
 
+  // A 16x8 accumulator tile would exceed the practical register budget, so
+  // this helper computes four columns and the caller invokes both halves.
   float32x4_t activation_scale_vec[4] = {
       vld1q_f32(reinterpret_cast<const float*>(activation_block_0)),
       vld1q_f32(reinterpret_cast<const float*>(activation_block_0 + 16)),
@@ -646,6 +667,7 @@ __attribute__((noinline)) void kernel_16x4x16_w3(
       }
     }
 
+    // Decode four columns once per K chunk and reuse them across all 16 rows.
     for (int i = 0; i < group_size; i += 16) {
       int8x16_t weights01_0;
       int8x16_t weights01_1;
@@ -806,10 +828,10 @@ __attribute__((noinline)) void kernel_16x4x16_w3(
 
 } // namespace internal
 
-// Reuses each decoded W3 panel across 16 rows, then handles the M tail with
-// dedicated 8-row, 4-row, and interleaved 1-row paths from the same source.
+// Public eight-row-granularity entry point. It pairs packed activation blocks
+// for a 16-row fast path, then uses dedicated 8-, 4-, and 1-row tail paths.
 template <bool has_weight_zeros>
-void kernel_16x8x16_f32_neondot(
+void kernel_8x8x16_f32_neondot(
     float32_t* output,
     int output_m_stride,
     int m,
@@ -839,6 +861,7 @@ void kernel_16x8x16_f32_neondot(
   const auto* activation_data_bytes = static_cast<const char*>(activation_data);
   const auto* weight_data_bytes = static_cast<const char*>(weight_data);
 
+  // Process complete pairs of eight-row activation blocks.
   int m_idx = 0;
   for (; m_idx + 16 <= m; m_idx += 16) {
     const char* activation_block_0 =
@@ -881,6 +904,7 @@ void kernel_16x8x16_f32_neondot(
     }
   }
 
+  // A 9..15-row tail uses the 16-row path with padded activation rows.
   if (m - m_idx > 8) {
     const int tail_rows = m - m_idx;
     const char* activation_block_0 =
@@ -923,6 +947,7 @@ void kernel_16x8x16_f32_neondot(
     }
     m_idx += tail_rows;
   } else if (m - m_idx > 4) {
+    // A 5..8-row tail uses the eight-row path.
     const int tail_rows = m - m_idx;
     const char* weight_panel = weight_data_bytes;
     const char* activation_block =
@@ -947,6 +972,7 @@ void kernel_16x8x16_f32_neondot(
     m_idx += tail_rows;
   }
 
+  // A 2..4-row tail uses one four-row accumulator block.
   if (m - m_idx > 1) {
     const int tail_rows = m - m_idx;
     const int activation_block_idx = m_idx / mr;
@@ -974,6 +1000,7 @@ void kernel_16x8x16_f32_neondot(
     m_idx += tail_rows;
   }
 
+  // Handle the possible final row without repacking its interleaved block.
   for (; m_idx < m; m_idx++) {
     const int activation_block_idx = m_idx / mr;
     const int row_in_block = m_idx % mr;

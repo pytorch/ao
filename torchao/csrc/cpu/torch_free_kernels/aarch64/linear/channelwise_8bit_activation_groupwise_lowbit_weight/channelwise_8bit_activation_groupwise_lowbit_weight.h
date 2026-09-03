@@ -14,7 +14,7 @@
 #include <torchao/csrc/cpu/torch_free_kernels/aarch64/linear/channelwise_8bit_activation_groupwise_lowbit_weight/pack_weights.h>
 #include <torchao/csrc/cpu/torch_free_kernels/weight_packing/weight_packing.h>
 
-#include <torchao/csrc/cpu/torch_free_kernels/aarch64/linear/channelwise_8bit_activation_groupwise_lowbit_weight/kernel_16x8x16_f32_neondot-impl.h>
+#include <torchao/csrc/cpu/torch_free_kernels/aarch64/linear/channelwise_8bit_activation_groupwise_lowbit_weight/kernel_8x8x16_f32_neondot-impl.h>
 #include <torchao/csrc/cpu/torch_free_kernels/aarch64/linear/channelwise_8bit_activation_groupwise_lowbit_weight/kernel_1x1x32_f32_neondot-impl.h>
 #include <torchao/csrc/cpu/torch_free_kernels/aarch64/linear/channelwise_8bit_activation_groupwise_lowbit_weight/kernel_1x4x16_f32_neondot-impl.h>
 #include <torchao/csrc/cpu/torch_free_kernels/aarch64/linear/channelwise_8bit_activation_groupwise_lowbit_weight/kernel_1x8x16_f32_neondot-impl.h>
@@ -333,7 +333,7 @@ void kernel_8x8x16_f32_neondot(
     bool has_clamp) {
   (void)has_weight_zeros_;
   static_assert(weight_nbit == 3);
-  kernel::kernel_16x8x16_f32_neondot<has_weight_zeros>(
+  kernel::kernel_8x8x16_f32_neondot<has_weight_zeros>(
       output,
       output_m_stride,
       m,
