@@ -22,6 +22,7 @@ from torchao.prototype.gptq import (
     gptq_quantize,
     gptq_quantize_3d,
 )
+from torchao.prototype.gptq.api import _synchronize_gptq_device
 from torchao.prototype.gptq.observer import GPTQObserverTensor
 from torchao.prototype.mx_formats.inference_workflow import (
     NVFP4DynamicActivationNVFP4WeightConfig,
@@ -32,6 +33,38 @@ from torchao.utils import (
     _is_mslk_available,
     is_sm_at_least_100,
 )
+
+
+class TestGPTQDeviceSynchronization:
+    def test_synchronize_skips_cpu(self, monkeypatch):
+        def get_device_module(device):
+            raise AssertionError("CPU GPTQ should not request a device module")
+
+        monkeypatch.setattr(torch, "get_device_module", get_device_module)
+
+        _synchronize_gptq_device(torch.device("cpu"))
+
+    def test_synchronize_uses_weight_device_module(self, monkeypatch):
+        calls = []
+
+        class FakeDevice:
+            type = "xpu"
+
+        class FakeDeviceModule:
+            def synchronize(self):
+                calls.append("synchronize")
+
+        device = FakeDevice()
+
+        def get_device_module(requested_device):
+            assert requested_device is device
+            return FakeDeviceModule()
+
+        monkeypatch.setattr(torch, "get_device_module", get_device_module)
+
+        _synchronize_gptq_device(device)
+
+        assert calls == ["synchronize"]
 
 
 def _calculate_hessian(inputs, device=None):
