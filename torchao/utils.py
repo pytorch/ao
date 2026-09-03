@@ -683,12 +683,49 @@ def _dispatch__torch_dispatch__(cls, func, types, args, kwargs):
         ...
         __torch_dispatch__ = classmethod(_dispatch__torch_dispatch__)
     """
+    kwargs = {} if kwargs is None else kwargs
+
     if (
         hasattr(cls, "_ATEN_OP_TABLE")
         and cls in cls._ATEN_OP_TABLE
         and func in cls._ATEN_OP_TABLE[cls]
     ):
         return cls._ATEN_OP_TABLE[cls][func](func, types, args, kwargs)
+
+    # Some custom ops (e.g. transformers.grouped_mm_fallback) can be registered
+    # after torchao tensor subclasses are imported. In that case an explicit
+    # `@implements(op)` registration may be missed due to import order.
+    # For grouped_mm fallback, reuse the existing aten._grouped_mm handler.
+    func_name = str(func)
+    is_transformers_grouped_mm_fallback = (
+        "grouped_mm_fallback" in func_name
+        and ("transformers." in func_name or "transformers::" in func_name)
+    )
+    if is_transformers_grouped_mm_fallback:
+        grouped_mm_op = torch.ops.aten._grouped_mm.default
+        if (
+            hasattr(cls, "_ATEN_OP_TABLE")
+            and cls in cls._ATEN_OP_TABLE
+            and grouped_mm_op in cls._ATEN_OP_TABLE[cls]
+        ):
+            return cls._ATEN_OP_TABLE[cls][grouped_mm_op](grouped_mm_op, types, args, kwargs)
+
+        # Last-resort fallback for tensor subclasses that expose dequantize().
+        # This avoids import-order sensitivity when custom op registration
+        # happens after subclass `@implements(...)` declarations.
+        if len(args) >= 2 and hasattr(args[1], "dequantize"):
+            mat_a, mat_b = args[0], args[1]
+            offs = args[2] if len(args) > 2 else kwargs.get("offs", None)
+            if offs is not None:
+                deq_b = mat_b.dequantize()
+                if mat_a.ndim == 2 and deq_b.ndim == 3 and offs.ndim == 1:
+                    total_m = mat_a.shape[0]
+                    if total_m == 0:
+                        return mat_a.new_empty((0, deq_b.shape[-1]))
+                    token_ids = torch.arange(total_m, device=offs.device, dtype=offs.dtype)
+                    expert_ids = torch.bucketize(token_ids, offs, right=True).to(torch.long)
+                    per_row_weight = deq_b.index_select(0, expert_ids)
+                    return torch.bmm(mat_a.unsqueeze(1), per_row_weight).squeeze(1)
 
     arg_types = tuple(type(arg) for arg in args)
     kwarg_types = {k: type(arg) for k, arg in kwargs.items()}

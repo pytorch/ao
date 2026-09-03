@@ -186,6 +186,66 @@ class Int4PlainInt32TensorTest(TestCase):
 
     @parametrize("dtype", [torch.bfloat16])
     @parametrize("group_size", [128])
+    def test_select_dim0_supported(self, device, dtype, group_size):
+        """Test aten.select.int on the expert dimension for MoE eager path."""
+        if "npu" in device:
+            pytest.skip("NPU does not support 3D Int4PlainInt32Tensor")
+
+        E, N, K = 4, 128, 256
+        weight = torch.randn(E, N, K, dtype=dtype, device=device)
+        qw = Int4PlainInt32Tensor.from_hp(weight, [1, 1, group_size])
+
+        selected = torch.ops.aten.select.int(qw, 0, 2)
+        self.assertIsInstance(selected, Int4PlainInt32Tensor)
+        self.assertEqual(selected.shape, (N, K))
+        self.assertEqual(selected.block_size, [1, group_size])
+        self.assertEqual(selected.qdata.shape, qw.qdata[2].shape)
+
+    @parametrize("dtype", [torch.bfloat16])
+    @parametrize("group_size", [128])
+    def test_select_rejects_nonzero_dim(self, device, dtype, group_size):
+        if "npu" in device:
+            pytest.skip("NPU does not support 3D Int4PlainInt32Tensor")
+
+        E, N, K = 4, 128, 256
+        weight = torch.randn(E, N, K, dtype=dtype, device=device)
+        qw = Int4PlainInt32Tensor.from_hp(weight, [1, 1, group_size])
+
+        with self.assertRaisesRegex(NotImplementedError, "supports only dim 0"):
+            _ = torch.ops.aten.select.int(qw, 1, 0)
+
+    @parametrize("dtype", [torch.bfloat16])
+    @parametrize("group_size", [128])
+    def test_select_negative_index(self, device, dtype, group_size):
+        if "npu" in device:
+            pytest.skip("NPU does not support 3D Int4PlainInt32Tensor")
+
+        E, N, K = 4, 128, 256
+        weight = torch.randn(E, N, K, dtype=dtype, device=device)
+        qw = Int4PlainInt32Tensor.from_hp(weight, [1, 1, group_size])
+
+        selected = torch.ops.aten.select.int(qw, 0, -1)
+        self.assertEqual(selected.shape, (N, K))
+        self.assertTrue(torch.equal(selected.qdata, qw.qdata[-1]))
+
+    @parametrize("dtype", [torch.bfloat16])
+    @parametrize("group_size", [128])
+    def test_select_dequantize_shape_and_sqnr(self, device, dtype, group_size):
+        if "npu" in device:
+            pytest.skip("NPU does not support 3D Int4PlainInt32Tensor")
+
+        E, N, K = 4, 128, 256
+        weight = torch.randn(E, N, K, dtype=dtype, device=device)
+        qw = Int4PlainInt32Tensor.from_hp(weight, [1, 1, group_size])
+
+        selected = torch.ops.aten.select.int(qw, 0, 2)
+        dequantized = selected.dequantize()
+        self.assertEqual(dequantized.shape, weight[2].shape)
+        sqnr = compute_error(weight[2], dequantized)
+        self.assertGreater(sqnr, 15.0, f"Select dequantize SQNR too low: {sqnr:.2f}")
+
+    @parametrize("dtype", [torch.bfloat16])
+    @parametrize("group_size", [128])
     def test_index_expert_selection_supported_forms(self, device, dtype, group_size):
         """Test supported aten.index.Tensor forms used by MoE expert routing."""
         if "npu" in device:
@@ -280,6 +340,103 @@ class Int4PlainInt32TensorTest(TestCase):
         y = model(x, offs)
         y_sqnr = compute_error(y_ref, y)
         self.assertGreater(y_sqnr, 15.0, f"Output SQNR too low: {y_sqnr:.2f}")
+
+    @parametrize("dtype", [torch.bfloat16])
+    @parametrize("group_size", [128])
+    @parametrize(
+        "E,K,N,m_per_group",
+        [
+            (4, 128, 256, [32, 64, 16, 48]),
+        ],
+    )
+    @torch.no_grad()
+    def test_grouped_mm_compile(self, device, dtype, group_size, E, K, N, m_per_group):
+        """Regression: torch.compile path should work with Int4 grouped_mm."""
+        if "npu" in device:
+            pytest.skip("NPU does not support grouped_mm yet")
+
+        total_m = sum(m_per_group)
+        model_ref = GroupedMMModel(E, K, N, device=device, dtype=dtype)
+        model = copy.deepcopy(model_ref)
+
+        x = torch.randn(total_m, K, device=device, dtype=dtype)
+        offs = torch.tensor(
+            [sum(m_per_group[: i + 1]) for i in range(E)],
+            device=device,
+            dtype=torch.int32,
+        )
+
+        y_ref = model_ref(x, offs)
+
+        quantize_(
+            model,
+            get_config(group_size),
+            filter_fn=lambda mod, fqn: (
+                isinstance(mod, GroupedMMModel) and hasattr(mod, "weight")
+            ),
+        )
+
+        compiled_model = torch.compile(model)
+        y = compiled_model(x, offs)
+        y_sqnr = compute_error(y_ref, y)
+        self.assertGreater(y_sqnr, 15.0, f"Compiled output SQNR too low: {y_sqnr:.2f}")
+
+    @parametrize("dtype", [torch.bfloat16])
+    @parametrize("group_size", [128])
+    @torch.no_grad()
+    def test_as_strided_transpose_alias_3d(self, device, dtype, group_size):
+        """as_strided should support 3D transpose alias metadata used by AOT."""
+        if "npu" in device:
+            pytest.skip("NPU does not support 3D Int4PlainInt32Tensor")
+
+        E, N, K = 4, 128, 256
+        weight = torch.randn(E, N, K, dtype=dtype, device=device)
+        qw = Int4PlainInt32Tensor.from_hp(weight, [1, 1, group_size])
+
+        alias = torch.ops.aten.as_strided.default(
+            qw,
+            (E, K, N),
+            (qw.stride()[0], qw.stride()[2], qw.stride()[1]),
+            qw.storage_offset(),
+        )
+
+        self.assertIsInstance(alias, Int4PlainInt32Tensor)
+        self.assertEqual(alias.shape, (E, K, N))
+        dequantized = alias.dequantize()
+        sqnr = compute_error(weight.transpose(-2, -1), dequantized)
+        self.assertGreater(sqnr, 15.0, f"as_strided transpose alias SQNR too low: {sqnr:.2f}")
+
+    @parametrize("dtype", [torch.bfloat16])
+    @parametrize("group_size", [128])
+    @torch.no_grad()
+    def test_as_strided_transpose_alias_3d_contiguous_target_stride(self, device, dtype, group_size):
+        """as_strided should also accept transposed size with contiguous target stride."""
+        if "npu" in device:
+            pytest.skip("NPU does not support 3D Int4PlainInt32Tensor")
+
+        E, N, K = 4, 128, 256
+        weight = torch.randn(E, N, K, dtype=dtype, device=device)
+        qw = Int4PlainInt32Tensor.from_hp(weight, [1, 1, group_size])
+
+        target_shape = (E, K, N)
+        contiguous_target_stride = (K * N, N, 1)
+
+        alias = torch.ops.aten.as_strided.default(
+            qw,
+            target_shape,
+            contiguous_target_stride,
+            qw.storage_offset(),
+        )
+
+        self.assertIsInstance(alias, Int4PlainInt32Tensor)
+        self.assertEqual(alias.shape, target_shape)
+        dequantized = alias.dequantize()
+        sqnr = compute_error(weight.transpose(-2, -1), dequantized)
+        self.assertGreater(
+            sqnr,
+            15.0,
+            f"as_strided transpose alias (contiguous target stride) SQNR too low: {sqnr:.2f}",
+        )
 
 
 instantiate_device_type_tests(

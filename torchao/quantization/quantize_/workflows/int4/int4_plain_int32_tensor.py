@@ -531,6 +531,49 @@ def _(func, types, args, kwargs):
     return return_and_correct_aliasing(func, args, kwargs, new)
 
 
+@implements(aten.select.int)
+def _(func, types, args, kwargs):
+    """Select along the expert dimension for eager MoE dispatch.
+
+    Only dim=0 is supported for 3D expert stacks; this is the real MoE eager path.
+    Negative indices are normalized to their positive equivalent before slicing.
+    """
+    self, dim, index = args
+
+    if self.ndim == 0:
+        raise NotImplementedError("Int4PlainInt32Tensor aten.select.int requires ndim >= 1")
+    if dim != 0:
+        raise NotImplementedError(
+            "Int4PlainInt32Tensor aten.select.int supports only dim 0 for expert selection"
+        )
+
+    if self.ndim != 3:
+        raise NotImplementedError(
+            f"Int4PlainInt32Tensor aten.select.int supports only 3D expert stacks, got ndim={self.ndim}"
+        )
+
+    if index < 0:
+        index += self.shape[0]
+    if index < 0 or index >= self.shape[0]:
+        raise IndexError(f"Select index {index} out of range for dimension 0 of size {self.shape[0]}")
+
+    new_qdata = self.qdata[index]
+    new_scale = self.scale[index]
+    new_zero_point = self.zero_point[index]
+    new_shape = list(self.shape[1:])
+    new_block_size = [1, self.block_size[-1]] if len(self.block_size) == 3 else self.block_size
+
+    new = Int4PlainInt32Tensor(
+        new_qdata,
+        new_scale,
+        new_zero_point,
+        new_block_size,
+        new_shape,
+        act_pre_scale=self.act_pre_scale,
+    )
+    return return_and_correct_aliasing(func, args, kwargs, new)
+
+
 @implements([aten.index.Tensor])
 def _(func, types, args, kwargs):
     """Handles tensor[indices] for Int4PlainInt32Tensor expert stacks.
@@ -599,6 +642,67 @@ def _(func, types, args, kwargs):
         act_pre_scale=self.act_pre_scale,
     )
     return return_and_correct_aliasing(func, args, kwargs, new)
+
+
+@implements([aten.as_strided.default])
+def _(func, types, args, kwargs):
+    """Support metadata-only aliasing for torch.compile/AOT wrappers.
+
+    Int4 packed tensors cannot support arbitrary striding/view transforms because
+    qdata/scale/zero_point encode a layout-specific packed representation.
+    We only allow no-op aliasing (same shape/stride/storage_offset), which is
+    sufficient for AOT alias reconstruction.
+    """
+    self = args[0]
+    size = torch.Size(args[1])
+    stride = tuple(args[2])
+    storage_offset = args[3]
+
+    # 1) No-op aliasing
+    if (
+        size == self.size()
+        and stride == self.stride()
+        and storage_offset == self.storage_offset()
+    ):
+        return self
+
+    # 2) 3D expert-stack logical transpose aliasing on last two dims.
+    # AOT alias reconstruction may express this in two forms:
+    #  - transpose-view stride form: (s0, s2, s1)
+    #  - contiguous-target form: contiguous stride of [E, K, N]
+    # Keep packed buffers unchanged and update only logical metadata.
+    if self.ndim == 3 and storage_offset == self.storage_offset():
+        transpose_shape = torch.Size((self.shape[0], self.shape[2], self.shape[1]))
+        expected_view_stride = (self.stride()[0], self.stride()[2], self.stride()[1])
+        expected_contiguous_transpose_stride = (
+            transpose_shape[1] * transpose_shape[2],
+            transpose_shape[2],
+            1,
+        )
+
+        if size == transpose_shape and stride in (
+            expected_view_stride,
+            expected_contiguous_transpose_stride,
+        ):
+            block_size = self.block_size.copy()
+            block_size[1], block_size[2] = block_size[2], block_size[1]
+            new = Int4PlainInt32Tensor(
+                self.qdata,
+                self.scale,
+                self.zero_point,
+                block_size,
+                list(transpose_shape),
+                act_pre_scale=self.act_pre_scale,
+            )
+            return return_and_correct_aliasing(func, args, kwargs, new)
+
+    raise NotImplementedError(
+        "Int4PlainInt32Tensor aten.as_strided supports only: "
+        "(a) no-op aliasing, or "
+        "(b) 3D last-two-dims transpose aliasing. "
+        f"Got size={tuple(size)}, stride={stride}, storage_offset={storage_offset}, "
+        f"base_size={tuple(self.size())}, base_stride={self.stride()}, base_storage_offset={self.storage_offset()}"
+    )
 
 
 @implements([aten._grouped_mm.default])
