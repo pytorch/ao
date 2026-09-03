@@ -1140,6 +1140,14 @@ class Float8DynamicActivationFloat8WeightConfig(AOBaseConfig):
     """
     Configuration for applying float8 dynamic symmetric quantization to both activations and weights of linear layers.
 
+    .. note::
+
+        This config is **inference-only**. Calling ``loss.backward()`` on the
+        output of a model quantized with this config will raise
+        ``RuntimeError: derivative for aten::_scaled_mm is not implemented``.
+        For float8 training, use :func:`torchao.float8.convert_to_float8_training`
+        instead.
+
     Args:
         activation_dtype (torch.dtype): The target data type for activation quantization. Default is torch.float8_e4m3fn.
         weight_dtype (torch.dtype): The target data type for weight quantization. Default is torch.float8_e4m3fn.
