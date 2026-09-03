@@ -95,13 +95,28 @@ gpu_name_to_specs = {
         "fp4_peak_tops": 1676e12,
         "peak_mem_bw_bytes_sec": 1.792e15,
     },
+    "Intel(R) Arc(TM) B580 Graphics": {
+        # https://www.intel.com/content/www/us/en/products/sku/241598/intel-arc-b580-graphics/specifications.html
+        "bf16_peak_tops": 116.5e12,
+        # Same as bf16, since Intel Arc B580 does not support float8
+        "fp8_peak_tops": 116.5e12,
+        "peak_mem_bw_bytes_sec": 456e9,
+        # From measurement on hardware
+        "pct_achievable_gemm_tops": 0.915,
+        # From measurement on hardware
+        "pct_achievable_mem_bw": 0.871,
+    },
     # TODO(future): more GPU names
 }
 
 
 def get_roofline_gpu_name(gpu_name: Optional[str] = None):
     if gpu_name is None:
-        gpu_name = torch.cuda.get_device_name(0)
+        device = torch.accelerator.current_accelerator().type
+        if device == "xpu":
+            gpu_name = torch.xpu.get_device_name(0)
+        else:
+            gpu_name = torch.cuda.get_device_name(0)
     if gpu_name in gpu_name_to_specs:
         return gpu_name
     for known_gpu_name in gpu_name_to_specs:
