@@ -10,6 +10,7 @@ from contextlib import contextmanager
 import pytest
 import torch
 import torch.nn as nn
+from torch.nn.functional import SwizzleType
 from torch.profiler import ProfilerActivity, profile
 
 from torchao.prototype.mx_formats.inference_workflow import (
@@ -23,6 +24,7 @@ from torchao.quantization.quantize_.common import KernelPreference
 from torchao.quantization.utils import compute_error
 from torchao.testing.utils import TorchAOIntegrationTestCase, skip_if_rocm
 from torchao.utils import (
+    is_ROCM,
     is_sm_at_least_89,
     is_sm_at_least_100,
 )
@@ -57,13 +59,17 @@ def cuda_kernel_profiler(kernel_pattern):
     result["found"] = any(kernel_pattern in name for name in kernel_names)
 
 
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+@pytest.mark.skipif(
+    not torch.accelerator.is_available(),
+    reason="CUDA or XPU not available",
+)
 @pytest.mark.parametrize("elem_dtype", [torch.float8_e4m3fn, torch.float4_e2m1fn_x2])
 @pytest.mark.parametrize("bias", [True, False])
 @pytest.mark.parametrize("compile", [True, False])
 @pytest.mark.parametrize("emulate", [True, False])
 @pytest.mark.parametrize("use_inference_mode", [True, False])
 @pytest.mark.parametrize("x_rank", [2, 3])
+@pytest.mark.parametrize("k", [64, 128, 256])
 @torch.no_grad()
 @skip_if_rocm(
     "ROCm float4 gemm require gfx950"
@@ -75,25 +81,27 @@ def test_inference_workflow_mx(
     emulate: bool,
     use_inference_mode: bool,
     x_rank: int,
+    k: int,
 ):
     """
     Smoke test for inference compile
     """
+    device = torch.accelerator.current_accelerator().type
     # TODO(future): figure out why these CUDA capability conditions are not properly
     # applied when inside `pytest.mark.skipif` for this test
-    if elem_dtype in (torch.float8_e4m3fn, torch.float8_e5m2):
+    if elem_dtype in (torch.float8_e4m3fn, torch.float8_e5m2) and device == "cuda":
         if not is_sm_at_least_89():
             pytest.skip("CUDA capability >= 8.9 required for float8 in triton")
         elif not is_sm_at_least_100() and not emulate:
             pytest.skip("CUDA capability >= 10.0 required for mxfp8 gemm")
-    elif elem_dtype == torch.float4_e2m1fn_x2:
+    elif elem_dtype == torch.float4_e2m1fn_x2 and device == "cuda":
         if not is_sm_at_least_100() and not emulate:
             pytest.skip("CUDA capability >= 10.0 required for mxfp4 gemm")
         elif compile:
             # TODO(future PR): investigate and fix this
             pytest.skip("mxfp4 + compile currently does not work, low SQNR")
 
-    m = nn.Linear(32, 128, bias=bias, dtype=torch.bfloat16, device="cuda")
+    m = nn.Linear(k, 128, bias=bias, dtype=torch.bfloat16, device=device)
     m_mx = copy.deepcopy(m)
 
     if emulate:
@@ -104,12 +112,15 @@ def test_inference_workflow_mx(
         activation_dtype=elem_dtype,
         weight_dtype=elem_dtype,
         kernel_preference=kernel_choice,
+        swizzled_type=SwizzleType.SWIZZLE_32_4_4
+        if device == "cuda" and not is_ROCM()
+        else SwizzleType.NO_SWIZZLE,
     )
     quantize_(m_mx, config=config)
     if compile:
         m_mx = torch.compile(m_mx, fullgraph=True)
 
-    x = torch.randn(128, 32, device="cuda", dtype=torch.bfloat16)
+    x = torch.randn(128, k, device=device, dtype=torch.bfloat16)
     if x_rank == 3:
         x = x.unsqueeze(0)
 
@@ -445,8 +456,9 @@ def test_grouped_mm_nvfp4():
         NVFP4DynamicActivationNVFP4WeightConfig(
             use_triton_kernel=False,
         ),
-        filter_fn=lambda mod, *args: isinstance(mod, GroupedMMModel)
-        and hasattr(mod, "weight"),
+        filter_fn=lambda mod, *args: (
+            isinstance(mod, GroupedMMModel) and hasattr(mod, "weight")
+        ),
     )
     assert isinstance(model.weight, NVFP4Tensor), (
         f"Expected NVFP4Tensor weight, got {type(model.weight)}"
@@ -505,8 +517,9 @@ def test_bmm_nvfp4():
         NVFP4DynamicActivationNVFP4WeightConfig(
             use_triton_kernel=False,
         ),
-        filter_fn=lambda mod, *args: isinstance(mod, BatchedMMModel)
-        and hasattr(mod, "weight"),
+        filter_fn=lambda mod, *args: (
+            isinstance(mod, BatchedMMModel) and hasattr(mod, "weight")
+        ),
     )
     assert isinstance(model.weight, NVFP4Tensor), (
         f"Expected NVFP4Tensor weight, got {type(model.weight)}"
