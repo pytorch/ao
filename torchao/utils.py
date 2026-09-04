@@ -8,6 +8,7 @@ import importlib
 import itertools
 import re
 import time
+from enum import Enum
 from functools import reduce
 from importlib.metadata import version
 from math import gcd
@@ -43,8 +44,9 @@ __all__ = [
 
 
 def register_as_pytree_constant(cls):
-    """Decorator to register a class as a pytree constant for dynamo non-strict trace mode."""
-    torch.utils._pytree.register_constant(cls)
+    """Register non-Enum classes as constants for Dynamo non-strict tracing."""
+    if not issubclass(cls, Enum):
+        torch.utils._pytree.register_constant(cls)
     return cls
 
 

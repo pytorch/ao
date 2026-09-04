@@ -4,12 +4,39 @@
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
 import unittest
+from enum import Enum
 from unittest.mock import patch
 
 import torch
 import torch.nn.functional as F
 
-from torchao.utils import TorchAOBaseTensor, torch_version_at_least
+from torchao.utils import (
+    TorchAOBaseTensor,
+    register_as_pytree_constant,
+    torch_version_at_least,
+)
+
+
+class TestRegisterAsPytreeConstant(unittest.TestCase):
+    def test_enum_uses_native_opaque_support(self):
+        class Choice(Enum):
+            FIRST = 1
+
+        with patch.object(torch.utils._pytree, "register_constant") as register:
+            result = register_as_pytree_constant(Choice)
+
+        self.assertIs(result, Choice)
+        register.assert_not_called()
+
+    def test_non_enum_is_registered(self):
+        class Config:
+            pass
+
+        with patch.object(torch.utils._pytree, "register_constant") as register:
+            result = register_as_pytree_constant(Config)
+
+        self.assertIs(result, Config)
+        register.assert_called_once_with(Config)
 
 
 class TestTorchVersion(unittest.TestCase):
