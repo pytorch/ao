@@ -10,6 +10,7 @@ import copy
 import gc
 import tempfile
 import unittest
+import warnings
 
 import torch
 from torch.testing._internal import common_utils
@@ -477,6 +478,26 @@ class TestQuantFlow(TestCase):
         model(*example_inputs)
         assert isinstance(model.linear1.weight, Int4TilePackedTo4dTensor)
         assert isinstance(model.linear2.weight, Int4TilePackedTo4dTensor)
+
+    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
+    def test_int4_weight_only_plain_packing_format_warns(self):
+        """int4_packing_format=PLAIN (the default) has known compatibility issues
+        on several GPU architectures, including consumer Blackwell (RTX 50-series)
+        and some Ampere GPUs -- see https://github.com/pytorch/ao/issues/3842.
+        Applying it should warn rather than fail silently until a crash deep in a
+        forward pass; TILE_PACKED_TO_4D should not warn.
+        """
+        model = ToyLinearModel().cuda().to(dtype=torch.bfloat16)
+        with self.assertWarnsRegex(UserWarning, "TILE_PACKED_TO_4D"):
+            quantize_(model, Int4WeightOnlyConfig(int4_packing_format="plain"))
+
+        model2 = ToyLinearModel().cuda().to(dtype=torch.bfloat16)
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            quantize_(
+                model2,
+                Int4WeightOnlyConfig(int4_packing_format="tile_packed_to_4d"),
+            )
 
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     def test_module_fqn_to_config_regex_precedence(self):
