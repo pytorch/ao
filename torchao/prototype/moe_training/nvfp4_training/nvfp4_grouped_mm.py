@@ -442,6 +442,15 @@ class _NVFP4GroupedMM(torch.autograd.Function):
             offs=padded_group_end_offsets,
             output_dtype=torch.bfloat16,
         )
+
+        # The grouped GEMM skips M=0 token groups, leaving those experts'
+        # wgrad tiles uninitialized. Zero them explicitly.
+        _group_sizes = torch.diff(
+            original_group_end_offsets,
+            prepend=original_group_end_offsets.new_zeros(1),
+        )
+        grad_weight[_group_sizes == 0] = 0
+
         if ctx.pad_token_groups_for_grouped_mm:
             grad_input = unpad_token_groups(
                 grad_input,
