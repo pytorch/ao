@@ -620,6 +620,22 @@ def _int4_weight_only_quantize_tensor(weight, config):
         raise ValueError(f"Unsupported int4 packing format: {int4_packing_format}")
 
 
+def _maybe_warn_int4_plain_packing_format(config: Int4WeightOnlyConfig) -> None:
+    if config.int4_packing_format != Int4PackingFormat.PLAIN:
+        return
+    warnings.warn(
+        "Int4WeightOnlyConfig with int4_packing_format=PLAIN (the default) has known "
+        "compatibility issues on several GPU architectures, including consumer "
+        "Blackwell (RTX 50-series, e.g. RTX 5090) and some Ampere GPUs, where it can "
+        "fail at inference/forward time rather than at config-construction time, with "
+        "errors such as 'cutlass cannot initialize' or 'ImportError: Requires mslk "
+        ">= 1.0.0'. If you hit either of those, try "
+        "int4_packing_format=Int4PackingFormat.TILE_PACKED_TO_4D instead. "
+        "See https://github.com/pytorch/ao/issues/3842 for details.",
+        stacklevel=2,
+    )
+
+
 @register_quantize_module_handler(Int4WeightOnlyConfig)
 def _int4_weight_only_transform(
     module: torch.nn.Module,
@@ -627,6 +643,7 @@ def _int4_weight_only_transform(
     *,
     parameter_name: str = "weight",
 ) -> torch.nn.Module:
+    _maybe_warn_int4_plain_packing_format(config)
     if config.set_inductor_config:
         torchao.quantization.utils.recommended_inductor_config_setter()
 
