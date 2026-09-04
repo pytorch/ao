@@ -49,6 +49,19 @@ do {                                                                          \
     }                                                                         \
 } while (0)
 
+// An unchecked cuTensorMapEncodeTiled leaves the descriptor unpopulated and the
+// kernel then executes TMA instructions against garbage, which surfaces as a
+// cudaErrorIllegalInstruction inside the kernel -- or, worse, as a sticky error
+// on some unrelated later launch. Fail here instead.
+#define CHECK_TMA_ENCODE(res)                                                 \
+do {                                                                          \
+    if ((res) != CUDA_SUCCESS) {                                              \
+        fprintf(stderr, "cuTensorMapEncodeTiled failed in %s at line %d: %d\n", \
+                __FILE__, __LINE__, static_cast<int>(res));                   \
+        throw std::runtime_error("cuTensorMapEncodeTiled failed");            \
+    }                                                                         \
+} while (0)
+
 enum class DType {
   kByte,
   kFloat32,
@@ -297,6 +310,19 @@ inline CUtensorMapDataType get_dtype_for_tma(DType dtype) {
   }
 }
 
+// cuTensorMapEncodeTiled is a driver API and needs a current CUDA context.
+// A thread that has not yet used CUDA does not have one: the runtime binds the
+// primary context lazily, and c10's DeviceGuard deliberately skips
+// cudaSetDevice when the requested device already matches the current one, so
+// merely constructing a guard does not bind it either. Autograd runs backward
+// on worker threads, so this is reached in practice on the first MXFP8
+// backward of a process. cudaSetDevice forces the binding.
+inline void ensure_current_context() {
+  int device = 0;
+  CUDA_CHECK(cudaGetDevice(&device));
+  CUDA_CHECK(cudaSetDevice(device));
+}
+
 void* get_driver_ptr() {
   // Only initialize driver_ptr once during the lifetime of the program.
   static void *driver_ptr = nullptr;
@@ -350,11 +376,12 @@ inline void create_3D_tensor_map_output(CUtensorMap &tensorMap,
   // Element strides within the tile (box). For a contiguous copy, this is always 1.
   uint32_t elemStride[rank] = {1, 1, 1};
 
-  cuTensorMapEncodeTiled(
+  CUresult res = cuTensorMapEncodeTiled(
       &tensorMap, get_dtype_for_tma(dtype), rank, data_ptr, size, stride,
       boxSize, elemStride, CU_TENSOR_MAP_INTERLEAVE_NONE,
       CU_TENSOR_MAP_SWIZZLE_NONE, CU_TENSOR_MAP_L2_PROMOTION_NONE,
       CU_TENSOR_MAP_FLOAT_OOB_FILL_NONE);
+  CHECK_TMA_ENCODE(res);
 }
 
 // Reference:
@@ -378,11 +405,12 @@ inline void create_2D_tensor_map(CUtensorMap &tensorMap, void *data_ptr,
   uint32_t boxSize[rank] = {shmem_x, shmem_y};
   uint32_t elemStride[rank] = {1, 1};
 
-  cuTensorMapEncodeTiled(
+  CUresult res = cuTensorMapEncodeTiled(
       &tensorMap, get_dtype_for_tma(dtype), rank, data_ptr, size, stride,
       boxSize, elemStride, CU_TENSOR_MAP_INTERLEAVE_NONE,
       CU_TENSOR_MAP_SWIZZLE_NONE, CU_TENSOR_MAP_L2_PROMOTION_NONE,
       CU_TENSOR_MAP_FLOAT_OOB_FILL_NONE);
+  CHECK_TMA_ENCODE(res);
 }
 
 

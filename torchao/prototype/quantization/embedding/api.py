@@ -294,10 +294,12 @@ class TiedEmbeddingQuantizer:
         weight_dtype: torch.dtype = torch.int4,
         granularity: Granularity = PerAxis(0),
         mapping_type: MappingType = MappingType.ASYMMETRIC,
+        range_learning: bool = False,
     ):
         self.weight_dtype = weight_dtype
         self.granularity = granularity
         self.mapping_type = mapping_type
+        self.range_learning = range_learning
 
     def quantize(
         self,
@@ -358,15 +360,26 @@ class TiedEmbeddingQuantizer:
             )
 
         # Quantize unembeddings
+        config = Int8DynamicActivationIntxWeightConfig(
+            weight_dtype=self.weight_dtype,
+            weight_granularity=self.granularity,
+            weight_mapping_type=self.mapping_type,
+            # Only universal layout is supported for shared embedding
+            intx_packing_format="opaque_torchao_lowbit",
+        )
+        if self.range_learning:
+            # Imported lazily: torchao.quantization.qat pulls in torchao.prototype.qat,
+            # which would cycle back through this module at import time.
+            from torchao.quantization.qat import QATConfig
+
+            # The unembedding carries the range-learned scale; the convert step
+            # forwards it as custom_scale instead of re-deriving qparams from the
+            # dequantized weight. The embedding side inherits it by construction,
+            # since it is tied to this quantized weight below.
+            config = QATConfig(config, step="convert")
         quantize_(
             model,
-            Int8DynamicActivationIntxWeightConfig(
-                weight_dtype=self.weight_dtype,
-                weight_granularity=self.granularity,
-                weight_mapping_type=self.mapping_type,
-                # Only universal layout is supported for shared embedding
-                intx_packing_format="opaque_torchao_lowbit",
-            ),
+            config,
             filter_fn=lambda m, fqn: isinstance(m, nn.Linear)
             and fqn in list(embedding_to_unembedding.values()),
         )
