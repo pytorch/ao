@@ -19,7 +19,7 @@ from torchao.prototype.mx_formats.inference_workflow import (
 )
 from torchao.quantization import quantize_
 from torchao.quantization.quantize_.common import KernelPreference
-from torchao.utils import is_sm_at_least_100
+from torchao.utils import is_ROCM, is_sm_at_least_100
 
 
 @pytest.mark.skipif(
@@ -49,7 +49,7 @@ def test_serialization(recipe_name):
                 weight_dtype=torch.float8_e4m3fn,
                 kernel_preference=KernelPreference.EMULATED,
                 swizzled_type=SwizzleType.SWIZZLE_32_4_4
-                if device == "cuda"
+                if device == "cuda" and not is_ROCM()
                 else SwizzleType.NO_SWIZZLE,
             )
         else:

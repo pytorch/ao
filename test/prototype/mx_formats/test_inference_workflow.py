@@ -24,6 +24,7 @@ from torchao.quantization.quantize_.common import KernelPreference
 from torchao.quantization.utils import compute_error
 from torchao.testing.utils import TorchAOIntegrationTestCase, skip_if_rocm
 from torchao.utils import (
+    is_ROCM,
     is_sm_at_least_89,
     is_sm_at_least_100,
 )
@@ -112,7 +113,7 @@ def test_inference_workflow_mx(
         weight_dtype=elem_dtype,
         kernel_preference=kernel_choice,
         swizzled_type=SwizzleType.SWIZZLE_32_4_4
-        if device == "cuda"
+        if device == "cuda" and not is_ROCM()
         else SwizzleType.NO_SWIZZLE,
     )
     quantize_(m_mx, config=config)

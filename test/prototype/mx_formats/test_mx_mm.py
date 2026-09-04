@@ -13,7 +13,7 @@ from torch.nn.functional import ScalingType, SwizzleType
 from torchao.float8.float8_utils import compute_error
 from torchao.prototype.mx_formats.mx_tensor import MXTensor
 from torchao.prototype.mx_formats.utils import to_blocked
-from torchao.utils import is_sm_at_least_100
+from torchao.utils import is_ROCM, is_sm_at_least_100
 
 
 def _mxfp4_scaled_mm(
@@ -68,7 +68,11 @@ def _mxfp8_scaled_mm(
 
 def run_matrix_test(M: int, K: int, N: int, format, device="cuda") -> float:
     dtype = torch.bfloat16
-    swizzle = SwizzleType.NO_SWIZZLE if device == "xpu" else SwizzleType.SWIZZLE_32_4_4
+    swizzle = (
+        SwizzleType.SWIZZLE_32_4_4
+        if device == "cuda" and not is_ROCM()
+        else SwizzleType.NO_SWIZZLE
+    )
 
     a = torch.rand((M, K), dtype=dtype, device=device)
     b = torch.rand((N, K), dtype=dtype, device=device)
