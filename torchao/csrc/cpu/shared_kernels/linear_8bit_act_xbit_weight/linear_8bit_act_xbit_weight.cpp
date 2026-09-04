@@ -198,12 +198,14 @@ void linear_operator(
 
   // Choose tiling params
   int mc, nc;
+  bool parallel_pack_activations = false;
   if (tiling_params.has_value()) {
     mc = tiling_params->mc;
     nc = tiling_params->nc;
   } else {
     auto params = LinearTilingParams::from_target_tiles_per_thread(
-        // We process m sequentially, so m_step is the "m" for the purpose of computing tiling params
+        // We process m sequentially, so m_step is the "m" for the purpose of
+        // computing tiling params
         m_step,
         m_step,
         n,
@@ -211,6 +213,15 @@ void linear_operator(
         /*target_tiles_per_thread=*/5);
     mc = params.mc;
     nc = params.nc;
+    // The native W3 NEON prefill kernel reuses each decoded weight block over
+    // 16 rows. Pack large activation panels in parallel and process up to 1024
+    // M rows per pass. This reduces thread-pool launches, bounds scratch space,
+    // and lets each N panel retain its weight data while advancing through M.
+    if (uk.weight_nbit == 3 && linear_config.mr == 8 && m >= 16) {
+      constexpr int max_prefill_mc = 1024;
+      mc = std::min(m, max_prefill_mc);
+      parallel_pack_activations = torchao::get_num_threads() > 1 && m >= 64;
+    }
   }
   TORCHAO_CHECK(mc >= 1, "mc must be >= 1");
   TORCHAO_CHECK(nc >= 1, "nc must be >= 1");
@@ -234,16 +245,45 @@ void linear_operator(
     int mc_tile_size = std::min(mc, m - m_idx);
     int activations_offset = m_idx * k;
 
-    linear_config.pack_activations(
-        packed_activations.get(),
-        /*m=*/mc_tile_size,
-        k,
-        group_size,
-        activations + activations_offset,
-        uk.has_weight_zeros,
-        linear_config.mr,
-        uk.kr,
-        uk.sr);
+    if (parallel_pack_activations) {
+      constexpr int activation_pack_mc = 16;
+      const int num_activation_panels =
+          (mc_tile_size + activation_pack_mc - 1) / activation_pack_mc;
+      torchao::parallel_1d(0, num_activation_panels, [&](int64_t idx) {
+        const int pack_m_idx = idx * activation_pack_mc;
+        const int panel_m =
+            std::min(activation_pack_mc, mc_tile_size - pack_m_idx);
+        const auto packed_offset = linear_config.packed_activations_offset(
+            pack_m_idx,
+            k,
+            group_size,
+            uk.has_weight_zeros,
+            linear_config.mr,
+            uk.kr,
+            uk.sr);
+        linear_config.pack_activations(
+            static_cast<char*>(packed_activations.get()) + packed_offset,
+            panel_m,
+            k,
+            group_size,
+            activations + activations_offset + pack_m_idx * k,
+            uk.has_weight_zeros,
+            linear_config.mr,
+            uk.kr,
+            uk.sr);
+      });
+    } else {
+      linear_config.pack_activations(
+          packed_activations.get(),
+          /*m=*/mc_tile_size,
+          k,
+          group_size,
+          activations + activations_offset,
+          uk.has_weight_zeros,
+          linear_config.mr,
+          uk.kr,
+          uk.sr);
+    }
 
     torchao::parallel_1d(0, num_nc_panels, [&](int64_t idx) {
       int nc_tile_idx = idx;
