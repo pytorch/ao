@@ -23,7 +23,7 @@ from torchao.quantization.quant_api import quantize_
 
 
 class TestUIntxWeightOnlyLinearQuantizer(unittest.TestCase):
-    BITWIDTHS = range(1, 8)
+    BITWIDTHS = range(1, 9)
     GROUPSIZES = [32, 64, 128, 256]
 
     # Currently, the quantization code in quant_api.py only supports K values
@@ -60,7 +60,14 @@ class TestUIntxWeightOnlyLinearQuantizer(unittest.TestCase):
         m = 3
         activations = torch.randn(m, k0, dtype=torch.float32, device="mps")
 
-        quantized_model = self._quantize_model(model, torch.float32, nbit, group_size)
+        config = UIntxWeightOnlyConfig(
+            bitwidth=nbit,
+            group_size=group_size,
+            uintx_choose_qparams_algorithm=UIntxChooseQParamsAlgorithm.HQQ,
+        )
+        quantized_model = copy.deepcopy(model)
+        quantized_model = quantized_model.to(device="mps", dtype=torch.float32)
+        quantize_(quantized_model, config)
         exported = torch.export.export(quantized_model, (activations,), strict=True)
 
         for node in exported.graph.nodes:
@@ -415,6 +422,165 @@ class TestUIntxWeightOnlyLinearQuantizer(unittest.TestCase):
             config_with_bitwidth.uintx_choose_qparams_algorithm,
             UIntxChooseQParamsAlgorithm.MIN_MAX,
         )
+
+
+def _compute_sqnr(original, quantized):
+    """Compute SQNR in dB between original and quantized tensors."""
+    mse = torch.mean((original - quantized) ** 2)
+    signal_power = torch.mean(original**2)
+    if mse == 0:
+        return float("inf")
+    return 10 * torch.log10(signal_power / mse).item()
+
+
+class TestIntxMPSExperimentalTensor(unittest.TestCase):
+    """Tests for the generalized int1-int8 MPS tensor subclass via quantize_."""
+
+    BITWIDTHS = range(1, 9)
+
+    def _make_model(self, k=128, n=256, bias=False):
+        return torch.nn.Linear(k, n, bias=bias)
+
+    def _quantize(self, model, nbit=4, group_size=64, precision=torch.float32):
+        config = UIntxWeightOnlyConfig(bitwidth=nbit, group_size=group_size)
+        quantized_model = copy.deepcopy(model)
+        quantized_model = quantized_model.to(device="mps", dtype=precision)
+        quantize_(quantized_model, config)
+        return quantized_model
+
+    @parameterized.expand([(4, 64), (8, 128), (6, 64)])
+    def test_linear_accuracy(self, nbit, group_size):
+        """Quantized linear output should be reasonably close to original."""
+        k = 4 * group_size
+        n = 256
+        m = 4
+        with torch.no_grad():
+            model = self._make_model(k=k, n=n).to(device="mps", dtype=torch.float32)
+            activations = torch.randn(m, k, dtype=torch.float32, device="mps")
+            original = model(activations)
+
+            quantized_model = self._quantize(model, nbit=nbit, group_size=group_size)
+            result = quantized_model(activations)
+
+            sqnr = _compute_sqnr(original.cpu(), result.cpu())
+            self.assertGreater(
+                sqnr, 15, f"SQNR too low for {nbit}-bit gs={group_size}: {sqnr:.1f} dB"
+            )
+
+    @parameterized.expand([(4, 64), (8, 128), (6, 64)])
+    def test_3d_input_shape(self, nbit, group_size):
+        """3D batched input should produce correct output shape."""
+        k = 4 * group_size
+        n = 256
+        leading = (3, 5)
+        with torch.no_grad():
+            model = self._make_model(k=k, n=n)
+            activations = torch.randn(*leading, k, dtype=torch.float32, device="mps")
+            quantized_model = self._quantize(model, nbit=nbit, group_size=group_size)
+            result = quantized_model(activations)
+            self.assertTrue(result.is_mps)
+            self.assertEqual(result.shape, (*leading, n))
+
+    @parameterized.expand([(4,), (8,), (6,)])
+    def test_export(self, nbit):
+        """torch.export should produce a graph containing the low-bit linear op."""
+        group_size = 64
+        k = 4 * group_size
+        n = 256
+        with torch.no_grad():
+            model = self._make_model(k=k, n=n)
+            activations = torch.randn(3, k, dtype=torch.float32, device="mps")
+            quantized_model = self._quantize(model, nbit=nbit, group_size=group_size)
+
+            exported = torch.export.export(quantized_model, (activations,), strict=True)
+            expected_target = f"torchao._linear_fp_act_{nbit}bit_weight.default"
+            found = any(
+                str(node.target) == expected_target
+                for node in exported.graph.nodes
+                if node.op == "call_function"
+            )
+            self.assertTrue(found, f"Expected {expected_target} in exported graph")
+
+    @parameterized.expand([(4, 64), (4, 128), (6, 64), (6, 128), (8, 64), (8, 128)])
+    def test_valid_group_sizes(self, nbit, group_size):
+        """Valid group sizes should run without error."""
+        k = 4 * group_size
+        n = 128
+        with torch.no_grad():
+            model = self._make_model(k=k, n=n)
+            activations = torch.randn(4, k, dtype=torch.float32, device="mps")
+            quantized_model = self._quantize(model, nbit=nbit, group_size=group_size)
+            result = quantized_model(activations)
+            self.assertEqual(result.shape, (4, n))
+
+    def test_invalid_group_size(self):
+        """Invalid group size should raise ValueError."""
+        model = self._make_model(k=48, n=128)
+        with self.assertRaises(ValueError):
+            self._quantize(model, nbit=4, group_size=16)
+
+    @parameterized.expand([(4,), (8,)])
+    def test_per_channel_group_size_neg1(self, nbit):
+        """group_size=-1 (per-channel) should quantize and run correctly."""
+        k = 256
+        n = 128
+        with torch.no_grad():
+            model = self._make_model(k=k, n=n)
+            activations = torch.randn(4, k, dtype=torch.float32, device="mps")
+            config = UIntxWeightOnlyConfig(bitwidth=nbit, group_size=-1)
+            quantized_model = copy.deepcopy(model).to(device="mps", dtype=torch.float32)
+            quantize_(quantized_model, config)
+            result = quantized_model(activations)
+            self.assertEqual(result.shape, (4, n))
+
+    @parameterized.expand(BITWIDTHS)
+    def test_dequantize_accuracy(self, nbit):
+        """dequantize() should recover the original weights within quantization error."""
+        from torchao.prototype.quantization.intx_mps.intx_mps_experimental_tensor import (
+            IntxMPSExperimentalTensor,
+        )
+
+        k, n, group_size = 256, 128, 64
+        hp_weight = torch.randn(n, k, dtype=torch.float32, device="mps") * 0.1
+        qweight = IntxMPSExperimentalTensor.from_hp(hp_weight, [1, group_size], nbit=nbit)
+        dequant = qweight.dequantize()
+        sqnr = _compute_sqnr(hp_weight.cpu(), dequant.cpu())
+        # SQNR threshold scales with bitwidth: 1-bit is extremely lossy (~0 dB),
+        # 2-bit ~5 dB, 4-bit ~15 dB, 8-bit ~40 dB.  Use a conservative floor.
+        min_sqnr = {1: -1, 2: 4, 3: 8, 4: 12, 5: 18, 6: 24, 7: 30, 8: 36}[nbit]
+        self.assertGreater(
+            sqnr, min_sqnr, f"SQNR too low for {nbit}-bit dequantize: {sqnr:.1f} dB"
+        )
+
+    @parameterized.expand(BITWIDTHS)
+    def test_transpose_and_slice_ops(self, nbit):
+        """.t(), transpose, permute, and slice should dequantize and delegate correctly."""
+        from torchao.prototype.quantization.intx_mps.intx_mps_experimental_tensor import (
+            IntxMPSExperimentalTensor,
+        )
+
+        k, n, group_size = 256, 128, 64
+        hp_weight = torch.randn(n, k, dtype=torch.float32, device="mps") * 0.1
+        qweight = IntxMPSExperimentalTensor.from_hp(hp_weight, [1, group_size], nbit=nbit)
+
+        # .t() — shape check (values are dequantized, so just verify shape
+        # and that it matches the transposed dequantized weight).
+        t = qweight.t()
+        self.assertEqual(t.shape, (k, n))
+        dequant = qweight.dequantize()
+        self.assertTrue(torch.allclose(t, dequant.t(), atol=1e-5))
+
+        # transpose
+        t2 = torch.transpose(qweight, 0, 1)
+        self.assertEqual(t2.shape, (k, n))
+
+        # permute
+        p = qweight.permute(1, 0)
+        self.assertEqual(p.shape, (k, n))
+
+        # slice
+        s = qweight[:32]
+        self.assertEqual(s.shape, (32, k))
 
 
 if __name__ == "__main__":

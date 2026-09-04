@@ -9,6 +9,9 @@
 #include <Metal/Metal.h>
 #include <MetalPerformanceShaders/MetalPerformanceShaders.h>
 
+#include <cstdlib>
+#include <string>
+
 #include <torchao/experimental/kernels/mps/src/common.h>
 #include <torchao/experimental/kernels/mps/src/dispatch.h>
 #include <torchao/experimental/kernels/mps/src/metal_shader_lib.h> // metal_lowbit_quantized_lib
@@ -25,6 +28,9 @@ struct LowBitConfig<1> {
   static constexpr std::string_view func_prefix = "int1pack_mm_";
   static constexpr auto packing_fn = packing::pack<1>;
   static constexpr auto dispatch_fn = dispatch::dispatch_mm;
+  // GEMM kernel for M > 1 (prefill)
+  static constexpr std::string_view gemm_func_prefix = "intNgemm_mm_1bit_";
+  static constexpr auto gemm_dispatch_fn = dispatch::dispatch_gemm;
 };
 
 template <>
@@ -32,6 +38,8 @@ struct LowBitConfig<2> {
   static constexpr std::string_view func_prefix = "int2pack_mm_";
   static constexpr auto packing_fn = packing::pack<2>;
   static constexpr auto dispatch_fn = dispatch::dispatch_mm_Mr1xNr4_per_TG;
+  static constexpr std::string_view gemm_func_prefix = "intNgemm_mm_2bit_";
+  static constexpr auto gemm_dispatch_fn = dispatch::dispatch_gemm;
 };
 
 template <>
@@ -39,6 +47,8 @@ struct LowBitConfig<3> {
   static constexpr std::string_view func_prefix = "int3pack_mm_";
   static constexpr auto packing_fn = packing::pack<3>;
   static constexpr auto dispatch_fn = dispatch::dispatch_mm_Mr1xNr4_per_TG;
+  static constexpr std::string_view gemm_func_prefix = "intNgemm_mm_3bit_";
+  static constexpr auto gemm_dispatch_fn = dispatch::dispatch_gemm;
 };
 
 template <>
@@ -46,6 +56,8 @@ struct LowBitConfig<4> {
   static constexpr std::string_view func_prefix = "int4pack_mm_";
   static constexpr auto packing_fn = packing::pack<4>;
   static constexpr auto dispatch_fn = dispatch::dispatch_mm_Mr1xNr4_per_TG;
+  static constexpr std::string_view gemm_func_prefix = "intNgemm_mm_4bit_";
+  static constexpr auto gemm_dispatch_fn = dispatch::dispatch_gemm;
 };
 
 template <>
@@ -53,6 +65,8 @@ struct LowBitConfig<5> {
   static constexpr std::string_view func_prefix = "int5pack_mm_";
   static constexpr auto packing_fn = packing::pack<5>;
   static constexpr auto dispatch_fn = dispatch::dispatch_mm;
+  static constexpr std::string_view gemm_func_prefix = "intNgemm_mm_5bit_";
+  static constexpr auto gemm_dispatch_fn = dispatch::dispatch_gemm;
 };
 
 template <>
@@ -60,6 +74,8 @@ struct LowBitConfig<6> {
   static constexpr std::string_view func_prefix = "int6pack_mm_";
   static constexpr auto packing_fn = packing::pack<6>;
   static constexpr auto dispatch_fn = dispatch::dispatch_mm;
+  static constexpr std::string_view gemm_func_prefix = "intNgemm_mm_6bit_";
+  static constexpr auto gemm_dispatch_fn = dispatch::dispatch_gemm;
 };
 
 template <>
@@ -67,6 +83,17 @@ struct LowBitConfig<7> {
   static constexpr std::string_view func_prefix = "int7pack_mm_";
   static constexpr auto packing_fn = packing::pack<7>;
   static constexpr auto dispatch_fn = dispatch::dispatch_mm;
+  static constexpr std::string_view gemm_func_prefix = "intNgemm_mm_7bit_";
+  static constexpr auto gemm_dispatch_fn = dispatch::dispatch_gemm;
+};
+
+template <>
+struct LowBitConfig<8> {
+  static constexpr std::string_view func_prefix = "int8pack_mm_";
+  static constexpr auto packing_fn = packing::pack<8>;
+  static constexpr auto dispatch_fn = dispatch::dispatch_mm;
+  static constexpr std::string_view gemm_func_prefix = "intNgemm_mm_8bit_";
+  static constexpr auto gemm_dispatch_fn = dispatch::dispatch_gemm;
 };
 
 using DispatchFn =
@@ -118,6 +145,7 @@ std::tuple<const std::string, DispatchFn> get_shader_func_and_dispatch(
     int32_t M,
     int32_t N,
     int32_t K) {
+  // qmv (decode, M=1) is available for all bit widths 1-8.
   if (M == 1 && N % 8 == 0 && K % 512 == 0) {
     return std::make_tuple(
         std::string("qmv_fast_") + std::to_string(nbit) + "bit_" +
@@ -131,6 +159,23 @@ std::tuple<const std::string, DispatchFn> get_shader_func_and_dispatch(
             std::to_string(qGroupSize) + "_" + std::string(type_str),
         dispatch::dispatch_qmv);
   }
+  // For M > 1, use the simdgroup-tiled GEMM kernel (prefill).
+  // The GEMM kernel requires K to be a multiple of BLOCK_SIZE_K (32) and
+  // group_size to be a multiple of BLOCK_SIZE_K (32).  Fall back to the
+  // existing per-bitwidth pack_mm path for unaligned K or group_size.
+  // Set TORCHAO_MPS_DISABLE_SIMDGROUP_GEMM=1 to force the fallback path
+  // (for benchmarking old vs new prefill kernels).
+  if (K % 32 == 0 && qGroupSize % 32 == 0) {
+    const char* env = std::getenv("TORCHAO_MPS_DISABLE_SIMDGROUP_GEMM");
+    if (env == nullptr || std::string(env) != "1") {
+      return std::make_tuple(
+          std::string(LowBitConfig<nbit>::gemm_func_prefix) +
+              std::to_string(qGroupSize) + "_" + std::string(type_str),
+          LowBitConfig<nbit>::gemm_dispatch_fn);
+    }
+  }
+  // Fallback: per-bitwidth pack_mm path (no simdgroup MMA).
+  // Only has pre-compiled instantiations for {32, 64, 128, 256}.
   return std::make_tuple(
       std::string(LowBitConfig<nbit>::func_prefix) + std::to_string(qGroupSize) +
           "_" + std::string(type_str),
@@ -152,9 +197,22 @@ void linear_lowbit_quant_weights_mps(
     const std::string_view type_str) {
   assert(K % 8 == 0);
   assert(N % 4 == 0 || M == 1);
-  assert(
-      qGroupSize == 32 || qGroupSize == 64 || qGroupSize == 128 ||
-      qGroupSize == 256);
+  assert(qGroupSize > 0);
+  assert(qGroupSize % 32 == 0);
+  // The fallback pack_mm path only has pre-compiled instantiations for
+  // {32, 64, 128, 256}.  When simdgroup GEMM is disabled (or K is not a
+  // multiple of 32), assert the stricter restriction.
+  {
+    const char* env = std::getenv("TORCHAO_MPS_DISABLE_SIMDGROUP_GEMM");
+    const bool simdgroup_disabled = (env != nullptr && std::string(env) == "1");
+    const bool using_fallback = simdgroup_disabled || (K % 32 != 0);
+    const bool using_qmv = (M == 1);
+    if (using_fallback && !using_qmv) {
+      assert(
+          qGroupSize == 32 || qGroupSize == 64 || qGroupSize == 128 ||
+          qGroupSize == 256);
+    }
+  }
   std::tuple<const std::string, DispatchFn> shader_func_and_dispatch =
       get_shader_func_and_dispatch<nbit>(qGroupSize, type_str, M, N, K);
   const std::string shader_func = std::get<0>(shader_func_and_dispatch);
