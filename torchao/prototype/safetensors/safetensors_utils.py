@@ -12,6 +12,9 @@ from torchao.prototype.mx_formats.nvfp4_tensor import (
     NVFP4Tensor,
     QuantizeTensorToNVFP4Kwargs,
 )
+from torchao.prototype.quantization.intx_mps.intx_mps_experimental_tensor import (
+    IntxMPSExperimentalTensor,
+)
 from torchao.quantization import (
     Float8Tensor,
     Int4PlainInt32Tensor,
@@ -46,6 +49,7 @@ ALLOWED_CLASSES = {
     "ScaleCalculationMode": ScaleCalculationMode,
     "NVFP4Tensor": NVFP4Tensor,
     "QuantizeTensorToNVFP4Kwargs": QuantizeTensorToNVFP4Kwargs,
+    "IntxMPSExperimentalTensor": IntxMPSExperimentalTensor,
 }
 
 ALLOWED_TENSORS_SUBCLASSES = [
@@ -57,6 +61,7 @@ ALLOWED_TENSORS_SUBCLASSES = [
     "Int4PlainInt32Tensor",
     "MXTensor",
     "NVFP4Tensor",
+    "IntxMPSExperimentalTensor",
 ]
 
 __all__ = [

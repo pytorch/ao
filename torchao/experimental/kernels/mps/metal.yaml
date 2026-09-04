@@ -13,6 +13,9 @@
 - func: int4mm
   file: int4mm_opt.metal
 
+- func: intNgemm
+  file: intNgemm.metal
+
 - func: int5mm
   file: int5mm.metal
 
