@@ -10,7 +10,7 @@ import triton.language as tl
 from torch.library import triton_op, wrap_triton
 
 from torchao.prototype.moe_training.utils import conditional_nostrict_trace
-from torchao.prototype.mx_formats.mx_tensor import MXTensor
+from torchao.prototype.mx_formats.mx_tensor import MXTensor, make_mx_tensor
 
 from .kernels import generate_permute_indices
 
@@ -96,8 +96,8 @@ class _PermuteMXFP8FwdHPBwd(torch.autograd.Function):
         scales_padded = torch.vstack((scales, scales.new_zeros((scales.shape[-1],))))
         scales_permuted = scales_padded[permuted_indices, :]
 
-        # Wrap back into MXTensor
-        mx_output = MXTensor(
+        # Wrap back into MX Tensor
+        mx_output = make_mx_tensor(
             qdata_permuted,
             scales_permuted,
             elem_dtype=mx_tensor.elem_dtype,

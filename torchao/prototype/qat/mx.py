@@ -32,6 +32,7 @@ from torchao.prototype.mx_formats.config import (
 from torchao.prototype.mx_formats.mx_tensor import (
     MXTensor,
     _addmm_mx_dispatch,
+    to_mx_tensor,
 )
 from torchao.quantization.qat import FakeQuantizeConfigBase
 from torchao.quantization.quantize_.common.kernel_preference import KernelPreference
@@ -99,7 +100,7 @@ class _MXQuantizedForwardFakeQuantizedBackward(torch.autograd.Function):
         _input_2d = _input.view(-1, orig_shape[-1])
 
         # quantize input activations
-        _input_2d = MXTensor.to_mx(
+        _input_2d = to_mx_tensor(
             _input_2d,
             elem_dtype=activation_config.dtype,
             block_size=activation_config.block_size,
@@ -107,7 +108,7 @@ class _MXQuantizedForwardFakeQuantizedBackward(torch.autograd.Function):
             kernel_preference=activation_config.kernel_preference,
         )
 
-        weight = MXTensor.to_mx(
+        weight = to_mx_tensor(
             weight,
             elem_dtype=weight_config.dtype,
             block_size=weight_config.block_size,

@@ -7,7 +7,7 @@
 import torch
 
 from torchao.prototype.moe_training.utils import conditional_nostrict_trace
-from torchao.prototype.mx_formats.mx_tensor import MXTensor
+from torchao.prototype.mx_formats.mx_tensor import MXTensor, make_mx_tensor
 
 
 class _UnpermuteHPFwdMXFP8Bwd(torch.autograd.Function):
@@ -87,8 +87,8 @@ class _UnpermuteHPFwdMXFP8Bwd(torch.autograd.Function):
             qdata_permuted = qdata_padded[permuted_indices, :]
             scales_permuted = scales_padded[permuted_indices, :]
 
-            # Wrap back into MXTensor with the correct shape
-            grad_input = MXTensor(
+            # Wrap back into MX Tensor with the correct shape
+            grad_input = make_mx_tensor(
                 qdata_permuted,
                 scales_permuted,
                 elem_dtype=grad_output.elem_dtype,
