@@ -14,7 +14,11 @@ import torch.nn.functional as F
 from torch import Tensor
 
 from torchao.core.config import AOBaseConfig
-from torchao.prototype.mx_formats.config import _validate_elem_dtype
+from torchao.prototype.mx_formats.config import (
+    Swizzle_32_4_4,
+    SwizzleType,
+    _validate_elem_dtype,
+)
 from torchao.prototype.mx_formats.mx_tensor import (
     MXTensor,
     QuantizeTensorToMXKwargs,
@@ -85,7 +89,7 @@ class MXDynamicActivationMXWeightConfig(AOBaseConfig):
     This module provides support for running inference with float8 quantization using MX formats.
 
     Requirements:
-    - NVIDIA SM100+ hardware (Blackwell or newer) is required for execution
+    - NVIDIA SM100+ hardware (Blackwell or newer) or Intel XPU (BMG or newer)
     - PyTorch 2.5+ for proper serialization support
 
     Example (mxfp8):
@@ -110,6 +114,10 @@ class MXDynamicActivationMXWeightConfig(AOBaseConfig):
 
     # How to calculate the block scales
     scaling_mode: ScaleCalculationMode = ScaleCalculationMode.RCEIL
+
+    # How to store block scales.
+    # CUDA uses Swizzle_32_4_4 (blocked layout), XPU uses NoSwizzle.
+    swizzle_type: SwizzleType = Swizzle_32_4_4()
 
     def __post_init__(self):
         assert self.activation_dtype == self.weight_dtype, (
@@ -139,7 +147,7 @@ def _mx_inference_linear_transform(
         elem_dtype=config.activation_dtype,
         block_size=config.block_size,
         kernel_preference=config.kernel_preference,
-        is_swizzled_scales=True,
+        swizzle_type=config.swizzle_type,
         scaling_mode=config.scaling_mode,
     )
 
@@ -150,7 +158,7 @@ def _mx_inference_linear_transform(
         block_size=config.block_size,
         kernel_preference=config.kernel_preference,
         act_quant_kwargs=act_quant_kwargs,
-        is_swizzled_scales=True,
+        swizzle_type=config.swizzle_type,
         scaling_mode=config.scaling_mode,
     )
 
