@@ -80,16 +80,18 @@ class TestAffineQuantizedFloat8Compile(InductorTestCase):
                 granularity=(UnsupportedGranularity(), UnsupportedGranularity()),
             )
 
-    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
+    @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
     @unittest.skipIf(
-        not is_sm_at_least_89(), "Requires GPU with compute capability >= 8.9"
+        torch.cuda.is_available() and not is_sm_at_least_89(),
+        "Requires GPU with compute capability >= 8.9",
     )
     def test_per_row_with_float32(self):
+        device = torch.accelerator.current_accelerator()
         with pytest.raises(
             AssertionError,
             match="PerRow quantization only works for bfloat16 precision",
         ):
-            model = ToyLinearModel(64, 64).eval().to(torch.float32).to("cuda")
+            model = ToyLinearModel(64, 64).eval().to(torch.float32).to(device)
             quantize_(
                 model,
                 Float8DynamicActivationFloat8WeightConfig(granularity=PerRow()),
@@ -141,7 +143,7 @@ class TestAffineQuantizedFloat8Compile(InductorTestCase):
 
     @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
     @unittest.skipIf(
-        torch.cuda.is_available() == "cuda" and not is_sm_at_least_89(),
+        torch.cuda.is_available() and not is_sm_at_least_89(),
         "Requires GPU with compute capability >= 8.9",
     )
     @common_utils.parametrize("float8_dtype", [torch.float8_e4m3fn, torch.float8_e5m2])
