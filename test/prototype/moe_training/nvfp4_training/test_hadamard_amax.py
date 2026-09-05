@@ -44,17 +44,17 @@ _KERNELS = [
 ]
 
 # Both kernels require N % 128 == 0 (triton_rht_amax feeds triton_rht_quantize_row_col,
-# whose swizzled scales require it). triton additionally handles M % 256 != 0, so the
-# sweep is the union and _skip_if_unsupported_shape drops the sub-256 M for cutedsl.
+# whose swizzled scales require it). triton additionally handles M % 128 != 0 (M=64/96/160),
+# so the sweep is the union and _skip_if_unsupported_shape drops those for cutedsl.
 # M=32 excluded: all BLOCK_M configs (64, 128) exceed M=32 → all autotune configs fail.
-_M_VALUES = [64, 96, 128, 160, 256, 512, 1024]
+_M_VALUES = [64, 96, 128, 160, 256, 384, 512, 1024]
 _N_VALUES = [128, 256, 384, 512, 1024]
 
 
 def _skip_if_unsupported_shape(kernel: str, M: int, N: int) -> None:
     """Skip shapes the selected backend cannot handle."""
-    if kernel == "cutedsl" and M % 256 != 0:
-        pytest.skip("cutedsl amax kernel requires M % 256 == 0")
+    if kernel == "cutedsl" and M % 128 != 0:
+        pytest.skip("cutedsl amax kernel requires M % 128 == 0")
 
 
 def _rht_amax(kernel, A, sign_vector):
@@ -98,28 +98,19 @@ def test_get_rht_matrix_with_generated_sign_matches_sampled_signs():
 def test_rht_amax_vs_reference(kernel, M, N):
     """col_amax = max|RHT(A.t())| (post-Hadamard), row_amax = max|A| (plain).
 
-    triton reduces the RHT output in bfloat16, so it must match the bf16-rounded
-    reference bitwise; CuteDSL reduces in float32, so it matches the float32 reference
-    only to a small tolerance. The plain amax is exact for both.
+    Both backends round the RHT result to bfloat16 before reducing -- triton via
+    ``.to(tl.bfloat16)`` on the ``tl.dot`` accumulator, CuteDSL via the same rounding on
+    the tcgen05 TMEM accumulator -- which is what TransformerEngine does, so both must
+    match the bf16-rounded reference bitwise. The plain amax is exact for both.
     """
     _skip_if_unsupported_shape(kernel, M, N)
     torch.manual_seed(42)
     A = torch.randn(M, N, dtype=torch.bfloat16, device="cuda")
 
-    if kernel == "triton":
-        ref_col_amax, ref_row_amax = reference_rht_amax(A, _HARDCODED_SIGN_VECTOR)
-        col_tol = {"atol": 0, "rtol": 0}
-    else:
-        get_rht_matrix.cache_clear()
-        B = get_rht_matrix(_HARDCODED_SIGN_VECTOR, "cuda", torch.bfloat16, 16)
-        ref_col_amax = (A.t().reshape(N * M // 16, 16).float() @ B.float()).abs().max()
-        ref_row_amax = A.abs().max().float()
-        col_tol = {"atol": 2e-3, "rtol": 2e-3}
-
-    get_rht_matrix.cache_clear()
+    ref_col_amax, ref_row_amax = reference_rht_amax(A, _HARDCODED_SIGN_VECTOR)
 
     col_amax, row_amax = _rht_amax(kernel, A, _HARDCODED_SIGN_VECTOR)
-    torch.testing.assert_close(col_amax, ref_col_amax, **col_tol)
+    torch.testing.assert_close(col_amax, ref_col_amax, atol=0, rtol=0)
     torch.testing.assert_close(row_amax, ref_row_amax, atol=0, rtol=0)
 
 
@@ -136,14 +127,14 @@ def test_cutedsl_rht_amax_returns_scalars():
 @_skip_no_cutedsl
 @pytest.mark.parametrize(
     "M,N",
-    [(128, 256), (256, 200), (384, 256)],
-    ids=["M_not_mult_256", "N_not_mult_128", "M_not_mult_256_b"],
+    [(64, 256), (256, 200), (192, 256)],
+    ids=["M_not_mult_128", "N_not_mult_128", "M_not_mult_128_b"],
 )
 @torch.no_grad()
 def test_cutedsl_rht_amax_invalid_shape_raises(M, N):
-    """M % 256 / N % 128 violations must raise. M=128 is the subtle one: it passes an
-    M % 128 check but is invalid here, and without the M % 256 check it silently returns
-    zero amaxes (empty grid, no-op launch)."""
+    """M % 128 / N % 128 violations must raise. M=64 is the subtle one: without the
+    M % 128 check a sub-supertile M silently returns zero amaxes (empty grid,
+    no-op launch)."""
     A = torch.randn(M, N, dtype=torch.bfloat16, device="cuda")
     with pytest.raises(ValueError):
         cutedsl_rht_amax(A, list(_HARDCODED_SIGN_VECTOR))
@@ -173,14 +164,14 @@ def test_rht_amax_propagates_nan():
 @_skip_no_triton
 @_skip_no_cutedsl
 @pytest.mark.parametrize("N", [256, 512], ids=lambda n: f"N{n}")
-@pytest.mark.parametrize("M", [256, 512], ids=lambda m: f"M{m}")
+@pytest.mark.parametrize("M", [256, 384, 512], ids=lambda m: f"M{m}")
 @torch.no_grad()
 def test_cutedsl_rht_amax_matches_triton(M, N):
-    """CuteDSL and Triton amaxes agree closely (row is exact; col differs only by RHT
-    reduction precision)."""
+    """CuteDSL and Triton amaxes are bitwise equal: both round the RHT accumulator to
+    bfloat16 before reducing, so nothing is left to differ."""
     torch.manual_seed(0)
     A = torch.randn(M, N, dtype=torch.bfloat16, device="cuda")
     col_c, row_c = _rht_amax("cutedsl", A, _HARDCODED_SIGN_VECTOR)
     col_t, row_t = _rht_amax("triton", A, _HARDCODED_SIGN_VECTOR)
     torch.testing.assert_close(row_c, row_t, rtol=0, atol=0)
-    torch.testing.assert_close(col_c, col_t, rtol=5e-3, atol=5e-3)
+    torch.testing.assert_close(col_c, col_t, rtol=0, atol=0)

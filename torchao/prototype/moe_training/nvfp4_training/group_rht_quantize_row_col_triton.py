@@ -24,6 +24,8 @@ from torch.utils._triton import has_triton
 
 from torchao.utils import torch_version_at_least
 
+from .group_hadamard_utils import _validate_graph_amax, _validate_rng_state
+
 if torch_version_at_least("2.10.0") and has_triton():
     from typing import List, Tuple
 
@@ -66,7 +68,7 @@ if torch_version_at_least("2.10.0") and has_triton():
     # cold key), for no config gain. Sweep-validated stable across M at fixed N.
     @triton.autotune(
         configs=_GROUP_QUANTIZE_CONFIGS,
-        key=["N", "STOCHASTIC_ROUNDING"],
+        key=["N", "STOCHASTIC_ROUNDING", "FAST_MATH"],
     )
     @triton.jit
     def _group_rht_quantize_row_col_kernel(
@@ -87,6 +89,7 @@ if torch_version_at_least("2.10.0") and has_triton():
         N,
         num_tensors: tl.constexpr,
         STOCHASTIC_ROUNDING: tl.constexpr,
+        FAST_MATH: tl.constexpr,
         SHAPE_REP: tl.constexpr,
         BLOCK_M: tl.constexpr,
         BLOCK_N: tl.constexpr,
@@ -103,146 +106,97 @@ if torch_version_at_least("2.10.0") and has_triton():
         # times N exceeds 2**31, silently wrapping to bad addresses.
         pid_m = (tile_idx // num_tiles_hidden).to(tl.int64)
         pid_n = tile_idx - pid_m * num_tiles_hidden
-
-        if SHAPE_REP == VARYING_FIRST_DIM:
-            token_offset = pid_m * BLOCK_M
-            group_idx = _get_group_idx_binary(
-                token_offset,
-                offsets_ptr,
-                num_tensors,
-            )
-        else:
-            group_idx = pid_m // (num_tiles_token // num_tensors)
-
-        offs_m = pid_m * BLOCK_M + tl.arange(0, BLOCK_M)
-        offs_n = pid_n * BLOCK_N + tl.arange(0, BLOCK_N)
+        token_offset = pid_m * BLOCK_M
         logical_packed_length = tl.load(logical_packed_length_ptr)
-        a = tl.load(
-            a_ptr + offs_m[:, None] * N + offs_n[None, :],
-            mask=offs_m[:, None] < logical_packed_length,
-            other=0.0,
-        )
 
-        rht_offsets = tl.arange(0, 16)[:, None] * 16 + tl.arange(0, 16)[None, :]
-        hadamard = tl.load(b_ptr + rht_offsets)
+        if token_offset < logical_packed_length:
+            if SHAPE_REP == VARYING_FIRST_DIM:
+                group_idx = _get_group_idx_binary(
+                    token_offset,
+                    offsets_ptr,
+                    num_tensors,
+                )
+            else:
+                group_idx = pid_m // (num_tiles_token // num_tensors)
 
-        colwise_global_amax = tl.load(global_amax_col_ptr + group_idx)
-        a_t = tl.trans(a)
-        a_t_reshape = tl.reshape(a_t, [BLOCK_N * BLOCK_M // 16, 16])
-        a_t_rht = tl.dot(a_t_reshape, hadamard)
-        a_t_rht = a_t_rht.to(tl.bfloat16)
+            offs_m = token_offset + tl.arange(0, BLOCK_M)
+            offs_n = pid_n * BLOCK_N + tl.arange(0, BLOCK_N)
+            a = tl.load(a_ptr + offs_m[:, None] * N + offs_n[None, :])
 
-        col_scale, col_scaled = _nvfp4_quantize(
-            a_t_rht, colwise_global_amax, BLOCK_N, BLOCK_M
-        )
-        col_fp4 = _pack_fp4(
-            col_scaled,
-            BLOCK_N,
-            BLOCK_M,
-            STOCHASTIC_ROUNDING,
-            col_seed_base_ptr,
-            col_offset_base_ptr,
-            tile_idx,
-        )
+            rht_offsets = tl.arange(0, 16)[:, None] * 16 + tl.arange(0, 16)[None, :]
+            hadamard = tl.load(b_ptr + rht_offsets)
 
-        col_swizzled = _swizzle_scales(col_scale, BLOCK_N, BLOCK_M)
-        # Columnwise puts the grouped token axis on the inner (64-blocked) side,
-        # so the tiling restarts per group; the rowwise store below has it on the
-        # outer axis, where a group is already contiguous.
-        _store_grouped_scales_swizzle(
-            col_swizzled,
-            sfa_t_ptr,
-            pid_n,
-            pid_m,
-            offsets_ptr,
-            group_idx,
-            N,
-            BLOCK_N,
-            BLOCK_M,
-        )
-        outer_t = pid_n * BLOCK_N + tl.arange(0, BLOCK_N)
-        packed_inner_t = pid_m * (BLOCK_M // 2) + tl.arange(0, BLOCK_M // 2)
-        packed_offsets_t = outer_t[:, None] * (M // 2) + packed_inner_t[None, :]
-        tl.store(qa_t_ptr + packed_offsets_t, col_fp4)
+            colwise_global_amax = tl.load(global_amax_col_ptr + group_idx)
+            a_t = tl.trans(a)
+            a_t_reshape = tl.reshape(a_t, [BLOCK_N * BLOCK_M // 16, 16])
+            a_t_rht = tl.dot(a_t_reshape, hadamard)
+            # TE's fast math consumes the fp32 accumulator directly, so the bfloat16
+            # round-through is exact-mode only.
+            if not FAST_MATH:
+                a_t_rht = a_t_rht.to(tl.bfloat16)
 
-        rowwise_global_amax = tl.load(global_amax_row_ptr + group_idx)
-        row_scale, row_scaled = _nvfp4_quantize(
-            a, rowwise_global_amax, BLOCK_M, BLOCK_N
-        )
-        row_fp4 = _pack_fp4(
-            row_scaled,
-            BLOCK_M,
-            BLOCK_N,
-            STOCHASTIC_ROUNDING,
-            row_seed_base_ptr,
-            row_offset_base_ptr,
-            tile_idx,
-        )
-
-        row_swizzled = _swizzle_scales(row_scale, BLOCK_M, BLOCK_N)
-        _store_scales_swizzle(
-            row_swizzled,
-            sfa_ptr,
-            pid_m,
-            pid_n,
-            M,
-            N,
-            BLOCK_M,
-            BLOCK_N,
-        )
-        outer = pid_m * BLOCK_M + tl.arange(0, BLOCK_M)
-        packed_inner = pid_n * (BLOCK_N // 2) + tl.arange(0, BLOCK_N // 2)
-        packed_offsets = outer[:, None] * (N // 2) + packed_inner[None, :]
-        tl.store(qa_ptr + packed_offsets, row_fp4)
-
-    def _validate_graph_amax(
-        amax: torch.Tensor,
-        name: str,
-        num_tensors: int,
-        device: torch.device,
-    ) -> torch.Tensor:
-        if not isinstance(amax, torch.Tensor):
-            raise TypeError(f"{name} must be a torch.Tensor")
-        if amax.dtype != torch.float32:
-            raise ValueError(f"{name}.dtype must be torch.float32")
-        if not amax.is_cuda or amax.device != device:
-            raise ValueError(f"{name} must be on the same device as A")
-        if amax.ndim != 1:
-            raise ValueError(f"{name} must be 1D")
-        if not amax.is_contiguous():
-            raise ValueError(f"{name} must be contiguous")
-        if amax.numel() < num_tensors:
-            raise ValueError(f"{name} must have at least num_tensors elements")
-        return amax
-
-    def _validate_rng_state(
-        rng_state: Optional[torch.Tensor],
-        device: torch.device,
-        enable_stochastic_rounding: bool,
-    ) -> Optional[torch.Tensor]:
-        """Validate the caller-owned Philox state used for graph-safe stochastic rounding.
-
-        When SR is enabled, ``rng_state`` is an int64 CUDA tensor laid out as
-        ``[col_seed, col_offset, row_seed, row_offset]``. The caller owns advancement of
-        these values across CUDA-graph replays (torchao seed-plumbing); the wrapper only
-        forwards single-element views of them, so it performs no host RNG and stays graph-safe.
-        """
-        if not enable_stochastic_rounding:
-            return None
-        if not isinstance(rng_state, torch.Tensor):
-            raise TypeError(
-                "rng_state must be a torch.Tensor when enable_stochastic_rounding is True"
+            col_scale, col_scaled = _nvfp4_quantize(
+                a_t_rht, colwise_global_amax, BLOCK_N, BLOCK_M, FAST_MATH
             )
-        if rng_state.dtype != torch.int64:
-            raise ValueError("rng_state.dtype must be torch.int64")
-        if not rng_state.is_cuda or rng_state.device != device:
-            raise ValueError("rng_state must be on the same device as A")
-        if rng_state.numel() < 4:
-            raise ValueError(
-                "rng_state must have at least 4 elements "
-                "[col_seed, col_offset, row_seed, row_offset]"
+            col_fp4 = _pack_fp4(
+                col_scaled,
+                BLOCK_N,
+                BLOCK_M,
+                STOCHASTIC_ROUNDING,
+                col_seed_base_ptr,
+                col_offset_base_ptr,
+                tile_idx,
             )
-        return rng_state
+
+            col_swizzled = _swizzle_scales(col_scale, BLOCK_N, BLOCK_M)
+            # Columnwise puts the grouped token axis on the inner (64-blocked) side,
+            # so the tiling restarts per group; the rowwise store below has it on the
+            # outer axis, where a group is already contiguous.
+            _store_grouped_scales_swizzle(
+                col_swizzled,
+                sfa_t_ptr,
+                pid_n,
+                pid_m,
+                offsets_ptr,
+                group_idx,
+                N,
+                BLOCK_N,
+                BLOCK_M,
+            )
+            outer_t = pid_n * BLOCK_N + tl.arange(0, BLOCK_N)
+            packed_inner_t = pid_m * (BLOCK_M // 2) + tl.arange(0, BLOCK_M // 2)
+            packed_offsets_t = outer_t[:, None] * (M // 2) + packed_inner_t[None, :]
+            tl.store(qa_t_ptr + packed_offsets_t, col_fp4)
+
+            rowwise_global_amax = tl.load(global_amax_row_ptr + group_idx)
+            row_scale, row_scaled = _nvfp4_quantize(
+                a, rowwise_global_amax, BLOCK_M, BLOCK_N, FAST_MATH
+            )
+            row_fp4 = _pack_fp4(
+                row_scaled,
+                BLOCK_M,
+                BLOCK_N,
+                STOCHASTIC_ROUNDING,
+                row_seed_base_ptr,
+                row_offset_base_ptr,
+                tile_idx,
+            )
+
+            row_swizzled = _swizzle_scales(row_scale, BLOCK_M, BLOCK_N)
+            _store_scales_swizzle(
+                row_swizzled,
+                sfa_ptr,
+                pid_m,
+                pid_n,
+                M,
+                N,
+                BLOCK_M,
+                BLOCK_N,
+            )
+            outer = pid_m * BLOCK_M + tl.arange(0, BLOCK_M)
+            packed_inner = pid_n * (BLOCK_N // 2) + tl.arange(0, BLOCK_N // 2)
+            packed_offsets = outer[:, None] * (N // 2) + packed_inner[None, :]
+            tl.store(qa_ptr + packed_offsets, row_fp4)
 
     @torch.library.custom_op(
         "torchao::triton_group_rht_quantize_row_col", mutates_args=()
@@ -260,13 +214,16 @@ if torch_version_at_least("2.10.0") and has_triton():
         rng_state: Optional[torch.Tensor],
         enable_stochastic_rounding: bool,
         logical_packed_length: Optional[torch.Tensor] = None,
+        use_fast_math: bool = False,
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         """Grouped fused RHT columnwise + direct rowwise NVFP4 E2M1 quantization.
 
         ``A`` is the pre-packed capacity buffer; ``offsets`` is a 1D int32 CUDA
         tensor of cumulative row-end offsets, one per group. ``logical_packed_length``
-        is the valid padded row count; rows after it are ignored. ``sign_vector``
-        selects the cached 16x16 RHT matrix used by the Triton kernel.
+        is the valid padded row count and equals ``offsets[-1]``. Rows after it
+        are untouched allocation capacity and must not be consumed. ``sign_vector``
+        selects the cached 16x16 RHT matrix used by the Triton kernel. Zero-valued
+        per-group padding before the final offset is processed normally.
 
         Returns ``(qa_base, sfa, qd, sfd)``. Both scale tensors carry swizzled bytes
         reinterpreted to their logical 2D shapes.
@@ -353,6 +310,7 @@ if torch_version_at_least("2.10.0") and has_triton():
             n,
             num_tensors=num_tensors,
             STOCHASTIC_ROUNDING=enable_stochastic_rounding,
+            FAST_MATH=use_fast_math,
             SHAPE_REP=shape_rep,
             BLOCK_M=BLOCK_M,
             BLOCK_N=BLOCK_N,
@@ -374,6 +332,7 @@ if torch_version_at_least("2.10.0") and has_triton():
         rng_state,
         enable_stochastic_rounding,
         logical_packed_length=None,
+        use_fast_math=False,
     ):
         qa_base = A.new_empty(
             (packed_sequence_length, hidden_size // 2), dtype=torch.uint8
@@ -403,6 +362,7 @@ else:
         rng_state,
         enable_stochastic_rounding: bool,
         logical_packed_length: Optional[torch.Tensor] = None,
+        use_fast_math: bool = False,
     ):
         raise NotImplementedError(
             "triton_group_rht_quantize_row_col requires torch 2.10.0+ and triton installed"
