@@ -125,7 +125,14 @@ class matmul_with_hp_or_float8_args(torch.autograd.Function):
             # TODO(future PR): var name is axiswise specific, fix it
             weight_t_maybe_fp8_dim0 = weight_hp_t
         elif c.cast_config_weight_for_grad_input.scaling_type is ScalingType.DISABLED:
-            weight_t_maybe_fp8_dim0 = weight_hp_t
+            # `weight_hp_t` is the saved high precision (master) weight, which
+            # under autocast can be float32 while `grad_output_reshaped` (from
+            # autograd) is the autocast dtype (e.g. bf16). `torch.mm` below
+            # does not promote dtypes, so align them here. This is a no-op
+            # outside autocast, where both are already the same dtype.
+            weight_t_maybe_fp8_dim0 = weight_hp_t.to(
+                grad_output_reshaped_maybe_fp8_dim0.dtype
+            )
         else:
             weight_t_maybe_fp8_dim0 = hp_tensor_to_float8_dynamic(
                 weight_hp_t,
