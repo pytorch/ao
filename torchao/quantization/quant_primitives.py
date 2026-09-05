@@ -1565,8 +1565,20 @@ def _choose_qparams_affine(
     )
     input = input.view(shape_for_reduction)
 
-    min_val = torch.amin(input, dim=reduction_dims, keepdim=keepdim)
-    max_val = torch.amax(input, dim=reduction_dims, keepdim=keepdim)
+    if len(reduction_dims) == 0:
+        # `block_size` is 1 in every dim (e.g. `PerGroup(1)`), meaning every
+        # element is its own block, so there is nothing to reduce over: each
+        # output min/max is just that element. `torch.amin`/`amax` don't
+        # support expressing "reduce over zero dims" via `dim=[]` -- per
+        # their documented behavior (matching `dim=None`), an empty `dim`
+        # reduces over *all* dims instead, which would collapse this to a
+        # single scalar min/max shared by the whole tensor instead of one
+        # per element (see https://github.com/pytorch/ao/issues/3458).
+        min_val = input
+        max_val = input
+    else:
+        min_val = torch.amin(input, dim=reduction_dims, keepdim=keepdim)
+        max_val = torch.amax(input, dim=reduction_dims, keepdim=keepdim)
 
     min_val_neg = torch.min(min_val, torch.zeros_like(min_val))
     max_val_pos = torch.max(max_val, torch.zeros_like(max_val))
