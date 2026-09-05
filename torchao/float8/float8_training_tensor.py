@@ -7,11 +7,17 @@ import enum
 from typing import Dict, NamedTuple, Optional
 
 import torch
-from torch.distributed._tensor import DTensor
 
 from torchao.float8.float8_utils import (
     to_fp8_saturated,
 )
+
+if torch.distributed.is_available():
+    from torch.distributed.tensor import DTensor
+else:
+    # torch built with USE_DISTRIBUTED=0 has no DTensor, so the isinstance()
+    # checks below are always False.
+    DTensor = ()
 
 aten = torch.ops.aten
 
