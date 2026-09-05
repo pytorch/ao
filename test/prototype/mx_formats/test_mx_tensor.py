@@ -1005,3 +1005,87 @@ def test_mx_pin_memory(elem_dtype):
     assert torch.equal(
         x_cpu.dequantize(torch.float32), x_pinned.dequantize(torch.float32)
     )
+
+
+@pytest.mark.parametrize("elem_dtype", [torch.float8_e4m3fn, torch.float4_e2m1fn_x2])
+@pytest.mark.parametrize("is_swizzled_scales", [False, True])
+def test_mx_fsdp_sharding_ops(elem_dtype, is_swizzled_scales):
+    x_hp = torch.randn(256, 64, dtype=torch.bfloat16)
+    x_mx = MXTensor.to_mx(
+        x_hp,
+        elem_dtype,
+        block_size=32,
+        kernel_preference=KernelPreference.EMULATED,
+        is_swizzled_scales=is_swizzled_scales,
+    )
+    assert x_mx.is_contiguous()
+    assert x_mx.stride() == (64, 1)
+
+    chunks = torch.chunk(x_mx, 2, dim=0)
+    assert [chunk.shape for chunk in chunks] == [(128, 64), (128, 64)]
+    torch.testing.assert_close(
+        chunks[0].dequantize(), x_mx.dequantize()[:128], atol=0, rtol=0
+    )
+    torch.testing.assert_close(
+        chunks[1].dequantize(), x_mx.dequantize()[128:], atol=0, rtol=0
+    )
+
+    padded = chunks[0].new_zeros(x_mx.shape)
+    restored_chunk = padded.narrow(0, 0, chunks[0].shape[0])
+    restored_chunk.copy_(chunks[0])
+    assert torch.equal(restored_chunk.qdata, chunks[0].qdata)
+    assert torch.equal(
+        restored_chunk.scale.view(torch.uint8), chunks[0].scale.view(torch.uint8)
+    )
+    assert padded.view(-1).shape == (256 * 64,)
+
+    restored = torch.as_strided(
+        chunks[0], chunks[0].shape, chunks[0].stride(), storage_offset=0
+    )
+    torch.testing.assert_close(
+        restored.dequantize(), chunks[0].dequantize(), atol=0, rtol=0
+    )
+
+
+@pytest.mark.parametrize("elem_dtype", [torch.float8_e4m3fn, torch.float4_e2m1fn_x2])
+@pytest.mark.parametrize("is_swizzled_scales", [False, True])
+def test_mx_fsdp_all_gather_hooks(elem_dtype, is_swizzled_scales):
+    x_hp = torch.randn(256, 64, dtype=torch.bfloat16)
+    x_mx = MXTensor.to_mx(
+        x_hp,
+        elem_dtype,
+        block_size=32,
+        kernel_preference=KernelPreference.EMULATED,
+        is_swizzled_scales=is_swizzled_scales,
+    )
+    chunks = torch.chunk(x_mx, 2, dim=0)
+
+    (rank0_inputs, metadata) = chunks[0].fsdp_pre_all_gather(mesh=None)
+    (rank1_inputs, rank1_metadata) = chunks[1].fsdp_pre_all_gather(mesh=None)
+    assert rank1_metadata == metadata
+    gathered_input = torch.cat((rank0_inputs[0], rank1_inputs[0]))
+    gathered, _ = chunks[0].fsdp_post_all_gather(
+        (gathered_input,), metadata, torch.bfloat16
+    )
+
+    assert isinstance(gathered, MXTensor)
+    torch.testing.assert_close(gathered.dequantize(), x_mx.dequantize(), atol=0, rtol=0)
+
+    out = MXTensor(
+        torch.empty_like(gathered.qdata),
+        torch.empty_like(gathered.scale),
+        gathered.elem_dtype,
+        gathered.block_size,
+        gathered.orig_dtype,
+        gathered.kernel_preference,
+        gathered.act_quant_kwargs,
+        gathered.is_swizzled_scales,
+    )
+    assert (
+        chunks[0].fsdp_post_all_gather(
+            (gathered_input,), metadata, torch.bfloat16, out=out
+        )
+        is None
+    )
+    assert torch.equal(out.qdata, gathered.qdata)
+    assert torch.equal(out.scale, gathered.scale)
