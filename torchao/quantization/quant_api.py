@@ -29,6 +29,7 @@ from typing import OrderedDict as OrderedDictType
 import torch
 import torch.nn as nn
 import torch.nn.utils.parametrize as parametrize
+from torch._subclasses.fake_tensor import is_fake
 
 import torchao
 from torchao.core.config import AOBaseConfig
@@ -78,8 +79,10 @@ from torchao.quantization.utils import (
     _linear_extra_repr,
     _module_extra_repr,
     _quantization_type,
+    get_block_size,
 )
 from torchao.utils import (
+    TorchAOBaseTensor,
     is_MI300,
     is_MI350,
     is_sm_at_least_89,
@@ -772,6 +775,32 @@ def _int8_weight_only_quantize_tensor(weight, config):
     return new_weight
 
 
+def _is_int8_zero_point_compatible_with_weight_only(zero_point):
+    # Meta and FakeTensor values are intentionally unavailable. The remaining
+    # stored metadata still distinguishes weight-only from activation recipes.
+    return (
+        zero_point is None
+        or zero_point.is_meta
+        or is_fake(zero_point)
+        or torch.count_nonzero(zero_point).item() == 0
+    )
+
+
+def _is_int8_weight_only_representation(weight, config):
+    return (
+        isinstance(weight, Int8Tensor)
+        and tuple(weight.block_size)
+        == get_block_size(tuple(weight.shape), config.granularity)
+        and weight.qdata.dtype == torch.int8
+        and _is_int8_zero_point_compatible_with_weight_only(weight.zero_point)
+        and weight.act_quant_kwargs is None
+        and weight.act_quant_scale is None
+        and weight.act_quant_zero_point is None
+        and weight.act_pre_scale is None
+        and weight.reduce_range is False
+    )
+
+
 @register_quantize_module_handler(Int8WeightOnlyConfig)
 def _int8_weight_only_transform(
     module: torch.nn.Module,
@@ -779,16 +808,27 @@ def _int8_weight_only_transform(
     *,
     parameter_name: str = "weight",
 ):
-    if config.set_inductor_config:
-        torchao.quantization.utils.recommended_inductor_config_setter()
-
     assert hasattr(module, parameter_name), (
         "applying int8 weight only quant requires module to have {parameter_name} attribute"
         + " but {module} does not have one"
     )
-    quantized_tensor = _int8_weight_only_quantize_tensor(
-        getattr(module, parameter_name), config
-    )
+    weight = getattr(module, parameter_name)
+
+    assert config.version == 2, f"Unexpected version: {config.version}"
+    is_reapplication = isinstance(weight, TorchAOBaseTensor)
+    if is_reapplication and not _is_int8_weight_only_representation(weight, config):
+        raise ValueError(
+            f"{type(config).__name__} is not equivalent to the existing "
+            f"{type(weight).__name__} representation. Apply the config to an "
+            "unquantized weight instead."
+        )
+
+    if config.set_inductor_config:
+        torchao.quantization.utils.recommended_inductor_config_setter()
+
+    if is_reapplication:
+        return module
+    quantized_tensor = _int8_weight_only_quantize_tensor(weight, config)
     setattr(
         module,
         parameter_name,
@@ -1097,6 +1137,19 @@ def _float8_weight_only_quant_tensor(weight, config):
     return new_weight
 
 
+def _is_float8_weight_only_representation(weight, config):
+    return (
+        isinstance(weight, Float8Tensor)
+        and weight.block_size is not None
+        and tuple(weight.block_size)
+        == get_block_size(tuple(weight.shape), config.granularity)
+        and weight.qdata.dtype == config.weight_dtype
+        and weight.act_quant_kwargs is None
+        and weight.mm_config is None
+        and weight.kernel_preference == KernelPreference.AUTO
+    )
+
+
 @register_quantize_module_handler(Float8WeightOnlyConfig)
 def _float8_weight_only_transform(
     module: torch.nn.Module,
@@ -1104,20 +1157,34 @@ def _float8_weight_only_transform(
     *,
     parameter_name: str = "weight",
 ) -> torch.nn.Module:
-    if config.set_inductor_config:
-        torchao.quantization.utils.recommended_inductor_config_setter()
-
     assert hasattr(module, parameter_name), (
         "applying float8 weight only quant requires module to have {parameter_name} attribute"
         + " but {module} does not have one"
     )
 
     if isinstance(module, Float8Linear):
+        training = module.training
         module = _unwrap_float8_linear(module)
+        module.train(training)
 
-    quantized_tensor = _float8_weight_only_quant_tensor(
-        getattr(module, parameter_name), config
-    )
+    weight = getattr(module, parameter_name)
+
+    assert config.version == 2, f"Unexpected version: {config.version}"
+    is_reapplication = isinstance(weight, TorchAOBaseTensor)
+    if is_reapplication and not _is_float8_weight_only_representation(weight, config):
+        raise ValueError(
+            f"{type(config).__name__} is not equivalent to the existing "
+            f"{type(weight).__name__} representation. Apply the config to an "
+            "unquantized weight instead."
+        )
+
+    if config.set_inductor_config:
+        torchao.quantization.utils.recommended_inductor_config_setter()
+
+    if is_reapplication:
+        return module
+
+    quantized_tensor = _float8_weight_only_quant_tensor(weight, config)
 
     setattr(
         module,
