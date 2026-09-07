@@ -727,8 +727,115 @@ def _(func, types, args, kwargs):
             f"Got device '{mat_b.device.type}'."
         )
 
-    # Dequantize and call the native grouped_mm
-    return torch._grouped_mm(mat_a, mat_b.dequantize(), offs=offs)
+    # Dequantize and run a trace-friendly fallback that avoids aten._grouped_mm
+    # meta restrictions (grouped GEMM checks are CUDA/cuBLASLt-specific).
+    return _grouped_mm_tensor_fallback(mat_a, mat_b.dequantize(), offs)
+
+
+if hasattr(torch.ops, "transformers") and hasattr(torch.ops.transformers, "grouped_mm_fallback"):
+
+    @implements([torch.ops.transformers.grouped_mm_fallback.default])
+    def _(func, types, args, kwargs):
+        """Handles transformers.grouped_mm_fallback with Int4PlainInt32Tensor weights.
+
+        Transformers can call this op on backends without a native grouped_mm kernel.
+        We dequantize Int4 weights and delegate to torch._grouped_mm.
+        """
+        mat_a, mat_b = args[0], args[1]
+        offs = args[2] if len(args) > 2 else kwargs.get("offs", None)
+        assert isinstance(mat_b, Int4PlainInt32Tensor)
+        assert offs is not None, "offs is required for transformers.grouped_mm_fallback"
+        if mat_b.device.type != "xpu":
+            raise NotImplementedError(
+                "Int4PlainInt32Tensor grouped_mm fallback currently supports only XPU. "
+                f"Got device '{mat_b.device.type}'."
+            )
+
+        # Dequantize and run a trace-friendly fallback that avoids aten._grouped_mm
+        # meta restrictions (grouped GEMM checks are CUDA/cuBLASLt-specific).
+        return _grouped_mm_tensor_fallback(mat_a, mat_b.dequantize(), offs)
+
+
+def _grouped_mm_tensor_fallback(
+    mat_a: torch.Tensor,
+    mat_b: torch.Tensor,
+    offs: torch.Tensor,
+) -> torch.Tensor:
+    """Grouped matmul fallback implemented with standard tensor ops.
+
+    Args:
+        mat_a: [total_m, K]
+        mat_b: [E, K, N]
+        offs: cumulative row counts per expert, shape [E]
+    Returns:
+        out: [total_m, N]
+    """
+    if mat_a.ndim != 2 or mat_b.ndim != 3:
+        raise RuntimeError(
+            f"Expected mat_a [M,K] and mat_b [E,K,N], got mat_a={tuple(mat_a.shape)}, mat_b={tuple(mat_b.shape)}"
+        )
+    if mat_a.device != mat_b.device:
+        raise RuntimeError(
+            "Expected mat_a and mat_b on the same device, "
+            f"got mat_a on '{mat_a.device}' and mat_b on '{mat_b.device}'"
+        )
+    if mat_a.shape[1] != mat_b.shape[1]:
+        raise RuntimeError(
+            f"Shape mismatch: mat_a has K={mat_a.shape[1]}, mat_b has K={mat_b.shape[1]}"
+        )
+    if offs.ndim != 1:
+        raise RuntimeError(f"Expected offs to be 1D, got shape={tuple(offs.shape)}")
+    if offs.dtype not in (torch.int8, torch.int16, torch.int32, torch.int64):
+        raise RuntimeError(
+            f"Expected offs to have integer dtype, got dtype={offs.dtype}"
+        )
+
+    total_m = mat_a.shape[0]
+    num_experts = mat_b.shape[0]
+    if offs.numel() != num_experts:
+        raise RuntimeError(
+            f"Expected offs length to match number of experts ({num_experts}), got {offs.numel()}"
+        )
+
+    # Keep indexing metadata on the same device as mat_a/mat_b to avoid cross-device failures.
+    offs = offs.to(device=mat_a.device, dtype=torch.int64)
+
+    if offs.numel() > 0:
+        if torch.any(offs < 0):
+            raise RuntimeError("Expected offs to be non-negative cumulative row counts")
+        if offs.numel() > 1 and torch.any(offs[1:] < offs[:-1]):
+            raise RuntimeError("Expected offs to be non-decreasing cumulative row counts")
+        if offs[-1].item() != total_m:
+            raise RuntimeError(
+                f"Expected offs[-1] to equal total_m ({total_m}), got {offs[-1].item()}"
+            )
+    elif total_m != 0:
+        raise RuntimeError(
+            f"Expected non-empty offs when total_m={total_m}, but got offs with length 0"
+        )
+
+    if total_m == 0:
+        return mat_a.new_empty((0, mat_b.shape[-1]))
+
+    # Segment-wise execution avoids allocating a large [total_m, K, N] gathered-weight tensor.
+    out = mat_a.new_empty((total_m, mat_b.shape[-1]))
+    start = 0
+    for expert_idx in range(num_experts):
+        end = int(offs[expert_idx].item())
+        if end < start:
+            raise RuntimeError(
+                f"Invalid offs: end={end} is smaller than previous boundary start={start} at expert {expert_idx}"
+            )
+        if end == start:
+            continue
+        out[start:end] = mat_a[start:end] @ mat_b[expert_idx]
+        start = end
+
+    if start != total_m:
+        raise RuntimeError(
+            f"Invalid offs: consumed {start} rows, expected {total_m} rows"
+        )
+    return out
 
 
 @implements([aten.bmm.default])
