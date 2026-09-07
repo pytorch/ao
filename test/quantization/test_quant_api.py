@@ -47,6 +47,8 @@ from torchao.quantization.quant_api import (
     ModuleFqnToConfig,
     PerRow,
     PerTensor,
+    _is_moe_expert_module,
+    _resolve_quantize_targets,
     _replace_with_custom_fn_if_matches_filter,
 )
 from torchao.quantization.quant_primitives import MappingType
@@ -1127,6 +1129,43 @@ class TestFqnToConfig(TestCase):
                 fqn_to_config={"test": Float8WeightOnlyConfig()},
                 module_fqn_to_config={"test2": Float8WeightOnlyConfig()},
             )
+
+
+class TestMoeDefaultTargetingHelpers(TestCase):
+    class _ToyExperts(torch.nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.gate_up_proj = torch.nn.Parameter(
+                torch.randn(2, 8, 128, dtype=torch.bfloat16)
+            )
+            self.bias = torch.nn.Parameter(torch.randn(8, dtype=torch.bfloat16))
+
+    def test_is_moe_expert_module_heuristic(self):
+        experts_mod = self._ToyExperts()
+        assert _is_moe_expert_module(experts_mod, "layer.0.experts")
+        assert not _is_moe_expert_module(experts_mod, "layer.0.mlp")
+
+    def test_resolve_quantize_targets_autodiscovery(self):
+        experts_mod = self._ToyExperts()
+        targets = _resolve_quantize_targets(experts_mod)
+        names = [name for name, _param in targets]
+        assert names == ["gate_up_proj"]
+
+    def test_int4_moe_auto_targeting_staged_plain_int32_only(self):
+        class ToyModel(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.experts = TestMoeDefaultTargetingHelpers._ToyExperts()
+
+        model = ToyModel().eval()
+        config = Int4WeightOnlyConfig(
+            group_size=128,
+            int4_packing_format="tile_packed_to_4d",
+            set_inductor_config=False,
+        )
+
+        with self.assertRaises(NotImplementedError):
+            quantize_(model, config)
 
 
 if __name__ == "__main__":
