@@ -25,8 +25,8 @@
 /torchao/csrc/ @jerryzh168 @vkuzo @andrewor14
 
 # Low-bit CPU kernels
-/torchao/csrc/cpu/shared_kernels/ @digantdesai @metascroy @jerryzh168 @vkuzo @andrewor14
-/torchao/csrc/cpu/torch_free_kernels/ @digantdesai @metascroy @jerryzh168 @vkuzo @andrewor14
+/torchao/csrc/cpu/shared_kernels/ @digantdesai @metascroy
+/torchao/csrc/cpu/torch_free_kernels/ @digantdesai @metascroy
 
 # Docs
 /docs/ @vkuzo @jerryzh168 @andrewor14
@@ -45,4 +45,3 @@ torchao/quantization/pt2e/quantizer/x86_inductor_quantizer.py @Xia-Weiwen @jerry
 /torchao/quantization/quantize_/workflows/int4/int4_plain_int32_tensor.py @liangan1 @vkuzo @jerryzh168 @andrewor14
 .github/scripts/ci_test_xpu.sh @liangan1 @vkuzo @jerryzh168 @andrewor14
 .github/workflows/xpu_test.yml @liangan1 @vkuzo @jerryzh168 @andrewor14
-
