@@ -176,7 +176,7 @@ class ProfileConfig:
     logs_file_path: Optional[str] = None
     trace_modified_file_path: Optional[str] = None
     name: Optional[str] = None
-    cuda: bool = True
+    device: str = "cuda"
     iters: int = 0
     warmup_iters: int = 0
     sync: bool = False
@@ -214,14 +214,16 @@ def profile_function(
         torch._logging._init_logs(log_file_name=config.logs_file_path)
 
     activities = [ProfilerActivity.CPU]
-    if config.cuda:
+    if config.device == "xpu":
+        activities.append(ProfilerActivity.XPU)
+    elif config.device == "cuda":
         activities.append(ProfilerActivity.CUDA)
 
     if config.warmup_iters >= 0:
         for _ in range(config.warmup_iters):
             func(*args, **kwargs)
     if config.sync:
-        torch.cuda.synchronize()
+        torch.accelerator.synchronize()
     name_context = (
         nullcontext() if config.name is None else record_function(config.name)
     )
@@ -241,7 +243,7 @@ def profile_function(
             with name_context:
                 func(*args, **kwargs)
                 if config.sync:
-                    torch.cuda.synchronize()
+                    torch.accelerator.synchronize()
 
     if config.trace_file_path is not None:
         prof.export_chrome_trace(config.trace_file_path)
@@ -253,6 +255,7 @@ def profile_function(
             config.trace_file_path,
             config.logs_file_path,
             config.trace_modified_file_path,
+            config.device,
         )
 
         # undo custom log settings
@@ -291,6 +294,7 @@ def main(
     mode_filter: str = "fwd_bwd",
     forward_only: bool = False,
 ):
+    device = torch.accelerator.current_accelerator().type
     assert model_type in (
         "linear",
         "ln_linear",
@@ -313,6 +317,9 @@ def main(
     )
     if mode_filter == "cast_only":
         assert experiment_filter == "lowp", "unsupported"
+
+    if device == "xpu" and mx_recipe_name is not None:
+        raise NotImplementedError("MXFP8TrainingRecipe is not supported on XPU yet")
 
     assert not (float8_recipe_name is not None and mx_recipe_name is not None), (
         "either float8_recipe_name or mx_recipe_name can be specified, but not both"
@@ -341,7 +348,6 @@ def main(
     print(f"mode_filter is set to {mode_filter}")
     print(f"config: {config}")
 
-    device = "cuda"
     ref_dtype = torch.bfloat16
     if model_type == "ln_linear":
         M, K, N = 4 * 4096, 8192, 7168
@@ -509,6 +515,7 @@ def main(
                     log_ref_path,
                     trace_ref_modified_path,
                     ref_trace_suffix,
+                    device=device,
                     iters=profile_iters,
                     warmup_iters=2,
                     sync=True,
@@ -555,6 +562,7 @@ def main(
                     log_lowp_path,
                     trace_lowp_modified_path,
                     lowp_trace_suffix,
+                    device=device,
                     iters=profile_iters,
                     warmup_iters=2,
                     sync=True,
