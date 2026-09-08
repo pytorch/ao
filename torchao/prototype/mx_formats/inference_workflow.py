@@ -14,7 +14,10 @@ import torch.nn.functional as F
 from torch import Tensor
 
 from torchao.core.config import AOBaseConfig
-from torchao.prototype.mx_formats.config import _validate_elem_dtype
+from torchao.prototype.mx_formats.config import (
+    Swizzle_32_4_4,
+    _validate_elem_dtype,
+)
 from torchao.prototype.mx_formats.mx_tensor import (
     MXTensor,
     QuantizeTensorToMXKwargs,
@@ -139,7 +142,7 @@ def _mx_inference_linear_transform(
         elem_dtype=config.activation_dtype,
         block_size=config.block_size,
         kernel_preference=config.kernel_preference,
-        is_swizzled_scales=True,
+        swizzle_type=Swizzle_32_4_4(),
         scaling_mode=config.scaling_mode,
     )
 
@@ -150,7 +153,7 @@ def _mx_inference_linear_transform(
         block_size=config.block_size,
         kernel_preference=config.kernel_preference,
         act_quant_kwargs=act_quant_kwargs,
-        is_swizzled_scales=True,
+        swizzle_type=Swizzle_32_4_4(),
         scaling_mode=config.scaling_mode,
     )
 

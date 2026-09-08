@@ -105,7 +105,7 @@ class _PermuteMXFP8FwdHPBwd(torch.autograd.Function):
             orig_dtype=mx_tensor.orig_dtype,
             kernel_preference=mx_tensor.kernel_preference,
             act_quant_kwargs=mx_tensor.act_quant_kwargs,
-            is_swizzled_scales=mx_tensor.is_swizzled_scales,
+            swizzle_type=mx_tensor.swizzle_type,
         )
 
         # Save for backward
