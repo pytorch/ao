@@ -13,15 +13,17 @@ never round-trips through global memory:
     forward:   h     = silu(gate) * up
     backward:  dGate = grad_h * up * d_silu(gate),  dUp = grad_h * silu(gate)
 
-``gated_input`` is bf16 [M, 2K] holding ``gate`` then ``up``; forward outputs
-are K wide, backward outputs 2K wide (``[dGate | dUp]``). Rowwise (1x32)
-scales, colwise (32x1) scales, or both come from that single read, in the
-blocked tcgen05 layouts. Mode flags, chunk geometry, and the ``ACT_PAIR``
-activation policy are ``Constexpr`` — each (mode, geometry, device)
-combination compiles once and is cached — while M and K are runtime
-arguments, so a single specialization serves every shape. Requires M and K
-multiples of 128 and
-``2*K*M - K - 1 <= INT32_MAX`` (index arithmetic assumes 32-bit offsets).
+``gate`` and ``up`` are bf16 [M, K] tensors with unit column stride and any
+32-byte-multiple row stride, so the halves of one packed [M, 2K] buffer
+(``x[:, :K]``, ``x[:, K:]``) are valid as strided views; forward outputs are
+K wide, backward emits ``dGate`` and ``dUp`` as separate K-wide outputs.
+Rowwise (1x32) scales, colwise (32x1) scales, or both come from that single
+read, in the blocked tcgen05 layouts. Mode flags, chunk geometry, and the
+``ACT_PAIR`` activation policy are ``Constexpr`` — each (mode, geometry,
+device) combination compiles once and is cached — while M, K, and the input
+row strides are runtime arguments, so a single specialization serves every
+shape. Requires M and K multiples of 128 and ``(M-1)*ld + K <= INT32_MAX``
+per input (index arithmetic assumes 32-bit offsets).
 """
 
 import functools
@@ -432,13 +434,13 @@ def gated_act_mxfp8_kernel(
     atom_col_gate: cute.CopyAtom,
     gColGate: cute.Tensor,
     mRS: cute.Tensor,
+    mRS2: cute.Tensor,
     mCS: cute.Tensor,
+    mCS2: cute.Tensor,
     rs_ncb: cutlass.Int32,
     rs_stride: cutlass.Int32,
-    rgate_scol_off: cutlass.Int32,
     cs_ncb: cutlass.Int32,
     cs_stride: cutlass.Int32,
-    cgate_col_off: cutlass.Int32,
     IS_BWD: cutlass.Constexpr,
     ROWWISE: cutlass.Constexpr,
     COLWISE: cutlass.Constexpr,
@@ -866,14 +868,11 @@ def gated_act_mxfp8_kernel(
             if cutlass.const_expr(IS_BWD):
                 u_gate = am_gate << 16
                 e_gate = _float_to_e8m0(u_gate)
-                gidx = _scale_idx(
-                    out_col + cgate_col_off, mcol, cs_ncb, cs_stride, SWIZ
-                )
                 if cutlass.const_expr(ONLY_COLWISE):
                     if tidx < cutlass.Int32(CX):
-                        mCS[gidx] = e_gate.to(cutlass.Uint8)
+                        mCS2[sidx] = e_gate.to(cutlass.Uint8)
                 else:
-                    mCS[gidx] = e_gate.to(cutlass.Uint8)
+                    mCS2[sidx] = e_gate.to(cutlass.Uint8)
                 r_gate = _exp2f_rcp_bf16(e_gate) * cutlass.Int32(0x10001)
 
             # 3. Scale and pack into the transposed shared output tile.
@@ -990,9 +989,8 @@ def gated_act_mxfp8_kernel(
                 am_gate = _max_nan_bf16x2(am_gate, am_gate >> 16)
                 u_gate = (am_gate & cutlass.Int32(0xFFFF)) << 16
                 e_gate = _float_to_e8m0(u_gate)
-                gidx = _scale_idx(grow, scol + rgate_scol_off, rs_ncb, rs_stride, SWIZ)
                 if half == 0:
-                    mRS[gidx] = e_gate.to(cutlass.Uint8)
+                    mRS2[sidx] = e_gate.to(cutlass.Uint8)
                 r_gate = _exp2f_rcp_bf16(e_gate) * cutlass.Int32(0x10001)
                 qg = cute.make_rmem_tensor(4, cutlass.Int32)
                 for q in cutlass.range_constexpr(4):
@@ -1018,14 +1016,22 @@ def gated_act_mxfp8_kernel(
             ec1 = _float_to_e8m0(uc1)
             s01 = _exp2f_rcp_bf16(ec0) | (_exp2f_rcp_bf16(ec1) << 16)
 
-            # arr is 0 for every active thread in forward mode, so the
-            # gate-half offset term vanishes there.
-            c_out_col = bx * cutlass.Int32(CX) + cpr * 2 + arr * cgate_col_off
+            # arr selects the output half's scale tensor (it is 0 for every
+            # active thread in forward mode).
+            c_out_col = bx * cutlass.Int32(CX) + cpr * 2
             if tq == 0:
                 ci0 = _scale_idx(c_out_col, row_tile, cs_ncb, cs_stride, SWIZ)
                 ci1 = _scale_idx(c_out_col + 1, row_tile, cs_ncb, cs_stride, SWIZ)
-                mCS[ci0] = ec0.to(cutlass.Uint8)
-                mCS[ci1] = ec1.to(cutlass.Uint8)
+                if cutlass.const_expr(IS_BWD):
+                    if arr == 0:
+                        mCS[ci0] = ec0.to(cutlass.Uint8)
+                        mCS[ci1] = ec1.to(cutlass.Uint8)
+                    else:
+                        mCS2[ci0] = ec0.to(cutlass.Uint8)
+                        mCS2[ci1] = ec1.to(cutlass.Uint8)
+                else:
+                    mCS[ci0] = ec0.to(cutlass.Uint8)
+                    mCS[ci1] = ec1.to(cutlass.Uint8)
 
             # Quantize and de-interleave the two columns' bytes into the TMA
             # tile; the ~2-way bank conflict is inherent (the tile's 32B
@@ -1088,8 +1094,7 @@ def gated_act_mxfp8_kernel(
             if cutlass.const_expr(IS_BWD):
                 u_gate = _fold_amax(am_gate) << 16
                 e_gate = _float_to_e8m0(u_gate)
-                gidx = _scale_idx(grow, scol + rgate_scol_off, rs_ncb, rs_stride, SWIZ)
-                mRS[gidx] = e_gate.to(cutlass.Uint8)
+                mRS2[sidx] = e_gate.to(cutlass.Uint8)
                 r_gate = _exp2f_rcp_bf16(e_gate) * cutlass.Int32(0x10001)
 
             # 3. Scale and pack, storing with the same swizzled traversal.
@@ -1154,13 +1159,20 @@ def gated_act_mxfp8_kernel(
 @cute.jit
 def launcher(
     ag: cutlass.Int64,
-    agi: cutlass.Int64,
+    ax: cutlass.Int64,
+    alin: cutlass.Int64,
     arq: cutlass.Int64,
     ars: cutlass.Int64,
     acq: cutlass.Int64,
     acs: cutlass.Int64,
+    arq2: cutlass.Int64,
+    ars2: cutlass.Int64,
+    acq2: cutlass.Int64,
+    acs2: cutlass.Int64,
     m: cutlass.Int32,
     k: cutlass.Int32,
+    ld_x: cutlass.Int32,
+    ld_lin: cutlass.Int32,
     stream,
     IS_BWD: cutlass.Constexpr,
     ROWWISE: cutlass.Constexpr,
@@ -1173,23 +1185,23 @@ def launcher(
 ):
     """Build the TMA views and launch one (CX, CY)-chunk grid.
 
-    ``x``/``lin`` are the two halves of the packed [M, 2K] input; ``grad``
-    is the [M, K] incoming gradient. Rowwise outputs land in the row-major
-    [M, out_k] tensor at column offsets 0 and K; colwise outputs in the
-    transposed [out_k, M] storage at row offsets 0 and K.
+    ``x``/``lin`` are the [M, K] ``gate``/``up`` inputs with element row
+    strides ``ld_x``/``ld_lin``; ``grad`` is the contiguous [M, K] incoming
+    gradient. Every output half is K wide: rowwise in row-major [M, K]
+    storage, colwise in transposed [K, M] storage.
 
-    Pointer arguments: ``ag`` = grad_h (backward only, else 0); ``agi`` =
-    gated_input; ``arq``/``ars`` = rowwise quantized-output/scale;
-    ``acq``/``acs`` = the colwise pair. Disabled directions pass 0.
+    Pointer arguments: ``ag`` = grad_h (backward only, else 0); ``ax``/
+    ``alin`` = gate/up; ``arq``/``ars`` = rowwise quantized-output/scale and
+    ``acq``/``acs`` = the colwise pair, for the first half (h, or dGate in
+    backward); ``arq2``/``ars2``/``acq2``/``acs2`` = the same for the dUp
+    half (backward only, else 0). Disabled directions pass 0.
     """
-    OUT_HALVES = 2 if cutlass.const_expr(IS_BWD) else 1
     # Direct: two threads per 1x32 block; staged: one thread per column,
     # except colwise-only which stacks two thread rows per column.
     if cutlass.const_expr(DIRECT):
         THREADS = 2 * CX
     else:
         THREADS = (2 * CX) if cutlass.const_expr(COLWISE and not ROWWISE) else CX
-    out_k = OUT_HALVES * k
 
     # The TMA smem layouts describe one buffer, not the full multi-buffer
     # allocation.
@@ -1198,10 +1210,10 @@ def launcher(
     col_smem = cute.make_layout((CX, BUFF_DIM_Y), stride=(BUFF_DIM_Y, 1))
     col_tiler = (CX, BUFF_DIM_Y)
 
-    px = cute.make_ptr(cutlass.BFloat16, agi, AddressSpace.gmem, assumed_align=16)
-    plin = px + k
-    mX = cute.make_tensor(px, cute.make_layout((m, k), stride=(2 * k, 1)))
-    mLin = cute.make_tensor(plin, cute.make_layout((m, k), stride=(2 * k, 1)))
+    px = cute.make_ptr(cutlass.BFloat16, ax, AddressSpace.gmem, assumed_align=16)
+    plin = cute.make_ptr(cutlass.BFloat16, alin, AddressSpace.gmem, assumed_align=16)
+    mX = cute.make_tensor(px, cute.make_layout((m, k), stride=(ld_x, 1)))
+    mLin = cute.make_tensor(plin, cute.make_layout((m, k), stride=(ld_lin, 1)))
     atom_x, tma_x = cpasync.make_tiled_tma_atom(
         cpasync.CopyBulkTensorTileG2SOp(), mX, in_smem, in_tiler
     )
@@ -1222,18 +1234,29 @@ def launcher(
         atom_grad, gGrad = atom_x, gX
 
     # b32 word views for the direct path: (word, block half, 1x32 scale
-    # block, x-tile, row). The runtime strides k and k//2 would collapse the
-    # sliced pointer's provable alignment to one word and narrow autovec_copy
-    # to 32-bit accesses; K % 128 == 0 makes both multiples of 8 words, and
-    # cute.assume encodes that so the 8-word copies stay 256-bit loads.
-    kw = cute.assume(k, divby=8)  # gated row stride: 2k bf16 = k words
-    khw = cute.assume(k // 2, divby=8)  # Lin base offset / grad row stride
-    pxw = cute.make_ptr(cutlass.Int32, agi, AddressSpace.gmem, assumed_align=32)
-    word_layout = cute.make_layout(
-        (8, 2, CX // SCALE_DIM_X, k // CX, m), stride=(1, 8, 16, CX // 2, kw)
+    # block, x-tile, row). The runtime row strides would collapse the sliced
+    # pointer's provable alignment to one word and narrow autovec_copy to
+    # 32-bit accesses; ld % 16 == 0 and K % 128 == 0 make them multiples of
+    # 8 words, and cute.assume encodes that so the 8-word copies stay 256-bit
+    # loads.
+    kw_x = cute.assume(ld_x // 2, divby=8)  # gate row stride in words
+    kw_lin = cute.assume(ld_lin // 2, divby=8)  # up row stride in words
+    khw = cute.assume(k // 2, divby=8)  # grad row stride in words
+    pxw = cute.make_ptr(cutlass.Int32, ax, AddressSpace.gmem, assumed_align=32)
+    plw = cute.make_ptr(cutlass.Int32, alin, AddressSpace.gmem, assumed_align=32)
+    gXv = cute.make_tensor(
+        pxw,
+        cute.make_layout(
+            (8, 2, CX // SCALE_DIM_X, k // CX, m), stride=(1, 8, 16, CX // 2, kw_x)
+        ),
     )
-    gXv = cute.make_tensor(pxw, word_layout)
-    gLinv = cute.make_tensor(pxw + khw, word_layout)
+    gLinv = cute.make_tensor(
+        plw,
+        cute.make_layout(
+            (8, 2, CX // SCALE_DIM_X, k // CX, m),
+            stride=(1, 8, 16, CX // 2, kw_lin),
+        ),
+    )
     if cutlass.const_expr(IS_BWD):
         pgw = cute.make_ptr(cutlass.Int32, ag, AddressSpace.gmem, assumed_align=32)
         gGradv = cute.make_tensor(
@@ -1250,16 +1273,16 @@ def launcher(
         pra = cute.make_ptr(
             cutlass.Float8E4M3FN, arq, AddressSpace.gmem, assumed_align=16
         )
-        mRowAct = cute.make_tensor(pra, cute.make_layout((m, k), stride=(out_k, 1)))
+        mRowAct = cute.make_tensor(pra, cute.make_layout((m, k), stride=(k, 1)))
         atom_row_act, tma_ra = cpasync.make_tiled_tma_atom(
             cpasync.CopyBulkTensorTileS2GOp(), mRowAct, in_smem, in_tiler
         )
         gRowAct = cute.zipped_divide(tma_ra, in_tiler)
         if cutlass.const_expr(IS_BWD):
-            prg = pra + k
-            mRowGate = cute.make_tensor(
-                prg, cute.make_layout((m, k), stride=(out_k, 1))
+            prg = cute.make_ptr(
+                cutlass.Float8E4M3FN, arq2, AddressSpace.gmem, assumed_align=16
             )
+            mRowGate = cute.make_tensor(prg, cute.make_layout((m, k), stride=(k, 1)))
             atom_row_gate, tma_rg = cpasync.make_tiled_tma_atom(
                 cpasync.CopyBulkTensorTileS2GOp(), mRowGate, in_smem, in_tiler
             )
@@ -1280,7 +1303,9 @@ def launcher(
         )
         gColAct = cute.zipped_divide(tma_ca, col_tiler)
         if cutlass.const_expr(IS_BWD):
-            pcg = pca + k * m
+            pcg = cute.make_ptr(
+                cutlass.Float8E4M3FN, acq2, AddressSpace.gmem, assumed_align=16
+            )
             mColGate = cute.make_tensor(pcg, cute.make_layout((k, m), stride=(m, 1)))
             atom_col_gate, tma_cg = cpasync.make_tiled_tma_atom(
                 cpasync.CopyBulkTensorTileS2GOp(), mColGate, col_smem, col_tiler
@@ -1293,9 +1318,16 @@ def launcher(
         atom_col_gate, gColGate = atom_x, gX
 
     prs = cute.make_ptr(cutlass.Uint8, ars, AddressSpace.gmem, assumed_align=16)
-    mRS = cute.make_tensor(prs, cute.make_layout(m * (out_k // 32)))
+    mRS = cute.make_tensor(prs, cute.make_layout(m * (k // 32)))
     pcs = cute.make_ptr(cutlass.Uint8, acs, AddressSpace.gmem, assumed_align=16)
-    mCS = cute.make_tensor(pcs, cute.make_layout(out_k * (m // 32)))
+    mCS = cute.make_tensor(pcs, cute.make_layout(k * (m // 32)))
+    if cutlass.const_expr(IS_BWD):
+        prs2 = cute.make_ptr(cutlass.Uint8, ars2, AddressSpace.gmem, assumed_align=16)
+        mRS2 = cute.make_tensor(prs2, cute.make_layout(m * (k // 32)))
+        pcs2 = cute.make_ptr(cutlass.Uint8, acs2, AddressSpace.gmem, assumed_align=16)
+        mCS2 = cute.make_tensor(pcs2, cute.make_layout(k * (m // 32)))
+    else:
+        mRS2, mCS2 = mRS, mCS
 
     gated_act_mxfp8_kernel(
         atom_x,
@@ -1316,13 +1348,13 @@ def launcher(
         atom_col_gate,
         gColGate,
         mRS,
+        mRS2,
         mCS,
-        out_k // 128,  # rs_ncb: rowwise 128x4 scale-column blocks
-        out_k // 32,  # rs_stride: rowwise compact-scale row stride
-        k // 32,  # rgate_scol_off: dUp-half rowwise scale-column offset
+        mCS2,
+        k // 128,  # rs_ncb: rowwise 128x4 scale-column blocks
+        k // 32,  # rs_stride: rowwise compact-scale row stride
         m // 128,  # cs_ncb: colwise 128x4 scale-column blocks
         m // 32,  # cs_stride: colwise compact-scale row stride
-        k,  # cgate_col_off: dUp-half colwise output-row offset
         IS_BWD,
         ROWWISE,
         COLWISE,
@@ -1336,6 +1368,60 @@ def launcher(
         grid=(k // CX, m // CY, 1),
         block=(THREADS, 1, 1),
         stream=stream,
+    )
+
+
+@cute.jit
+def launcher_forward(
+    ax: cutlass.Int64,
+    alin: cutlass.Int64,
+    arq: cutlass.Int64,
+    ars: cutlass.Int64,
+    acq: cutlass.Int64,
+    acs: cutlass.Int64,
+    m: cutlass.Int32,
+    k: cutlass.Int32,
+    ld_x: cutlass.Int32,
+    ld_lin: cutlass.Int32,
+    stream,
+    ROWWISE: cutlass.Constexpr,
+    COLWISE: cutlass.Constexpr,
+    SWIZ: cutlass.Constexpr,
+    ACT_PAIR: cutlass.Constexpr,
+    DIRECT: cutlass.Constexpr,
+    CX: cutlass.Constexpr,
+    CY: cutlass.Constexpr,
+):
+    """Forward entry point: ``launcher`` without the grad and dUp-half pointer
+    arguments, which forward never dereferences. Every runtime argument of a
+    compiled function costs ~2.5 us of host marshalling per call, so the dead
+    ones are not part of the forward signature."""
+    null = cutlass.Int64(0)
+    launcher(
+        null,
+        ax,
+        alin,
+        arq,
+        ars,
+        acq,
+        acs,
+        null,
+        null,
+        null,
+        null,
+        m,
+        k,
+        ld_x,
+        ld_lin,
+        stream,
+        False,
+        ROWWISE,
+        COLWISE,
+        SWIZ,
+        ACT_PAIR,
+        DIRECT,
+        CX,
+        CY,
     )
 
 
@@ -1357,18 +1443,26 @@ def _compile_kernel(
 
     null = cutlass.Int64(0)
     dim = cutlass.Int32(128)
+    if is_bwd:
+        return cute.compile(
+            launcher,
+            *([null] * 11),  # ag, ax, alin, arq, ars, acq, acs, arq2, ars2, acq2, acs2
+            *([dim] * 4),  # m, k, ld_x, ld_lin
+            make_fake_stream(),
+            True,
+            rowwise,
+            colwise,
+            swizzled_scales,
+            act_pair,
+            direct,
+            cx,
+            cy,
+        )
     return cute.compile(
-        launcher,
-        null,
-        null,
-        null,
-        null,
-        null,
-        null,
-        dim,
-        dim,
+        launcher_forward,
+        *([null] * 6),  # ax, alin, arq, ars, acq, acs
+        *([dim] * 4),  # m, k, ld_x, ld_lin
         make_fake_stream(),
-        is_bwd,
         rowwise,
         colwise,
         swizzled_scales,
@@ -1379,40 +1473,60 @@ def _compile_kernel(
     )
 
 
-def _validate_inputs(gated_input, grad_h=None):
-    if not gated_input.is_cuda:
-        raise ValueError("gated_input must be a CUDA tensor")
-    if gated_input.dtype != torch.bfloat16:
-        raise TypeError("gated_input must have dtype torch.bfloat16")
-    if gated_input.ndim != 2 or not gated_input.is_contiguous():
-        raise ValueError("gated_input must be contiguous with shape [M, 2K]")
-    M, two_k = gated_input.shape
-    if two_k % 2:
-        raise ValueError("gated_input.shape[1] must be even")
-    K = two_k // 2
+def _validate_inputs(gate, up, grad_h=None):
+    if gate.ndim != 2 or up.ndim != 2 or gate.shape != up.shape:
+        raise ValueError(
+            "gate and up must be 2-D [M, K] tensors of the same shape; got "
+            f"{tuple(gate.shape)} and {tuple(up.shape)}"
+        )
+    M, K = gate.shape
     # Keeps CTA chunks whole and the blocked scale layout padding-free, so
     # every element of the scale tensors is written by the kernel. Zero-size
     # inputs satisfy every modulus but cannot form a launch grid or a TMA
     # descriptor, so they are rejected here instead of failing opaquely.
     if M == 0 or K == 0 or M % 128 or K % 128:
         raise ValueError("M and K must be nonzero multiples of 128")
-    # Index arithmetic and scale layouts assume 32-bit offsets; the largest
-    # offset any layout reaches is 2*K*M - K - 1 elements.
-    if 2 * K * M - K - 1 > _INT32_MAX:
+    if gate.device != up.device:
         raise ValueError(
-            f"M={M}, K={K} exceeds the kernel's 32-bit indexing limit "
-            f"(needs 2*K*M - K - 1 <= {_INT32_MAX})"
+            f"gate is on {gate.device} but up is on {up.device}; both must be "
+            "on the same CUDA device"
         )
+    for name, t in (("gate", gate), ("up", up)):
+        if not t.is_cuda:
+            raise ValueError(f"{name} must be a CUDA tensor")
+        if t.dtype != torch.bfloat16:
+            raise TypeError(f"{name} must have dtype torch.bfloat16")
+        ld, unit = t.stride()
+        if unit != 1:
+            raise ValueError(
+                f"{name} must have stride(1) == 1; got stride {(ld, unit)}"
+            )
+        # Row strides feed TMA descriptors (16-byte multiples) and the b32
+        # word views' 256-bit loads (32-byte multiples).
+        if ld < K or ld % 16:
+            raise ValueError(
+                f"{name} row stride must be >= K and a multiple of 16 elements "
+                f"(32 bytes); got stride(0)={ld} for K={K}"
+            )
+        # Index arithmetic and scale layouts assume 32-bit offsets; the
+        # largest offset any layout reaches is (M-1)*ld + K - 1 elements
+        # (ld >= K, so this also bounds the M*K-element outputs).
+        if (M - 1) * ld + K > _INT32_MAX:
+            raise ValueError(
+                f"M={M}, K={K} with {name} row stride {ld} exceeds the kernel's "
+                f"32-bit indexing limit (needs (M-1)*ld + K <= {_INT32_MAX})"
+            )
     # The launcher passes raw device pointers promised as assumed_align=32
     # (b32 word views backing 256-bit loads) and assumed_align=16 (TMA
-    # descriptors); contiguity does not imply base alignment for
+    # descriptors); a valid layout does not imply base alignment for
     # storage-offset views. Checked after the shape/int32 gates so
     # FakeTensor probes (no data_ptr) exercise those first.
-    if gated_input.data_ptr() % 32:
-        raise ValueError(
-            "gated_input must be 32-byte aligned (data_ptr() % 32 == 0); "
-            "storage-offset views are not -- pass a fresh copy, e.g. .clone()"
-        )
+    for name, t in (("gate", gate), ("up", up)):
+        if t.data_ptr() % 32:
+            raise ValueError(
+                f"{name} must be 32-byte aligned (data_ptr() % 32 == 0); pass "
+                "an aligned view or a fresh copy, e.g. .clone()"
+            )
     if grad_h is not None:
         if (
             not grad_h.is_cuda
@@ -1421,10 +1535,10 @@ def _validate_inputs(gated_input, grad_h=None):
             or tuple(grad_h.shape) != (M, K)
         ):
             raise ValueError("grad_h must be contiguous BF16 CUDA [M, K]")
-        if grad_h.device != gated_input.device:
+        if grad_h.device != gate.device:
             raise ValueError(
-                f"grad_h is on {grad_h.device} but gated_input is on "
-                f"{gated_input.device}; both must be on the same CUDA device"
+                f"grad_h is on {grad_h.device} but gate is on {gate.device}; "
+                "both must be on the same CUDA device"
             )
         if grad_h.data_ptr() % 32:
             raise ValueError(
@@ -1440,33 +1554,36 @@ def _ptr(tensor):
 
 
 @torch.no_grad()
-def _launch_gated_act_mxfp8(
-    gated_input, grad_h, outputs, rowwise, colwise, geometry=None
-):
+def _launch_gated_act_mxfp8(gate, up, grad_h, outputs, rowwise, colwise, geometry=None):
     """Validate, compile the matching specialization, and launch into
-    ``outputs`` = ``(output_rowwise, output_colwise, scales_rowwise,
-    scales_colwise)``, caller-allocated. Disabled directions are zero-sized
-    and not written; scales are always in the blocked (GEMM-swizzled
-    tcgen05) layout. ``geometry`` overrides the per-mode default
-    ``(CX, CY, direct)`` 3-tuple (tuning/testing only; staged rowwise
+    ``outputs``, caller-allocated: ``(output_rowwise, output_colwise,
+    scales_rowwise, scales_colwise)`` in forward mode; in backward mode that
+    4-tuple for dGate followed by the same four for dUp. Disabled directions
+    are zero-sized and not written; scales are always in the blocked
+    (GEMM-swizzled tcgen05) layout. ``geometry`` overrides the per-mode
+    default ``(CX, CY, direct)`` 3-tuple (tuning/testing only; staged rowwise
     requires the colwise producer — see the kernel's trace-time asserts).
     """
     if not (rowwise or colwise):
         raise ValueError("at least one of rowwise/colwise must be enabled")
-    M, K = _validate_inputs(gated_input, grad_h)
-    output_rowwise, output_colwise, scales_rowwise, scales_colwise = outputs
-    for out, enabled, name in (
-        (output_rowwise, rowwise, "output_rowwise"),
-        (output_colwise, colwise, "output_colwise"),
-    ):
-        if enabled and out.dtype != torch.float8_e4m3fn:
-            raise TypeError(f"{name} must have dtype torch.float8_e4m3fn")
+    M, K = _validate_inputs(gate, up, grad_h)
+    n_outputs = 4 if grad_h is None else 8
+    if len(outputs) != n_outputs:
+        raise ValueError(f"outputs must hold {n_outputs} tensors, got {len(outputs)}")
+    # Each half's qdata sits at offsets 0 (rowwise) and 1 (colwise).
+    for i in range(0, n_outputs, 4):
+        for out, enabled, name in (
+            (outputs[i], rowwise, "output_rowwise"),
+            (outputs[i + 1], colwise, "output_colwise"),
+        ):
+            if enabled and out.dtype != torch.float8_e4m3fn:
+                raise TypeError(f"{name} must have dtype torch.float8_e4m3fn")
 
     # Compile and launch under the input's device: a caller holding cuda:0
     # current while passing a cuda:1 tensor must not launch foreign pointers.
-    with torch.cuda.device(gated_input.device):
+    with torch.cuda.device(gate.device):
         # Wrap per call; caching CUstream handles could alias recycled streams.
-        stream = CUstream(torch.cuda.current_stream(gated_input.device).cuda_stream)
+        stream = CUstream(torch.cuda.current_stream(gate.device).cuda_stream)
         geom = geometry or _DEFAULT_GEOMETRY[(grad_h is not None, rowwise, colwise)]
         cx, cy, direct = geom
         # CX feeds bit-mask/shift thread mapping (tidx & (CX-1), >> LOG2_CX)
@@ -1508,123 +1625,181 @@ def _launch_gated_act_mxfp8(
             direct,
             cx,
             cy,
-            gated_input.device.index,
+            gate.device.index,
         )
-        fn(
-            _ptr(grad_h),
-            gated_input.data_ptr(),
-            _ptr(output_rowwise) if rowwise else 0,
-            _ptr(scales_rowwise) if rowwise else 0,
-            _ptr(output_colwise) if colwise else 0,
-            _ptr(scales_colwise) if colwise else 0,
-            M,
-            K,
-            stream,
-        )
+        # Pointer order per half: rowwise qdata, rowwise scales, colwise
+        # qdata, colwise scales (built flat: the compiled call is host-bound).
+        if grad_h is None:
+            output_rowwise, output_colwise, scales_rowwise, scales_colwise = outputs
+            fn(
+                gate.data_ptr(),
+                up.data_ptr(),
+                _ptr(output_rowwise) if rowwise else 0,
+                _ptr(scales_rowwise) if rowwise else 0,
+                _ptr(output_colwise) if colwise else 0,
+                _ptr(scales_colwise) if colwise else 0,
+                M,
+                K,
+                gate.stride(0),
+                up.stride(0),
+                stream,
+            )
+        else:
+            (
+                output_rowwise,
+                output_colwise,
+                scales_rowwise,
+                scales_colwise,
+                output_rowwise2,
+                output_colwise2,
+                scales_rowwise2,
+                scales_colwise2,
+            ) = outputs
+            fn(
+                grad_h.data_ptr(),
+                gate.data_ptr(),
+                up.data_ptr(),
+                _ptr(output_rowwise) if rowwise else 0,
+                _ptr(scales_rowwise) if rowwise else 0,
+                _ptr(output_colwise) if colwise else 0,
+                _ptr(scales_colwise) if colwise else 0,
+                _ptr(output_rowwise2) if rowwise else 0,
+                _ptr(scales_rowwise2) if rowwise else 0,
+                _ptr(output_colwise2) if colwise else 0,
+                _ptr(scales_colwise2) if colwise else 0,
+                M,
+                K,
+                gate.stride(0),
+                up.stride(0),
+                stream,
+            )
 
 
 def _gated_act_mxfp8_outputs(
-    gated_input: torch.Tensor,
+    gate: torch.Tensor,
     out_k: int,
     rowwise: bool,
     colwise: bool,
 ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
-    """Allocate the fixed four outputs.
+    """Allocate the fixed four outputs of one K-wide half.
 
     Torch-only, so it serves both the real op and its fake: on a meta input it
     returns meta tensors with the shapes and strides the kernel writes.
     """
     if not (rowwise or colwise):
         raise ValueError("at least one of rowwise/colwise must be enabled")
-    m = gated_input.shape[0]
-    empty_qdata = gated_input.new_empty(0, dtype=torch.float8_e4m3fn)
-    empty_scales = gated_input.new_empty(0, dtype=torch.float8_e8m0fnu)
+    m = gate.shape[0]
 
     if rowwise:
         output_rowwise = torch.empty_strided(
             (m, out_k),
             (out_k, 1),
-            device=gated_input.device,
+            device=gate.device,
             dtype=torch.float8_e4m3fn,
         )
-        scales_rowwise = gated_input.new_empty(
+        scales_rowwise = gate.new_empty(
             (ceil_div(m, 128) * 128, ceil_div(out_k // 32, 4) * 4),
             dtype=torch.float8_e8m0fnu,
         )
     else:
-        output_rowwise, scales_rowwise = empty_qdata, empty_scales
+        output_rowwise = gate.new_empty(0, dtype=torch.float8_e4m3fn)
+        scales_rowwise = gate.new_empty(0, dtype=torch.float8_e8m0fnu)
 
     if colwise:
         output_colwise = torch.empty_strided(
             (m, out_k),
             (1, m),
-            device=gated_input.device,
+            device=gate.device,
             dtype=torch.float8_e4m3fn,
         )
         # Flat 1D, matching mxfp8_quantize_2d_32x1_cutedsl.
-        scales_colwise = gated_input.new_empty(
+        scales_colwise = gate.new_empty(
             ((ceil_div(out_k, 128) * 128) * (ceil_div(m // 32, 4) * 4),),
             dtype=torch.float8_e8m0fnu,
         )
     else:
-        output_colwise, scales_colwise = empty_qdata, empty_scales
+        output_colwise = gate.new_empty(0, dtype=torch.float8_e4m3fn)
+        scales_colwise = gate.new_empty(0, dtype=torch.float8_e8m0fnu)
 
     return output_rowwise, output_colwise, scales_rowwise, scales_colwise
 
 
 @torch.library.custom_op("torchao::gated_act_mxfp8_cutedsl_forward", mutates_args=())
 def _gated_act_mxfp8_cutedsl_forward(
-    gated_input: torch.Tensor,
+    gate: torch.Tensor,
+    up: torch.Tensor,
     rowwise: bool = True,
     colwise: bool = False,
 ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
-    outputs = _gated_act_mxfp8_outputs(
-        gated_input, gated_input.shape[1] // 2, rowwise, colwise
-    )
-    _launch_gated_act_mxfp8(gated_input, None, outputs, rowwise, colwise)
+    outputs = _gated_act_mxfp8_outputs(gate, gate.shape[1], rowwise, colwise)
+    _launch_gated_act_mxfp8(gate, up, None, outputs, rowwise, colwise)
     return outputs
 
 
 @torch.library.custom_op("torchao::gated_act_mxfp8_cutedsl_backward", mutates_args=())
 def _gated_act_mxfp8_cutedsl_backward(
     grad_h: torch.Tensor,
-    gated_input: torch.Tensor,
+    gate: torch.Tensor,
+    up: torch.Tensor,
     rowwise: bool = True,
     colwise: bool = False,
-) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+) -> Tuple[
+    torch.Tensor,
+    torch.Tensor,
+    torch.Tensor,
+    torch.Tensor,
+    torch.Tensor,
+    torch.Tensor,
+    torch.Tensor,
+    torch.Tensor,
+]:
+    k = gate.shape[1]
     outputs = _gated_act_mxfp8_outputs(
-        gated_input, gated_input.shape[1], rowwise, colwise
-    )
-    _launch_gated_act_mxfp8(gated_input, grad_h, outputs, rowwise, colwise)
+        gate, k, rowwise, colwise
+    ) + _gated_act_mxfp8_outputs(gate, k, rowwise, colwise)
+    _launch_gated_act_mxfp8(gate, up, grad_h, outputs, rowwise, colwise)
     return outputs
 
 
 @_gated_act_mxfp8_cutedsl_forward.register_fake
 def _fake_gated_act_mxfp8_cutedsl_forward(
-    gated_input: torch.Tensor,
+    gate: torch.Tensor,
+    up: torch.Tensor,
     rowwise: bool = True,
     colwise: bool = False,
 ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
-    assert gated_input.ndim == 2, "gated_input must be 2D"
-    return _gated_act_mxfp8_outputs(
-        gated_input, gated_input.shape[1] // 2, rowwise, colwise
-    )
+    assert gate.ndim == 2 and up.ndim == 2, "gate and up must be 2D"
+    return _gated_act_mxfp8_outputs(gate, gate.shape[1], rowwise, colwise)
 
 
 @_gated_act_mxfp8_cutedsl_backward.register_fake
 def _fake_gated_act_mxfp8_cutedsl_backward(
     grad_h: torch.Tensor,
-    gated_input: torch.Tensor,
+    gate: torch.Tensor,
+    up: torch.Tensor,
     rowwise: bool = True,
     colwise: bool = False,
-) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+) -> Tuple[
+    torch.Tensor,
+    torch.Tensor,
+    torch.Tensor,
+    torch.Tensor,
+    torch.Tensor,
+    torch.Tensor,
+    torch.Tensor,
+    torch.Tensor,
+]:
     assert grad_h.ndim == 2, "grad_h must be 2D"
-    assert gated_input.ndim == 2, "gated_input must be 2D"
-    return _gated_act_mxfp8_outputs(gated_input, gated_input.shape[1], rowwise, colwise)
+    assert gate.ndim == 2 and up.ndim == 2, "gate and up must be 2D"
+    k = gate.shape[1]
+    return _gated_act_mxfp8_outputs(
+        gate, k, rowwise, colwise
+    ) + _gated_act_mxfp8_outputs(gate, k, rowwise, colwise)
 
 
 def gated_act_mxfp8_cutedsl_forward(
-    gated_input: torch.Tensor,
+    gate: torch.Tensor,
+    up: torch.Tensor,
     *,
     rowwise: bool = True,
     colwise: bool = False,
@@ -1635,8 +1810,13 @@ def gated_act_mxfp8_cutedsl_forward(
     being written to global memory.
 
     Args:
-        gated_input: BF16 tensor of shape (M, 2K), ``gate`` in the first K
-            columns and ``up`` in the last K; M and K multiples of 128.
+        gate: BF16 tensor of shape (M, K), M and K multiples of 128, with
+            unit column stride, a row stride that is a multiple of 16
+            elements and a 32-byte-aligned data pointer; the halves of a
+            packed [M, 2K] buffer (``x[:, :K]``, ``x[:, K:]``) qualify as
+            strided views, no copy needed.
+        up: BF16 tensor of the same shape and device as ``gate``, same
+            layout rules.
         rowwise: emit 1x32-scaled, row-major output.
         colwise: emit 32x1-scaled, column-major (stride ``(1, M)``) output.
 
@@ -1663,30 +1843,43 @@ def gated_act_mxfp8_cutedsl_forward(
         raise NotImplementedError(
             "gated_act_mxfp8_cutedsl_forward requires CUDA, SM 10.x, and CUDA 12.8+."
         )
-    return _gated_act_mxfp8_cutedsl_forward(gated_input, rowwise, colwise)
+    return _gated_act_mxfp8_cutedsl_forward(gate, up, rowwise, colwise)
 
 
 def gated_act_mxfp8_cutedsl_backward(
     grad_h: torch.Tensor,
-    gated_input: torch.Tensor,
+    gate: torch.Tensor,
+    up: torch.Tensor,
     *,
     rowwise: bool = True,
     colwise: bool = False,
-) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+) -> Tuple[
+    torch.Tensor,
+    torch.Tensor,
+    torch.Tensor,
+    torch.Tensor,
+    torch.Tensor,
+    torch.Tensor,
+    torch.Tensor,
+    torch.Tensor,
+]:
     """
     Fuse the gated activation (SwiGLU) backward and its RCEIL MXFP8 cast into
-    one pass on SM100: quantizes the concatenated ``[dGate | dUp]`` tensor a
-    fused w13 weight expects for the wgrad GEMM.
+    one pass on SM100: ``dGate = grad_h * up * d_silu(gate)`` and
+    ``dUp = grad_h * silu(gate)`` are quantized without ever being written
+    to global memory.
 
     Args:
-        grad_h: BF16 gradient of shape (M, K).
-        gated_input: the forward input, shape (M, 2K), as in
+        grad_h: contiguous BF16 gradient of shape (M, K).
+        gate, up: the forward inputs, as in
             :func:`gated_act_mxfp8_cutedsl_forward`.
         rowwise: emit 1x32-scaled, row-major output.
         colwise: emit 32x1-scaled, column-major (stride ``(1, M)``) output.
 
     Returns:
-        Four tensors of width 2K, same order and layouts as
+        Eight tensors: ``(output_rowwise, output_colwise, scales_rowwise,
+        scales_colwise)`` for ``dGate`` followed by the same four for ``dUp``,
+        each half of width K in the layouts of
         :func:`gated_act_mxfp8_cutedsl_forward`.
     """
     from torchao.prototype.moe_training.kernels.mxfp8 import quant as _quant
@@ -1703,4 +1896,4 @@ def gated_act_mxfp8_cutedsl_backward(
         raise NotImplementedError(
             "gated_act_mxfp8_cutedsl_backward requires CUDA, SM 10.x, and CUDA 12.8+."
         )
-    return _gated_act_mxfp8_cutedsl_backward(grad_h, gated_input, rowwise, colwise)
+    return _gated_act_mxfp8_cutedsl_backward(grad_h, gate, up, rowwise, colwise)

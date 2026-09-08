@@ -6,7 +6,11 @@
 # this benchmarking script is a modified version of the original script from: https://github.com/drisspg/transformer_nuggets/blob/main/transformer_nuggets/utils/benchmark.py
 #
 # The baseline is a torch.compile-fused SwiGLU (one Triton kernel) followed by
-# the standalone MXFP8 quantizers:
+# the standalone MXFP8 quantizers. In the backward direction the baseline
+# quantizes dGate and dUp separately (two quantizer calls per enabled scale
+# direction, matching the fused op's two K-wide output halves), so backward
+# baseline numbers are not comparable to tables produced when the op emitted
+# one [M, 2K] tensor:
 #   python benchmarks/prototype/moe_training/mxfp8/bench_cutedsl_gated_act_mxfp8.py [--compile]
 
 import argparse
@@ -51,13 +55,7 @@ def _swiglu_bwd(grad_h, gate, up):
     sig = torch.sigmoid(gate)
     act = gate * sig
     dact = act * (1.0 - sig) + sig
-    return torch.cat(
-        [
-            ((dact * grad_h) * up).bfloat16(),
-            (act * grad_h).bfloat16(),
-        ],
-        dim=1,
-    )
+    return ((dact * grad_h) * up).bfloat16(), (act * grad_h).bfloat16()
 
 
 # One fused Triton kernel each, so the timing baseline's activation never
@@ -96,8 +94,9 @@ def get_configs(args: argparse.Namespace) -> List[ExperimentConfig]:
     # (M, K): token counts x gate/up widths. 2048 = DSv3 expert FFN
     # intermediate; 7168/8192 are DSv3/Llama3-70B model dims used as
     # representative large widths. (128, 128) is the minimum legal size
-    # (launch-bound); (131072, 8192) backward lands just under the kernel's
-    # INT32 addressing bound (2*K*M = 2^31 exactly).
+    # (launch-bound); (131072, 8192), fed as the strided halves of the packed
+    # [M, 2K] buffer, lands just under the kernel's per-input INT32 bound
+    # ((M-1)*2K + K = 2^31 - K).
     input_shapes = [
         (128, 128),
         (4096, 2048),
@@ -143,42 +142,42 @@ def _quantize_reference(reference, rowwise, colwise):
     return row[0], col[0], row[1], col[1]
 
 
-def baseline(gated_input, grad_h, rowwise, colwise):
+def baseline(gate, up, grad_h, rowwise, colwise):
     # torch.compile-fused SwiGLU, then the standalone MXFP8 quantizers: the
     # activation is already fused, so the measured win is removing the
-    # bfloat16 round trip between it and the cast.
-    k = gated_input.shape[1] // 2
-    gate, up = gated_input[:, :k], gated_input[:, k:]
+    # bfloat16 round trip between it and the cast. Backward quantizes dGate
+    # and dUp separately (two quantizer calls per direction), like the fused
+    # op's two output halves; not comparable to pre-two-input tables.
     if grad_h is None:
-        reference = _swiglu_fwd_c(gate, up)
-    else:
-        reference = _swiglu_bwd_c(grad_h, gate, up)
-    return _quantize_reference(reference, rowwise, colwise)
+        return _quantize_reference(_swiglu_fwd_c(gate, up), rowwise, colwise)
+    dgate, dup = _swiglu_bwd_c(grad_h, gate, up)
+    return _quantize_reference(dgate, rowwise, colwise) + _quantize_reference(
+        dup, rowwise, colwise
+    )
 
 
-def eager_reference(gated_input, grad_h, rowwise, colwise):
+def eager_reference(gate, up, grad_h, rowwise, colwise):
     # Ground truth for validation (not the timing baseline): the kernel's fast
     # sigmoid and d_silu FMA contraction have no bit-exact eager equivalent,
     # so exact agreement is only achievable in the forward direction. Keep in
     # sync with _eager_reference in test/prototype/moe_training/
     # test_cutedsl_gated_act_mxfp8.py: both mirror the kernel's evaluation
     # order.
-    k = gated_input.shape[1] // 2
-    gate, up = gated_input[:, :k], gated_input[:, k:]
     if grad_h is None:
-        reference = _swiglu_fwd(gate, up)
-    else:
-        reference = _swiglu_bwd(grad_h, gate, up)
-    return _quantize_reference(reference, rowwise, colwise)
+        return _quantize_reference(_swiglu_fwd(gate, up), rowwise, colwise)
+    dgate, dup = _swiglu_bwd(grad_h, gate, up)
+    return _quantize_reference(dgate, rowwise, colwise) + _quantize_reference(
+        dup, rowwise, colwise
+    )
 
 
-def fused(gated_input, grad_h, rowwise, colwise):
+def fused(gate, up, grad_h, rowwise, colwise):
     if grad_h is None:
         return gated_act_mxfp8_cutedsl_forward(
-            gated_input, rowwise=rowwise, colwise=colwise
+            gate, up, rowwise=rowwise, colwise=colwise
         )
     return gated_act_mxfp8_cutedsl_backward(
-        grad_h, gated_input, rowwise=rowwise, colwise=colwise
+        grad_h, gate, up, rowwise=rowwise, colwise=colwise
     )
 
 
@@ -210,14 +209,13 @@ def check(actual, expected, msg, exact):
     assert count <= limit, f"{msg}: {count} codes differ, limit {limit}"
 
 
-def validate_outputs(actual, gated_input, grad_h, rowwise, colwise):
-    M, two_k = gated_input.shape
+def validate_outputs(actual, gate, up, grad_h, rowwise, colwise):
+    M, K = gate.shape
     direction = "forward" if grad_h is None else "backward"
-    expected = eager_reference(gated_input, grad_h, rowwise, colwise)
+    expected = eager_reference(gate, up, grad_h, rowwise, colwise)
+    assert len(actual) == len(expected), f"arity {len(actual)} vs {len(expected)}"
     for i, (a, e) in enumerate(zip(actual, expected)):
-        check(
-            a, e, f"M={M} K={two_k // 2} {direction} output {i}", exact=grad_h is None
-        )
+        check(a, e, f"M={M} K={K} {direction} output {i}", exact=grad_h is None)
 
 
 def run_experiment(
@@ -229,10 +227,13 @@ def run_experiment(
     colwise = config.scales in ("colwise", "both")
 
     gated_input = torch.randn(M, 2 * K, dtype=torch.bfloat16, device=device)
+    # The packed buffer's halves are consumed as strided views (no copy); build
+    # them once here so the timed callables contain no Python slicing.
+    gate, up = gated_input[:, :K], gated_input[:, K:]
     grad_h = (
         torch.randn(M, K, dtype=torch.bfloat16, device=device) if is_backward else None
     )
-    bench_args = (gated_input, grad_h, rowwise, colwise)
+    bench_args = (gate, up, grad_h, rowwise, colwise)
     if args.compile:
         baseline_fn = torch.compile(baseline, fullgraph=True)
         fused_fn = torch.compile(fused, fullgraph=True)
@@ -259,12 +260,16 @@ def run_experiment(
     read_bytes = gated_input.numel() * bytes_per_input_el
     if grad_h is not None:
         read_bytes += grad_h.numel() * bytes_per_input_el
-    output_rowwise, output_colwise, scales_rowwise, scales_colwise = outputs
-    write_bytes = (
-        output_rowwise.numel() + output_colwise.numel()
-    ) * bytes_per_output_el + (
-        scales_rowwise.numel() + scales_colwise.numel()
-    ) * bytes_per_scale_el
+    # Four outputs per K-wide half (qdata and scales per direction).
+    write_bytes = sum(
+        t.numel()
+        * (
+            bytes_per_scale_el
+            if t.dtype == torch.float8_e8m0fnu
+            else bytes_per_output_el
+        )
+        for t in outputs
+    )
 
     baseline_gbps = ((read_bytes + write_bytes) / 1e9) / (baseline_time_us / 1e6)
     fused_gbps = ((read_bytes + write_bytes) / 1e9) / (fused_time_us / 1e6)
