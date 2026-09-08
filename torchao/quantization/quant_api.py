@@ -170,16 +170,33 @@ def _is_linear(mod, *args):
     from torchao.quantization.qat.affine_fake_quantized_tensor import (
         _AffineFakeQuantizedTensor,
     )
+    from torchao.utils import TorchAOBaseTensor
 
-    # adding weight tensor subclass isinstance check to make sure the weight is only quantized once
-    # when it is shared by multiple linear modules
-    # TODO: check isinstance(TorchAOBaseTensor)?
-    return (
+    if not (
         isinstance(mod, torch.nn.Linear)
         and hasattr(mod, "weight")
-        and not isinstance(mod.weight, _AffineFakeQuantizedTensor)
         and not isinstance(mod, nn.modules.linear.NonDynamicallyQuantizableLinear)
-    )
+    ):
+        return False
+
+    # Skip fake-quantized (QAT) weights. This is intended when a weight is shared
+    # by multiple linear modules, and is not an error, so skip silently.
+    if isinstance(mod.weight, _AffineFakeQuantizedTensor):
+        return False
+
+    # Skip weights that are already quantized by torchao so that a second
+    # quantize_() call is a no-op instead of re-running from_hp() on an
+    # already-quantized tensor, which hits unimplemented ops (see #4845).
+    if isinstance(mod.weight, TorchAOBaseTensor):
+        fqn = args[0] if args and args[0] else "<root>"
+        logger.warning(
+            f"Skipping quantization of '{fqn}': weight is already quantized "
+            f"({type(mod.weight).__name__}); quantize_() does not re-quantize "
+            "already-quantized weights."
+        )
+        return False
+
+    return True
 
 
 def _get_subclass_inserter(cls, enable_parametrization=False, **kwargs):
