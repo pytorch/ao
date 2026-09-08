@@ -28,7 +28,11 @@ jobs:
       package-type: wheel
       os: linux-aarch64
       with-cpu: enable
-      with-cuda: disable
+      with-cuda: enable
+      # TODO: consider enabling python-abi3, which would halve the number of
+      # build jobs. Every job tags its wheel cp310-abi3 regardless of the python
+      # it was built with, so today we run a job for each python version and
+      # all but one of the resulting wheels is discarded at upload.
       # Note: if free-threaded python is required add py3.13t here
       python-versions: '["3.10", "3.12"]'
 
