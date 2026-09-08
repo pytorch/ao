@@ -965,6 +965,75 @@ def mx_slice(func, types, args, kwargs):
     )
 
 
+@implements([aten.cat.default])
+def mx_cat(func, types, args, kwargs):
+    tensors = args[0]
+    dim = args[1] if len(args) > 1 else kwargs.get("dim", 0)
+    # An empty list cannot dispatch to MXTensor. Reject mixed subclasses before
+    # accessing their quantization metadata.
+    if not all(isinstance(tensor, MXTensor) for tensor in tensors):
+        raise TypeError("MXTensor.cat expects only MXTensor inputs")
+    first = tensors[0]
+    if dim < -first.ndim or dim >= first.ndim:
+        raise IndexError(
+            f"Dimension out of range (expected to be in range of "
+            f"[{-first.ndim}, {first.ndim - 1}], but got {dim})"
+        )
+    if dim < 0:
+        dim += first.ndim
+    if first.ndim != 2 or dim != 0:
+        raise NotImplementedError(
+            "MXTensor only supports cat of 2D tensors at dim=0"
+        )
+    metadata = (
+        first.elem_dtype,
+        first.block_size,
+        first.orig_dtype,
+        first.kernel_preference,
+        first.act_quant_kwargs,
+        first.is_swizzled_scales,
+    )
+    for tensor in tensors:
+        tensor_metadata = (
+            tensor.elem_dtype,
+            tensor.block_size,
+            tensor.orig_dtype,
+            tensor.kernel_preference,
+            tensor.act_quant_kwargs,
+            tensor.is_swizzled_scales,
+        )
+        if tensor_metadata != metadata:
+            raise ValueError("MXTensor.cat requires matching quantization metadata")
+        if tensor.ndim != 2:
+            raise NotImplementedError("MXTensor.cat requires 2D tensors")
+        if not tensor.qdata.is_contiguous():
+            raise NotImplementedError("MXTensor.cat requires contiguous qdata")
+
+    qdata = aten.cat.default([tensor.qdata for tensor in tensors], 0)
+    if not first.is_swizzled_scales:
+        scale = aten.cat.default([tensor.scale for tensor in tensors], 0)
+    else:
+        # Independent inputs have independent padding. Recover logical rows
+        # before concatenation, then pack once for the combined weight shape.
+        scales = [
+            from_blocked(tensor.scale, tensor.shape[0], tensor.shape[1] // tensor.block_size)
+            for tensor in tensors
+        ]
+        rows = sum(tensor.shape[0] for tensor in tensors)
+        scale_shape = hp_data_dims_to_swizzled_scale_dims_mx(rows, first.shape[1])
+        scale = to_blocked(aten.cat.default(scales, 0)).view(scale_shape)
+    return MXTensor(
+        qdata,
+        scale,
+        first.elem_dtype,
+        first.block_size,
+        first.orig_dtype,
+        first.kernel_preference,
+        first.act_quant_kwargs,
+        first.is_swizzled_scales,
+    )
+
+
 @implements([aten.clone.default])
 def mx_clone(func, types, args, kwargs):
     self = args[0]
