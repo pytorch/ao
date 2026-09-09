@@ -6,6 +6,7 @@
 
 import os
 import subprocess
+import sys
 import tempfile
 
 import pytest
@@ -21,16 +22,22 @@ from torchao.quantization.quantize_.common import KernelPreference
 from torchao.utils import is_sm_at_least_100
 
 
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
-@pytest.mark.skipif(not is_sm_at_least_100(), reason="needs CUDA capability 10.0+")
+@pytest.mark.skipif(
+    not torch.accelerator.is_available(), reason="No accelerator available"
+)
+@pytest.mark.skipif(
+    torch.cuda.is_available() and not is_sm_at_least_100(),
+    reason="needs CUDA capability 10.0+",
+)
 @pytest.mark.parametrize("recipe_name", ["mxfp8", "nvfp4"])
 def test_serialization(recipe_name):
     """
     Ensure that only `import torchao.prototype.mx_formats` is needed to load MX
     and NV checkpoints.
     """
+    device = torch.accelerator.current_accelerator()
 
-    m = nn.Linear(32, 128, bias=False, dtype=torch.bfloat16, device="cuda")
+    m = nn.Linear(32, 128, bias=False, dtype=torch.bfloat16, device=device)
     fname = None
     with tempfile.NamedTemporaryFile(delete=False, mode="w") as f:
         if recipe_name == "mxfp8":
@@ -58,6 +65,6 @@ import torchao.prototype.mx_formats
 _ = torch.load('{fname}', weights_only=True)
     """
 
-    subprocess_out = subprocess.run(["python"], input=code, text=True)
+    subprocess_out = subprocess.run([sys.executable], input=code, text=True)
     os.remove(fname)
     assert subprocess_out.returncode == 0, "failed weights-only load"
