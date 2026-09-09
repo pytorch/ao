@@ -77,6 +77,18 @@ UKernelConfig get_ukernel_config() {
             kernel_1x8x16_f32_neondot<weight_nbit, has_weight_zeros, has_lut>};
   }
 
+  if constexpr (weight_nbit == 3 && !has_lut) {
+    constexpr int large_prefill_mr = 8;
+    constexpr int large_prefill_m_step = 8;
+    uk.linear_configs[1] = UKernelConfig::linear_config_type{
+        large_prefill_m_step,
+        large_prefill_mr,
+        &kernel::packed_activations_size,
+        &kernel::packed_activations_offset,
+        &kernel::pack_activations_interleaved<large_prefill_mr, kr, sr>,
+        &kernel::kernel_8x8x16_f32_neondot<weight_nbit, has_weight_zeros>};
+  }
+
   if constexpr (has_lut) {
     uk.packed_weights_size = &kernel::packed_weights_with_lut_size;
     uk.packed_weights_offset = &kernel::packed_weights_with_lut_offset;
@@ -456,6 +468,86 @@ TEST(test_linear_8bit_act_xbit_weight, ThreeBitDecodeUnsignedSymmetricWeights) {
       true /*has_bias*/,
       true /*has_clamp*/>(
       /*m=*/3, /*n=*/8 * 3 + 5, /*k=*/16 * 8, /*group_size=*/64);
+}
+
+TEST(test_linear_8bit_act_xbit_weight, ThreeBitPrefill) {
+  test_linear_8bit_act_xbit_weight<
+      3 /*weight_nbit*/,
+      false /*has_weight_zeros*/,
+      false /*has_bias*/,
+      false /*has_clamp*/>(
+      /*m=*/13, /*n=*/8 * 10 + 3, /*k=*/16 * 3, /*group_size=*/16);
+  test_linear_8bit_act_xbit_weight<
+      3 /*weight_nbit*/,
+      false /*has_weight_zeros*/,
+      false /*has_bias*/,
+      false /*has_clamp*/>(
+      /*m=*/16, /*n=*/8 * 4, /*k=*/16 * 8, /*group_size=*/64);
+}
+
+TEST(test_linear_8bit_act_xbit_weight, ThreeBitSmallPrefill) {
+  test_linear_8bit_act_xbit_weight<
+      3 /*weight_nbit*/,
+      false /*has_weight_zeros*/,
+      false /*has_bias*/,
+      false /*has_clamp*/>(
+      /*m=*/3, /*n=*/8 * 2 + 1, /*k=*/16 * 4, /*group_size=*/32);
+  test_linear_8bit_act_xbit_weight<
+      3 /*weight_nbit*/,
+      false /*has_weight_zeros*/,
+      false /*has_bias*/,
+      false /*has_clamp*/>(
+      /*m=*/7, /*n=*/8 * 2 + 1, /*k=*/16 * 4, /*group_size=*/32);
+}
+
+TEST(test_linear_8bit_act_xbit_weight, ThreeBitPaddedMTails) {
+  for (int m = 8; m < 16; m++) {
+    test_linear_8bit_act_xbit_weight<
+        3 /*weight_nbit*/,
+        true /*has_weight_zeros*/,
+        true /*has_bias*/,
+        true /*has_clamp*/>(
+        m, /*n=*/8 * 2 + 3, /*k=*/16 * 4, /*group_size=*/32);
+  }
+}
+
+TEST(test_linear_8bit_act_xbit_weight, ThreeBitPrefillWeightZeros) {
+  test_linear_8bit_act_xbit_weight<
+      3 /*weight_nbit*/,
+      true /*has_weight_zeros*/,
+      false /*has_bias*/,
+      false /*has_clamp*/>(
+      /*m=*/13, /*n=*/8 * 10 + 3, /*k=*/16 * 4, /*group_size=*/32);
+}
+
+TEST(test_linear_8bit_act_xbit_weight, ThreeBitPrefillBiasClamp) {
+  test_linear_8bit_act_xbit_weight<
+      3 /*weight_nbit*/,
+      false /*has_weight_zeros*/,
+      true /*has_bias*/,
+      true /*has_clamp*/>(
+      /*m=*/13, /*n=*/8 * 10 + 3, /*k=*/16 * 3, /*group_size=*/16);
+}
+
+TEST(test_linear_8bit_act_xbit_weight, ThreeBitPrefillAllOptions) {
+  test_linear_8bit_act_xbit_weight<
+      3 /*weight_nbit*/,
+      true /*has_weight_zeros*/,
+      true /*has_bias*/,
+      true /*has_clamp*/>(
+      /*m=*/15, /*n=*/8 * 3 + 5, /*k=*/16 * 8, /*group_size=*/64);
+  test_linear_8bit_act_xbit_weight<
+      3 /*weight_nbit*/,
+      true /*has_weight_zeros*/,
+      true /*has_bias*/,
+      true /*has_clamp*/>(
+      /*m=*/17, /*n=*/8 * 3 + 5, /*k=*/16 * 8, /*group_size=*/64);
+  test_linear_8bit_act_xbit_weight<
+      3 /*weight_nbit*/,
+      true /*has_weight_zeros*/,
+      true /*has_bias*/,
+      true /*has_clamp*/>(
+      /*m=*/31, /*n=*/8 * 3 + 5, /*k=*/16 * 8, /*group_size=*/64);
 }
 
 TEST(test_linear_8bit_act_xbit_weight, HasWeightZeros) {
