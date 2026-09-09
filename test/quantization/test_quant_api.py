@@ -12,11 +12,14 @@ import tempfile
 import unittest
 
 import torch
+from torch._subclasses.fake_tensor import FakeTensorMode, is_fake
 from torch.testing._internal import common_utils
 from torch.testing._internal.common_quantization import TestHelperModules
 from torch.testing._internal.common_utils import TestCase
 
 from torchao import quantize_
+from torchao.float8.config import e4m3_dtype, e5m2_dtype
+from torchao.float8.float8_linear import Float8Linear
 from torchao.prototype.mx_formats.inference_workflow import (
     MXDynamicActivationMXWeightConfig,
     NVFP4DynamicActivationNVFP4WeightConfig,
@@ -50,6 +53,7 @@ from torchao.quantization.quant_api import (
     _replace_with_custom_fn_if_matches_filter,
 )
 from torchao.quantization.quant_primitives import MappingType
+from torchao.quantization.quantize_.workflows import QuantizeTensorToFloat8Kwargs
 from torchao.quantization.utils import compute_error
 from torchao.testing.pt2e._xnnpack_quantizer import (
     XNNPACKQuantizer,
@@ -57,6 +61,7 @@ from torchao.testing.pt2e._xnnpack_quantizer import (
 )
 from torchao.testing.utils import skip_if_rocm, skip_if_xpu
 from torchao.utils import (
+    get_available_devices,
     get_current_accelerator_device,
     is_ROCM,
     is_sm_at_least_89,
@@ -64,6 +69,11 @@ from torchao.utils import (
     is_sm_at_least_100,
     unwrap_tensor_subclass,
 )
+
+# Float8 weight-only quantization is not supported on MPS.
+REAPPLICATION_DEVICES = [
+    device for device in get_available_devices() if device != "mps"
+]
 
 
 def dynamic_quant(model, example_inputs):
@@ -184,6 +194,403 @@ class TestQuantFlow(TestCase):
         m = ToyLinearModel().eval()
         quantize_(m, Int8WeightOnlyConfig())
         self.assertEqual([b.fp32_precision for b in backends], before)
+
+    def _snapshot_reapplication_state(self, model, example_inputs, check_output=True):
+        module_states = {}
+        for name in ("linear1", "linear2"):
+            module = getattr(model, name)
+            weight = module.weight
+            if hasattr(weight, "__tensor_flatten__"):
+                tensor_names, metadata = weight.__tensor_flatten__()
+                tensors = {
+                    tensor_name: (
+                        getattr(weight, tensor_name),
+                        getattr(weight, tensor_name).clone(),
+                    )
+                    for tensor_name in tensor_names
+                }
+                metadata = copy.deepcopy(metadata)
+            else:
+                tensor_names = None
+                tensors = {"weight": (weight, weight.clone())}
+                metadata = None
+            module_states[name] = (
+                module,
+                repr(module),
+                weight,
+                tensor_names,
+                tensors,
+                metadata,
+            )
+        output = model(*example_inputs).clone() if check_output else None
+        return module_states, output
+
+    def _assert_reapplication_state_unchanged(
+        self, model, example_inputs, expected_state
+    ):
+        module_states, output = expected_state
+        for name, saved_state in module_states.items():
+            module, module_repr, weight, tensor_names, tensors, metadata = saved_state
+            current_module = getattr(model, name)
+            current_weight = current_module.weight
+            self.assertIs(current_module, module)
+            self.assertEqual(repr(current_module), module_repr)
+            self.assertIs(current_weight, weight)
+            if tensor_names is not None:
+                current_names, current_metadata = current_weight.__tensor_flatten__()
+                self.assertEqual(current_names, tensor_names)
+                self.assertEqual(current_metadata, metadata)
+            for tensor_name, (tensor, tensor_value) in tensors.items():
+                current_tensor = (
+                    current_weight
+                    if tensor_name == "weight"
+                    else getattr(current_weight, tensor_name)
+                )
+                self.assertIs(current_tensor, tensor)
+                self.assertEqual(current_tensor, tensor_value)
+        if output is not None:
+            self.assertEqual(model(*example_inputs), output)
+
+    def _apply_reapplication_config(self, model, config, use_fqn):
+        if use_fqn:
+            quantize_(
+                model,
+                FqnToConfig({"linear1.weight": config}),
+                filter_fn=None,
+            )
+        else:
+            quantize_(model, config)
+
+    def _get_incompatible_reapplication_configs(self, case, device):
+        config_kwargs = {"set_inductor_config": False}
+        if case == "int8_row_to_tensor":
+            return (
+                Int8WeightOnlyConfig(granularity=PerRow(), **config_kwargs),
+                Int8WeightOnlyConfig(granularity=PerTensor(), **config_kwargs),
+            )
+        if case == "int8_tensor_to_row":
+            return (
+                Int8WeightOnlyConfig(granularity=PerTensor(), **config_kwargs),
+                Int8WeightOnlyConfig(granularity=PerRow(), **config_kwargs),
+            )
+        if case == "float8_row_to_tensor":
+            return (
+                Float8WeightOnlyConfig(granularity=PerRow(), **config_kwargs),
+                Float8WeightOnlyConfig(granularity=PerTensor(), **config_kwargs),
+            )
+        if case == "float8_tensor_to_row":
+            return (
+                Float8WeightOnlyConfig(granularity=PerTensor(), **config_kwargs),
+                Float8WeightOnlyConfig(granularity=PerRow(), **config_kwargs),
+            )
+        if case == "int8_to_float8":
+            return (
+                Int8WeightOnlyConfig(**config_kwargs),
+                Float8WeightOnlyConfig(**config_kwargs),
+            )
+        if case == "float8_to_int8":
+            return (
+                Float8WeightOnlyConfig(**config_kwargs),
+                Int8WeightOnlyConfig(**config_kwargs),
+            )
+        if case == "int8_group_size":
+            return (
+                Int8WeightOnlyConfig(granularity=PerGroup(16), **config_kwargs),
+                Int8WeightOnlyConfig(granularity=PerGroup(32), **config_kwargs),
+            )
+        if case == "float8_group_size":
+            return (
+                Float8WeightOnlyConfig(granularity=PerGroup(16), **config_kwargs),
+                Float8WeightOnlyConfig(granularity=PerGroup(32), **config_kwargs),
+            )
+        if case == "int8_dynamic_to_weight_only":
+            return (
+                Int8DynamicActivationInt8WeightConfig(**config_kwargs),
+                Int8WeightOnlyConfig(**config_kwargs),
+            )
+        if case == "int8_static_to_weight_only":
+            return (
+                Int8StaticActivationInt8WeightConfig(
+                    act_quant_scale=torch.ones(1, device=device),
+                    **config_kwargs,
+                ),
+                Int8WeightOnlyConfig(**config_kwargs),
+            )
+        if case == "float8_dtype":
+            return (
+                Float8WeightOnlyConfig(weight_dtype=e4m3_dtype, **config_kwargs),
+                Float8WeightOnlyConfig(weight_dtype=e5m2_dtype, **config_kwargs),
+            )
+        raise AssertionError(f"Unknown test case: {case}")
+
+    @common_utils.parametrize(
+        "config",
+        [
+            Int8WeightOnlyConfig(set_inductor_config=False),
+            Int8WeightOnlyConfig(granularity=PerTensor(), set_inductor_config=False),
+            Int8WeightOnlyConfig(granularity=PerGroup(16), set_inductor_config=False),
+            Float8WeightOnlyConfig(set_inductor_config=False),
+            Float8WeightOnlyConfig(granularity=PerTensor(), set_inductor_config=False),
+            Float8WeightOnlyConfig(granularity=PerGroup(16), set_inductor_config=False),
+        ],
+    )
+    @common_utils.parametrize("device", REAPPLICATION_DEVICES)
+    def test_reapply_weight_only_config_is_noop(self, config, device):
+        torch.manual_seed(0)
+        model = ToyLinearModel().eval().to(device)
+        example_inputs = model.example_inputs(device=device)
+
+        quantize_(model, config)
+        expected_state = self._snapshot_reapplication_state(model, example_inputs)
+
+        # Reproduce a caller quantizing a container and then one of its children.
+        quantize_(model.linear1, config)
+        self._assert_reapplication_state_unchanged(
+            model, example_inputs, expected_state
+        )
+
+        # A fresh equivalent config must also leave the model unchanged.
+        quantize_(model, copy.deepcopy(config))
+        self._assert_reapplication_state_unchanged(
+            model, example_inputs, expected_state
+        )
+
+    @common_utils.parametrize(
+        "config",
+        [
+            Int8WeightOnlyConfig(set_inductor_config=False),
+            Int8WeightOnlyConfig(granularity=PerTensor(), set_inductor_config=False),
+            Int8WeightOnlyConfig(granularity=PerGroup(16), set_inductor_config=False),
+            Float8WeightOnlyConfig(set_inductor_config=False),
+            Float8WeightOnlyConfig(granularity=PerTensor(), set_inductor_config=False),
+            Float8WeightOnlyConfig(granularity=PerGroup(16), set_inductor_config=False),
+        ],
+    )
+    @common_utils.parametrize("fqn", ["linear1", "linear1.weight"])
+    @common_utils.parametrize("device", REAPPLICATION_DEVICES)
+    def test_reapply_weight_only_fqn_config_is_noop(self, config, fqn, device):
+        torch.manual_seed(0)
+        model = ToyLinearModel().eval().to(device)
+        example_inputs = model.example_inputs(device=device)
+        fqn_config = FqnToConfig({fqn: config})
+
+        quantize_(model, fqn_config, filter_fn=None)
+        expected_state = self._snapshot_reapplication_state(model, example_inputs)
+
+        quantize_(model, fqn_config, filter_fn=None)
+        self._assert_reapplication_state_unchanged(
+            model, example_inputs, expected_state
+        )
+
+        fresh_fqn_config = FqnToConfig({fqn: copy.deepcopy(config)})
+        quantize_(model, fresh_fqn_config, filter_fn=None)
+        self._assert_reapplication_state_unchanged(
+            model, example_inputs, expected_state
+        )
+
+    @common_utils.parametrize(
+        "config",
+        [
+            Int8WeightOnlyConfig(set_inductor_config=False),
+            Float8WeightOnlyConfig(set_inductor_config=False),
+        ],
+    )
+    def test_reapply_weight_only_config_is_noop_on_meta(self, config):
+        model = torch.nn.Sequential(torch.nn.Linear(16, 16, device="meta"))
+        quantize_(model, config)
+        expected_module = model[0]
+        expected_weight = model[0].weight
+        tensor_names, expected_metadata = expected_weight.__tensor_flatten__()
+        expected_tensors = {
+            name: getattr(expected_weight, name) for name in tensor_names
+        }
+
+        quantize_(model, copy.deepcopy(config))
+
+        self.assertIs(model[0], expected_module)
+        self.assertIs(model[0].weight, expected_weight)
+        current_names, current_metadata = model[0].weight.__tensor_flatten__()
+        self.assertEqual(current_names, tensor_names)
+        self.assertEqual(current_metadata, expected_metadata)
+        for name, tensor in expected_tensors.items():
+            self.assertIs(getattr(model[0].weight, name), tensor)
+
+    def test_reapply_int8_weight_only_config_is_noop_on_fake_tensor(self):
+        with FakeTensorMode():
+            model = torch.nn.Sequential(torch.nn.Linear(16, 16))
+            config = Int8WeightOnlyConfig(set_inductor_config=False)
+            quantize_(model, config)
+            expected_module = model[0]
+            expected_weight = model[0].weight
+            self.assertTrue(is_fake(expected_weight.zero_point))
+
+            quantize_(model, copy.deepcopy(config))
+
+            self.assertIs(model[0], expected_module)
+            self.assertIs(model[0].weight, expected_weight)
+
+    @common_utils.parametrize("use_fqn", [False, True])
+    @common_utils.parametrize(
+        "case",
+        [
+            "int8_row_to_tensor",
+            "int8_tensor_to_row",
+            "float8_row_to_tensor",
+            "float8_tensor_to_row",
+            "int8_to_float8",
+            "float8_to_int8",
+            "int8_group_size",
+            "float8_group_size",
+            "int8_dynamic_to_weight_only",
+            "int8_static_to_weight_only",
+            "float8_dynamic_to_weight_only",
+            "float8_dtype",
+        ],
+    )
+    @common_utils.parametrize("device", REAPPLICATION_DEVICES)
+    def test_weight_only_reapplication_rejects_incompatible_representation(
+        self, use_fqn, case, device
+    ):
+        torch.manual_seed(0)
+        model = ToyLinearModel().eval().to(device)
+        example_inputs = model.example_inputs(device=device)
+        if case == "float8_dynamic_to_weight_only":
+            # Construct the representation directly so this negative test does not
+            # depend on Float8 dynamic hardware support.
+            dynamic_config = Float8DynamicActivationFloat8WeightConfig(
+                set_inductor_config=False
+            )
+            act_granularity, weight_granularity = dynamic_config.granularity
+            quantized_weight = Float8Tensor.from_hp(
+                model.linear1.weight.detach(),
+                float8_dtype=dynamic_config.weight_dtype,
+                granularity=weight_granularity,
+                mm_config=dynamic_config.mm_config,
+                kernel_preference=dynamic_config.kernel_preference,
+                act_quant_kwargs=QuantizeTensorToFloat8Kwargs(
+                    float8_dtype=dynamic_config.activation_dtype,
+                    granularity=act_granularity,
+                    hp_value_lb=dynamic_config.activation_value_lb,
+                    hp_value_ub=dynamic_config.activation_value_ub,
+                    kernel_preference=dynamic_config.kernel_preference,
+                ),
+            )
+            model.linear1.weight = torch.nn.Parameter(
+                quantized_weight, requires_grad=False
+            )
+            second_config = Float8WeightOnlyConfig(set_inductor_config=False)
+        else:
+            first_config, second_config = self._get_incompatible_reapplication_configs(
+                case, device
+            )
+            self._apply_reapplication_config(model, first_config, use_fqn)
+
+        check_output = case not in {
+            "int8_static_to_weight_only",
+            "float8_dynamic_to_weight_only",
+        }
+        expected_state = self._snapshot_reapplication_state(
+            model, example_inputs, check_output=check_output
+        )
+
+        with self.assertRaisesRegex(ValueError, "is not equivalent to the existing"):
+            self._apply_reapplication_config(model, second_config, use_fqn)
+
+        self._assert_reapplication_state_unchanged(
+            model, example_inputs, expected_state
+        )
+
+    @common_utils.parametrize("case", ["int8_asymmetric", "float8_missing_block_size"])
+    @common_utils.parametrize("device", REAPPLICATION_DEVICES)
+    def test_weight_only_reapplication_rejects_incompatible_tensor_metadata(
+        self, case, device
+    ):
+        model = ToyLinearModel().eval().to(device)
+        weight = model.linear1.weight.detach()
+        if case == "int8_asymmetric":
+            quantized_weight = Int8Tensor.from_hp(
+                weight,
+                granularity=PerRow(),
+                mapping_type=MappingType.ASYMMETRIC,
+            )
+            config = Int8WeightOnlyConfig(set_inductor_config=False)
+        else:
+            quantized_weight = Float8Tensor(
+                weight.to(e4m3_dtype),
+                torch.ones(1, dtype=torch.float32, device=device),
+                dtype=weight.dtype,
+            )
+            config = Float8WeightOnlyConfig(set_inductor_config=False)
+        model.linear1.weight = torch.nn.Parameter(quantized_weight, requires_grad=False)
+        example_inputs = model.example_inputs(device=device)
+        expected_state = self._snapshot_reapplication_state(
+            model, example_inputs, check_output=False
+        )
+
+        with self.assertRaisesRegex(ValueError, "is not equivalent to the existing"):
+            quantize_(model.linear1, config)
+
+        self._assert_reapplication_state_unchanged(
+            model, example_inputs, expected_state
+        )
+
+    def test_reapply_float8_weight_only_unwraps_float8_linear(self):
+        float8_linear = Float8Linear.from_float(torch.nn.Linear(4, 4).eval()).eval()
+        float8_linear.weight = torch.nn.Parameter(
+            Float8Tensor.from_hp(
+                float8_linear.weight.detach(), float8_dtype=e4m3_dtype
+            ),
+            requires_grad=False,
+        )
+        model = torch.nn.Sequential(float8_linear)
+        expected_weight = model[0].weight
+        expected_bias = model[0].bias
+        example_input = torch.randn(2, 4)
+        expected_output = torch.nn.functional.linear(
+            example_input, expected_weight, expected_bias
+        )
+
+        quantize_(
+            model,
+            Float8WeightOnlyConfig(set_inductor_config=False),
+        )
+
+        self.assertIs(type(model[0]), torch.nn.Linear)
+        self.assertIs(model[0].weight, expected_weight)
+        self.assertIs(model[0].bias, expected_bias)
+        self.assertFalse(model[0].training)
+        self.assertEqual(model(example_input), expected_output)
+
+    @common_utils.parametrize(
+        "config",
+        [
+            Int8WeightOnlyConfig(set_inductor_config=False),
+            Float8WeightOnlyConfig(set_inductor_config=False),
+        ],
+    )
+    def test_reapply_weight_only_config_sets_inductor_config(self, config):
+        model = ToyLinearModel().eval()
+        inductor_settings = {
+            "coordinate_descent_tuning": False,
+            "coordinate_descent_check_all_directions": False,
+            "force_fuse_int_mm_with_mul": False,
+            "fx_graph_cache": False,
+            "triton.unique_kernel_names": False,
+        }
+
+        with torch._inductor.config.patch(inductor_settings):
+            quantize_(model, config)
+            second_config = copy.deepcopy(config)
+            second_config.set_inductor_config = True
+            quantize_(model, second_config)
+
+            self.assertTrue(torch._inductor.config.coordinate_descent_tuning)
+            self.assertTrue(
+                torch._inductor.config.coordinate_descent_check_all_directions
+            )
+            self.assertTrue(torch._inductor.config.force_fuse_int_mm_with_mul)
+            self.assertTrue(torch._inductor.config.fx_graph_cache)
+            self.assertTrue(torch._inductor.config.triton.unique_kernel_names)
 
     def test_dynamic_quant_gpu_singleline(self):
         if is_ROCM():
