@@ -36,9 +36,11 @@ from torchao.prototype.moe_training.kernels.jagged_float8_scales import (
     triton_fp8_per_group_rowwise_scales,
 )
 from torchao.prototype.moe_training.kernels.mxfp8 import (
+    _mxfp8_flydsl_grouped_mm_available,
     fused_pad_token_groups_cuda,
     fused_unpad_token_groups_cuda,
     mx_block_rearrange_2d_M_groups_cuda,
+    mxfp8_grouped_mm_flydsl,
     mxfp8_quantize_2d_1x32_cutedsl,
     mxfp8_quantize_2d_1x32_flydsl,
     mxfp8_quantize_2d_32x1_cutedsl,
@@ -1682,3 +1684,157 @@ def test_amd_mx_3d_flydsl_numerics(
     assert y.stride() == y_ref.stride(), "quantized tensor strides do not match"
     assert y.dtype == torch.float8_e4m3fn
     assert s.dtype == torch.float8_e8m0fnu
+
+
+# =============================================================================
+# FlyDSL MXFP8 grouped GEMM (AMD gfx950).
+#
+#     out[group_g] = A[group_g] @ B[g].T     A(M, K), B(E, N, K) -> (M, N)
+#
+# Reference is a dequantize-then-matmul in fp32 over the SAME quantized
+# operands the kernel is given, so the comparison isolates the GEMM from the
+# quantization: any error here is the kernel's, not the cast's. The kernel
+# accumulates in fp32 and rounds once on store, so bf16 output sits at the
+# rounding floor (~55 dB SQNR) and fp32 output is near-exact.
+# =============================================================================
+
+# (M, N, K, E). Covers: a full-tile shape; a shape whose N is not a multiple of
+# the 256-wide column tile (1408 = DSV3 hidden_dim, so the tile overhangs and
+# the epilogue column mask is exercised); an M smaller than one 256-row tile;
+# and a group count above the tile count so some groups get zero full tiles.
+_FLYDSL_GROUPED_MM_SHAPES = (
+    (1024, 2048, 2048, 1),
+    (1024, 1408, 2048, 4),
+    (128, 512, 512, 2),
+    (2048, 1408, 2048, 8),
+)
+
+
+def _flydsl_grouped_mm_operands(M, N, K, E, ragged, device="cuda"):
+    """Quantize (A, B) to MXFP8 and build group-end offsets along M."""
+    torch.manual_seed(0)
+    A = torch.randn(M, K, dtype=torch.bfloat16, device=device)
+    B = torch.randn(E, N, K, dtype=torch.bfloat16, device=device)
+
+    if ragged:
+        offs = generate_jagged_offs(E, M, multiple_of=32, device=device)
+    else:
+        sizes = torch.full((E,), M // E, dtype=torch.int32)
+        sizes[-1] += M - int(sizes.sum())
+        offs = sizes.cumsum(0).to(torch.int32).to(device)
+
+    def q(t):
+        scale, data = to_mx(
+            t.contiguous(),
+            torch.float8_e4m3fn,
+            32,
+            scaling_mode=ScaleCalculationMode.RCEIL,
+        )
+        return data, scale.view(torch.uint8).reshape(*t.shape[:-1], t.shape[-1] // 32)
+
+    A_data, A_scale = q(A)
+    B_data, B_scale = q(B)
+    return A_data, A_scale, B_data, B_scale, offs
+
+
+def _dequant_grouped_mm_ref(A_data, A_scale, B_data, B_scale, offs):
+    """out[g] = dequant(A[group_g]) @ dequant(B[g]).T, all in fp32."""
+
+    def deq(data, scale):
+        f = data.to(torch.float32)
+        f = f.reshape(*f.shape[:-1], f.shape[-1] // 32, 32)
+        s = torch.exp2(scale.to(torch.float32) - 127.0).unsqueeze(-1)
+        return (f * s).reshape(data.shape)
+
+    A_hp, B_hp = deq(A_data, A_scale), deq(B_data, B_scale)
+    out = torch.zeros(A_data.shape[0], B_data.shape[1], device=A_data.device)
+    start = 0
+    for g in range(B_data.shape[0]):
+        end = int(offs[g])
+        if end > start:
+            out[start:end] = A_hp[start:end] @ B_hp[g].T
+        start = end
+    return out
+
+
+@pytest.mark.skipif(
+    not _mxfp8_flydsl_grouped_mm_available,
+    reason="MXFP8 FlyDSL grouped GEMM not available (requires gfx950 + FlyDSL runtime)",
+)
+@pytest.mark.parametrize("M,N,K,E", _FLYDSL_GROUPED_MM_SHAPES)
+@pytest.mark.parametrize("ragged", (False, True))
+@pytest.mark.parametrize("out_dtype", (torch.bfloat16, torch.float32))
+def test_flydsl_grouped_mm_numerics(M, N, K, E, ragged, out_dtype):
+    A_data, A_scale, B_data, B_scale, offs = _flydsl_grouped_mm_operands(
+        M, N, K, E, ragged
+    )
+    out = mxfp8_grouped_mm_flydsl(
+        A_data, A_scale, B_data, B_scale, offs, out_dtype=out_dtype
+    )
+    ref = _dequant_grouped_mm_ref(A_data, A_scale, B_data, B_scale, offs)
+
+    assert out.shape == (M, N)
+    assert out.dtype == out_dtype
+
+    # Compare only the rows the groups actually cover: rows past offs[-1]
+    # belong to no group and are not part of the result.
+    rows = int(offs[-1])
+    err = out[:rows].float() - ref[:rows]
+    sqnr = 10 * torch.log10(ref[:rows].pow(2).mean() / err.pow(2).mean())
+    # bf16 stores one rounding of an fp32 accumulator: ~55 dB. fp32 output has
+    # no such rounding, so it clears the same bar with room to spare.
+    assert sqnr > 50.0, f"SQNR {sqnr.item():.1f} dB too low for {out_dtype}"
+
+
+@pytest.mark.skipif(
+    not _mxfp8_flydsl_grouped_mm_available,
+    reason="MXFP8 FlyDSL grouped GEMM not available",
+)
+def test_flydsl_grouped_mm_empty_group():
+    """A zero-sized group is legal: its expert contributes no rows."""
+    M, N, K, E = 1024, 512, 512, 4
+    A_data, A_scale, B_data, B_scale, _ = _flydsl_grouped_mm_operands(
+        M, N, K, E, ragged=False
+    )
+    # Group 1 is empty (offs[0] == offs[1]).
+    offs = torch.tensor([256, 256, 640, 1024], dtype=torch.int32, device="cuda")
+
+    out = mxfp8_grouped_mm_flydsl(A_data, A_scale, B_data, B_scale, offs)
+    ref = _dequant_grouped_mm_ref(A_data, A_scale, B_data, B_scale, offs)
+    err = out.float() - ref
+    sqnr = 10 * torch.log10(ref.pow(2).mean() / err.pow(2).mean())
+    assert sqnr > 50.0, f"SQNR {sqnr.item():.1f} dB"
+
+
+@pytest.mark.skipif(
+    not _mxfp8_flydsl_grouped_mm_available,
+    reason="MXFP8 FlyDSL grouped GEMM not available",
+)
+def test_flydsl_grouped_mm_out_param():
+    """``out=`` writes in place and matches the allocating path."""
+    M, N, K, E = 1024, 512, 512, 2
+    A_data, A_scale, B_data, B_scale, offs = _flydsl_grouped_mm_operands(
+        M, N, K, E, ragged=False
+    )
+    expected = mxfp8_grouped_mm_flydsl(A_data, A_scale, B_data, B_scale, offs)
+
+    dest = torch.empty(M, N, dtype=torch.bfloat16, device="cuda")
+    got = mxfp8_grouped_mm_flydsl(A_data, A_scale, B_data, B_scale, offs, out=dest)
+
+    assert got.data_ptr() == dest.data_ptr()
+    torch.testing.assert_close(got, expected, rtol=0, atol=0)
+
+
+@pytest.mark.skipif(
+    not _mxfp8_flydsl_grouped_mm_available,
+    reason="MXFP8 FlyDSL grouped GEMM not available",
+)
+@pytest.mark.parametrize("K", (64, 96, 256))
+def test_flydsl_grouped_mm_rejects_unsupported_k(K):
+    """K must be a multiple of 128 and at least 4 pipeline steps deep."""
+    M, N, E = 256, 512, 2
+    A_data, A_scale, B_data, B_scale, offs = _flydsl_grouped_mm_operands(
+        M, N, K, E, ragged=False
+    )
+    with pytest.raises(NotImplementedError, match="K must be a multiple of"):
+        mxfp8_grouped_mm_flydsl(A_data, A_scale, B_data, B_scale, offs)

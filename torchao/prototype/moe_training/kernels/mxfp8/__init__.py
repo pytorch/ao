@@ -1,3 +1,7 @@
+from torchao.prototype.moe_training.kernels.mxfp8.flydsl_grouped_mm import (
+    _mxfp8_flydsl_grouped_mm_available,  # noqa: F401
+    mxfp8_grouped_mm_flydsl,  # noqa: F401
+)
 from torchao.prototype.moe_training.kernels.mxfp8.quant import (
     _mxfp8_cuda_kernels_available,  # noqa: F401
     _mxfp8_flydsl_kernels_available,  # noqa: F401
