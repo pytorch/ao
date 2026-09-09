@@ -24,8 +24,7 @@ from typing import Optional, Union
 import torch
 import torch.nn.functional as F
 from torch._subclasses.fake_tensor import is_fake
-from torch.distributed.tensor import DTensor, Replicate, Shard
-from torch.distributed.tensor.experimental import local_map
+from torch.distributed.tensor import DTensor
 from torch.utils._python_dispatch import (
     return_and_correct_aliasing,
 )
@@ -731,29 +730,6 @@ def _get_gemm_choice(
         "At least one gemm choice must be specified"
     )
     return choice_a if choice_a is not None else choice_b
-
-
-def maybe_dtensor_to_blocked(t: torch.Tensor) -> torch.Tensor:
-    # redistribute to Replicate or Shard(0); to_blocked will view/permute/flatten into a 1d tensor
-    # sharding is only preservable on the first dimension.
-    if isinstance(t, DTensor):
-        t_placements = [
-            x if x in (Replicate(), Shard(0)) else Replicate() for x in t.placements
-        ]
-        if t_placements != t.placements:  # can't perform collectives in float8
-            t = (
-                t.view(torch.uint8)
-                .redistribute(placements=t_placements)
-                .view(torch.float8_e8m0fnu)
-            )
-        out = local_map(
-            to_blocked,
-            in_placements=(t_placements,),
-            out_placements=t_placements,
-        )(t)
-    else:
-        out = to_blocked(t)
-    return out
 
 
 def _addmm_mx_dispatch(
