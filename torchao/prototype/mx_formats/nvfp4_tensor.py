@@ -9,6 +9,8 @@ from dataclasses import dataclass
 from typing import Optional
 
 import torch
+import torch.nn.functional as F
+from torch.nn.functional import ScalingType, SwizzleType, scaled_grouped_mm
 from torch.utils._python_dispatch import return_and_correct_aliasing
 
 from torchao.prototype.mx_formats.constants import F4_E2M1_MAX, F8E4M3_MAX
@@ -498,30 +500,34 @@ def _addmm_nvfp4_dispatch(
     assert a.block_size == 16, f"NVFP4 requires block_size=16, got {a.block_size}"
     assert b.block_size == 16, f"NVFP4 requires block_size=16, got {b.block_size}"
     assert len(a.shape) == 2 and len(b.shape) == 2
+    assert a.is_swizzled_scales == b.is_swizzled_scales
     _assert_no_per_expert_scale(a)
     _assert_no_per_expert_scale(b)
 
     M, K = a.shape[0], a.shape[1]
     N = b.shape[1]
 
-    is_xpu = a.qdata.device.type == "xpu"
-
-    # Prepare scales
+    # NVFP4Tensor stores its scales pre-swizzled (blocked) at quantization
+    # time when `is_swizzled_scales=True`, so they can be used as-is here.
+    # When False, the scales stay in their natural (row-major) layout, and
+    # the layout is instead communicated explicitly to `F.scaled_mm` via
+    # `swizzle_a`/`swizzle_b` below. This lets ao inherit pytorch's own
+    # per-backend support matrix (e.g. CUDA expects swizzled scales while
+    # XPU expects unswizzled ones) instead of ao re-encoding backend-specific
+    # behavior here.
     if a.is_swizzled_scales:
         a_scale_blocked = a.scale  # Already swizzled
-    elif is_xpu:
-        a_scale_blocked = a.scale  # XPU doesn't use blocked scale format
     else:
-        a_scale = a.scale.view(M, K // a.block_size)
-        a_scale_blocked = to_blocked(a_scale)
+        a_scale_blocked = a.scale.view(M, K // a.block_size)
 
     if b.is_swizzled_scales:
         b_scale_blocked = b.scale.t()  # Already swizzled
-    elif is_xpu:
-        b_scale_blocked = b.scale  # XPU doesn't use blocked scale format
     else:
-        b_scale = b.scale.t().view(N, K // b.block_size)
-        b_scale_blocked = to_blocked(b_scale)
+        b_scale_blocked = b.scale.t().view(N, K // b.block_size)
+
+    swizzle = (
+        SwizzleType.SWIZZLE_32_4_4 if a.is_swizzled_scales else SwizzleType.NO_SWIZZLE
+    )
 
     # Merge double quant scales into 1 scale for Scale_In^D
     # When per_tensor_scale is None for an operand, it's treated as 1.0
@@ -545,9 +551,6 @@ def _addmm_nvfp4_dispatch(
     should_add_bias_separately = (
         scale_result is not None or a.orig_dtype == torch.float32
     ) and (bias is not None)
-    # TODO: remove this WA once we support quantized bias in _scaled_mm
-    if is_xpu and bias is not None:
-        should_add_bias_separately = True
 
     # For gemm(A, B) with original high precision inputs A and B:
     #
@@ -566,13 +569,17 @@ def _addmm_nvfp4_dispatch(
     # | bf16    | fp32    | fp32        | bf16      | Only if no per_tensor_scale |
     # | bf16    | bf16    | fp32        | bf16      | Only if no per_tensor_scale |
     # -----------------------------------------------------------------------------
-    result = torch._scaled_mm(
+    result = F.scaled_mm(
         a.qdata.view(torch.float4_e2m1fn_x2),
         b.qdata.view(torch.float4_e2m1fn_x2),
-        a_scale_blocked.view(torch.float8_e4m3fn),
-        b_scale_blocked.view(torch.float8_e4m3fn),
+        scale_a=a_scale_blocked.view(torch.float8_e4m3fn),
+        scale_recipe_a=ScalingType.BlockWise1x16,
+        scale_b=b_scale_blocked.view(torch.float8_e4m3fn),
+        scale_recipe_b=ScalingType.BlockWise1x16,
+        swizzle_a=swizzle,
+        swizzle_b=swizzle,
         bias=None if should_add_bias_separately else bias,
-        out_dtype=a.orig_dtype,
+        output_dtype=a.orig_dtype,
         # scale_result=scale_result,  # Not supported yet
     )
 
@@ -716,8 +723,6 @@ def nvfp4_addmm(func, types, args, kwargs):
 
 @implements([aten._grouped_mm.default])
 def nvfp4_grouped_mm(func, types, args, kwargs):
-    from torch.nn.functional import ScalingType, SwizzleType, scaled_grouped_mm
-
     mat_a, mat_b = args[0], args[1]
     offs = args[2] if len(args) > 2 else kwargs.get("offs", None)
     assert offs is not None, "offs is required for nvfp4 grouped_mm"

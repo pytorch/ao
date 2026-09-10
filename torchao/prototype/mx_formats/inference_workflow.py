@@ -225,7 +225,7 @@ class NVFP4DynamicActivationNVFP4WeightConfig(AOBaseConfig):
     use_triton_kernel: bool = True
     use_dynamic_per_tensor_scale: bool = True
     step: Optional["QuantizationStep"] = None
-    is_swizzled: bool = True
+    swizzled_type: SwizzleType = SwizzleType.SWIZZLE_32_4_4
 
     def __post_init__(self):
         if isinstance(self.step, str):
@@ -250,7 +250,7 @@ def _nvfp4_inference_linear_transform(
     - None (default): Original dynamic quantization behavior
     """
     weight = getattr(module, parameter_name)
-    is_swizzled_scales = config.is_swizzled
+    is_swizzled_scales = config.swizzled_type == SwizzleType.SWIZZLE_32_4_4
     if weight.shape[-2] % 16 != 0 or weight.shape[-1] % 16 != 0:
         raise RuntimeError(
             f"NVFP4 only supports weight shape with last 2 dims divisible by 16, got {weight.shape}"
@@ -374,7 +374,8 @@ class NVFP4WeightOnlyConfig(AOBaseConfig):
     """
 
     use_dynamic_per_tensor_scale: bool = True
-    is_swizzled: bool = True
+    # How to store block scales.
+    swizzled_type: SwizzleType = SwizzleType.SWIZZLE_32_4_4
 
 
 @register_quantize_module_handler(NVFP4WeightOnlyConfig)
@@ -390,7 +391,7 @@ def _nvfp4_weight_only_linear_transform(
             f"NVFP4 only supports weight shape with last 2 dims divisible by 16, got {weight.shape}"
         )
 
-    is_swizzled_scales = config.is_swizzled
+    is_swizzled_scales = config.swizzled_type == SwizzleType.SWIZZLE_32_4_4
 
     per_tensor_scale = None
     if config.use_dynamic_per_tensor_scale:

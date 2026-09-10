@@ -21,7 +21,7 @@ from torchao.prototype.mx_formats.nvfp4_tensor import (
 from torchao.prototype.mx_formats.utils import ceil_div
 from torchao.quantization.utils import compute_error
 from torchao.testing.utils import skip_if_rocm
-from torchao.utils import is_sm_at_least_100
+from torchao.utils import is_ROCM, is_sm_at_least_100
 
 torch.manual_seed(2)
 
@@ -36,9 +36,12 @@ torch.manual_seed(2)
         (torch.bfloat16, (1, 32, 64), False),
     ],
 )
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+@pytest.mark.skipif(
+    not torch.accelerator.is_available(), reason="CUDA or XPU not available"
+)
 def test_nvfp4_reconstruction(dtype, shape, use_per_tensor_scale):
-    x = torch.randn(shape, dtype=dtype, device="cuda")
+    device = torch.accelerator.current_accelerator().type
+    x = torch.randn(shape, dtype=dtype, device=device)
     if use_per_tensor_scale:
         tensor_amax = torch.max(torch.abs(x))
         scale = per_tensor_amax_to_scale(tensor_amax)
@@ -386,8 +389,7 @@ def test_triton_nvfp4_quantize_equivalence(M, N, use_per_tensor_scale, dtype):
 
 
 @pytest.mark.skipif(
-    not (torch.cuda.is_available() or torch.xpu.is_available()),
-    reason="CUDA or XPU not available",
+    not torch.accelerator.is_available(), reason="CUDA or XPU not available"
 )
 @pytest.mark.skipif(
     torch.cuda.is_available() and not is_sm_at_least_100(),
@@ -427,7 +429,6 @@ def test_nvfp4_matmul_with_amax(
     shapes: tuple,
 ):
     device = torch.accelerator.current_accelerator()
-    is_cuda = device.type == "cuda"
 
     if bias and inpt_dtype == torch.float32:
         pytest.xfail("Bias is not supported when module weight is in fp32")
@@ -435,10 +436,13 @@ def test_nvfp4_matmul_with_amax(
     if quant_type == "weight_only" and compile:
         pytest.skip("TODO: weight_only currently errors w/ compile")
 
-    if not is_cuda and use_triton_kernel:
-        pytest.skip("Triton kernel only supported on CUDA")
+    if device.type == "xpu" and use_triton_kernel:
+        pytest.skip("use_triton_kernel is not supported on XPU")
 
-    is_swizzled_scales = is_cuda
+    # swizzled (blocked) scales are only supported on real CUDA hardware;
+    # ROCm (reported as device.type == "cuda") and XPU both require
+    # unswizzled scales
+    is_swizzled_scales = device.type == "cuda" and not is_ROCM()
 
     m, k, n = shapes
 
@@ -490,9 +494,12 @@ def test_nvfp4_matmul_with_amax(
     )
 
 
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 @pytest.mark.skipif(
-    not is_sm_at_least_100(), reason="CUDA capability >= 10.0 required for fp4"
+    not torch.accelerator.is_available(), reason="CUDA or XPU not available"
+)
+@pytest.mark.skipif(
+    torch.cuda.is_available() and not is_sm_at_least_100(),
+    reason="CUDA capability >= 10.0 required for fp4",
 )
 @pytest.mark.parametrize("use_dynamic_per_tensor_scale", [True, False])
 @pytest.mark.parametrize("leading", [(), (1,)], ids=["2d", "3d_b1"])
@@ -506,20 +513,27 @@ def test_nvfp4_linear_prequantized_activation(
     NVFP4Tensor). Mirrors nvfp4_mm's guard; act_quant_kwargs is irrelevant once
     the activation is pre-quantized.
     """
+    device = torch.accelerator.current_accelerator().type
+    # swizzled (blocked) scales are only supported on real CUDA hardware;
+    # ROCm (reported as device == "cuda") and XPU both require unswizzled
+    # scales
+    is_swizzled_scales = device == "cuda" and not is_ROCM()
     m, k, n = 128, 64, 256
-    A = torch.randn(*leading, m, k, dtype=torch.bfloat16, device="cuda")
-    B = torch.randn(n, k, dtype=torch.bfloat16, device="cuda")
+    A = torch.randn(*leading, m, k, dtype=torch.bfloat16, device=device)
+    B = torch.randn(n, k, dtype=torch.bfloat16, device=device)
     C_ref = F.linear(A, B)
 
     a_scale = per_tensor_amax_to_scale(torch.amax(torch.abs(A)))
     b_scale = per_tensor_amax_to_scale(torch.amax(torch.abs(B)))
-    A_nvfp4 = NVFP4Tensor.to_nvfp4(A, per_tensor_scale=a_scale, is_swizzled_scales=True)
+    A_nvfp4 = NVFP4Tensor.to_nvfp4(
+        A, per_tensor_scale=a_scale, is_swizzled_scales=is_swizzled_scales
+    )
     B_nvfp4 = NVFP4Tensor.to_nvfp4(
         B,
         per_tensor_scale=b_scale,
-        is_swizzled_scales=True,
+        is_swizzled_scales=is_swizzled_scales,
         act_quant_kwargs=QuantizeTensorToNVFP4Kwargs(
-            is_swizzled_scales=True,
+            is_swizzled_scales=is_swizzled_scales,
             use_dynamic_per_tensor_scale=use_dynamic_per_tensor_scale,
         ),
     )
@@ -535,9 +549,12 @@ def test_nvfp4_linear_prequantized_activation(
     )
 
 
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+@pytest.mark.skipif(
+    not torch.accelerator.is_available(), reason="CUDA or XPU not available"
+)
 def test_nvfp4_to_copy():
-    x = NVFP4Tensor.to_nvfp4(torch.randn((32, 128))).cuda()
+    device = torch.accelerator.current_accelerator().type
+    x = NVFP4Tensor.to_nvfp4(torch.randn((32, 128))).to(device)
     y = torch.ops.aten._to_copy(x, dtype=torch.bfloat16)
     assert torch.equal(x.qdata, y.qdata)
     assert torch.equal(x.scale, y.scale)
@@ -634,10 +651,13 @@ def test_3d_transpose(dims, is_swizzled_scales):
     assert x_hp_t.shape == x_nvfp4_t.shape
 
 
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+@pytest.mark.skipif(
+    not torch.accelerator.is_available(), reason="CUDA or XPU not available"
+)
 @pytest.mark.parametrize("use_per_tensor_scale", [True, False])
 def test_nvfp4_pin_memory(use_per_tensor_scale):
-    x_hp = torch.randn(128, 256, device="cuda", dtype=torch.bfloat16)
+    device = torch.accelerator.current_accelerator().type
+    x_hp = torch.randn(128, 256, device=device, dtype=torch.bfloat16)
     per_tensor_scale = (
         per_tensor_amax_to_scale(torch.max(torch.abs(x_hp)))
         if use_per_tensor_scale
@@ -669,9 +689,12 @@ def test_nvfp4_pin_memory(use_per_tensor_scale):
     )
 
 
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 @pytest.mark.skipif(
-    not is_sm_at_least_100(), reason="requires sm100+ for nvfp4 triton kernel"
+    not torch.accelerator.is_available(), reason="CUDA or XPU not available"
+)
+@pytest.mark.skipif(
+    torch.cuda.is_available() and not is_sm_at_least_100(),
+    reason="CUDA capability >= 10.0 required for fp4",
 )
 @pytest.mark.parametrize(
     "shapes",
@@ -691,10 +714,19 @@ def test_nvfp4_pin_memory(use_per_tensor_scale):
 @skip_if_rocm("ROCm float4 gemm require gfx950")
 def test_nvfp4_matmul_optional_per_tensor_scale(shapes, a_has_scale, use_triton_kernel):
     """Test NVFP4 matmul works when per_tensor_scale is None for activation but always set for weight."""
+    device = torch.accelerator.current_accelerator().type
+    if use_triton_kernel and device == "xpu":
+        pytest.skip("use_triton_kernel is not supported on XPU")
+    if use_triton_kernel and not is_sm_at_least_100():
+        pytest.skip("CUDA capability >= 10.0 required for nvfp4 triton kernel")
+    # swizzled (blocked) scales are only supported on real CUDA hardware;
+    # ROCm (reported as device == "cuda") and XPU both require unswizzled
+    # scales
+    is_swizzled_scales = device == "cuda" and not is_ROCM()
     m, k, n = shapes
 
-    A = torch.randn(m, k, dtype=torch.bfloat16, device="cuda")
-    B = torch.randn(n, k, dtype=torch.bfloat16, device="cuda")
+    A = torch.randn(m, k, dtype=torch.bfloat16, device=device)
+    B = torch.randn(n, k, dtype=torch.bfloat16, device=device)
 
     C_ref = F.linear(A, B)
 
@@ -703,18 +735,20 @@ def test_nvfp4_matmul_optional_per_tensor_scale(shapes, a_has_scale, use_triton_
     )
     b_scale = per_tensor_amax_to_scale(torch.amax(torch.abs(B)))
 
-    act_quant_kwargs = QuantizeTensorToNVFP4Kwargs()
+    act_quant_kwargs = QuantizeTensorToNVFP4Kwargs(
+        is_swizzled_scales=is_swizzled_scales
+    )
 
     A_nvfp4 = NVFP4Tensor.to_nvfp4(
         A,
         per_tensor_scale=a_scale,
-        is_swizzled_scales=True,
+        is_swizzled_scales=is_swizzled_scales,
         use_triton_kernel=use_triton_kernel,
     )
     B_nvfp4 = NVFP4Tensor.to_nvfp4(
         B,
         per_tensor_scale=b_scale,
-        is_swizzled_scales=True,
+        is_swizzled_scales=is_swizzled_scales,
         use_triton_kernel=use_triton_kernel,
         act_quant_kwargs=act_quant_kwargs,
     )
@@ -727,12 +761,15 @@ def test_nvfp4_matmul_optional_per_tensor_scale(shapes, a_has_scale, use_triton_
     assert sqnr >= SQNR_THRESHOLD, f"SQNR {sqnr:.2f} < {SQNR_THRESHOLD}, {a_has_scale=}"
 
 
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+@pytest.mark.skipif(
+    not torch.accelerator.is_available(), reason="CUDA or XPU not available"
+)
 def test_nvfp4_per_expert_scale():
+    device = torch.accelerator.current_accelerator().type
     # per-tensor scale reference
     E, K, N = 2, 64, 128
-    x0 = torch.randn(N, K, dtype=torch.bfloat16, device="cuda")
-    x1 = torch.randn(N, K, dtype=torch.bfloat16, device="cuda") * 2
+    x0 = torch.randn(N, K, dtype=torch.bfloat16, device=device)
+    x1 = torch.randn(N, K, dtype=torch.bfloat16, device=device) * 2
     tensor_amax_x0 = torch.max(torch.abs(x0))
     per_tensor_scale_x0 = per_tensor_amax_to_scale(tensor_amax_x0)
     tensor_amax_x1 = torch.max(torch.abs(x1))

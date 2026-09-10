@@ -138,8 +138,7 @@ def test_inference_workflow_mx(
 
 
 @pytest.mark.skipif(
-    not (torch.cuda.is_available() or torch.xpu.is_available()),
-    reason="CUDA or XPU not available",
+    not torch.accelerator.is_available(), reason="CUDA or XPU not available"
 )
 @pytest.mark.parametrize("bias", [True, False])
 @pytest.mark.parametrize("compile", [True, False])
@@ -189,8 +188,8 @@ def test_inference_workflow_nvfp4(
         pytest.skip("TODO: weight_only quant currently errors w/ compile")
     if quant_type == "weight_only" and use_triton_kernel:
         pytest.skip("unsupported configuration")
-    if not is_cuda and use_triton_kernel:
-        pytest.skip("Triton kernel only supported on CUDA")
+    if device.type == "xpu" and use_triton_kernel:
+        pytest.skip("use_triton_kernel is not supported on XPU")
 
     if use_inference_mode and (
         shapes != (128, 64, 256) or inpt_dtype != torch.bfloat16 or use_triton_kernel
@@ -210,12 +209,16 @@ def test_inference_workflow_nvfp4(
         config = NVFP4DynamicActivationNVFP4WeightConfig(
             use_triton_kernel=use_triton_kernel,
             use_dynamic_per_tensor_scale=use_dynamic_per_tensor_scale,
-            is_swizzled=is_cuda,
+            swizzled_type=SwizzleType.SWIZZLE_32_4_4
+            if is_cuda and not is_ROCM()
+            else SwizzleType.NO_SWIZZLE,
         )
     else:
         config = NVFP4WeightOnlyConfig(
             use_dynamic_per_tensor_scale=use_dynamic_per_tensor_scale,
-            is_swizzled=is_cuda,
+            swizzled_type=SwizzleType.SWIZZLE_32_4_4
+            if is_cuda and not is_ROCM()
+            else SwizzleType.NO_SWIZZLE,
         )
     quantize_(m_mx, config=config)
 
@@ -272,9 +275,12 @@ class VLLMIntegrationTestCase(TorchAOIntegrationTestCase):
         self._test_narrow_similar_to_vllm(config)
 
 
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 @pytest.mark.skipif(
-    not is_sm_at_least_100(), reason="CUDA capability >= 10.0 required for NVFP4"
+    not torch.accelerator.is_available(), reason="CUDA or XPU not available"
+)
+@pytest.mark.skipif(
+    torch.cuda.is_available() and not is_sm_at_least_100(),
+    reason="CUDA capability >= 10.0 required for NVFP4",
 )
 @pytest.mark.parametrize("bias", [True, False])
 @torch.no_grad()
@@ -293,12 +299,24 @@ def test_nvfp4_static_quantization_flow(
     """
     from torchao.prototype.mx_formats.inference_workflow import NVFP4ObservedLinear
 
+    device = torch.accelerator.current_accelerator().type
+    # swizzled (blocked) scales are only supported on real CUDA hardware;
+    # ROCm (reported as device == "cuda") and XPU both require unswizzled
+    # scales
+    swizzled_type = (
+        SwizzleType.SWIZZLE_32_4_4
+        if device == "cuda" and not is_ROCM()
+        else SwizzleType.NO_SWIZZLE
+    )
+    # the triton kernel only supports swizzled scales, so tie it to the same
+    # condition instead of hardcoding it off (CUDA can still use it)
+    use_triton_kernel = swizzled_type == SwizzleType.SWIZZLE_32_4_4
     in_features, out_features = 64, 256
     batch_size = 128
 
     m = nn.Sequential(
         nn.Linear(
-            in_features, out_features, bias=bias, dtype=torch.bfloat16, device="cuda"
+            in_features, out_features, bias=bias, dtype=torch.bfloat16, device=device
         ),
     )
     m_ref = copy.deepcopy(m)
@@ -306,7 +324,11 @@ def test_nvfp4_static_quantization_flow(
     # Step 1: Prepare - insert observers
     quantize_(
         m,
-        NVFP4DynamicActivationNVFP4WeightConfig(step="prepare"),
+        NVFP4DynamicActivationNVFP4WeightConfig(
+            step="prepare",
+            use_triton_kernel=use_triton_kernel,
+            swizzled_type=swizzled_type,
+        ),
     )
 
     # Verify observers were inserted
@@ -314,7 +336,7 @@ def test_nvfp4_static_quantization_flow(
 
     # Step 2: Calibrate with representative data
     calibration_data = [
-        torch.randn(batch_size, in_features, device="cuda", dtype=torch.bfloat16)
+        torch.randn(batch_size, in_features, device=device, dtype=torch.bfloat16)
         for _ in range(5)
     ]
     for data in calibration_data:
@@ -323,7 +345,11 @@ def test_nvfp4_static_quantization_flow(
     # Step 3: Convert - extract scale and quantize
     quantize_(
         m,
-        NVFP4DynamicActivationNVFP4WeightConfig(step="convert"),
+        NVFP4DynamicActivationNVFP4WeightConfig(
+            step="convert",
+            use_triton_kernel=use_triton_kernel,
+            swizzled_type=swizzled_type,
+        ),
     )
 
     # Verify quantization was applied
@@ -340,7 +366,7 @@ def test_nvfp4_static_quantization_flow(
     )
 
     # Step 4: Verify inference produces reasonable results
-    x = torch.randn(batch_size, in_features, device="cuda", dtype=torch.bfloat16)
+    x = torch.randn(batch_size, in_features, device=device, dtype=torch.bfloat16)
     y_ref = m_ref(x)
     y_static = m(x)
 
@@ -351,9 +377,12 @@ def test_nvfp4_static_quantization_flow(
     )
 
 
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 @pytest.mark.skipif(
-    not is_sm_at_least_100(), reason="CUDA capability >= 10.0 required for NVFP4"
+    not torch.accelerator.is_available(), reason="CUDA or XPU not available"
+)
+@pytest.mark.skipif(
+    torch.cuda.is_available() and not is_sm_at_least_100(),
+    reason="CUDA capability >= 10.0 required for NVFP4",
 )
 @torch.no_grad()
 @skip_if_rocm("ROCm float4 gemm require gfx950")
@@ -364,12 +393,21 @@ def test_nvfp4_static_vs_dynamic_quantization():
     per_tensor_scale statically, calibrating on the exact test input should
     produce the same per_tensor_scale as the dynamic path, yielding identical results.
     """
+    device = torch.accelerator.current_accelerator().type
+    # swizzled (blocked) scales are only supported on real CUDA hardware;
+    # ROCm (reported as device == "cuda") and XPU both require unswizzled
+    # scales
+    swizzled_type = (
+        SwizzleType.SWIZZLE_32_4_4
+        if device == "cuda" and not is_ROCM()
+        else SwizzleType.NO_SWIZZLE
+    )
     in_features, out_features = 64, 256
     batch_size = 128
 
     m_dynamic = nn.Sequential(
         nn.Linear(
-            in_features, out_features, bias=True, dtype=torch.bfloat16, device="cuda"
+            in_features, out_features, bias=True, dtype=torch.bfloat16, device=device
         ),
     )
     m_static = copy.deepcopy(m_dynamic)
@@ -380,11 +418,12 @@ def test_nvfp4_static_vs_dynamic_quantization():
         NVFP4DynamicActivationNVFP4WeightConfig(
             use_triton_kernel=False,
             use_dynamic_per_tensor_scale=True,
+            swizzled_type=swizzled_type,
         ),
     )
 
     # Create the test input upfront so we can use it for calibration too
-    x = torch.randn(batch_size, in_features, device="cuda", dtype=torch.bfloat16)
+    x = torch.randn(batch_size, in_features, device=device, dtype=torch.bfloat16)
 
     # Static quantization: prepare -> calibrate -> convert
     quantize_(
@@ -392,6 +431,7 @@ def test_nvfp4_static_vs_dynamic_quantization():
         NVFP4DynamicActivationNVFP4WeightConfig(
             step="prepare",
             use_triton_kernel=False,
+            swizzled_type=swizzled_type,
         ),
     )
     # Calibrate with the same input used for testing
@@ -402,6 +442,7 @@ def test_nvfp4_static_vs_dynamic_quantization():
         NVFP4DynamicActivationNVFP4WeightConfig(
             step="convert",
             use_triton_kernel=False,
+            swizzled_type=swizzled_type,
         ),
     )
 
@@ -497,9 +538,12 @@ class BatchedMMModel(nn.Module):
         return torch.bmm(x, self.weight.transpose(-2, -1))
 
 
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 @pytest.mark.skipif(
-    not is_sm_at_least_100(), reason="CUDA capability >= 10.0 required for NVFP4"
+    not torch.accelerator.is_available(), reason="CUDA or XPU not available"
+)
+@pytest.mark.skipif(
+    torch.cuda.is_available() and not is_sm_at_least_100(),
+    reason="CUDA capability >= 10.0 required for NVFP4",
 )
 @torch.no_grad()
 @skip_if_rocm("ROCm float4 gemm require gfx950")
@@ -508,7 +552,7 @@ def test_bmm_nvfp4():
     E, K, N = 4, 128, 256
     M = 16
 
-    device = "cuda"
+    device = torch.accelerator.current_accelerator().type
     dtype = torch.bfloat16
 
     model_ref = BatchedMMModel(E, K, N, device=device, dtype=dtype)
@@ -526,6 +570,10 @@ def test_bmm_nvfp4():
         model,
         NVFP4DynamicActivationNVFP4WeightConfig(
             use_triton_kernel=False,
+            # swizzled scales are only supported on CUDA
+            swizzled_type=SwizzleType.SWIZZLE_32_4_4
+            if device == "cuda" and not is_ROCM()
+            else SwizzleType.NO_SWIZZLE,
         ),
         filter_fn=lambda mod, *args: (
             isinstance(mod, BatchedMMModel) and hasattr(mod, "weight")
