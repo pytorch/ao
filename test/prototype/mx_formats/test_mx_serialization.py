@@ -11,6 +11,7 @@ import tempfile
 import pytest
 import torch
 import torch.nn as nn
+from torch.nn.functional import SwizzleType
 
 from torchao.prototype.mx_formats.inference_workflow import (
     MXDynamicActivationMXWeightConfig,
@@ -18,11 +19,17 @@ from torchao.prototype.mx_formats.inference_workflow import (
 )
 from torchao.quantization import quantize_
 from torchao.quantization.quantize_.common import KernelPreference
-from torchao.utils import is_sm_at_least_100
+from torchao.utils import is_ROCM, is_sm_at_least_100
 
 
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
-@pytest.mark.skipif(not is_sm_at_least_100(), reason="needs CUDA capability 10.0+")
+@pytest.mark.skipif(
+    not (torch.cuda.is_available() or torch.xpu.is_available()),
+    reason="CUDA or XPU not available",
+)
+@pytest.mark.skipif(
+    torch.cuda.is_available() and not is_sm_at_least_100(),
+    reason="needs CUDA capability 10.0+",
+)
 @pytest.mark.parametrize("recipe_name", ["mxfp8", "nvfp4"])
 def test_serialization(recipe_name):
     """
@@ -30,7 +37,10 @@ def test_serialization(recipe_name):
     and NV checkpoints.
     """
 
-    m = nn.Linear(32, 128, bias=False, dtype=torch.bfloat16, device="cuda")
+    device = torch.accelerator.current_accelerator().type
+    if recipe_name == "nvfp4" and device == "xpu":
+        pytest.skip("NVFP4 is not supported on XPU")
+    m = nn.Linear(32, 128, bias=False, dtype=torch.bfloat16, device=device)
     fname = None
     with tempfile.NamedTemporaryFile(delete=False, mode="w") as f:
         if recipe_name == "mxfp8":
@@ -38,6 +48,9 @@ def test_serialization(recipe_name):
                 activation_dtype=torch.float8_e4m3fn,
                 weight_dtype=torch.float8_e4m3fn,
                 kernel_preference=KernelPreference.EMULATED,
+                swizzled_type=SwizzleType.SWIZZLE_32_4_4
+                if device == "cuda" and not is_ROCM()
+                else SwizzleType.NO_SWIZZLE,
             )
         else:
             assert recipe_name == "nvfp4", "unsupported"

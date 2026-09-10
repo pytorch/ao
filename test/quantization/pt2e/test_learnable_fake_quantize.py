@@ -754,7 +754,9 @@ class TestLearnableFakeQuantizeComparison(TestCase):
             torch_types, float_types, devices
         ):
             with self.subTest(
-                torch_type=torch_type, float_type=float_type, device=device
+                torch_type=str(torch_type),
+                float_type=str(float_type),
+                device=str(device),
             ):
                 X = torch.randn(3, 3, device=device).to(float_type)
                 scale = (10 * torch.randn(1, device=device)).abs().item()
