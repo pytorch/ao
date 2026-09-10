@@ -717,8 +717,6 @@ def test_nvfp4_matmul_optional_per_tensor_scale(shapes, a_has_scale, use_triton_
     device = torch.accelerator.current_accelerator().type
     if use_triton_kernel and device == "xpu":
         pytest.skip("use_triton_kernel is not supported on XPU")
-    if use_triton_kernel and not is_sm_at_least_100():
-        pytest.skip("CUDA capability >= 10.0 required for nvfp4 triton kernel")
     # swizzled (blocked) scales are only supported on real CUDA hardware;
     # ROCm (reported as device == "cuda") and XPU both require unswizzled
     # scales
