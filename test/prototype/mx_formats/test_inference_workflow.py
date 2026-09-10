@@ -562,7 +562,6 @@ def test_bmm_nvfp4():
         model,
         NVFP4DynamicActivationNVFP4WeightConfig(
             use_triton_kernel=False,
-            # swizzled scales are only supported on CUDA
             swizzled_type=SwizzleType.SWIZZLE_32_4_4
             if device == "cuda" and not is_ROCM()
             else SwizzleType.NO_SWIZZLE,
