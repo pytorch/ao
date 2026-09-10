@@ -12,8 +12,11 @@ Here we show an example with X86InductorQuantizer
 API Example::
 
   import torch
-  from torchao.quantization.pt2e.quantize_pt2e import prepare_pt2e
   from torch.export import export
+  from torchao.quantization.pt2e.quantize_pt2e import (
+      convert_pt2e,
+      prepare_pt2e,
+  )
   from torchao.quantization.pt2e.quantizer.x86_inductor_quantizer import (
       X86InductorQuantizer,
       get_default_x86_inductor_quantization_config,
@@ -24,11 +27,12 @@ API Example::
           super().__init__()
           self.linear = torch.nn.Linear(5, 10)
 
-     def forward(self, x):
-         return self.linear(x)
+      def forward(self, x):
+          return self.linear(x)
 
   # initialize a floating point model
   float_model = M().eval()
+  example_inputs = (torch.randn(1, 5),)
 
   # define calibration function
   def calibrate(model, data_loader):
@@ -38,15 +42,14 @@ API Example::
               model(image)
 
   # Step 1. program capture
-  m = export(m, *example_inputs).module()
+  m = export(float_model, example_inputs).module()
   # we get a model with aten ops
 
   # Step 2. quantization
   # backend developer will write their own Quantizer and expose methods to allow
-  # users to express how they
-  # want the model to be quantized
+  # users to express how they want the model to be quantized
   quantizer = X86InductorQuantizer()
-  quantizer.set_global(xiq.get_default_x86_inductor_quantization_config())
+  quantizer.set_global(get_default_x86_inductor_quantization_config())
 
   # or prepare_qat_pt2e for Quantization Aware Training
   m = prepare_pt2e(m, quantizer)
@@ -65,7 +68,7 @@ API Example::
   config.cpp_wrapper = True
 
   with torch.no_grad():
-      optimized_model = torch.compile(converted_model)
+      optimized_model = torch.compile(m)
 
       # Running some benchmark
       optimized_model(*example_inputs)
