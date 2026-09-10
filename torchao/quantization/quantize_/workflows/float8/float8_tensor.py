@@ -432,9 +432,13 @@ def _float8_addmm_impl(
 
             if _is_128_128_scaled(weight_tensor):
                 assert _is_1_128_scaled(input_tensor), "unsupported"
+                # _scaled_mm expects scale_a with shape (M, K/128) and
+                # outer-dimension-major stride (1, M).
+                input_scale = input_scale.reshape(inpt_data.shape[0], -1)
+                input_scale = input_scale.t().contiguous().t()
                 res = addmm_float8_unwrapped_inference(
                     inpt_data,
-                    input_scale.reshape(inpt_data.shape[0], -1),
+                    input_scale,
                     w_data,
                     w_scale,
                     output_dtype=input_tensor.dtype,
