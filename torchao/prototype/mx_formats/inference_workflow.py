@@ -250,13 +250,13 @@ def _nvfp4_inference_linear_transform(
     - None (default): Original dynamic quantization behavior
     """
     weight = getattr(module, parameter_name)
-    is_swizzled = config.swizzled_type == SwizzleType.SWIZZLE_32_4_4
     if weight.shape[-2] % 16 != 0 or weight.shape[-1] % 16 != 0:
         raise RuntimeError(
             f"NVFP4 only supports weight shape with last 2 dims divisible by 16, got {weight.shape}"
         )
 
     step = config.step
+    is_swizzled = config.swizzled_type == SwizzleType.SWIZZLE_32_4_4
     if step == QuantizationStep.PREPARE or step == "prepare":
         return NVFP4ObservedLinear.from_float(module)
 

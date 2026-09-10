@@ -539,7 +539,7 @@ def _addmm_nvfp4_dispatch(
     # since bias is not quantized
     #
     # (2) RuntimeError: Bias is not supported when out_dtype is set to Float32
-    # This is not supported by _scaled_mm
+    # This is not supported by F.scaled_mm
     should_add_bias_separately = (
         scale_result is not None or a.orig_dtype == torch.float32
     ) and (bias is not None)
@@ -549,13 +549,13 @@ def _addmm_nvfp4_dispatch(
     #
     # 1. A and B are always cast to fp32 before being quantized and packed
     #    into uint8 (2 fp4 values per byte)
-    # 2. _scaled_mm (cublas) always accumulates in fp32 since use_fast_accum=False
+    # 2. F.scaled_mm (cublas) always accumulates in fp32 since use_fast_accum=False
     # 3. Outputs are cast to A.dtype before returning
-    # 4. Bias is added outside _scaled_mm if per_tensor_scale exists
+    # 4. Bias is added outside F.scaled_mm if per_tensor_scale exists
     #    or output dtype is fp32
     #
     # -----------------------------------------------------------------------------
-    # | A.dtype | B.dtype | Accum dtype | Out dtype | Bias added in _scaled_mm?   |
+    # | A.dtype | B.dtype | Accum dtype | Out dtype | Bias added in F.scaled_mm?   |
     # -----------------------------------------------------------------------------
     # | fp32    | fp32    | fp32        | fp32      | No                          |
     # | fp32    | bf16    | fp32        | fp32      | No                          |
