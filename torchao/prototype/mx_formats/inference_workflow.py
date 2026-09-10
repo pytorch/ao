@@ -250,7 +250,7 @@ def _nvfp4_inference_linear_transform(
     - None (default): Original dynamic quantization behavior
     """
     weight = getattr(module, parameter_name)
-    is_swizzled_scales = config.swizzled_type == SwizzleType.SWIZZLE_32_4_4
+    is_swizzled = config.swizzled_type == SwizzleType.SWIZZLE_32_4_4
     if weight.shape[-2] % 16 != 0 or weight.shape[-1] % 16 != 0:
         raise RuntimeError(
             f"NVFP4 only supports weight shape with last 2 dims divisible by 16, got {weight.shape}"
@@ -276,14 +276,14 @@ def _nvfp4_inference_linear_transform(
         act_quant_kwargs = QuantizeTensorToNVFP4Kwargs(
             use_dynamic_per_tensor_scale=False,
             use_triton_kernel=config.use_triton_kernel,
-            is_swizzled_scales=is_swizzled_scales,
+            is_swizzled_scales=is_swizzled,
         )
 
         quantized_weight = NVFP4Tensor.to_nvfp4(
             weight,
             per_tensor_scale=weight_per_tensor_scale,
             act_per_tensor_scale=act_per_tensor_scale.detach(),
-            is_swizzled_scales=is_swizzled_scales,
+            is_swizzled_scales=is_swizzled,
             use_triton_kernel=False,  # Always use traditional construction for weights
             act_quant_kwargs=act_quant_kwargs,
         )
@@ -327,13 +327,13 @@ def _nvfp4_inference_linear_transform(
         act_quant_kwargs = QuantizeTensorToNVFP4Kwargs(
             use_dynamic_per_tensor_scale=config.use_dynamic_per_tensor_scale,
             use_triton_kernel=config.use_triton_kernel,
-            is_swizzled_scales=is_swizzled_scales,
+            is_swizzled_scales=is_swizzled,
         )
 
         quantized_weight = NVFP4Tensor.to_nvfp4(
             weight,
             per_tensor_scale=per_tensor_scale,
-            is_swizzled_scales=is_swizzled_scales,
+            is_swizzled_scales=is_swizzled,
             use_triton_kernel=False,  # Always use traditional construction for weights
             act_quant_kwargs=act_quant_kwargs,
         )
@@ -391,7 +391,7 @@ def _nvfp4_weight_only_linear_transform(
             f"NVFP4 only supports weight shape with last 2 dims divisible by 16, got {weight.shape}"
         )
 
-    is_swizzled_scales = config.swizzled_type == SwizzleType.SWIZZLE_32_4_4
+    is_swizzled = config.swizzled_type == SwizzleType.SWIZZLE_32_4_4
 
     per_tensor_scale = None
     if config.use_dynamic_per_tensor_scale:
@@ -401,7 +401,7 @@ def _nvfp4_weight_only_linear_transform(
     quantized_weight = NVFP4Tensor.to_nvfp4(
         weight,
         per_tensor_scale=per_tensor_scale,
-        is_swizzled_scales=is_swizzled_scales,
+        is_swizzled_scales=is_swizzled,
         act_quant_kwargs=None,
     )
     # Set triton preference after construction

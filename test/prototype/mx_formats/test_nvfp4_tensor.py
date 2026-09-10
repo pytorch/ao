@@ -439,10 +439,7 @@ def test_nvfp4_matmul_with_amax(
     if device.type == "xpu" and use_triton_kernel:
         pytest.skip("use_triton_kernel is not supported on XPU")
 
-    # swizzled (blocked) scales are only supported on real CUDA hardware;
-    # ROCm (reported as device.type == "cuda") and XPU both require
-    # unswizzled scales
-    is_swizzled_scales = device.type == "cuda" and not is_ROCM()
+    is_swizzled = device.type == "cuda" and not is_ROCM()
 
     m, k, n = shapes
 
@@ -464,18 +461,18 @@ def test_nvfp4_matmul_with_amax(
     act_quant_kwargs = None
     if quant_type == "dynamic":
         act_quant_kwargs = QuantizeTensorToNVFP4Kwargs(
-            is_swizzled_scales=is_swizzled_scales,
+            is_swizzled_scales=is_swizzled,
         )
     A_nvfp4 = NVFP4Tensor.to_nvfp4(
         A,
         per_tensor_scale=a_scale,
-        is_swizzled_scales=is_swizzled_scales,
+        is_swizzled_scales=is_swizzled,
         use_triton_kernel=use_triton_kernel,
     )
     B_nvfp4 = NVFP4Tensor.to_nvfp4(
         B,
         per_tensor_scale=b_scale,
-        is_swizzled_scales=is_swizzled_scales,
+        is_swizzled_scales=is_swizzled,
         use_triton_kernel=use_triton_kernel,
         act_quant_kwargs=act_quant_kwargs,
     )
@@ -514,10 +511,7 @@ def test_nvfp4_linear_prequantized_activation(
     the activation is pre-quantized.
     """
     device = torch.accelerator.current_accelerator().type
-    # swizzled (blocked) scales are only supported on real CUDA hardware;
-    # ROCm (reported as device == "cuda") and XPU both require unswizzled
-    # scales
-    is_swizzled_scales = device == "cuda" and not is_ROCM()
+    is_swizzled = device == "cuda" and not is_ROCM()
     m, k, n = 128, 64, 256
     A = torch.randn(*leading, m, k, dtype=torch.bfloat16, device=device)
     B = torch.randn(n, k, dtype=torch.bfloat16, device=device)
@@ -526,14 +520,14 @@ def test_nvfp4_linear_prequantized_activation(
     a_scale = per_tensor_amax_to_scale(torch.amax(torch.abs(A)))
     b_scale = per_tensor_amax_to_scale(torch.amax(torch.abs(B)))
     A_nvfp4 = NVFP4Tensor.to_nvfp4(
-        A, per_tensor_scale=a_scale, is_swizzled_scales=is_swizzled_scales
+        A, per_tensor_scale=a_scale, is_swizzled_scales=is_swizzled
     )
     B_nvfp4 = NVFP4Tensor.to_nvfp4(
         B,
         per_tensor_scale=b_scale,
-        is_swizzled_scales=is_swizzled_scales,
+        is_swizzled_scales=is_swizzled,
         act_quant_kwargs=QuantizeTensorToNVFP4Kwargs(
-            is_swizzled_scales=is_swizzled_scales,
+            is_swizzled_scales=is_swizzled,
             use_dynamic_per_tensor_scale=use_dynamic_per_tensor_scale,
         ),
     )
@@ -717,10 +711,7 @@ def test_nvfp4_matmul_optional_per_tensor_scale(shapes, a_has_scale, use_triton_
     device = torch.accelerator.current_accelerator().type
     if use_triton_kernel and device == "xpu":
         pytest.skip("use_triton_kernel is not supported on XPU")
-    # swizzled (blocked) scales are only supported on real CUDA hardware;
-    # ROCm (reported as device == "cuda") and XPU both require unswizzled
-    # scales
-    is_swizzled_scales = device == "cuda" and not is_ROCM()
+    is_swizzled = device == "cuda" and not is_ROCM()
     m, k, n = shapes
 
     A = torch.randn(m, k, dtype=torch.bfloat16, device=device)
@@ -733,20 +724,18 @@ def test_nvfp4_matmul_optional_per_tensor_scale(shapes, a_has_scale, use_triton_
     )
     b_scale = per_tensor_amax_to_scale(torch.amax(torch.abs(B)))
 
-    act_quant_kwargs = QuantizeTensorToNVFP4Kwargs(
-        is_swizzled_scales=is_swizzled_scales
-    )
+    act_quant_kwargs = QuantizeTensorToNVFP4Kwargs(is_swizzled_scales=is_swizzled)
 
     A_nvfp4 = NVFP4Tensor.to_nvfp4(
         A,
         per_tensor_scale=a_scale,
-        is_swizzled_scales=is_swizzled_scales,
+        is_swizzled_scales=is_swizzled,
         use_triton_kernel=use_triton_kernel,
     )
     B_nvfp4 = NVFP4Tensor.to_nvfp4(
         B,
         per_tensor_scale=b_scale,
-        is_swizzled_scales=is_swizzled_scales,
+        is_swizzled_scales=is_swizzled,
         use_triton_kernel=use_triton_kernel,
         act_quant_kwargs=act_quant_kwargs,
     )

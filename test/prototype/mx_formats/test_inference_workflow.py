@@ -300,16 +300,11 @@ def test_nvfp4_static_quantization_flow(
     from torchao.prototype.mx_formats.inference_workflow import NVFP4ObservedLinear
 
     device = torch.accelerator.current_accelerator().type
-    # swizzled (blocked) scales are only supported on real CUDA hardware;
-    # ROCm (reported as device == "cuda") and XPU both require unswizzled
-    # scales
     swizzled_type = (
         SwizzleType.SWIZZLE_32_4_4
         if device == "cuda" and not is_ROCM()
         else SwizzleType.NO_SWIZZLE
     )
-    # the triton kernel only supports swizzled scales, so tie it to the same
-    # condition instead of hardcoding it off (CUDA can still use it)
     use_triton_kernel = swizzled_type == SwizzleType.SWIZZLE_32_4_4
     in_features, out_features = 64, 256
     batch_size = 128
@@ -394,9 +389,6 @@ def test_nvfp4_static_vs_dynamic_quantization():
     produce the same per_tensor_scale as the dynamic path, yielding identical results.
     """
     device = torch.accelerator.current_accelerator().type
-    # swizzled (blocked) scales are only supported on real CUDA hardware;
-    # ROCm (reported as device == "cuda") and XPU both require unswizzled
-    # scales
     swizzled_type = (
         SwizzleType.SWIZZLE_32_4_4
         if device == "cuda" and not is_ROCM()

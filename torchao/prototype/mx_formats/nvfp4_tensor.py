@@ -507,14 +507,6 @@ def _addmm_nvfp4_dispatch(
     M, K = a.shape[0], a.shape[1]
     N = b.shape[1]
 
-    # NVFP4Tensor stores its scales pre-swizzled (blocked) at quantization
-    # time when `is_swizzled_scales=True`, so they can be used as-is here.
-    # When False, the scales stay in their natural (row-major) layout, and
-    # the layout is instead communicated explicitly to `F.scaled_mm` via
-    # `swizzle_a`/`swizzle_b` below. This lets ao inherit pytorch's own
-    # per-backend support matrix (e.g. CUDA expects swizzled scales while
-    # XPU expects unswizzled ones) instead of ao re-encoding backend-specific
-    # behavior here.
     if a.is_swizzled_scales:
         a_scale_blocked = a.scale  # Already swizzled
     else:
@@ -525,7 +517,7 @@ def _addmm_nvfp4_dispatch(
     else:
         b_scale_blocked = b.scale.t().view(N, K // b.block_size)
 
-    swizzle = (
+    swizzle_type = (
         SwizzleType.SWIZZLE_32_4_4 if a.is_swizzled_scales else SwizzleType.NO_SWIZZLE
     )
 
@@ -576,8 +568,8 @@ def _addmm_nvfp4_dispatch(
         scale_recipe_a=ScalingType.BlockWise1x16,
         scale_b=b_scale_blocked.view(torch.float8_e4m3fn),
         scale_recipe_b=ScalingType.BlockWise1x16,
-        swizzle_a=swizzle,
-        swizzle_b=swizzle,
+        swizzle_a=swizzle_type,
+        swizzle_b=swizzle_type,
         bias=None if should_add_bias_separately else bias,
         output_dtype=a.orig_dtype,
         # scale_result=scale_result,  # Not supported yet
@@ -723,6 +715,8 @@ def nvfp4_addmm(func, types, args, kwargs):
 
 @implements([aten._grouped_mm.default])
 def nvfp4_grouped_mm(func, types, args, kwargs):
+    from torch.nn.functional import ScalingType, SwizzleType
+
     mat_a, mat_b = args[0], args[1]
     offs = args[2] if len(args) > 2 else kwargs.get("offs", None)
     assert offs is not None, "offs is required for nvfp4 grouped_mm"
