@@ -3,6 +3,7 @@
 
 from .mx import (
     MXFakeQuantizeConfig,
+    MXFakeQuantizedConv2d,
     MXFakeQuantizedLinear,
 )
 from .nvfp4 import (
@@ -12,6 +13,7 @@ from .nvfp4 import (
 
 __all__ = [
     "MXFakeQuantizeConfig",
+    "MXFakeQuantizedConv2d",
     "MXFakeQuantizedLinear",
     "NVFP4FakeQuantizeConfig",
     "NVFP4FakeQuantizedLinear",
