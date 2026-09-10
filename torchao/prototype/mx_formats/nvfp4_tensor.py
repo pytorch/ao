@@ -715,7 +715,7 @@ def nvfp4_addmm(func, types, args, kwargs):
 
 @implements([aten._grouped_mm.default])
 def nvfp4_grouped_mm(func, types, args, kwargs):
-    from torch.nn.functional import ScalingType, SwizzleType
+    from torch.nn.functional import ScalingType, SwizzleType, scaled_grouped_mm
 
     mat_a, mat_b = args[0], args[1]
     offs = args[2] if len(args) > 2 else kwargs.get("offs", None)
