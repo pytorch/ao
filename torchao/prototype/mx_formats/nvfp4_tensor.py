@@ -10,7 +10,7 @@ from typing import Optional
 
 import torch
 import torch.nn.functional as F
-from torch.nn.functional import ScalingType, SwizzleType, scaled_grouped_mm
+from torch.nn.functional import ScalingType, SwizzleType
 from torch.utils._python_dispatch import return_and_correct_aliasing
 
 from torchao.prototype.mx_formats.constants import F4_E2M1_MAX, F8E4M3_MAX
@@ -543,6 +543,7 @@ def _addmm_nvfp4_dispatch(
     should_add_bias_separately = (
         scale_result is not None or a.orig_dtype == torch.float32
     ) and (bias is not None)
+    # should_add_bias_separately = bias is not None
 
     # For gemm(A, B) with original high precision inputs A and B:
     #
