@@ -449,13 +449,32 @@ class TestFloat8Linear:
         # autocast on
         with torch.autocast(str(device)):
             y = m(x)
-        assert y.dtype == torch.half, f"y.dtype is {y.dtype}, expected {torch.half}"
+        default_autocast_dtype = torch.get_autocast_dtype(device.type)
+        assert y.dtype == default_autocast_dtype, (
+            f"y.dtype is {y.dtype}, expected {default_autocast_dtype}"
+        )
 
         with torch.autocast(str(device), dtype=torch.bfloat16):
             y = m(x)
         assert y.dtype == torch.bfloat16, (
             f"y.dtype is {y.dtype}, expected {torch.bfloat16}"
         )
+
+    def test_meta_device_skips_autocast_query(self):
+        linear = nn.Linear(8, 16, device="meta")
+        config = Float8LinearConfig(emulate=True)
+        float8_linear = Float8Linear.from_float(linear, config=config)
+        input = torch.randn(4, 8, device="meta")
+        expected = torch.empty(4, 16, device="meta")
+
+        with unittest.mock.patch(
+            "torchao.float8.float8_linear.matmul_with_hp_or_float8_args.apply",
+            return_value=expected,
+        ) as apply:
+            output = float8_linear(input)
+
+        assert output is expected
+        assert apply.call_args.args[0] is input
 
     def test_repr(self):
         m = nn.Linear(32, 16)
