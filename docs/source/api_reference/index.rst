@@ -10,5 +10,4 @@ Comprehensive API documentation for torchao.
    api_ref_qat
    api_ref_float8
    api_ref_utils
-   api_ref_prototype_quant_logger
    api_ref_prototype_attention

@@ -67,7 +67,7 @@ typedef struct rhs_packing {
 } rhs_packing;
 
 // TODO add transpose variant i.e kxn
-rhs_packing get_rhs_packing() {
+inline rhs_packing get_rhs_packing() {
   return rhs_packing{
       .get_rhs_offset = kai_get_rhs_offset_rhs_pack_nxk_qsi4c32p_qsu4c32s1s0,
       .get_rhs_packed_stride =
@@ -104,7 +104,7 @@ typedef struct lhs_packing {
   run_lhs_pack_t run_lhs_pack;
 } lhs_packing;
 
-lhs_packing get_lhs_packing() {
+inline lhs_packing get_lhs_packing() {
   return lhs_packing{
       .get_lhs_m_step = kai_get_m_step_lhs_quant_pack_qai8dxp_f32,
       .get_lhs_offset = kai_get_lhs_offset_lhs_quant_pack_qai8dxp_f32,
