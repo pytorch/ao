@@ -1,10 +1,11 @@
 # NOTE: The AO repo is completely linted.
 # Add linting rules here
-lint.select = ["F", "I"]
+# W605 keeps invalid escape sequences out: they are only a SyntaxWarning
+# today but become a SyntaxError in Python 3.15.
+lint.select = ["F", "I", "W605"]
 lint.ignore = ["E731"]
 
 # Exclude third-party modules
 exclude = [
     "third_party/*",
-    "torchao/prototype/paretoq/*",
 ]

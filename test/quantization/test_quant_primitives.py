@@ -17,6 +17,7 @@ from torchao.quantization.quant_primitives import (
     _choose_qparams_affine_tinygemm,
     _choose_qparams_and_quantize_scale_only_sinq,
     _choose_scale_float8,
+    _ClampSTE,
     _fake_quantize_affine,
     _fake_quantize_affine_cachemask,
     _maybe_expand_scale_to_tensor_shape,
@@ -795,6 +796,37 @@ class TestQuantPrimitives(unittest.TestCase):
         expected_mask = torch.full(input.shape, True)
         torch.testing.assert_close(dequantized, fake_quantized)
         torch.testing.assert_close(expected_mask, mask)
+
+    def test_clamp_ste(self):
+        # Fake quantization clamps rounded values against integer bounds, so
+        # every saturated element sits exactly on quant_min/quant_max. The STE
+        # must keep passing the gradient through there.
+        lo, hi = -8.0, 7.0
+        values = [-9.0, -8.0, 0.0, 7.0, 8.0]
+
+        x = torch.tensor(values)
+        torch.testing.assert_close(_ClampSTE.apply(x, lo, hi), torch.clamp(x, lo, hi))
+
+        x = torch.tensor(values, requires_grad=True)
+        _ClampSTE.apply(x, lo, hi).sum().backward()
+        torch.testing.assert_close(x.grad, torch.tensor([0.0, 1.0, 1.0, 1.0, 0.0]))
+
+    def test_clamp_ste_nonfinite(self):
+        # Backward selects with `torch.where`, so an out-of-range position is
+        # replaced by exactly 0 even when the incoming gradient is NaN/Inf
+        # there. A multiplicative mask would leak NaN (0 * nan == nan). This
+        # matches aten::clamp, which selects with `where` as well.
+        lo, hi = -8.0, 7.0
+        x = torch.tensor([-9.0, -8.0, 0.0, 7.0, 8.0], requires_grad=True)
+        gy = torch.tensor([float("nan"), 1.0, 1.0, 1.0, float("inf")])
+        _ClampSTE.apply(x, lo, hi).backward(gy)
+        torch.testing.assert_close(x.grad, torch.tensor([0.0, 1.0, 1.0, 1.0, 0.0]))
+
+        # A NaN input compares false against both bounds, so it gets no
+        # gradient -- also matching aten::clamp.
+        x = torch.tensor([float("nan"), 0.0], requires_grad=True)
+        _ClampSTE.apply(x, lo, hi).sum().backward()
+        torch.testing.assert_close(x.grad, torch.tensor([0.0, 1.0]))
 
     def test_maybe_expand_scale_to_tensor_shape(self):
         # rowwise quantization: if all dimensions match except for the last one,
