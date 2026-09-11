@@ -411,13 +411,8 @@ class IntxFakeQuantizer(FakeQuantizerBase):
         if self._should_compute_qparams():
             bit_width = _DTYPE_TO_BIT_WIDTH[self.config.dtype]
             if is_symmetric:
-                (self.scale, self.zero_point) = get_group_qparams_symmetric(
-                    x,
-                    bit_width,
-                    group_size,
-                    scale_precision,
-                    mapping_type=self.config.mapping_type,
-                    eps=self.config.eps,
+                (self.scale, self.zero_point) = self._choose_group_qparams_symmetric(
+                    x, bit_width, group_size
                 )
             else:
                 (self.scale, self.zero_point) = get_groupwise_affine_qparams(
@@ -439,6 +434,43 @@ class IntxFakeQuantizer(FakeQuantizerBase):
             qmax,
             group_size,
             zero_point_domain,
+        )
+
+    def _choose_group_qparams_symmetric(
+        self,
+        x: torch.Tensor,
+        bit_width: int,
+        group_size: int,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        if (
+            self.config.is_dynamic
+            and bit_width == 4
+            and self.config.mapping_type == MappingType.SYMMETRIC_NO_CLIPPING_ERR
+        ):
+            x_grouped = x.reshape(x.shape[0], -1, group_size)
+            min_val = torch.amin(x_grouped, dim=-1)
+            max_val = torch.amax(x_grouped, dim=-1)
+            qmin, qmax = _DTYPE_TO_QVALUE_BOUNDS[self.config.dtype]
+            return choose_qparams_affine_with_min_max(
+                min_val,
+                max_val,
+                self.config.mapping_type,
+                (1, group_size),
+                self.config.dtype,
+                qmin,
+                qmax,
+                self.config.eps,
+                self.config.scale_precision,
+                self.config.zero_point_precision,
+            )
+
+        return get_group_qparams_symmetric(
+            x,
+            bit_width,
+            group_size,
+            self.config.scale_precision,
+            mapping_type=self.config.mapping_type,
+            eps=self.config.eps,
         )
 
     def _per_tensor_forward(self, x: torch.Tensor) -> torch.Tensor:
