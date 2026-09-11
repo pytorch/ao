@@ -163,7 +163,61 @@ class TestSafeTensors(TestCase):
                     assert key in leftover_tensor_data_dict
 
 
+@unittest.skipIf(
+    not torch.backends.mps.is_available(),
+    "Need MPS available",
+)
+class TestSafeTensorsMPS(TestCase):
+    """Test safetensors serialization for IntxMPSExperimentalTensor on MPS."""
+
+    def test_intx_mps_experimental_tensor(self):
+        import json
+        import struct
+
+        from torchao.experimental.ops.mps.utils import _load_torchao_mps_lib
+        from torchao.prototype.quantization.intx_mps.intx_mps_experimental_tensor import (
+            IntxMPSExperimentalTensor,
+        )
+
+        _load_torchao_mps_lib()
+
+        device = "mps"
+        N, K, group_size, nbit = 128, 256, 64, 4
+        packed = torch.randint(
+            0, 255, (N, nbit * K // 8), dtype=torch.uint8, device=device
+        )
+        scales = torch.randn(N, K // group_size, dtype=torch.float32, device=device) * 0.01
+        zeros = torch.randn(N, K // group_size, dtype=torch.float32, device=device) * 0.01
+        tensor = IntxMPSExperimentalTensor(
+            packed, scales, zeros, nbit, [1, group_size], torch.Size([N, K])
+        )
+        state_dict = {"0.weight": tensor}
+
+        with tempfile.NamedTemporaryFile(suffix=".safetensors") as f:
+            tensors_data_dict, metadata = flatten_tensor_state_dict(state_dict)
+            save_file(tensors_data_dict, f.name, metadata=metadata)
+            loaded_tensors = load_file(f.name, device=device)
+            with open(f.name, "rb") as fh:
+                header_size = struct.unpack("<Q", fh.read(8))[0]
+                header = json.loads(fh.read(header_size))
+            loaded_metadata = header.get("__metadata__", {})
+            reconstructed, leftover = unflatten_tensor_state_dict(
+                loaded_tensors, loaded_metadata
+            )
+            assert not leftover, f"Leftover tensors: {leftover}"
+
+            rt = reconstructed["0.weight"]
+            assert isinstance(rt, IntxMPSExperimentalTensor)
+            assert rt.nbit == nbit
+            assert rt.block_size == [1, group_size]
+            assert list(rt.shape) == [N, K]
+            assert torch.equal(rt.packed_weight, packed)
+            assert torch.equal(rt.scales, scales)
+            assert torch.equal(rt.zeros, zeros)
+
+
 instantiate_parametrized_tests(TestSafeTensors)
+instantiate_parametrized_tests(TestSafeTensorsMPS)
 
 if __name__ == "__main__":
     run_tests()
