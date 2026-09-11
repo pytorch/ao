@@ -457,6 +457,37 @@ class TestFloat8Linear:
             f"y.dtype is {y.dtype}, expected {torch.bfloat16}"
         )
 
+    @unittest.skipIf(not torch.accelerator.is_available(), "GPU not available")
+    def test_autocast_backward_scaling_disabled(self):
+        # https://github.com/pytorch/ao/issues/4616 - under autocast the saved
+        # weight is still in the original high precision dtype while
+        # grad_output is in the autocast dtype, and the DISABLED backward path
+        # feeds both to the gemm without casting
+        device = torch.accelerator.current_accelerator()
+        disabled = CastConfig(scaling_type=ScalingType.DISABLED)
+        config = Float8LinearConfig(
+            cast_config_input=disabled,
+            cast_config_weight=disabled,
+            cast_config_grad_output=disabled,
+            cast_config_weight_for_grad_input=disabled,
+            cast_config_input_for_grad_weight=disabled,
+            cast_config_grad_output_for_grad_weight=disabled,
+        )
+        m_ref = nn.Linear(32, 32, bias=False, device=device)
+        m = Float8Linear.from_float(copy.deepcopy(m_ref), config=config)
+
+        x_ref = torch.randn(16, 32, device=device, requires_grad=True)
+        x = copy.deepcopy(x_ref)
+        with torch.autocast(str(device), dtype=torch.bfloat16):
+            y_ref = m_ref(x_ref)
+            y = m(x)
+        y_ref.sum().backward()
+        y.sum().backward()
+
+        # all casts are disabled, so this should match nn.Linear exactly
+        torch.testing.assert_close(x.grad, x_ref.grad, atol=0, rtol=0)
+        torch.testing.assert_close(m.weight.grad, m_ref.weight.grad, atol=0, rtol=0)
+
     def test_repr(self):
         m = nn.Linear(32, 16)
         config = Float8LinearConfig(
