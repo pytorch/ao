@@ -417,6 +417,43 @@ class TestQAT(TestCase):
         torch.testing.assert_close(group_fake_quantizer.zero_point, expected_zero_point)
         torch.testing.assert_close(actual, expected, atol=0, rtol=0)
 
+    def test_fake_quantize_symmetric_no_clipping_err_weight_gradient(self):
+        group_size = 2
+        config = IntxFakeQuantizeConfig(
+            torch.int4,
+            PerGroup(group_size),
+            MappingType.SYMMETRIC_NO_CLIPPING_ERR,
+        )
+        weight = torch.tensor(
+            [[-5.0, -1.0, 1.0, 4.0], [-2.0, 3.0, -6.0, 2.0]],
+            requires_grad=True,
+        )
+        reference_weight = weight.detach().clone().requires_grad_()
+        qmin, qmax = _DTYPE_TO_QVALUE_BOUNDS[torch.int4]
+        grouped_weight = reference_weight.reshape(2, -1, group_size)
+        min_val = torch.amin(grouped_weight, dim=-1)
+        max_val = torch.amax(grouped_weight, dim=-1)
+        scale = torch.maximum(min_val / qmin, max_val / qmax).clamp(
+            min=torch.finfo(weight.dtype).smallest_normal
+        )
+        zero_point = torch.zeros_like(scale, dtype=torch.int32)
+        expected = _fake_quantize_per_channel_group(
+            reference_weight,
+            scale,
+            zero_point,
+            qmin,
+            qmax,
+            group_size,
+            ZeroPointDomain.INT,
+        )
+        actual = IntxFakeQuantizer(config)(weight)
+        grad_output = torch.tensor([[0.5, -1.0, 1.5, -0.5], [1.0, 0.25, -0.75, 2.0]])
+        actual.backward(grad_output)
+        expected.backward(grad_output)
+
+        torch.testing.assert_close(actual, expected, atol=0, rtol=0)
+        torch.testing.assert_close(weight.grad, reference_weight.grad, atol=0, rtol=0)
+
     def test_fake_quantizer_static_state_dict(self):
         config = IntxFakeQuantizeConfig(
             torch.int16,
