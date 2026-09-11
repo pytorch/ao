@@ -222,7 +222,11 @@ class TestFloat8Sparse2x4_2DData2DMetadataTensor(common_utils.TestCase):
     @unittest.skipIf(not is_sm_at_least_90(), "Need H100 to run")
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     @common_utils.parametrize("compile", [True, False])
-    def test_fp8_cutlass_sparse(self, compile):
+    @common_utils.parametrize("backend", list(SparseKernelChoice))
+    def test_fp8_cutlass_sparse(self, backend, compile):
+        if backend is SparseKernelChoice.CUTEDSL and not _cutedsl_runtime_available():
+            self.skipTest("CuTeDSL runtime unavailable")
+
         with torch.inference_mode():
             input = torch.rand((256, 256), dtype=torch.bfloat16, device="cuda")
             model = (
@@ -251,6 +255,7 @@ class TestFloat8Sparse2x4_2DData2DMetadataTensor(common_utils.TestCase):
                     version=2,
                     packing_format=Float8PackingFormat.SPARSE_2D_DATA_2D_METADATA,
                     granularity=PerRow(),
+                    _sparse_kernel_choice=backend,
                 ),
             )
             if compile:
