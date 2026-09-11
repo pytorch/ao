@@ -59,6 +59,29 @@ inline tsa::DeviceGuard make_device_guard(const Tensor& t) {
 }
 } // anonymous namespace
 
+// mainloop kernel schedule with its matching epilogue schedule. The benchmark
+// sweeps these explicitly; production passes Schedule=void to auto-pick by TileM.
+struct SchedulePingpong {
+  using Kernel = cutlass::gemm::KernelTmaWarpSpecializedPingpongFP8FastAccum;
+  using Epilogue = cutlass::epilogue::TmaWarpSpecialized;
+};
+struct ScheduleCooperative {
+  using Kernel = cutlass::gemm::KernelTmaWarpSpecializedCooperativeFP8FastAccum;
+  using Epilogue = cutlass::epilogue::TmaWarpSpecializedCooperative;
+};
+
+// Schedule=void reproduces the production auto-pick (TileM>=128 -> cooperative,
+// else pingpong); an explicit policy is forwarded unchanged.
+template <typename Schedule, typename TileShape>
+struct ResolveSchedule {
+  using Kernel = typename Schedule::Kernel;
+  using Epilogue = typename Schedule::Epilogue;
+};
+template <typename TileShape>
+struct ResolveSchedule<void, TileShape>
+    : cute::conditional_t<(size<0>(TileShape{}) >= 128),
+                          ScheduleCooperative, SchedulePingpong> {};
+
 template<
     typename DtypeXq,
     typename DtypeWq,
@@ -68,7 +91,8 @@ template<
     typename DtypeXScale,
     typename DtypeWScale,
     typename TileShape,
-    typename ClusterShape>
+    typename ClusterShape,
+    typename Schedule = void>
 void rowwise_scaled_linear_sparse_kernel_cutlass_sm9x(
   const Tensor& Xq, const Tensor& X_scale, const Tensor& Wq,
   const Tensor& W_meta, const Tensor& W_scale, const Tensor& bias,
@@ -104,9 +128,11 @@ void rowwise_scaled_linear_sparse_kernel_cutlass_sm9x(
   // If FP8FastAccum not used for kernel schedule, the performance is
   // really bad; on the other side, using it doesn't seem to affect
   // the precision much - thus, sticking with it.
-  using KernelSchedule =
-    cutlass::gemm::KernelTmaWarpSpecializedPingpongFP8FastAccum;
-  using EpilogueSchedule = cutlass::epilogue::TmaWarpSpecialized;
+  // Schedule=void (production) auto-picks by TileM; the benchmark passes an
+  // explicit pingpong/cooperative policy via the BenchConfigList entry.
+  using KernelSchedule = typename ResolveSchedule<Schedule, TileShape>::Kernel;
+  using EpilogueSchedule =
+    typename ResolveSchedule<Schedule, TileShape>::Epilogue;
   constexpr auto RoundStyle = cutlass::FloatRoundStyle::round_to_nearest;
   using Accum = cutlass::epilogue::fusion::Sm90AccFetch;
   using AScale =
@@ -262,6 +288,15 @@ void rowwise_scaled_linear_sparse_kernel_cutlass_sm9x(
   STD_CUDA_KERNEL_LAUNCH_CHECK();
 }
 
+namespace {
+// Wraps a type so it can be passed by value to the dispatch launch lambda and
+// recovered via decltype(x)::type, keeping each select_config rule a single line.
+template <typename T>
+struct TypeTag {
+  using type = T;
+};
+}  // namespace
+
 template<typename DtypeXq, typename DtypeWq, typename... Types>
 static void select_config(
     const Tensor& Xq, const Tensor& X_scale, const Tensor& Wq,
@@ -295,12 +330,35 @@ static void select_config(
             Xq, X_scale, Wq, W_meta, W_scale, bias, Y);
         return;
       } else {
-        using TileShape = cute::Shape<cute::_128, cute::_128, cute::_256>;
-        using ClusterShape = cute::Shape<cute::_1, cute::_2, cute::_1>;
-        rowwise_scaled_linear_sparse_kernel_cutlass_sm9x<
-          DtypeXq, DtypeWq, Types..., TileShape, ClusterShape>(
-            Xq, X_scale, Wq, W_meta, W_scale, bias, Y);
-        return;
+        const auto n = Y.size(1);
+        const auto k = Xq.size(1);
+
+        using TileShapeN256 = cute::Shape<cute::_128, cute::_256, cute::_256>;
+        using TileShapeN128 = cute::Shape<cute::_128, cute::_128, cute::_256>;
+        using C1x1x1 = cute::Shape<cute::_1, cute::_1, cute::_1>;
+        using C2x1x1 = cute::Shape<cute::_2, cute::_1, cute::_1>;
+        using C1x2x1 = cute::Shape<cute::_1, cute::_2, cute::_1>;
+
+        // Launch the kernel for a (TileShape, ClusterShape, Schedule) triple,
+        // passed as TypeTag so each rule below stays one line.
+        const auto launch = [&](auto tile, auto cluster, auto sched) {
+          rowwise_scaled_linear_sparse_kernel_cutlass_sm9x<
+              DtypeXq, DtypeWq, Types...,
+              typename decltype(tile)::type,
+              typename decltype(cluster)::type,
+              typename decltype(sched)::type>(
+              Xq, X_scale, Wq, W_meta, W_scale, bias, Y);
+        };
+
+        // Tuned config per known problem shape; first match wins, else default.
+        if (m == 1024 && k == 1024 && (n == 159744 || n == 165376))  // N256 c2x1x1 coop
+          return launch(TypeTag<TileShapeN256>{}, TypeTag<C2x1x1>{}, TypeTag<ScheduleCooperative>{});
+        if (m == 1024 && n == 6144 && k == 165376)  // N128 c1x2x1 coop
+          return launch(TypeTag<TileShapeN128>{}, TypeTag<C1x2x1>{}, TypeTag<ScheduleCooperative>{});
+        if (m == 1024 && n == 32768 && k == 6144)  // N256 c1x1x1 coop
+          return launch(TypeTag<TileShapeN256>{}, TypeTag<C1x1x1>{}, TypeTag<ScheduleCooperative>{});
+        // default N128 c1x2x1 ping
+        return launch(TypeTag<TileShapeN128>{}, TypeTag<C1x2x1>{}, TypeTag<SchedulePingpong>{});
       }
     }
   }
