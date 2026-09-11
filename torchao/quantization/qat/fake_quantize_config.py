@@ -105,7 +105,7 @@ class Int4WeightFakeQuantizeConfig(FakeQuantizeConfigBase):
 class IntxFakeQuantizeConfig(FakeQuantizeConfigBase):
     """
     Config for how to fake quantize weights or activations,
-    targeting integer dtypes up to torch.int8.
+    targeting integer dtypes up to torch.int16.
 
     Args:
         dtype: dtype to simulate during fake quantization, e.g. torch.int8.
@@ -192,7 +192,7 @@ class IntxFakeQuantizeConfig(FakeQuantizeConfigBase):
         self.eps = eps
 
         # Validate dtype
-        all_dtypes = [torch.int8, torch.uint8]
+        all_dtypes = [torch.int8, torch.uint8, torch.int16]
         all_dtypes.extend(list(_SUB_BYTE_INT_BOUNDS.keys()))
         all_dtypes.extend(list(_SUB_BYTE_UINT_BOUNDS.keys()))
         if dtype not in all_dtypes:
