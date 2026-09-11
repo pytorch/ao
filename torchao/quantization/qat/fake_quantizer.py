@@ -12,6 +12,7 @@ from torchao.quantization.granularity import (
     PerAxis,
     PerGroup,
     PerRow,
+    PerTensor,
     PerToken,
 )
 from torchao.quantization.quant_primitives import (
@@ -228,6 +229,8 @@ class IntxFakeQuantizer(FakeQuantizerBase):
             return self._per_token_forward(x)
         elif isinstance(self.config.granularity, (PerAxis, PerGroup)):
             return self._per_channel_or_group_forward(x)
+        elif isinstance(self.config.granularity, PerTensor):
+            return self._per_tensor_forward(x)
         else:
             raise ValueError("Unknown granularity '%s'" % self.config.granularity)
 
@@ -306,6 +309,34 @@ class IntxFakeQuantizer(FakeQuantizerBase):
             qmax,
             group_size,
             zero_point_domain,
+        )
+
+    def _per_tensor_forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Perform per-tensor fake quantization."""
+        qmin, qmax = _DTYPE_TO_QVALUE_BOUNDS[self.config.dtype]
+        block_size = get_block_size(x.shape, self.config.granularity)
+        if self._should_compute_qparams():
+            self.scale, self.zero_point = choose_qparams_affine(
+                x,
+                mapping_type=self.config.mapping_type,
+                block_size=block_size,
+                target_dtype=self.config.dtype,
+                quant_min=qmin,
+                quant_max=qmax,
+                eps=self.config.eps,
+                scale_dtype=self.config.scale_precision,
+                zero_point_dtype=self.config.zero_point_precision,
+            )
+            self._maybe_update_qparams_for_range_learning()
+        return _fake_quantize_affine(
+            x,
+            block_size,
+            self.scale,
+            self.zero_point,
+            self.config.dtype,
+            qmin,
+            qmax,
+            self.config.zero_point_domain,
         )
 
     def _should_compute_qparams(self) -> bool:
