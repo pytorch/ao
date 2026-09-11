@@ -512,6 +512,27 @@ class TestQAT(TestCase):
         self.assertFalse(activation_fake_quantizer.enabled)
         self.assertTrue(weight_fake_quantizer.enabled)
 
+        local_min, local_max = activation_fake_quantizer.get_running_min_max()
+        torch.testing.assert_close(local_min, expected_min)
+        torch.testing.assert_close(local_max, expected_max)
+        expected_min = torch.tensor(-8.0)
+        expected_max = torch.tensor(10.0)
+        with self.assertRaisesRegex(ValueError, "Calibration ranges must be finite"):
+            activation_fake_quantizer.set_running_min_max(
+                torch.tensor(float("nan")), expected_max
+            )
+        with self.assertWarnsRegex(UserWarning, "Converting calibration ranges"):
+            activation_fake_quantizer.set_running_min_max(
+                expected_min.to(torch.float64), expected_max.to(torch.float64)
+            )
+        self.assertEqual(activation_fake_quantizer.min_val.dtype, torch.float32)
+        self.assertEqual(activation_fake_quantizer.max_val.dtype, torch.float32)
+        min_buffer = activation_fake_quantizer.min_val
+        max_buffer = activation_fake_quantizer.max_val
+        activation_fake_quantizer.set_running_min_max(expected_min, expected_max)
+        self.assertIs(activation_fake_quantizer.min_val, min_buffer)
+        self.assertIs(activation_fake_quantizer.max_val, max_buffer)
+
         qmin, qmax = _DTYPE_TO_QVALUE_BOUNDS[torch.int16]
         expected_scale, expected_zero_point = choose_qparams_affine_with_min_max(
             expected_min,
@@ -595,6 +616,8 @@ class TestQAT(TestCase):
             fake_quantizer.enable_calibration()
         with self.assertRaisesRegex(ValueError, error):
             fake_quantizer.finalize_calibration()
+        with self.assertRaisesRegex(ValueError, error):
+            fake_quantizer.get_running_min_max()
 
     def _set_ptq_weight(
         self,
