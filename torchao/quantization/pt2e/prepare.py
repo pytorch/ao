@@ -5,7 +5,6 @@
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
 
-# mypy: allow-untyped-defs
 import copy
 from dataclasses import asdict
 from typing import Any, Optional, Union
@@ -60,7 +59,7 @@ def _is_activation_post_process_node(
 
 def _get_observer_kwargs(
     quant_spec: Union[QuantizationSpec, FixedQParamsQuantizationSpec],
-):
+) -> dict[str, Any]:
     kwargs_dict = asdict(quant_spec)
     return copy.deepcopy(kwargs_dict)
 
@@ -69,7 +68,7 @@ def _create_obs_or_fq_from_qspec(
     quantization_spec: Optional[QuantizationSpecBase],
     obs_or_fq_map: dict[EdgeOrNode, ObserverOrFakeQuantize],
     is_qat: bool,
-):
+) -> Optional[ObserverOrFakeQuantize]:
     """Create observer or fake quantize objects based on quantization spec
 
     Args:
@@ -98,6 +97,7 @@ def _create_obs_or_fq_from_qspec(
         }
         edge_or_nodes = quantization_spec.derived_from
         obs_or_fqs = [obs_or_fq_map[k] for k in edge_or_nodes]
+
         kwargs["obs_or_fqs"] = obs_or_fqs
         return DerivedObserverOrFakeQuantize.with_args(**kwargs)()
     elif isinstance(quantization_spec, FixedQParamsQuantizationSpec):
