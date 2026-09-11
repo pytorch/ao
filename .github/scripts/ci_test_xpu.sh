@@ -1,22 +1,23 @@
 #!/bin/bash
 
-conda create -yn xpu_ao_ci python=3.10 pip
-source activate xpu_ao_ci
+#conda create -yn xpu_ao_ci python=3.10 pip
+#source activate xpu_ao_ci
+#
+#export CC=/usr/bin/gcc
+#export CXX=/usr/bin/g++
+#export SCCACHE_DISABLE=1
+#
+#python -m pip install --upgrade pip setuptools wheel
+#
+#python -m pip install torch torchvision pytorch-triton-xpu --index-url https://download.pytorch.org/whl/nightly/xpu --force-reinstall --no-cache-dir
+#cd torchao && python -m pip install . --no-build-isolation && cd ..
+#
+#python -c "import torch; import torchao; print(f'Torch version: {torch.__version__}')"
+#
+#python -m pip install pytest expecttest parameterized accelerate hf_transfer 'modelscope!=1.15.0' transformers tabulate fire
 
-export CC=/usr/bin/gcc
-export CXX=/usr/bin/g++
-export SCCACHE_DISABLE=1
-
-python -m pip install --upgrade pip setuptools wheel
-
-python -m pip install torch torchvision pytorch-triton-xpu --index-url https://download.pytorch.org/whl/nightly/xpu --force-reinstall --no-cache-dir
-cd torchao && python -m pip install . --no-build-isolation && cd ..
-
-python -c "import torch; import torchao; print(f'Torch version: {torch.__version__}')"
-
-python -m pip install pytest expecttest parameterized accelerate hf_transfer 'modelscope!=1.15.0' transformers tabulate fire
-
-pytest -v -s --ignore=torchao/test/quantization/pt2e/test_x86inductor_fusion.py \
+pytest -v -s -k "not (bf16_stochastic_round_device_xpu)" \
+        --ignore=torchao/test/quantization/pt2e/test_x86inductor_fusion.py \
         --ignore=torchao/test/prototype/moe_training/nvfp4_training/test_group_weight_amax.py \
         torchao/test/quantization/pt2e/ \
         torchao/test/quantization/*.py \
@@ -27,4 +28,6 @@ pytest -v -s --ignore=torchao/test/quantization/pt2e/test_x86inductor_fusion.py 
         torchao/test/quantization/quantize_/workflows/ \
         torchao/test/core/test_config.py \
         torchao/test/test_model_architecture.py \
-        torchao/test/test_utils.py
+        torchao/test/test_utils.py \
+        torchao/test/quantization/test_qat.py \
+        torchao/test/test_low_bit_optim.py
