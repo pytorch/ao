@@ -4,6 +4,7 @@
 # This source code is licensed under the license found in the
 # LICENSE file in the root directory of this source tree.
 
+import warnings
 from typing import Optional
 
 import torch
@@ -298,6 +299,47 @@ class IntxFakeQuantizer(FakeQuantizerBase):
         )
         self.observer_enabled = False
         self.enabled = True
+
+    def get_running_min_max(self) -> tuple[torch.Tensor, torch.Tensor]:
+        """Return copies of the collected calibration range."""
+        self._validate_calibration_config()
+        if (
+            self.min_val is None
+            or self.max_val is None
+            or self.min_val.numel() == 0
+            or self.max_val.numel() == 0
+        ):
+            raise ValueError("No calibration data was collected")
+        return self.min_val.clone(), self.max_val.clone()
+
+    def set_running_min_max(
+        self, min_val: torch.Tensor, max_val: torch.Tensor
+    ) -> None:
+        """Replace the collected calibration range."""
+        self._validate_calibration_config()
+        if min_val.numel() != 1 or max_val.numel() != 1:
+            raise ValueError("Calibration ranges must contain one value")
+        assert self.min_val is not None
+        assert self.max_val is not None
+        if (
+            min_val.device != self.min_val.device
+            or max_val.device != self.max_val.device
+            or min_val.dtype != self.min_val.dtype
+            or max_val.dtype != self.max_val.dtype
+        ):
+            warnings.warn(
+                "Converting calibration ranges to match the quantizer buffer "
+                "dtype and device",
+                stacklevel=2,
+            )
+        min_val = min_val.detach().to(self.min_val).reshape(())
+        max_val = max_val.detach().to(self.max_val).reshape(())
+        if not torch.isfinite(min_val).item() or not torch.isfinite(max_val).item():
+            raise ValueError("Calibration ranges must be finite")
+        if min_val.item() > max_val.item():
+            raise ValueError("Calibration minimum must not exceed the maximum")
+        self.min_val.resize_(()).copy_(min_val)
+        self.max_val.resize_(()).copy_(max_val)
 
     def _validate_calibration_config(self) -> None:
         if (
