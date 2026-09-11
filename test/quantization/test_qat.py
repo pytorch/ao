@@ -311,9 +311,7 @@ class TestQAT(TestCase):
 
     @parametrize("quant_dtype", [torch.int8, torch.int16])
     @parametrize("is_dynamic", [True, False])
-    def test_fake_quantize_per_tensor(
-        self, quant_dtype: torch.dtype, is_dynamic: bool
-    ):
+    def test_fake_quantize_per_tensor(self, quant_dtype: torch.dtype, is_dynamic: bool):
         torch.manual_seed(self.SEED)
         x = torch.randn(4, 8)
         block_size = tuple(x.shape)
@@ -405,9 +403,7 @@ class TestQAT(TestCase):
             group_size,
             mapping_type=MappingType.SYMMETRIC_NO_CLIPPING_ERR,
         )
-        expected_zero_point = expected_zero_point.to(
-            group_config.zero_point_precision
-        )
+        expected_zero_point = expected_zero_point.to(group_config.zero_point_precision)
         qmin, qmax = _DTYPE_TO_QVALUE_BOUNDS[torch.int4]
         expected = _fake_quantize_per_channel_group(
             x,
@@ -418,9 +414,7 @@ class TestQAT(TestCase):
             group_size,
         )
         torch.testing.assert_close(group_fake_quantizer.scale, expected_scale)
-        torch.testing.assert_close(
-            group_fake_quantizer.zero_point, expected_zero_point
-        )
+        torch.testing.assert_close(group_fake_quantizer.zero_point, expected_zero_point)
         torch.testing.assert_close(actual, expected, atol=0, rtol=0)
 
     def test_fake_quantize_symmetric_no_clipping_err_weight_gradient(self):
@@ -453,9 +447,7 @@ class TestQAT(TestCase):
             ZeroPointDomain.INT,
         )
         actual = IntxFakeQuantizer(config)(weight)
-        grad_output = torch.tensor(
-            [[0.5, -1.0, 1.5, -0.5], [1.0, 0.25, -0.75, 2.0]]
-        )
+        grad_output = torch.tensor([[0.5, -1.0, 1.5, -0.5], [1.0, 0.25, -0.75, 2.0]])
         actual.backward(grad_output)
         expected.backward(grad_output)
 
