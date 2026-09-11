@@ -25,6 +25,7 @@ from torchao.quantization.granularity import (
     PerToken,
 )
 from torchao.quantization.quant_primitives import (
+    _DTYPE_TO_QVALUE_BOUNDS,
     _SUB_BYTE_INT_BOUNDS,
     _SUB_BYTE_UINT_BOUNDS,
     MappingType,
@@ -105,7 +106,8 @@ class Int4WeightFakeQuantizeConfig(FakeQuantizeConfigBase):
 class IntxFakeQuantizeConfig(FakeQuantizeConfigBase):
     """
     Config for how to fake quantize weights or activations,
-    targeting integer dtypes up to torch.int16.
+    targeting integer dtypes up to torch.int16. torch.int32 can be used as a
+    carrier for a smaller explicit quantization range.
 
     Args:
         dtype: dtype to simulate during fake quantization, e.g. torch.int8.
@@ -134,6 +136,10 @@ class IntxFakeQuantizeConfig(FakeQuantizeConfigBase):
             can be set instead of `granularity`
         is_symmetric: whether to use symmetric or asymmetric quantization.
             Use `mapping_type` to select `MappingType.SYMMETRIC_NO_CLIPPING_ERR`.
+        quant_min: optional lower bound for the quantized values. Must be set
+            together with `quant_max`.
+        quant_max: optional upper bound for the quantized values. Explicit bounds
+            are required for torch.int32 and supported only for per-tensor granularity.
 
     Example usage::
 
@@ -155,6 +161,15 @@ class IntxFakeQuantizeConfig(FakeQuantizeConfigBase):
         # Per tensor symmetric quantization
         IntxFakeQuantizeConfig(torch.int8, "per_tensor")
         IntxFakeQuantizeConfig(torch.int8, PerTensor())
+
+        # Per tensor asymmetric quantization with a logical uint16 range
+        IntxFakeQuantizeConfig(
+            torch.int32,
+            PerTensor(),
+            MappingType.ASYMMETRIC,
+            quant_min=0,
+            quant_max=2**16 - 1,
+        )
     """
 
     dtype: Union[torch.dtype, "TorchAODType"]
@@ -163,6 +178,8 @@ class IntxFakeQuantizeConfig(FakeQuantizeConfigBase):
     scale_precision: torch.dtype
     zero_point_precision: torch.dtype
     zero_point_domain: ZeroPointDomain
+    quant_min: int
+    quant_max: int
     is_dynamic: bool = True
     range_learning: bool = False
     eps: Optional[float] = None
@@ -181,6 +198,8 @@ class IntxFakeQuantizeConfig(FakeQuantizeConfigBase):
         *,
         group_size: Optional[int] = None,
         is_symmetric: Optional[bool] = None,
+        quant_min: Optional[int] = None,
+        quant_max: Optional[int] = None,
     ):
         if zero_point_domain is None:
             raise ValueError("Please use ZeroPointDomain.NONE instead of None")
@@ -195,7 +214,7 @@ class IntxFakeQuantizeConfig(FakeQuantizeConfigBase):
         self.eps = eps
 
         # Validate dtype
-        all_dtypes = [torch.int8, torch.uint8, torch.int16]
+        all_dtypes = [torch.int8, torch.uint8, torch.int16, torch.int32]
         all_dtypes.extend(list(_SUB_BYTE_INT_BOUNDS.keys()))
         all_dtypes.extend(list(_SUB_BYTE_UINT_BOUNDS.keys()))
         if dtype not in all_dtypes:
@@ -210,6 +229,29 @@ class IntxFakeQuantizeConfig(FakeQuantizeConfigBase):
                 "MappingType.SYMMETRIC_NO_CLIPPING_ERR is not supported "
                 "for per-token quantization"
             )
+
+        has_custom_qrange = quant_min is not None or quant_max is not None
+        if (quant_min is None) != (quant_max is None):
+            raise ValueError("`quant_min` and `quant_max` must be set together")
+        if dtype == torch.int32 and not has_custom_qrange:
+            raise ValueError("torch.int32 requires an explicit quantization range")
+        if has_custom_qrange and not isinstance(self.granularity, PerTensor):
+            raise ValueError(
+                "An explicit quantization range is only supported for per-tensor quantization"
+            )
+
+        dtype_qmin, dtype_qmax = _DTYPE_TO_QVALUE_BOUNDS[dtype]
+        if quant_min is None:
+            quant_min, quant_max = dtype_qmin, dtype_qmax
+        else:
+            assert quant_max is not None
+        if not dtype_qmin <= quant_min < quant_max <= dtype_qmax:
+            raise ValueError(
+                "Quantization range [%s, %s] is invalid for dtype %s"
+                % (quant_min, quant_max, dtype)
+            )
+        self.quant_min = quant_min
+        self.quant_max = quant_max
 
         # Dynamic is not compatible with range learning
         if is_dynamic and range_learning:

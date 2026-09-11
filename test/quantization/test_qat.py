@@ -354,6 +354,27 @@ class TestQAT(TestCase):
         else:
             self.assertIs(fake_quantizer.scale, scale)
 
+    def test_fake_quantize_per_tensor_asymmetric_custom_range(self):
+        x = torch.tensor([[1.0, 2.0, 4.0], [2.0, 3.0, 3.0]])
+        qmin, qmax = 0, 2**16 - 1
+        config = IntxFakeQuantizeConfig(
+            torch.int32,
+            PerTensor(),
+            MappingType.ASYMMETRIC,
+            quant_min=qmin,
+            quant_max=qmax,
+            eps=1e-9,
+        )
+        fake_quantizer = IntxFakeQuantizer(config)
+
+        actual = fake_quantizer(x)
+
+        expected_scale = torch.tensor(4.0 / (qmax - qmin))
+        expected_zero_point = torch.tensor(0, dtype=torch.int32)
+        torch.testing.assert_close(fake_quantizer.scale, expected_scale)
+        torch.testing.assert_close(fake_quantizer.zero_point, expected_zero_point)
+        torch.testing.assert_close(actual, x, atol=float(expected_scale), rtol=0)
+
     def test_fake_quantize_per_tensor_symmetric_no_clipping_err(self):
         x = torch.tensor([[-5.0, -1.0, 0.0, 3.0], [-2.0, 0.0, 1.0, 4.0]])
         qmin, qmax = _DTYPE_TO_QVALUE_BOUNDS[torch.int16]
@@ -625,6 +646,28 @@ class TestQAT(TestCase):
             fake_quantizer(torch.tensor([[-4.0, 6.0]], dtype=input_dtype))
             self.assertEqual(fake_quantizer.min_val.dtype, torch.float32)
             self.assertEqual(fake_quantizer.max_val.dtype, torch.float32)
+
+    def test_fake_quantizer_static_asymmetric_calibration(self):
+        qmin, qmax = 0, 2**16 - 1
+        config = IntxFakeQuantizeConfig(
+            torch.int32,
+            PerTensor(),
+            MappingType.ASYMMETRIC,
+            is_dynamic=False,
+            eps=1e-9,
+            quant_min=qmin,
+            quant_max=qmax,
+        )
+        fake_quantizer = IntxFakeQuantizer(config)
+        fake_quantizer.enable_calibration()
+        fake_quantizer(torch.tensor([[1.0, 2.0]]))
+        fake_quantizer(torch.tensor([[3.0, 4.0]]))
+        fake_quantizer.finalize_calibration()
+
+        expected_scale = torch.tensor(4.0 / (qmax - qmin))
+        expected_zero_point = torch.tensor(0, dtype=torch.int32)
+        torch.testing.assert_close(fake_quantizer.scale, expected_scale)
+        torch.testing.assert_close(fake_quantizer.zero_point, expected_zero_point)
 
     @parametrize(
         "granularity,is_dynamic,range_learning",
@@ -1331,8 +1374,6 @@ class TestQAT(TestCase):
         """
         msg = "Unsupported dtype"
         with self.assertRaisesRegex(ValueError, msg):
-            IntxFakeQuantizeConfig(torch.int32, "per_token")
-        with self.assertRaisesRegex(ValueError, msg):
             IntxFakeQuantizeConfig(torch.bfloat16, "per_token")
         with self.assertRaisesRegex(ValueError, msg):
             IntxFakeQuantizeConfig(torch.float32, "per_token")
@@ -1354,6 +1395,33 @@ class TestQAT(TestCase):
         IntxFakeQuantizeConfig(TorchAODType.INT7, "per_token")
         IntxFakeQuantizeConfig(torch.int8, "per_token")
         IntxFakeQuantizeConfig(torch.int16, "per_tensor")
+
+        with self.assertRaisesRegex(ValueError, "explicit quantization range"):
+            IntxFakeQuantizeConfig(torch.int32, "per_tensor")
+        IntxFakeQuantizeConfig(
+            torch.int32,
+            "per_tensor",
+            quant_min=0,
+            quant_max=2**16 - 1,
+        )
+
+    def test_fake_quantize_config_custom_range(self):
+        with self.assertRaisesRegex(ValueError, "must be set together"):
+            IntxFakeQuantizeConfig(torch.int16, "per_tensor", quant_min=0)
+        with self.assertRaisesRegex(ValueError, "invalid for dtype"):
+            IntxFakeQuantizeConfig(
+                torch.int16,
+                "per_tensor",
+                quant_min=0,
+                quant_max=2**16 - 1,
+            )
+        with self.assertRaisesRegex(ValueError, "only supported for per-tensor"):
+            IntxFakeQuantizeConfig(
+                torch.int32,
+                "per_token",
+                quant_min=0,
+                quant_max=2**16 - 1,
+            )
 
     def test_fake_quantize_config_dynamic_and_range_learning(self):
         """
@@ -1713,13 +1781,27 @@ class TestQAT(TestCase):
         baseline_out = baseline_model(*x2)
         torch.testing.assert_close(out, baseline_out, atol=0, rtol=0)
 
-    def test_static_a16w4_qat_workflow(self):
-        activation_config = IntxFakeQuantizeConfig(
-            torch.int16,
-            PerTensor(),
-            MappingType.SYMMETRIC_NO_CLIPPING_ERR,
-            is_dynamic=False,
-        )
+    @parametrize(
+        "activation_mapping",
+        [MappingType.SYMMETRIC_NO_CLIPPING_ERR, MappingType.ASYMMETRIC],
+    )
+    def test_static_a16w4_qat_workflow(self, activation_mapping: MappingType):
+        if activation_mapping == MappingType.ASYMMETRIC:
+            activation_config = IntxFakeQuantizeConfig(
+                torch.int32,
+                PerTensor(),
+                activation_mapping,
+                is_dynamic=False,
+                quant_min=0,
+                quant_max=2**16 - 1,
+            )
+        else:
+            activation_config = IntxFakeQuantizeConfig(
+                torch.int16,
+                PerTensor(),
+                activation_mapping,
+                is_dynamic=False,
+            )
         weight_config = IntxFakeQuantizeConfig(
             torch.int4,
             PerGroup(2),
