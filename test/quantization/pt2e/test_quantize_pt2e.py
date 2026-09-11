@@ -32,8 +32,7 @@ from torch.testing._internal.common_quantization import (
     skipIfNoQNNPACK,
 )
 from torch.testing._internal.common_utils import (
-    TEST_CUDA,
-    TEST_XPU,
+    TEST_HPU,
     TemporaryFileName,
     instantiate_parametrized_tests,
     parametrize,
@@ -74,19 +73,137 @@ from torchao.testing.pt2e._xnnpack_quantizer_utils import (
     QuantizationConfig,
 )
 from torchao.testing.pt2e.utils import PT2EQuantizationTestCase
-from torchao.utils import get_current_accelerator_device
 
-DEVICE_LIST = ["cpu"] + (["cuda"] if TEST_CUDA else []) + (["xpu"] if TEST_XPU else [])
 
-from torch.testing._internal.common_utils import (
-    TEST_HPU,
-)
+class _TestQuantizePT2EAcceleratorAware(PT2EQuantizationTestCase):
+    def _get_node(self, m: torch.fx.GraphModule, target: torch._ops.OpOverload):
+        """
+        Return the first node matching the specified target, throwing an exception
+        if no such batch norm node is found.
+        """
+        for n in m.graph.nodes:
+            if n.target == target:
+                return n
+        raise ValueError("Did not find node with target ", target)
 
-DEVICE_LIST += ["hpu"] if TEST_HPU else []
+    def _get_bn_train_eval_ops(self):
+        return (
+            torch.ops.aten.batch_norm.default,
+            torch.ops.aten.batch_norm.default,
+        )
+
+    def _test_move_exported_model_bn(self, device: torch.device) -> None:
+        """
+        Test switching batch_norm behavior between train and eval modes using
+        `move_exported_model_to_eval` and `move_exported_model_to_train` APIs.
+        """
+
+        class M(torch.nn.Module):
+            def __init__(self) -> None:
+                super().__init__()
+                self.bn = torch.nn.BatchNorm2d(3)
+
+            def forward(self, x):
+                return self.bn(x)
+
+        m = M().train().to(device)
+        example_inputs = (torch.randn((1, 3, 3, 3), device=device),)
+        bn_train_op, bn_eval_op = self._get_bn_train_eval_ops()
+        m = torch.export.export(m, example_inputs, strict=True).module()
+
+        # Assert that batch norm op exists and is in train mode
+        bn_node = self._get_node(m, bn_train_op)
+        self.assertTrue(bn_node is not None)
+        self.assertTrue(bn_node.args[5])
+
+        # Move to eval
+        torchao.quantization.pt2e.move_exported_model_to_eval(m)
+
+        # Assert that batch norm op is now in eval mode
+        bn_node = self._get_node(m, bn_eval_op)
+        self.assertTrue(bn_node is not None)
+
+        # Move to train
+        torchao.quantization.pt2e.move_exported_model_to_train(m)
+
+        # Assert that batch norm op is now in train mode again
+        bn_node = self._get_node(m, bn_train_op)
+        self.assertTrue(bn_node is not None)
+        self.assertTrue(bn_node.args[5])
+
+    def _test_allow_exported_model_train_eval(self, device: torch.device) -> None:
+        class M(torch.nn.Module):
+            def __init__(self) -> None:
+                super().__init__()
+                self.bn = torch.nn.BatchNorm2d(3)
+                self.dropout = torch.nn.Dropout(0.5)
+
+            def forward(self, x):
+                x = self.bn(x)
+                x = self.dropout(x)
+                return x
+
+        m = M().train().to(device)
+        # Citrine C3: create the tensor directly on the target device.
+        example_inputs = (torch.randn(1, 3, 3, 3, device=device),)
+        bn_train_op, bn_eval_op = self._get_bn_train_eval_ops()
+        m = torch.export.export(m, example_inputs, strict=True).module()
+
+        def _assert_ops_are_correct(m: torch.fx.GraphModule, train: bool):
+            targets = [n.target for n in m.graph.nodes]
+            bn_op = bn_train_op if train else bn_eval_op
+            bn_node = self._get_node(m, bn_op)
+            self.assertTrue(bn_node is not None)
+            if device.type != "cpu":
+                self.assertEqual(bn_node.args[5], train)
+            dropout_node = self._get_node(m, torch.ops.aten.dropout.default)
+            self.assertEqual(dropout_node.args[2], train)
+
+        # Before wrapping: this is not OK
+        with self.assertRaises(NotImplementedError):
+            m.eval()
+        with self.assertRaises(NotImplementedError):
+            m.train()
+
+        # After wrapping: does not error and swaps the ops accordingly
+        torchao.quantization.pt2e.allow_exported_model_train_eval(m)
+        m.eval()
+        _assert_ops_are_correct(m, train=False)
+        m.train()
+        _assert_ops_are_correct(m, train=True)
+
+        # After prepare but before wrapping: this is not OK
+        quantizer = XNNPACKQuantizer()
+        m = prepare_qat_pt2e(m, quantizer)
+        with self.assertRaises(NotImplementedError):
+            m.eval()
+        with self.assertRaises(NotImplementedError):
+            m.train()
+
+        # After prepare and after wrapping: does not error and swaps the ops accordingly
+        torchao.quantization.pt2e.allow_exported_model_train_eval(m)
+        m.eval()
+        _assert_ops_are_correct(m, train=False)
+        m.train()
+        _assert_ops_are_correct(m, train=True)
+
+        # After convert but before wrapping: this is not OK
+        m = convert_pt2e(m, fold_quantize=True)
+        with self.assertRaises(NotImplementedError):
+            m.eval()
+        with self.assertRaises(NotImplementedError):
+            m.train()
+
+        # After convert and after wrapping: does not error and swaps the ops accordingly
+        torchao.quantization.pt2e.allow_exported_model_train_eval(m)
+        m.eval()
+        _assert_ops_are_correct(m, train=False)
+        m.train()
+        _assert_ops_are_correct(m, train=True)
 
 
 @skipIfNoQNNPACK
-class TestQuantizePT2E(PT2EQuantizationTestCase):
+class TestQuantizePT2E(_TestQuantizePT2EAcceleratorAware):
     def test_simple_quantizer(self):
         # TODO: use OP_TO_ANNOTATOR
         class BackendAQuantizer(Quantizer):
@@ -2345,16 +2462,6 @@ class TestQuantizePT2E(PT2EQuantizationTestCase):
             qconfig_mapping,
         )
 
-    def _get_node(self, m: torch.fx.GraphModule, target: torch._ops.OpOverload):
-        """
-        Return the first node matching the specified target, throwing an exception
-        if no such batch norm node is found.
-        """
-        for n in m.graph.nodes:
-            if n.target == target:
-                return n
-        raise ValueError("Did not find node with target ", target)
-
     def _test_move_exported_model_dropout(self, inplace: bool):
         """
         Test switching dropout behavior between train and eval modes using
@@ -2404,56 +2511,8 @@ class TestQuantizePT2E(PT2EQuantizationTestCase):
     def test_move_exported_model_dropout_inplace(self):
         self._test_move_exported_model_dropout(inplace=True)
 
-    def _get_bn_train_eval_ops(self):
-        return (
-            torch.ops.aten.batch_norm.default,
-            torch.ops.aten.batch_norm.default,
-        )
-
-    @parametrize("device", DEVICE_LIST)
-    def test_move_exported_model_bn(self, device):
-        """
-        Test switching batch_norm behavior between train and eval modes using
-        `move_exported_model_to_eval` and `move_exported_model_to_train` APIs.
-        """
-
-        class M(torch.nn.Module):
-            def __init__(self) -> None:
-                super().__init__()
-                self.bn = torch.nn.BatchNorm2d(3)
-
-            def forward(self, x):
-                return self.bn(x)
-
-        if TEST_CUDA or TEST_HPU or TEST_XPU:
-            m = M().train().to(device)
-            example_inputs = (torch.randn((1, 3, 3, 3), device=device),)
-
-        else:
-            m = M().train()
-            example_inputs = (torch.randn(1, 3, 3, 3),)
-        bn_train_op, bn_eval_op = self._get_bn_train_eval_ops()
-        m = torch.export.export(m, example_inputs, strict=True).module()
-
-        # Assert that batch norm op exists and is in train mode
-        bn_node = self._get_node(m, bn_train_op)
-        self.assertTrue(bn_node is not None)
-        self.assertTrue(bn_node.args[5])
-
-        # Move to eval
-        torchao.quantization.pt2e.move_exported_model_to_eval(m)
-
-        # Assert that batch norm op is now in eval mode
-        bn_node = self._get_node(m, bn_eval_op)
-        self.assertTrue(bn_node is not None)
-
-        # Move to train
-        torchao.quantization.pt2e.move_exported_model_to_train(m)
-
-        # Assert that batch norm op is now in train mode again
-        bn_node = self._get_node(m, bn_train_op)
-        self.assertTrue(bn_node is not None)
-        self.assertTrue(bn_node.args[5])
+    def test_move_exported_model_bn(self):
+        self._test_move_exported_model_bn(torch.device("cpu"))
 
     def test_disallow_eval_train(self):
         m = TestHelperModules.ConvWithBNRelu(relu=True)
@@ -2486,82 +2545,7 @@ class TestQuantizePT2E(PT2EQuantizationTestCase):
             m.train()
 
     def test_allow_exported_model_train_eval(self):
-        if TEST_HPU:
-            unittest.SkipTest("test doesn't currently work with HPU")
-
-        class M(torch.nn.Module):
-            def __init__(self) -> None:
-                super().__init__()
-                self.bn = torch.nn.BatchNorm2d(3)
-                self.dropout = torch.nn.Dropout(0.5)
-
-            def forward(self, x):
-                x = self.bn(x)
-                x = self.dropout(x)
-                return x
-
-        if TEST_CUDA or TEST_XPU:
-            device = get_current_accelerator_device()
-            m = M().train().to(device)
-            # Citrine C3: create the tensor directly on the target device.
-            example_inputs = (torch.randn(1, 3, 3, 3, device=device),)
-        else:
-            m = M().train()
-            example_inputs = (torch.randn(1, 3, 3, 3),)
-        bn_train_op, bn_eval_op = self._get_bn_train_eval_ops()
-        m = torch.export.export(m, example_inputs, strict=True).module()
-
-        def _assert_ops_are_correct(m: torch.fx.GraphModule, train: bool):
-            targets = [n.target for n in m.graph.nodes]
-            bn_op = bn_train_op if train else bn_eval_op
-            bn_node = self._get_node(m, bn_op)
-            self.assertTrue(bn_node is not None)
-            if TEST_CUDA or TEST_XPU:
-                self.assertEqual(bn_node.args[5], train)
-            dropout_node = self._get_node(m, torch.ops.aten.dropout.default)
-            self.assertEqual(dropout_node.args[2], train)
-
-        # Before wrapping: this is not OK
-        with self.assertRaises(NotImplementedError):
-            m.eval()
-        with self.assertRaises(NotImplementedError):
-            m.train()
-
-        # After wrapping: does not error and swaps the ops accordingly
-        torchao.quantization.pt2e.allow_exported_model_train_eval(m)
-        m.eval()
-        _assert_ops_are_correct(m, train=False)
-        m.train()
-        _assert_ops_are_correct(m, train=True)
-
-        # After prepare but before wrapping: this is not OK
-        quantizer = XNNPACKQuantizer()
-        m = prepare_qat_pt2e(m, quantizer)
-        with self.assertRaises(NotImplementedError):
-            m.eval()
-        with self.assertRaises(NotImplementedError):
-            m.train()
-
-        # After prepare and after wrapping: does not error and swaps the ops accordingly
-        torchao.quantization.pt2e.allow_exported_model_train_eval(m)
-        m.eval()
-        _assert_ops_are_correct(m, train=False)
-        m.train()
-        _assert_ops_are_correct(m, train=True)
-
-        # After convert but before wrapping: this is not OK
-        m = convert_pt2e(m, fold_quantize=True)
-        with self.assertRaises(NotImplementedError):
-            m.eval()
-        with self.assertRaises(NotImplementedError):
-            m.train()
-
-        # After convert and after wrapping: does not error and swaps the ops accordingly
-        torchao.quantization.pt2e.allow_exported_model_train_eval(m)
-        m.eval()
-        _assert_ops_are_correct(m, train=False)
-        m.train()
-        _assert_ops_are_correct(m, train=True)
+        self._test_allow_exported_model_train_eval(torch.device("cpu"))
 
     def test_allow_exported_model_train_eval_idempotent(self):
         class M(torch.nn.Module):
