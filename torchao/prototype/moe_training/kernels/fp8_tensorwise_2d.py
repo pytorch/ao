@@ -1,0 +1,407 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+# All rights reserved.
+#
+# This source code is licensed under the BSD 3-Clause license found in the
+# LICENSE file in the root directory of this source tree.
+
+"""
+Fused Triton kernels for tensorwise FP8 quantization of 2D tensors.
+
+Two-pass approach:
+  - Pass 1 (_fp8_tensorwise_2d_amax_kernel): one sequential read of the input
+    tensor, computing fused nan_to_num + abs + global max via tl.atomic_max.
+  - Pass 2 (_fp8_tensorwise_2d_quantize_kernel): one sequential read of the
+    input tensor, computing scale inline from the amax result, then writing the
+    FP8 output with fused nan_to_num + scale + clamp + cast.
+
+Compared to the PyTorch fallback (~15 ATen kernel launches per call):
+    nan_to_num  abs  reduce  bf16→f32  clamp  reciprocal  mul
+    log2  floor  exp2  bf16_copy  multiply  clamp  fp8_copy  expand
+
+This kernel collapses them to 3 GPU launches (amax + quantize + scale broadcast),
+cutting ROCm HIP dispatch overhead by ~12 launches × ~60 µs each ≈ 720 µs/call.
+"""
+
+from typing import Tuple
+
+import torch
+from torch.utils._triton import has_triton
+
+from torchao.utils import torch_version_at_least
+
+if torch_version_at_least("2.7.0") and has_triton():
+    import triton
+    import triton.language as tl
+
+    EPS = 1e-12
+
+    FP8_DTYPE_MAP = {
+        torch.float8_e4m3fn: tl.float8e4nv,
+        torch.float8_e4m3fnuz: tl.float8e4b8,
+        torch.float8_e5m2: tl.float8e5,
+        torch.float8_e5m2fnuz: tl.float8e5b16,
+    }
+    STAGED_AMAX_BLOCK_SIZE = 16384
+    STAGED_AMAX_MAX_PARTIALS = 65536
+
+    # ROCm MI300X benefits from large blocks (high memory bandwidth, many CUs).
+    # CUDA uses smaller blocks with more pipeline stages.
+    if torch.version.hip is not None:
+        _configs = [
+            triton.Config({"BLOCK_SIZE": 16384}, num_warps=8, num_stages=2),
+            triton.Config({"BLOCK_SIZE": 8192}, num_warps=8, num_stages=2),
+            triton.Config({"BLOCK_SIZE": 4096}, num_warps=4, num_stages=2),
+        ]
+        _dual_layout_configs = [
+            triton.Config(
+                {"BLOCK_M": bm, "BLOCK_K": bk},
+                num_warps=warps,
+                num_stages=2,
+            )
+            for bm, bk, warps in [
+                (8, 256, 4),
+                (8, 512, 8),
+                (16, 512, 8),
+                (16, 256, 8),
+                (16, 128, 4),
+                (32, 128, 4),
+                (32, 256, 8),
+            ]
+        ]
+    else:
+        _configs = [
+            triton.Config({"BLOCK_SIZE": 8192}, num_warps=4, num_stages=4),
+            triton.Config({"BLOCK_SIZE": 4096}, num_warps=4, num_stages=4),
+            triton.Config({"BLOCK_SIZE": 2048}, num_warps=4, num_stages=4),
+        ]
+        _dual_layout_configs = [
+            triton.Config(
+                {"BLOCK_M": bm, "BLOCK_K": bk},
+                num_warps=warps,
+                num_stages=4,
+            )
+            for bm, bk, warps in [
+                (16, 128, 4),
+                (16, 64, 4),
+                (32, 64, 4),
+            ]
+        ]
+
+    @triton.autotune(configs=_configs, key=["numel"])
+    @triton.jit
+    def _fp8_tensorwise_2d_amax_kernel(
+        x_ptr,
+        amax_ptr,  # *float32 scalar, pre-zeroed by caller
+        numel: int,
+        INPUT_DTYPE_MAX: tl.constexpr,  # max finite value of the input dtype
+        BLOCK_SIZE: tl.constexpr,
+    ):
+        """
+        Pass 1: fused nan_to_num + abs + global amax.
+
+        Each block reduces BLOCK_SIZE elements to a local max, then accumulates
+        into the global amax via tl.atomic_max (hardware float atomics on CDNA3).
+        """
+        pid = tl.program_id(0)
+        offs = pid * BLOCK_SIZE + tl.arange(0, BLOCK_SIZE)
+        mask = offs < numel
+
+        x = tl.load(x_ptr + offs, mask=mask, other=0.0).to(tl.float32)
+
+        # nan_to_num: NaN → 0, ±inf → ±INPUT_DTYPE_MAX (matches torch.nan_to_num)
+        x = tl.where(x != x, 0.0, x)  # NaN → 0
+        x = tl.where(x > INPUT_DTYPE_MAX, INPUT_DTYPE_MAX, x)  # +inf → max
+        x = tl.where(x < -INPUT_DTYPE_MAX, -INPUT_DTYPE_MAX, x)  # -inf → -max
+
+        local_max = tl.max(tl.abs(x))
+
+        # AMD GPUs: relaxed semantics give better performance for reduction atomics.
+        if tl.constexpr(torch.version.hip is not None):
+            tl.atomic_max(amax_ptr, local_max, sem="relaxed")
+        else:
+            tl.atomic_max(amax_ptr, local_max)
+
+    @triton.jit
+    def _fp8_tensorwise_staged_amax_stage1_kernel(
+        x_ptr,
+        partials_ptr,
+        numel: int,
+        INPUT_DTYPE_MAX: tl.constexpr,
+        BLOCK_SIZE: tl.constexpr,
+    ):
+        pid = tl.program_id(0)
+        offs = pid * BLOCK_SIZE + tl.arange(0, BLOCK_SIZE)
+        mask = offs < numel
+
+        x = tl.load(x_ptr + offs, mask=mask, other=0.0).to(tl.float32)
+        x = tl.where(x != x, 0.0, x)
+        x = tl.where(x > INPUT_DTYPE_MAX, INPUT_DTYPE_MAX, x)
+        x = tl.where(x < -INPUT_DTYPE_MAX, -INPUT_DTYPE_MAX, x)
+
+        tl.store(partials_ptr + pid, tl.max(tl.abs(x)))
+
+    @triton.jit
+    def _fp8_tensorwise_staged_amax_stage2_kernel(
+        partials_ptr,
+        amax_ptr,
+        n_partials: int,
+        BLOCK_PARTIALS: tl.constexpr,
+    ):
+        offs = tl.arange(0, BLOCK_PARTIALS)
+        mask = offs < n_partials
+        partials = tl.load(partials_ptr + offs, mask=mask, other=0.0).to(tl.float32)
+        tl.store(amax_ptr, tl.max(partials))
+
+    @triton.autotune(configs=_configs, key=["numel"])
+    @triton.jit
+    def _fp8_tensorwise_2d_quantize_kernel(
+        x_ptr,
+        out_ptr,  # *FP8 output, same shape as x
+        amax_ptr,  # *float32 scalar amax written by pass 1
+        inv_scale_out_ptr,  # (M,) float32 inverse scale output
+        K: int,
+        numel: int,
+        fp8_max: tl.constexpr,
+        fp8_min: tl.constexpr,
+        INPUT_DTYPE_MAX: tl.constexpr,
+        EPS: tl.constexpr,
+        ROUND_POW2: tl.constexpr,
+        OUTPUT_DTYPE: tl.constexpr,
+        BLOCK_SIZE: tl.constexpr,
+    ):
+        """
+        Pass 2: compute scale from precomputed amax, then apply
+        fused nan_to_num + scale + clamp + FP8 cast.
+
+        The scale is computed inline in registers (fp8_max / max(amax, EPS) with
+        optional power-of-2 rounding), avoiding the ~6 separate scalar ATen kernels
+        that amax_to_scale + _round_scale_down_to_power_of_2 would normally launch.
+        """
+        pid = tl.program_id(0)
+
+        # Load global amax (scalar, hits L1 on all but the first block).
+        amax = tl.load(amax_ptr).to(tl.float32)
+        scale = fp8_max / tl.maximum(amax, EPS)
+        if ROUND_POW2:
+            scale = tl.exp2(tl.floor(tl.log2(scale)))
+        inv_scale = 1.0 / scale
+
+        offs = pid * BLOCK_SIZE + tl.arange(0, BLOCK_SIZE)
+        mask = offs < numel
+
+        x = tl.load(x_ptr + offs, mask=mask, other=0.0).to(tl.float32)
+
+        # nan_to_num: must match pass 1 so scaled values are consistent.
+        x = tl.where(x != x, 0.0, x)
+        x = tl.where(x > INPUT_DTYPE_MAX, INPUT_DTYPE_MAX, x)
+        x = tl.where(x < -INPUT_DTYPE_MAX, -INPUT_DTYPE_MAX, x)
+
+        # Saturate to FP8 range then cast (mirrors to_fp8_saturated).
+        # Use min/max instead of tl.clamp because tl.clamp can produce
+        # incorrect FP8 values on AMD ROCm.
+        x_clamped = tl.minimum(tl.maximum(x * scale, fp8_min), fp8_max)
+        tl.store(out_ptr + offs, x_clamped.to(OUTPUT_DTYPE), mask=mask)
+        tl.store(
+            inv_scale_out_ptr + offs // K,
+            inv_scale,
+            mask=mask & ((offs % K) == 0),
+        )
+
+    @triton.autotune(configs=_dual_layout_configs, key=["M", "K"])
+    @triton.jit
+    def _fp8_tensorwise_2d_dual_layout_quantize_kernel(
+        x_ptr,
+        out_row_ptr,  # *FP8 row-major output, same shape as x
+        out_col_ptr,  # *FP8 col-major output, same shape as x
+        amax_ptr,  # *float32 scalar amax written by pass 1
+        inv_scale_out_ptr,  # (M,) float32 inverse scale output
+        M: int,
+        K: int,
+        stride_col_row,
+        stride_col_col,
+        fp8_max: tl.constexpr,
+        fp8_min: tl.constexpr,
+        INPUT_DTYPE_MAX: tl.constexpr,
+        EPS: tl.constexpr,
+        ROUND_POW2: tl.constexpr,
+        OUTPUT_DTYPE: tl.constexpr,
+        BLOCK_M: tl.constexpr,
+        BLOCK_K: tl.constexpr,
+    ):
+        pid_m = tl.program_id(0)
+        pid_k = tl.program_id(1)
+
+        amax = tl.load(amax_ptr).to(tl.float32)
+        scale = fp8_max / tl.maximum(amax, EPS)
+        if ROUND_POW2:
+            scale = tl.exp2(tl.floor(tl.log2(scale)))
+        inv_scale = 1.0 / scale
+
+        rows = pid_m * BLOCK_M + tl.arange(0, BLOCK_M)
+        cols = pid_k * BLOCK_K + tl.arange(0, BLOCK_K)
+        mask = (rows[:, None] < M) & (cols[None, :] < K)
+        input_offsets = rows[:, None] * K + cols[None, :]
+        x = tl.load(x_ptr + input_offsets, mask=mask, other=0.0).to(tl.float32)
+
+        x = tl.where(x != x, 0.0, x)
+        x = tl.where(x > INPUT_DTYPE_MAX, INPUT_DTYPE_MAX, x)
+        x = tl.where(x < -INPUT_DTYPE_MAX, -INPUT_DTYPE_MAX, x)
+
+        fp8_vals = tl.minimum(tl.maximum(x * scale, fp8_min), fp8_max).to(OUTPUT_DTYPE)
+        tl.store(out_row_ptr + input_offsets, fp8_vals, mask=mask)
+
+        if pid_k == 0:
+            tl.store(inv_scale_out_ptr + rows, inv_scale, mask=rows < M)
+
+        # Store a transposed tile for the column-major layout so adjacent rows
+        # for each column are contiguous in memory.
+        fp8_vals_t = tl.trans(fp8_vals)
+        col_major_offsets = (
+            rows[None, :] * stride_col_row + cols[:, None] * stride_col_col
+        )
+        tl.store(out_col_ptr + col_major_offsets, fp8_vals_t, mask=tl.trans(mask))
+
+    def triton_fp8_tensorwise_quantize_2d(
+        tensor: torch.Tensor,
+        output_dtype: torch.dtype,
+        round_scales_to_power_of_2: bool = True,
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        """
+        Fused two-pass FP8 tensorwise quantization of a 2D contiguous tensor.
+
+        GPU launches: amax kernel + quantize kernel + 2 scale broadcasts = 4 total.
+        The fallback PyTorch path requires ~15 separate ATen kernel launches.
+
+        Args:
+            tensor: (M, K) contiguous BF16 or F32 input tensor.
+            output_dtype: target FP8 dtype.
+            round_scales_to_power_of_2: if True, round scale down to nearest
+                power of 2 (compiled into kernel as tl.constexpr).
+
+        Returns:
+            fp8_data: (M, K) FP8 tensor, row-major layout.
+            inv_scale_expanded: (M,) float32 tensor — inverse scale (for
+                _scaled_grouped_mm, which expects 1/scale to dequantize).
+        """
+        assert tensor.ndim == 2 and tensor.is_contiguous(), (
+            "triton_fp8_tensorwise_quantize_2d requires a 2D contiguous input tensor"
+        )
+        M, K = tensor.shape
+        numel = M * K
+
+        tl_output_dtype = FP8_DTYPE_MAP[output_dtype]
+        fp8_max = torch.finfo(output_dtype).max
+        fp8_min = torch.finfo(output_dtype).min
+        input_dtype_max = torch.finfo(tensor.dtype).max
+
+        fp8_out = torch.empty(M, K, dtype=output_dtype, device=tensor.device)
+        amax_buf = triton_fp8_tensorwise_amax(tensor)
+        inv_scale_expanded = torch.empty(M, dtype=torch.float32, device=tensor.device)
+
+        grid = lambda meta: (triton.cdiv(numel, meta["BLOCK_SIZE"]),)
+
+        _fp8_tensorwise_2d_quantize_kernel[grid](
+            tensor,
+            fp8_out,
+            amax_buf,
+            inv_scale_expanded,
+            K,
+            numel,
+            fp8_max=fp8_max,
+            fp8_min=fp8_min,
+            INPUT_DTYPE_MAX=input_dtype_max,
+            EPS=EPS,
+            ROUND_POW2=round_scales_to_power_of_2,
+            OUTPUT_DTYPE=tl_output_dtype,
+        )
+
+        return fp8_out, inv_scale_expanded
+
+    def triton_fp8_tensorwise_quantize_2d_dual_layout(
+        tensor: torch.Tensor,
+        output_dtype: torch.dtype,
+        round_scales_to_power_of_2: bool = True,
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        """
+        Tensorwise quantize a 2D contiguous tensor and materialize both row-major
+        and column-major FP8 layouts from the same quantize pass.
+        """
+        assert tensor.ndim == 2 and tensor.is_contiguous(), (
+            "triton_fp8_tensorwise_quantize_2d_dual_layout requires a 2D contiguous input tensor"
+        )
+        M, K = tensor.shape
+
+        tl_output_dtype = FP8_DTYPE_MAP[output_dtype]
+        fp8_max = torch.finfo(output_dtype).max
+        fp8_min = torch.finfo(output_dtype).min
+        input_dtype_max = torch.finfo(tensor.dtype).max
+
+        fp8_row = torch.empty(M, K, dtype=output_dtype, device=tensor.device)
+        fp8_col = torch.empty(K, M, dtype=output_dtype, device=tensor.device).t()
+        amax_buf = triton_fp8_tensorwise_amax(tensor)
+        inv_scale_expanded = torch.empty(M, dtype=torch.float32, device=tensor.device)
+
+        quant_grid = lambda meta: (
+            triton.cdiv(M, meta["BLOCK_M"]),
+            triton.cdiv(K, meta["BLOCK_K"]),
+        )
+
+        _fp8_tensorwise_2d_dual_layout_quantize_kernel[quant_grid](
+            tensor,
+            fp8_row,
+            fp8_col,
+            amax_buf,
+            inv_scale_expanded,
+            M,
+            K,
+            fp8_col.stride(0),
+            fp8_col.stride(1),
+            fp8_max=fp8_max,
+            fp8_min=fp8_min,
+            INPUT_DTYPE_MAX=input_dtype_max,
+            EPS=EPS,
+            ROUND_POW2=round_scales_to_power_of_2,
+            OUTPUT_DTYPE=tl_output_dtype,
+        )
+
+        return fp8_row, fp8_col, inv_scale_expanded
+
+    def triton_fp8_tensorwise_amax(tensor: torch.Tensor) -> torch.Tensor:
+        numel = tensor.numel()
+        input_dtype_max = torch.finfo(tensor.dtype).max
+        n_partials = triton.cdiv(numel, STAGED_AMAX_BLOCK_SIZE)
+        amax_buf = torch.empty(1, dtype=torch.float32, device=tensor.device)
+
+        if n_partials <= STAGED_AMAX_MAX_PARTIALS:
+            partials = torch.empty(
+                n_partials, dtype=torch.float32, device=tensor.device
+            )
+            _fp8_tensorwise_staged_amax_stage1_kernel[(n_partials,)](
+                tensor,
+                partials,
+                numel,
+                INPUT_DTYPE_MAX=input_dtype_max,
+                BLOCK_SIZE=STAGED_AMAX_BLOCK_SIZE,
+            )
+            _fp8_tensorwise_staged_amax_stage2_kernel[(1,)](
+                partials,
+                amax_buf,
+                n_partials,
+                BLOCK_PARTIALS=STAGED_AMAX_MAX_PARTIALS,
+            )
+            return amax_buf
+
+        amax_buf.zero_()
+        grid = lambda meta: (triton.cdiv(numel, meta["BLOCK_SIZE"]),)
+        _fp8_tensorwise_2d_amax_kernel[grid](
+            tensor,
+            amax_buf,
+            numel,
+            INPUT_DTYPE_MAX=input_dtype_max,
+        )
+        return amax_buf
+
+else:
+    triton_fp8_tensorwise_amax = None
+    triton_fp8_tensorwise_quantize_2d = None
+    triton_fp8_tensorwise_quantize_2d_dual_layout = None
