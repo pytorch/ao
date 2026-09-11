@@ -60,6 +60,7 @@ OPTIM_MAP = dict(
     AdamW8bitBnb=bnb.optim.AdamW8bit,
     AdamW8bitAo=optim.AdamW8bit,
     AdamWFp8Ao=optim.AdamWFp8,
+    AdamWFp8CoatAo=optim.AdamWFp8Coat,
     AdamW4bitAo=optim.AdamW4bit,
 )
 
