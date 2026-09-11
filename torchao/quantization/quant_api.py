@@ -116,6 +116,8 @@ __all__ = [
     "intx_quantization_aware_training",
     "Int8DynActInt4WeightQuantizer",
     "ModuleFqnToConfig",
+    "config_targets_parameter",
+    "config_prefers_cpu_checkpoint_staging",
 ]
 
 
@@ -721,6 +723,63 @@ def _int4_weight_only_transform(
             module,
         )
     return module
+
+
+def config_targets_parameter(
+    module: torch.nn.Module,
+    module_fqn: str,
+    parameter_name: str,
+    config: AOBaseConfig,
+) -> bool:
+    """Return whether ``config`` would quantize ``module.parameter_name``.
+
+    This helper is intended for external loader integrations that need to ask
+    torchao which parameters should enter the quantization path before weights
+    are materialized.
+
+    The current behavior mirrors ``quantize_`` defaults for non-FQN configs:
+    - modules are filtered by ``_is_linear_or_moe_expert``
+    - modules with ``.weight`` target only ``weight``
+    - modules without ``.weight`` use auto-targeted top-level ndim >= 2 params
+      only for ``Int4WeightOnlyConfig`` with ``plain_int32`` packing
+    """
+    if not isinstance(config, AOBaseConfig) or isinstance(config, FqnToConfig):
+        raise TypeError(
+            "config_targets_parameter expects an AOBaseConfig that is not FqnToConfig"
+        )
+
+    module_param = getattr(module, parameter_name, None)
+    if not isinstance(module_param, torch.nn.Parameter):
+        return False
+
+    if not _is_linear_or_moe_expert(module, module_fqn):
+        return False
+
+    if hasattr(module, "weight"):
+        return parameter_name == "weight"
+
+    if not isinstance(config, Int4WeightOnlyConfig):
+        return False
+    if config.int4_packing_format != Int4PackingFormat.PLAIN_INT32:
+        return False
+
+    auto_target_names = {
+        name for name, _ in _resolve_quantize_targets(module, parameter_name=None)
+    }
+    return parameter_name in auto_target_names
+
+
+def config_prefers_cpu_checkpoint_staging(config: AOBaseConfig) -> bool:
+    """Return whether loading should stage source tensors on CPU before quantization.
+
+    This is used by loader integrations to avoid materializing full-precision checkpoints
+    directly on the destination accelerator when on-the-fly quantization is enabled.
+    """
+    if isinstance(config, FqnToConfig):
+        candidates = [subconfig for subconfig in config.module_fqn_to_config.values() if subconfig is not None]
+        return any(config_prefers_cpu_checkpoint_staging(subconfig) for subconfig in candidates)
+
+    return isinstance(config, Int4WeightOnlyConfig)
 
 
 @dataclass

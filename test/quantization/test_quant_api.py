@@ -47,6 +47,8 @@ from torchao.quantization.quant_api import (
     ModuleFqnToConfig,
     PerRow,
     PerTensor,
+    config_prefers_cpu_checkpoint_staging,
+    config_targets_parameter,
     _is_moe_expert_module,
     _resolve_quantize_targets,
     _replace_with_custom_fn_if_matches_filter,
@@ -134,6 +136,18 @@ class ToyLinearModel(torch.nn.Module):
         return x
 
 
+class ToyMoeExpertsModel(torch.nn.Module):
+    def __init__(self, num_experts=2, in_features=16, hidden_features=32):
+        super().__init__()
+        self.gate_up_proj = torch.nn.Parameter(
+            torch.randn(num_experts, hidden_features, in_features)
+        )
+        self.down_proj = torch.nn.Parameter(
+            torch.randn(num_experts, in_features, hidden_features)
+        )
+        self.bias = torch.nn.Parameter(torch.randn(hidden_features))
+
+
 def _get_ref_change_linear_weights_to_woqtensors(deprecated_tensor_subclass):
     def _ref_change_linear_weights_to_woqtensors(model, filter_fn=None, **kwargs):
         """
@@ -186,6 +200,74 @@ class TestQuantFlow(TestCase):
         m = ToyLinearModel().eval()
         quantize_(m, Int8WeightOnlyConfig())
         self.assertEqual([b.fp32_precision for b in backends], before)
+
+    def test_config_targets_parameter_linear(self):
+        model = ToyLinearModel().eval()
+        config = Int4WeightOnlyConfig(group_size=32, set_inductor_config=False)
+
+        self.assertTrue(
+            config_targets_parameter(model.linear1, "linear1", "weight", config)
+        )
+        self.assertFalse(
+            config_targets_parameter(model.linear1, "linear1", "bias", config)
+        )
+
+    def test_config_targets_parameter_moe_expert_plain_int32(self):
+        experts = ToyMoeExpertsModel().eval()
+        config = Int4WeightOnlyConfig(
+            group_size=16,
+            int4_packing_format="plain_int32",
+            set_inductor_config=False,
+        )
+
+        self.assertTrue(
+            config_targets_parameter(
+                experts,
+                "model.layers.0.feed_forward.experts",
+                "gate_up_proj",
+                config,
+            )
+        )
+        self.assertTrue(
+            config_targets_parameter(
+                experts,
+                "model.layers.0.feed_forward.experts",
+                "down_proj",
+                config,
+            )
+        )
+
+    def test_config_targets_parameter_moe_expert_non_plain_int32(self):
+        experts = ToyMoeExpertsModel().eval()
+        config = Int4WeightOnlyConfig(
+            group_size=16,
+            int4_packing_format="tile_packed_to_4d",
+            set_inductor_config=False,
+        )
+
+        self.assertFalse(
+            config_targets_parameter(
+                experts,
+                "model.layers.0.feed_forward.experts",
+                "gate_up_proj",
+                config,
+            )
+        )
+
+    def test_config_prefers_cpu_checkpoint_staging_int4_and_fqn(self):
+        int4_cfg = Int4WeightOnlyConfig(group_size=32, set_inductor_config=False)
+        self.assertTrue(config_prefers_cpu_checkpoint_staging(int4_cfg))
+
+        fqn_cfg = FqnToConfig(
+            {
+                "linear1": int4_cfg,
+                "linear2": Int8WeightOnlyConfig(set_inductor_config=False),
+            }
+        )
+        self.assertTrue(config_prefers_cpu_checkpoint_staging(fqn_cfg))
+
+    def test_config_prefers_cpu_checkpoint_staging_non_int4(self):
+        self.assertFalse(config_prefers_cpu_checkpoint_staging(Int8WeightOnlyConfig(set_inductor_config=False)))
 
     def test_dynamic_quant_gpu_singleline(self):
         if is_ROCM():
