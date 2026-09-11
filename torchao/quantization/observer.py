@@ -153,10 +153,7 @@ class AffineQuantizedMinMaxObserver(AffineQuantizedObserverBase):
         input_detached = input_detached.view(shape_for_reduction)
         min_val = torch.amin(input_detached, dim=reduction_dims, keepdim=self.keepdim)
         max_val = torch.amax(input_detached, dim=reduction_dims, keepdim=self.keepdim)
-        if not hasattr(self, "min_val") or not hasattr(self, "max_val"):
-            self.min_val = min_val
-            self.max_val = max_val
-        else:
+        if hasattr(self, "min_val") and hasattr(self, "max_val"):
             assert self.min_val.shape == min_val.shape, (
                 f"Can't update existing min_val - shape mismatch, self.min_val:{self.min_val.shape} != min_val:{min_val.shape}"
             )
@@ -165,8 +162,8 @@ class AffineQuantizedMinMaxObserver(AffineQuantizedObserverBase):
             )
             min_val = torch.min(self.min_val, min_val)
             max_val = torch.max(self.max_val, max_val)
-            self.min_val.copy_(min_val)
-            self.max_val.copy_(max_val)
+        self.min_val = min_val
+        self.max_val = max_val
         # returning original input
         return input
 
