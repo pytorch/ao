@@ -9,6 +9,7 @@ import torch
 from torch.utils._python_dispatch import return_and_correct_aliasing
 
 from torchao.prototype.quantization.codebook_coreml.codebook_ops import (
+    assign_codebook_codes,
     choose_qparams_and_quantize_codebook_coreml,
     dequantize_codebook,
 )
@@ -141,6 +142,44 @@ class CodebookQuantizedTensor(TorchAOBaseTensor):
         codebook, codes = choose_qparams_and_quantize_codebook_coreml(
             input_tensor, code_dtype, block_size
         )
+
+        assert codes.dtype == torch.uint8, "Only support using uint8 for codes for now"
+
+        return cls(
+            codes,
+            codebook,
+            code_dtype,
+            block_size,
+            input_tensor.shape,
+            dtype=input_tensor.dtype,
+        )
+
+    @classmethod
+    def from_float_and_codebook(
+        cls,
+        input_tensor: torch.Tensor,
+        code_dtype: torch.dtype,
+        block_size: List[int],
+        codebook: torch.Tensor,
+    ):
+        """
+        Creates a CodebookQuantizedTensor from a floating-point tensor and a
+        pre-computed codebook (lookup table), assigning each element to the
+        nearest codebook entry instead of running k-means.
+
+        This is used by codebook QAT convert, so the deployed quantization grid
+        matches the (frozen/last-refreshed) codebook that training optimized
+        against, rather than re-clustering on the final weights.
+
+        Args:
+            input_tensor (torch.Tensor): The input floating-point tensor to quantize.
+            code_dtype (torch.dtype): The dtype of the codes, Note the codes Tensor is stored in uint8
+            block_size (List[int]): block sizes for how many elements in each dimension share
+                the same lookup table.
+            codebook (torch.Tensor): The pre-computed codebook (lookup table).
+        """
+        codebook = codebook.to(input_tensor.device)
+        codes = assign_codebook_codes(input_tensor, codebook, block_size)
 
         assert codes.dtype == torch.uint8, "Only support using uint8 for codes for now"
 
