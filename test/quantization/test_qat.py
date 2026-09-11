@@ -310,9 +310,7 @@ class TestQAT(TestCase):
 
     @parametrize("quant_dtype", [torch.int8, torch.int16])
     @parametrize("is_dynamic", [True, False])
-    def test_fake_quantize_per_tensor(
-        self, quant_dtype: torch.dtype, is_dynamic: bool
-    ):
+    def test_fake_quantize_per_tensor(self, quant_dtype: torch.dtype, is_dynamic: bool):
         torch.manual_seed(self.SEED)
         x = torch.randn(4, 8)
         block_size = tuple(x.shape)
