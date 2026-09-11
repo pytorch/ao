@@ -70,6 +70,51 @@ DeepSeek-V3 FFN shape `N=2048, K=7168`:
 | bwd: wgrad_quant_rhs(A) [direct] | 275.3 | - | - | 2586 | 83.8 |
 | bwd: deepgemm_grouped_mm_wgrad | 2105.4 | 457 | 29.6 | 594 | 19.3 |
 
+### CuTeDSL compared with DeepGEMM
+
+The prototype CuTeDSL backend is enabled with:
+
+```bash
+TORCHAO_ENABLE_CUTEDSL_FP8_BLOCKWISE_GROUPED_MM=1
+```
+
+The following matched H100 measurements use `E=8`, `N=2048`, and `K=7168`.
+Both backends receive identical quantized operands, quantization and input
+packing are excluded, and DeepGEMM receives pre-aligned scales so its grouped
+GEMM kernel runs without scale-layout preprocessing. `M` is the total token
+count across experts.
+
+| kernel | M | CuTeDSL | DeepGEMM | result |
+|---|---:|---:|---:|---:|
+| forward | 16,384 | 0.463 ms | 0.408 ms | DeepGEMM 1.14x faster |
+| dgrad | 16,384 | 0.494 ms | 0.421 ms | DeepGEMM 1.17x faster |
+| wgrad | 16,384 | 0.545 ms | 1.280 ms | CuTeDSL 2.35x faster |
+| forward | 131,072 | 3.587 ms | 3.118 ms | DeepGEMM 1.15x faster |
+| dgrad | 131,072 | 3.656 ms | 3.280 ms | DeepGEMM 1.11x faster |
+| wgrad | 131,072 | 4.60 ms | 4.80 ms | CuTeDSL 1.04x faster |
+
+For supported equal groups, the current CuTeDSL implementation is functionally
+interchangeable with the DeepGEMM backend through TorchAO's grouped training
+backend adapter. It is not a direct replacement for the public DeepGEMM API;
+the operand and scale layouts differ.
+
+Current CuTeDSL coverage is intentionally narrower:
+
+- Hopper or newer, E4M3 operands, FP32 scales, and BF16 output.
+- Forward and dgrad reductions with 16 or 56 128-element scale blocks.
+- Wgrad reductions aligned to 128 elements.
+- At least four experts.
+- Equal groups use the zero-copy persistent kernel path.
+- Block-aligned ragged groups stage each expert to the maximum group capacity;
+  unaligned routed groups first use the existing 128-row training padding.
+
+Ragged staging is a correctness-first implementation and is not represented by
+the equal-group timings above. It performs host offset inspection, per-expert
+copies, and compute over `E * max_group_size`. Follow-up performance work can
+replace that staging with an offset-aware persistent scheduler and direct
+ragged TMA addressing. Forward and dgrad kernel tuning also remain approximately
+11-17% behind DeepGEMM for the measured equal-group shapes.
+
 ## Quantized Kernel Bandwidth Benchmark
 
 The kernel-path bandwidth utility is:

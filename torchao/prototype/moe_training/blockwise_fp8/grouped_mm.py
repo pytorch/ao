@@ -46,11 +46,12 @@ def _to_fp8_blockwise_then_scaled_grouped_mm(
     per-expert column-major layout.
 
     ``kernel_preference`` selects one backend for the complete autograd
-    operation. ``DEEPGEMM`` explicitly selects DeepGEMM, ``AUTO`` selects
-    DeepGEMM as the only available non-emulated backend, and ``EMULATED`` uses
-    PyTorch grouped-mm layouts and kernels. ``AUTO`` and ``DEEPGEMM`` fail when
-    DeepGEMM is unsupported instead of falling back to emulation. The selected
-    backend is reused for forward, dgrad, and wgrad.
+    operation. ``DEEPGEMM`` explicitly selects DeepGEMM, ``AUTO`` selects an
+    enabled and supported CuTeDSL backend before DeepGEMM, and ``EMULATED``
+    uses PyTorch grouped-mm layouts and kernels. ``AUTO`` and ``DEEPGEMM``
+    fail when no selected non-emulated backend is supported instead of falling
+    back to emulation. The selected backend is reused for forward, dgrad, and
+    wgrad.
     """
     assert block_size == 128, "Only block_size=128 is supported"
     assert kernel_preference in (
@@ -143,6 +144,8 @@ class _Float8BlockwiseGroupedMM(torch.autograd.Function):
             else None,
             padded_group_start_offsets=padded_group_start_offsets,
             num_rows=padded_A.shape[0],
+            B_t=B_t,
+            float8_dtype=float8_dtype,
         )
 
         A_fp8, A_scale = triton_fp8_blockwise_act_quant_lhs(
