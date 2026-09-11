@@ -649,3 +649,93 @@ def test_mxfp8_grouped_gemm_bias_none_unchanged():
     )
 
     torch.testing.assert_close(out_default, out_none, rtol=0, atol=0)
+
+
+@skip_if_rocm("ROCm not supported")
+@pytest.mark.skipif(
+    not is_sm_version(10, 0),
+    reason="MXFP8 grouped GEMM requires SM100",
+)
+@pytest.mark.parametrize("M,K,N", [(1024, 1024, 1024), (1024, 2048, 4096)])
+@pytest.mark.parametrize("num_experts", (1, 8))
+@pytest.mark.parametrize(
+    "scale_mode", (ScaleCalculationMode.FLOOR, ScaleCalculationMode.RCEIL)
+)
+def test_mxfp8_grouped_gemm_bf16_bwd_forward_matches_default(
+    M, K, N, num_experts, scale_mode
+):
+    """_MXFP8GroupedMMFwdBF16Bwd's forward is identical to _MXFP8GroupedMM's.
+
+    Both autograd functions share _grouped_mm_mxfp8_forward, so for the same kernel
+    preference (AUTO, the one both accept) the forward output must match exactly.
+    Only the backward differs.
+    """
+    x = torch.randn(M, K, dtype=torch.bfloat16, device="cuda")
+    w = torch.randn(num_experts, N, K, dtype=torch.bfloat16, device="cuda")
+    w_t = w.transpose(-2, -1)
+    offs = generate_jagged_offs(num_experts, M, multiple_of=128)
+
+    out_default = _to_mxfp8_then_scaled_grouped_mm(
+        x,
+        w_t,
+        offs=offs,
+        out_dtype=torch.bfloat16,
+        kernel_preference=KernelPreference.AUTO,
+        scale_calculation_mode=scale_mode,
+        bf16_bwd=False,
+    )
+    out_bf16_bwd = _to_mxfp8_then_scaled_grouped_mm(
+        x,
+        w_t,
+        offs=offs,
+        out_dtype=torch.bfloat16,
+        kernel_preference=KernelPreference.AUTO,
+        scale_calculation_mode=scale_mode,
+        bf16_bwd=True,
+    )
+    torch.testing.assert_close(out_bf16_bwd, out_default, rtol=0, atol=0)
+
+
+@skip_if_rocm("ROCm not supported")
+@pytest.mark.skipif(
+    not is_sm_version(10, 0),
+    reason="TRITON mxfp8 grouped GEMM requires SM100",
+)
+@pytest.mark.parametrize("M,K,N", [(1024, 1024, 1024), (1024, 2048, 4096)])
+@pytest.mark.parametrize("num_experts", (1, 8))
+@pytest.mark.parametrize(
+    "scale_mode", (ScaleCalculationMode.FLOOR, ScaleCalculationMode.RCEIL)
+)
+def test_mxfp8_grouped_gemm_bf16_bwd_triton_matches_emulated(
+    M, K, N, num_experts, scale_mode
+):
+    """_MXFP8GroupedMMFwdBF16Bwd's TRITON forward matches the EMULATED reference."""
+    x = torch.randn(M, K, dtype=torch.bfloat16, device="cuda")
+    w = torch.randn(num_experts, N, K, dtype=torch.bfloat16, device="cuda")
+    w_t = w.transpose(-2, -1)
+    offs = generate_jagged_offs(num_experts, M, multiple_of=128)
+
+    out_triton = _to_mxfp8_then_scaled_grouped_mm(
+        x,
+        w_t,
+        offs=offs,
+        out_dtype=torch.bfloat16,
+        kernel_preference=KernelPreference.TRITON,
+        scale_calculation_mode=scale_mode,
+        bf16_bwd=True,
+    )
+    out_emulated = _to_mxfp8_then_scaled_grouped_mm(
+        x,
+        w_t,
+        offs=offs,
+        out_dtype=torch.bfloat16,
+        kernel_preference=KernelPreference.EMULATED,
+        scale_calculation_mode=scale_mode,
+    )
+    # Both paths quantize to the same mxfp8 values, so they differ only in the GEMM
+    # (real fp8 torch._scaled_grouped_mm vs emulated dequant + bf16 torch._grouped_mm).
+    # Outputs are therefore near-identical (SQNR ~100+, sometimes exactly equal),
+    # not bit-exact.
+    sqnr = compute_error(out_emulated, out_triton)
+    min_sqnr = 80.0
+    assert sqnr >= min_sqnr, f"sqnr {sqnr} is too low, must be >= {min_sqnr}"
