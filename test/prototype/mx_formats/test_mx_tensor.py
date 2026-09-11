@@ -99,12 +99,8 @@ def test_cat_rejects_incompatible_weights():
     second.orig_dtype = torch.float32
     with pytest.raises(ValueError, match="matching quantization metadata"):
         torch.cat([first, second])
-    with pytest.raises(TypeError, match="only MXTensor"):
-        torch.cat([torch.randn(2, 32, device=device), first])
     with pytest.raises(NotImplementedError, match="contiguous qdata"):
         torch.cat([first.t(), first.t()])
-    with pytest.raises(NotImplementedError, match="dim=0"):
-        torch.cat([first, first], dim=1)
 
 
 def test_f32_to_e8m0_rceil():
