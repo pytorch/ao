@@ -145,6 +145,10 @@ There are multiple ways to actually quantize the model. Here we walk through the
 
    from torchao.quantization import Int8Tensor
    from torchao.quantization import PerRow, PerTensor
+   from torchao.quantization.quant_primitives import MappingType
+   from torchao.quantization.quantize_.workflows.int8.int8_tensor import (
+       QuantizeTensorToInt8Kwargs,
+   )
 
    class QuantizedLinear(torch.nn.Module):
        def __init__(
@@ -157,25 +161,43 @@ There are multiple ways to actually quantize the model. Here we walk through the
            bias: torch.Tensor,
        ):
            super().__init__()
-           self.act_scale, self.act_zero_point = act_obs.calculate_qparams()
+           act_scale, act_zero_point = act_obs.calculate_qparams()
            weight_scale, weight_zero_point = weight_obs.calculate_qparams()
+           # calculate_qparams() returns one scale/zero_point per block, with
+           # the block dims squeezed out. Int8Tensor.from_hp expects them with
+           # the same number of dims as the tensor being quantized (one entry
+           # per block, dims kept), so restore those dims here to match the
+           # per-tensor / per-row granularities used above.
+           act_scale = act_scale.reshape(1, 1)
+           act_zero_point = act_zero_point.reshape(1, 1)
+           weight_scale = weight_scale.reshape(-1, 1)
+           weight_zero_point = weight_zero_point.reshape(-1, 1)
            self.bias = bias
+           # Fold the calibrated activation scale/zero_point into the weight
+           # tensor via act_quant_kwargs/act_quant_scale/act_quant_zero_point.
+           # Int8Tensor's F.linear implementation then quantizes the raw,
+           # high precision activation internally using these fixed
+           # statistics at every call, instead of recomputing them from each
+           # new input - this is what makes it *static* quantization, as
+           # opposed to *dynamic* quantization (the default when
+           # act_quant_kwargs carries no precomputed scale/zero_point).
            self.qweight = Int8Tensor.from_hp(
-               weight, granularity=PerRow(),
-               scale=weight_scale, zero_point=weight_zero_point,
+               weight,
+               granularity=PerRow(),
+               scale=weight_scale,
+               zero_point=weight_zero_point,
+               act_quant_kwargs=QuantizeTensorToInt8Kwargs(
+                   granularity=PerTensor(), mapping_type=MappingType.ASYMMETRIC
+               ),
+               act_quant_scale=act_scale,
+               act_quant_zero_point=act_zero_point,
            )
 
        def forward(self, input: torch.Tensor):
-           qinput = Int8Tensor.from_hp(
-               input,
-               granularity=PerTensor(),
-               scale=self.act_scale,
-               zero_point=self.act_zero_point,
-           )
-           return F.linear(qinput, self.qweight, self.bias)
+           return F.linear(input, self.qweight, self.bias)
 
        @classmethod
-       def from_observed(cls, observed_linear, target_dtype):
+       def from_observed(cls, observed_linear):
            quantized_linear = cls(
                observed_linear.in_features,
                observed_linear.out_features,
@@ -183,7 +205,6 @@ There are multiple ways to actually quantize the model. Here we walk through the
                observed_linear.weight_obs,
                observed_linear.weight,
                observed_linear.bias,
-               target_dtype,
            )
            return quantized_linear
 
@@ -212,7 +233,7 @@ This linear class computes the scales and zero points for both input activations
        Define a transformation associated with `StaticQuantConfig`.
        This is called by `quantize_`, not by the user directly.
        """
-       return QuantizedLinear.from_observed(module, config.target_dtype)
+       return QuantizedLinear.from_observed(module)
 
    # filter function to identify which modules to swap
    is_observed_linear = lambda m, fqn: isinstance(m, ObservedLinear)
@@ -231,9 +252,9 @@ Now, we will see that the linear layers in our model are swapped to our `Quantiz
        (linear2): QuantizedLinear()
      )
    )
-   >>> m.linear1.act_scale
-   tensor([0.0237], device='cuda:0')
+   >>> m.linear1.qweight.act_quant_scale  # the fixed activation scale, folded into the weight tensor
+   tensor([[0.0237]], device='cuda:0')
    >>> m.linear1.qweight  # quantized weight tensor with scale and zero_point
-   IntxUnpackedToInt8Tensor(...)  # actual repr depends on quantization config
+   Int8Tensor(...)  # actual repr depends on quantization config
 
 In this tutorial, we walked through a basic example of how to perform integer static quantization in torchao.
