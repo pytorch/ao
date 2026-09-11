@@ -6,10 +6,26 @@
 
 import functools
 import math
+from importlib.metadata import version as _package_version
 from threading import Lock
 from typing import Callable, Optional, Tuple
 
 import torch
+
+from torchao.utils import parse_version
+
+_MIN_CUTEDSL_VERSION = "4.6.1"
+
+
+@functools.cache
+def _check_cutedsl_version() -> None:
+    installed = _package_version("nvidia-cutlass-dsl")
+    if parse_version(installed) < parse_version(_MIN_CUTEDSL_VERSION):
+        raise RuntimeError(
+            f"FP8 2:4 sparse CuTeDSL kernels require nvidia-cutlass-dsl "
+            f">= {_MIN_CUTEDSL_VERSION}, found {installed}."
+        )
+
 
 # The blockwise fp8 GEMM is a Triton kernel. Triton is imported and the kernel is
 # built lazily (and cached) on first use so this module imports fine on machines
@@ -159,6 +175,8 @@ def _compile_to_sparse_semi_structured_cutedsl(
     import cutlass
     import cutlass.cute as cute
     from cutlass.cute.runtime import make_fake_stream, make_fake_tensor
+
+    _check_cutedsl_version()
 
     THREADS_PER_BLOCK = 256
     float8_element_type = (
@@ -643,6 +661,8 @@ def _compile_rowwise_scaled_linear_sparse_cutedsl(
     from cutlass.cute.runtime import make_fake_stream, make_fake_tensor
     from cutlass.cutlass_dsl import T, dsl_user_op
 
+    _check_cutedsl_version()
+
     if scale_dtype not in ("fp16", "bf16", "fp32"):
         raise AssertionError(f"Unsupported scale dtype: {scale_dtype}")
     if output_dtype not in ("fp16", "bf16"):
@@ -1013,23 +1033,26 @@ def _compile_rowwise_scaled_linear_sparse_cutedsl(
                         tma_bar_ptr=bar + stage,
                     )
                 if cutlass.const_expr(staged):
-                    for i in cutlass.range_constexpr(_META_HALVES_PER_GROUP):
-                        half = group * _META_HALVES_PER_GROUP + i
-                        if half > last_half:
-                            half = last_half
-                        slot = stage * _META_HALVES_PER_GROUP + i
-                        cute.copy(
-                            atom_m,
-                            cute.make_tensor(
-                                msrc + half * mstride,
-                                cute.make_layout(meta_stage_uint32),
-                            ),
-                            cute.make_tensor(
-                                smeta_.iterator + slot * meta_stage_uint32,
-                                cute.make_layout(meta_stage_uint32),
-                            ),
-                            mbar_ptr=bar + stage,
-                        )
+                    # >=4.6.2 requires the caller to elect one issuing thread for
+                    # bulk-copy atoms (auto-elected internally in 4.6.0/4.6.1).
+                    with cute.arch.elect_one():
+                        for i in cutlass.range_constexpr(_META_HALVES_PER_GROUP):
+                            half = group * _META_HALVES_PER_GROUP + i
+                            if half > last_half:
+                                half = last_half
+                            slot = stage * _META_HALVES_PER_GROUP + i
+                            cute.copy(
+                                atom_m,
+                                cute.make_tensor(
+                                    msrc + half * mstride,
+                                    cute.make_layout(meta_stage_uint32),
+                                ),
+                                cute.make_tensor(
+                                    smeta_.iterator + slot * meta_stage_uint32,
+                                    cute.make_layout(meta_stage_uint32),
+                                ),
+                                mbar_ptr=bar + stage,
+                            )
 
             def group_metas_smem(stage, smeta_, lanes, mma_per_wg, meta_stage_uint32):
                 out = ()
