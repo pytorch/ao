@@ -206,9 +206,7 @@ class IntxFakeQuantizer(FakeQuantizerBase):
             self.scale = None
             self.zero_point = None
         else:
-            self.register_buffer(
-                "scale", torch.empty(0, dtype=config.scale_precision)
-            )
+            self.register_buffer("scale", torch.empty(0, dtype=config.scale_precision))
             self.register_buffer(
                 "zero_point", torch.empty(0, dtype=config.zero_point_precision)
             )

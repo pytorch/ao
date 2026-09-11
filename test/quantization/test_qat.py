@@ -311,9 +311,7 @@ class TestQAT(TestCase):
 
     @parametrize("quant_dtype", [torch.int8, torch.int16])
     @parametrize("is_dynamic", [True, False])
-    def test_fake_quantize_per_tensor(
-        self, quant_dtype: torch.dtype, is_dynamic: bool
-    ):
+    def test_fake_quantize_per_tensor(self, quant_dtype: torch.dtype, is_dynamic: bool):
         torch.manual_seed(self.SEED)
         x = torch.randn(4, 8)
         block_size = tuple(x.shape)
@@ -405,9 +403,7 @@ class TestQAT(TestCase):
             group_size,
             mapping_type=MappingType.SYMMETRIC_NO_CLIPPING_ERR,
         )
-        expected_zero_point = expected_zero_point.to(
-            group_config.zero_point_precision
-        )
+        expected_zero_point = expected_zero_point.to(group_config.zero_point_precision)
         qmin, qmax = _DTYPE_TO_QVALUE_BOUNDS[torch.int4]
         expected = _fake_quantize_per_channel_group(
             x,
@@ -418,9 +414,7 @@ class TestQAT(TestCase):
             group_size,
         )
         torch.testing.assert_close(group_fake_quantizer.scale, expected_scale)
-        torch.testing.assert_close(
-            group_fake_quantizer.zero_point, expected_zero_point
-        )
+        torch.testing.assert_close(group_fake_quantizer.zero_point, expected_zero_point)
         torch.testing.assert_close(actual, expected, atol=0, rtol=0)
 
     def test_fake_quantizer_static_state_dict(self):
