@@ -224,15 +224,15 @@ class AffineQuantizedFixedQParamObserver(AffineQuantizedObserverBase):
             preserve_zero,
             zero_point_domain,
         )
-        if not scale:
+        if scale is None:
             scale = torch.Tensor([1])
-        if not zero_point:
+        if zero_point is None:
             zero_point = torch.zeros_like(scale)
         self.register_buffer("scale", scale.to(dtype=scale_dtype))
         self.register_buffer("zero_point", zero_point.to(dtype=zero_point_dtype))
 
     def set_qparams(self, scale, zero_point=None):
-        if not zero_point:
+        if zero_point is None:
             zero_point = torch.zeros_like(scale)
         self.scale = scale.to(dtype=self.scale_dtype)
         self.zero_point = zero_point.to(dtype=self.zero_point_dtype)
