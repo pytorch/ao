@@ -25,8 +25,8 @@
 /torchao/csrc/ @jerryzh168 @vkuzo @andrewor14
 
 # Low-bit CPU kernels
-/torchao/csrc/cpu/shared_kernels/ @digantdesai @metascroy
-/torchao/csrc/cpu/torch_free_kernels/ @digantdesai @metascroy
+/torchao/csrc/cpu/shared_kernels/ @digantdesai @metascroy @vkuzo @andrewor14
+/torchao/csrc/cpu/torch_free_kernels/ @digantdesai @metascroy @vkuzo @andrewor14
 
 # Docs
 /docs/ @vkuzo @jerryzh168 @andrewor14
