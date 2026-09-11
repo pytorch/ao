@@ -78,6 +78,7 @@ from torchao.quantization.quant_api import (
     IntxWeightOnlyConfig,
 )
 from torchao.quantization.quant_primitives import (
+    _DTYPE_TO_QVALUE_BOUNDS,
     MappingType,
     TorchAODType,
     ZeroPointDomain,
@@ -306,6 +307,53 @@ class TestQAT(TestCase):
             output_dtype=torch.float32,
         )
         torch.testing.assert_close(out, out_ptq, atol=0, rtol=0)
+
+    @parametrize("quant_dtype", [torch.int8, torch.int16])
+    @parametrize("is_dynamic", [True, False])
+    def test_fake_quantize_per_tensor(
+        self, quant_dtype: torch.dtype, is_dynamic: bool
+    ):
+        torch.manual_seed(self.SEED)
+        x = torch.randn(4, 8)
+        block_size = tuple(x.shape)
+        qmin, qmax = _DTYPE_TO_QVALUE_BOUNDS[quant_dtype]
+        config = IntxFakeQuantizeConfig(
+            quant_dtype,
+            PerTensor(),
+            is_dynamic=is_dynamic,
+        )
+        fake_quantizer = IntxFakeQuantizer(config)
+        scale, zero_point = choose_qparams_affine(
+            x,
+            mapping_type=MappingType.SYMMETRIC,
+            block_size=block_size,
+            target_dtype=quant_dtype,
+            quant_min=qmin,
+            quant_max=qmax,
+            scale_dtype=torch.float32,
+            zero_point_dtype=torch.int32,
+        )
+        # Per-tensor quantization uses one scalar qparam pair.
+        self.assertEqual(scale.shape, torch.Size([]))
+        self.assertEqual(zero_point.shape, torch.Size([]))
+        expected = _fake_quantize_affine(
+            x,
+            block_size,
+            scale,
+            zero_point,
+            quant_dtype,
+            qmin,
+            qmax,
+        )
+        actual = fake_quantizer(x)
+        torch.testing.assert_close(actual, expected, atol=0, rtol=0)
+
+        scale = fake_quantizer.scale
+        fake_quantizer(x * 2)
+        if is_dynamic:
+            torch.testing.assert_close(fake_quantizer.scale, scale * 2)
+        else:
+            self.assertIs(fake_quantizer.scale, scale)
 
     def _set_ptq_weight(
         self,
@@ -857,6 +905,12 @@ class TestQAT(TestCase):
         self.assertEqual(per_group_config2.group_size, 32)
         self.assertEqual(per_group_config3.group_size, 32)
 
+        # per tensor
+        per_tensor_config1 = IntxFakeQuantizeConfig(torch.int8, PerTensor())
+        per_tensor_config2 = IntxFakeQuantizeConfig(torch.int8, "per_tensor")
+        self.assertIsInstance(per_tensor_config1.granularity, PerTensor)
+        self.assertIsInstance(per_tensor_config2.granularity, PerTensor)
+
         # set `group_size` after initialization
         per_token_config1.group_size = 64
         per_channel_config1.group_size = 64
@@ -957,8 +1011,6 @@ class TestQAT(TestCase):
         """
         msg = "Unsupported dtype"
         with self.assertRaisesRegex(ValueError, msg):
-            IntxFakeQuantizeConfig(torch.int16, "per_token")
-        with self.assertRaisesRegex(ValueError, msg):
             IntxFakeQuantizeConfig(torch.int32, "per_token")
         with self.assertRaisesRegex(ValueError, msg):
             IntxFakeQuantizeConfig(torch.bfloat16, "per_token")
@@ -981,6 +1033,7 @@ class TestQAT(TestCase):
         IntxFakeQuantizeConfig(TorchAODType.INT6, "per_token")
         IntxFakeQuantizeConfig(TorchAODType.INT7, "per_token")
         IntxFakeQuantizeConfig(torch.int8, "per_token")
+        IntxFakeQuantizeConfig(torch.int16, "per_tensor")
 
     def test_fake_quantize_config_dynamic_and_range_learning(self):
         """

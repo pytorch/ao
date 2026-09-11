@@ -105,7 +105,7 @@ class Int4WeightFakeQuantizeConfig(FakeQuantizeConfigBase):
 class IntxFakeQuantizeConfig(FakeQuantizeConfigBase):
     """
     Config for how to fake quantize weights or activations,
-    targeting integer dtypes up to torch.int8.
+    targeting integer dtypes up to torch.int16.
 
     Args:
         dtype: dtype to simulate during fake quantization, e.g. torch.int8.
@@ -116,6 +116,7 @@ class IntxFakeQuantizeConfig(FakeQuantizeConfigBase):
                3) 'per_group': equivalent to PerGroup(group_size), must be combined
                    with separate `group_size` kwarg, Alternatively, just set the
                    `group_size` kwarg and leave this field empty.
+               4) 'per_tensor': equivalent to PerTensor()
         mapping_type: whether to use symmetric (default) or asymmetric quantization
             Alternatively, set `is_symmetric` (bool) and leave this field empty.
         scale_precision: scale dtype (default torch.fp32)
@@ -147,6 +148,10 @@ class IntxFakeQuantizeConfig(FakeQuantizeConfigBase):
         IntxFakeQuantizeConfig(torch.int4, group_size=32, is_symmetric=True)
         IntxFakeQuantizeConfig(torch.int4, "per_group", group_size=32, is_symmetric=True)
         IntxFakeQuantizeConfig(torch.int4, PerGroup(32), MappingType.SYMMETRIC)
+
+        # Per tensor symmetric quantization
+        IntxFakeQuantizeConfig(torch.int8, "per_tensor")
+        IntxFakeQuantizeConfig(torch.int8, PerTensor())
     """
 
     dtype: Union[torch.dtype, "TorchAODType"]
@@ -187,7 +192,7 @@ class IntxFakeQuantizeConfig(FakeQuantizeConfigBase):
         self.eps = eps
 
         # Validate dtype
-        all_dtypes = [torch.int8, torch.uint8]
+        all_dtypes = [torch.int8, torch.uint8, torch.int16]
         all_dtypes.extend(list(_SUB_BYTE_INT_BOUNDS.keys()))
         all_dtypes.extend(list(_SUB_BYTE_UINT_BOUNDS.keys()))
         if dtype not in all_dtypes:
@@ -216,8 +221,8 @@ class IntxFakeQuantizeConfig(FakeQuantizeConfigBase):
         Parse the `Granularity` represented in the args.
 
         Granularity can be specified in one of three ways:
-            1) `Granularity` object: one of PerToken(), PerAxis(), and PerGroup(group_size)
-            2) str: one of 'per_token', 'per_channel', and 'per_group'
+            1) `Granularity` object: one of PerToken(), PerAxis(), PerGroup(group_size), and PerTensor()
+            2) str: one of 'per_token', 'per_channel', 'per_group', and 'per_tensor'
             3) None: `group_size` must be set instead, represents per group granularity
         """
         # If group_size is set, then granularity must be either "per_group" or None
@@ -232,7 +237,7 @@ class IntxFakeQuantizeConfig(FakeQuantizeConfigBase):
 
         # Case 1: Granularity object
         if isinstance(granularity, Granularity):
-            if not isinstance(granularity, (PerToken, PerAxis, PerGroup)):
+            if not isinstance(granularity, (PerToken, PerAxis, PerGroup, PerTensor)):
                 raise ValueError("Granularity '%s' is not supported" % granularity)
             if isinstance(granularity, PerAxis) and granularity.axis != 0:
                 raise ValueError("Only axis=0 is supported for PerAxis granularity")
@@ -249,10 +254,15 @@ class IntxFakeQuantizeConfig(FakeQuantizeConfigBase):
                     "Granularity was 'per_group' but no `group_size` was set"
                 )
             return PerGroup(group_size)
+        elif granularity == "per_tensor":
+            return PerTensor()
         elif isinstance(granularity, str):
             raise ValueError(
                 "Unexpected granularity: '%s', must be one of %s"
-                % (granularity, ["per_token", "per_channel", "per_group"])
+                % (
+                    granularity,
+                    ["per_token", "per_channel", "per_group", "per_tensor"],
+                )
             )
 
         # Case 3: None granularity + group_size was specified
