@@ -6,10 +6,26 @@
 
 import functools
 import math
+from importlib.metadata import version as _package_version
 from threading import Lock
 from typing import Callable, Optional, Tuple
 
 import torch
+
+from torchao.utils import parse_version
+
+_MIN_CUTEDSL_VERSION = "4.6.1"
+
+
+@functools.cache
+def _check_cutedsl_version() -> None:
+    installed = _package_version("nvidia-cutlass-dsl")
+    if parse_version(installed) < parse_version(_MIN_CUTEDSL_VERSION):
+        raise RuntimeError(
+            f"FP8 2:4 sparse CuTeDSL kernels require nvidia-cutlass-dsl "
+            f">= {_MIN_CUTEDSL_VERSION}, found {installed}."
+        )
+
 
 # The blockwise fp8 GEMM is a Triton kernel. Triton is imported and the kernel is
 # built lazily (and cached) on first use so this module imports fine on machines
@@ -159,6 +175,8 @@ def _compile_to_sparse_semi_structured_cutedsl(
     import cutlass
     import cutlass.cute as cute
     from cutlass.cute.runtime import make_fake_stream, make_fake_tensor
+
+    _check_cutedsl_version()
 
     THREADS_PER_BLOCK = 256
     float8_element_type = (
