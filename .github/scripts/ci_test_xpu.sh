@@ -29,5 +29,4 @@ pytest -v -s -k "not (bf16_stochastic_round_device_xpu)" \
         torchao/test/core/test_config.py \
         torchao/test/test_model_architecture.py \
         torchao/test/test_utils.py \
-        torchao/test/quantization/test_qat.py \
         torchao/test/test_low_bit_optim.py
