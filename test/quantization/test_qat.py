@@ -78,6 +78,7 @@ from torchao.quantization.quant_api import (
     IntxWeightOnlyConfig,
 )
 from torchao.quantization.quant_primitives import (
+    _DTYPE_TO_QVALUE_BOUNDS,
     MappingType,
     TorchAODType,
     ZeroPointDomain,
@@ -306,6 +307,177 @@ class TestQAT(TestCase):
             output_dtype=torch.float32,
         )
         torch.testing.assert_close(out, out_ptq, atol=0, rtol=0)
+
+    @parametrize("quant_dtype", [torch.int8, torch.int16])
+    @parametrize("is_dynamic", [True, False])
+    def test_fake_quantize_per_tensor(
+        self, quant_dtype: torch.dtype, is_dynamic: bool
+    ):
+        torch.manual_seed(self.SEED)
+        x = torch.randn(4, 8)
+        block_size = tuple(x.shape)
+        qmin, qmax = _DTYPE_TO_QVALUE_BOUNDS[quant_dtype]
+        config = IntxFakeQuantizeConfig(
+            quant_dtype,
+            PerTensor(),
+            is_dynamic=is_dynamic,
+        )
+        fake_quantizer = IntxFakeQuantizer(config)
+        scale, zero_point = choose_qparams_affine(
+            x,
+            mapping_type=MappingType.SYMMETRIC,
+            block_size=block_size,
+            target_dtype=quant_dtype,
+            quant_min=qmin,
+            quant_max=qmax,
+            scale_dtype=torch.float32,
+            zero_point_dtype=torch.int32,
+        )
+        # Per-tensor quantization uses one scalar qparam pair.
+        self.assertEqual(scale.shape, torch.Size([]))
+        self.assertEqual(zero_point.shape, torch.Size([]))
+        expected = _fake_quantize_affine(
+            x,
+            block_size,
+            scale,
+            zero_point,
+            quant_dtype,
+            qmin,
+            qmax,
+        )
+        actual = fake_quantizer(x)
+        torch.testing.assert_close(actual, expected, atol=0, rtol=0)
+
+        scale = fake_quantizer.scale
+        fake_quantizer(x * 2)
+        if is_dynamic:
+            torch.testing.assert_close(fake_quantizer.scale, scale * 2)
+        else:
+            self.assertIs(fake_quantizer.scale, scale)
+
+    def test_fake_quantize_per_tensor_symmetric_no_clipping_err(self):
+        x = torch.tensor([[-5.0, -1.0, 0.0, 3.0], [-2.0, 0.0, 1.0, 4.0]])
+        qmin, qmax = _DTYPE_TO_QVALUE_BOUNDS[torch.int16]
+        config = IntxFakeQuantizeConfig(
+            torch.int16,
+            PerTensor(),
+            MappingType.SYMMETRIC_NO_CLIPPING_ERR,
+        )
+        fake_quantizer = IntxFakeQuantizer(config)
+        actual = fake_quantizer(x)
+        expected_scale, expected_zero_point = choose_qparams_affine(
+            x,
+            mapping_type=MappingType.SYMMETRIC_NO_CLIPPING_ERR,
+            block_size=tuple(x.shape),
+            target_dtype=torch.int16,
+            quant_min=qmin,
+            quant_max=qmax,
+            scale_dtype=torch.float32,
+            zero_point_dtype=torch.int32,
+        )
+        expected = _fake_quantize_affine(
+            x,
+            tuple(x.shape),
+            expected_scale,
+            expected_zero_point,
+            torch.int16,
+            qmin,
+            qmax,
+        )
+        torch.testing.assert_close(fake_quantizer.scale, expected_scale)
+        torch.testing.assert_close(fake_quantizer.zero_point, expected_zero_point)
+        torch.testing.assert_close(actual, expected, atol=0, rtol=0)
+
+    def test_fake_quantize_per_group_symmetric_no_clipping_err(self):
+        x = torch.tensor([[-5.0, -1.0, 0.0, 3.0], [-2.0, 0.0, 1.0, 4.0]])
+        group_size = x.shape[-1]
+        group_config = IntxFakeQuantizeConfig(
+            torch.int4,
+            PerGroup(group_size),
+            MappingType.SYMMETRIC_NO_CLIPPING_ERR,
+        )
+        group_fake_quantizer = IntxFakeQuantizer(group_config)
+        actual = group_fake_quantizer(x)
+        expected_scale, expected_zero_point = get_group_qparams_symmetric(
+            x,
+            4,
+            group_size,
+            mapping_type=MappingType.SYMMETRIC_NO_CLIPPING_ERR,
+        )
+        expected_zero_point = expected_zero_point.to(
+            group_config.zero_point_precision
+        )
+        qmin, qmax = _DTYPE_TO_QVALUE_BOUNDS[torch.int4]
+        expected = _fake_quantize_per_channel_group(
+            x,
+            expected_scale,
+            expected_zero_point,
+            qmin,
+            qmax,
+            group_size,
+        )
+        torch.testing.assert_close(group_fake_quantizer.scale, expected_scale)
+        torch.testing.assert_close(
+            group_fake_quantizer.zero_point, expected_zero_point
+        )
+        torch.testing.assert_close(actual, expected, atol=0, rtol=0)
+
+    def test_fake_quantizer_static_state_dict(self):
+        config = IntxFakeQuantizeConfig(
+            torch.int16,
+            PerTensor(),
+            MappingType.SYMMETRIC_NO_CLIPPING_ERR,
+            is_dynamic=False,
+        )
+        fake_quantizer = IntxFakeQuantizer(config)
+        fake_quantizer(torch.randn(4, 8))
+        state_dict = copy.deepcopy(fake_quantizer.state_dict())
+
+        restored = IntxFakeQuantizer(config)
+        restored.load_state_dict(state_dict)
+        x = torch.randn(4, 8)
+        torch.testing.assert_close(restored(x), fake_quantizer(x), atol=0, rtol=0)
+        self.assertIn("scale", dict(restored.named_buffers()))
+        self.assertIn("zero_point", dict(restored.named_buffers()))
+
+        moved_restored = IntxFakeQuantizer(config).to(dtype=torch.float64)
+        moved_restored.load_state_dict(state_dict)
+        self.assertEqual(moved_restored.scale.dtype, torch.float64)
+
+        legacy_state_dict = copy.deepcopy(state_dict)
+        legacy_state_dict.pop("scale")
+        legacy_state_dict.pop("zero_point")
+        legacy_restored = IntxFakeQuantizer(config)
+        legacy_restored.load_state_dict(legacy_state_dict)
+        self.assertNotIn("scale", legacy_state_dict)
+        self.assertNotIn("zero_point", legacy_state_dict)
+        # Empty buffers have zero elements and trigger qparam initialization.
+        self.assertEqual(legacy_restored.scale.numel(), 0)
+        self.assertEqual(legacy_restored.zero_point.numel(), 0)
+        x = torch.randn(4, 8)
+        expected = IntxFakeQuantizer(config)(x)
+        torch.testing.assert_close(legacy_restored(x), expected, atol=0, rtol=0)
+        self.assertEqual(legacy_restored.scale.numel(), 1)
+        self.assertEqual(legacy_restored.zero_point.numel(), 1)
+
+    def test_fake_quantizer_static_state_dict_per_group(self):
+        config = IntxFakeQuantizeConfig(
+            torch.int4,
+            PerGroup(4),
+            MappingType.SYMMETRIC_NO_CLIPPING_ERR,
+            is_dynamic=False,
+        )
+        fake_quantizer = IntxFakeQuantizer(config)
+        x = torch.randn(4, 8)
+        expected = fake_quantizer(x)
+        self.assertGreater(fake_quantizer.scale.numel(), 1)
+        self.assertGreater(fake_quantizer.zero_point.numel(), 1)
+
+        restored = IntxFakeQuantizer(config)
+        restored.load_state_dict(copy.deepcopy(fake_quantizer.state_dict()))
+        torch.testing.assert_close(restored(x), expected, atol=0, rtol=0)
+        torch.testing.assert_close(restored.scale, fake_quantizer.scale)
+        torch.testing.assert_close(restored.zero_point, fake_quantizer.zero_point)
 
     def _set_ptq_weight(
         self,
@@ -857,6 +1029,12 @@ class TestQAT(TestCase):
         self.assertEqual(per_group_config2.group_size, 32)
         self.assertEqual(per_group_config3.group_size, 32)
 
+        # per tensor
+        per_tensor_config1 = IntxFakeQuantizeConfig(torch.int8, PerTensor())
+        per_tensor_config2 = IntxFakeQuantizeConfig(torch.int8, "per_tensor")
+        self.assertIsInstance(per_tensor_config1.granularity, PerTensor)
+        self.assertIsInstance(per_tensor_config2.granularity, PerTensor)
+
         # set `group_size` after initialization
         per_token_config1.group_size = 64
         per_channel_config1.group_size = 64
@@ -933,6 +1111,25 @@ class TestQAT(TestCase):
         self.assertFalse(asymmetric_config1.is_symmetric)
         self.assertFalse(asymmetric_config2.is_symmetric)
 
+        no_clipping_config = IntxFakeQuantizeConfig(
+            torch.int8,
+            "per_tensor",
+            MappingType.SYMMETRIC_NO_CLIPPING_ERR,
+        )
+        self.assertEqual(
+            no_clipping_config.mapping_type,
+            MappingType.SYMMETRIC_NO_CLIPPING_ERR,
+        )
+        self.assertTrue(no_clipping_config.is_symmetric)
+        no_clipping_config.is_symmetric = True
+        self.assertEqual(
+            no_clipping_config.mapping_type,
+            MappingType.SYMMETRIC_NO_CLIPPING_ERR,
+        )
+        no_clipping_config.is_symmetric = False
+        self.assertEqual(no_clipping_config.mapping_type, MappingType.ASYMMETRIC)
+        self.assertFalse(no_clipping_config.is_symmetric)
+
         # set `is_symmetric` after initialization
         asymmetric_config1.is_symmetric = True
         self.assertEqual(asymmetric_config1.mapping_type, MappingType.SYMMETRIC)
@@ -944,11 +1141,11 @@ class TestQAT(TestCase):
             IntxFakeQuantizeConfig(
                 torch.int8, "per_token", MappingType.SYMMETRIC, is_symmetric=False
             )
-
-        # bad config2: not supported
-        with self.assertRaisesRegex(ValueError, "not supported"):
+        with self.assertRaisesRegex(ValueError, "not supported for per-token"):
             IntxFakeQuantizeConfig(
-                torch.int8, "per_token", MappingType.SYMMETRIC_NO_CLIPPING_ERR
+                torch.int8,
+                "per_token",
+                MappingType.SYMMETRIC_NO_CLIPPING_ERR,
             )
 
     def test_fake_quantize_config_dtype(self):
@@ -956,8 +1153,6 @@ class TestQAT(TestCase):
         Test that unsupported dtypes are caught in `IntxFakeQuantizeConfig`.
         """
         msg = "Unsupported dtype"
-        with self.assertRaisesRegex(ValueError, msg):
-            IntxFakeQuantizeConfig(torch.int16, "per_token")
         with self.assertRaisesRegex(ValueError, msg):
             IntxFakeQuantizeConfig(torch.int32, "per_token")
         with self.assertRaisesRegex(ValueError, msg):
@@ -981,6 +1176,7 @@ class TestQAT(TestCase):
         IntxFakeQuantizeConfig(TorchAODType.INT6, "per_token")
         IntxFakeQuantizeConfig(TorchAODType.INT7, "per_token")
         IntxFakeQuantizeConfig(torch.int8, "per_token")
+        IntxFakeQuantizeConfig(torch.int16, "per_tensor")
 
     def test_fake_quantize_config_dynamic_and_range_learning(self):
         """
