@@ -207,9 +207,7 @@ class IntxFakeQuantizer(FakeQuantizerBase):
             self.scale = None
             self.zero_point = None
         else:
-            self.register_buffer(
-                "scale", torch.empty(0, dtype=config.scale_precision)
-            )
+            self.register_buffer("scale", torch.empty(0, dtype=config.scale_precision))
             self.register_buffer(
                 "zero_point", torch.empty(0, dtype=config.zero_point_precision)
             )
@@ -312,9 +310,7 @@ class IntxFakeQuantizer(FakeQuantizerBase):
             raise ValueError("No calibration data was collected")
         return self.min_val.clone(), self.max_val.clone()
 
-    def set_running_min_max(
-        self, min_val: torch.Tensor, max_val: torch.Tensor
-    ) -> None:
+    def set_running_min_max(self, min_val: torch.Tensor, max_val: torch.Tensor) -> None:
         """Replace the collected calibration range."""
         self._validate_calibration_config()
         if min_val.numel() != 1 or max_val.numel() != 1:
