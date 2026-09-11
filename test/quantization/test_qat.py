@@ -353,6 +353,69 @@ class TestQAT(TestCase):
         else:
             self.assertIs(fake_quantizer.scale, scale)
 
+    def test_fake_quantize_per_tensor_symmetric_no_clipping_err(self):
+        x = torch.tensor([[-5.0, -1.0, 0.0, 3.0], [-2.0, 0.0, 1.0, 4.0]])
+        qmin, qmax = _DTYPE_TO_QVALUE_BOUNDS[torch.int16]
+        config = IntxFakeQuantizeConfig(
+            torch.int16,
+            PerTensor(),
+            MappingType.SYMMETRIC_NO_CLIPPING_ERR,
+        )
+        fake_quantizer = IntxFakeQuantizer(config)
+        actual = fake_quantizer(x)
+        expected_scale, expected_zero_point = choose_qparams_affine(
+            x,
+            mapping_type=MappingType.SYMMETRIC_NO_CLIPPING_ERR,
+            block_size=tuple(x.shape),
+            target_dtype=torch.int16,
+            quant_min=qmin,
+            quant_max=qmax,
+            scale_dtype=torch.float32,
+            zero_point_dtype=torch.int32,
+        )
+        expected = _fake_quantize_affine(
+            x,
+            tuple(x.shape),
+            expected_scale,
+            expected_zero_point,
+            torch.int16,
+            qmin,
+            qmax,
+        )
+        torch.testing.assert_close(fake_quantizer.scale, expected_scale)
+        torch.testing.assert_close(fake_quantizer.zero_point, expected_zero_point)
+        torch.testing.assert_close(actual, expected, atol=0, rtol=0)
+
+    def test_fake_quantize_per_group_symmetric_no_clipping_err(self):
+        x = torch.tensor([[-5.0, -1.0, 0.0, 3.0], [-2.0, 0.0, 1.0, 4.0]])
+        group_size = x.shape[-1]
+        group_config = IntxFakeQuantizeConfig(
+            torch.int4,
+            PerGroup(group_size),
+            MappingType.SYMMETRIC_NO_CLIPPING_ERR,
+        )
+        group_fake_quantizer = IntxFakeQuantizer(group_config)
+        actual = group_fake_quantizer(x)
+        expected_scale, expected_zero_point = get_group_qparams_symmetric(
+            x,
+            4,
+            group_size,
+            mapping_type=MappingType.SYMMETRIC_NO_CLIPPING_ERR,
+        )
+        expected_zero_point = expected_zero_point.to(group_config.zero_point_precision)
+        qmin, qmax = _DTYPE_TO_QVALUE_BOUNDS[torch.int4]
+        expected = _fake_quantize_per_channel_group(
+            x,
+            expected_scale,
+            expected_zero_point,
+            qmin,
+            qmax,
+            group_size,
+        )
+        torch.testing.assert_close(group_fake_quantizer.scale, expected_scale)
+        torch.testing.assert_close(group_fake_quantizer.zero_point, expected_zero_point)
+        torch.testing.assert_close(actual, expected, atol=0, rtol=0)
+
     def _set_ptq_weight(
         self,
         ptq_linear: torch.nn.Module,
@@ -985,6 +1048,25 @@ class TestQAT(TestCase):
         self.assertFalse(asymmetric_config1.is_symmetric)
         self.assertFalse(asymmetric_config2.is_symmetric)
 
+        no_clipping_config = IntxFakeQuantizeConfig(
+            torch.int8,
+            "per_tensor",
+            MappingType.SYMMETRIC_NO_CLIPPING_ERR,
+        )
+        self.assertEqual(
+            no_clipping_config.mapping_type,
+            MappingType.SYMMETRIC_NO_CLIPPING_ERR,
+        )
+        self.assertTrue(no_clipping_config.is_symmetric)
+        no_clipping_config.is_symmetric = True
+        self.assertEqual(
+            no_clipping_config.mapping_type,
+            MappingType.SYMMETRIC_NO_CLIPPING_ERR,
+        )
+        no_clipping_config.is_symmetric = False
+        self.assertEqual(no_clipping_config.mapping_type, MappingType.ASYMMETRIC)
+        self.assertFalse(no_clipping_config.is_symmetric)
+
         # set `is_symmetric` after initialization
         asymmetric_config1.is_symmetric = True
         self.assertEqual(asymmetric_config1.mapping_type, MappingType.SYMMETRIC)
@@ -996,11 +1078,11 @@ class TestQAT(TestCase):
             IntxFakeQuantizeConfig(
                 torch.int8, "per_token", MappingType.SYMMETRIC, is_symmetric=False
             )
-
-        # bad config2: not supported
-        with self.assertRaisesRegex(ValueError, "not supported"):
+        with self.assertRaisesRegex(ValueError, "not supported for per-token"):
             IntxFakeQuantizeConfig(
-                torch.int8, "per_token", MappingType.SYMMETRIC_NO_CLIPPING_ERR
+                torch.int8,
+                "per_token",
+                MappingType.SYMMETRIC_NO_CLIPPING_ERR,
             )
 
     def test_fake_quantize_config_dtype(self):
