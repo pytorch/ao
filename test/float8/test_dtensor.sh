@@ -8,8 +8,15 @@
 # terminate script on first error
 set -e
 
-if python -c 'import torch;print(torch.cuda.is_available())' | grep -q "False"; then
-    echo "Skipping test_dtensor.sh because no CUDA devices are available."
+if ! python - <<'PY'
+import sys
+import torch
+has_xpu = hasattr(torch, "xpu") and torch.xpu.is_available()
+has_cuda = torch.cuda.is_available()
+sys.exit(0 if (has_xpu or has_cuda) else 1)
+PY
+then
+    echo "Skipping test_dtensor.sh because no XPU/CUDA devices are available."
     exit
 fi
 
