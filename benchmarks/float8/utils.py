@@ -87,6 +87,9 @@ def profiler_output_to_filtered_time_by_kernel_name(
             continue
         elif e.key in ("cudaDeviceSynchronize", "hipDeviceSynchronize"):
             continue
+        elif e.key == "zeCommandListHostSynchronize":
+            # Level Zero (Intel XPU) host-side synchronization
+            continue
         elif e.key == "Activity Buffer Request":
             continue
         elif e.key == "Unrecognized":
@@ -423,7 +426,14 @@ def get_gpu_kernel_gemm_time_s(f, *args, **kwargs):
     # warmup
     f(*args, **kwargs)
     n_iter = 5
-    with profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA]) as prof:
+
+    device = args[0].device.type
+    if device == "xpu":
+        activities = [ProfilerActivity.CPU, ProfilerActivity.XPU]
+    else:
+        activities = [ProfilerActivity.CPU, ProfilerActivity.CUDA]
+
+    with profile(activities=activities) as prof:
         for idx in range(n_iter):
             f(*args, **kwargs)
     data = profiler_output_to_filtered_time_by_kernel_name(
@@ -446,7 +456,14 @@ def get_gpu_kernel_conv_time_s(f, *args, **kwargs):
     # warmup
     f(*args, **kwargs)
     n_iter = 5
-    with profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA]) as prof:
+
+    device = args[0].device.type
+    if device == "xpu":
+        activities = [ProfilerActivity.CPU, ProfilerActivity.XPU]
+    else:
+        activities = [ProfilerActivity.CPU, ProfilerActivity.CUDA]
+
+    with profile(activities=activities) as prof:
         for idx in range(n_iter):
             f(*args, **kwargs)
     data = profiler_output_to_filtered_time_by_kernel_name(
@@ -458,6 +475,7 @@ def get_gpu_kernel_conv_time_s(f, *args, **kwargs):
         "aten::conv2d",
         "aten::conv3d",
         "aten::convolution",
+        "aten::convolution_overrideable",
         "aten::cudnn_convolution",
         "aten::slow_conv_dilated2d",
         "aten::slow_conv_dilated3d",
