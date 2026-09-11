@@ -1721,6 +1721,126 @@ class TestQAT(TestCase):
         baseline_out = baseline_model(*x2)
         torch.testing.assert_close(out, baseline_out, atol=0, rtol=0)
 
+    def test_static_a16w4_qat_workflow(self):
+        activation_config = IntxFakeQuantizeConfig(
+            torch.int16,
+            PerTensor(),
+            MappingType.SYMMETRIC_NO_CLIPPING_ERR,
+            is_dynamic=False,
+        )
+        weight_config = IntxFakeQuantizeConfig(
+            torch.int4,
+            PerGroup(2),
+            MappingType.SYMMETRIC_NO_CLIPPING_ERR,
+        )
+
+        def prepare_model():
+            model = torch.nn.Sequential(
+                torch.nn.Linear(4, 4, bias=False),
+                torch.nn.ReLU(),
+                torch.nn.Linear(4, 2, bias=False),
+            )
+            quantize_(
+                model,
+                QATConfig(
+                    activation_config=activation_config,
+                    weight_config=weight_config,
+                ),
+            )
+            return model
+
+        torch.manual_seed(self.SEED)
+        model = prepare_model()
+        fake_quantized_linears = [
+            module
+            for module in model.modules()
+            if isinstance(module, FakeQuantizedLinear)
+        ]
+        for module in fake_quantized_linears:
+            module.activation_fake_quantizer.enable_calibration()
+
+        calibration_inputs = [torch.randn(2, 4), torch.randn(2, 4)]
+        with torch.no_grad():
+            for x in calibration_inputs:
+                model(x)
+        for module in fake_quantized_linears:
+            module.activation_fake_quantizer.finalize_calibration()
+
+        activation_scales = [
+            module.activation_fake_quantizer.scale.clone()
+            for module in fake_quantized_linears
+        ]
+        weight_before = fake_quantized_linears[0].weight.detach().clone()
+        optimizer = torch.optim.SGD(model.parameters(), lr=0.1, foreach=True)
+        loss = model(torch.randn(2, 4)).square().mean()
+        loss.backward()
+        optimizer.step()
+
+        self.assertFalse(torch.equal(fake_quantized_linears[0].weight, weight_before))
+        for module, scale in zip(fake_quantized_linears, activation_scales):
+            torch.testing.assert_close(
+                module.activation_fake_quantizer.scale, scale, atol=0, rtol=0
+            )
+
+        for module in fake_quantized_linears:
+            module.activation_fake_quantizer.enable_calibration()
+        recalibration_inputs = [x * 16 for x in calibration_inputs]
+        with torch.no_grad():
+            for x in recalibration_inputs:
+                model(x)
+        for module in fake_quantized_linears:
+            module.activation_fake_quantizer.finalize_calibration()
+
+        expected_min = torch.stack([x.min() for x in recalibration_inputs]).min()
+        expected_max = torch.stack([x.max() for x in recalibration_inputs]).max()
+        recalibrated_min, recalibrated_max = (
+            fake_quantized_linears[0]
+            .activation_fake_quantizer.get_running_min_max()
+        )
+        torch.testing.assert_close(recalibrated_min, expected_min, atol=0, rtol=0)
+        torch.testing.assert_close(recalibrated_max, expected_max, atol=0, rtol=0)
+        self.assertFalse(
+            torch.equal(
+                fake_quantized_linears[0].activation_fake_quantizer.scale,
+                activation_scales[0],
+            )
+        )
+
+        state_dict = copy.deepcopy(model.state_dict())
+        torch.manual_seed(self.SEED)
+        restored = prepare_model()
+        restored.load_state_dict(state_dict)
+        x = torch.randn(2, 4)
+        torch.testing.assert_close(restored(x), model(x), atol=0, rtol=0)
+
+        restored_linears = [
+            module
+            for module in restored.modules()
+            if isinstance(module, FakeQuantizedLinear)
+        ]
+        for module, restored_module in zip(
+            fake_quantized_linears, restored_linears
+        ):
+            torch.testing.assert_close(
+                restored_module.activation_fake_quantizer.scale,
+                module.activation_fake_quantizer.scale,
+                atol=0,
+                rtol=0,
+            )
+            torch.testing.assert_close(
+                restored_module.activation_fake_quantizer.min_val,
+                module.activation_fake_quantizer.min_val,
+                atol=0,
+                rtol=0,
+            )
+
+        restored.to(dtype=torch.float64)
+        for module in restored_linears:
+            self.assertEqual(module.activation_fake_quantizer.scale.dtype, torch.float64)
+            self.assertEqual(
+                module.activation_fake_quantizer.min_val.dtype, torch.float64
+            )
+
     def test_quantize_api_errors(self):
         """
         Test that we throw exceptions with helpful error messages if `quantize_`
