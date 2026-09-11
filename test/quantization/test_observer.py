@@ -286,6 +286,51 @@ class TestQuantFlow(TestCase):
         )
 
 
+    def test_fixed_qparam_observer_multi_element_scale(self):
+        """Regression test: 'if not scale' crashes on multi-element tensors."""
+        scale = torch.tensor([1.0, 2.0, 3.0])
+        zero_point = torch.tensor([0.0, 0.0, 0.0])
+        obs = AffineQuantizedFixedQParamObserver(
+            MappingType.SYMMETRIC,
+            torch.int8,
+            PerTensor(),
+            scale=scale,
+            zero_point=zero_point,
+        )
+        s, zp = obs.calculate_qparams()
+        torch.testing.assert_close(s, scale)
+        torch.testing.assert_close(zp, zero_point)
+
+    def test_fixed_qparam_observer_zero_value_scale(self):
+        """Regression test: 'if not scale' overwrites valid scale=0.0."""
+        scale = torch.tensor([0.0])
+        zero_point = torch.tensor([0.0])
+        obs = AffineQuantizedFixedQParamObserver(
+            MappingType.SYMMETRIC,
+            torch.int8,
+            PerTensor(),
+            scale=scale,
+            zero_point=zero_point,
+        )
+        s, zp = obs.calculate_qparams()
+        self.assertEqual(s.item(), 0.0)
+        self.assertEqual(zp.item(), 0.0)
+
+    def test_fixed_qparam_observer_set_qparams_multi_element(self):
+        """Regression test: set_qparams 'if not zero_point' crashes on multi-element."""
+        obs = AffineQuantizedFixedQParamObserver(
+            MappingType.SYMMETRIC,
+            torch.int8,
+            PerTensor(),
+        )
+        scale = torch.tensor([1.0, 2.0])
+        zero_point = torch.tensor([0.0, 0.0])
+        obs.set_qparams(scale, zero_point)
+        s, zp = obs.calculate_qparams()
+        torch.testing.assert_close(s, scale)
+        torch.testing.assert_close(zp, zero_point)
+
+
 common_utils.instantiate_parametrized_tests(TestQuantFlow)
 
 if __name__ == "__main__":
