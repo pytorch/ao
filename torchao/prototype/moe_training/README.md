@@ -13,6 +13,7 @@
   - [End-to-end training benchmark with TorchTitan: Llama4 Scout vs bfloat16 baseline](#end-to-end-training-benchmark-with-torchtitan-llama4-scout-vs-bfloat16-baseline)
 - [Implementation details for developers](#implementation-details-for-developers)
 - [Limitations](#limitations)
+- [NVFP4 four-over-six MoE training](#nvfp4-four-over-six-moe-training)
 
 ## Overview
 This prototype provides:
@@ -317,3 +318,29 @@ For all other ops, these training tensor subclasses behave like regular torch.Te
 
 ## Limitations
 - The new CUDA kernel for MXFP8 quantization of the non-transposed expert weights in the backwards pass does not support TP yet.
+
+## NVFP4 four-over-six MoE training
+NVFP4 four-over-six is a prototype adaptive block-scaling recipe: per
+16-value block, the standard map-to-6 encoding competes with a 1.5x-scale
+map-to-4 candidate and the lower-error one is kept. Forward grouped
+GEMMs run in NVFP4 (each token group quantized as its own tensor); backwards
+are high-precision or dequantized grouped GEMMs only (no quantized backward). Requires SM100+, PyTorch 2.10+, the CuTe DSL runtime packages
+(`nvidia-cutlass-dsl`, `cuda-python`, `apache-tvm-ffi`) for the quantize
+fast path, and K/N % 128 == 0 with 128-row-aligned token groups (or
+`pad_token_groups_for_grouped_mm=True`).
+The grouped op is traceable under `torch.compile` (nonstrict trace) in
+both scale granularities; the grouped GEMM dispatcher branch is eager-only
+(it reads `offs[-1]` on the host for the over-allocation tail slice).
+```python
+import torch
+from torchao.prototype.moe_training.nvfp4_training.four_over_six_grouped import (
+    four_over_six_grouped_mm,
+)
+
+# A: (M, K) packed token groups, B: (E, N, K) expert weights,
+# offs: cumulative int32 group-end offsets.
+out = four_over_six_grouped_mm(A, B, offs, row_scaled_activation=True)
+```
+Framework integrations drive the same op through the grouped GEMM
+dispatcher with `NVFP4FourOverSixTrainingOpConfig` (see the torchtitan
+converters); `quantize_` model conversion for this config is future work.
