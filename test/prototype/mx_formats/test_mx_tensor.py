@@ -58,13 +58,13 @@ def test_cat(rows, width, dim):
     device = torch.accelerator.current_accelerator()
     is_swizzled_scales = device.type == "cuda" and not is_ROCM()
     inputs = [torch.randn(n, width, device=device, dtype=torch.bfloat16) for n in rows]
-    weights = [
+    mx_inputs = [
         MXTensor.to_mx(
             x, torch.float8_e4m3fn, 32, is_swizzled_scales=is_swizzled_scales
         )
         for x in inputs
     ]
-    result = torch.cat(weights, dim=dim)
+    result = torch.cat(mx_inputs, dim=dim)
     expected = MXTensor.to_mx(
         torch.cat(inputs),
         torch.float8_e4m3fn,
