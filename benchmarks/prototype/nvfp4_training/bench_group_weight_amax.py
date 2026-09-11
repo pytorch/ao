@@ -12,7 +12,9 @@ time (see bench_utils.kernel_time_us).
 
 Caveat on the reported bandwidth: ``kernel_time_us`` profiles a hot loop over one buffer
 and does not flush L2, so shapes below L2 capacity read partly from cache and the absolute
-TB/s is optimistic. Both backends are measured the same way, so the ratio is fair.
+TB/s is optimistic. The speedup survives it: both backends are pure-read reductions and
+lose the cache in the same proportion, 1.52x hot against 1.54x flushed at 671B E=4. Read
+the speedup column, and treat the bandwidth column as an upper bound.
 """
 
 from dataclasses import dataclass

@@ -201,6 +201,25 @@ if has_triton():
         return x_fp4x2
 
     @triton.jit
+    def _rcp_approx_ftz(x):
+        """``rcp.approx.ftz.f32``: TE's fast-math reciprocal.
+
+        No ``tl`` builtin reaches this instruction -- libdevice offers only the correctly
+        rounded ``rcp_rn/rd/ru/rz``, and ``fast_dividef`` lowers to ``div.approx.f32``,
+        which is a reciprocal *followed by a multiply* and so does not agree bit for bit.
+        TransformerEngine gets here through CUTLASS ``reciprocal_approximate_ftz`` and the
+        CuteDSL kernels through ``cute.arch.rcp_approx``; all three lower to one MUFU.RCP.
+        """
+        return tl.inline_asm_elementwise(
+            asm="rcp.approx.ftz.f32 $0, $1;",
+            constraints="=r,r",
+            args=[x],
+            dtype=tl.float32,
+            is_pure=True,
+            pack=1,
+        )
+
+    @triton.jit
     def _pack_fp4(
         scaled,
         BLOCK_N: tl.constexpr,
@@ -237,9 +256,21 @@ if has_triton():
 
     @triton.jit
     def _nvfp4_quantize(
-        a_t_rht, global_amax, BLOCK_N: tl.constexpr, BLOCK_M: tl.constexpr
+        a_t_rht,
+        global_amax,
+        BLOCK_N: tl.constexpr,
+        BLOCK_M: tl.constexpr,
+        FAST_MATH: tl.constexpr = False,
     ):
-        """Compute per-vector FP8 scale factors and scaled FP32 values ready for FP4 packing."""
+        """Compute per-vector FP8 scale factors and scaled FP32 values ready for FP4 packing.
+
+        FAST_MATH takes TE's approximate reciprocal for the per-vector encode scale
+        instead of a correctly rounded divide, matching TransformerEngine under
+        NVTE_USE_FAST_MATH=1. It applies to the columnwise and rowwise quantize alike;
+        the other half of TE's fast math -- consuming the RHT accumulator without
+        rounding it through bfloat16 -- belongs to the caller, because only the
+        columnwise path has an accumulator.
+        """
         FP8_E4M3_MAX: tl.constexpr = 448.0
         FP4_E2M1_MAX: tl.constexpr = 6.0
         FP32_MAX: tl.constexpr = torch.finfo(torch.float32).max
@@ -275,8 +306,11 @@ if has_triton():
         scale_inv = tl.reshape(pvscale_fp8, [BLOCK_N, BLOCK_M // 16])
 
         denom = pvscale_fp8.to(tl.float32) * global_decode_scale
-        encode_num = tl.full(denom.shape, 1.0, tl.float32)
-        encode_scale = tl.minimum(tl.div_rn(encode_num, denom), FP32_MAX)
+        if FAST_MATH:
+            encode_scale = tl.minimum(_rcp_approx_ftz(denom), FP32_MAX)
+        else:
+            encode_num = tl.full(denom.shape, 1.0, tl.float32)
+            encode_scale = tl.minimum(tl.div_rn(encode_num, denom), FP32_MAX)
 
         scaled = a_vecs * encode_scale
         scaled = tl.clamp(scaled, -FP4_E2M1_MAX, FP4_E2M1_MAX)
@@ -383,7 +417,7 @@ if has_triton():
 
         Requires 128-aligned group boundaries, which is what makes the
         group-local tile index exact. The pad-128 token dispatcher guarantees
-        it, as does the caller's `offs[-1] = A.shape[0]` for the padding tail.
+        it through the final logical group-end offset.
         """
         group_start = tl.load(
             offsets_ptr + group_idx - 1, mask=group_idx > 0, other=0

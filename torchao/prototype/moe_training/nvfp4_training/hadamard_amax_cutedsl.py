@@ -29,7 +29,7 @@ def cutedsl_rht_amax(
     """Compute the post-RHT columnwise amax and the plain rowwise amax of ``A``.
 
     Args:
-        A: (M, N) bfloat16 tensor, row-major. M must be divisible by 256, N by 128.
+        A: (M, N) bfloat16 tensor, row-major. M must be divisible by 128, N by 128.
         sign_vector: Sign vector for the RHT as a list of ints.
         hadamard_dimension: Dimension of the Hadamard matrix (only 16 supported).
 
