@@ -139,6 +139,9 @@ class ConfigJSONEncoder(json.JSONEncoder):
         if isinstance(o, torch.dtype):
             return {"_type": "torch.dtype", "_data": str(o).split(".")[-1]}
 
+        if isinstance(o, torch.Tensor):
+            return o.detach().cpu().tolist()
+
         # For lists and dictionaries, recursively process their items
         if isinstance(o, list):
             return [self.encode_value(item) for item in o]

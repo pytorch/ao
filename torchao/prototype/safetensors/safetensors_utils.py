@@ -18,11 +18,13 @@ from torchao.quantization import (
     Int4Tensor,
     Int4TilePackedTo4dTensor,
     Int8Tensor,
+    IntxStaticActivationTensor,
     IntxUnpackedToInt8Tensor,
     MappingType,
 )
 from torchao.quantization.quantize_.common import KernelPreference
 from torchao.quantization.quantize_.workflows import (
+    IntxUnpackedToInt8TensorActivationQuantization,
     QuantizeTensorToFloat8Kwargs,
     QuantizeTensorToInt8Kwargs,
 )
@@ -32,6 +34,7 @@ ALLOWED_CLASSES = {
     "Int4Tensor": Int4Tensor,
     "Int4TilePackedTo4dTensor": Int4TilePackedTo4dTensor,
     "IntxUnpackedToInt8Tensor": IntxUnpackedToInt8Tensor,
+    "IntxStaticActivationTensor": IntxStaticActivationTensor,
     "Int8Tensor": Int8Tensor,
     "Float8MMConfig": torchao.float8.inference.Float8MMConfig,
     "QuantizeTensorToFloat8Kwargs": QuantizeTensorToFloat8Kwargs,
@@ -46,6 +49,7 @@ ALLOWED_CLASSES = {
     "ScaleCalculationMode": ScaleCalculationMode,
     "NVFP4Tensor": NVFP4Tensor,
     "QuantizeTensorToNVFP4Kwargs": QuantizeTensorToNVFP4Kwargs,
+    "IntxUnpackedToInt8TensorActivationQuantization": IntxUnpackedToInt8TensorActivationQuantization,
 }
 
 ALLOWED_TENSORS_SUBCLASSES = [
@@ -53,6 +57,7 @@ ALLOWED_TENSORS_SUBCLASSES = [
     "Int4Tensor",
     "Int4TilePackedTo4dTensor",
     "IntxUnpackedToInt8Tensor",
+    "IntxStaticActivationTensor",
     "Int8Tensor",
     "Int4PlainInt32Tensor",
     "MXTensor",
