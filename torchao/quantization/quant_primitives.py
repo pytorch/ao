@@ -11,6 +11,11 @@ from typing import Callable, Dict, List, Optional, Tuple, Union
 
 import torch
 
+from torchao.prototype.custom_fp_utils import (
+    _f32_to_floatx_unpacked,
+    _floatx_unpacked_to_f32,
+    _n_ones,
+)
 from torchao.utils import (
     _register_custom_op,
     _register_meta_op,
@@ -26,6 +31,7 @@ __all__ = [
     "TorchAODType",
     "_choose_qparams_affine_tinygemm",
     "_choose_qparams_affine_dont_preserve_zero",
+    "_choose_qparams_affine_floatx",
     "_choose_qparams_and_quantize_affine_hqq",
     "_choose_qparams_and_quantize_scale_only_hqq",
     "_choose_qparams_and_quantize_scale_only_sinq",
@@ -33,10 +39,12 @@ __all__ = [
     "_choose_qparams_gguf",
     "_quantize_affine_no_zero_point",
     "_quantize_affine_tinygemm",
+    "_quantize_affine_floatx",
     "_quantize_affine_float8",
     "_quantize_gguf",
     "_dequantize_affine_no_zero_point",
     "_dequantize_affine_tinygemm",
+    "_dequantize_affine_floatx",
     "_dequantize_affine_float8",
     "_dequantize_gguf",
     "_fake_quantize_affine",
@@ -206,6 +214,8 @@ _DTYPE_TO_QVALUE_BOUNDS.update(_SUB_BYTE_INT_BOUNDS)
 assert _DTYPE_TO_BIT_WIDTH.keys() == _DTYPE_TO_QVALUE_BOUNDS.keys()
 
 _GGUF_QK_K = 256
+
+_ONES_TABLE = [_n_ones(i) for i in range(8)]
 
 quant_lib = torch.library.Library("torchao", "FRAGMENT")
 
@@ -2201,6 +2211,66 @@ def _choose_qparams_and_quantize_scale_only_sinq(
     scale_col = scale_col_sinkhorn.repeat(num_groups)[: shape[1]].to(compute_dtype)
 
     return qdata, scale_row, scale_col
+
+
+def _choose_qparams_affine_floatx(
+    tensor: torch.Tensor, ebits: int, mbits: int
+) -> torch.Tensor:
+    """Choose quantization parameters for floatx quantization.
+
+    Calculates scale parameter for quantizing to custom floating point format.
+
+    Args:
+        tensor: Input tensor to quantize (float32, float16, or bfloat16)
+        ebits: Number of exponent bits in target floatx format
+        mbits: Number of mantissa bits in target floatx format
+
+    Returns:
+        Scale tensor for floatx quantization
+
+    Note:
+        Uses global lookup table as workaround for torch.compile() compatibility
+        since _n_ones() is not compatible due to << operator.
+    """
+    # _n_ones() is not compatible with torch.compile() due to << operator
+    # https://github.com/pytorch/pytorch/issues/119152
+    # exp_bias = _n_ones(ebits - 1)
+    # max_normal = 2 ** (_n_ones(ebits) - exp_bias) * (_n_ones(mbits + 1) / (2 ** mbits))
+
+    # workaround: global lookup table
+    exp_bias = _ONES_TABLE[ebits - 1]
+    max_normal = 2 ** (_ONES_TABLE[ebits] - exp_bias) * (
+        _ONES_TABLE[mbits + 1] / (2**mbits)
+    )
+
+    dtype = tensor.dtype
+    tensor = tensor.float()
+    scale = tensor.abs().amax(1).clamp(min=1e-12) / max_normal
+    return scale.to(dtype)
+
+
+def _quantize_affine_floatx(
+    tensor: torch.Tensor, scale: torch.Tensor, ebits: int, mbits: int
+) -> torch.Tensor:
+    """Quantizes the float32 high precision floating point tensor to low precision floating point number and
+    converts the result to unpacked floating point format with the format of 00SEEEMM (for fp6_e3m2) where S means sign bit, e means exponent bit and m means mantissa bit
+    """
+    tensor = tensor.float()
+    tensor_floatx = _f32_to_floatx_unpacked(tensor / scale.view(-1, 1), ebits, mbits)
+    return tensor_floatx
+
+
+def _dequantize_affine_floatx(
+    tensor: torch.Tensor,
+    scale: torch.Tensor,
+    ebits: int,
+    mbits: int,
+    output_dtype: torch.dtype = torch.float32,
+) -> torch.Tensor:
+    tensor = _floatx_unpacked_to_f32(tensor, ebits, mbits)
+    tensor = tensor * scale.float().view(-1, 1)
+    tensor = tensor.to(dtype=output_dtype)
+    return tensor
 
 
 @register_custom_op

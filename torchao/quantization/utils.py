@@ -111,6 +111,28 @@ class LoggingTensorMode(TorchDispatchMode):
         return rs
 
 
+class _MultiInput:
+    def __init__(self, inputs):
+        self.values = list(inputs)
+
+    def add_input(self, input):
+        self.values.append(input)
+        return self
+
+    def __getitem__(self, slice):
+        return _MultiInput(self.values[slice])
+
+    def cuda(self):
+        self.values = [
+            val.cuda() if isinstance(val, torch.Tensor) else val for val in self.values
+        ]
+
+    def xpu(self):
+        self.values = [
+            val.xpu() if isinstance(val, torch.Tensor) else val for val in self.values
+        ]
+
+
 def _guard_dtype_size(tensor_arg, arg_name, dtype=None, size=None):
     if dtype is not None and tensor_arg.dtype != dtype:
         raise ValueError(
