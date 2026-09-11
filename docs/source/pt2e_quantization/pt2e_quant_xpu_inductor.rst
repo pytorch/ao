@@ -1,5 +1,5 @@
 PyTorch 2 Export Quantization with Intel GPU Backend through Inductor
-==================================================================
+=====================================================================
 
 **Author**: `Yan Zhiwei <https://github.com/ZhiweiYan-96>`_, `Wang Eikan <https://github.com/EikanWang>`_, `Zhang Liangang <https://github.com/liangan1>`_, `Liu River <https://github.com/riverliuintel>`_, `Cui Yifeng <https://github.com/CuiYifeng>`_
 
