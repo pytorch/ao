@@ -248,7 +248,7 @@ def pack(
 
 
 def unpack(
-    data: List[torch.Tensor], elem_size: int, dim: Optional[int] = 0
+    data: List[torch.Tensor], elem_size: int, dim: Optional[int] = -1
 ) -> torch.Tensor:
     """
     a less branching but more compute version so better for gpu
