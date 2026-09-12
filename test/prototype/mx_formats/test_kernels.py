@@ -143,6 +143,20 @@ def test_float8_e5m2():
         _assert_equals(fp_ref, s_enc_ref, e_enc_ref, m_enc_ref, dtype)
 
 
+def test_float8_e4m3fnuz():
+    dtype = torch.float8_e4m3fnuz
+    interesting_values = dtype_to_interesting_values[dtype]
+    for fp_ref, s_enc_ref, e_enc_ref, m_enc_ref, _notes in interesting_values:
+        _assert_equals(fp_ref, s_enc_ref, e_enc_ref, m_enc_ref, dtype)
+
+
+def test_float8_e5m2fnuz():
+    dtype = torch.float8_e5m2fnuz
+    interesting_values = dtype_to_interesting_values[dtype]
+    for fp_ref, s_enc_ref, e_enc_ref, m_enc_ref, _notes in interesting_values:
+        _assert_equals(fp_ref, s_enc_ref, e_enc_ref, m_enc_ref, dtype)
+
+
 def _sem_enc_to_fp32_val(s_enc, e_enc, m_enc, is_zero, is_denorm, exp_bias):
     s_i = 1.0 if s_enc == "0" else -1.0
     if is_zero:
