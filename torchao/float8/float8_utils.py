@@ -8,9 +8,14 @@ from typing import Iterable, Optional, Tuple, Union
 
 import torch
 import torch.distributed as dist
-from torch.distributed._functional_collectives import AsyncCollectiveTensor, all_reduce
 
 from torchao.float8.config import ScalingGranularity
+
+if torch.distributed.is_available():
+    from torch.distributed._functional_collectives import (
+        AsyncCollectiveTensor,
+        all_reduce,
+    )
 
 # Helpful visualizer for debugging (only supports fp32):
 # https://www.h-schmidt.net/FloatConverter/IEEE754.html

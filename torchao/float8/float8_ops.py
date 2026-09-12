@@ -463,12 +463,24 @@ def autocast_to_copy(aten_op, args, kwargs=None):
     )
 
 
-@implements(
-    [
+# The c10d collectives below do not exist when torch is built with
+# USE_DISTRIBUTED=0. Registering no ops leaves the handlers unreachable, which
+# is correct because nothing can call a collective on such a build.
+if torch.distributed.is_available():
+    _all_gather_ops = [
         c10d_functional.all_gather_into_tensor.default,
         _c10d_functional.all_gather_into_tensor.default,
     ]
-)
+    _wait_tensor_ops = [
+        c10d_functional.wait_tensor.default,
+        _c10d_functional.wait_tensor.default,
+    ]
+else:
+    _all_gather_ops = []
+    _wait_tensor_ops = []
+
+
+@implements(_all_gather_ops)
 def allgather_fp8(aten_op, args, kwargs=None):
     """
     override funcol with FP8 handling
@@ -491,7 +503,7 @@ def allgather_fp8(aten_op, args, kwargs=None):
     )
 
 
-@implements([c10d_functional.wait_tensor.default, _c10d_functional.wait_tensor.default])
+@implements(_wait_tensor_ops)
 def wait_tensor_fp8(aten_op, args, kwargs=None):
     _assert_tensorwise_scale(aten_op, args[0]._scale)
     fp8_input = args[0]
@@ -509,7 +521,7 @@ def wait_tensor_fp8(aten_op, args, kwargs=None):
 
 
 # _wrap_tensor_autograd was added in PyTorch 2.11.0.dev
-if torch_version_at_least("2.11.0.dev"):
+if torch.distributed.is_available() and torch_version_at_least("2.11.0.dev"):
 
     @implements([_c10d_functional._wrap_tensor_autograd.default])
     def wrap_tensor_autograd_fp8(aten_op, args, kwargs=None):
