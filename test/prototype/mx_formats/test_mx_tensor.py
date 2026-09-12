@@ -39,12 +39,68 @@ from torchao.testing._mxfp8_test_utils import (
     make_mxfp8_semantic_cases,
 )
 from torchao.utils import (
+    is_ROCM,
     is_sm_at_least_89,
     is_sm_at_least_90,
     torch_version_at_least,
 )
 
 torch.manual_seed(2)
+
+
+@pytest.mark.skipif(
+    not torch.accelerator.is_available(), reason="Accelerator not available"
+)
+@pytest.mark.parametrize(
+    "rows,width,dim", [((128, 256), 128, 0), ((127, 2, 129), 160, -2)]
+)
+def test_cat(rows, width, dim):
+    device = torch.accelerator.current_accelerator()
+    is_swizzled_scales = device.type == "cuda" and not is_ROCM()
+    inputs = [torch.randn(n, width, device=device, dtype=torch.bfloat16) for n in rows]
+    mx_inputs = [
+        MXTensor.to_mx(
+            x, torch.float8_e4m3fn, 32, is_swizzled_scales=is_swizzled_scales
+        )
+        for x in inputs
+    ]
+    result = torch.cat(mx_inputs, dim=dim)
+    expected = MXTensor.to_mx(
+        torch.cat(inputs),
+        torch.float8_e4m3fn,
+        32,
+        is_swizzled_scales=is_swizzled_scales,
+    )
+    assert isinstance(result, MXTensor)
+    assert result.shape == expected.shape
+    assert result.is_swizzled_scales == is_swizzled_scales
+    for field in ("qdata", "scale"):
+        assert torch.equal(
+            getattr(result, field).view(torch.uint8),
+            getattr(expected, field).view(torch.uint8),
+        )
+
+
+@pytest.mark.skipif(
+    not torch.accelerator.is_available(), reason="Accelerator not available"
+)
+def test_cat_rejects_incompatible_weights():
+    device = torch.accelerator.current_accelerator()
+    is_swizzled_scales = device.type == "cuda" and not is_ROCM()
+    first, second = [
+        MXTensor.to_mx(
+            torch.randn(rows, 32, device=device, dtype=torch.bfloat16),
+            torch.float8_e4m3fn,
+            32,
+            is_swizzled_scales=is_swizzled_scales,
+        )
+        for rows in (2, 3)
+    ]
+    second.orig_dtype = torch.float32
+    with pytest.raises(ValueError, match="matching quantization metadata"):
+        torch.cat([first, second])
+    with pytest.raises(NotImplementedError, match="contiguous qdata"):
+        torch.cat([first.t(), first.t()])
 
 
 def test_f32_to_e8m0_rceil():
