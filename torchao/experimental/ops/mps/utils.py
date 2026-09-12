@@ -55,15 +55,21 @@ def _load_torchao_mps_lib():
     except AttributeError:
         libpath = _get_torchao_mps_lib_path()
         if libpath is None:
-            raise RuntimeError(
+            raise ImportError(
                 "Could not find libtorchao_ops_mps_aten.dylib. "
                 "Please build with TORCHAO_BUILD_EXPERIMENTAL_MPS=1"
             )
         try:
             torch.ops.load_library(libpath)
         except Exception as e:
-            raise RuntimeError(f"Failed to load library {libpath}: {e}")
+            raise ImportError(f"Failed to load library {libpath}: {e}")
 
-        for nbit in range(1, 8):
-            getattr(torch.ops.torchao, f"_linear_fp_act_{nbit}bit_weight")
-            getattr(torch.ops.torchao, f"_pack_weight_{nbit}bit")
+        try:
+            for nbit in range(1, 8):
+                getattr(torch.ops.torchao, f"_linear_fp_act_{nbit}bit_weight")
+                getattr(torch.ops.torchao, f"_pack_weight_{nbit}bit")
+        except AttributeError as e:
+            raise ImportError(
+                f"Loaded {libpath} but the MPS ops did not register. "
+                "Please build with TORCHAO_BUILD_EXPERIMENTAL_MPS=1"
+            ) from e
