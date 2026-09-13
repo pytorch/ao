@@ -211,6 +211,66 @@ def test_emulated_backend_selection_is_explicit():
     assert backend.kind == _GroupedMMBackendKind.EMULATED
 
 
+def test_auto_selects_cutedsl_for_supported_ragged_geometry(monkeypatch):
+    from torchao.prototype.moe_training.blockwise_fp8 import grouped_mm_backend
+
+    monkeypatch.setattr(
+        grouped_mm_backend,
+        "_can_use_cutedsl_fp8_blockwise_grouped_mm_training",
+        lambda *args, **kwargs: True,
+    )
+    monkeypatch.setattr(
+        grouped_mm_backend,
+        "can_use_deepgemm_grouped_training",
+        lambda *args, **kwargs: pytest.fail("DeepGEMM selection should not run"),
+    )
+
+    backend = grouped_mm_backend._select_fp8_blockwise_grouped_mm_backend(
+        KernelPreference.AUTO,
+        torch.empty(1),
+        torch.bfloat16,
+        128,
+        torch.tensor([256, 512, 640, 896], dtype=torch.int32),
+        original_group_end_offsets=torch.tensor(
+            [129, 384, 500, 640], dtype=torch.int32
+        ),
+        padded_group_start_offsets=torch.tensor([0, 256, 512, 640], dtype=torch.int32),
+        num_rows=1152,
+        B_t=torch.empty(1),
+    )
+
+    assert backend.kind == grouped_mm_backend._GroupedMMBackendKind.CUTEDSL
+
+
+def test_auto_uses_deepgemm_when_cutedsl_geometry_is_unsupported(monkeypatch):
+    from torchao.prototype.moe_training.blockwise_fp8 import grouped_mm_backend
+
+    monkeypatch.setattr(
+        grouped_mm_backend,
+        "_can_use_cutedsl_fp8_blockwise_grouped_mm_training",
+        lambda *args, **kwargs: False,
+    )
+    monkeypatch.setattr(
+        grouped_mm_backend,
+        "can_use_deepgemm_grouped_training",
+        lambda *args, **kwargs: True,
+    )
+
+    backend = grouped_mm_backend._select_fp8_blockwise_grouped_mm_backend(
+        KernelPreference.AUTO,
+        torch.empty(1),
+        torch.bfloat16,
+        128,
+        torch.tensor([256, 512, 640], dtype=torch.int32),
+        original_group_end_offsets=torch.tensor([129, 384, 500], dtype=torch.int32),
+        padded_group_start_offsets=torch.tensor([0, 256, 512], dtype=torch.int32),
+        num_rows=768,
+        B_t=torch.empty(1),
+    )
+
+    assert backend.kind == grouped_mm_backend._GroupedMMBackendKind.DEEPGEMM
+
+
 def test_deepgemm_grouped_layout_from_padded_offsets():
     original_group_end_offsets = torch.tensor([129, 384, 500], dtype=torch.int32)
     padded_group_start_offsets = torch.tensor([0, 256, 512], dtype=torch.int32)
