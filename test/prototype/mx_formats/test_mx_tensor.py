@@ -55,9 +55,9 @@ torch.manual_seed(2)
     "rows,width,dim", [((128, 256), 128, 0), ((127, 2, 129), 160, -2)]
 )
 @pytest.mark.parametrize("elem_dtype", SUPPORTED_ELEM_DTYPES)
-def test_cat(rows, width, dim, elem_dtype):
+@pytest.mark.parametrize("is_swizzled_scales", [False, True])
+def test_cat(rows, width, dim, elem_dtype, is_swizzled_scales):
     device = torch.accelerator.current_accelerator()
-    is_swizzled_scales = device.type == "cuda" and not is_ROCM()
     inputs = [torch.randn(n, width, device=device, dtype=torch.bfloat16) for n in rows]
     mx_inputs = [
         MXTensor.to_mx(x, elem_dtype, is_swizzled_scales=is_swizzled_scales)

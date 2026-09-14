@@ -982,9 +982,7 @@ def mx_cat(func, types, args, kwargs):
     if dim < 0:
         dim += first.ndim
     if first.ndim != 2 or dim != 0:
-        raise NotImplementedError(
-            "MXTensor only supports cat of 2D tensors at dim=0"
-        )
+        raise NotImplementedError("MXTensor only supports cat of 2D tensors at dim=0")
     metadata = (
         first.elem_dtype,
         first.block_size,
@@ -1010,21 +1008,23 @@ def mx_cat(func, types, args, kwargs):
             raise NotImplementedError("MXTensor.cat requires contiguous qdata")
 
     qdata = aten.cat.default([tensor.qdata for tensor in tensors], 0)
+    # Concatenate scale bytes: CUDA cat does not support every E8M0 layout.
+    scales = [tensor.scale.view(torch.uint8) for tensor in tensors]
     if not first.is_swizzled_scales:
-        scale = aten.cat.default([tensor.scale for tensor in tensors], 0)
+        scale = aten.cat.default(scales, 0)
     else:
         # Independent inputs have independent padding. Recover logical rows
         # before concatenation, then pack once for the combined weight shape.
         scales = [
-            from_blocked(tensor.scale, tensor.shape[0], tensor.shape[1] // tensor.block_size)
-            for tensor in tensors
+            from_blocked(scale, tensor.shape[0], tensor.shape[1] // tensor.block_size)
+            for tensor, scale in zip(tensors, scales)
         ]
         rows = sum(tensor.shape[0] for tensor in tensors)
         scale_shape = hp_data_dims_to_swizzled_scale_dims_mx(rows, first.shape[1])
         scale = to_blocked(aten.cat.default(scales, 0)).view(scale_shape)
     return MXTensor(
         qdata,
-        scale,
+        scale.view(torch.float8_e8m0fnu),
         first.elem_dtype,
         first.block_size,
         first.orig_dtype,
