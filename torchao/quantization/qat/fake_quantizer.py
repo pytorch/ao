@@ -18,6 +18,8 @@ from torchao.quantization.granularity import (
 )
 from torchao.quantization.quant_primitives import (
     _DTYPE_TO_BIT_WIDTH,
+    _DTYPE_TO_QVALUE_BOUNDS,
+    _get_reduction_params,
     MappingType,
     _choose_scale_float8,
     _dequantize_affine_float8,
@@ -198,8 +200,16 @@ class IntxFakeQuantizer(FakeQuantizerBase):
         super().__init__()
         torch._C._log_api_usage_once("torchao.quantization.qat.IntxFakeQuantizer")
         self.config = config
+        # `enabled` controls fake quantization, while `observer_enabled` controls
+        # calibration range collection. The two controls are independent:
+        #   True / True: observe, then fake quantize
+        #   True / False: observe, then return the original input
+        #   False / True: fake quantize without observing
+        #   False / False: return the original input without observing
+        # The order above is observer_enabled / enabled.
         self.enabled = True
         self.observer_enabled = False
+        self._enabled_before_calibration: Optional[bool] = None
         self.scale: Optional[torch.Tensor]
         self.zero_point: Optional[torch.Tensor]
         if config.is_dynamic or config.range_learning:
@@ -210,22 +220,10 @@ class IntxFakeQuantizer(FakeQuantizerBase):
             self.register_buffer(
                 "zero_point", torch.empty(0, dtype=config.zero_point_precision)
             )
-        self.min_val: Optional[torch.Tensor]
-        self.max_val: Optional[torch.Tensor]
-        if (
-            not config.is_dynamic
-            and not config.range_learning
-            and isinstance(config.granularity, PerTensor)
-        ):
-            self.register_buffer(
-                "min_val", torch.empty(0, dtype=config.scale_precision)
-            )
-            self.register_buffer(
-                "max_val", torch.empty(0, dtype=config.scale_precision)
-            )
-        else:
-            self.min_val = None
-            self.max_val = None
+        # Calibration ranges are temporary. Finalized scale and zero point are
+        # the only calibration results stored in the state dictionary.
+        self.min_val: Optional[torch.Tensor] = None
+        self.max_val: Optional[torch.Tensor] = None
 
         # For range learning only
         # TODO: make this configurable?
@@ -264,103 +262,131 @@ class IntxFakeQuantizer(FakeQuantizerBase):
             raise ValueError("Unknown granularity '%s'" % self.config.granularity)
 
     def enable_calibration(self) -> None:
-        """Enable static per-tensor range collection and disable fake quantization."""
+        """Reset ranges, enable observation, and disable fake quantization."""
         self._validate_calibration_config()
-        self.min_val.resize_(0)
-        self.max_val.resize_(0)
+        if not self.observer_enabled or self.enabled:
+            self._enabled_before_calibration = self.enabled
+        self.min_val = None
+        self.max_val = None
         self.observer_enabled = True
         self.enabled = False
 
     def finalize_calibration(self) -> None:
-        """Finalize static per-tensor quantization parameters."""
+        """Compute qparams from observed ranges and exit calibration mode.
+
+        This method disables observation and restores the fake-quantization state
+        that was active before :meth:`enable_calibration`.
+        """
         self._validate_calibration_config()
         if (
-            self.min_val is None
-            or self.max_val is None
-            or self.min_val.numel() == 0
-            or self.max_val.numel() == 0
+            not self.observer_enabled
+            or self.enabled
+            or self._enabled_before_calibration is None
         ):
+            raise ValueError(
+                "Calibration must be enabled before calling finalize_calibration"
+            )
+        if self.min_val is None or self.max_val is None:
+            self._restore_fake_quantization_state()
             raise ValueError("No calibration data was collected")
         qmin, qmax = self.config.quant_min, self.config.quant_max
-        self.scale, self.zero_point = choose_qparams_affine_with_min_max(
-            self.min_val,
-            self.max_val,
-            self.config.mapping_type,
-            (),
-            self.config.dtype,
-            qmin,
-            qmax,
-            self.config.eps,
-            self.config.scale_precision,
-            self.config.zero_point_precision,
-        )
-        self.observer_enabled = False
-        self.enabled = True
+        try:
+            scale, zero_point = choose_qparams_affine_with_min_max(
+                self.min_val,
+                self.max_val,
+                self.config.mapping_type,
+                (),
+                self.config.dtype,
+                qmin,
+                qmax,
+                self.config.eps,
+                self.config.scale_precision,
+                self.config.zero_point_precision,
+            )
+        except Exception:
+            self._restore_fake_quantization_state()
+            raise
+        self.scale = scale
+        self.zero_point = zero_point
+        self._restore_fake_quantization_state()
 
     def get_running_min_max(self) -> tuple[torch.Tensor, torch.Tensor]:
         """Return copies of the collected calibration range."""
         self._validate_calibration_config()
-        if (
-            self.min_val is None
-            or self.max_val is None
-            or self.min_val.numel() == 0
-            or self.max_val.numel() == 0
-        ):
+        if self.min_val is None or self.max_val is None:
             raise ValueError("No calibration data was collected")
         return self.min_val.clone(), self.max_val.clone()
 
     def set_running_min_max(self, min_val: torch.Tensor, max_val: torch.Tensor) -> None:
         """Replace the collected calibration range."""
         self._validate_calibration_config()
-        if min_val.numel() != 1 or max_val.numel() != 1:
-            raise ValueError("Calibration ranges must contain one value")
-        assert self.min_val is not None
-        assert self.max_val is not None
-        if (
+        if self.min_val is None or self.max_val is None:
+            raise ValueError("No calibration data was collected")
+        if min_val.shape != self.min_val.shape or max_val.shape != self.max_val.shape:
+            raise ValueError("Calibration range shapes must match collected ranges")
+        requires_conversion = (
             min_val.device != self.min_val.device
             or max_val.device != self.max_val.device
             or min_val.dtype != self.min_val.dtype
             or max_val.dtype != self.max_val.dtype
-        ):
+        )
+        min_val = min_val.detach().to(self.min_val)
+        max_val = max_val.detach().to(self.max_val)
+        if not torch.isfinite(min_val).all().item() or not torch.isfinite(
+            max_val
+        ).all().item():
+            raise ValueError("Calibration ranges must be finite")
+        if torch.any(min_val > max_val).item():
+            raise ValueError("Calibration minimum must not exceed the maximum")
+        if requires_conversion:
             warnings.warn(
-                "Converting calibration ranges to match the quantizer buffer "
-                "dtype and device",
+                "Converting calibration ranges to match the collected ranges",
                 stacklevel=2,
             )
-        min_val = min_val.detach().to(self.min_val).reshape(())
-        max_val = max_val.detach().to(self.max_val).reshape(())
-        if not torch.isfinite(min_val).item() or not torch.isfinite(max_val).item():
-            raise ValueError("Calibration ranges must be finite")
-        if min_val.item() > max_val.item():
-            raise ValueError("Calibration minimum must not exceed the maximum")
-        self.min_val.resize_(()).copy_(min_val)
-        self.max_val.resize_(()).copy_(max_val)
+        self.min_val = min_val
+        self.max_val = max_val
 
     def _validate_calibration_config(self) -> None:
         if (
             self.config.is_dynamic
             or self.config.range_learning
-            or not isinstance(self.config.granularity, PerTensor)
+            or isinstance(self.config.granularity, PerToken)
         ):
             raise ValueError(
-                "Calibration is only supported for static per-tensor quantization"
+                "Calibration is only supported for static per-tensor, per-axis, "
+                "or per-group quantization"
             )
+
+    def _restore_fake_quantization_state(self) -> None:
+        assert self._enabled_before_calibration is not None
+        self.observer_enabled = False
+        self.enabled = self._enabled_before_calibration
+        self._enabled_before_calibration = None
 
     def _update_calibration_ranges(self, x: torch.Tensor) -> None:
         if x.numel() == 0:
             return
-        x = x.detach()
-        min_val, max_val = torch.aminmax(x)
-        assert self.min_val is not None
-        assert self.max_val is not None
-        if self.min_val.numel() == 0 or self.max_val.numel() == 0:
-            self.min_val.resize_(())
-            self.max_val.resize_(())
-            self.min_val.copy_(min_val)
-            self.max_val.copy_(max_val)
+        x = x.detach().to(dtype=self.config.scale_precision)
+        if isinstance(self.config.granularity, PerTensor):
+            min_val, max_val = torch.aminmax(x)
         else:
-            self.min_val.copy_(torch.minimum(self.min_val, min_val))
-            self.max_val.copy_(torch.maximum(self.max_val, max_val))
+            block_size = get_block_size(x.shape, self.config.granularity)
+            shape_for_reduction, reduction_dims = _get_reduction_params(
+                block_size, x.size()
+            )
+            x = x.view(shape_for_reduction)
+            min_val = torch.amin(x, dim=reduction_dims)
+            max_val = torch.amax(x, dim=reduction_dims)
+        if self.min_val is None or self.max_val is None:
+            self.min_val = min_val
+            self.max_val = max_val
+        else:
+            if self.min_val.shape != min_val.shape or self.max_val.shape != max_val.shape:
+                raise ValueError(
+                    "Calibration range shape changed between calibration inputs"
+                )
+            self.min_val = torch.minimum(self.min_val, min_val)
+            self.max_val = torch.maximum(self.max_val, max_val)
 
     def _per_token_forward(self, x: torch.Tensor) -> torch.Tensor:
         """
@@ -545,7 +571,7 @@ class IntxFakeQuantizer(FakeQuantizerBase):
         unexpected_keys,
         error_msgs,
     ):
-        for name in ("scale", "zero_point", "min_val", "max_val"):
+        for name in ("scale", "zero_point"):
             key = prefix + name
             if name in self._buffers and key not in state_dict:
                 state_dict[key] = self._buffers[name]
