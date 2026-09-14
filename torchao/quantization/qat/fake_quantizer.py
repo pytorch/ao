@@ -216,6 +216,9 @@ class IntxFakeQuantizer(FakeQuantizerBase):
             self.scale = None
             self.zero_point = None
         else:
+            # Static qparam shapes are unknown until checkpoint loading or the
+            # first eager forward. Initialize them before calling torch.compile,
+            # because compiled execution cannot resize these empty buffers.
             self.register_buffer("scale", torch.empty(0, dtype=config.scale_precision))
             self.register_buffer(
                 "zero_point", torch.empty(0, dtype=config.zero_point_precision)
@@ -539,6 +542,8 @@ class IntxFakeQuantizer(FakeQuantizerBase):
         unexpected_keys,
         error_msgs,
     ):
+        # Static qparams are optional for compatibility with older checkpoints.
+        # load_state_dict passes a copy, so this does not mutate caller state.
         for name in ("scale", "zero_point"):
             key = prefix + name
             if name in self._buffers and key not in state_dict:
