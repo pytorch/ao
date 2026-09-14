@@ -1098,6 +1098,35 @@ def _mxfp8_quantize_2d_32x1_cutedsl_custom_op(
     )
 
 
+@torch.library.custom_op(
+    "torchao::mxfp8_quantize_2d_1x32_32x1_cutedsl", mutates_args=()
+)
+def _mxfp8_quantize_2d_1x32_32x1_cutedsl_custom_op(
+    x: torch.Tensor,
+    offs: torch.Tensor,
+    block_size: int = 32,
+    scaling_mode: str = "rceil",
+) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    from torchao.prototype.moe_training.kernels.mxfp8.cutedsl_quantize_2d_1x32_32x1_fused import (
+        quantize_fused,
+    )
+
+    q_row, s_row, q_col, s_col = quantize_fused(
+        x,
+        offs,
+        block_size=block_size,
+        scaling_mode=scaling_mode,
+    )
+    # The kernel writes raw E8M0 bytes; hand them back typed, matching what the
+    # 1x32 and 32x1 ops above return.
+    return (
+        q_row,
+        s_row.view(torch.float8_e8m0fnu),
+        q_col,
+        s_col.view(torch.float8_e8m0fnu),
+    )
+
+
 @_mxfp8_quantize_2d_1x32_cutedsl_custom_op.register_fake
 def _fake_mxfp8_quantize_2d_1x32_cutedsl_custom_op(
     x: torch.Tensor,
@@ -1158,6 +1187,44 @@ def _fake_mxfp8_quantize_2d_32x1_cutedsl_custom_op(
         dtype=torch.float8_e8m0fnu,
     )
     return q_data, scales
+
+
+@_mxfp8_quantize_2d_1x32_32x1_cutedsl_custom_op.register_fake
+def _fake_mxfp8_quantize_2d_1x32_32x1_cutedsl_custom_op(
+    x: torch.Tensor,
+    offs: torch.Tensor,
+    block_size: int = 32,
+    scaling_mode: str = "rceil",
+) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    assert x.ndim == 2, "input tensor must be 2D"
+    assert block_size == 32, "Only block_size=32 is supported"
+    total_m, n = x.shape
+    num_groups = offs.shape[0]
+
+    q_row = torch.empty_strided(
+        (total_m, n),
+        (n, 1),
+        device=x.device,
+        dtype=torch.float8_e4m3fn,
+    )
+    # Rowwise groups run along ROWS and every group base is a multiple of 128, so
+    # the blocked layout needs no per-group padding and this is exactly
+    # to_blocked() of the whole (total_M, N // 32) array.
+    s_row = x.new_empty((total_m, n // block_size), dtype=torch.float8_e8m0fnu)
+
+    q_col = torch.empty_strided(
+        (n, total_m),
+        (total_m, 1),
+        device=x.device,
+        dtype=torch.float8_e4m3fn,
+    )
+    # Colwise groups run along COLUMNS, so each is blocked independently and the
+    # group structure survives as per-group padding. See s_col_shape().
+    s_col_rows = ceil_div(n, 128) * 128
+    s_col_cols = total_m // block_size + num_groups * 4
+    s_col = x.new_empty((s_col_rows, s_col_cols), dtype=torch.float8_e8m0fnu)
+
+    return q_row, s_row, q_col, s_col
 
 
 if _mxfp8_cutedsl_kernels_available:
@@ -1574,6 +1641,61 @@ def mxfp8_quantize_2d_32x1_cutedsl(
         offs=offs,
     )
     return qdata, scales
+
+
+def mxfp8_quantize_2d_1x32_32x1_cutedsl(
+    x: torch.Tensor,
+    offs: torch.Tensor,
+    block_size: int = 32,
+    scaling_mode: str = "rceil",
+) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    """
+    Quantize a 2D tensor of shape (total_M, N) along BOTH axes in one pass,
+    reading the input from HBM once.
+
+    Emits what a grouped-GEMM backward needs from grad_output: the 1x32 rowwise
+    form along N (for dgrad) and the 32x1 colwise form along total_M (for
+    wgrad), each with its scales already in the blocked layout its consumer
+    expects. Bit-exact with mxfp8_quantize_2d_1x32_cutedsl composed with the
+    colwise cast and a standalone K-groups swizzle, degenerate blocks included,
+    while moving 4.0625 bytes per input element instead of 6.125.
+
+    Args:
+        x: Input tensor of shape (total_M, N), bfloat16, row-major contiguous.
+            Both dimensions must be multiples of 128.
+        offs: Group end offsets along total_M, int32, ascending, every group
+            size a multiple of 128 -- checked with a device-side assert, which
+            surfaces as an async CUDA error rather than a Python exception
+            here. offs[-1] MAY be less than total_M: a dropless MoE
+            dispatcher sizes this buffer for worst-case padding and fills only
+            a prefix, so an uncovered tail is the norm. Rows past offs[-1] are
+            still quantized into q_row/q_col/s_row, but their s_col scale
+            columns are zeroed, matching the K-groups swizzle.
+        block_size: Block size for quantization (only 32 supported)
+        scaling_mode: Scaling mode (only "rceil" supported)
+
+    Returns:
+        q_row (total_M, N) row-major, s_row (total_M, N // 32) M-groups blocked,
+        q_col (N, total_M) row-major, s_col K-groups blocked.
+    """
+    if not _mxfp8_cutedsl_kernels_available:
+        missing_packages = _missing_cutedsl_runtime_packages()
+        if missing_packages:
+            missing = ", ".join(missing_packages)
+            raise NotImplementedError(
+                "mxfp8_quantize_2d_1x32_32x1 requires additional Python "
+                f"runtime package(s): {missing}. Please install "
+                "`nvidia-cutlass-dsl` and `apache-tvm-ffi`."
+            )
+        raise NotImplementedError(
+            "mxfp8_quantize_2d_1x32_32x1 requires CUDA, SM 10.x, and CUDA 12.8+."
+        )
+    return _mxfp8_quantize_2d_1x32_32x1_cutedsl_custom_op(
+        x,
+        offs,
+        block_size=block_size,
+        scaling_mode=scaling_mode,
+    )
 
 
 # =============================================================================
