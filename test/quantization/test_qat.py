@@ -1429,7 +1429,7 @@ class TestQAT(TestCase):
         no_clipping_config.is_symmetric = True
         self.assertEqual(
             no_clipping_config.mapping_type,
-            MappingType.SYMMETRIC_NO_CLIPPING_ERR,
+            MappingType.SYMMETRIC,
         )
         no_clipping_config.is_symmetric = False
         self.assertEqual(no_clipping_config.mapping_type, MappingType.ASYMMETRIC)
