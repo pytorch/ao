@@ -12,6 +12,7 @@ import torch
 from torchao.utils import ceil_div
 
 from .cute_utils import (
+    _check_cutedsl_version,
     compute_amax,
     compute_scale_from_amax,
     validate_group_sizes,
@@ -110,6 +111,8 @@ def _compile_mxfp8_quantize_2d_cutedsl(
     import cutlass.utils as utils
     from cutlass.cute.nvgpu import cpasync, tcgen05
     from cutlass.cute.runtime import make_fake_stream, make_fake_tensor
+
+    _check_cutedsl_version()
 
     if input_dtype_name == "torch.float32":
         INPUT_CUTLASS_DTYPE = cutlass.Float32
