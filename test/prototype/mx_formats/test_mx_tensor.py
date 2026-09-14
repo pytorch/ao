@@ -54,26 +54,28 @@ torch.manual_seed(2)
 @pytest.mark.parametrize(
     "rows,width,dim", [((128, 256), 128, 0), ((127, 2, 129), 160, -2)]
 )
-def test_cat(rows, width, dim):
+@pytest.mark.parametrize("elem_dtype", SUPPORTED_ELEM_DTYPES)
+def test_cat(rows, width, dim, elem_dtype):
     device = torch.accelerator.current_accelerator()
     is_swizzled_scales = device.type == "cuda" and not is_ROCM()
     inputs = [torch.randn(n, width, device=device, dtype=torch.bfloat16) for n in rows]
     mx_inputs = [
-        MXTensor.to_mx(
-            x, torch.float8_e4m3fn, 32, is_swizzled_scales=is_swizzled_scales
-        )
+        MXTensor.to_mx(x, elem_dtype, is_swizzled_scales=is_swizzled_scales)
         for x in inputs
     ]
     result = torch.cat(mx_inputs, dim=dim)
     expected = MXTensor.to_mx(
         torch.cat(inputs),
-        torch.float8_e4m3fn,
-        32,
+        elem_dtype,
         is_swizzled_scales=is_swizzled_scales,
     )
     assert isinstance(result, MXTensor)
     assert result.shape == expected.shape
     assert result.is_swizzled_scales == is_swizzled_scales
+    torch.testing.assert_close(
+        result.dequantize(), expected.dequantize(), rtol=0, atol=0
+    )
+    # Cat preserves the quantized representation, not just dequantized values.
     for field in ("qdata", "scale"):
         assert torch.equal(
             getattr(result, field).view(torch.uint8),
@@ -84,14 +86,14 @@ def test_cat(rows, width, dim):
 @pytest.mark.skipif(
     not torch.accelerator.is_available(), reason="Accelerator not available"
 )
-def test_cat_rejects_incompatible_weights():
+@pytest.mark.parametrize("elem_dtype", SUPPORTED_ELEM_DTYPES)
+def test_cat_rejects_incompatible_weights(elem_dtype):
     device = torch.accelerator.current_accelerator()
     is_swizzled_scales = device.type == "cuda" and not is_ROCM()
     first, second = [
         MXTensor.to_mx(
             torch.randn(rows, 32, device=device, dtype=torch.bfloat16),
-            torch.float8_e4m3fn,
-            32,
+            elem_dtype,
             is_swizzled_scales=is_swizzled_scales,
         )
         for rows in (2, 3)
