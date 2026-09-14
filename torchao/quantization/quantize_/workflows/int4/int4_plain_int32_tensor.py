@@ -5,6 +5,7 @@
 # LICENSE file in the root directory of this source tree.
 
 
+import hashlib
 from typing import List, Optional
 
 import torch
@@ -82,6 +83,26 @@ class Int4PlainInt32Tensor(TorchAOBaseTensor):
         if self.act_pre_scale is not None:
             s += f", act_pre_scale.shape={self.act_pre_scale.shape}"
         return s
+
+    def _stable_hash_for_caching(self) -> str:
+        def _update_tensor(hasher, name: str, tensor: Optional[torch.Tensor]):
+            if tensor is None:
+                hasher.update(f"{name}=None;".encode())
+                return
+
+            value = tensor.detach().cpu().contiguous()
+            hasher.update(f"{name}:dtype={value.dtype};shape={tuple(value.shape)};".encode())
+            hasher.update(value.numpy().tobytes())
+
+        hasher = hashlib.sha256()
+        hasher.update(self.__class__.__name__.encode())
+        hasher.update(f"shape={tuple(self.shape)};dtype={self.dtype};device={self.device};".encode())
+        hasher.update(f"block_size={tuple(self.block_size)};".encode())
+        _update_tensor(hasher, "qdata", self.qdata)
+        _update_tensor(hasher, "scale", self.scale)
+        _update_tensor(hasher, "zero_point", self.zero_point)
+        _update_tensor(hasher, "act_pre_scale", self.act_pre_scale)
+        return hasher.hexdigest()
 
     @classmethod
     def from_hp(

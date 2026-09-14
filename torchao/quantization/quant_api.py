@@ -116,6 +116,8 @@ __all__ = [
     "intx_quantization_aware_training",
     "Int8DynActInt4WeightQuantizer",
     "ModuleFqnToConfig",
+    "config_targets_parameter",
+    "config_prefers_cpu_checkpoint_staging",
 ]
 
 
@@ -204,6 +206,58 @@ def _is_linear(mod, *args):
         return False
 
     return True
+
+
+def _is_moe_expert_module(mod: torch.nn.Module, *args) -> bool:
+    """Heuristic matcher for fused MoE expert modules.
+
+    We match modules whose FQN contains "experts" and that own at least one
+    top-level 3D parameter (stacked expert weights).
+    """
+    fqn = args[0] if len(args) > 0 and isinstance(args[0], str) else ""
+    if "experts" not in fqn:
+        return False
+    return any(p.ndim == 3 for _, p in mod.named_parameters(recurse=False))
+
+
+def _is_linear_or_moe_expert(mod: torch.nn.Module, *args) -> bool:
+    return _is_linear(mod, *args) or _is_moe_expert_module(mod, *args)
+
+
+def _resolve_quantize_targets(
+    module: torch.nn.Module,
+    parameter_name: Optional[str] = None,
+) -> List[Tuple[str, torch.nn.Parameter]]:
+    """Resolve top-level parameter targets for quantization handlers.
+
+    Resolution order:
+      1) explicit ``parameter_name`` (FqnToConfig path)
+      2) conventional ``module.weight``
+      3) auto-discovery of top-level ndim >= 2 parameters
+    """
+    if parameter_name is not None:
+        assert hasattr(module, parameter_name), (
+            f"applying quantization requires module to have {parameter_name} attribute"
+            + f" but {module} does not have one"
+        )
+        param = getattr(module, parameter_name)
+        assert isinstance(param, torch.nn.Parameter), (
+            f"Expected {parameter_name} to be torch.nn.Parameter, got: {type(param)}"
+        )
+        return [(parameter_name, param)]
+
+    if hasattr(module, "weight"):
+        weight = getattr(module, "weight")
+        assert isinstance(weight, torch.nn.Parameter), (
+            f"Expected weight to be torch.nn.Parameter, got: {type(weight)}"
+        )
+        return [("weight", weight)]
+
+    return [
+        (name, param)
+        for name, param in module.named_parameters(recurse=False)
+        if isinstance(param, torch.nn.Parameter) and param.ndim >= 2
+    ]
 
 
 def _get_subclass_inserter(cls, enable_parametrization=False, **kwargs):
@@ -299,16 +353,16 @@ def _get_linear_subclass_inserter(
 def quantize_(
     model: torch.nn.Module,
     config: AOBaseConfig,
-    filter_fn: Optional[Callable[[torch.nn.Module, str], bool]] = _is_linear,
+    filter_fn: Optional[Callable[[torch.nn.Module, str], bool]] = _is_linear_or_moe_expert,
     device: Optional[torch.types.Device] = None,
 ):
-    """Convert the weight of linear modules in the model with `config`, model is modified inplace
+    """Convert eligible module parameters in the model with `config`, model is modified inplace
 
     Args:
         model (torch.nn.Module): input model
         config (AOBaseConfig): a workflow configuration object.
         filter_fn (Optional[Callable[[torch.nn.Module, str], bool]]): function that takes a nn.Module instance and fully qualified name of the module, returns True if we want to run `config` on
-        the weight of the module
+        the module parameters selected by the handler
         device (device, optional): Device to move module to before applying `filter_fn`. This can be set to `"cuda"` to speed up quantization. The final model will be on the specified `device`.
             Defaults to None (do not change device).
 
@@ -357,7 +411,7 @@ def quantize_(
     elif isinstance(config, AOBaseConfig):
         filter_fn = _is_linear if filter_fn is None else filter_fn
         handler = _QUANTIZE_CONFIG_HANDLER[type(config)]
-        # for each linear in the model, apply the transform if filtering passes
+        # for each matched module in the model, apply the transform if filtering passes
         _replace_with_custom_fn_if_matches_filter(
             model,
             handler,
@@ -649,32 +703,107 @@ def _int4_weight_only_transform(
     module: torch.nn.Module,
     config: Int4WeightOnlyConfig,
     *,
-    parameter_name: str = "weight",
+    parameter_name: Optional[str] = None,
 ) -> torch.nn.Module:
     if config.set_inductor_config:
         torchao.quantization.utils.recommended_inductor_config_setter()
 
-    assert hasattr(module, parameter_name), (
-        f"applying int4 weight only quant requires module to have {parameter_name} attribute"
-        + f" but {module} does not have one"
-    )
-    new_weight = _int4_weight_only_quantize_tensor(
-        getattr(module, parameter_name), config
-    )
-    setattr(
-        module,
-        parameter_name,
-        torch.nn.Parameter(new_weight, requires_grad=False),
-    )
-    module.extra_repr = types.MethodType(
-        partial(
-            _module_extra_repr,
-            original_extra_repr=module.extra_repr,
-            parameter_name=parameter_name,
-        ),
-        module,
-    )
+    target_params = _resolve_quantize_targets(module, parameter_name)
+    if len(target_params) == 0:
+        raise NotImplementedError(
+            "Int4WeightOnlyConfig did not find any eligible parameter targets on module "
+            f"{module.__class__.__name__}."
+        )
+
+    # Phase-1 RFC rollout: automatic targeting of modules without `.weight`
+    # is currently supported only on the plain_int32 backend path.
+    if (
+        parameter_name is None
+        and not hasattr(module, "weight")
+        and config.int4_packing_format != Int4PackingFormat.PLAIN_INT32
+    ):
+        raise NotImplementedError(
+            "Auto-targeting MoE expert parameters without explicit parameter_name is "
+            "currently supported only for Int4PackingFormat.PLAIN_INT32. "
+            f"Got int4_packing_format={config.int4_packing_format}."
+        )
+
+    for name, weight in target_params:
+        new_weight = _int4_weight_only_quantize_tensor(weight, config)
+        setattr(
+            module,
+            name,
+            torch.nn.Parameter(new_weight, requires_grad=False),
+        )
+
+    if len(target_params) == 1:
+        quantized_param_name = target_params[0][0]
+        module.extra_repr = types.MethodType(
+            partial(
+                _module_extra_repr,
+                original_extra_repr=module.extra_repr,
+                parameter_name=quantized_param_name,
+            ),
+            module,
+        )
     return module
+
+
+def config_targets_parameter(
+    module: torch.nn.Module,
+    module_fqn: str,
+    parameter_name: str,
+    config: AOBaseConfig,
+) -> bool:
+    """Return whether ``config`` would quantize ``module.parameter_name``.
+
+    This helper is intended for external loader integrations that need to ask
+    torchao which parameters should enter the quantization path before weights
+    are materialized.
+
+    The current behavior mirrors ``quantize_`` defaults for non-FQN configs:
+    - modules are filtered by ``_is_linear_or_moe_expert``
+    - modules with ``.weight`` target only ``weight``
+    - modules without ``.weight`` use auto-targeted top-level ndim >= 2 params
+      only for ``Int4WeightOnlyConfig`` with ``plain_int32`` packing
+    """
+    if not isinstance(config, AOBaseConfig) or isinstance(config, FqnToConfig):
+        raise TypeError(
+            "config_targets_parameter expects an AOBaseConfig that is not FqnToConfig"
+        )
+
+    module_param = getattr(module, parameter_name, None)
+    if not isinstance(module_param, torch.nn.Parameter):
+        return False
+
+    if not _is_linear_or_moe_expert(module, module_fqn):
+        return False
+
+    if hasattr(module, "weight"):
+        return parameter_name == "weight"
+
+    if not isinstance(config, Int4WeightOnlyConfig):
+        return False
+    if config.int4_packing_format != Int4PackingFormat.PLAIN_INT32:
+        return False
+
+    auto_target_names = {
+        name for name, _ in _resolve_quantize_targets(module, parameter_name=None)
+    }
+    return parameter_name in auto_target_names
+
+
+def config_prefers_cpu_checkpoint_staging(config: AOBaseConfig) -> bool:
+    """Return whether loading should stage source tensors on CPU before quantization.
+
+    This is used by loader integrations to avoid materializing full-precision checkpoints
+    directly on the destination accelerator when on-the-fly quantization is enabled.
+    """
+    if isinstance(config, FqnToConfig):
+        candidates = [subconfig for subconfig in config.module_fqn_to_config.values() if subconfig is not None]
+        return any(config_prefers_cpu_checkpoint_staging(subconfig) for subconfig in candidates)
+
+    return isinstance(config, Int4WeightOnlyConfig)
 
 
 @dataclass

@@ -17,6 +17,8 @@ from .observer import (
     AffineQuantizedObserverBase,
 )
 from .quant_api import (
+    config_prefers_cpu_checkpoint_staging,
+    config_targets_parameter,
     Float8DynamicActivationFloat8WeightConfig,
     Float8DynamicActivationInt4WeightConfig,
     Float8MMConfig,
@@ -69,6 +71,8 @@ __all__ = [
     "quantize_",
     "intx_quantization_aware_training",
     "fqn_matches_fqn_config",
+    "config_prefers_cpu_checkpoint_staging",
+    "config_targets_parameter",
     "swap_conv2d_1x1_to_linear",
     "Int8DynamicActivationInt8WeightConfig",
     "Int8DynamicActivationIntxWeightConfig",
