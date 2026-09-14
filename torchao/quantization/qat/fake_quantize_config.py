@@ -105,7 +105,7 @@ class Int4WeightFakeQuantizeConfig(FakeQuantizeConfigBase):
 class IntxFakeQuantizeConfig(FakeQuantizeConfigBase):
     """
     Config for how to fake quantize weights or activations,
-    targeting integer dtypes up to torch.int8.
+    targeting integer dtypes up to torch.int16.
 
     Args:
         dtype: dtype to simulate during fake quantization, e.g. torch.int8.
@@ -116,7 +116,11 @@ class IntxFakeQuantizeConfig(FakeQuantizeConfigBase):
                3) 'per_group': equivalent to PerGroup(group_size), must be combined
                    with separate `group_size` kwarg, Alternatively, just set the
                    `group_size` kwarg and leave this field empty.
-        mapping_type: whether to use symmetric (default) or asymmetric quantization
+               4) 'per_tensor': equivalent to PerTensor()
+        mapping_type: mapping from floating-point values to integers. Supported
+            values are `MappingType.SYMMETRIC`,
+            `MappingType.SYMMETRIC_NO_CLIPPING_ERR`, and
+            `MappingType.ASYMMETRIC`.
             Alternatively, set `is_symmetric` (bool) and leave this field empty.
         scale_precision: scale dtype (default torch.fp32)
         zero_point_precision: zero point dtype (default torch.int32)
@@ -128,8 +132,8 @@ class IntxFakeQuantizeConfig(FakeQuantizeConfigBase):
     Keyword args:
         group_size: size of each group in per group fake quantization,
             can be set instead of `granularity`
-        is_symmetric: whether to use symmetric or asymmetric quantization,
-            can be set instead of `mapping_type`
+        is_symmetric: whether to use symmetric or asymmetric quantization.
+            Use `mapping_type` to select `MappingType.SYMMETRIC_NO_CLIPPING_ERR`.
 
     Example usage::
 
@@ -147,6 +151,10 @@ class IntxFakeQuantizeConfig(FakeQuantizeConfigBase):
         IntxFakeQuantizeConfig(torch.int4, group_size=32, is_symmetric=True)
         IntxFakeQuantizeConfig(torch.int4, "per_group", group_size=32, is_symmetric=True)
         IntxFakeQuantizeConfig(torch.int4, PerGroup(32), MappingType.SYMMETRIC)
+
+        # Per tensor symmetric quantization
+        IntxFakeQuantizeConfig(torch.int8, "per_tensor")
+        IntxFakeQuantizeConfig(torch.int8, PerTensor())
     """
 
     dtype: Union[torch.dtype, "TorchAODType"]
@@ -187,12 +195,20 @@ class IntxFakeQuantizeConfig(FakeQuantizeConfigBase):
         self.eps = eps
 
         # Validate dtype
-        all_dtypes = [torch.int8, torch.uint8]
+        all_dtypes = [torch.int8, torch.uint8, torch.int16]
         all_dtypes.extend(list(_SUB_BYTE_INT_BOUNDS.keys()))
         all_dtypes.extend(list(_SUB_BYTE_UINT_BOUNDS.keys()))
         if dtype not in all_dtypes:
             raise ValueError(
                 "Unsupported dtype '%s', choose from %s" % (dtype, all_dtypes)
+            )
+        if (
+            isinstance(self.granularity, PerToken)
+            and self.mapping_type == MappingType.SYMMETRIC_NO_CLIPPING_ERR
+        ):
+            raise ValueError(
+                "MappingType.SYMMETRIC_NO_CLIPPING_ERR is not supported "
+                "for per-token quantization"
             )
 
         # Dynamic is not compatible with range learning
@@ -216,8 +232,8 @@ class IntxFakeQuantizeConfig(FakeQuantizeConfigBase):
         Parse the `Granularity` represented in the args.
 
         Granularity can be specified in one of three ways:
-            1) `Granularity` object: one of PerToken(), PerAxis(), and PerGroup(group_size)
-            2) str: one of 'per_token', 'per_channel', and 'per_group'
+            1) `Granularity` object: one of PerToken(), PerAxis(), PerGroup(group_size), and PerTensor()
+            2) str: one of 'per_token', 'per_channel', 'per_group', and 'per_tensor'
             3) None: `group_size` must be set instead, represents per group granularity
         """
         # If group_size is set, then granularity must be either "per_group" or None
@@ -232,7 +248,7 @@ class IntxFakeQuantizeConfig(FakeQuantizeConfigBase):
 
         # Case 1: Granularity object
         if isinstance(granularity, Granularity):
-            if not isinstance(granularity, (PerToken, PerAxis, PerGroup)):
+            if not isinstance(granularity, (PerToken, PerAxis, PerGroup, PerTensor)):
                 raise ValueError("Granularity '%s' is not supported" % granularity)
             if isinstance(granularity, PerAxis) and granularity.axis != 0:
                 raise ValueError("Only axis=0 is supported for PerAxis granularity")
@@ -249,10 +265,15 @@ class IntxFakeQuantizeConfig(FakeQuantizeConfigBase):
                     "Granularity was 'per_group' but no `group_size` was set"
                 )
             return PerGroup(group_size)
+        elif granularity == "per_tensor":
+            return PerTensor()
         elif isinstance(granularity, str):
             raise ValueError(
                 "Unexpected granularity: '%s', must be one of %s"
-                % (granularity, ["per_token", "per_channel", "per_group"])
+                % (
+                    granularity,
+                    ["per_token", "per_channel", "per_group", "per_tensor"],
+                )
             )
 
         # Case 3: None granularity + group_size was specified
@@ -276,7 +297,7 @@ class IntxFakeQuantizeConfig(FakeQuantizeConfigBase):
         Parse the `MappingType` represented in the args.
 
         Mapping type can be specified in one of two ways:
-            1): `MappingType` object: one of SYMMETRIC or ASYMMETRIC
+            1): `MappingType` object: one of SYMMETRIC, SYMMETRIC_NO_CLIPPING_ERR, or ASYMMETRIC
             2): is_symmetric bool
         """
         if mapping_type is not None and is_symmetric is not None:
@@ -288,7 +309,11 @@ class IntxFakeQuantizeConfig(FakeQuantizeConfigBase):
 
         # Case 1: MappingType object
         if mapping_type is not None:
-            if mapping_type not in [MappingType.SYMMETRIC, MappingType.ASYMMETRIC]:
+            if mapping_type not in [
+                MappingType.SYMMETRIC,
+                MappingType.SYMMETRIC_NO_CLIPPING_ERR,
+                MappingType.ASYMMETRIC,
+            ]:
                 raise ValueError("MappingType '%s' is not supported" % mapping_type)
             return mapping_type
 
@@ -315,9 +340,16 @@ class IntxFakeQuantizeConfig(FakeQuantizeConfigBase):
     @property
     def is_symmetric(self) -> bool:
         """
-        Return True if mapping type is symmetric, else False (asymmetric).
+        Return True for either symmetric mapping type.
+
+        Setting this property to True preserves an existing symmetric mapping,
+        including SYMMETRIC_NO_CLIPPING_ERR. Setting it to False selects
+        ASYMMETRIC. Set mapping_type directly to choose a specific symmetric mode.
         """
-        return self.mapping_type == MappingType.SYMMETRIC
+        return self.mapping_type in [
+            MappingType.SYMMETRIC,
+            MappingType.SYMMETRIC_NO_CLIPPING_ERR,
+        ]
 
     def __setattr__(self, name: str, value: Any):
         """
@@ -326,6 +358,11 @@ class IntxFakeQuantizeConfig(FakeQuantizeConfigBase):
         if name == "group_size":
             super().__setattr__("granularity", PerGroup(value))
         elif name == "is_symmetric":
+            if value and getattr(self, "mapping_type", None) in (
+                MappingType.SYMMETRIC,
+                MappingType.SYMMETRIC_NO_CLIPPING_ERR,
+            ):
+                return
             mapping_type = MappingType.SYMMETRIC if value else MappingType.ASYMMETRIC
             super().__setattr__("mapping_type", mapping_type)
         else:
