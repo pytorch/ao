@@ -24,8 +24,7 @@ from typing import Optional, Union
 import torch
 import torch.nn.functional as F
 from torch._subclasses.fake_tensor import is_fake
-from torch.distributed.tensor import DTensor, Replicate, Shard
-from torch.distributed.tensor.experimental import local_map
+from torch.distributed.tensor import DTensor
 from torch.utils._python_dispatch import (
     return_and_correct_aliasing,
 )
@@ -733,29 +732,6 @@ def _get_gemm_choice(
     return choice_a if choice_a is not None else choice_b
 
 
-def maybe_dtensor_to_blocked(t: torch.Tensor) -> torch.Tensor:
-    # redistribute to Replicate or Shard(0); to_blocked will view/permute/flatten into a 1d tensor
-    # sharding is only preservable on the first dimension.
-    if isinstance(t, DTensor):
-        t_placements = [
-            x if x in (Replicate(), Shard(0)) else Replicate() for x in t.placements
-        ]
-        if t_placements != t.placements:  # can't perform collectives in float8
-            t = (
-                t.view(torch.uint8)
-                .redistribute(placements=t_placements)
-                .view(torch.float8_e8m0fnu)
-            )
-        out = local_map(
-            to_blocked,
-            in_placements=(t_placements,),
-            out_placements=t_placements,
-        )(t)
-    else:
-        out = to_blocked(t)
-    return out
-
-
 def _addmm_mx_dispatch(
     a: torch.Tensor, b: MXTensor, aten_op, bias: Optional[torch.Tensor] = None
 ) -> torch.Tensor:
@@ -785,45 +761,35 @@ def _addmm_mx_dispatch(
         assert b.qdata.t().is_contiguous()
         assert a.block_size == 32, f"Invalid block size {a.block_size}"
         assert b.block_size == 32, f"Invalid block size {b.block_size}"
+        assert a.is_swizzled_scales == b.is_swizzled_scales
 
         if a.is_swizzled_scales:
             a_scale_block = a.scale
         else:
-            a_scale = a.scale.view(M, K // a.block_size)
-            a_scale_block = maybe_dtensor_to_blocked(a_scale)
+            a_scale_block = a.scale.view(M, K // a.block_size)
 
         if b.is_swizzled_scales:
             b_scale_block = b.scale.t()
         else:
-            b_scale = b.scale.t().view(N, K // b.block_size)
-            b_scale_block = maybe_dtensor_to_blocked(b_scale)
+            b_scale_block = b.scale.t().view(N, K // b.block_size)
 
-        if a.elem_dtype == torch.float8_e4m3fn:
-            assert b.elem_dtype == torch.float8_e4m3fn
-            res = torch._scaled_mm(
-                a.qdata,
-                b.qdata,
-                a_scale_block.view(torch.float8_e8m0fnu),
-                b_scale_block.view(torch.float8_e8m0fnu),
-                bias=bias,
-                out_dtype=torch.bfloat16,
-            )
-        else:
-            assert a.elem_dtype == torch.float4_e2m1fn_x2
-            assert b.elem_dtype == torch.float4_e2m1fn_x2
-            # FP4 operations using F.scaled_mm
-            res = F.scaled_mm(
-                a.qdata.view(torch.float4_e2m1fn_x2),
-                b.qdata.view(torch.float4_e2m1fn_x2),
-                scale_a=a_scale_block,
-                scale_recipe_a=ScalingType.BlockWise1x32,
-                scale_b=b_scale_block,
-                scale_recipe_b=ScalingType.BlockWise1x32,
-                swizzle_a=SwizzleType.SWIZZLE_32_4_4,
-                swizzle_b=SwizzleType.SWIZZLE_32_4_4,
-                bias=bias,
-                output_dtype=torch.bfloat16,
-            )
+        swizzle = (
+            SwizzleType.SWIZZLE_32_4_4
+            if a.is_swizzled_scales
+            else SwizzleType.NO_SWIZZLE
+        )
+        res = F.scaled_mm(
+            a.qdata.view(a.elem_dtype),
+            b.qdata.view(b.elem_dtype),
+            scale_a=a_scale_block.view(torch.float8_e8m0fnu),
+            scale_recipe_a=ScalingType.BlockWise1x32,
+            scale_b=b_scale_block.view(torch.float8_e8m0fnu),
+            scale_recipe_b=ScalingType.BlockWise1x32,
+            swizzle_a=swizzle,
+            swizzle_b=swizzle,
+            bias=bias,
+            output_dtype=torch.bfloat16,
+        )
 
     else:
         assert gemm_choice == KernelPreference.EMULATED, "unimplemented"
