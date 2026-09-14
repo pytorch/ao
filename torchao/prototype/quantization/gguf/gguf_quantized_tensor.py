@@ -66,18 +66,6 @@ class GGUFQuantizedTensor(TorchAOBaseTensor):
         self.quantized_block_min = quantized_block_min
         self.int_data = int_data
 
-    def _apply_fn_to_data(self, fn):
-        return self.__class__(
-            self.n_blocks_per_superblock,
-            fn(self.super_block_scale_scale),
-            fn(self.super_block_min_sclae),
-            fn(self.quantized_block_scale),
-            fn(self.quantized_block_min),
-            fn(self.int_data),
-            self.shape,
-            dtype=self.dtype,
-        )
-
     def __tensor_flatten__(self):
         return [
             "super_block_scale_scale",
