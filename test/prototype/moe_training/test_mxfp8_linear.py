@@ -15,7 +15,18 @@ if not torch.cuda.is_available():
     pytest.skip("CUDA required", allow_module_level=True)
 
 from torchao.prototype.moe_training.mxfp8_linear import MXFP8Linear
+from torchao.prototype.mx_formats.config import (
+    MXFP8Dim0CastKernelChoice,
+    MXFP8Dim1CastKernelChoice,
+)
 from torchao.quantization.quantize_.common.kernel_preference import KernelPreference
+
+# The CuTeDSL kernels and the triton/cuda kernels they replace. Only relevant
+# for KernelPreference.AUTO; EMULATED ignores both.
+_CAST_KERNEL_CHOICES = (
+    (MXFP8Dim0CastKernelChoice.CUTEDSL, MXFP8Dim1CastKernelChoice.CUTEDSL),
+    (MXFP8Dim0CastKernelChoice.TRITON, MXFP8Dim1CastKernelChoice.CUDA),
+)
 
 
 def _build_linear_pair(
@@ -24,6 +35,8 @@ def _build_linear_pair(
     bias: bool,
     kernel_preference: KernelPreference,
     wgrad_with_hp: bool,
+    mxfp8_dim0_cast_kernel_choice: MXFP8Dim0CastKernelChoice = MXFP8Dim0CastKernelChoice.CUTEDSL,
+    mxfp8_dim1_cast_kernel_choice: MXFP8Dim1CastKernelChoice = MXFP8Dim1CastKernelChoice.CUTEDSL,
 ):
     ref = torch.nn.Linear(
         in_features, out_features, bias=bias, device="cuda", dtype=torch.bfloat16
@@ -36,6 +49,8 @@ def _build_linear_pair(
         dtype=torch.bfloat16,
         kernel_preference=kernel_preference,
         wgrad_with_hp=wgrad_with_hp,
+        mxfp8_dim0_cast_kernel_choice=mxfp8_dim0_cast_kernel_choice,
+        mxfp8_dim1_cast_kernel_choice=mxfp8_dim1_cast_kernel_choice,
     )
     # Share weights/bias so the only difference is the quantized matmul path.
     with torch.no_grad():
@@ -53,12 +68,30 @@ def _build_linear_pair(
 @pytest.mark.parametrize(
     "kernel_preference", [KernelPreference.EMULATED, KernelPreference.AUTO]
 )
-def test_mxfp8_linear_fwd_bwd_sqnr(bias, wgrad_with_hp, kernel_preference):
+@pytest.mark.parametrize(
+    "mxfp8_dim0_cast_kernel_choice,mxfp8_dim1_cast_kernel_choice",
+    _CAST_KERNEL_CHOICES,
+)
+def test_mxfp8_linear_fwd_bwd_sqnr(
+    bias,
+    wgrad_with_hp,
+    kernel_preference,
+    mxfp8_dim0_cast_kernel_choice,
+    mxfp8_dim1_cast_kernel_choice,
+):
     if kernel_preference == KernelPreference.AUTO and not is_sm_at_least_100():
         pytest.skip("Real MXFP8 kernels require SM100+")
 
     M, K, N = 1024, 1024, 2048
-    ref, mxfp8 = _build_linear_pair(K, N, bias, kernel_preference, wgrad_with_hp)
+    ref, mxfp8 = _build_linear_pair(
+        K,
+        N,
+        bias,
+        kernel_preference,
+        wgrad_with_hp,
+        mxfp8_dim0_cast_kernel_choice,
+        mxfp8_dim1_cast_kernel_choice,
+    )
 
     x_ref = torch.randn(M, K, dtype=torch.bfloat16, device="cuda", requires_grad=True)
     x_mxfp8 = x_ref.clone().detach().requires_grad_(True)

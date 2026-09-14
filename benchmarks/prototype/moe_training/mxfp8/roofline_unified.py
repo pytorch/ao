@@ -19,10 +19,16 @@ import torch
 from triton.testing import do_bench
 
 from torchao.prototype.moe_training.kernels.mxfp8 import (
+    _mx_block_rearrange_2d_k_groups_cutedsl,
     mx_block_rearrange_2d_M_groups_cuda,
+    mxfp8_quantize_2d_1x32_cutedsl,
+    mxfp8_quantize_2d_32x1_cutedsl,
     torch_to_blocked_2d_M_groups,
     triton_mx_block_rearrange_2d_K_groups,
     triton_mx_block_rearrange_per_group_3d,
+)
+from torchao.prototype.moe_training.kernels.mxfp8.cutedsl_rearrange_2d_m_groups import (
+    _mx_block_rearrange_2d_m_groups_cutedsl,
 )
 from torchao.prototype.moe_training.kernels.mxfp8.quant import (
     mxfp8_quantize_cuda_3d,
@@ -35,6 +41,7 @@ from torchao.prototype.moe_training.mxfp8_grouped_mm import (
 )
 from torchao.prototype.moe_training.utils import generate_jagged_offs
 from torchao.prototype.mx_formats.config import (
+    MXFP8Dim0CastKernelChoice,
     MXFP8Dim1CastKernelChoice,
     ScaleCalculationMode,
 )
@@ -42,6 +49,7 @@ from torchao.prototype.mx_formats.kernels import triton_to_mxfp8_dim0
 from torchao.prototype.mx_formats.utils import _to_mxfp8_dim1_kernel_wrapper
 from torchao.quantization.quantize_.common import KernelPreference
 from torchao.testing.training.roofline_utils import (
+    calibrate_specs,
     gpu_name_to_specs,
 )
 
@@ -49,7 +57,12 @@ from torchao.testing.training.roofline_utils import (
 class RooflineModel:
     """Roofline model for grouped GEMM on B200 GPU"""
 
-    def __init__(self, gpu_name="NVIDIA B200", power_limit_percent=100.0):
+    def __init__(
+        self,
+        gpu_name="NVIDIA B200",
+        power_limit_percent=100.0,
+        gpu_specs=None,
+    ):
         """
         Args:
             gpu_name: GPU model name
@@ -57,16 +70,30 @@ class RooflineModel:
         """
         power_multiplier = power_limit_percent / 100.0
 
-        if gpu_name in gpu_name_to_specs:
+        if gpu_specs is not None:
+            self.gpu_specs = gpu_specs
+        elif gpu_name in gpu_name_to_specs:
             self.gpu_specs = gpu_name_to_specs[gpu_name]
+        else:
+            raise ValueError(f"Unsupported GPU: {gpu_name}")
+
+        if self.gpu_specs is not None:
+            bf16_gemm_pct = self.gpu_specs.get(
+                "pct_achievable_bf16_gemm_tops",
+                self.gpu_specs["pct_achievable_gemm_tops"],
+            )
+            fp8_gemm_pct = self.gpu_specs.get(
+                "pct_achievable_fp8_gemm_tops",
+                self.gpu_specs["pct_achievable_gemm_tops"],
+            )
             self.bf16_tflops = (
                 (self.gpu_specs["bf16_peak_tops"] / 1e12)
-                * self.gpu_specs["pct_achievable_gemm_tops"]
+                * bf16_gemm_pct
                 * power_multiplier
             )
             self.mxfp8_tflops = (
                 (self.gpu_specs["fp8_peak_tops"] / 1e12)
-                * self.gpu_specs["pct_achievable_gemm_tops"]
+                * fp8_gemm_pct
                 * power_multiplier
             )
             self.memory_bandwidth_gbs = (
@@ -74,8 +101,6 @@ class RooflineModel:
                 * self.gpu_specs["pct_achievable_mem_bw"]
                 * power_multiplier
             )
-        else:
-            raise ValueError(f"Unsupported GPU: {gpu_name}")
 
     def compute_bf16_2d_3d_gemm_flops(self, M, K, N):
         """
@@ -427,31 +452,40 @@ def benchmark_torch_grouped_mm_fwd_bwd(x, w_t, offs, labels):
     return time_ms
 
 
-def benchmark_mxfp8_grouped_mm_fwd_bwd(x, w_t, offs, labels):
+# The cast kernels each backend label selects.
+_BACKEND_CAST_KERNEL_CHOICES = {
+    "cutedsl": (
+        MXFP8Dim0CastKernelChoice.CUTEDSL,
+        MXFP8Dim1CastKernelChoice.CUTEDSL,
+    ),
+    "legacy": (
+        MXFP8Dim0CastKernelChoice.TRITON,
+        MXFP8Dim1CastKernelChoice.CUDA,
+    ),
+}
+
+
+def benchmark_mxfp8_grouped_mm_fwd_bwd(x, w_t, offs, labels, backend: str):
     """Benchmark _to_mxfp8_then_scaled_grouped_mm forward + backward"""
+    dim0_choice, dim1_choice = _BACKEND_CAST_KERNEL_CHOICES[backend]
+    torch._dynamo.reset()
     x_clone = x.clone().requires_grad_(True)
     w_t_clone = w_t.clone().requires_grad_(True)
 
     fn = torch.compile(_to_mxfp8_then_scaled_grouped_mm, fullgraph=True)
 
-    # Set all parameters explicitly as variables for positional args
-    A = x_clone
-    B_t = w_t_clone
-    offs_arg = offs
-    out_dtype = torch.bfloat16
-    kernel_preference = KernelPreference.AUTO
-    wgrad_with_hp = False
-    scale_calculation_mode = MoEScaleCalculationMode.RCEIL
-
     def wrapper():
         out = fn(
-            A,
-            B_t,
-            offs_arg,
-            out_dtype,
-            kernel_preference,
-            wgrad_with_hp,
-            scale_calculation_mode,
+            x_clone,
+            w_t_clone,
+            offs=offs,
+            out_dtype=torch.bfloat16,
+            kernel_preference=KernelPreference.AUTO,
+            wgrad_with_hp=False,
+            scale_calculation_mode=MoEScaleCalculationMode.RCEIL,
+            pad_token_groups_for_grouped_mm=False,
+            mxfp8_dim0_cast_kernel_choice=dim0_choice,
+            mxfp8_dim1_cast_kernel_choice=dim1_choice,
         )
         loss = torch.nn.functional.mse_loss(out, labels)
         loss.backward()
@@ -478,6 +512,22 @@ def benchmark_to_mxfp8_dim1_cuda(tensor, block_size=32):
             kernel_preference=None,
             cast_kernel_choice=MXFP8Dim1CastKernelChoice.CUDA,
             scale_calculation_mode=ScaleCalculationMode.RCEIL,
+        )
+    )
+
+
+def benchmark_mxfp8_quantize_2d_1x32_cutedsl(tensor):
+    return benchmark_cuda_function_in_microseconds(
+        lambda: mxfp8_quantize_2d_1x32_cutedsl(tensor)
+    )
+
+
+def benchmark_mxfp8_quantize_2d_32x1_cutedsl(tensor, block_size=32):
+    return benchmark_cuda_function_in_microseconds(
+        lambda: mxfp8_quantize_2d_32x1_cutedsl(
+            tensor,
+            block_size=block_size,
+            blocked_scale_output=False,
         )
     )
 
@@ -534,12 +584,18 @@ def run(
     N: int = 4096,
     G: int = 8,
     breakdown_M: int = None,
+    backend: str = "cutedsl",
     outfile_speedup: str = "roofline_speedup_results.csv",
     outfile_quant_2d: str = "roofline_quant_2d_results.csv",
     outfile_quant_3d: str = "roofline_quant_3d_results.csv",
     plot_file: str = "roofline_unified.png",
     gpu_name: str = "NVIDIA B200",
     power_limit_percent: float = 100.0,
+    calibrate_roofline: bool = False,
+    calibration_m: int = 16384,
+    calibration_n: int = 8192,
+    calibration_k: int = 8192,
+    calibration_copy_numel: int = 256 * 1024 * 1024,
 ):
     """
     Generate unified roofline analysis for MXFP8 grouped GEMM.
@@ -549,19 +605,67 @@ def run(
         N: Output dimension per group (default: 4096)
         G: Number of groups (default: 8)
         breakdown_M: M value to use for kernel breakdown analysis (default: None, uses largest M from configs)
+        backend: MXFP8 grouped-mm backend to benchmark: legacy, cutedsl, or both
         outfile_speedup: CSV file for speedup results
         outfile_quant_2d: CSV file for 2D quantization results
         outfile_quant_3d: CSV file for 3D quantization results
         plot_file: PNG file to save unified plot
         gpu_name: GPU model (default: B200)
         power_limit_percent: Power limit as percentage (0-100, default: 100.0)
+        calibrate_roofline: Measure achievable GEMM and memory ceilings on this GPU
+        calibration_m: M dimension for GEMM calibration
+        calibration_n: N dimension for GEMM calibration
+        calibration_k: K dimension for GEMM calibration
+        calibration_copy_numel: Number of bf16 elements for memory calibration
     """
+    K = 4096 if K == "" else int(K)
+    N = 4096 if N == "" else int(N)
+    G = 8 if G == "" else int(G)
+    breakdown_M = None if breakdown_M in (None, "") else int(breakdown_M)
+    power_limit_percent = (
+        100.0 if power_limit_percent == "" else float(power_limit_percent)
+    )
+    if isinstance(calibrate_roofline, str):
+        calibrate_roofline = calibrate_roofline.lower() in ("1", "true", "yes")
+    calibration_m = int(calibration_m)
+    calibration_n = int(calibration_n)
+    calibration_k = int(calibration_k)
+    calibration_copy_numel = int(calibration_copy_numel)
+
     print(f"GPU: {gpu_name}")
     print(f"Torch version: {torch.__version__}")
     print(f"\nFixed dimensions: K={K}, N={N}, G={G}")
+    assert backend in ("legacy", "cutedsl", "both")
+    mxfp8_backends = ("legacy", "cutedsl") if backend == "both" else (backend,)
+    print(f"MXFP8 backend: {backend}")
     print(f"Power limit: {power_limit_percent}%")
 
-    model = RooflineModel(gpu_name=gpu_name, power_limit_percent=power_limit_percent)
+    gpu_specs = None
+    if calibrate_roofline:
+        print("\nCalibrating roofline on current GPU...")
+        gpu_specs = calibrate_specs(
+            gpu_name=gpu_name,
+            mm_shape=(calibration_m, calibration_n, calibration_k),
+            copy_numel=calibration_copy_numel,
+        )
+        print(
+            "  copy bandwidth: "
+            f"{gpu_specs['calibrated_copy_bandwidth_bytes_sec'] / 1e9:.1f} GB/s"
+        )
+        print(f"  BF16 GEMM: {gpu_specs['calibrated_bf16_tops'] / 1e12:.1f} TFLOP/s")
+        print(f"  FP8 GEMM: {gpu_specs['calibrated_fp8_tops'] / 1e12:.1f} TFLOP/s")
+        print(
+            "  measured fractions: "
+            f"mem={gpu_specs['pct_achievable_mem_bw']:.3f}, "
+            f"bf16={gpu_specs['pct_achievable_bf16_gemm_tops']:.3f}, "
+            f"fp8={gpu_specs['pct_achievable_fp8_gemm_tops']:.3f}"
+        )
+
+    model = RooflineModel(
+        gpu_name=gpu_name,
+        power_limit_percent=power_limit_percent,
+        gpu_specs=gpu_specs,
+    )
 
     print("\nGPU Specs:")
     print(f"  BF16 TFLOPS: {model.bf16_tflops}")
@@ -604,7 +708,7 @@ def run(
         x = torch.randn(M, K_val, dtype=torch.bfloat16, device="cuda")
         w = torch.randn(G_val, N_val, K_val, dtype=torch.bfloat16, device="cuda")
         w_t = w.contiguous().transpose(-2, -1)
-        offs = generate_jagged_offs(G_val, M)
+        offs = generate_jagged_offs(G_val, M, multiple_of=128)
         labels = torch.ones((M, N_val), device="cuda", dtype=torch.bfloat16)
 
         # Benchmark BF16
@@ -614,17 +718,26 @@ def run(
             f"  BF16: Roofline={result['bf16_roofline_time_ms']:.3f}ms, Actual={bf16_actual_ms:.3f}ms"
         )
 
-        # Benchmark MXFP8
-        mxfp8_actual_ms = benchmark_mxfp8_grouped_mm_fwd_bwd(x, w_t, offs, labels)
-        result_dict["mxfp8_actual_time_ms"] = mxfp8_actual_ms
-        result_dict["actual_speedup"] = (
-            bf16_actual_ms / mxfp8_actual_ms if bf16_actual_ms else None
-        )
-        print(
-            f"  MXFP8: Roofline={result['mxfp8_roofline_total_time_ms']:.3f}ms, Actual={mxfp8_actual_ms:.3f}ms"
-        )
-        if result_dict["actual_speedup"]:
-            print(f"  Actual Speedup: {result_dict['actual_speedup']:.3f}x")
+        for mxfp8_backend in mxfp8_backends:
+            mxfp8_actual_ms = benchmark_mxfp8_grouped_mm_fwd_bwd(
+                x, w_t, offs, labels, mxfp8_backend
+            )
+            backend_time_key = f"mxfp8_actual_time_ms_{mxfp8_backend}"
+            backend_speedup_key = f"actual_speedup_{mxfp8_backend}"
+            result_dict[backend_time_key] = mxfp8_actual_ms
+            result_dict[backend_speedup_key] = (
+                bf16_actual_ms / mxfp8_actual_ms if bf16_actual_ms else None
+            )
+            if backend != "both":
+                result_dict["mxfp8_actual_time_ms"] = mxfp8_actual_ms
+                result_dict["actual_speedup"] = result_dict[backend_speedup_key]
+            print(
+                f"  MXFP8 ({mxfp8_backend}): Roofline={result['mxfp8_roofline_total_time_ms']:.3f}ms, Actual={mxfp8_actual_ms:.3f}ms"
+            )
+            if result_dict[backend_speedup_key]:
+                print(
+                    f"  Actual Speedup ({mxfp8_backend}): {result_dict[backend_speedup_key]:.3f}x"
+                )
 
         speedup_results.append(result_dict)
 
@@ -680,6 +793,17 @@ def run(
             f"  triton_to_mxfp8_dim0: Roofline={roofline_bandwidth_gbs:.1f} GB/s, Actual={triton_dim0_bandwidth_gbs:.1f} GB/s, Efficiency={result_dict['triton_dim0_efficiency_pct']:.1f}%"
         )
 
+        cutedsl_1x32_time_us = benchmark_mxfp8_quantize_2d_1x32_cutedsl(tensor)
+        cutedsl_1x32_bandwidth_gbs = total_gb / (cutedsl_1x32_time_us / 1e6)
+        result_dict["mxfp8_quantize_2d_1x32_cutedsl_us"] = cutedsl_1x32_time_us
+        result_dict["cutedsl_1x32_bandwidth_gbs"] = cutedsl_1x32_bandwidth_gbs
+        result_dict["cutedsl_1x32_efficiency_pct"] = (
+            cutedsl_1x32_bandwidth_gbs / roofline_bandwidth_gbs
+        ) * 100
+        print(
+            f"  mxfp8_quantize_2d_1x32_cutedsl: Roofline={roofline_bandwidth_gbs:.1f} GB/s, Actual={cutedsl_1x32_bandwidth_gbs:.1f} GB/s, Efficiency={result_dict['cutedsl_1x32_efficiency_pct']:.1f}%"
+        )
+
         # Benchmark triton_to_mxfp8_dim1 (CUDA)
         dim1_cuda_time_us = benchmark_to_mxfp8_dim1_cuda(tensor)
         dim1_cuda_bandwidth_gbs = total_gb / (dim1_cuda_time_us / 1e6)
@@ -690,6 +814,17 @@ def run(
         ) * 100
         print(
             f"  to_mxfp8_dim1_cuda: Roofline={roofline_bandwidth_gbs:.1f} GB/s, Actual={dim1_cuda_bandwidth_gbs:.1f} GB/s, Efficiency={result_dict['cuda_dim1_efficiency_pct']:.1f}%"
+        )
+
+        cutedsl_32x1_time_us = benchmark_mxfp8_quantize_2d_32x1_cutedsl(tensor)
+        cutedsl_32x1_bandwidth_gbs = total_gb / (cutedsl_32x1_time_us / 1e6)
+        result_dict["mxfp8_quantize_2d_32x1_cutedsl_us"] = cutedsl_32x1_time_us
+        result_dict["cutedsl_32x1_bandwidth_gbs"] = cutedsl_32x1_bandwidth_gbs
+        result_dict["cutedsl_32x1_efficiency_pct"] = (
+            cutedsl_32x1_bandwidth_gbs / roofline_bandwidth_gbs
+        ) * 100
+        print(
+            f"  mxfp8_quantize_2d_32x1_cutedsl: Roofline={roofline_bandwidth_gbs:.1f} GB/s, Actual={cutedsl_32x1_bandwidth_gbs:.1f} GB/s, Efficiency={result_dict['cutedsl_32x1_efficiency_pct']:.1f}%"
         )
 
         quant_2d_results.append(result_dict)
@@ -808,7 +943,7 @@ def run(
             dtype=torch.uint8,
             device="cuda",
         )
-        input_group_offsets = generate_jagged_offs(num_groups, M)
+        input_group_offsets = generate_jagged_offs(num_groups, M, multiple_of=128)
 
         # Benchmark CUDA kernel
         cuda_out = mx_block_rearrange_2d_M_groups_cuda(
@@ -829,10 +964,30 @@ def run(
             f"  mx_block_rearrange_2d_M_groups_cuda: Roofline={roofline_bandwidth_gbs:.1f} GB/s, Actual={cuda_bandwidth_gbs:.1f} GB/s, Efficiency={result_dict['cuda_efficiency_pct']:.1f}%"
         )
 
+        cutedsl_out = _mx_block_rearrange_2d_m_groups_cutedsl(
+            input_tensor,
+            input_group_offsets,
+        )
+        torch.testing.assert_close(cutedsl_out, cuda_out, rtol=0, atol=0)
+        cutedsl_time_us = benchmark_cuda_function_in_microseconds(
+            _mx_block_rearrange_2d_m_groups_cutedsl,
+            input_tensor,
+            input_group_offsets,
+        )
+        cutedsl_bandwidth_gbs = total_gb / (cutedsl_time_us / 1e6)
+        result_dict["mx_block_rearrange_2d_m_groups_cutedsl_us"] = cutedsl_time_us
+        result_dict["cutedsl_bandwidth_gbs"] = cutedsl_bandwidth_gbs
+        result_dict["cutedsl_efficiency_pct"] = (
+            cutedsl_bandwidth_gbs / roofline_bandwidth_gbs
+        ) * 100
+        print(
+            f"  mx_block_rearrange_2d_m_groups_cutedsl: Roofline={roofline_bandwidth_gbs:.1f} GB/s, Actual={cutedsl_bandwidth_gbs:.1f} GB/s, Efficiency={result_dict['cutedsl_efficiency_pct']:.1f}%"
+        )
+
         rearrange_results.append(result_dict)
 
         # Clean up tensors
-        del input_tensor, input_group_offsets, cuda_out
+        del input_tensor, input_group_offsets, cuda_out, cutedsl_out
         torch.cuda.empty_cache()
 
     # K-groups configurations (backward weight pass scales)
@@ -873,7 +1028,9 @@ def run(
             dtype=torch.uint8,
             device="cuda",
         )
-        scale_group_offsets = generate_jagged_offs(num_groups, M) // block_size
+        scale_group_offsets = (
+            generate_jagged_offs(num_groups, M, multiple_of=128) // block_size
+        )
 
         # Benchmark triton kernel
         triton_out = triton_mx_block_rearrange_2d_K_groups(
@@ -894,10 +1051,30 @@ def run(
             f"  triton_mx_block_rearrange_2d_K_groups: Roofline={roofline_bandwidth_gbs:.1f} GB/s, Actual={triton_bandwidth_gbs:.1f} GB/s, Efficiency={result_dict['triton_efficiency_pct']:.1f}%"
         )
 
+        cutedsl_out = _mx_block_rearrange_2d_k_groups_cutedsl(
+            input_tensor,
+            scale_group_offsets,
+        )
+        torch.testing.assert_close(cutedsl_out, triton_out, rtol=0, atol=0)
+        cutedsl_time_us = benchmark_cuda_function_in_microseconds(
+            _mx_block_rearrange_2d_k_groups_cutedsl,
+            input_tensor,
+            scale_group_offsets,
+        )
+        cutedsl_bandwidth_gbs = total_gb / (cutedsl_time_us / 1e6)
+        result_dict["mx_block_rearrange_2d_k_groups_cutedsl_us"] = cutedsl_time_us
+        result_dict["cutedsl_bandwidth_gbs"] = cutedsl_bandwidth_gbs
+        result_dict["cutedsl_efficiency_pct"] = (
+            cutedsl_bandwidth_gbs / roofline_bandwidth_gbs
+        ) * 100
+        print(
+            f"  mx_block_rearrange_2d_k_groups_cutedsl: Roofline={roofline_bandwidth_gbs:.1f} GB/s, Actual={cutedsl_bandwidth_gbs:.1f} GB/s, Efficiency={result_dict['cutedsl_efficiency_pct']:.1f}%"
+        )
+
         rearrange_results.append(result_dict)
 
         # Clean up tensors
-        del input_tensor, scale_group_offsets, triton_out
+        del input_tensor, scale_group_offsets, triton_out, cutedsl_out
         torch.cuda.empty_cache()
 
     df_rearrange = pd.DataFrame(rearrange_results)
@@ -1003,7 +1180,7 @@ def run(
         x = torch.randn(M, K_val, dtype=torch.bfloat16, device="cuda")
         w = torch.randn(G_val, N_val, K_val, dtype=torch.bfloat16, device="cuda")
         w_t = w.contiguous().transpose(-2, -1)
-        offs = generate_jagged_offs(G_val, M)
+        offs = generate_jagged_offs(G_val, M, multiple_of=128)
 
         # Benchmark BF16 grouped GEMM
         bf16_gemm_time_us = benchmark_bf16_grouped_gemm(x, w_t, offs)
@@ -1097,7 +1274,7 @@ def run(
         # We'll create grad_output and input, then quantize them
         grad_out = torch.randn(M, N_val, dtype=torch.bfloat16, device="cuda")
         x = torch.randn(M, K_val, dtype=torch.bfloat16, device="cuda")
-        offs = generate_jagged_offs(G_val, M)
+        offs = generate_jagged_offs(G_val, M, multiple_of=128)
 
         # Benchmark BF16 2D/2D grouped GEMM
         # For BF16, we need grad_out_t = grad_out.t().contiguous() to get (N, M) row-major
@@ -1221,15 +1398,23 @@ def run(
         linestyle=":",
         label="Roofline Model",
     )
-    ax1.plot(
-        df_speedup["M"],
-        df_speedup["actual_speedup"],
-        marker="s",
-        linewidth=2,
-        linestyle="-",
-        label="Actual Implementation",
-        color="purple",
-    )
+    if "actual_speedup" in df_speedup:
+        actual_speedup_columns = [("actual_speedup", "Actual Implementation")]
+    else:
+        actual_speedup_columns = [
+            (column, column.removeprefix("actual_speedup_"))
+            for column in df_speedup.columns
+            if column.startswith("actual_speedup_")
+        ]
+    for column, label in actual_speedup_columns:
+        ax1.plot(
+            df_speedup["M"],
+            df_speedup[column],
+            marker="s",
+            linewidth=2,
+            linestyle="-",
+            label=label,
+        )
     ax1.axhline(
         y=1.0,
         color="red",
@@ -1256,8 +1441,17 @@ def run(
         marker="s",
         linewidth=2,
         linestyle="-",
-        label="triton_to_mxfp8_dim0",
+        label="legacy dim0 quant (Triton)",
         color="blue",
+    )
+    ax2.plot(
+        df_quant_2d["M"],
+        df_quant_2d["cutedsl_1x32_efficiency_pct"],
+        marker="o",
+        linewidth=2,
+        linestyle="-",
+        label="CuTeDSL 1x32 quant",
+        color="green",
     )
     ax2.plot(
         df_quant_2d["M"],
@@ -1265,8 +1459,17 @@ def run(
         marker="d",
         linewidth=2,
         linestyle="-",
-        label="to_mxfp8_dim1_cuda",
+        label="legacy dim1 quant (CUDA)",
         color="orange",
+    )
+    ax2.plot(
+        df_quant_2d["M"],
+        df_quant_2d["cutedsl_32x1_efficiency_pct"],
+        marker="x",
+        linewidth=2,
+        linestyle="-",
+        label="CuTeDSL 32x1 quant",
+        color="brown",
     )
     # 2D Rearrange kernels
     df_m_groups = df_rearrange[df_rearrange["kernel_type"] == "M_groups"]
@@ -1277,8 +1480,17 @@ def run(
         marker="^",
         linewidth=2,
         linestyle="--",
-        label="CUDA M-groups scale blocked format",
+        label="legacy M-groups layout (CUDA)",
         color="purple",
+    )
+    ax2.plot(
+        df_m_groups["M"],
+        df_m_groups["cutedsl_efficiency_pct"],
+        marker="v",
+        linewidth=2,
+        linestyle="--",
+        label="CuTeDSL M-groups layout",
+        color="gray",
     )
     ax2.plot(
         df_k_groups["M"],
@@ -1286,8 +1498,17 @@ def run(
         marker="d",
         linewidth=2,
         linestyle="--",
-        label="triton K-groups scale blocked format",
+        label="legacy K-groups layout (Triton)",
         color="red",
+    )
+    ax2.plot(
+        df_k_groups["M"],
+        df_k_groups["cutedsl_efficiency_pct"],
+        marker="p",
+        linewidth=2,
+        linestyle="--",
+        label="CuTeDSL K-groups layout",
+        color="black",
     )
     ax2.set_xlabel("Local Batch Size x Sequence Length (M)", fontsize=12)
     ax2.set_ylabel("Bandwidth Utilization (% of Peak)", fontsize=12)
@@ -1354,21 +1575,55 @@ def run(
     ax3.legend(fontsize=9)
     ax3.grid(True, alpha=0.3)
 
-    # Plot 4: Empty placeholder (reserved for future use)
+    # Plot 4: Backend runtime ratio
     ax4 = axes[0, 2]
-    ax4.text(
-        0.5,
-        0.5,
-        "Reserved for Future Analysis",
-        horizontalalignment="center",
-        verticalalignment="center",
-        transform=ax4.transAxes,
-        fontsize=14,
-        color="gray",
-    )
-    ax4.set_xticks([])
-    ax4.set_yticks([])
-    ax4.grid(False)
+    if {
+        "mxfp8_actual_time_ms_legacy",
+        "mxfp8_actual_time_ms_cutedsl",
+    }.issubset(df_speedup.columns):
+        backend_runtime_ratio = (
+            df_speedup["mxfp8_actual_time_ms_cutedsl"]
+            / df_speedup["mxfp8_actual_time_ms_legacy"]
+        )
+        ax4.plot(
+            df_speedup["M"],
+            backend_runtime_ratio,
+            marker="o",
+            linewidth=2,
+            linestyle="-",
+            label="CuTeDSL / legacy runtime",
+            color="green",
+        )
+        ax4.axhline(
+            y=1.0,
+            color="red",
+            linestyle=":",
+            linewidth=1.5,
+            label="parity",
+        )
+        ax4.set_xscale("log", base=2)
+        ax4.set_xticks(df_speedup["M"])
+        ax4.set_xticklabels([f"{int(m):,}" for m in df_speedup["M"]])
+        ratio_min = backend_runtime_ratio.min()
+        ratio_max = backend_runtime_ratio.max()
+        ratio_margin = max(0.02, (ratio_max - ratio_min) * 0.2)
+        ax4.set_ylim(ratio_min - ratio_margin, ratio_max + ratio_margin)
+    else:
+        ax4.text(
+            0.5,
+            0.5,
+            "Run with --backend=both",
+            horizontalalignment="center",
+            verticalalignment="center",
+            transform=ax4.transAxes,
+            fontsize=12,
+            color="gray",
+        )
+    ax4.set_xlabel("Local Batch Size x Sequence Length (M)", fontsize=12)
+    ax4.set_ylabel("Runtime Ratio", fontsize=12)
+    ax4.set_title("Backend Runtime Ratio", fontsize=13)
+    ax4.legend(fontsize=9)
+    ax4.grid(True, alpha=0.3)
 
     # Plot 5: 3D Quantization + Rearrange Kernels (Bandwidth %)
     ax5 = axes[1, 1]
@@ -1380,7 +1635,7 @@ def run(
         marker="s",
         linewidth=2,
         linestyle="-",
-        label="mxfp8_quantize_cuda_3d",
+        label="CuTeDSL 3D quant + blocked scales",
         color="red",
     )
     # 3D Rearrange kernel
@@ -1390,7 +1645,7 @@ def run(
         marker="^",
         linewidth=2,
         linestyle="--",
-        label="triton per-group 3D scale blocked format",
+        label="legacy per-group 3D layout (Triton)",
         color="purple",
     )
     ax5.set_xlabel("Local Batch Size x Sequence Length (M)", fontsize=12)
@@ -1430,26 +1685,51 @@ def run(
     idx_large = df_quant_2d[df_quant_2d["M"] == M_large].index[0]
 
     # Forward pass kernel times (actual measurements in ms)
-    # Input quantization: use triton_to_mxfp8_dim0 for (M, K)
-    fwd_input_quant_ms = df_quant_2d.loc[idx_large, "triton_to_mxfp8_dim0_us"] / 1000
+    fwd_input_quant_legacy_ms = (
+        df_quant_2d.loc[idx_large, "triton_to_mxfp8_dim0_us"] / 1000
+    )
+    fwd_input_quant_cutedsl_ms = (
+        df_quant_2d.loc[idx_large, "mxfp8_quantize_2d_1x32_cutedsl_us"] / 1000
+    )
 
     # Weight quantization: use mxfp8_quantize_cuda_3d directly on w_t, shape
     # (G, K, N), with no separate 3D scale rearrangement step.
     idx_3d_large = df_quant_3d[df_quant_3d["description"] == f"M={M_large}"].index[0]
-    fwd_weight_quant_ms = (
+    fwd_weight_quant_cutedsl_ms = (
         df_quant_3d.loc[idx_3d_large, "mxfp8_quantize_cuda_3d_us"] / 1000
     )
+    weight_tensor = torch.randn(
+        G_val,
+        N_val,
+        K_val,
+        dtype=torch.bfloat16,
+        device="cuda",
+    )
+    fwd_weight_quant_legacy_ms = benchmark_triton_to_mxfp8_dim0(weight_tensor) / 1000
 
     # Input scale rearrangement: M-groups for (M, K//32)
     idx_m_groups = df_rearrange[
         (df_rearrange["kernel_type"] == "M_groups") & (df_rearrange["M"] == M_large)
     ].index[0]
-    fwd_input_scale_rearrange_ms = (
+    fwd_input_scale_rearrange_legacy_ms = (
         df_rearrange.loc[idx_m_groups, "mx_block_rearrange_2d_M_groups_cuda_us"] / 1000
     )
+    fwd_input_scale_rearrange_cutedsl_ms = (
+        df_rearrange.loc[idx_m_groups, "mx_block_rearrange_2d_m_groups_cutedsl_us"]
+        / 1000
+    )
 
-    # Weight scales are emitted directly in blocked layout by the 3D quantizer.
-    fwd_weight_scale_rearrange_ms = 0.0
+    idx_rearrange_3d_large = df_rearrange_3d[
+        df_rearrange_3d["description"] == f"M={M_large}"
+    ].index[0]
+    fwd_weight_scale_rearrange_legacy_ms = (
+        df_rearrange_3d.loc[
+            idx_rearrange_3d_large,
+            "triton_mx_block_rearrange_per_group_3d_us",
+        ]
+        / 1000
+    )
+    fwd_weight_scale_rearrange_cutedsl_ms = 0.0
 
     # GEMM: use actual MXFP8 2D/3D grouped GEMM time
     idx_gemm = df_grouped_gemm[df_grouped_gemm["M"] == M_large].index[0]
@@ -1462,43 +1742,73 @@ def run(
 
     # Backward input: grad_output quantization (M, N)
     grad_out_tensor = torch.randn(M_large, N_val, dtype=torch.bfloat16, device="cuda")
-    bwd_input_grad_quant_ms = benchmark_triton_to_mxfp8_dim0(grad_out_tensor) / 1000
+    bwd_input_grad_quant_legacy_ms = (
+        benchmark_triton_to_mxfp8_dim0(grad_out_tensor) / 1000
+    )
+    bwd_input_grad_quant_cutedsl_ms = (
+        benchmark_mxfp8_quantize_2d_1x32_cutedsl(grad_out_tensor) / 1000
+    )
 
     # Backward input: weight quantization is same as forward (reuse)
-    bwd_input_weight_quant_ms = fwd_weight_quant_ms
+    bwd_input_weight_quant_legacy_ms = fwd_weight_quant_legacy_ms
+    bwd_input_weight_quant_cutedsl_ms = fwd_weight_quant_cutedsl_ms
 
     # Backward input: grad scale rearrangement for (M, N//32) - M-groups
     grad_scales = torch.randint(
         0, 256, size=(M_large, N_val // block_size), dtype=torch.uint8, device="cuda"
     )
-    grad_offs = generate_jagged_offs(G_val, M_large)
-    bwd_input_grad_scale_rearrange_ms = (
+    grad_offs = generate_jagged_offs(G_val, M_large, multiple_of=128)
+    bwd_input_grad_scale_rearrange_legacy_ms = (
         benchmark_cuda_function_in_microseconds(
             mx_block_rearrange_2d_M_groups_cuda, grad_scales, grad_offs
         )
         / 1000
     )
+    bwd_input_grad_scale_rearrange_cutedsl_ms = (
+        benchmark_cuda_function_in_microseconds(
+            _mx_block_rearrange_2d_m_groups_cutedsl, grad_scales, grad_offs
+        )
+        / 1000
+    )
 
     # Backward input: weight scale rearrangement is same as forward (reuse)
-    bwd_input_weight_scale_rearrange_ms = fwd_weight_scale_rearrange_ms
+    bwd_input_weight_scale_rearrange_legacy_ms = fwd_weight_scale_rearrange_legacy_ms
+    bwd_input_weight_scale_rearrange_cutedsl_ms = fwd_weight_scale_rearrange_cutedsl_ms
 
     # Backward input: GEMM (same shape as forward, reuse)
     bwd_input_gemm_ms = fwd_gemm_ms
 
     # Backward weight pass
-    # Grad.T quantization (N, M)
-    grad_out_t_tensor = torch.randn(N_val, M_large, dtype=torch.bfloat16, device="cuda")
-    bwd_weight_grad_quant_ms = benchmark_triton_to_mxfp8_dim0(grad_out_t_tensor) / 1000
+    bwd_weight_grad_quant_legacy_ms = (
+        benchmark_to_mxfp8_dim1_cuda(grad_out_tensor) / 1000
+    )
+    bwd_weight_grad_quant_cutedsl_ms = (
+        benchmark_mxfp8_quantize_2d_32x1_cutedsl(grad_out_tensor) / 1000
+    )
 
-    # Input quantization (M, K) - same as forward
-    bwd_weight_input_quant_ms = fwd_input_quant_ms
+    input_tensor_for_wgrad = torch.randn(
+        M_large,
+        K_val,
+        dtype=torch.bfloat16,
+        device="cuda",
+    )
+    bwd_weight_input_quant_legacy_ms = (
+        benchmark_to_mxfp8_dim1_cuda(input_tensor_for_wgrad) / 1000
+    )
+    bwd_weight_input_quant_cutedsl_ms = (
+        benchmark_mxfp8_quantize_2d_32x1_cutedsl(input_tensor_for_wgrad) / 1000
+    )
 
     # Grad.T scale rearrangement (N, M//32) - K-groups
     idx_k_groups = df_rearrange[
         (df_rearrange["kernel_type"] == "K_groups") & (df_rearrange["M"] == M_large)
     ].index[0]
-    bwd_weight_grad_scale_rearrange_ms = (
+    bwd_weight_grad_scale_rearrange_legacy_ms = (
         df_rearrange.loc[idx_k_groups, "triton_mx_block_rearrange_2d_K_groups_us"]
+        / 1000
+    )
+    bwd_weight_grad_scale_rearrange_cutedsl_ms = (
+        df_rearrange.loc[idx_k_groups, "mx_block_rearrange_2d_k_groups_cutedsl_us"]
         / 1000
     )
 
@@ -1506,10 +1816,18 @@ def run(
     input_scales_k = torch.randint(
         0, 256, size=(K_val, M_large // block_size), dtype=torch.uint8, device="cuda"
     )
-    scale_group_offs = generate_jagged_offs(G_val, M_large) // block_size
-    bwd_weight_input_scale_rearrange_ms = (
+    scale_group_offs = (
+        generate_jagged_offs(G_val, M_large, multiple_of=128) // block_size
+    )
+    bwd_weight_input_scale_rearrange_legacy_ms = (
         benchmark_cuda_function_in_microseconds(
             triton_mx_block_rearrange_2d_K_groups, input_scales_k, scale_group_offs
+        )
+        / 1000
+    )
+    bwd_weight_input_scale_rearrange_cutedsl_ms = (
+        benchmark_cuda_function_in_microseconds(
+            _mx_block_rearrange_2d_k_groups_cutedsl, input_scales_k, scale_group_offs
         )
         / 1000
     )
@@ -1527,7 +1845,8 @@ def run(
         grad_out_tensor,
         grad_scales,
         grad_offs,
-        grad_out_t_tensor,
+        input_tensor_for_wgrad,
+        weight_tensor,
         input_scales_k,
         scale_group_offs,
     )
@@ -1536,76 +1855,114 @@ def run(
     # Data for stacked bars
     passes = ["Forward", "Backward\nInput", "Backward\nWeight"]
 
-    # Stack components (bottom to top)
-    quant_1 = [fwd_input_quant_ms, bwd_input_grad_quant_ms, bwd_weight_grad_quant_ms]
-    quant_2 = [
-        fwd_weight_quant_ms,
-        bwd_input_weight_quant_ms,
-        bwd_weight_input_quant_ms,
-    ]
-    rearrange_1 = [
-        fwd_input_scale_rearrange_ms,
-        bwd_input_grad_scale_rearrange_ms,
-        bwd_weight_grad_scale_rearrange_ms,
-    ]
-    rearrange_2 = [
-        fwd_weight_scale_rearrange_ms,
-        bwd_input_weight_scale_rearrange_ms,
-        bwd_weight_input_scale_rearrange_ms,
-    ]
+    breakdown = {
+        "legacy": {
+            "quant_1": [
+                fwd_input_quant_legacy_ms,
+                bwd_input_grad_quant_legacy_ms,
+                bwd_weight_grad_quant_legacy_ms,
+            ],
+            "quant_2": [
+                fwd_weight_quant_legacy_ms,
+                bwd_input_weight_quant_legacy_ms,
+                bwd_weight_input_quant_legacy_ms,
+            ],
+            "rearrange_1": [
+                fwd_input_scale_rearrange_legacy_ms,
+                bwd_input_grad_scale_rearrange_legacy_ms,
+                bwd_weight_grad_scale_rearrange_legacy_ms,
+            ],
+            "rearrange_2": [
+                fwd_weight_scale_rearrange_legacy_ms,
+                bwd_input_weight_scale_rearrange_legacy_ms,
+                bwd_weight_input_scale_rearrange_legacy_ms,
+            ],
+        },
+        "cutedsl": {
+            "quant_1": [
+                fwd_input_quant_cutedsl_ms,
+                bwd_input_grad_quant_cutedsl_ms,
+                bwd_weight_grad_quant_cutedsl_ms,
+            ],
+            "quant_2": [
+                fwd_weight_quant_cutedsl_ms,
+                bwd_input_weight_quant_cutedsl_ms,
+                bwd_weight_input_quant_cutedsl_ms,
+            ],
+            "rearrange_1": [
+                fwd_input_scale_rearrange_cutedsl_ms,
+                bwd_input_grad_scale_rearrange_cutedsl_ms,
+                bwd_weight_grad_scale_rearrange_cutedsl_ms,
+            ],
+            "rearrange_2": [
+                fwd_weight_scale_rearrange_cutedsl_ms,
+                bwd_input_weight_scale_rearrange_cutedsl_ms,
+                bwd_weight_input_scale_rearrange_cutedsl_ms,
+            ],
+        },
+    }
     gemm = [fwd_gemm_ms, bwd_input_gemm_ms, bwd_weight_gemm_ms]
 
-    # Calculate cumulative bottoms for stacking
-    bottom_quant_2 = quant_1
-    bottom_rearrange_1 = [quant_1[i] + quant_2[i] for i in range(3)]
-    bottom_rearrange_2 = [bottom_rearrange_1[i] + rearrange_1[i] for i in range(3)]
-    bottom_gemm = [bottom_rearrange_2[i] + rearrange_2[i] for i in range(3)]
-
-    # Create stacked bars
-    x_pos = range(len(passes))
-    bar_width = 0.6
-
-    ax6.bar(x_pos, quant_1, bar_width, label="Input/Grad Quant", color="#1f77b4")
-    ax6.bar(
-        x_pos,
-        quant_2,
-        bar_width,
-        bottom=bottom_quant_2,
-        label="Weight Quant",
-        color="#ff7f0e",
-    )
-    ax6.bar(
-        x_pos,
-        rearrange_1,
-        bar_width,
-        bottom=bottom_rearrange_1,
-        label="Input/Grad Rearrange",
-        color="#2ca02c",
-    )
-    ax6.bar(
-        x_pos,
-        rearrange_2,
-        bar_width,
-        bottom=bottom_rearrange_2,
-        label="Weight Rearrange",
-        color="#d62728",
-    )
-    ax6.bar(x_pos, gemm, bar_width, bottom=bottom_gemm, label="GEMM", color="#9467bd")
+    # Create paired stacked bars
+    group_centers = list(range(len(passes)))
+    bar_width = 0.32
+    backend_offsets = {"legacy": -bar_width / 2, "cutedsl": bar_width / 2}
+    component_specs = [
+        ("quant_1", "Input/Grad Quant", "#1f77b4"),
+        ("quant_2", "Weight Quant", "#ff7f0e"),
+        ("rearrange_1", "Input/Grad Rearrange", "#2ca02c"),
+        ("rearrange_2", "Weight Rearrange", "#d62728"),
+        ("gemm", "GEMM", "#9467bd"),
+    ]
+    x_by_backend = {
+        backend_name: [center + offset for center in group_centers]
+        for backend_name, offset in backend_offsets.items()
+    }
+    totals_by_backend = {}
+    for backend_name, x_values in x_by_backend.items():
+        bottoms = [0.0, 0.0, 0.0]
+        totals_by_backend[backend_name] = [0.0, 0.0, 0.0]
+        for component_name, label, color in component_specs:
+            values = (
+                gemm
+                if component_name == "gemm"
+                else breakdown[backend_name][component_name]
+            )
+            ax6.bar(
+                x_values,
+                values,
+                bar_width,
+                bottom=bottoms,
+                label=label if backend_name == "legacy" else None,
+                color=color,
+                alpha=0.70 if backend_name == "legacy" else 1.0,
+            )
+            bottoms = [bottoms[i] + values[i] for i in range(3)]
+            totals_by_backend[backend_name] = bottoms
 
     # Formatting
     ax6.set_ylabel("Time (ms)", fontsize=12)
     ax6.set_title(f"Kernel Breakdown (M={M_large:,})", fontsize=13)
-    ax6.set_xticks(x_pos)
+    ax6.set_xticks(group_centers)
     ax6.set_xticklabels(passes, fontsize=10)
     ax6.grid(True, alpha=0.3, axis="y")
+    for backend_name, x_values in x_by_backend.items():
+        for x_value in x_values:
+            ax6.text(
+                x_value,
+                -0.04,
+                backend_name,
+                ha="center",
+                va="top",
+                fontsize=8,
+                rotation=45,
+                transform=ax6.get_xaxis_transform(),
+            )
 
     # Add total time labels on top of each bar
-    totals = [
-        sum([quant_1[i], quant_2[i], rearrange_1[i], rearrange_2[i], gemm[i]])
-        for i in range(3)
-    ]
-    for i, (pos, total) in enumerate(zip(x_pos, totals)):
-        ax6.text(pos, total, f"{total:.1f}", ha="center", va="bottom", fontsize=9)
+    for backend_name, x_values in x_by_backend.items():
+        for pos, total in zip(x_values, totals_by_backend[backend_name]):
+            ax6.text(pos, total, f"{total:.1f}", ha="center", va="bottom", fontsize=8)
 
     # Add BF16 GEMM baseline reference lines
     # Forward and Backward Input use 2D/3D GEMM
@@ -1616,29 +1973,19 @@ def run(
     ]
 
     # Draw horizontal lines for BF16 baseline at each bar position
-    bar_width_visual = 0.4  # Visual width for the line
-    ax6.plot(
-        [x_pos[0] - bar_width_visual, x_pos[0] + bar_width_visual],
-        [bf16_fwd_gemm_ms, bf16_fwd_gemm_ms],
-        color="red",
-        linestyle="--",
-        linewidth=2,
-        label="BF16 GEMM baseline",
-    )
-    ax6.plot(
-        [x_pos[1] - bar_width_visual, x_pos[1] + bar_width_visual],
-        [bf16_fwd_gemm_ms, bf16_fwd_gemm_ms],
-        color="red",
-        linestyle="--",
-        linewidth=2,
-    )
-    ax6.plot(
-        [x_pos[2] - bar_width_visual, x_pos[2] + bar_width_visual],
-        [bf16_bwd_weight_gemm_ms, bf16_bwd_weight_gemm_ms],
-        color="red",
-        linestyle="--",
-        linewidth=2,
-    )
+    bar_width_visual = 0.42
+    for i, baseline_ms in enumerate(
+        [bf16_fwd_gemm_ms, bf16_fwd_gemm_ms, bf16_bwd_weight_gemm_ms]
+    ):
+        label = "BF16 GEMM baseline" if i == 0 else None
+        ax6.plot(
+            [group_centers[i] - bar_width_visual, group_centers[i] + bar_width_visual],
+            [baseline_ms, baseline_ms],
+            color="red",
+            linestyle="--",
+            linewidth=2,
+            label=label,
+        )
 
     # Add legend after all plot elements are added
     ax6.legend(loc="upper right", fontsize=8)
@@ -1651,16 +1998,34 @@ def run(
     print("\n" + "=" * 80)
     print("SUMMARY STATISTICS")
     print("=" * 80)
+    if "actual_speedup" in df_speedup:
+        actual_speedup_summary = (
+            f"  Average actual speedup: {df_speedup['actual_speedup'].mean():.3f}x\n"
+            f"  Median actual speedup: {df_speedup['actual_speedup'].median():.3f}x"
+        )
+    else:
+        summary_lines = []
+        for column in df_speedup.columns:
+            if column.startswith("actual_speedup_"):
+                backend_name = column.removeprefix("actual_speedup_")
+                summary_lines.append(
+                    f"  Average actual speedup ({backend_name}): {df_speedup[column].mean():.3f}x"
+                )
+                summary_lines.append(
+                    f"  Median actual speedup ({backend_name}): {df_speedup[column].median():.3f}x"
+                )
+        actual_speedup_summary = "\n".join(summary_lines)
     print(
         f"""
 Net Speedup Analysis:
   Average roofline speedup: {df_speedup["roofline_speedup"].mean():.3f}x
-  Average actual speedup: {df_speedup["actual_speedup"].mean():.3f}x
-  Median actual speedup: {df_speedup["actual_speedup"].median():.3f}x
+{actual_speedup_summary}
 
 2D Quantization Kernels:
   triton_to_mxfp8_dim0 avg efficiency: {df_quant_2d["triton_dim0_efficiency_pct"].mean():.1f}%
+  mxfp8_quantize_2d_1x32_cutedsl avg efficiency: {df_quant_2d["cutedsl_1x32_efficiency_pct"].mean():.1f}%
   to_mxfp8_dim1_cuda avg efficiency: {df_quant_2d["cuda_dim1_efficiency_pct"].mean():.1f}%
+  mxfp8_quantize_2d_32x1_cutedsl avg efficiency: {df_quant_2d["cutedsl_32x1_efficiency_pct"].mean():.1f}%
 
 3D Quantization Kernels:
   mxfp8_quantize_cuda_3d avg efficiency: {df_quant_3d["cuda_3d_efficiency_pct"].mean():.1f}%
@@ -1674,9 +2039,9 @@ Grouped GEMM Kernel:
 Configuration:
   K={K}, N={N}, G={G}
   Power Limit: {power_limit_percent}%
-  Peak BW: {model.memory_bandwidth_gbs:.1f} GB/s
-  Peak BF16 TFLOPS: {model.bf16_tflops:.1f} TFLOPS
-  Peak MXFP8 TFLOPS: {model.mxfp8_tflops:.1f} TFLOPS
+  Achievable BW roofline: {model.memory_bandwidth_gbs:.1f} GB/s
+  Achievable BF16 roofline: {model.bf16_tflops:.1f} TFLOPS
+  Achievable MXFP8 roofline: {model.mxfp8_tflops:.1f} TFLOPS
 """
     )
     print("=" * 80)
