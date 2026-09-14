@@ -24,6 +24,12 @@ def _compile_mx_block_rearrange_2d_k_groups_cutedsl(
     from cutlass.cute.nvgpu import cpasync
     from cutlass.cute.runtime import make_fake_stream, make_fake_tensor
 
+    from torchao.prototype.moe_training.kernels.mxfp8.cute_utils import (
+        _check_cutedsl_version,
+    )
+
+    _check_cutedsl_version()
+
     NUM_GROUPS = num_groups
     SF_ROWS = 128
     SF_COLS = 4

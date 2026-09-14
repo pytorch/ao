@@ -192,6 +192,11 @@ def _to_mxfp8_dim1_kernel_wrapper(
             colwise=True,
             scaling_mode=scale_calculation_mode.value,
         )
+        # Unlike the CuTeDSL/FlyDSL kernels, this one always writes scales in
+        # plain (unblocked) layout, so swizzle them here to satisfy the native
+        # scaled-mm op's SWIZZLE_32_4_4 requirement on SM100+.
+        a_scale = to_blocked(a_scale.contiguous())
+        is_swizzled_scales = True
     elif cast_kernel_choice == MXFP8Dim1CastKernelChoice.CUTEDSL:
         assert scale_calculation_mode in (
             ScaleCalculationMode.FLOOR,
