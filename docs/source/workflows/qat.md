@@ -135,6 +135,62 @@ train_loop(model)
 # convert: (not shown, same as before)
 ```
 
+Static per-tensor activations require calibration before training. The following
+example keeps activation fake quantization disabled while each quantizer collects
+ranges. Weight fake quantization remains enabled during these model passes.
+
+```python
+from torchao.quantization.granularity import PerGroup, PerTensor
+from torchao.quantization.quant_primitives import MappingType
+from torchao.quantization.qat import FakeQuantizedLinear
+
+activation_config = IntxFakeQuantizeConfig(
+    torch.int16,
+    PerTensor(),
+    MappingType.SYMMETRIC_NO_CLIPPING_ERR,
+    is_dynamic=False,
+)
+
+weight_config = IntxFakeQuantizeConfig(
+    torch.int4,
+    PerGroup(32),
+    MappingType.SYMMETRIC_NO_CLIPPING_ERR,
+)
+quantize_(
+    model,
+    QATConfig(
+        activation_config=activation_config,
+        weight_config=weight_config,
+        step="prepare",
+    ),
+)
+
+fake_quantized_linears = [
+    module for module in model.modules() if isinstance(module, FakeQuantizedLinear)
+]
+for module in fake_quantized_linears:
+    module.activation_fake_quantizer.enable_calibration()
+
+with torch.no_grad():
+    for batch in calibration_data:
+        model(batch)
+
+for module in fake_quantized_linears:
+    quantizer = module.activation_fake_quantizer
+    min_val, max_val = quantizer.get_running_min_max()
+    # The training application can reduce these values across workers here.
+    quantizer.set_running_min_max(min_val, max_val)
+    quantizer.finalize_calibration()
+
+train_loop(model)
+```
+
+To recalibrate, repeat the same enable, data-forward, range-exchange, and
+finalize sequence. Calling `enable_calibration()` resets the previously collected
+ranges, and `finalize_calibration()` replaces the fixed activation qparams. The
+training application controls when to repeat this sequence and any distributed
+reduction.
+
 To fake quantize embedding in addition to linear, you can additionally call
 the following with a filter function during the prepare step:
 
