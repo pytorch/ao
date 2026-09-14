@@ -9,6 +9,7 @@ import unittest
 
 import torch
 from torch import nn
+from torch.ao.pruning import WeightNormSparsifier
 from torch.testing._internal import common_utils
 
 from torchao.quantization import (
@@ -22,12 +23,26 @@ from torchao.quantization.quantize_.workflows import (
     Float8PackingFormat,
 )
 from torchao.quantization.utils import compute_error
-from torchao.sparsity import apply_fake_sparsity
 from torchao.utils import is_sm_at_least_90
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
 )
+
+
+def apply_fake_sparsity(model):
+    """Simulates 2:4 sparsity on all linear layers in a model (test setup helper)."""
+    sparse_config = [
+        {"tensor_fqn": f"{name}.weight"}
+        for name, mod in model.named_modules()
+        if isinstance(mod, nn.Linear)
+    ]
+    sparsifier = WeightNormSparsifier(
+        sparsity_level=1.0, sparse_block_shape=(1, 4), zeros_per_block=2
+    )
+    sparsifier.prepare(model, sparse_config)
+    sparsifier.step()
+    sparsifier.squash_mask()
 
 
 class TestFloat8Sparse2x4_2DData2DMetadataTensor(common_utils.TestCase):

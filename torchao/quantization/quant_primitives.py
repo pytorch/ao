@@ -11,11 +11,6 @@ from typing import Callable, Dict, List, Optional, Tuple, Union
 
 import torch
 
-from torchao.prototype.custom_fp_utils import (
-    _f32_to_floatx_unpacked,
-    _floatx_unpacked_to_f32,
-    _n_ones,
-)
 from torchao.utils import (
     _register_custom_op,
     _register_meta_op,
@@ -31,7 +26,6 @@ __all__ = [
     "TorchAODType",
     "_choose_qparams_affine_tinygemm",
     "_choose_qparams_affine_dont_preserve_zero",
-    "_choose_qparams_affine_floatx",
     "_choose_qparams_and_quantize_affine_hqq",
     "_choose_qparams_and_quantize_scale_only_hqq",
     "_choose_qparams_and_quantize_scale_only_sinq",
@@ -39,12 +33,10 @@ __all__ = [
     "_choose_qparams_gguf",
     "_quantize_affine_no_zero_point",
     "_quantize_affine_tinygemm",
-    "_quantize_affine_floatx",
     "_quantize_affine_float8",
     "_quantize_gguf",
     "_dequantize_affine_no_zero_point",
     "_dequantize_affine_tinygemm",
-    "_dequantize_affine_floatx",
     "_dequantize_affine_float8",
     "_dequantize_gguf",
     "_fake_quantize_affine",
@@ -215,8 +207,6 @@ assert _DTYPE_TO_BIT_WIDTH.keys() == _DTYPE_TO_QVALUE_BOUNDS.keys()
 
 _GGUF_QK_K = 256
 
-_ONES_TABLE = [_n_ones(i) for i in range(8)]
-
 quant_lib = torch.library.Library("torchao", "FRAGMENT")
 
 register_custom_op = _register_custom_op(quant_lib)
@@ -234,6 +224,38 @@ class _Round(torch.autograd.Function):
     @staticmethod
     def backward(ctx, gy: torch.Tensor) -> torch.Tensor:
         return gy
+
+
+class _ClampSTE(torch.autograd.Function):
+    """
+    Clamp that preserves the straight-through estimator at the boundary.
+
+    https://github.com/pytorch/pytorch/pull/191142 changed the boundary
+    subgradient of scalar-bound `clamp` from pass-through to zero
+    (`self >= min` became `self > min`). That is measure-zero for ordinary
+    floats, but fake quantization clamps *rounded* values against *integer*
+    bounds, so every saturated element sits exactly on quant_min/quant_max and
+    loses its gradient.
+
+    Backward selects with `torch.where` rather than multiplying by a 0/1 mask so
+    that a NaN or Inf incoming gradient at an out-of-range position is replaced
+    by exactly 0 instead of contaminating the result (`0 * nan == nan`). That
+    matches `aten::clamp`, which selects with `where` both before and after the
+    PR above.
+    """
+
+    @staticmethod
+    def forward(ctx, x: torch.Tensor, lo: float, hi: float) -> torch.Tensor:
+        ctx.save_for_backward(x)
+        ctx.lo, ctx.hi = lo, hi
+        return torch.clamp(x, lo, hi)
+
+    @staticmethod
+    def backward(ctx, gy: torch.Tensor):
+        (x,) = ctx.saved_tensors
+        in_range = (x >= ctx.lo) & (x <= ctx.hi)
+        zero = torch.zeros((), dtype=gy.dtype, device=gy.device)
+        return torch.where(in_range, gy, zero), None, None
 
 
 class _RoundToFloat8(torch.autograd.Function):
@@ -487,7 +509,7 @@ def _quantize_affine_no_dtype_cast(
         # with numel=0 which we handle by unifying the two
         zero_point = None
 
-    quant = torch.clamp(
+    quant = _ClampSTE.apply(
         _Round.apply(input * (1.0 / scale)) + zero_point, quant_min, quant_max
     )
     quant = quant.view(original_shape)
@@ -603,7 +625,9 @@ def _quantize_affine_tinygemm_no_dtype_cast(
 
     mid_point = (quant_max + quant_min + 1) / 2
     min_val = zero_point - scale * mid_point
-    quant = torch.clamp(_Round.apply((input - min_val) / scale), quant_min, quant_max)
+    quant = _ClampSTE.apply(
+        _Round.apply((input - min_val) / scale), quant_min, quant_max
+    )
     quant = quant.view(original_shape)
 
     return quant
@@ -716,7 +740,7 @@ def _quantize_affine_no_zero_point_no_dtype_cast(
         # with numel=0 which we handle by unifying the two
         zero_point = None
 
-    quant = torch.clamp(_Round.apply(input * (1.0 / scale)), quant_min, quant_max)
+    quant = _ClampSTE.apply(_Round.apply(input * (1.0 / scale)), quant_min, quant_max)
     quant = quant.view(original_shape)
 
     return quant
@@ -2177,66 +2201,6 @@ def _choose_qparams_and_quantize_scale_only_sinq(
     scale_col = scale_col_sinkhorn.repeat(num_groups)[: shape[1]].to(compute_dtype)
 
     return qdata, scale_row, scale_col
-
-
-def _choose_qparams_affine_floatx(
-    tensor: torch.Tensor, ebits: int, mbits: int
-) -> torch.Tensor:
-    """Choose quantization parameters for floatx quantization.
-
-    Calculates scale parameter for quantizing to custom floating point format.
-
-    Args:
-        tensor: Input tensor to quantize (float32, float16, or bfloat16)
-        ebits: Number of exponent bits in target floatx format
-        mbits: Number of mantissa bits in target floatx format
-
-    Returns:
-        Scale tensor for floatx quantization
-
-    Note:
-        Uses global lookup table as workaround for torch.compile() compatibility
-        since _n_ones() is not compatible due to << operator.
-    """
-    # _n_ones() is not compatible with torch.compile() due to << operator
-    # https://github.com/pytorch/pytorch/issues/119152
-    # exp_bias = _n_ones(ebits - 1)
-    # max_normal = 2 ** (_n_ones(ebits) - exp_bias) * (_n_ones(mbits + 1) / (2 ** mbits))
-
-    # workaround: global lookup table
-    exp_bias = _ONES_TABLE[ebits - 1]
-    max_normal = 2 ** (_ONES_TABLE[ebits] - exp_bias) * (
-        _ONES_TABLE[mbits + 1] / (2**mbits)
-    )
-
-    dtype = tensor.dtype
-    tensor = tensor.float()
-    scale = tensor.abs().amax(1).clamp(min=1e-12) / max_normal
-    return scale.to(dtype)
-
-
-def _quantize_affine_floatx(
-    tensor: torch.Tensor, scale: torch.Tensor, ebits: int, mbits: int
-) -> torch.Tensor:
-    """Quantizes the float32 high precision floating point tensor to low precision floating point number and
-    converts the result to unpacked floating point format with the format of 00SEEEMM (for fp6_e3m2) where S means sign bit, e means exponent bit and m means mantissa bit
-    """
-    tensor = tensor.float()
-    tensor_floatx = _f32_to_floatx_unpacked(tensor / scale.view(-1, 1), ebits, mbits)
-    return tensor_floatx
-
-
-def _dequantize_affine_floatx(
-    tensor: torch.Tensor,
-    scale: torch.Tensor,
-    ebits: int,
-    mbits: int,
-    output_dtype: torch.dtype = torch.float32,
-) -> torch.Tensor:
-    tensor = _floatx_unpacked_to_f32(tensor, ebits, mbits)
-    tensor = tensor * scale.float().view(-1, 1)
-    tensor = tensor.to(dtype=output_dtype)
-    return tensor
 
 
 @register_custom_op

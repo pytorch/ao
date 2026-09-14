@@ -269,6 +269,42 @@ class TestQuantFlow(TestCase):
     def test_config_prefers_cpu_checkpoint_staging_non_int4(self):
         self.assertFalse(config_prefers_cpu_checkpoint_staging(Int8WeightOnlyConfig(set_inductor_config=False)))
 
+    @common_utils.parametrize(
+        "config",
+        [
+            Int8WeightOnlyConfig(),
+            Float8WeightOnlyConfig(),
+        ],
+    )
+    def test_quantize_reapply_is_noop(self, config):
+        # Re-running quantize_() over a model whose weights are already quantized
+        # must be a no-op for those weights instead of re-quantizing them, which
+        # would send an already-quantized tensor back through from_hp() and hit
+        # unimplemented ops (aten.view for Int8Tensor, aten.abs for Float8Tensor).
+        # See https://github.com/pytorch/ao/issues/4845.
+        m = ToyLinearModel().eval()
+        example_inputs = m.example_inputs()
+
+        quantize_(m, config)
+        ref = m(*example_inputs)
+        w1_before = m.linear1.weight
+        w2_before = m.linear2.weight
+
+        # Second pass over the whole model, and directly on an already-quantized
+        # child, must both leave the quantized weights untouched (and warn).
+        with self.assertLogs("torchao.quantization.quant_api", level="WARNING") as cm:
+            quantize_(m, config)
+            quantize_(m.linear1, config)
+        self.assertTrue(
+            any("already quantized" in msg for msg in cm.output),
+            f"expected an 'already quantized' warning, got {cm.output}",
+        )
+
+        # Same parameter objects, same output.
+        self.assertIs(m.linear1.weight, w1_before)
+        self.assertIs(m.linear2.weight, w2_before)
+        self.assertEqual(m(*example_inputs), ref)
+
     def test_dynamic_quant_gpu_singleline(self):
         if is_ROCM():
             self.skipTest("Don't test CPU for ROCM version of torch")

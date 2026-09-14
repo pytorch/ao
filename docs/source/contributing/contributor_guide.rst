@@ -12,7 +12,6 @@ To contribute to existing code base:
 * Adding new quantization APIs: `torchao/quantization/quant_api.py <https://github.com/pytorch/ao/blob/main/torchao/quantization/quant_api.py>`__
 * Adding features to existing Tensor subclasses like ``Float8Tensor``, e.g. adding new operator support, making it trainable, add tensor parallelism support etc., `tensor subclasses <https://github.com/pytorch/ao/tree/main/torchao/quantization/quantize_/workflows>`__, `tests <https://github.com/pytorch/ao/tree/main/test/quantization/quantize_/workflows>`__
 * Adding new quantization primitive ops, e.g. slight variations of existing quantization primitive ops: `torchao/quantization/quant_primitives.py <https://github.com/pytorch/ao/blob/main/torchao/quantization/quant_primitives.py>`__
-* Adding new autotuned triton kernels: `torchao/kernel <https://github.com/pytorch/ao/tree/main/torchao/kernel>`__
 * Adding new custom cpu/cuda/mps kernels: `torchao/csrc <https://github.com/pytorch/ao/tree/main/torchao/csrc>`__
 
 Adding New Tensor Subclasses
@@ -35,7 +34,7 @@ Adding Efficient Kernels
 
 Custom triton kernels
 #####################
-Custom triton kernels can be implemented and registered in `torchao/kernel <https://github.com/pytorch/ao/tree/main/torchao/kernel>`__, see `bsr_triton_ops.py <https://github.com/pytorch/ao/blob/main/torchao/kernel/bsr_triton_ops.py>`__ for an example of a triton kernel that is exposed as a custom op.
+Custom triton kernels can be implemented alongside the tensor subclass or workflow that consumes them, and exposed as custom ops using the registration helpers in `torchao/ops.py <https://github.com/pytorch/ao/blob/main/torchao/ops.py>`__.
 
 Custom hand written kernels
 ###########################

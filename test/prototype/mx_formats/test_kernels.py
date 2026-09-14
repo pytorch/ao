@@ -8,6 +8,7 @@ import pytest
 import torch
 from torch.utils._triton import has_triton
 
+import torchao.prototype.mx_formats.kernels as mx_kernels
 from torchao.prototype.mx_formats.constants import (
     DTYPE_FP6_E2M3,
     DTYPE_FP6_E3M2,
@@ -36,13 +37,26 @@ from torchao.prototype.mx_formats.kernels import (
     mxfp8_quantize_cuda,
     pack_uint4,
     triton_mxfp8_dequant_dim0,
+    triton_to_mxfp8_32x32_swizzle_dim0_qdata_dim01_scale,
     triton_to_mxfp8_dim0,
     triton_to_mxfp8_dim1,
     triton_to_mxfp8_dim1_reference,
     unpack_uint4,
 )
-from torchao.prototype.mx_formats.mx_tensor import ScaleCalculationMode, to_dtype, to_mx
-from torchao.prototype.mx_formats.utils import to_blocked
+from torchao.prototype.mx_formats.mx_tensor import (
+    ScaleCalculationMode,
+    _e8m0_scale_to_reciprocal_fp32,
+    _f32_to_e8m0_rceil,
+    to_dtype,
+    to_mx,
+)
+from torchao.prototype.mx_formats.utils import from_blocked, to_blocked
+from torchao.quantization.utils import compute_error
+from torchao.testing._mxfp8_test_utils import (
+    assert_mxfp8_semantics,
+    make_f32_to_e8m0_rceil_cases,
+    make_mxfp8_semantic_cases,
+)
 from torchao.utils import (
     is_cuda_version_at_least,
     is_MI350,
@@ -50,6 +64,33 @@ from torchao.utils import (
 )
 
 torch.manual_seed(0)
+
+
+if hasattr(mx_kernels, "_triton_f32_to_e8m0_rceil"):
+    import triton
+    import triton.language as tl
+
+    @triton.jit
+    def _test_triton_f32_to_e8m0_rceil_kernel(
+        input_ptr, output_ptr, n_elements: tl.constexpr, BLOCK_SIZE: tl.constexpr
+    ):
+        offsets = tl.arange(0, BLOCK_SIZE)
+        values = tl.load(input_ptr + offsets, mask=offsets < n_elements)
+        result = mx_kernels._triton_f32_to_e8m0_rceil(values)
+        tl.store(output_ptr + offsets, result, mask=offsets < n_elements)
+
+
+@pytest.mark.skipif(
+    not hasattr(mx_kernels, "_triton_f32_to_e8m0_rceil"),
+    reason="MXFP8 Triton kernels are unavailable",
+)
+def test_triton_f32_to_e8m0_rceil_fallback():
+    values, expected = make_f32_to_e8m0_rceil_cases(device="cuda")
+    actual = torch.empty_like(values, dtype=torch.uint8)
+    _test_triton_f32_to_e8m0_rceil_kernel[(1,)](
+        values, actual, n_elements=values.numel(), BLOCK_SIZE=32
+    )
+    assert torch.equal(actual.cpu(), expected)
 
 
 # TODO: shared utils file for benchmarking and testing
@@ -560,44 +601,31 @@ def test_rearrange(shape):
     not is_cuda_version_at_least(12, 8),
     reason="CUDA version >= 12.8 required for MXFP8 CUDA kernels",
 )
-@pytest.mark.parametrize("M", (32, 256))
-@pytest.mark.parametrize("K", (32, 256))
-@pytest.mark.parametrize("input_dtype", (torch.float32, torch.bfloat16))
-@pytest.mark.parametrize(
-    "scaling_mode", (ScaleCalculationMode.FLOOR, ScaleCalculationMode.RCEIL)
-)
-def test_cuda_mx_dim1_numerics(M, K, input_dtype, scaling_mode):
-    scaling_mode_str = (
-        "floor" if scaling_mode == ScaleCalculationMode.FLOOR else "rceil"
-    )
-    block_size = 32
+def test_cuda_mx_quantize_on_a_fresh_thread():
+    """The kernel must work when it is the first CUDA call on its thread.
 
-    # Use disinct incrementing values from 0 to M*K-1 to make debugging easier.
-    x = (
-        torch.arange(0, M * K, dtype=input_dtype, device="cuda")
-        .reshape(M, K)
-        .contiguous()
-    )
+    It encodes TMA descriptors through the driver API, which needs a current
+    context. A thread that has not used CUDA yet does not have one, and a
+    DeviceGuard does not bind it when the device already matches. Autograd runs
+    backward on worker threads, so this is the common case for an MXFP8
+    backward. Without the fix the kernel raises a cudaErrorIllegalInstruction.
+    """
+    import threading
 
-    y_d1_ref, s_d1_ref = to_mx_dim1_reference(
-        x,
-        block_size=block_size,
-        scaling_mode=scaling_mode,
-    )
+    x = torch.randn(64, 128, device="cuda", dtype=torch.bfloat16)
+    failure = []
 
-    _, y_d1, _, s_d1 = mxfp8_quantize_cuda(
-        x,
-        rowwise=False,
-        colwise=True,
-        scaling_mode=scaling_mode_str,
-    )
+    def run():
+        try:
+            mxfp8_quantize_cuda(x, rowwise=False, colwise=True, scaling_mode="rceil")
+            torch.cuda.synchronize()
+        except Exception as e:  # noqa: BLE001
+            failure.append(e)
 
-    # check scales
-    torch.testing.assert_close(s_d1, s_d1_ref, rtol=0, atol=0)
-
-    # check quantized values
-    torch.testing.assert_close(y_d1, y_d1_ref, rtol=0, atol=0)
-    assert y_d1.stride() == y_d1_ref.stride(), "quantized tensor strides do not match"
+    thread = threading.Thread(target=run)
+    thread.start()
+    thread.join()
+    assert not failure, f"quantize failed on a fresh thread: {failure[0]}"
 
 
 @pytest.mark.skipif(
@@ -608,19 +636,270 @@ def test_cuda_mx_dim1_numerics(M, K, input_dtype, scaling_mode):
     not is_cuda_version_at_least(12, 8),
     reason="CUDA version >= 12.8 required for MXFP8 CUDA kernels",
 )
-def test_cuda_mx_dim0_not_supported():
+@pytest.mark.parametrize("M", (32, 256))
+@pytest.mark.parametrize("K", (32, 256))
+@pytest.mark.parametrize("input_dtype", (torch.float32, torch.bfloat16))
+@pytest.mark.parametrize(
+    "scaling_mode", (ScaleCalculationMode.FLOOR, ScaleCalculationMode.RCEIL)
+)
+@pytest.mark.parametrize(
+    "rowwise,colwise", ((True, False), (False, True), (True, True))
+)
+def test_cuda_mx_numerics(M, K, input_dtype, scaling_mode, rowwise, colwise):
+    scaling_mode_str = (
+        "floor" if scaling_mode == ScaleCalculationMode.FLOOR else "rceil"
+    )
+    block_size = 32
+
+    # Use distinct incrementing values from 0 to M*K-1 to make debugging easier.
+    x = (
+        torch.arange(0, M * K, dtype=input_dtype, device="cuda")
+        .reshape(M, K)
+        .contiguous()
+    )
+
+    if rowwise:
+        s_d0_ref, y_d0_ref = to_mx(
+            x,
+            torch.float8_e4m3fn,
+            block_size,
+            scaling_mode=scaling_mode,
+        )
+    if colwise:
+        y_d1_ref, s_d1_ref = to_mx_dim1_reference(
+            x,
+            block_size=block_size,
+            scaling_mode=scaling_mode,
+        )
+
+    y_d0, y_d1, s_d0, s_d1 = mxfp8_quantize_cuda(
+        x,
+        rowwise=rowwise,
+        colwise=colwise,
+        scaling_mode=scaling_mode_str,
+    )
+
+    if rowwise:
+        # Rowwise uses independent 1x32 groups, including when colwise is also
+        # requested from the fused kernel.
+        torch.testing.assert_close(s_d0, s_d0_ref, rtol=0, atol=0)
+        torch.testing.assert_close(y_d0, y_d0_ref, rtol=0, atol=0)
+        assert y_d0.stride() == y_d0_ref.stride()
+    else:
+        assert y_d0.numel() == 0
+        assert s_d0.numel() == 0
+
+    if colwise:
+        # Colwise uses independent 32x1 groups, including when rowwise is also
+        # requested from the fused kernel.
+        torch.testing.assert_close(s_d1, s_d1_ref, rtol=0, atol=0)
+        torch.testing.assert_close(y_d1, y_d1_ref, rtol=0, atol=0)
+        assert y_d1.stride() == y_d1_ref.stride()
+    else:
+        assert y_d1.numel() == 0
+        assert s_d1.numel() == 0
+
+
+@pytest.mark.skipif(
+    not is_sm_at_least_100(),
+    reason="MXFP8 requires CUDA capability 10.0 or greater",
+)
+@pytest.mark.skipif(
+    not is_cuda_version_at_least(12, 8),
+    reason="CUDA version >= 12.8 required for MXFP8 CUDA kernels",
+)
+@pytest.mark.parametrize(
+    "rowwise,colwise,scale_dim_x,scale_dim_y,error",
+    (
+        (True, False, 1, 1, "rowwise output requires scale_dim_x == 32"),
+        (False, True, 1, 1, "colwise output requires scale_dim_y == 32"),
+    ),
+)
+def test_cuda_mx_rejects_invalid_scale_dimensions(
+    rowwise, colwise, scale_dim_x, scale_dim_y, error
+):
     M, K = 64, 64
     x = (
         torch.arange(0, M * K, dtype=torch.bfloat16, device="cuda")
         .reshape(M, K)
         .contiguous()
     )
-    with pytest.raises(RuntimeError):
-        _, y_d1, _, s_d1 = mxfp8_quantize_cuda(
+    with pytest.raises(RuntimeError, match=error):
+        torch.ops.torchao.mxfp8_quantize.default(
             x,
-            rowwise=True,
-            colwise=False,
+            rowwise,
+            colwise,
+            scale_dim_x,
+            scale_dim_y,
+            "e4m3",
+            "rceil",
         )
+
+
+@pytest.mark.skipif(
+    not is_sm_at_least_100(),
+    reason="MXFP8 requires CUDA capability 10.0 or greater",
+)
+@pytest.mark.skipif(
+    not is_cuda_version_at_least(12, 8),
+    reason="CUDA version >= 12.8 required for MXFP8 CUDA kernels",
+)
+@pytest.mark.parametrize(
+    "rowwise,colwise", ((True, False), (False, True), (True, True))
+)
+def test_cuda_mx_fake_shapes_and_strides(rowwise, colwise):
+    rows, cols = 64, 96
+    block_size = 32
+    output_rowwise, output_colwise, scales_rowwise, scales_colwise = (
+        torch.ops.torchao.mxfp8_quantize.default(
+            torch.empty((rows, cols), device="meta"),
+            rowwise,
+            colwise,
+            block_size if rowwise else 1,
+            block_size if colwise else 1,
+            "e4m3",
+            "rceil",
+        )
+    )
+
+    if rowwise:
+        torch._assert_tensor_metadata(
+            output_rowwise,
+            size=(rows, cols),
+            stride=(cols, 1),
+        )
+        torch._assert_tensor_metadata(
+            scales_rowwise,
+            size=(rows, cols // block_size),
+            stride=(cols // block_size, 1),
+        )
+    else:
+        torch._assert_tensor_metadata(output_rowwise, size=(0,), stride=(1,))
+        torch._assert_tensor_metadata(scales_rowwise, size=(0,), stride=(1,))
+
+    if colwise:
+        torch._assert_tensor_metadata(
+            output_colwise,
+            size=(rows, cols),
+            stride=(1, rows),
+        )
+        torch._assert_tensor_metadata(
+            scales_colwise,
+            size=(cols, rows // block_size),
+            stride=(1, cols),
+        )
+    else:
+        torch._assert_tensor_metadata(output_colwise, size=(0,), stride=(1,))
+        torch._assert_tensor_metadata(scales_colwise, size=(0,), stride=(1,))
+
+
+@pytest.mark.skipif(
+    not is_sm_at_least_100(),
+    reason="MXFP8 requires CUDA capability 10.0 or greater",
+)
+@pytest.mark.skipif(
+    not is_cuda_version_at_least(12, 8),
+    reason="CUDA version >= 12.8 required for MXFP8 CUDA kernels",
+)
+@pytest.mark.parametrize(
+    "rowwise,colwise", ((True, False), (False, True), (True, True))
+)
+@pytest.mark.parametrize(
+    "shard_dims",
+    ((0,), (1,), (0, 1), (1, 0)),
+    ids=("S0", "S1", "S0_S1", "S1_S0"),
+)
+def test_cuda_mx_dtensor_sharding_commutes_with_quantization(
+    rowwise, colwise, shard_dims
+):
+    import torch.distributed as dist
+    from torch.distributed._local_tensor import LocalTensorMode
+    from torch.distributed.device_mesh import init_device_mesh
+    from torch.distributed.tensor import Replicate, Shard, distribute_tensor
+    from torch.distributed.tensor.debug import CommDebugMode
+
+    mesh_shape = (2,) * len(shard_dims)
+    world_size = 2 ** len(shard_dims)
+    placements = [Shard(dim) for dim in shard_dims]
+    replicated_placements = [Replicate()] * len(shard_dims)
+
+    assert not dist.is_initialized()
+    dist.init_process_group(
+        "fake",
+        store=dist.HashStore(),
+        rank=0,
+        world_size=world_size,
+    )
+    try:
+        mesh = init_device_mesh("cuda", mesh_shape)
+        full_input = torch.randn(
+            128, 128, device="cuda", dtype=torch.bfloat16
+        ).contiguous()
+
+        with LocalTensorMode(world_size):
+            sharded_input = distribute_tensor(full_input, mesh, placements)
+            replicated_input = sharded_input.redistribute(
+                placements=replicated_placements
+            )
+
+            with CommDebugMode() as replicated_quantize_comm:
+                expected_outputs = mxfp8_quantize_cuda(
+                    replicated_input,
+                    rowwise=rowwise,
+                    colwise=colwise,
+                )
+
+            with CommDebugMode() as sharded_quantize_comm:
+                sharded_outputs = mxfp8_quantize_cuda(
+                    sharded_input,
+                    rowwise=rowwise,
+                    colwise=colwise,
+                )
+
+            actual_outputs = tuple(
+                output.redistribute(placements=replicated_placements)
+                for output in sharded_outputs
+            )
+
+            assert replicated_quantize_comm.get_total_counts() == 0
+            assert sharded_quantize_comm.get_total_counts() == 0
+            for expected, actual in zip(expected_outputs, actual_outputs):
+                assert expected.shape == actual.shape
+                torch.testing.assert_close(
+                    expected.to_local(), actual.to_local(), rtol=0, atol=0
+                )
+    finally:
+        dist.destroy_process_group()
+
+
+@pytest.mark.skipif(
+    not is_sm_at_least_100(),
+    reason="MXFP8 requires CUDA capability 10.0 or greater",
+)
+@pytest.mark.skipif(
+    not is_cuda_version_at_least(12, 8),
+    reason="CUDA version >= 12.8 required for MXFP8 CUDA kernels",
+)
+@pytest.mark.parametrize("input_dtype", (torch.float32, torch.bfloat16))
+@pytest.mark.parametrize("scaling_mode", ("floor", "rceil"))
+@pytest.mark.parametrize("orientation", ("rowwise", "colwise"))
+def test_cuda_mxfp8_special_value_semantics(input_dtype, scaling_mode, orientation):
+    cases = make_mxfp8_semantic_cases(input_dtype, scaling_mode, device="cuda")
+    num_cases = len(cases.names)
+    oriented = torch.zeros(32, 32, dtype=input_dtype, device="cuda")
+    oriented[:num_cases] = cases.inputs
+
+    x = oriented if orientation == "rowwise" else oriented.t().contiguous()
+
+    outputs = mxfp8_quantize_cuda(
+        x,
+        rowwise=orientation == "rowwise",
+        colwise=orientation == "colwise",
+        scaling_mode=scaling_mode,
+    )
+    data = outputs[0] if orientation == "rowwise" else outputs[1].t()
+    scales = outputs[2] if orientation == "rowwise" else outputs[3]
+    assert_mxfp8_semantics(data[:num_cases, :32], scales[:num_cases, :1], cases)
 
 
 @pytest.mark.skipif(not has_triton(), reason="unsupported without triton")
@@ -632,88 +911,20 @@ def test_cuda_mx_dim0_not_supported():
     not is_cuda_version_at_least(12, 8),
     reason="CUDA version >= 12.8 required for MXFP8 CUDA kernels",
 )
-@pytest.mark.parametrize("scaling_mode", (ScaleCalculationMode.RCEIL,))
+@pytest.mark.parametrize(
+    "scaling_mode", (ScaleCalculationMode.FLOOR, ScaleCalculationMode.RCEIL)
+)
 def test_triton_mxfp8_dim0_special_values(scaling_mode: ScaleCalculationMode):
-    # Create tensor with special values - make it compatible with block_size=32
     block_size = 32
-    special_vals = torch.zeros(2, block_size, dtype=torch.bfloat16, device="cuda")
+    cases = make_mxfp8_semantic_cases(torch.bfloat16, scaling_mode, device="cuda")
 
-    # Fill first few elements of each row with special values
-    special_vals[0, :4] = torch.tensor(
-        [float("inf"), -float("inf"), float("nan"), 0.0], dtype=torch.bfloat16
-    )
-    special_vals[1, :4] = torch.tensor(
-        [
-            torch.finfo(torch.float32).max,
-            torch.finfo(torch.float32).min,
-            torch.finfo(torch.float32).tiny,
-            -torch.finfo(torch.float32).tiny,
-        ],
-        dtype=torch.bfloat16,
-    )
-
-    x_mx_ref, x_s_ref = triton_to_mxfp8_dim0_reference(
-        special_vals, block_size=block_size, scaling_mode=scaling_mode
-    )
     x_mx_t, x_s_t = triton_to_mxfp8_dim0(
-        special_vals,
+        cases.inputs,
         inner_block_size=block_size,
         scaling_mode=scaling_mode.value.lower(),
     )
-    x_mx_t = x_mx_t.to(torch.float32)
-    x_mx_ref = x_mx_ref.to(torch.float32)
 
-    # Check NaN behavior: if any value in a block is NaN, scale and entire block become NaN
-    for row_idx in range(special_vals.shape[0]):
-        input_block_has_nan = special_vals[row_idx].isnan().any()
-
-        if input_block_has_nan:
-            # If any value in block is NaN, scale should be NaN
-            assert torch.isnan(x_s_t[row_idx].to(torch.float32)), (
-                f"Row {row_idx}: Block with any NaN should have NaN scale"
-            )
-            # And entire quantized block should be NaN
-            assert torch.all(torch.isnan(x_mx_t[row_idx])), (
-                f"Row {row_idx}: Block with any NaN should have all NaN quantized values"
-            )
-        else:
-            # If no NaN in input block, scale and data should not be NaN
-            assert not torch.isnan(x_s_t[row_idx].to(torch.float32)), (
-                f"Row {row_idx}: Block without NaN should not have NaN scale"
-            )
-
-    # Use NaN-aware comparison to handle nan != nan case properly
-    # Check NaN patterns match
-    nan_ref = torch.isnan(x_mx_ref)
-    nan_triton = torch.isnan(x_mx_t)
-    assert torch.equal(nan_ref, nan_triton), (
-        "NaN pattern mismatch between reference and triton"
-    )
-
-    # Check finite values
-    finite_mask = torch.isfinite(x_mx_ref) & torch.isfinite(x_mx_t)
-    if finite_mask.any():
-        assert torch.equal(x_mx_ref[finite_mask], x_mx_t[finite_mask]), (
-            "Finite values mismatch"
-        )
-
-    # Check infinity patterns
-    inf_ref = torch.isinf(x_mx_ref)
-    inf_triton = torch.isinf(x_mx_t)
-    assert torch.equal(inf_ref, inf_triton), (
-        "Infinity pattern mismatch between reference and triton"
-    )
-    if inf_ref.any():
-        assert torch.equal(x_mx_ref[inf_ref], x_mx_t[inf_ref]), (
-            "Infinity values mismatch"
-        )
-
-    # Check scales using exact comparison
-    x_s_ref_uint8 = x_s_ref.to(torch.uint8)
-    x_s_t_uint8 = x_s_t.to(torch.uint8)
-    assert torch.equal(x_s_t_uint8, x_s_ref_uint8), (
-        "Scale values mismatch between reference and triton"
-    )
+    assert_mxfp8_semantics(x_mx_t, x_s_t, cases)
 
 
 @pytest.mark.skipif(not has_triton(), reason="unsupported without triton")
@@ -811,106 +1022,6 @@ def test_triton_mxfp8_dim0_overflow_underflow(scaling_mode):
 
 
 @pytest.mark.skipif(not has_triton(), reason="unsupported without triton")
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
-@pytest.mark.skipif(
-    not is_cuda_version_at_least(12, 8), reason="CUDA version >= 12.8 required"
-)
-@pytest.mark.skipif(
-    not is_sm_at_least_100(), reason="CUDA capability 10.0 or greater required"
-)
-@pytest.mark.parametrize("scaling_mode", (ScaleCalculationMode.RCEIL,))
-def test_all_nan_block_scale_behavior(scaling_mode):
-    """
-    Test that PyTorch and Triton implementations align on NaN scale behavior:
-    - Any NaN in block: scale = NaN, entire quantized block becomes NaN
-    """
-    from torchao.prototype.mx_formats.mx_tensor import to_mx
-
-    block_size = 32
-
-    # Create test case with both mixed and all-NaN blocks
-    # First 32 elements: mixed NaN + real values
-    # Second 32 elements: all NaN values
-    # Third 32 elements: normal values for reference
-    test_vals = torch.zeros(3 * block_size, dtype=torch.bfloat16, device="cuda")
-
-    # Block 1: Mixed NaN + real values [NaN, 1.0, NaN, 5.0, NaN, 3.0, ...]
-    test_vals[:block_size:3] = float("nan")  # Every 3rd element is NaN
-    test_vals[1:block_size:3] = 1.0  # Some real values
-    test_vals[2:block_size:3] = 5.0
-
-    # Block 2: All NaN values
-    test_vals[block_size : 2 * block_size] = float("nan")
-
-    # Block 3: Normal values for reference
-    test_vals[2 * block_size :] = torch.linspace(1.0, 10.0, block_size)
-
-    # Test PyTorch implementation through to_mx
-    scale_pytorch, data_pytorch = to_mx(
-        test_vals, torch.float8_e4m3fn, block_size, scaling_mode
-    )
-
-    # Convert to regular tensor for easier inspection
-    scale_pytorch_vals = scale_pytorch.to(torch.float32)
-    data_pytorch_vals = data_pytorch.to(torch.float32)
-
-    # Test expectations: If any value in a block is NaN, scale = NaN and entire block becomes NaN
-
-    # Block 0 (mixed NaN + real): Should have NaN scale and all NaN data
-    assert torch.isnan(scale_pytorch_vals[0]), (
-        "Block with any NaN should have NaN scale"
-    )
-    assert torch.all(torch.isnan(data_pytorch_vals[:block_size])), (
-        "Block with any NaN should have all NaN quantized values"
-    )
-
-    # Block 1 (all NaN): Should have NaN scale and all NaN data
-    assert torch.isnan(scale_pytorch_vals[1]), "All-NaN block should have NaN scale"
-    assert torch.all(torch.isnan(data_pytorch_vals[block_size : 2 * block_size])), (
-        "All-NaN block should have all NaN quantized values"
-    )
-
-    # Block 2 (normal): Should have real scale and finite data
-    assert not torch.isnan(scale_pytorch_vals[2]), "Normal block should have real scale"
-    assert torch.all(torch.isfinite(data_pytorch_vals[2 * block_size :])), (
-        "Normal block should have finite quantized values"
-    )
-
-    # Also test the Triton implementation to ensure consistency
-    test_vals_2d = test_vals.reshape(3, block_size)
-    x_mx_t, x_s_t = triton_to_mxfp8_dim0(
-        test_vals_2d,
-        inner_block_size=block_size,
-        scaling_mode=scaling_mode.value.lower(),
-    )
-
-    # Convert for comparison
-    x_s_t_vals = x_s_t.to(torch.float32)
-    x_mx_t_vals = x_mx_t.to(torch.float32)
-
-    # Test Triton implementation matches PyTorch behavior
-    # Block 0 (mixed NaN + real): Should have NaN scale and all NaN data
-    assert torch.isnan(x_s_t_vals[0]), (
-        "Triton: Block with any NaN should have NaN scale"
-    )
-    assert torch.all(torch.isnan(x_mx_t_vals[0])), (
-        "Triton: Block with any NaN should have all NaN quantized values"
-    )
-
-    # Block 1 (all NaN): Should have NaN scale and all NaN data
-    assert torch.isnan(x_s_t_vals[1]), "Triton: All-NaN block should have NaN scale"
-    assert torch.all(torch.isnan(x_mx_t_vals[1])), (
-        "Triton: All-NaN block should have all NaN quantized values"
-    )
-
-    # Block 2 (normal): Should have real scale and finite data
-    assert not torch.isnan(x_s_t_vals[2]), "Triton: Normal block should have real scale"
-    assert torch.all(torch.isfinite(x_mx_t_vals[2])), (
-        "Triton: Normal block should have finite quantized values"
-    )
-
-
-@pytest.mark.skipif(not has_triton(), reason="unsupported without triton")
 @pytest.mark.skipif(
     not is_sm_at_least_100() and not is_MI350(),
     reason="mxfp8 requires CUDA capability 10.0 or greater or ROCm gfx950 or greater.",
@@ -939,3 +1050,129 @@ def test_triton_mxfp8_dim0_large_tensor_offset_no_overflow(scaling_mode):
     assert not x_s_t.isnan().any(), "scales should not contain NaNs"
     torch.testing.assert_close(x_mx_t, x_mx_ref, rtol=0, atol=0)
     torch.testing.assert_close(x_s_t, x_s_ref, rtol=0, atol=0)
+
+
+# ---------------------------------------------------------------------------
+# Pure-PyTorch numerical reference for the standalone mxfp8 32x32 cast, ported from the
+# quant_cast_gold recipe `mxfp8_32x32_f` (eager RCEIL bit-math branch). Kept local so the test
+# depends only on torchao, and pins the standalone 32x32 mxfp8 cast bit-for-bit to this definition.
+# ---------------------------------------------------------------------------
+def _ref_mxfp8_32x32(x):
+    """mxfp8 with square 32x32 blocks (one e8m0 scale per block). Returns
+    (qdata float8_e4m3fn (M, N), scale float8_e8m0fnu (M//32, N//32)).
+
+    Uses torchao's `_f32_to_e8m0_rceil` (RCEIL amax->e8m0) and
+    `_e8m0_scale_to_reciprocal_fp32` (e8m0->fp32 reciprocal) so the reference tracks torchao's
+    canonical mxfp8 numerics rather than a hand-rolled copy."""
+    *lead, d1, d2 = x.shape
+    n1, n2 = d1 // 32, d2 // 32
+    x_b = (
+        x.reshape(*lead, n1, 32, n2, 32)
+        .transpose(-3, -2)
+        .contiguous()
+        .reshape(*lead, n1, n2, 32 * 32)
+    )
+    amax = x_b.abs().amax(dim=-1, keepdim=True)  # (..., n1, n2, 1)
+    descale = amax.to(torch.float32) * (
+        1.0 / torch.finfo(torch.float8_e4m3fn).max
+    )  # /448
+    scale_biased = _f32_to_e8m0_rceil(descale)  # uint8 e8m0 biased exponent
+    qdata_b = (x_b.to(torch.float32) * _e8m0_scale_to_reciprocal_fp32(scale_biased)).to(
+        torch.float8_e4m3fn
+    )
+    qdata = (
+        qdata_b.reshape(*lead, n1, n2, 32, 32)
+        .transpose(-3, -2)
+        .contiguous()
+        .reshape(*lead, d1, d2)
+    )
+    return qdata, scale_biased.view(torch.float8_e8m0fnu).squeeze(-1)
+
+
+def _ref_e8m0_to_fp32(scale):
+    """Inverse of the e8m0 cast: e8m0 biased exponent -> fp32 pow2 factor (used by dequant)."""
+    biased_i32 = scale.contiguous().view(torch.uint8).to(torch.int32)
+    scale_fp32 = (biased_i32 << 23).view(torch.float32)
+    return torch.clamp(scale_fp32, min=2.0**-126)
+
+
+def _ref_mxfp8_32x32_dq(q, scale):
+    """Dequant for the 32x32 mxfp8 cast (ported from quant_cast_gold `mxfp8_32x32_dq_f`):
+    un-block the e8m0 scale over the 32x32 grid and multiply."""
+    M, N = q.shape
+    n1, n2 = M // 32, N // 32
+    s = _ref_e8m0_to_fp32(scale).reshape(n1, 1, n2, 1)
+    return (q.float().reshape(n1, 32, n2, 32) * s).reshape(M, N)
+
+
+# ---------------------------------------------------------------------------
+# Swizzled 32x32 variants: same square-block quant as `_ref_mxfp8_32x32`, but the per-block
+# e8m0 scale is expanded over the block's 32 rows (dim0) or 32 cols (dim1, transposed) and
+# emitted in NVIDIA's blocked/swizzled layout -- reusing torchao's `to_blocked` / `from_blocked`
+# (a 4D block grid `.reshape(-1)` equals `to_blocked`'s flat buffer).
+# ---------------------------------------------------------------------------
+def _ref_mxfp8_32x32_swizzle_dim0(x):
+    """Reference dim0 swizzle: (qdata (M,N) fp8, swizzled scale as a flat uint8 buffer)."""
+    q_ref, scale = _ref_mxfp8_32x32(x)  # (M,N), (M//32, N//32)
+    scale_exp = scale.view(torch.uint8).repeat_interleave(32, dim=0)  # (M, N//32)
+    return q_ref, to_blocked(scale_exp).view(torch.uint8)
+
+
+def _ref_mxfp8_32x32_swizzle_dim1(x):
+    """Reference dim1 (transposed) swizzle: (qdata (N,M) fp8, swizzled scale flat uint8)."""
+    q_ref, scale = _ref_mxfp8_32x32(x)  # (M,N), (M//32, N//32)
+    scale_exp = (
+        scale.view(torch.uint8).repeat_interleave(32, dim=1).t().contiguous()
+    )  # (N, M//32)
+    return q_ref.t().contiguous(), to_blocked(scale_exp).view(torch.uint8)
+
+
+def _swizzle_dequant_sqnr_dim0(x, q_t, s_t):
+    """Un-swizzle the dim0 scale back to per-block, dequant, and return SQNR vs x."""
+    M, N = x.shape
+    scale_unswz = from_blocked(
+        s_t.view(torch.uint8).reshape(-1), M, N // 32
+    )  # (M, N//32)
+    scale_blocks = scale_unswz[::32].contiguous()  # (M//32, N//32)
+    return compute_error(x.float(), _ref_mxfp8_32x32_dq(q_t, scale_blocks).float())
+
+
+def _swizzle_dequant_sqnr_dim1(x, q_t, s_t):
+    """Un-swizzle the dim1 (transposed) scale, dequant in the (N,M) frame, SQNR vs x."""
+    M, N = x.shape
+    scale_unswz = from_blocked(
+        s_t.view(torch.uint8).reshape(-1), N, M // 32
+    )  # (N, M//32)
+    scale_blocks = scale_unswz[::32].contiguous()  # (N//32, M//32)
+    x_hat_t = _ref_mxfp8_32x32_dq(q_t, scale_blocks)  # (N, M)
+    return compute_error(x.float(), x_hat_t.t().float())
+
+
+@pytest.mark.skipif(not has_triton(), reason="unsupported without triton")
+@pytest.mark.skipif(
+    not is_sm_at_least_100() and not is_MI350(),
+    reason="mxfp8 requires CUDA capability 10.0 or greater or ROCm gfx950 or greater.",
+)
+@pytest.mark.parametrize("M", (64, 128, 256))
+@pytest.mark.parametrize("K", (64, 128, 256))
+def test_triton_to_mxfp8_32x32_swizzle_dim0_qdata_dim01_scale(M, K):
+    torch.manual_seed(0)
+    x = torch.randn(M, K, dtype=torch.bfloat16, device="cuda")
+    qk, sk, sm = triton_to_mxfp8_32x32_swizzle_dim0_qdata_dim01_scale(x)
+    qk_ref, sk_ref = _ref_mxfp8_32x32_swizzle_dim0(x)
+    _, sm_ref = _ref_mxfp8_32x32_swizzle_dim1(x)
+    # dim-K qdata + both swizzled scales bit-exact (there is no dim-M qdata output).
+    assert torch.equal(qk.view(torch.uint8), qk_ref.view(torch.uint8))
+    assert torch.equal(sk.view(torch.uint8).reshape(-1), sk_ref)
+    assert torch.equal(sm.view(torch.uint8).reshape(-1), sm_ref)
+    # dim-K frame dequants directly; dim-M frame reuses the shared qdata transposed.
+    sqnr_k = _swizzle_dequant_sqnr_dim0(x, qk, sk)
+    sqnr_m = _swizzle_dequant_sqnr_dim1(x, qk.t().contiguous(), sm)
+    assert sqnr_k > 15.0, (
+        f"swizzle_dim0_qdata_dim01_scale (dim-k): "
+        f"sqnr={sqnr_k.item():.2f} dB below 15 dB"
+    )
+    assert sqnr_m > 15.0, (
+        f"swizzle_dim0_qdata_dim01_scale (dim-m): "
+        f"sqnr={sqnr_m.item():.2f} dB below 15 dB"
+    )

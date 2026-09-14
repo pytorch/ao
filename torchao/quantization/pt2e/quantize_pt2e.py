@@ -37,6 +37,29 @@ __all__ = [
 ]
 
 
+def _reject_set_grad_enabled_subgraph(model: GraphModule, api_name: str) -> None:
+    for node in model.graph.nodes:
+        if (
+            node.op == "call_function"
+            and node.target is torch.ops.higher_order.wrap_with_set_grad_enabled
+        ):
+            if api_name == "prepare_qat_pt2e":
+                remediation = (
+                    "Remove or disable the model's no-grad context before export because "
+                    "quantization-aware training requires autograd."
+                )
+            else:
+                remediation = (
+                    "Export the model under a grad mode matching its forward method "
+                    "(for example, use `with torch.no_grad():` for a forward method "
+                    "decorated with `@torch.no_grad()`) before calling prepare_pt2e."
+                )
+            raise ValueError(
+                f"{api_name} does not support wrap_with_set_grad_enabled subgraphs. "
+                f"{remediation}"
+            )
+
+
 def prepare_pt2e(
     model: GraphModule,
     quantizer: Quantizer,
@@ -96,6 +119,7 @@ def prepare_pt2e(
         # calibrate(m, sample_inference_data)
     """
     torch._C._log_api_usage_once("torchao.quantization.pt2e.prepare_pt2e")
+    _reject_set_grad_enabled_subgraph(model, "prepare_pt2e")
     original_graph_meta = model.meta
     node_name_to_scope = _get_node_name_to_scope(model)
     # TODO: check qconfig_mapping to make sure conv and bn are both configured
@@ -200,6 +224,7 @@ def prepare_qat_pt2e(
 
     """
     torch._C._log_api_usage_once("torchao.quantization.pt2e.prepare_qat_pt2e")
+    _reject_set_grad_enabled_subgraph(model, "prepare_qat_pt2e")
     original_graph_meta = model.meta
     node_name_to_scope = _get_node_name_to_scope(model)
     model = quantizer.transform_for_annotation(model)
