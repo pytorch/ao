@@ -22,6 +22,12 @@ def _compile_copy_token_groups_cutedsl(
     import cutlass.cute as cute
     from cutlass.cute.runtime import make_fake_stream, make_fake_tensor
 
+    from torchao.prototype.moe_training.kernels.mxfp8.cute_utils import (
+        _check_cutedsl_version,
+    )
+
+    _check_cutedsl_version()
+
     NUM_GROUPS = num_groups
     ELEMENT_SIZE = element_size
     IS_PAD = is_pad

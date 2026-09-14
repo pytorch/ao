@@ -112,9 +112,9 @@ _DEVICE = (
 
 
 class Sub(torch.nn.Module):
-    def __init__(self):
+    def __init__(self, bias: bool = False):
         super().__init__()
-        self.linear = torch.nn.Linear(256, 256, bias=False).to(torch.float)
+        self.linear = torch.nn.Linear(256, 256, bias=bias).to(torch.float)
 
     def example_inputs(self):
         return (torch.randn(1, 256).to(torch.float),)
@@ -124,11 +124,11 @@ class Sub(torch.nn.Module):
 
 
 class M(torch.nn.Module):
-    def __init__(self):
+    def __init__(self, bias: bool = False):
         super().__init__()
-        self.linear1 = torch.nn.Linear(512, 256, bias=False).to(torch.float)
-        self.sub = Sub()
-        self.linear2 = torch.nn.Linear(256, 512, bias=False).to(torch.float)
+        self.linear1 = torch.nn.Linear(512, 256, bias=bias).to(torch.float)
+        self.sub = Sub(bias=bias)
+        self.linear2 = torch.nn.Linear(256, 512, bias=bias).to(torch.float)
 
     def example_inputs(self, device: torch.device = None):
         return (torch.randn((1, 512), device=device).to(torch.float),)
@@ -2075,11 +2075,12 @@ class TestQAT(TestCase):
     @unittest.skipIf(not is_sm_at_least_89(), "Need sm89+")
     @unittest.skipIf(not _CUDA_IS_AVAILABLE, "skipping when cuda is not available")
     @parametrize("use_per_tensor_scale", [True, False])
-    def test_qat_nvfp4_training(self, use_per_tensor_scale: bool):
+    @parametrize("use_bias", [True, False])
+    def test_qat_nvfp4_training(self, use_per_tensor_scale: bool, use_bias: bool):
         from torchao.prototype.mx_formats import NVFP4DynamicActivationNVFP4WeightConfig
 
         torch.manual_seed(self.SEED)
-        m = M().cuda()
+        m = M(bias=use_bias).cuda()
         base_config = NVFP4DynamicActivationNVFP4WeightConfig(
             use_dynamic_per_tensor_scale=use_per_tensor_scale
         )
@@ -2105,6 +2106,10 @@ class TestQAT(TestCase):
             self.assertIsNotNone(new_weight.grad)
             self.assertNotEqual(torch.count_nonzero(new_weight.grad), 0)
             self.assertFalse(torch.equal(new_weight, prev_weight))
+            # Bias gradients must also flow, otherwise biases are silently frozen
+            if use_bias:
+                self.assertIsNotNone(m.linear1.bias.grad)
+                self.assertNotEqual(torch.count_nonzero(m.linear1.bias.grad), 0)
 
     @unittest.skipIf(not is_sm_at_least_89(), "Need sm89+")
     @unittest.skipIf(not _CUDA_IS_AVAILABLE, "skipping when cuda is not available")
@@ -2474,10 +2479,15 @@ class TestQAT(TestCase):
         # Check that gradients are computed
         self.assertIsNotNone(x.grad)
         self.assertIsNotNone(mx_linear.weight.grad)
+        if bias:
+            self.assertIsNotNone(mx_linear.bias.grad)
 
         # Check gradient shapes
         self.assertEqual(x.grad.shape, x_ref.grad.shape)
         self.assertEqual(mx_linear.weight.grad.shape, linear_ref.weight.grad.shape)
+        if bias:
+            self.assertEqual(mx_linear.bias.grad.shape, linear_ref.bias.grad.shape)
+            torch.testing.assert_close(mx_linear.bias.grad, linear_ref.bias.grad)
 
         # Check gradient SQNR (expect lower due to quantization)
         x_grad_sqnr = compute_error(x_ref.grad, x.grad)

@@ -167,19 +167,43 @@ def _replace_with_custom_fn_if_matches_filter(
 
 def _is_linear(mod, *args):
     # avoid circular dependencies
+    from torchao.prototype.gptq.observer import GPTQObserverTensor
     from torchao.quantization.qat.affine_fake_quantized_tensor import (
         _AffineFakeQuantizedTensor,
     )
+    from torchao.utils import TorchAOBaseTensor
 
-    # adding weight tensor subclass isinstance check to make sure the weight is only quantized once
-    # when it is shared by multiple linear modules
-    # TODO: check isinstance(TorchAOBaseTensor)?
-    return (
+    if not (
         isinstance(mod, torch.nn.Linear)
         and hasattr(mod, "weight")
-        and not isinstance(mod.weight, _AffineFakeQuantizedTensor)
         and not isinstance(mod, nn.modules.linear.NonDynamicallyQuantizableLinear)
-    )
+    ):
+        return False
+
+    # Skip fake-quantized (QAT) weights. This is intended when a weight is shared
+    # by multiple linear modules, and is not an error, so skip silently.
+    if isinstance(mod.weight, _AffineFakeQuantizedTensor):
+        return False
+
+    if isinstance(mod.weight, TorchAOBaseTensor):
+        # A GPTQ observer weight is an intermediate (non-final) tensor that the
+        # GPTQ convert step is meant to replace with a real quantized tensor, so
+        # let it through here rather than treating it as already quantized.
+        if isinstance(mod.weight, GPTQObserverTensor):
+            return True
+
+        # Skip weights that are already a final quantized tensor so that a second
+        # quantize_() call is a no-op instead of re-running from_hp() on an
+        # already-quantized tensor, which hits unimplemented ops (see #4845).
+        fqn = args[0] if args and args[0] else "<root>"
+        logger.warning(
+            f"Skipping quantization of '{fqn}': weight is already quantized "
+            f"({type(mod.weight).__name__}); quantize_() does not re-quantize "
+            "already-quantized weights."
+        )
+        return False
+
+    return True
 
 
 def _get_subclass_inserter(cls, enable_parametrization=False, **kwargs):
@@ -1539,7 +1563,7 @@ def _intx_weight_only_transform(
 
 @dataclass
 class FqnToConfig(AOBaseConfig):
-    """Configuration class for applying different quantization configs to modules or parameters based on their fully qualified names (FQNs).
+    r"""Configuration class for applying different quantization configs to modules or parameters based on their fully qualified names (FQNs).
 
     Args:
         `fqn_to_config`: typing.OrderedDict[str, Optional[AOBaseConfig]]: an
