@@ -787,21 +787,20 @@ def _addmm_mx_dispatch(
         assert b.block_size == 32, f"Invalid block size {b.block_size}"
         assert a.is_swizzled_scales == b.is_swizzled_scales
 
+        # Native scaled-mm requires swizzled scales; swizzle on the fly if needed.
         if a.is_swizzled_scales:
             a_scale_block = a.scale
         else:
-            a_scale_block = a.scale.view(M, K // a.block_size)
+            a_scale_block = to_blocked(a.scale.view(M, K // a.block_size))
 
         if b.is_swizzled_scales:
             b_scale_block = b.scale.t()
         else:
-            b_scale_block = b.scale.t().view(N, K // b.block_size)
+            b_scale_block = to_blocked(
+                b.scale.t().reshape(N, K // b.block_size).contiguous()
+            )
 
-        swizzle = (
-            SwizzleType.SWIZZLE_32_4_4
-            if a.is_swizzled_scales
-            else SwizzleType.NO_SWIZZLE
-        )
+        swizzle = SwizzleType.SWIZZLE_32_4_4
         res = F.scaled_mm(
             a.qdata.view(a.elem_dtype),
             b.qdata.view(b.elem_dtype),
