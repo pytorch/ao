@@ -1867,10 +1867,11 @@ class TestQAT(TestCase):
         self.assertGreaterEqual(convert_sqnr, target_convert_sqnr)
 
     @parametrize("granularity", [PerTensor(), PerRow()])
-    @unittest.skipIf(not _CUDA_IS_AVAILABLE, "skipping when cuda is not available")
+    @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
     @unittest.skipIf(
-        not (is_sm_at_least_89() or is_MI300() or is_MI350()),
-        "Need sm89+ or MI300/MI350",
+        torch.cuda.is_available()
+        and not (is_sm_at_least_89() or is_MI300() or is_MI350()),
+        "Need CUDA sm89+ or ROCm MI300/MI350",
     )
     def test_quantize_api_fp8_fp8(self, granularity: Granularity):
         """
@@ -2365,7 +2366,6 @@ class TestQAT(TestCase):
         torch.testing.assert_close(m.linear2.weight.scale, scale2)
         torch.testing.assert_close(m.sub.linear.weight.scale, sub_scale)
 
-    @unittest.skipIf(not _CUDA_IS_AVAILABLE, "skipping when cuda is not available")
     def test_mx_fake_quantize_config(self):
         """Test MXFakeQuantizeConfig dataclass with various element dtypes."""
         from torchao.prototype.mx_formats.config import ScaleCalculationMode
@@ -2399,7 +2399,7 @@ class TestQAT(TestCase):
         )
         self.assertEqual(config_fp8_e5m2.dtype, torch.float8_e5m2)
 
-    @unittest.skipIf(not _CUDA_IS_AVAILABLE, "skipping when cuda is not available")
+    @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
     @parametrize("bias", [True, False])
     @parametrize("input_shape", [(128, 256), (1, 128, 256), (2, 4, 128, 256)])
     @parametrize(
@@ -2411,6 +2411,7 @@ class TestQAT(TestCase):
         from torchao.prototype.qat import MXFakeQuantizeConfig, MXFakeQuantizedLinear
 
         K, N = 256, 128
+        device = torch.accelerator.current_accelerator()
 
         activation_config = MXFakeQuantizeConfig(
             dtype=dtype,
@@ -2421,14 +2422,14 @@ class TestQAT(TestCase):
             block_size=32,
         )
 
-        linear = torch.nn.Linear(K, N, bias=bias, device="cuda", dtype=torch.bfloat16)
+        linear = torch.nn.Linear(K, N, bias=bias, device=device, dtype=torch.bfloat16)
         mx_linear = MXFakeQuantizedLinear.from_linear(
             linear,
             activation_config=activation_config,
             weight_config=weight_config,
         )
 
-        x = torch.randn(*input_shape, device="cuda", dtype=torch.bfloat16)
+        x = torch.randn(*input_shape, device=device, dtype=torch.bfloat16)
         y_ref = linear(x)
         y_mx = mx_linear(x)
 
@@ -2443,18 +2444,19 @@ class TestQAT(TestCase):
         else:
             self.assertGreaterEqual(sqnr, 10.0)
 
-    @unittest.skipIf(not _CUDA_IS_AVAILABLE, "skipping when cuda is not available")
+    @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
     @parametrize("bias", [True, False])
     def test_mx_fake_quantized_linear_backward(self, bias):
         """Test MXFakeQuantizedLinear backward pass."""
         from torchao.prototype.qat import MXFakeQuantizeConfig, MXFakeQuantizedLinear
 
         M, K, N = 128, 256, 128
+        device = torch.accelerator.current_accelerator()
 
         activation_config = MXFakeQuantizeConfig(block_size=32)
         weight_config = MXFakeQuantizeConfig(block_size=32)
 
-        linear = torch.nn.Linear(K, N, bias=bias, device="cuda", dtype=torch.bfloat16)
+        linear = torch.nn.Linear(K, N, bias=bias, device=device, dtype=torch.bfloat16)
         linear_ref = copy.deepcopy(linear)
         mx_linear = MXFakeQuantizedLinear.from_linear(
             linear,
@@ -2463,10 +2465,10 @@ class TestQAT(TestCase):
         )
 
         x_ref = torch.randn(
-            M, K, device="cuda", dtype=torch.bfloat16, requires_grad=True
+            M, K, device=device, dtype=torch.bfloat16, requires_grad=True
         )
         x = x_ref.clone().detach().requires_grad_(True)
-        grad_output = torch.randn(M, N, device="cuda", dtype=torch.bfloat16)
+        grad_output = torch.randn(M, N, device=device, dtype=torch.bfloat16)
 
         # Forward and backward for reference
         y_ref = linear_ref(x_ref)
@@ -2497,18 +2499,19 @@ class TestQAT(TestCase):
         self.assertGreaterEqual(x_grad_sqnr, 3.0)
         self.assertGreaterEqual(w_grad_sqnr, 3.0)
 
-    @unittest.skipIf(not _CUDA_IS_AVAILABLE, "skipping when cuda is not available")
+    @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
     def test_mx_fake_quantized_linear_to_linear(self):
         """Test converting MXFakeQuantizedLinear back to nn.Linear."""
         from torchao.prototype.qat import MXFakeQuantizeConfig, MXFakeQuantizedLinear
 
         K, N = 256, 128
+        device = torch.accelerator.current_accelerator()
 
         activation_config = MXFakeQuantizeConfig(block_size=32)
         weight_config = MXFakeQuantizeConfig(block_size=32)
 
         original_linear = torch.nn.Linear(
-            K, N, bias=True, device="cuda", dtype=torch.bfloat16
+            K, N, bias=True, device=device, dtype=torch.bfloat16
         )
         mx_linear = MXFakeQuantizedLinear.from_linear(
             original_linear,
@@ -2528,7 +2531,6 @@ class TestQAT(TestCase):
         torch.testing.assert_close(converted_linear.weight, mx_linear.weight)
         torch.testing.assert_close(converted_linear.bias, mx_linear.bias)
 
-    @unittest.skipIf(not _CUDA_IS_AVAILABLE, "skipping when cuda is not available")
     def test_mx_config_error_handling(self):
         """Test error handling for MX config."""
         from torchao.prototype.qat import MXFakeQuantizeConfig, MXFakeQuantizedLinear
@@ -2551,7 +2553,7 @@ class TestQAT(TestCase):
                 weight_config=MXFakeQuantizeConfig(),
             )
 
-    @unittest.skipIf(not _CUDA_IS_AVAILABLE, "skipping when cuda is not available")
+    @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
     @parametrize(
         "shapes",
         [
@@ -2565,18 +2567,19 @@ class TestQAT(TestCase):
         from torchao.prototype.qat import MXFakeQuantizeConfig, MXFakeQuantizedLinear
 
         M, K, N = shapes
+        device = torch.accelerator.current_accelerator()
 
         activation_config = MXFakeQuantizeConfig(block_size=32)
         weight_config = MXFakeQuantizeConfig(block_size=32)
 
-        linear = torch.nn.Linear(K, N, bias=False, device="cuda", dtype=torch.bfloat16)
+        linear = torch.nn.Linear(K, N, bias=False, device=device, dtype=torch.bfloat16)
         mx_linear = MXFakeQuantizedLinear.from_linear(
             linear,
             activation_config=activation_config,
             weight_config=weight_config,
         )
 
-        x = torch.randn(M, K, device="cuda", dtype=torch.bfloat16)
+        x = torch.randn(M, K, device=device, dtype=torch.bfloat16)
         y_ref = linear(x)
         y_mx = mx_linear(x)
 
@@ -2585,19 +2588,20 @@ class TestQAT(TestCase):
 
         self.assertGreaterEqual(sqnr, SQNR_THRESHOLD)
 
-    @unittest.skipIf(not _CUDA_IS_AVAILABLE, "skipping when cuda is not available")
+    @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
     def test_mx_training_simulation(self):
         """Simulate a simple training loop with MX QAT."""
         from torchao.prototype.qat import MXFakeQuantizeConfig, MXFakeQuantizedLinear
 
         M, K, N = 128, 256, 128
         num_steps = 5
+        device = torch.accelerator.current_accelerator()
 
         activation_config = MXFakeQuantizeConfig(block_size=32)
         weight_config = MXFakeQuantizeConfig(block_size=32)
 
         model = torch.nn.Sequential(
-            torch.nn.Linear(K, N, bias=True, device="cuda", dtype=torch.bfloat16),
+            torch.nn.Linear(K, N, bias=True, device=device, dtype=torch.bfloat16),
         )
 
         # Convert to MX QAT
@@ -2616,8 +2620,8 @@ class TestQAT(TestCase):
 
         # Training loop
         for _ in range(num_steps):
-            x = torch.randn(M, K, device="cuda", dtype=torch.bfloat16)
-            target = torch.randn(M, N, device="cuda", dtype=torch.bfloat16)
+            x = torch.randn(M, K, device=device, dtype=torch.bfloat16)
+            target = torch.randn(M, N, device=device, dtype=torch.bfloat16)
 
             optimizer.zero_grad()
             output = mx_model(x)
