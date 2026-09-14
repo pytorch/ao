@@ -105,7 +105,7 @@ class Int4WeightFakeQuantizeConfig(FakeQuantizeConfigBase):
 class IntxFakeQuantizeConfig(FakeQuantizeConfigBase):
     """
     Config for how to fake quantize weights or activations,
-    targeting integer dtypes up to torch.int16.
+    targeting integer dtypes up to torch.int16. torch.uint16 is not supported.
 
     Args:
         dtype: dtype to simulate during fake quantization, e.g. torch.int8.
