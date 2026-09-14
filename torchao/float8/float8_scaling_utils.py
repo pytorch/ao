@@ -87,7 +87,6 @@ def get_maybe_axiswise_dim(
     return None
 
 
-@torch._dynamo.allow_in_graph
 class NoopFwToFloat8BwDynamic(torch.autograd.Function):
     """
     Forward: no-op

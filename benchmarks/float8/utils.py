@@ -131,7 +131,7 @@ def parse_bw_and_kernel_name(line):
         0.257ms         0.537 GB         2092.43GB/s     triton_red_fused_native_layer_norm_0
     Output: the bandwidth value and the kernel name, or None and None
     """
-    result = re.search(".* ([0-9\.]+)GB/s.*(triton_[a-z_0-9]+)", line)
+    result = re.search(r".* ([0-9\.]+)GB/s.*(triton_[a-z_0-9]+)", line)
     if result:
         return result.group(1), result.group(2)
     else:
@@ -321,7 +321,7 @@ def update_triton_kernels_in_prof_chome_trace_with_torch_logs(
     torch_logs_only = []
     for line in torch_logs_str:
         line = line.replace("\n", "")
-        match = re.match(".* \[__output_code\] (.*)", line)
+        match = re.match(r".* \[__output_code\] (.*)", line)
         if match:
             torch_logs_only.append(match.group(1))
 
@@ -338,16 +338,16 @@ def update_triton_kernels_in_prof_chome_trace_with_torch_logs(
     name_to_start_end = {}
     cur_start, cur_end, cur_name = None, None, None
     for line_num, line in enumerate(torch_logs_only):
-        match_start = re.match("\# kernel path: .*", line)
+        match_start = re.match(r"\# kernel path: .*", line)
         if match_start:
             cur_start = line_num
 
         # triton_red_fused_LayerNorm_3 = async_compile.triton('triton_', '''
-        match_name = re.match("([\w_]+) = async_compile.*", line)
+        match_name = re.match(r"([\w_]+) = async_compile.*", line)
         if match_name:
             cur_name = match_name.group(1)
 
-        match_end = re.match("''', device_str='cuda'\)", line)
+        match_end = re.match(r"''', device_str='cuda'\)", line)
         if match_end:
             cur_end = line_num
 

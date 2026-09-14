@@ -1351,3 +1351,168 @@ def _(m_sizes, x, global_scale):
     xq = x.new_empty(M, K // 2, dtype=torch.float4_e2m1fn_x2)
     scale = x.new_empty(padded_total_M_ub, padded_cols, dtype=torch.float8_e4m3fn)
     return xq, scale
+
+
+# ---------------------------------------------------------------------------
+# Standalone mxfp8 32x32 cast: one e8m0 (RCEIL, power-of-two) scale per 32x32 block.
+#
+# This is a self-contained Triton kernel (not wired into MXTensor / to_mx / any config). It
+# mirrors torchao's `to_mx(..., ScaleCalculationMode.RCEIL)` but with a square 32x32 block
+# instead of a 1x32 / 32x1 block: `descale = amax / f8e4m3_max` is rounded UP to the next
+# power-of-two e8m0 exponent, and the cast multiplies the data by the fp32 reciprocal of that
+# e8m0 scale before casting to float8_e4m3fn.
+# ---------------------------------------------------------------------------
+if _triton_kernels_available:
+    # Reuses the e8m0 RCEIL helper `_triton_calculate_scale_rceil` defined in the
+    # `_triton_kernels_available` block above (`USE_PTX` selects the hardware
+    # `cvt.rp.ue8m0x2.f32` path on Blackwell / NVIDIA and the bit-math path on ROCm). Sharing
+    # that helper keeps this kernel byte-for-byte consistent with the other mxfp8 casts, so it
+    # is gated on the same `_triton_kernels_available` (SM100+ & CUDA>=12.8, or ROCm MI350) as
+    # they are.
+
+    _MXFP8_32X32_DIM_KM_CONFIGS = [
+        triton.Config({"BN": bn, "RB": rb}, num_warps=w)
+        for rb in (1, 2, 4)
+        for bn in (32, 64, 128)
+        for w in (1, 2, 4)
+    ]
+
+    @triton.autotune(configs=_MXFP8_32X32_DIM_KM_CONFIGS, key=["M", "N"])
+    @triton.jit
+    def _mxfp8_32x32_qdata_dim01_scale_swizzle_kernel(
+        x_ptr,
+        yk_ptr,
+        sk_ptr,
+        sm_ptr,
+        M,
+        N,
+        sxm,
+        sxn,
+        sykm,
+        sykn,
+        NCB_K,
+        NCB_M,
+        BN: tl.constexpr,
+        RB: tl.constexpr,
+    ):
+        BM: tl.constexpr = RB * 32  # rows in the tile
+        CB: tl.constexpr = BN // 32  # 32-col blocks in the tile
+        pid_m = tl.program_id(0)  # row-block group (BM rows), over Mpad
+        pid_n = tl.program_id(1)  # col group (BN cols), over Npad
+        offs_m = pid_m * BM + tl.arange(0, BM)
+        offs_n = pid_n * BN + tl.arange(0, BN)
+        m_real = offs_m < M
+        n_real = offs_n < N
+        x = tl.load(
+            x_ptr + offs_m[:, None] * sxm + offs_n[None, :] * sxn,
+            mask=m_real[:, None] & n_real[None, :],
+            other=0.0,
+        ).to(tl.float32)  # (BM, BN); padded rows/cols read as 0
+        # one scale per 32x32 block: reshape (RB, 32, CB, 32); reduce the within-block 32-row axis
+        # first, then let the helper reduce the within-block 32-col axis (max is associative).
+        xr = tl.reshape(x, (RB, 32, CB, 32))
+        partial = tl.max(tl.abs(xr), axis=1)  # (RB, CB, 32)
+        rcp, b = _triton_calculate_scale_rceil(
+            partial, axis=2, USE_PTX=not IS_ROCM
+        )  # both (RB, CB); b is uint8
+        q = tl.reshape((xr * rcp[:, None, :, None]).to(tl.float8e4nv), (BM, BN))
+        # dim-K store: qdata (M, N) as-is. No dim-M qdata store -- on Blackwell _scaled_mm takes the
+        # second operand row-major, so the dim-M frame reuses this qdata (transposed) and only needs
+        # its own swizzled scale below.
+        tl.store(
+            yk_ptr + offs_m[:, None] * sykm + offs_n[None, :] * sykn,
+            q,
+            mask=m_real[:, None] & n_real[None, :],
+        )
+        # swizzled sk store: scale (M, N//32), block scale expanded over its 32 rows -> (BM, CB).
+        b_exp_k = tl.reshape(tl.broadcast_to(b[:, None, :], (RB, 32, CB)), (BM, CB))
+        row_k = offs_m[:, None]  # (BM, 1)
+        col_k = (pid_n * CB + tl.arange(0, CB))[None, :]  # (1, CB)
+        r128k = row_k % 128
+        flat_k = (((row_k // 128) * NCB_K + col_k // 4) * 32 + r128k % 32) * 16 + (
+            r128k // 32 * 4 + col_k % 4
+        )
+        real_k = m_real[:, None] & (col_k < (N // 32))
+        tl.store(sk_ptr + flat_k, tl.where(real_k, b_exp_k, 0))
+        # swizzled sm store: scale (N, M//32) transposed, block scale expanded over 32 cols.
+        b_exp_m = tl.reshape(tl.broadcast_to(b[:, :, None], (RB, CB, 32)), (RB, BN))
+        row_m = offs_n[None, :]  # (1, BN)
+        col_m = (pid_m * RB + tl.arange(0, RB))[:, None]  # (RB, 1)
+        r128m = row_m % 128
+        flat_m = (((row_m // 128) * NCB_M + col_m // 4) * 32 + r128m % 32) * 16 + (
+            r128m // 32 * 4 + col_m % 4
+        )
+        real_m = (offs_n[None, :] < N) & (col_m < (M // 32))
+        tl.store(sm_ptr + flat_m, tl.where(real_m, b_exp_m, 0))
+
+    @triton_op(
+        "torchao::triton_to_mxfp8_32x32_swizzle_dim0_qdata_dim01_scale",
+        mutates_args={},
+    )
+    def triton_to_mxfp8_32x32_swizzle_dim0_qdata_dim01_scale(
+        x: torch.Tensor,
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        """Standalone mxfp8 32x32 cast emitting one dim0 (dim-K) qdata plus BOTH swizzled scales
+        (dim0/dim-K and dim1/dim-M) in one pass, WITHOUT any transposed (dim-M) qdata. The block
+        is square, so quant and the single per-block e8m0 scale are shared between the two frames.
+        On Blackwell ``torch._scaled_mm`` accepts the second operand row-major, so the dim-M frame
+        reuses the single qdata (transposed) and contributes only its swizzled scale -- dropping
+        the transposed-qdata write is the whole point.
+
+        Args:
+            x: contiguous 2D tensor with ``M % 32 == 0`` and ``N % 32 == 0``.
+
+        Returns:
+            ``(qk, sk, sm)`` where ``qk`` is float8_e4m3fn ``(M, N)`` (dim0/dim-K qdata) and
+            ``sk`` / ``sm`` are float8_e8m0fnu swizzled scales in the blocked 4D grid: ``sk`` is the
+            dim0/dim-K scale (per-block scale expanded over rows to ``(M, N//32)``) and ``sm`` is the
+            dim1/dim-M scale (expanded over cols, transposed to ``(N, M//32)``, i.e. for ``qk``
+            transposed to ``(N, M)``).
+
+        Standalone custom op; not used by MXTensor.
+        """
+        assert x.is_contiguous() and x.dim() == 2
+        M, N = x.shape
+        assert M % 32 == 0 and N % 32 == 0, (
+            "mxfp8_32x32_swizzle_dim0_qdata_dim01_scale kernel needs M%32==0 and N%32==0"
+        )
+        yk = torch.empty_like(x, dtype=torch.float8_e4m3fn)  # (M, N)
+        nrb_k = (M + 127) // 128
+        nrb_m = (N + 127) // 128
+        ncb_k = ((N // 32) + 3) // 4
+        ncb_m = ((M // 32) + 3) // 4
+        # torch.empty (not zeros): the kernel writes every slot of both padded grids itself.
+        sk = torch.empty(nrb_k, ncb_k, 32, 16, dtype=torch.uint8, device=x.device)
+        sm = torch.empty(nrb_m, ncb_m, 32, 16, dtype=torch.uint8, device=x.device)
+        mpad = nrb_k * 128
+        npad = nrb_m * 128
+        grid = lambda meta: (  # noqa: E731
+            triton.cdiv(mpad, meta["RB"] * 32),
+            triton.cdiv(npad, meta["BN"]),
+        )
+        wrap_triton(_mxfp8_32x32_qdata_dim01_scale_swizzle_kernel)[grid](
+            x,
+            yk,
+            sk,
+            sm,
+            M,
+            N,
+            x.stride(0),
+            x.stride(1),
+            yk.stride(0),
+            yk.stride(1),
+            ncb_k,
+            ncb_m,
+        )
+        return (
+            yk,
+            sk.view(torch.float8_e8m0fnu),
+            sm.view(torch.float8_e8m0fnu),
+        )
+
+else:
+
+    def triton_to_mxfp8_32x32_swizzle_dim0_qdata_dim01_scale(
+        x: torch.Tensor,
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        raise AssertionError("needs triton")

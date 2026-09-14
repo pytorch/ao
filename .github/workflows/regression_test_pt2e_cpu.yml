@@ -66,5 +66,6 @@ jobs:
         pip install . --no-build-isolation
         export CONDA=$(dirname $(dirname $(which conda)))
         export LD_LIBRARY_PATH=$CONDA/lib/:$LD_LIBRARY_PATH
-        # Run the full PT2E suite, including the slow x86 Inductor tests.
-        pytest test/quantization/pt2e --verbose -s
+        # Bound the worker count: these tests launch Inductor/C++ compilers,
+        # so using every available CPU could oversubscribe the runner.
+        pytest test/quantization/pt2e --verbose -n 4 --dist=worksteal --durations=25

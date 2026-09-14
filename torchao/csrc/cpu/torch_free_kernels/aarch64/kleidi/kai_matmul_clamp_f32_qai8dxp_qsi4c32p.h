@@ -41,7 +41,7 @@ inline size_t roundup(size_t a, size_t b) {
   return ((a + b - 1) / b) * b;
 }
 
-uint16_t get_bf16_from_float(float f) {
+inline uint16_t get_bf16_from_float(float f) {
   uint16_t bf16;
 #if __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
   memcpy(&bf16, &f, sizeof(uint16_t));
@@ -65,7 +65,7 @@ namespace kai_matmul_clamp_f32_qai8dxp_qsi4c32p {
 
 using Ukernel = struct kai_matmul_clamp_f32_qai8dxp_qsi4c32p_ukernel;
 
-size_t packed_activations_size(
+inline size_t packed_activations_size(
     int m,
     int k,
     int group_size,
@@ -79,7 +79,7 @@ size_t packed_activations_size(
   return lhs_packing.get_lhs_packed_size(m, k, mr, kr, sr);
 }
 
-size_t packed_activations_offset(
+inline size_t packed_activations_offset(
     int m_idx,
     int k,
     int group_size,
@@ -93,7 +93,7 @@ size_t packed_activations_offset(
   return lhs_pack.get_lhs_packed_offset(m_idx, k, mr, kr, sr);
 }
 
-void pack_activations(
+inline void pack_activations(
     void* packed_activations,
     int m,
     int k,
@@ -118,7 +118,7 @@ void pack_activations(
       packed_activations);
 }
 
-size_t packed_weights_size(
+inline size_t packed_weights_size(
     int n,
     int k,
     int group_size,
@@ -142,7 +142,7 @@ size_t packed_weights_size(
       kai_datatype::kai_dt_bf16);
 }
 
-size_t packed_weights_offset(
+inline size_t packed_weights_offset(
     int n_idx,
     int k,
     int group_size,
@@ -159,7 +159,7 @@ size_t packed_weights_offset(
       n_idx, k, nr, kr, sr, group_size, kai_datatype::kai_dt_bf16);
 }
 
-void pack_weights(
+inline void pack_weights(
     void* packed_weights,
     int n,
     int k,
@@ -246,7 +246,7 @@ void pack_weights(
       /*qparams=*/&qparams);
 }
 
-size_t get_preferred_alignement() {
+inline size_t get_preferred_alignement() {
   return 16;
 }
 

@@ -10,6 +10,9 @@ import pytest
 import torch
 from torch.utils._triton import has_triton
 
+from test.prototype.moe_training.nvfp4_training.nvfp4_reference import (
+    reference_rht_amax,
+)
 from torchao.prototype.moe_training.nvfp4_training.hadamard_amax_cutedsl import (
     cutedsl_rht_amax,
 )
@@ -17,30 +20,14 @@ from torchao.prototype.moe_training.nvfp4_training.hadamard_cutedsl_utils import
     cutedsl_nvfp4_kernels_available,
 )
 from torchao.prototype.moe_training.nvfp4_training.hadamard_utils import (
+    DEFAULT_SIGN_VECTOR,
     get_hadamard_matrix,
     get_rht_matrix,
     get_wgrad_sign_vector,
 )
 from torchao.utils import is_sm_at_least_100, torch_version_at_least
 
-_HARDCODED_SIGN_VECTOR = (
-    1,
-    1,
-    1,
-    -1,
-    1,
-    -1,
-    -1,
-    -1,
-    -1,
-    -1,
-    -1,
-    1,
-    -1,
-    1,
-    -1,
-    -1,
-)
+_HARDCODED_SIGN_VECTOR = DEFAULT_SIGN_VECTOR
 
 _skip_no_triton = pytest.mark.skipif(
     not (has_triton() and is_sm_at_least_100() and torch_version_at_least("2.10.0")),
@@ -119,17 +106,15 @@ def test_rht_amax_vs_reference(kernel, M, N):
     torch.manual_seed(42)
     A = torch.randn(M, N, dtype=torch.bfloat16, device="cuda")
 
-    get_rht_matrix.cache_clear()
-    B = get_rht_matrix(_HARDCODED_SIGN_VECTOR, "cuda", torch.bfloat16, 16)
     if kernel == "triton":
-        ref_col_amax = (
-            (A.t().reshape(N * M // 16, 16) @ B).to(torch.bfloat16).abs().max().float()
-        )
+        ref_col_amax, ref_row_amax = reference_rht_amax(A, _HARDCODED_SIGN_VECTOR)
         col_tol = {"atol": 0, "rtol": 0}
     else:
+        get_rht_matrix.cache_clear()
+        B = get_rht_matrix(_HARDCODED_SIGN_VECTOR, "cuda", torch.bfloat16, 16)
         ref_col_amax = (A.t().reshape(N * M // 16, 16).float() @ B.float()).abs().max()
+        ref_row_amax = A.abs().max().float()
         col_tol = {"atol": 2e-3, "rtol": 2e-3}
-    ref_row_amax = A.abs().max().float()
 
     get_rht_matrix.cache_clear()
 
