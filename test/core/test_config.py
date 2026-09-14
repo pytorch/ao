@@ -23,6 +23,7 @@ from torchao.core.config import (
 from torchao.prototype.awq import (
     AWQConfig,
 )
+from torchao.prototype.mx_formats import MXDynamicActivationMXWeightConfig
 from torchao.quantization import (
     PerBlock,
     PerGroup,
@@ -79,6 +80,7 @@ configs = [
         Int4WeightOnlyConfig(group_size=128), step=QuantizationStep.PREPARE_FOR_LOADING
     ),
     AWQConfig(Int4WeightOnlyConfig(group_size=128), step="prepare_for_loading"),
+    MXDynamicActivationMXWeightConfig(),
 ]
 
 
@@ -237,6 +239,30 @@ def test_default_version():
 
     config = DummyConfig()
     assert config.version == 1, "Default version must be 1"
+
+
+def test_mxconfig_include_pybind11_enum_serialization():
+    """Test that MXDynamicActivationMXWeightConfig with `swizzled_type`, a
+    pybind11-backed enum (torch.nn.functional.SwizzleType) that is not a
+    subclass of Python's `enum.Enum`, is serialized to a fully-qualified
+    "<module>.<name>" `_type` and correctly reconstructed.
+    """
+    from torch.nn.functional import SwizzleType
+
+    for swizzle in (SwizzleType.NO_SWIZZLE, SwizzleType.SWIZZLE_32_4_4):
+        config = MXDynamicActivationMXWeightConfig(swizzled_type=swizzle)
+        reconstructable = config_to_dict(config)
+
+        # The pybind11 enum should be serialized with its fully-qualified
+        # module path, not just its (leading-underscore) class name
+        assert reconstructable["_data"]["swizzled_type"] == {
+            "_type": "torch.nn.functional.SwizzleType",
+            "_data": swizzle.name,
+        }
+
+        reconstructed = config_from_dict(reconstructable)
+        assert isinstance(reconstructed, MXDynamicActivationMXWeightConfig)
+        assert reconstructed.swizzled_type is swizzle
 
 
 if __name__ == "__main__":
