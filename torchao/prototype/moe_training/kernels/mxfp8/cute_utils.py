@@ -6,8 +6,25 @@
 
 """Shared utilities for CuTeDSL quantization kernels."""
 
+import functools
 import importlib.util
 import inspect
+from importlib.metadata import version as _package_version
+
+from torchao.utils import parse_version
+
+_MIN_CUTEDSL_VERSION = "4.5.2"
+
+
+@functools.cache
+def _check_cutedsl_version() -> None:
+    installed = _package_version("nvidia-cutlass-dsl")
+    if parse_version(installed) < parse_version(_MIN_CUTEDSL_VERSION):
+        raise RuntimeError(
+            f"MXFP8 CuTeDSL kernels require nvidia-cutlass-dsl "
+            f">= {_MIN_CUTEDSL_VERSION}, found {installed}."
+        )
+
 
 # Runtime package detection
 _CUTEDSL_RUNTIME_PACKAGES = {
