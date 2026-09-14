@@ -3,180 +3,195 @@
 #
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
-# this benchmarking script is a modified version of the original script from: https://github.com/drisspg/transformer_nuggets/blob/main/transformer_nuggets/utils/benchmark.py
 
-import itertools
-from dataclasses import dataclass
-from typing import List
+import argparse
+import sys
 
 import torch
-from tabulate import tabulate
-from tqdm import tqdm
 
 from benchmarks.utils import benchmark_cuda_function_in_microseconds
 from torchao.prototype.moe_training.kernels.mxfp8 import (
-    torch_to_blocked_2d_K_groups,
+    _mx_block_rearrange_2d_k_groups_cutedsl,
     triton_mx_block_rearrange_2d_K_groups,
 )
+from torchao.prototype.moe_training.kernels.mxfp8.quant import (
+    torch_to_blocked_2d_K_groups,
+)
 from torchao.prototype.moe_training.utils import generate_jagged_offs
-
-device = torch.device("cuda")
-
-# Needed since changing args to function causes recompiles
-torch._dynamo.config.cache_size_limit = 1000
+from torchao.utils import ceil_div
 
 
-@dataclass(frozen=True)
-class ExperimentConfig:
-    input_shape: tuple[int]
-    num_groups: int
+def benchmark_cuda_graph_function_in_microseconds(f, *args, iters=1000, **kwargs):
+    for _ in range(10):
+        f(*args, **kwargs)
+    torch.cuda.synchronize()
+    graph = torch.cuda.CUDAGraph()
+    with torch.cuda.graph(graph):
+        f(*args, **kwargs)
+    for _ in range(10):
+        graph.replay()
+    torch.cuda.synchronize()
+    start = torch.cuda.Event(enable_timing=True)
+    end = torch.cuda.Event(enable_timing=True)
+    start.record()
+    for _ in range(iters):
+        graph.replay()
+    end.record()
+    torch.cuda.synchronize()
+    return start.elapsed_time(end) * 1000.0 / iters
 
 
-@dataclass(frozen=True)
-class ExperimentResult:
-    torch_time_us: float
-    triton_time_us: float
-    torch_mem_bw_gbps: float
-    triton_mem_bw_gbps: float
+def benchmark_function(f, *args, use_cuda_graph=False, graph_iters=1000, **kwargs):
+    if use_cuda_graph:
+        return benchmark_cuda_graph_function_in_microseconds(
+            f,
+            *args,
+            iters=graph_iters,
+            **kwargs,
+        )
+    return benchmark_cuda_function_in_microseconds(f, *args, **kwargs)
 
 
-@dataclass(frozen=True)
-class Experiment:
-    config: ExperimentConfig
-    result: ExperimentResult
+def _parse_shape(spec: str):
+    """Parses `MxTOTALKxGROUPS` or `LABEL:MxTOTALKxGROUPS`."""
+    label, _, dims = spec.rpartition(":")
+    parts = dims.split("x")
+    if len(parts) != 3:
+        raise SystemExit(f"Malformed shape {spec!r}, expected [LABEL:]MxTOTALKxGROUPS")
+    m, total_k, groups = (int(p) for p in parts)
+    return (label or None, m, total_k, groups)
 
 
-def get_configs() -> List[ExperimentConfig]:
-    block_size = 32
-    # DeepSeekV3 671b shapes.
-    # total tokens and groups are along the contracting dimension
-    input_shapes = [
-        (7168, 131072 // block_size),
-        (2048, 131072 // block_size),
-        (7168, 65536 // block_size),
-        (2048, 65536 // block_size),
-        (7168, 32768 // block_size),
-        (2048, 32768 // block_size),
+def _markdown(rows, columns):
+    widths = [
+        max(len(c), *(len(str(r[c])) for r in rows)) if rows else len(c)
+        for c in columns
     ]
-    num_groups_list = [4, 8]
-
-    configs = []
-    for shape, groups in itertools.product(
-        input_shapes,
-        num_groups_list,
-    ):
-        configs.append(
-            ExperimentConfig(
-                input_shape=shape,
-                num_groups=groups,
-            )
-        )
-    return configs
-
-
-def run_experiment(config: ExperimentConfig) -> ExperimentResult:
-    input_shape, num_groups = config.input_shape, config.num_groups
-
-    input_tensor = torch.randint(
-        low=0,
-        high=256,
-        size=input_shape,
-        dtype=torch.uint8,
-        device=device,
-    )
-
-    M, scale_cols = input_shape
-    block_size = 32
-    # total_K is the total number of elements along K dimension
-    total_K = scale_cols * block_size
-
-    # Generate group end offsets along total_K, then divide by block_size to get scale group end offsets
-    input_group_offsets = generate_jagged_offs(
-        num_groups, total_K, multiple_of=block_size
-    )
-    scale_group_offsets = input_group_offsets // block_size
-
-    # bench torch (torch.compile hangson this, can't use)
-    torch_out_scales, torch_group_offs = torch_to_blocked_2d_K_groups(
-        input_tensor,
-        scale_group_offsets,
-        block_size=block_size,
-    )
-    torch_time_us = benchmark_cuda_function_in_microseconds(
-        torch_to_blocked_2d_K_groups,
-        input_tensor,
-        scale_group_offsets,
-        block_size=block_size,
-    )
-
-    # bench triton
-    triton_out_scales = triton_mx_block_rearrange_2d_K_groups(
-        input_tensor,
-        scale_group_offsets,
-    )
-    triton_time_us = benchmark_cuda_function_in_microseconds(
-        triton_mx_block_rearrange_2d_K_groups,
-        input_tensor,
-        scale_group_offsets,
-    )
-
-    # mem bw calculations
-    bytes_per_input_el = torch.finfo(torch.float8_e8m0fnu).bits / 8
-    bytes_per_output_el = torch.finfo(torch.float8_e4m3fn).bits / 8
-
-    read_bytes = input_tensor.numel() * bytes_per_input_el
-    write_bytes = triton_out_scales.numel() * bytes_per_output_el
-
-    torch_mem_bw_gbps = ((read_bytes + write_bytes) / 1e9) / (torch_time_us / 1e6)
-    triton_mem_bw_gbps = ((read_bytes + write_bytes) / 1e9) / (triton_time_us / 1e6)
-
-    return ExperimentResult(
-        torch_time_us=torch_time_us,
-        triton_time_us=triton_time_us,
-        torch_mem_bw_gbps=torch_mem_bw_gbps,
-        triton_mem_bw_gbps=triton_mem_bw_gbps,
-    )
-
-
-def print_results(experiments: List[Experiment]):
-    headers = [
-        "input_shape",
-        "num_groups",
-        "torch_time_us",
-        "triton_time_us",
-        "triton_speedup",
-        "torch_mem_bw_gbps",
-        "triton_mem_bw_gbps",
+    header = "| " + " | ".join(c.ljust(w) for c, w in zip(columns, widths)) + " |"
+    sep = "|" + "|".join("---:".rjust(w + 2) for w in widths) + "|"
+    body = [
+        "| " + " | ".join(str(r[c]).rjust(w) for c, w in zip(columns, widths)) + " |"
+        for r in rows
     ]
-    rows = []
-    for experiment in experiments:
-        input_shape = (
-            f"({experiment.config.input_shape[0]}, {experiment.config.input_shape[1]})"
-        )
-        rows.append(
-            [
-                input_shape,
-                experiment.config.num_groups,
-                f"{experiment.result.torch_time_us:.2f}",
-                f"{experiment.result.triton_time_us:.2f}",
-                f"{experiment.result.torch_time_us / experiment.result.triton_time_us:.2f}x",
-                f"{experiment.result.torch_mem_bw_gbps:.2f}",
-                f"{experiment.result.triton_mem_bw_gbps:.2f}",
-            ]
-        )
-    print(tabulate(rows, headers=headers))
+    return "\n".join([header, sep, *body])
 
 
 def main():
-    torch.random.manual_seed(123)
-    configs = get_configs()
-    results = []
-    for config in tqdm(configs):
-        result = run_experiment(config)
-        results.append(Experiment(config=config, result=result))
+    parser = argparse.ArgumentParser(
+        description="Benchmark torch / triton / CuTeDSL MXFP8 K-groups scale rearrange."
+    )
+    parser.add_argument(
+        "shapes",
+        nargs="+",
+        metavar="[LABEL:]MxTOTALKxGROUPS",
+        help="shapes to benchmark, e.g. 2048x4096x8 or dsv3:2048x4096x8",
+    )
+    parser.add_argument("--multiple-of", type=int, default=1)
+    parser.add_argument(
+        "--chunk-width",
+        type=int,
+        default=None,
+        help="CuTeDSL column chunk width; default lets the kernel choose",
+    )
+    parser.add_argument(
+        "--bench-only",
+        nargs="+",
+        choices=("torch", "triton", "cutedsl"),
+        default=None,
+        help="restrict to one or more backends; default is all",
+    )
+    parser.add_argument("--deterministic", action="store_true")
+    parser.add_argument("--cuda-graph-bench", action="store_true")
+    parser.add_argument("--graph-iters", type=int, default=1000)
+    args = parser.parse_args()
 
-    # Use Tabulate to print results
-    print_results(results)
+    if not torch.cuda.is_available():
+        raise SystemExit("CUDA is not available")
+
+    shapes = [_parse_shape(s) for s in args.shapes]
+    labelled = any(label is not None for label, _, _, _ in shapes)
+    selected = (
+        set(args.bench_only) if args.bench_only else {"torch", "triton", "cutedsl"}
+    )
+    if args.cuda_graph_bench and "torch" in selected:
+        # torch_to_blocked_2d_K_groups calls .tolist(), a synchronous D2H copy
+        # that CUDA graph capture never tolerates, for any shape.
+        if selected == {"torch"}:
+            raise SystemExit("torch cannot be benchmarked under --cuda-graph-bench")
+        print(
+            "warning: excluding torch from --cuda-graph-bench (unpinned D2H copy)",
+            file=sys.stderr,
+        )
+        selected.discard("torch")
+    block_size = 32
+    rows_out = []
+
+    for label, m, total_k, groups in shapes:
+        scale_cols = ceil_div(total_k, block_size)
+        if args.deterministic:
+            raw = (
+                torch.arange(m * scale_cols, device="cuda", dtype=torch.int32)
+                .remainder(251)
+                .to(torch.uint8)
+                .reshape(m, scale_cols)
+            )
+        else:
+            raw = torch.randint(
+                0, 256, (m, scale_cols), device="cuda", dtype=torch.uint8
+            )
+        scales = raw.view(torch.float8_e8m0fnu)
+        offsets = generate_jagged_offs(
+            groups, scale_cols, multiple_of=args.multiple_of, device="cuda"
+        )
+
+        row = {"Model layer": label or ""} if labelled else {}
+        row["M x TotalK"] = f"{m}x{total_k}"
+        row["Groups"] = groups
+
+        if "torch" in selected:
+            torch_us = benchmark_function(
+                torch_to_blocked_2d_K_groups,
+                scales,
+                offsets,
+                use_cuda_graph=args.cuda_graph_bench,
+                graph_iters=args.graph_iters,
+            )
+            row["Torch us"] = f"{torch_us:.2f}"
+        if "triton" in selected:
+            triton_us = benchmark_function(
+                triton_mx_block_rearrange_2d_K_groups,
+                scales,
+                offsets,
+                use_cuda_graph=args.cuda_graph_bench,
+                graph_iters=args.graph_iters,
+            )
+            row["Triton us"] = f"{triton_us:.2f}"
+        if "cutedsl" in selected:
+            out = _mx_block_rearrange_2d_k_groups_cutedsl(
+                scales, offsets, args.chunk_width
+            )
+            cutedsl_us = benchmark_function(
+                _mx_block_rearrange_2d_k_groups_cutedsl,
+                scales,
+                offsets,
+                args.chunk_width,
+                use_cuda_graph=args.cuda_graph_bench,
+                graph_iters=args.graph_iters,
+            )
+            row["CuTeDSL us"] = f"{cutedsl_us:.2f}"
+            # Rearrange is purely memory bound, so GB/s says how close to roofline
+            # the kernel gets in a way raw microseconds cannot.
+            moved_bytes = (
+                (scales.numel() + out.numel())
+                * torch.finfo(torch.float8_e8m0fnu).bits
+                / 8
+            )
+            row["CuTeDSL GB/s"] = f"{(moved_bytes / 1e9) / (cutedsl_us / 1e6):.1f}"
+        if "triton" in selected and "cutedsl" in selected:
+            row["CuTeDSL speedup"] = f"{triton_us / cutedsl_us:.2f}"
+        rows_out.append(row)
+
+    print(_markdown(rows_out, list(rows_out[0].keys())))
 
 
 if __name__ == "__main__":
