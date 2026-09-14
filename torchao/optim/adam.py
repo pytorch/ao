@@ -14,6 +14,7 @@ from .quant_utils import _fp32_to_bf16_sr
 from .subclass_4bit import OptimState4bit
 from .subclass_8bit import OptimState8bit
 from .subclass_fp8 import OptimStateFp8
+from .subclass_fp8_coat import OptimStateFp8Coat
 
 
 class _AdamBase(Optimizer):
@@ -306,6 +307,39 @@ class AdamFp8(_AdamBase):
         return OptimStateFp8.zeros(p.shape, block_size, p.device, dtype=p.dtype)
 
 
+class CoatAdam(_AdamBase):
+    def __init__(
+        self,
+        params,
+        lr=1e-3,
+        betas=(0.9, 0.999),
+        eps=1e-8,
+        weight_decay=0,
+        amsgrad=False,
+        *,
+        block_size=256,
+        bf16_stochastic_round=False,
+    ) -> None:
+        super().__init__(
+            params,
+            lr,
+            betas,
+            eps,
+            weight_decay,
+            amsgrad,
+            block_size=block_size,
+            bf16_stochastic_round=bf16_stochastic_round,
+            is_adamw=False,
+        )
+        torch._C._log_api_usage_once("torchao.optim.CoatAdam")
+
+    @staticmethod
+    def _subclass_zeros(p: Tensor, signed: bool, block_size: int):
+        return OptimStateFp8Coat.zeros(
+            p.shape, block_size, p.device, dtype=p.dtype
+        )
+
+
 class AdamW8bit(_AdamBase):
     def __init__(
         self,
@@ -401,6 +435,39 @@ class AdamWFp8(_AdamBase):
     @staticmethod
     def _subclass_zeros(p: Tensor, signed: bool, block_size: int):
         return OptimStateFp8.zeros(p.shape, block_size, p.device, dtype=p.dtype)
+
+
+class CoatAdamW(_AdamBase):
+    def __init__(
+        self,
+        params,
+        lr=1e-3,
+        betas=(0.9, 0.999),
+        eps=1e-8,
+        weight_decay=1e-2,
+        amsgrad=False,
+        *,
+        block_size=256,
+        bf16_stochastic_round=False,
+    ) -> None:
+        super().__init__(
+            params,
+            lr,
+            betas,
+            eps,
+            weight_decay,
+            amsgrad,
+            block_size=block_size,
+            bf16_stochastic_round=bf16_stochastic_round,
+            is_adamw=True,
+        )
+        torch._C._log_api_usage_once("torchao.optim.CoatAdamW")
+
+    @staticmethod
+    def _subclass_zeros(p: Tensor, signed: bool, block_size: int):
+        return OptimStateFp8Coat.zeros(
+            p.shape, block_size, p.device, dtype=p.dtype
+        )
 
 
 class _AdamW(_AdamBase):
