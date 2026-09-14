@@ -106,8 +106,9 @@ class Int4WeightFakeQuantizeConfig(FakeQuantizeConfigBase):
 class IntxFakeQuantizeConfig(FakeQuantizeConfigBase):
     """
     Config for how to fake quantize weights or activations,
-    targeting integer dtypes up to torch.int16. torch.int32 can be used as a
-    carrier for a smaller explicit quantization range.
+    targeting integer dtypes up to torch.int16. torch.uint16 is not supported.
+    torch.int32 can be used as a carrier for a smaller explicit quantization
+    range.
 
     Args:
         dtype: dtype to simulate during fake quantization, e.g. torch.int8.
@@ -135,7 +136,8 @@ class IntxFakeQuantizeConfig(FakeQuantizeConfigBase):
         group_size: size of each group in per group fake quantization,
             can be set instead of `granularity`
         is_symmetric: whether to use symmetric or asymmetric quantization.
-            Use `mapping_type` to select `MappingType.SYMMETRIC_NO_CLIPPING_ERR`.
+            Setting this to True selects `MappingType.SYMMETRIC`. Use
+            `mapping_type` to select `MappingType.SYMMETRIC_NO_CLIPPING_ERR`.
         quant_min: optional lower bound for the quantized values. Must be set
             together with `quant_max`.
         quant_max: optional upper bound for the quantized values. Explicit bounds
@@ -384,9 +386,9 @@ class IntxFakeQuantizeConfig(FakeQuantizeConfigBase):
         """
         Return True for either symmetric mapping type.
 
-        Setting this property to True preserves an existing symmetric mapping,
-        including SYMMETRIC_NO_CLIPPING_ERR. Setting it to False selects
-        ASYMMETRIC. Set mapping_type directly to choose a specific symmetric mode.
+        Setting this property to True selects `MappingType.SYMMETRIC`. Setting
+        it to False selects `MappingType.ASYMMETRIC`. Set `mapping_type`
+        directly to choose `MappingType.SYMMETRIC_NO_CLIPPING_ERR`.
         """
         return self.mapping_type in [
             MappingType.SYMMETRIC,
@@ -400,11 +402,6 @@ class IntxFakeQuantizeConfig(FakeQuantizeConfigBase):
         if name == "group_size":
             super().__setattr__("granularity", PerGroup(value))
         elif name == "is_symmetric":
-            if value and getattr(self, "mapping_type", None) in (
-                MappingType.SYMMETRIC,
-                MappingType.SYMMETRIC_NO_CLIPPING_ERR,
-            ):
-                return
             mapping_type = MappingType.SYMMETRIC if value else MappingType.ASYMMETRIC
             super().__setattr__("mapping_type", mapping_type)
         else:
