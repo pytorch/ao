@@ -18,6 +18,7 @@ from torchao.quantization.granularity import (
 from torchao.quantization.quant_primitives import (
     _DTYPE_TO_BIT_WIDTH,
     _DTYPE_TO_QVALUE_BOUNDS,
+    _get_reduction_params,
     MappingType,
     _choose_scale_float8,
     _dequantize_affine_float8,
@@ -25,6 +26,7 @@ from torchao.quantization.quant_primitives import (
     _quantize_affine_float8,
     _Round,
     choose_qparams_affine,
+    choose_qparams_affine_with_min_max,
 )
 from torchao.quantization.utils import (
     _get_per_token_block_size,
@@ -197,7 +199,16 @@ class IntxFakeQuantizer(FakeQuantizerBase):
         super().__init__()
         torch._C._log_api_usage_once("torchao.quantization.qat.IntxFakeQuantizer")
         self.config = config
+        # `enabled` controls fake quantization, while `observer_enabled` controls
+        # calibration range collection. The two controls are independent:
+        #   True / True: observe, then fake quantize
+        #   True / False: observe, then return the original input
+        #   False / True: fake quantize without observing
+        #   False / False: return the original input without observing
+        # The order above is observer_enabled / enabled.
         self.enabled = True
+        self.observer_enabled = False
+        self._enabled_before_calibration: Optional[bool] = None
         self.scale: Optional[torch.Tensor]
         self.zero_point: Optional[torch.Tensor]
         if config.is_dynamic or config.range_learning:
@@ -208,6 +219,10 @@ class IntxFakeQuantizer(FakeQuantizerBase):
             self.register_buffer(
                 "zero_point", torch.empty(0, dtype=config.zero_point_precision)
             )
+        # Calibration ranges are temporary. Finalized scale and zero point are
+        # the only calibration results stored in the state dictionary.
+        self.min_val: Optional[torch.Tensor] = None
+        self.max_val: Optional[torch.Tensor] = None
 
         # For range learning only
         # TODO: make this configurable?
@@ -219,6 +234,9 @@ class IntxFakeQuantizer(FakeQuantizerBase):
         Apply fake quantization to the tensor based on the bit-width,
         granularity, symmetry, and other properties specified in the config.
         """
+        if self.observer_enabled:
+            # Observe before the early return so calibration can bypass QDQ.
+            self._update_calibration_ranges(x)
         if not self.enabled:
             return x
 
@@ -241,6 +259,97 @@ class IntxFakeQuantizer(FakeQuantizerBase):
             return self._per_tensor_forward(x)
         else:
             raise ValueError("Unknown granularity '%s'" % self.config.granularity)
+
+    def enable_calibration(self) -> None:
+        """Reset ranges, enable observation, and disable fake quantization."""
+        self._validate_calibration_config()
+        if not self.observer_enabled or self.enabled:
+            self._enabled_before_calibration = self.enabled
+        self.min_val = None
+        self.max_val = None
+        self.observer_enabled = True
+        self.enabled = False
+
+    def finalize_calibration(self) -> None:
+        """Compute qparams from observed ranges and exit calibration mode.
+
+        This method disables observation and restores the fake-quantization state
+        that was active before :meth:`enable_calibration`.
+        """
+        self._validate_calibration_config()
+        if (
+            not self.observer_enabled
+            or self.enabled
+            or self._enabled_before_calibration is None
+        ):
+            raise ValueError(
+                "Calibration must be enabled before calling finalize_calibration"
+            )
+        if self.min_val is None or self.max_val is None:
+            self._restore_fake_quantization_state()
+            raise ValueError("No calibration data was collected")
+        qmin, qmax = _DTYPE_TO_QVALUE_BOUNDS[self.config.dtype]
+        try:
+            scale, zero_point = choose_qparams_affine_with_min_max(
+                self.min_val,
+                self.max_val,
+                self.config.mapping_type,
+                (),
+                self.config.dtype,
+                qmin,
+                qmax,
+                self.config.eps,
+                self.config.scale_precision,
+                self.config.zero_point_precision,
+            )
+        except Exception:
+            self._restore_fake_quantization_state()
+            raise
+        self.scale = scale
+        self.zero_point = zero_point
+        self._restore_fake_quantization_state()
+
+    def _validate_calibration_config(self) -> None:
+        if (
+            self.config.is_dynamic
+            or self.config.range_learning
+            or isinstance(self.config.granularity, PerToken)
+        ):
+            raise ValueError(
+                "Calibration is only supported for static per-tensor, per-axis, "
+                "or per-group quantization"
+            )
+
+    def _restore_fake_quantization_state(self) -> None:
+        assert self._enabled_before_calibration is not None
+        self.observer_enabled = False
+        self.enabled = self._enabled_before_calibration
+        self._enabled_before_calibration = None
+
+    def _update_calibration_ranges(self, x: torch.Tensor) -> None:
+        if x.numel() == 0:
+            return
+        x = x.detach().to(dtype=self.config.scale_precision)
+        if isinstance(self.config.granularity, PerTensor):
+            min_val, max_val = torch.aminmax(x)
+        else:
+            block_size = get_block_size(x.shape, self.config.granularity)
+            shape_for_reduction, reduction_dims = _get_reduction_params(
+                block_size, x.size()
+            )
+            x = x.view(shape_for_reduction)
+            min_val = torch.amin(x, dim=reduction_dims)
+            max_val = torch.amax(x, dim=reduction_dims)
+        if self.min_val is None or self.max_val is None:
+            self.min_val = min_val
+            self.max_val = max_val
+        else:
+            if self.min_val.shape != min_val.shape or self.max_val.shape != max_val.shape:
+                raise ValueError(
+                    "Calibration range shape changed between calibration inputs"
+                )
+            self.min_val = torch.minimum(self.min_val, min_val)
+            self.max_val = torch.maximum(self.max_val, max_val)
 
     def _per_token_forward(self, x: torch.Tensor) -> torch.Tensor:
         """
