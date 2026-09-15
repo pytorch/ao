@@ -47,7 +47,7 @@ if torch_version_at_least("2.10.0") and has_triton():
 
     @triton.autotune(
         configs=HADAMARD_QUANTIZE_CONFIGS,
-        key=["M", "N", "STOCHASTIC_ROUNDING"],
+        key=["M", "N", "STOCHASTIC_ROUNDING", "FAST_MATH"],
     )
     @triton.jit
     def _hadamard_quantize_row_col_kernel(
@@ -71,6 +71,7 @@ if torch_version_at_least("2.10.0") and has_triton():
         NUM_SMS: tl.constexpr,
         NUM_STAGES: tl.constexpr,
         STOCHASTIC_ROUNDING: tl.constexpr,
+        FAST_MATH: tl.constexpr,
     ):
         """Warp-specialized TMA kernel fusing RHT + NVFP4 columnwise quantization and
         optional rowwise NVFP4 quantization of the original tensor in a single pass."""
@@ -159,11 +160,15 @@ if torch_version_at_least("2.10.0") and has_triton():
             # (BLOCK_N * BLOCK_M//16, 16) @ (16, 16) -> (BLOCK_N * BLOCK_M//16, 16)
             a_t_rht = tl.dot(a_t_reshape, hadamard)
 
-            # Cast to bfloat16 like regular matmul output
-            a_t_rht = a_t_rht.to(tl.bfloat16)
+            # Cast to bfloat16 like regular matmul output. TE's fast math consumes the
+            # fp32 accumulator directly instead, so the cast is exact-mode only.
+            if not FAST_MATH:
+                a_t_rht = a_t_rht.to(tl.bfloat16)
 
             # NVFP4 quantization epilogue (columnwise)
-            scale_inv, scaled = _nvfp4_quantize(a_t_rht, global_amax, BLOCK_N, BLOCK_M)
+            scale_inv, scaled = _nvfp4_quantize(
+                a_t_rht, global_amax, BLOCK_N, BLOCK_M, FAST_MATH
+            )
             scaled_fp4x2 = _pack_fp4(
                 scaled,
                 BLOCK_N,
@@ -192,7 +197,7 @@ if torch_version_at_least("2.10.0") and has_triton():
             # _nvfp4_quantize treats first dim as "rows" and second as inner (M//16 vectors).
             # Calling with (BLOCK_M, BLOCK_N) quantizes each row of A in blocks of 16 along N.
             rowwise_scale_inv, rowwise_scaled = _nvfp4_quantize(
-                a, rowwise_global_amax, BLOCK_M, BLOCK_N
+                a, rowwise_global_amax, BLOCK_M, BLOCK_N, FAST_MATH
             )
             # Rowwise uses the caller-selected rounding mode: forward passes RTN,
             # backward passes SR.
@@ -239,6 +244,7 @@ if torch_version_at_least("2.10.0") and has_triton():
         col_offset_base: torch.Tensor | None = None,
         row_offset_base: torch.Tensor | None = None,
         row_seed_base: torch.Tensor | None = None,
+        use_fast_math: bool = False,
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         """RHT + NVFP4 E2M1 columnwise quantization fused with rowwise quantization.
 
@@ -274,6 +280,10 @@ if torch_version_at_least("2.10.0") and has_triton():
             row_seed_base: Pre-allocated int64 seed tensor for rowwise SR (size=(1,)). Same
                 semantics as col_seed_base. Using a distinct value from col_seed_base gives
                 fully independent Philox streams for the two quantization paths.
+            use_fast_math: match TransformerEngine under ``NVTE_USE_FAST_MATH=1``: consume
+                the fp32 RHT accumulator directly instead of rounding it through bfloat16,
+                and take an approximate reciprocal for the per-vector encode scale. False
+                preserves TE-default-exact arithmetic.
 
         Returns:
             4-tuple (col_fp4, col_sf, row_fp4, row_sf):
@@ -406,6 +416,7 @@ if torch_version_at_least("2.10.0") and has_triton():
                 GROUP_SIZE_N=GROUP_SIZE_N,
                 NUM_SMS=NUM_SMS,
                 STOCHASTIC_ROUNDING=stochastic_rounding,
+                FAST_MATH=use_fast_math,
             )
         finally:
             if hasattr(triton, "set_allocator"):
@@ -426,6 +437,7 @@ if torch_version_at_least("2.10.0") and has_triton():
         col_offset_base=None,
         row_offset_base=None,
         row_seed_base=None,
+        use_fast_math=False,
     ):
         M, N = A.shape
         col_fp4 = A.new_empty((N, M // 2), dtype=torch.uint8)
@@ -448,6 +460,7 @@ else:
         col_offset_base: torch.Tensor | None = None,
         row_offset_base: torch.Tensor | None = None,
         row_seed_base: torch.Tensor | None = None,
+        use_fast_math: bool = False,
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         raise NotImplementedError(
             "triton_rht_quantize_row_col requires torch 2.10.0+ and triton installed"
