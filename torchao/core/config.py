@@ -148,12 +148,8 @@ class ConfigJSONEncoder(json.JSONEncoder):
             name = type(o).__name__
             if mod == "torch.nn.functional":
                 enum_begin_underscore_map = {"_SwizzleType": "SwizzleType"}
-                public = enum_begin_underscore_map[name]
-                if (
-                    name in enum_begin_underscore_map
-                    and hasattr(F, public)
-                    and getattr(F, public) is type(o)
-                ):
+                public = enum_begin_underscore_map.get(name, None)
+                if public and hasattr(F, public) and getattr(F, public) is type(o):
                     name = public
             return {"_type": f"{mod}.{name}", "_data": o.name}
 
@@ -284,7 +280,7 @@ def config_from_dict(data: Dict[str, Any]) -> AOBaseConfig:
             # For enums, convert string to enum value
             return getattr(cls, obj_data)
         elif isinstance(getattr(cls, "__members__", None), dict):
-            return getattr(cls, "__members__", None)[obj_data]
+            return cls.__members__[obj_data]
         else:
             # For other primitive types, create an instance with the value
             try:
