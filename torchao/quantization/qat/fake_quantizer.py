@@ -287,6 +287,7 @@ class IntxFakeQuantizer(FakeQuantizerBase):
                     bit_width,
                     group_size,
                     scale_precision,
+                    mapping_type=self.config.mapping_type,
                     eps=self.config.eps,
                 )
             else:
