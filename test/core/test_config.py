@@ -141,8 +141,13 @@ def test_reconstructable_dict_file_round_trip(config):
             os.unlink(temp_file_path)
 
 
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
-@pytest.mark.skipif(not is_sm_at_least_89(), reason="needs CUDA capability 8.9+")
+@pytest.mark.skipif(
+    not torch.accelerator.is_available(), reason="CUDA or XPU not available"
+)
+@pytest.mark.skipif(
+    torch.cuda.is_available() and not is_sm_at_least_89(),
+    reason="needs CUDA capability 8.9+",
+)
 @pytest.mark.parametrize(
     "granularity",
     [
@@ -157,7 +162,8 @@ def test_granularity_serialization(granularity):
     in `Float8DynamicActivationFloat8WeightConfig`.
     """
 
-    m = torch.nn.Linear(128, 256, bias=False, dtype=torch.bfloat16, device="cuda")
+    device = torch.accelerator.current_accelerator().type
+    m = torch.nn.Linear(128, 256, bias=False, dtype=torch.bfloat16, device=device)
     fname = None
     with tempfile.NamedTemporaryFile(delete=False, mode="w") as f:
         config = Float8DynamicActivationFloat8WeightConfig(granularity=granularity)
