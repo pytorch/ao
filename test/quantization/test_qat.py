@@ -24,6 +24,10 @@ from torch.testing._internal.common_utils import (
 from torchao import quantize_
 from torchao.core.config import AOBaseConfig
 from torchao.float8.config import e4m3_dtype
+from torchao.prototype.quantization import (
+    IntxObservedLinear,
+    IntxObservedLinearConfig,
+)
 from torchao.quantization import Float8Tensor
 from torchao.quantization.granularity import (
     Granularity,
@@ -532,7 +536,7 @@ class TestQAT(TestCase):
         torch.testing.assert_close(restored.scale, fake_quantizer.scale)
         torch.testing.assert_close(restored.zero_point, fake_quantizer.zero_point)
 
-    def test_fake_quantizer_static_calibration(self):
+    def test_intx_observed_linear_static_calibration(self):
         activation_config = IntxFakeQuantizeConfig(
             torch.int16,
             PerTensor(),
@@ -544,7 +548,7 @@ class TestQAT(TestCase):
             PerGroup(4),
             MappingType.SYMMETRIC_NO_CLIPPING_ERR,
         )
-        linear = FakeQuantizedLinear(
+        linear = IntxObservedLinear(
             4,
             3,
             activation_config=activation_config,
@@ -552,7 +556,7 @@ class TestQAT(TestCase):
         )
         activation_fake_quantizer = linear.activation_fake_quantizer
         weight_fake_quantizer = linear.weight_fake_quantizer
-        activation_fake_quantizer.enable_calibration()
+        linear.enable_calibration()
 
         calibration_inputs = [
             torch.tensor([[-4.0, -1.0, 0.0, 2.0]]),
@@ -565,40 +569,11 @@ class TestQAT(TestCase):
 
         expected_min = torch.tensor(-4.0)
         expected_max = torch.tensor(6.0)
-        torch.testing.assert_close(activation_fake_quantizer.min_val, expected_min)
-        torch.testing.assert_close(activation_fake_quantizer.max_val, expected_max)
-        self.assertFalse(activation_fake_quantizer.enabled)
+        torch.testing.assert_close(linear.activation_observer.min_val, expected_min)
+        torch.testing.assert_close(linear.activation_observer.max_val, expected_max)
+        self.assertTrue(linear.calibration_enabled)
+        self.assertTrue(activation_fake_quantizer.enabled)
         self.assertTrue(weight_fake_quantizer.enabled)
-
-        local_min, local_max = activation_fake_quantizer.get_running_min_max()
-        torch.testing.assert_close(local_min, expected_min)
-        torch.testing.assert_close(local_max, expected_max)
-        uncalibrated = IntxFakeQuantizer(activation_config)
-        with self.assertRaisesRegex(ValueError, "No calibration data was collected"):
-            uncalibrated.get_running_min_max()
-        expected_min = torch.tensor(-8.0)
-        expected_max = torch.tensor(10.0)
-        with self.assertRaisesRegex(ValueError, "range shapes must match"):
-            activation_fake_quantizer.set_running_min_max(
-                torch.tensor([-8.0]), expected_max
-            )
-        with self.assertRaisesRegex(ValueError, "Calibration ranges must be finite"):
-            activation_fake_quantizer.set_running_min_max(
-                torch.tensor(float("nan")), expected_max
-            )
-        with self.assertRaisesRegex(ValueError, "minimum must not exceed"):
-            activation_fake_quantizer.set_running_min_max(
-                torch.tensor(11.0), expected_max
-            )
-        with self.assertWarnsRegex(UserWarning, "Converting calibration ranges"):
-            activation_fake_quantizer.set_running_min_max(
-                expected_min.to(torch.float64), expected_max.to(torch.float64)
-        )
-        self.assertEqual(activation_fake_quantizer.min_val.dtype, torch.float32)
-        self.assertEqual(activation_fake_quantizer.max_val.dtype, torch.float32)
-        activation_fake_quantizer.set_running_min_max(expected_min, expected_max)
-        torch.testing.assert_close(activation_fake_quantizer.min_val, expected_min)
-        torch.testing.assert_close(activation_fake_quantizer.max_val, expected_max)
 
         qmin, qmax = _DTYPE_TO_QVALUE_BOUNDS[torch.int16]
         expected_scale, expected_zero_point = choose_qparams_affine_with_min_max(
@@ -612,45 +587,107 @@ class TestQAT(TestCase):
             scale_dtype=activation_config.scale_precision,
             zero_point_dtype=activation_config.zero_point_precision,
         )
-        # Finalization derives fixed qparams and restores activation fake quantization.
-        activation_fake_quantizer.finalize_calibration()
+        # Finalization derives fixed qparams and exits calibration mode.
+        linear.finalize_calibration()
         torch.testing.assert_close(activation_fake_quantizer.scale, expected_scale)
         torch.testing.assert_close(
             activation_fake_quantizer.zero_point, expected_zero_point
         )
-        self.assertFalse(activation_fake_quantizer.observer_enabled)
+        self.assertFalse(linear.calibration_enabled)
         self.assertTrue(activation_fake_quantizer.enabled)
 
-        state_dict = copy.deepcopy(activation_fake_quantizer.state_dict())
-        self.assertNotIn("min_val", state_dict)
-        self.assertNotIn("max_val", state_dict)
-        restored = IntxFakeQuantizer(activation_config)
+        state_dict = copy.deepcopy(linear.state_dict())
+        self.assertNotIn("activation_observer.min_val", state_dict)
+        self.assertNotIn("activation_observer.max_val", state_dict)
+        restored = IntxObservedLinear(
+            4,
+            3,
+            activation_config=activation_config,
+            weight_config=weight_config,
+        )
         restored.load_state_dict(state_dict)
         x = torch.tensor([[-3.0, 0.0, 1.0, 5.0]])
-        torch.testing.assert_close(
-            restored(x), activation_fake_quantizer(x), atol=0, rtol=0
-        )
+        torch.testing.assert_close(restored(x), linear(x), atol=0, rtol=0)
 
-    def test_fake_quantizer_static_calibration_range_exchange_per_group(self):
+    def test_intx_observer_range_exchange_per_tensor(self):
+        activation_config = IntxFakeQuantizeConfig(
+            torch.int16,
+            PerTensor(),
+            MappingType.SYMMETRIC_NO_CLIPPING_ERR,
+            is_dynamic=False,
+        )
+        linear = IntxObservedLinear(4, 3, activation_config=activation_config)
+        linear.enable_calibration()
+        linear(torch.tensor([[-4.0, -1.0, 3.0, 6.0]]))
+
+        expected_min = torch.tensor(-4.0)
+        expected_max = torch.tensor(6.0)
+        local_min, local_max = linear.activation_observer.get_running_min_max()
+        torch.testing.assert_close(local_min, expected_min)
+        torch.testing.assert_close(local_max, expected_max)
+
+        uncalibrated = IntxObservedLinear(
+            4,
+            3,
+            activation_config=activation_config,
+        )
+        with self.assertRaisesRegex(ValueError, "No calibration data was collected"):
+            uncalibrated.activation_observer.get_running_min_max()
+
+        expected_min = torch.tensor(-8.0)
+        expected_max = torch.tensor(10.0)
+        with self.assertRaisesRegex(ValueError, "range shapes must match"):
+            linear.activation_observer.set_running_min_max(
+                torch.tensor([-8.0]), expected_max
+            )
+        with self.assertRaisesRegex(ValueError, "Calibration ranges must be finite"):
+            linear.activation_observer.set_running_min_max(
+                torch.tensor(float("nan")), expected_max
+            )
+        with self.assertRaisesRegex(ValueError, "conversion produced non-finite"):
+            linear.activation_observer.set_running_min_max(
+                torch.tensor(-torch.finfo(torch.float64).max, dtype=torch.float64),
+                torch.tensor(torch.finfo(torch.float64).max, dtype=torch.float64),
+            )
+        with self.assertRaisesRegex(ValueError, "minimum must not exceed"):
+            linear.activation_observer.set_running_min_max(
+                torch.tensor(11.0), expected_max
+            )
+        with self.assertWarnsRegex(UserWarning, "Converting calibration ranges"):
+            linear.activation_observer.set_running_min_max(
+                expected_min.to(torch.float64), expected_max.to(torch.float64)
+            )
+        self.assertEqual(linear.activation_observer.min_val.dtype, torch.float32)
+        self.assertEqual(linear.activation_observer.max_val.dtype, torch.float32)
+        source_min = expected_min.clone()
+        source_max = expected_max.clone()
+        linear.activation_observer.set_running_min_max(source_min, source_max)
+        source_min.fill_(-100.0)
+        source_max.fill_(100.0)
+        actual_min, actual_max = linear.activation_observer.get_running_min_max()
+        torch.testing.assert_close(actual_min, expected_min)
+        torch.testing.assert_close(actual_max, expected_max)
+
+    def test_intx_observer_range_exchange_per_group(self):
         config = IntxFakeQuantizeConfig(
             torch.int8,
             PerGroup(2),
             MappingType.SYMMETRIC,
             is_dynamic=False,
         )
-        fake_quantizer = IntxFakeQuantizer(config)
-        fake_quantizer.enable_calibration()
-        fake_quantizer(torch.tensor([[-4.0, -1.0, 0.0, 2.0]]))
+        linear = IntxObservedLinear(4, 2, activation_config=config)
+        linear.enable_calibration()
+        linear(torch.tensor([[-4.0, -1.0, 0.0, 2.0]]))
 
-        min_val, max_val = fake_quantizer.get_running_min_max()
+        min_val, max_val = linear.activation_observer.get_running_min_max()
         expected_min = torch.tensor([[-5.0, -1.0]])
         expected_max = torch.tensor([[0.0, 3.0]])
-        fake_quantizer.set_running_min_max(min_val - 1, max_val + 1)
-        actual_min, actual_max = fake_quantizer.get_running_min_max()
+        linear.activation_observer.set_running_min_max(min_val - 1, max_val + 1)
+        actual_min, actual_max = linear.activation_observer.get_running_min_max()
         torch.testing.assert_close(actual_min, expected_min)
         torch.testing.assert_close(actual_max, expected_max)
 
-    def test_fake_quantizer_static_calibration_preserves_range_dtype(self):
+    def test_intx_observed_linear_preserves_range_dtype(self):
         config = IntxFakeQuantizeConfig(
             torch.int16,
             PerTensor(),
@@ -658,17 +695,21 @@ class TestQAT(TestCase):
             is_dynamic=False,
             scale_precision=torch.float32,
         )
-        fake_quantizer = IntxFakeQuantizer(config)
-
         for input_dtype in (torch.float16, torch.bfloat16):
-            fake_quantizer.enable_calibration()
-            fake_quantizer(torch.tensor([[-4.0, 6.0]], dtype=input_dtype))
-            self.assertEqual(fake_quantizer.min_val.dtype, torch.float32)
-            self.assertEqual(fake_quantizer.max_val.dtype, torch.float32)
+            linear = IntxObservedLinear(
+                2,
+                1,
+                activation_config=config,
+                dtype=input_dtype,
+            )
+            linear.enable_calibration()
+            linear(torch.tensor([[-4.0, 6.0]], dtype=input_dtype))
+            self.assertEqual(linear.activation_observer.min_val.dtype, torch.float32)
+            self.assertEqual(linear.activation_observer.max_val.dtype, torch.float32)
 
-    def test_fake_quantizer_static_calibration_granularity(self):
+    def test_intx_observed_linear_calibration_granularity(self):
         calibration_inputs = [
-            torch.tensor([[-4.0, -1.0, 0.0, 2.0], [-2.0, 1.0, 3.0, 6.0]]),
+            torch.tensor([[-4.0, -2.0], [-1.0, 1.0], [0.0, 3.0], [2.0, 6.0]]).t(),
             torch.tensor([[-5.0, 0.0, -1.0, 4.0], [-3.0, 2.0, 5.0, 7.0]]),
         ]
         test_cases = [
@@ -694,12 +735,16 @@ class TestQAT(TestCase):
                     MappingType.SYMMETRIC,
                     is_dynamic=False,
                 )
-                fake_quantizer = IntxFakeQuantizer(config)
-                fake_quantizer.enable_calibration()
+                linear = IntxObservedLinear(4, 2, activation_config=config)
+                linear.enable_calibration()
                 for x in calibration_inputs:
-                    torch.testing.assert_close(fake_quantizer(x), x)
-                torch.testing.assert_close(fake_quantizer.min_val, expected_min)
-                torch.testing.assert_close(fake_quantizer.max_val, expected_max)
+                    linear(x)
+                torch.testing.assert_close(
+                    linear.activation_observer.min_val, expected_min
+                )
+                torch.testing.assert_close(
+                    linear.activation_observer.max_val, expected_max
+                )
 
                 qmin, qmax = _DTYPE_TO_QVALUE_BOUNDS[torch.int8]
                 expected_scale, expected_zero_point = (
@@ -715,10 +760,12 @@ class TestQAT(TestCase):
                         zero_point_dtype=config.zero_point_precision,
                     )
                 )
-                fake_quantizer.finalize_calibration()
-                torch.testing.assert_close(fake_quantizer.scale, expected_scale)
+                linear.finalize_calibration()
                 torch.testing.assert_close(
-                    fake_quantizer.zero_point, expected_zero_point
+                    linear.activation_fake_quantizer.scale, expected_scale
+                )
+                torch.testing.assert_close(
+                    linear.activation_fake_quantizer.zero_point, expected_zero_point
                 )
                 expected = _fake_quantize_affine(
                     calibration_inputs[-1],
@@ -730,51 +777,52 @@ class TestQAT(TestCase):
                     qmax,
                 )
                 torch.testing.assert_close(
-                    fake_quantizer(calibration_inputs[-1]),
+                    linear.activation_fake_quantizer(calibration_inputs[-1]),
                     expected,
                     atol=0,
                     rtol=0,
                 )
 
-    def test_fake_quantizer_static_calibration_state(self):
+    def test_intx_observed_linear_calibration_state(self):
         config = IntxFakeQuantizeConfig(
             torch.int8,
             PerTensor(),
             MappingType.SYMMETRIC,
             is_dynamic=False,
         )
-        fake_quantizer = IntxFakeQuantizer(config)
+        linear = IntxObservedLinear(2, 1, activation_config=config)
 
         with self.assertRaisesRegex(ValueError, "Calibration must be enabled"):
-            fake_quantizer.finalize_calibration()
+            linear.finalize_calibration()
 
-        fake_quantizer.enabled = False
-        fake_quantizer.enable_calibration()
-        fake_quantizer(torch.tensor([[-4.0, 6.0]]))
-        fake_quantizer.finalize_calibration()
-        self.assertFalse(fake_quantizer.observer_enabled)
-        self.assertFalse(fake_quantizer.enabled)
+        linear.activation_fake_quantizer.enabled = False
+        linear.enable_calibration()
+        linear(torch.tensor([[-4.0, 6.0]]))
+        linear.finalize_calibration()
+        self.assertFalse(linear.calibration_enabled)
+        self.assertFalse(linear.activation_fake_quantizer.enabled)
 
-        fake_quantizer.enabled = True
-        fake_quantizer.enable_calibration()
+        linear.activation_fake_quantizer.enabled = True
+        linear.enable_calibration()
         with self.assertRaisesRegex(ValueError, "No calibration data was collected"):
-            fake_quantizer.finalize_calibration()
-        self.assertFalse(fake_quantizer.observer_enabled)
-        self.assertTrue(fake_quantizer.enabled)
+            linear.finalize_calibration()
+        self.assertFalse(linear.calibration_enabled)
+        self.assertTrue(linear.activation_fake_quantizer.enabled)
 
-    def test_fake_quantizer_static_calibration_rejects_shape_change(self):
+    def test_intx_observed_linear_calibration_rejects_shape_change(self):
         config = IntxFakeQuantizeConfig(
             torch.int8,
             PerAxis(0),
             MappingType.SYMMETRIC,
             is_dynamic=False,
         )
-        fake_quantizer = IntxFakeQuantizer(config)
-        fake_quantizer.enable_calibration()
-        fake_quantizer(torch.randn(2, 4))
+        linear = IntxObservedLinear(4, 2, activation_config=config)
+        linear.enable_calibration()
+        linear(torch.randn(2, 4))
         with self.assertRaisesRegex(ValueError, "Calibration range shape changed"):
-            fake_quantizer(torch.randn(3, 4))
-    def test_fake_quantizer_static_asymmetric_calibration(self):
+            linear(torch.randn(1, 4))
+
+    def test_intx_observed_linear_static_asymmetric_calibration(self):
         qmin, qmax = 0, 2**16 - 1
         config = IntxFakeQuantizeConfig(
             torch.int32,
@@ -785,16 +833,20 @@ class TestQAT(TestCase):
             quant_min=qmin,
             quant_max=qmax,
         )
-        fake_quantizer = IntxFakeQuantizer(config)
-        fake_quantizer.enable_calibration()
-        fake_quantizer(torch.tensor([[1.0, 2.0]]))
-        fake_quantizer(torch.tensor([[3.0, 4.0]]))
-        fake_quantizer.finalize_calibration()
+        linear = IntxObservedLinear(2, 1, activation_config=config)
+        linear.enable_calibration()
+        linear(torch.tensor([[1.0, 2.0]]))
+        linear(torch.tensor([[3.0, 4.0]]))
+        linear.finalize_calibration()
 
         expected_scale = torch.tensor(4.0 / (qmax - qmin))
         expected_zero_point = torch.tensor(0, dtype=torch.int32)
-        torch.testing.assert_close(fake_quantizer.scale, expected_scale)
-        torch.testing.assert_close(fake_quantizer.zero_point, expected_zero_point)
+        torch.testing.assert_close(
+            linear.activation_fake_quantizer.scale, expected_scale
+        )
+        torch.testing.assert_close(
+            linear.activation_fake_quantizer.zero_point, expected_zero_point
+        )
 
     @parametrize(
         "granularity,is_dynamic,range_learning",
@@ -804,7 +856,7 @@ class TestQAT(TestCase):
             (PerToken(), False, False),
         ],
     )
-    def test_fake_quantizer_static_calibration_rejects_unsupported_config(
+    def test_intx_observed_linear_rejects_unsupported_config(
         self,
         granularity: Granularity,
         is_dynamic: bool,
@@ -817,14 +869,57 @@ class TestQAT(TestCase):
             is_dynamic=is_dynamic,
             range_learning=range_learning,
         )
-        fake_quantizer = IntxFakeQuantizer(config)
         error = "Calibration is only supported for static per-tensor, per-axis"
         with self.assertRaisesRegex(ValueError, error):
-            fake_quantizer.enable_calibration()
+            IntxObservedLinear(4, 2, activation_config=config)
         with self.assertRaisesRegex(ValueError, error):
-            fake_quantizer.finalize_calibration()
-        with self.assertRaisesRegex(ValueError, error):
-            fake_quantizer.get_running_min_max()
+            IntxObservedLinearConfig(config)
+
+    @parametrize(
+        "zero_point_domain",
+        [ZeroPointDomain.FLOAT, ZeroPointDomain.NONE],
+    )
+    def test_intx_observed_linear_rejects_non_int_zero_point_domain(
+        self,
+        zero_point_domain: ZeroPointDomain,
+    ):
+        config = IntxFakeQuantizeConfig(
+            torch.int8,
+            PerTensor(),
+            MappingType.SYMMETRIC,
+            zero_point_domain=zero_point_domain,
+            is_dynamic=False,
+        )
+        with self.assertRaisesRegex(
+            ValueError, "Calibration requires an integer zero-point domain"
+        ):
+            IntxObservedLinearConfig(config)
+
+    def test_intx_observed_linear_config_preserves_parameters(self):
+        activation_config = IntxFakeQuantizeConfig(
+            torch.int16,
+            PerTensor(),
+            MappingType.SYMMETRIC_NO_CLIPPING_ERR,
+            is_dynamic=False,
+        )
+        weight_config = IntxFakeQuantizeConfig(
+            torch.int4,
+            PerGroup(2),
+            MappingType.SYMMETRIC_NO_CLIPPING_ERR,
+        )
+        original = torch.nn.Linear(4, 2)
+        weight = original.weight
+        bias = original.bias
+        model = torch.nn.Sequential(original)
+
+        quantize_(
+            model,
+            IntxObservedLinearConfig(activation_config, weight_config),
+        )
+
+        self.assertIsInstance(model[0], IntxObservedLinear)
+        self.assertIs(model[0].weight, weight)
+        self.assertIs(model[0].bias, bias)
 
     def _set_ptq_weight(
         self,
@@ -1937,76 +2032,122 @@ class TestQAT(TestCase):
 
         def prepare_model():
             model = torch.nn.Sequential(
-                torch.nn.Linear(4, 4, bias=False),
+                torch.nn.Linear(4, 4),
                 torch.nn.ReLU(),
-                torch.nn.Linear(4, 2, bias=False),
+                torch.nn.Linear(4, 2),
             )
             quantize_(
                 model,
-                QATConfig(
-                    activation_config=activation_config,
-                    weight_config=weight_config,
+                IntxObservedLinearConfig(
+                    activation_config,
+                    weight_config,
                 ),
             )
             return model
 
         torch.manual_seed(self.SEED)
         model = prepare_model()
-        fake_quantized_linears = [
+        observed_linears = [
             module
             for module in model.modules()
-            if isinstance(module, FakeQuantizedLinear)
+            if isinstance(module, IntxObservedLinear)
         ]
-        for module in fake_quantized_linears:
-            module.activation_fake_quantizer.enable_calibration()
+        module_ids = [id(module) for module in observed_linears]
+        parameter_ids = [
+            (id(module.weight), id(module.bias)) for module in observed_linears
+        ]
+        for module in observed_linears:
+            module.enable_calibration()
 
         calibration_inputs = [torch.randn(2, 4), torch.randn(2, 4)]
         with torch.no_grad():
             for x in calibration_inputs:
                 model(x)
-        for module in fake_quantized_linears:
-            module.activation_fake_quantizer.finalize_calibration()
+        for module in observed_linears:
+            module.finalize_calibration()
 
         activation_scales = [
             module.activation_fake_quantizer.scale.clone()
-            for module in fake_quantized_linears
+            for module in observed_linears
         ]
-        weight_before = fake_quantized_linears[0].weight.detach().clone()
+
+        reference_linear = FakeQuantizedLinear(
+            4,
+            4,
+            bias=True,
+            activation_config=activation_config,
+            weight_config=weight_config,
+        )
+        reference_linear.load_state_dict(
+            copy.deepcopy(observed_linears[0].state_dict())
+        )
+        observed_input = torch.randn(2, 4, requires_grad=True)
+        reference_input = observed_input.detach().clone().requires_grad_()
+        observed_output = observed_linears[0](observed_input)
+        reference_output = reference_linear(reference_input)
+        output_gradient = torch.randn_like(observed_output)
+        observed_output.backward(output_gradient)
+        reference_output.backward(output_gradient)
+        torch.testing.assert_close(observed_output, reference_output, atol=0, rtol=0)
+        torch.testing.assert_close(
+            observed_input.grad, reference_input.grad, atol=0, rtol=0
+        )
+        torch.testing.assert_close(
+            observed_linears[0].weight.grad,
+            reference_linear.weight.grad,
+            atol=0,
+            rtol=0,
+        )
+        torch.testing.assert_close(
+            observed_linears[0].bias.grad,
+            reference_linear.bias.grad,
+            atol=0,
+            rtol=0,
+        )
+        observed_linears[0].zero_grad(set_to_none=True)
+
+        weight_before = observed_linears[0].weight.detach().clone()
         optimizer = torch.optim.SGD(model.parameters(), lr=0.1, foreach=True)
         loss = model(torch.randn(2, 4)).square().mean()
         loss.backward()
         optimizer.step()
 
-        self.assertFalse(torch.equal(fake_quantized_linears[0].weight, weight_before))
-        for module, scale in zip(fake_quantized_linears, activation_scales):
+        self.assertFalse(torch.equal(observed_linears[0].weight, weight_before))
+        for module, scale in zip(observed_linears, activation_scales):
             torch.testing.assert_close(
                 module.activation_fake_quantizer.scale, scale, atol=0, rtol=0
             )
 
-        for module in fake_quantized_linears:
-            module.activation_fake_quantizer.enable_calibration()
+        for module in observed_linears:
+            module.enable_calibration()
         recalibration_inputs = [x * 16 for x in calibration_inputs]
         with torch.no_grad():
             for x in recalibration_inputs:
                 model(x)
-        for module in fake_quantized_linears:
-            module.activation_fake_quantizer.finalize_calibration()
+        for module in observed_linears:
+            module.finalize_calibration()
 
         expected_min = torch.stack([x.min() for x in recalibration_inputs]).min()
         expected_max = torch.stack([x.max() for x in recalibration_inputs]).max()
-        recalibrated_min, recalibrated_max = fake_quantized_linears[
+        recalibrated_min, recalibrated_max = observed_linears[
             0
-        ].activation_fake_quantizer.get_running_min_max()
+        ].activation_observer.get_running_min_max()
         torch.testing.assert_close(recalibrated_min, expected_min, atol=0, rtol=0)
         torch.testing.assert_close(recalibrated_max, expected_max, atol=0, rtol=0)
         self.assertFalse(
             torch.equal(
-                fake_quantized_linears[0].activation_fake_quantizer.scale,
+                observed_linears[0].activation_fake_quantizer.scale,
                 activation_scales[0],
             )
         )
+        self.assertEqual([id(module) for module in observed_linears], module_ids)
+        self.assertEqual(
+            [(id(module.weight), id(module.bias)) for module in observed_linears],
+            parameter_ids,
+        )
 
         state_dict = copy.deepcopy(model.state_dict())
+        self.assertFalse(any("activation_observer" in key for key in state_dict))
         torch.manual_seed(self.SEED)
         restored = prepare_model()
         restored.load_state_dict(state_dict)
@@ -2016,9 +2157,9 @@ class TestQAT(TestCase):
         restored_linears = [
             module
             for module in restored.modules()
-            if isinstance(module, FakeQuantizedLinear)
+            if isinstance(module, IntxObservedLinear)
         ]
-        for module, restored_module in zip(fake_quantized_linears, restored_linears):
+        for module, restored_module in zip(observed_linears, restored_linears):
             torch.testing.assert_close(
                 restored_module.activation_fake_quantizer.scale,
                 module.activation_fake_quantizer.scale,
