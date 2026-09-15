@@ -551,6 +551,84 @@ class TestQAT(TestCase):
         x = torch.tensor([[-3.0, 0.0, 1.0, 5.0]])
         torch.testing.assert_close(restored(x), linear(x), atol=0, rtol=0)
 
+    def test_intx_observer_range_exchange_per_tensor(self):
+        activation_config = IntxFakeQuantizeConfig(
+            torch.int16,
+            PerTensor(),
+            MappingType.SYMMETRIC_NO_CLIPPING_ERR,
+            is_dynamic=False,
+        )
+        linear = IntxObservedLinear(4, 3, activation_config=activation_config)
+        linear.enable_calibration()
+        linear(torch.tensor([[-4.0, -1.0, 3.0, 6.0]]))
+
+        expected_min = torch.tensor(-4.0)
+        expected_max = torch.tensor(6.0)
+        local_min, local_max = linear.activation_observer.get_running_min_max()
+        torch.testing.assert_close(local_min, expected_min)
+        torch.testing.assert_close(local_max, expected_max)
+
+        uncalibrated = IntxObservedLinear(
+            4,
+            3,
+            activation_config=activation_config,
+        )
+        with self.assertRaisesRegex(ValueError, "No calibration data was collected"):
+            uncalibrated.activation_observer.get_running_min_max()
+
+        expected_min = torch.tensor(-8.0)
+        expected_max = torch.tensor(10.0)
+        with self.assertRaisesRegex(ValueError, "range shapes must match"):
+            linear.activation_observer.set_running_min_max(
+                torch.tensor([-8.0]), expected_max
+            )
+        with self.assertRaisesRegex(ValueError, "Calibration ranges must be finite"):
+            linear.activation_observer.set_running_min_max(
+                torch.tensor(float("nan")), expected_max
+            )
+        with self.assertRaisesRegex(ValueError, "conversion produced non-finite"):
+            linear.activation_observer.set_running_min_max(
+                torch.tensor(-torch.finfo(torch.float64).max, dtype=torch.float64),
+                torch.tensor(torch.finfo(torch.float64).max, dtype=torch.float64),
+            )
+        with self.assertRaisesRegex(ValueError, "minimum must not exceed"):
+            linear.activation_observer.set_running_min_max(
+                torch.tensor(11.0), expected_max
+            )
+        with self.assertWarnsRegex(UserWarning, "Converting calibration ranges"):
+            linear.activation_observer.set_running_min_max(
+                expected_min.to(torch.float64), expected_max.to(torch.float64)
+            )
+        self.assertEqual(linear.activation_observer.min_val.dtype, torch.float32)
+        self.assertEqual(linear.activation_observer.max_val.dtype, torch.float32)
+        source_min = expected_min.clone()
+        source_max = expected_max.clone()
+        linear.activation_observer.set_running_min_max(source_min, source_max)
+        source_min.fill_(-100.0)
+        source_max.fill_(100.0)
+        actual_min, actual_max = linear.activation_observer.get_running_min_max()
+        torch.testing.assert_close(actual_min, expected_min)
+        torch.testing.assert_close(actual_max, expected_max)
+
+    def test_intx_observer_range_exchange_per_group(self):
+        config = IntxFakeQuantizeConfig(
+            torch.int8,
+            PerGroup(2),
+            MappingType.SYMMETRIC,
+            is_dynamic=False,
+        )
+        linear = IntxObservedLinear(4, 2, activation_config=config)
+        linear.enable_calibration()
+        linear(torch.tensor([[-4.0, -1.0, 0.0, 2.0]]))
+
+        min_val, max_val = linear.activation_observer.get_running_min_max()
+        expected_min = torch.tensor([[-5.0, -1.0]])
+        expected_max = torch.tensor([[0.0, 3.0]])
+        linear.activation_observer.set_running_min_max(min_val - 1, max_val + 1)
+        actual_min, actual_max = linear.activation_observer.get_running_min_max()
+        torch.testing.assert_close(actual_min, expected_min)
+        torch.testing.assert_close(actual_max, expected_max)
+
     def test_intx_observed_linear_preserves_range_dtype(self):
         config = IntxFakeQuantizeConfig(
             torch.int16,
