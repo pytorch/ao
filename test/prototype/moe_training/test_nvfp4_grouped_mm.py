@@ -6,6 +6,7 @@
 
 import pytest
 import torch
+from torch._dynamo.testing import CompileCounterWithBackend
 from torch.nn import functional as F
 from torch.utils._triton import has_triton
 
@@ -227,6 +228,106 @@ def test_nvfp4_grouped_gemm_fwd_bwd(M, K, N, num_experts, kernel_preference):
     weight_grad_sqnr = compute_error(weight_ref.grad, weight.grad)
     assert weight_grad_sqnr >= min_weight_grad_sqnr, (
         f"Weight grad SQNR {weight_grad_sqnr} is below {min_weight_grad_sqnr}"
+    )
+
+
+@skip_if_rocm("ROCm not supported")
+@pytest.mark.skipif(not has_triton(), reason="unsupported without triton")
+@pytest.mark.skipif(not is_sm_at_least_100(), reason="Requires SM100+")
+@pytest.mark.skipif(
+    not torch_version_at_least("2.10.0"), reason="requires PyTorch 2.10+"
+)
+@pytest.mark.parametrize("kernel_preference", _KERNEL_PREFERENCES)
+def test_nvfp4_grouped_gemm_compile_fwd_bwd(kernel_preference):
+    """Compiles once under fullgraph=True and keeps eager numerics across jagged routings.
+
+    The invariant worth pinning is the frame count. Routing changes every step in
+    training, so `offs` holds different values on every call; if Dynamo ever starts
+    guarding on its contents rather than treating it as an opaque tensor input, this goes
+    from one compile to one per step -- a production perf cliff that numerics assertions
+    cannot see. Five steps with five fresh routings must still compile exactly one graph.
+
+    E = 4 is load-bearing. At E = 8 with M = 1024 and multiple_of = 128 there are exactly
+    8 candidate offsets and generate_jagged_offs must take 7 of the first 7, so `offs` is
+    forced to [128, 256, ..., 1024] -- uniform, identical every call, and no test of the
+    jagged path at all. E = 4 draws 3 of 7 and actually varies.
+
+    Scope limit: _to_nvfp4_rht_rs_then_scaled_grouped_mm carries @conditional_nostrict_trace,
+    so Dynamo captures the whole call as one opaque invoke_leaf_function node and never
+    traces into _NVFP4GroupedMM's forward or backward. fullgraph=True therefore guards the
+    call boundary -- argument flattening, the sign_vector/KernelPreference constants,
+    autograd wiring around the leaf -- not the bodies. Backward runs eager over a compiled
+    forward.
+
+    SQNR bounds are the ones test_nvfp4_grouped_gemm_fwd_bwd justifies; this asserts
+    compile does not move them, not what they should be."""
+    torch.manual_seed(42)
+    M = K = N = 1024
+    num_experts = 4
+    sign_vector = tuple(1 if i % 2 == 0 else -1 for i in range(16))
+    sr_seed = torch.tensor([1234], dtype=torch.int64, device="cuda")
+
+    x = torch.randn(M, K, dtype=torch.bfloat16, device="cuda", requires_grad=True)
+    weight = torch.randn(
+        num_experts, N, K, dtype=torch.bfloat16, device="cuda", requires_grad=True
+    )
+    x_ref = x.detach().clone().requires_grad_(True)
+    weight_ref = weight.detach().clone().requires_grad_(True)
+
+    def grouped_mm(a, b, o):
+        return _to_nvfp4_rht_rs_then_scaled_grouped_mm(
+            a,
+            b,
+            sign_vector,
+            sr_seed,
+            offs=o,
+            pad_token_groups_for_grouped_mm=False,
+            kernel_preference=kernel_preference,
+        )
+
+    # reset() so the frame count below reflects this parametrization alone -- Dynamo's
+    # code cache is global and the three kernel_preference cases share a code object.
+    torch._dynamo.reset()
+    counter = CompileCounterWithBackend("inductor")
+    compiled = torch.compile(grouped_mm, fullgraph=True, backend=counter)
+
+    for step in range(5):
+        offs = generate_jagged_offs(num_experts, M, multiple_of=128, dtype=torch.int32)
+        for t in (x, weight, x_ref, weight_ref):
+            t.grad = None
+
+        out_ref = torch._grouped_mm(
+            x_ref,
+            weight_ref.transpose(-2, -1),
+            offs=offs.clone(),
+            out_dtype=torch.bfloat16,
+        )
+        out = compiled(x, weight, offs)
+
+        assert out.shape == out_ref.shape == (M, N)
+        assert torch.isfinite(out).all()
+        output_sqnr = compute_error(out_ref, out)
+        assert output_sqnr >= 15.0, (
+            f"step {step} offs {offs.tolist()}: output SQNR {output_sqnr} is below 15.0"
+        )
+
+        labels = torch.ones_like(out_ref)
+        F.mse_loss(out_ref, labels).backward()
+        F.mse_loss(out, labels).backward()
+
+        input_grad_sqnr = compute_error(x_ref.grad, x.grad)
+        assert input_grad_sqnr >= 14.0, (
+            f"step {step} offs {offs.tolist()}: input grad SQNR {input_grad_sqnr} "
+            "is below 14.0"
+        )
+        weight_grad_sqnr = compute_error(weight_ref.grad, weight.grad)
+        assert weight_grad_sqnr >= 12.0, (
+            f"step {step} offs {offs.tolist()}: weight grad SQNR {weight_grad_sqnr} "
+            "is below 12.0"
+        )
+
+    assert counter.frame_count == 1, (
+        f"expected one compiled graph across 5 routings, got {counter.frame_count}"
     )
 
 
