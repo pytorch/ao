@@ -1931,6 +1931,162 @@ class TestQAT(TestCase):
         baseline_out = baseline_model(*x2)
         torch.testing.assert_close(out, baseline_out, atol=0, rtol=0)
 
+    def test_static_a16w4_qat_workflow(self):
+        activation_config = IntxFakeQuantizeConfig(
+            torch.int16,
+            PerTensor(),
+            MappingType.SYMMETRIC_NO_CLIPPING_ERR,
+            is_dynamic=False,
+        )
+        weight_config = IntxFakeQuantizeConfig(
+            torch.int4,
+            PerGroup(2),
+            MappingType.SYMMETRIC_NO_CLIPPING_ERR,
+        )
+
+        def prepare_model():
+            model = torch.nn.Sequential(
+                torch.nn.Linear(4, 4),
+                torch.nn.ReLU(),
+                torch.nn.Linear(4, 2),
+            )
+            quantize_(
+                model,
+                IntxObservedLinearConfig(
+                    activation_config,
+                    weight_config,
+                ),
+            )
+            return model
+
+        torch.manual_seed(self.SEED)
+        model = prepare_model()
+        observed_linears = [
+            module
+            for module in model.modules()
+            if isinstance(module, IntxObservedLinear)
+        ]
+        module_ids = [id(module) for module in observed_linears]
+        parameter_ids = [
+            (id(module.weight), id(module.bias)) for module in observed_linears
+        ]
+        for module in observed_linears:
+            module.enable_calibration()
+
+        calibration_inputs = [torch.randn(2, 4), torch.randn(2, 4)]
+        with torch.no_grad():
+            for x in calibration_inputs:
+                model(x)
+        for module in observed_linears:
+            module.finalize_calibration()
+
+        activation_scales = [
+            module.activation_fake_quantizer.scale.clone()
+            for module in observed_linears
+        ]
+
+        reference_linear = FakeQuantizedLinear(
+            4,
+            4,
+            bias=True,
+            activation_config=activation_config,
+            weight_config=weight_config,
+        )
+        reference_linear.load_state_dict(
+            copy.deepcopy(observed_linears[0].state_dict())
+        )
+        observed_input = torch.randn(2, 4, requires_grad=True)
+        reference_input = observed_input.detach().clone().requires_grad_()
+        observed_output = observed_linears[0](observed_input)
+        reference_output = reference_linear(reference_input)
+        output_gradient = torch.randn_like(observed_output)
+        observed_output.backward(output_gradient)
+        reference_output.backward(output_gradient)
+        torch.testing.assert_close(observed_output, reference_output, atol=0, rtol=0)
+        torch.testing.assert_close(
+            observed_input.grad, reference_input.grad, atol=0, rtol=0
+        )
+        torch.testing.assert_close(
+            observed_linears[0].weight.grad,
+            reference_linear.weight.grad,
+            atol=0,
+            rtol=0,
+        )
+        torch.testing.assert_close(
+            observed_linears[0].bias.grad,
+            reference_linear.bias.grad,
+            atol=0,
+            rtol=0,
+        )
+        observed_linears[0].zero_grad(set_to_none=True)
+
+        weight_before = observed_linears[0].weight.detach().clone()
+        optimizer = torch.optim.SGD(model.parameters(), lr=0.1, foreach=True)
+        loss = model(torch.randn(2, 4)).square().mean()
+        loss.backward()
+        optimizer.step()
+
+        self.assertFalse(torch.equal(observed_linears[0].weight, weight_before))
+        for module, scale in zip(observed_linears, activation_scales):
+            torch.testing.assert_close(
+                module.activation_fake_quantizer.scale, scale, atol=0, rtol=0
+            )
+
+        for module in observed_linears:
+            module.enable_calibration()
+        recalibration_inputs = [x * 16 for x in calibration_inputs]
+        with torch.no_grad():
+            for x in recalibration_inputs:
+                model(x)
+        for module in observed_linears:
+            module.finalize_calibration()
+
+        expected_min = torch.stack([x.min() for x in recalibration_inputs]).min()
+        expected_max = torch.stack([x.max() for x in recalibration_inputs]).max()
+        recalibrated_min, recalibrated_max = observed_linears[
+            0
+        ].activation_observer.get_running_min_max()
+        torch.testing.assert_close(recalibrated_min, expected_min, atol=0, rtol=0)
+        torch.testing.assert_close(recalibrated_max, expected_max, atol=0, rtol=0)
+        self.assertFalse(
+            torch.equal(
+                observed_linears[0].activation_fake_quantizer.scale,
+                activation_scales[0],
+            )
+        )
+        self.assertEqual([id(module) for module in observed_linears], module_ids)
+        self.assertEqual(
+            [(id(module.weight), id(module.bias)) for module in observed_linears],
+            parameter_ids,
+        )
+
+        state_dict = copy.deepcopy(model.state_dict())
+        self.assertFalse(any("activation_observer" in key for key in state_dict))
+        torch.manual_seed(self.SEED)
+        restored = prepare_model()
+        restored.load_state_dict(state_dict)
+        x = torch.randn(2, 4)
+        torch.testing.assert_close(restored(x), model(x), atol=0, rtol=0)
+
+        restored_linears = [
+            module
+            for module in restored.modules()
+            if isinstance(module, IntxObservedLinear)
+        ]
+        for module, restored_module in zip(observed_linears, restored_linears):
+            torch.testing.assert_close(
+                restored_module.activation_fake_quantizer.scale,
+                module.activation_fake_quantizer.scale,
+                atol=0,
+                rtol=0,
+            )
+
+        restored.to(dtype=torch.float64)
+        for module in restored_linears:
+            self.assertEqual(
+                module.activation_fake_quantizer.scale.dtype, torch.float64
+            )
+
     def test_quantize_api_errors(self):
         """
         Test that we throw exceptions with helpful error messages if `quantize_`

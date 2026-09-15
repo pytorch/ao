@@ -135,6 +135,68 @@ train_loop(model)
 # convert: (not shown, same as before)
 ```
 
+Static per-tensor activations require calibration before training. The following
+prototype workflow keeps activation fake quantization bypassed while each observed
+linear collects ranges. Weight fake quantization remains enabled during these passes.
+
+```python
+import torch
+
+from torchao.prototype.quantization import (
+    IntxObservedLinear,
+    IntxObservedLinearConfig,
+)
+from torchao.quantization import quantize_
+from torchao.quantization.granularity import PerGroup, PerTensor
+from torchao.quantization.qat import IntxFakeQuantizeConfig
+from torchao.quantization.quant_primitives import MappingType
+
+activation_config = IntxFakeQuantizeConfig(
+    torch.int16,
+    PerTensor(),
+    MappingType.SYMMETRIC_NO_CLIPPING_ERR,
+    is_dynamic=False,
+)
+
+weight_config = IntxFakeQuantizeConfig(
+    torch.int4,
+    PerGroup(32),
+    MappingType.SYMMETRIC_NO_CLIPPING_ERR,
+)
+quantize_(
+    model,
+    IntxObservedLinearConfig(
+        activation_config,
+        weight_config,
+    ),
+)
+
+observed_linears = [
+    module for module in model.modules() if isinstance(module, IntxObservedLinear)
+]
+for module in observed_linears:
+    module.enable_calibration()
+
+with torch.no_grad():
+    for batch in calibration_data:
+        model(batch)
+
+for module in observed_linears:
+    observer = module.activation_observer
+    min_val, max_val = observer.get_running_min_max()
+    # The training application can reduce these values across workers here.
+    observer.set_running_min_max(min_val, max_val)
+    module.finalize_calibration()
+
+train_loop(model)
+```
+
+To recalibrate, repeat the same enable, data-forward, range-exchange, and
+finalize sequence. Calling `enable_calibration()` resets the previously collected
+ranges. Calling `finalize_calibration()` replaces the fixed activation qparams. The
+training application controls when to repeat this sequence and any distributed
+reduction.
+
 To fake quantize embedding in addition to linear, you can additionally call
 the following with a filter function during the prepare step:
 
