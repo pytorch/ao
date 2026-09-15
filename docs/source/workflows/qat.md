@@ -191,6 +191,20 @@ for module in observed_linears:
 train_loop(model)
 ```
 
+For asymmetric A16, replace `activation_config` above with the following
+configuration. The INT32 carrier contains a logical UINT16 range.
+
+```python
+activation_config = IntxFakeQuantizeConfig(
+    torch.int32,
+    PerTensor(),
+    MappingType.ASYMMETRIC,
+    is_dynamic=False,
+    quant_min=0,
+    quant_max=2**16 - 1,
+)
+```
+
 To recalibrate, repeat the same enable, data-forward, range-exchange, and
 finalize sequence. Calling `enable_calibration()` resets the previously collected
 ranges. Calling `finalize_calibration()` replaces the fixed activation qparams. The
