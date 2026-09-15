@@ -142,12 +142,19 @@ class ConfigJSONEncoder(json.JSONEncoder):
             and hasattr(o, "value")
             and isinstance(getattr(type(o), "__members__", None), dict)
         ):
+            import torch.nn.functional as F
+
             mod = getattr(type(o), "__module__", "")
             name = type(o).__name__
             if mod == "torch.nn.functional":
-                enum_begin_underscore = ["_SwizzleType"]
-                if name in enum_begin_underscore:
-                    name = name.lstrip("_")
+                enum_begin_underscore_map = {"_SwizzleType": "SwizzleType"}
+                public = enum_begin_underscore_map[name]
+                if (
+                    name in enum_begin_underscore_map
+                    and hasattr(F, public)
+                    and getattr(F, public) is type(o)
+                ):
+                    name = public
             return {"_type": f"{mod}.{name}", "_data": o.name}
 
         if isinstance(o, torch.dtype):
@@ -273,11 +280,11 @@ def config_from_dict(data: Dict[str, Any]) -> AOBaseConfig:
 
     # Handle the case where obj_data is not a dictionary
     if not isinstance(obj_data, dict):
-        if issubclass(cls, enum.Enum) or isinstance(
-            getattr(cls, "__members__", None), dict
-        ):
+        if issubclass(cls, enum.Enum):
             # For enums, convert string to enum value
             return getattr(cls, obj_data)
+        elif isinstance(getattr(cls, "__members__", None), dict):
+            return getattr(cls, "__members__", None)[obj_data]
         else:
             # For other primitive types, create an instance with the value
             try:
