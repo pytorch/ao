@@ -4,6 +4,7 @@
 # This source code is licensed under the license found in the
 # LICENSE file in the root directory of this source tree.
 
+import warnings
 from dataclasses import dataclass
 from typing import Optional
 
@@ -86,6 +87,52 @@ class IntxMinMaxObserver(AffineQuantizedMinMaxObserver):
         for name in ("min_val", "max_val"):
             if hasattr(self, name):
                 delattr(self, name)
+
+    def get_running_min_max(self) -> tuple[torch.Tensor, torch.Tensor]:
+        """Return copies of the collected calibration range."""
+        if not hasattr(self, "min_val") or not hasattr(self, "max_val"):
+            raise ValueError("No calibration data was collected")
+        return self.min_val.clone(), self.max_val.clone()
+
+    def set_running_min_max(
+        self,
+        min_val: torch.Tensor,
+        max_val: torch.Tensor,
+    ) -> None:
+        """Replace the collected calibration range."""
+        if not hasattr(self, "min_val") or not hasattr(self, "max_val"):
+            raise ValueError("No calibration data was collected")
+        if min_val.shape != self.min_val.shape or max_val.shape != self.max_val.shape:
+            raise ValueError("Calibration range shapes must match collected ranges")
+        requires_conversion = (
+            min_val.device != self.min_val.device
+            or max_val.device != self.max_val.device
+            or min_val.dtype != self.min_val.dtype
+            or max_val.dtype != self.max_val.dtype
+        )
+        min_val = min_val.detach()
+        max_val = max_val.detach()
+        if (
+            not torch.isfinite(min_val).all().item()
+            or not torch.isfinite(max_val).all().item()
+        ):
+            raise ValueError("Calibration ranges must be finite")
+        min_val = min_val.to(self.min_val)
+        max_val = max_val.to(self.max_val)
+        if (
+            not torch.isfinite(min_val).all().item()
+            or not torch.isfinite(max_val).all().item()
+        ):
+            raise ValueError("Calibration range conversion produced non-finite values")
+        if torch.any(min_val > max_val).item():
+            raise ValueError("Calibration minimum must not exceed the maximum")
+        if requires_conversion:
+            warnings.warn(
+                "Converting calibration ranges to match the collected ranges",
+                stacklevel=2,
+            )
+        self.min_val.copy_(min_val)
+        self.max_val.copy_(max_val)
 
 
 class IntxObservedLinear(FakeQuantizedLinear):
