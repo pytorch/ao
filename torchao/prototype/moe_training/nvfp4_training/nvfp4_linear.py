@@ -135,10 +135,11 @@ class nvfp4_matmul(torch.autograd.Function):
     the 2D weight quantize. The name carried ``_triton`` while this was the
     only path -- it dispatches both now, so do not read it as triton-only.
 
-    3 GEMMs:
-      forward:   x_row @ W.T  = output          (RHT rowwise + 2D weight)
-      backward:  dy_sr @ W.T  = grad_input      (SR rowwise + 2D weight)
-      backward:  dy_col.T @ x_col = grad_weight (col RHT + SR for dy; saved col for x)
+    3 GEMMs -- each operand as (orientation, transform, rounding, name):
+      forward:   x_row @ W.T      = output      (rowwise x; rowwise 2D-quantized W) -- no RHT or SR
+      saved:     x_col, Wt                      (colwise RHT x; colwise 2D-quantized W, no RHT)
+      backward:  dy_row @ Wt.T    = grad_input  (rowwise SR dy; saved colwise W, no SR)
+      backward:  dy_col.T @ x_col = grad_weight (colwise RHT SR dy; saved colwise RHT x, no SR)
 
     Requires: bfloat16 input, M % 128 == 0, K % 128 == 0, N % 128 == 0.
     Saves only FP4 codes+scales for backward (memory efficient vs full-precision activations).
@@ -260,7 +261,7 @@ class nvfp4_matmul(torch.autograd.Function):
         )
 
         # -----------------------------------------------------------
-        # GEMM 2: dy_sr @ W.T → grad_input  (SR rowwise; saved colwise W)
+        # GEMM 2: dy_row @ Wt.T → grad_input  (rowwise SR dy; saved colwise W, no SR)
         # -----------------------------------------------------------
         dy_bs = dy_row_sf.flatten()
         Wt_bs = Wt_sf.flatten()
@@ -280,7 +281,7 @@ class nvfp4_matmul(torch.autograd.Function):
         grad_input = grad_input.reshape(ctx.input_orig_shape)
 
         # -----------------------------------------------------------
-        # GEMM 3: dy_col.T @ x_col → grad_weight  (col RHT + SR)
+        # GEMM 3: dy_col.T @ x_col → grad_weight  (colwise RHT SR dy; saved colwise RHT x, no SR)
         # -----------------------------------------------------------
         dy_row_amax_w = per_tensor_amax_to_scale(dy_col_amax)
         x_gs_w = per_tensor_amax_to_scale(x_col_amax)
