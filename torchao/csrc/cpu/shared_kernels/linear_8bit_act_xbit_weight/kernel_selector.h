@@ -141,13 +141,9 @@ void register_ukernel_config_universal(
 
 #if defined(TORCHAO_ENABLE_ARM_NEON_DOT)
     if (cpuinfo_has_arm_neon_dot()) {
-      if constexpr (weight_nbit == 3) {
-        log_registration(
-            format,
-            "universal: kernel_1x8x16_f32_neondot, kernel_8x8x16_f32_neondot");
-      } else {
-        log_registration(format, "universal: kernel_1x8x16_f32_neondot");
-      }
+      log_registration(
+          format,
+          "universal: kernel_1x8x16_f32_neondot, kernel_8x8x16_f32_neondot");
 
       if (format.has_weight_zeros) {
         constexpr bool has_weight_zeros = true;
@@ -161,21 +157,16 @@ void register_ukernel_config_universal(
                  weight_nbit,
                  has_weight_zeros,
                  has_lut>});
-        if constexpr (weight_nbit == 3) {
-          constexpr int large_prefill_mr = 8;
-          constexpr int large_prefill_m_step = 8;
-          uk.linear_configs[1] = UKernelConfig::linear_config_type(
-              {large_prefill_m_step,
-               large_prefill_mr,
-               &kernel::packed_activations_size,
-               &kernel::packed_activations_offset,
-               &kernel::pack_activations_interleaved<
-                   large_prefill_mr,
-                   kr,
-                   sr>,
-               &kernel::
-                   kernel_8x8x16_f32_neondot<weight_nbit, has_weight_zeros>});
-        }
+        constexpr int large_prefill_mr = 8;
+        constexpr int large_prefill_m_step = 8;
+        uk.linear_configs[1] = UKernelConfig::linear_config_type(
+            {large_prefill_m_step,
+             large_prefill_mr,
+             &kernel::packed_activations_size,
+             &kernel::packed_activations_offset,
+             &kernel::pack_activations_interleaved<large_prefill_mr, kr, sr>,
+             &kernel::
+                 kernel_8x8x16_f32_neondot<weight_nbit, has_weight_zeros>});
       } else {
         constexpr bool has_weight_zeros = false;
         if constexpr (weight_nbit == 3) {
@@ -203,21 +194,16 @@ void register_ukernel_config_universal(
                    has_weight_zeros,
                    has_lut>});
         }
-        if constexpr (weight_nbit == 3) {
-          constexpr int large_prefill_mr = 8;
-          constexpr int large_prefill_m_step = 8;
-          uk.linear_configs[1] = UKernelConfig::linear_config_type(
-              {large_prefill_m_step,
-               large_prefill_mr,
-               &kernel::packed_activations_size,
-               &kernel::packed_activations_offset,
-               &kernel::pack_activations_interleaved<
-                   large_prefill_mr,
-                   kr,
-                   sr>,
-               &kernel::
-                   kernel_8x8x16_f32_neondot<weight_nbit, has_weight_zeros>});
-        }
+        constexpr int large_prefill_mr = 8;
+        constexpr int large_prefill_m_step = 8;
+        uk.linear_configs[1] = UKernelConfig::linear_config_type(
+            {large_prefill_m_step,
+             large_prefill_mr,
+             &kernel::packed_activations_size,
+             &kernel::packed_activations_offset,
+             &kernel::pack_activations_interleaved<large_prefill_mr, kr, sr>,
+             &kernel::
+                 kernel_8x8x16_f32_neondot<weight_nbit, has_weight_zeros>});
       }
 
       table.register_ukernel_config(format, uarch, std::move(uk));

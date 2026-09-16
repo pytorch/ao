@@ -213,7 +213,7 @@ void linear_operator(
         /*target_tiles_per_thread=*/5);
     mc = params.mc;
     nc = params.nc;
-    if (uk.weight_nbit == 3 && linear_config.mr == 8 && m >= 16) {
+    if (linear_config.mr == 8 && m >= 16) {
       constexpr int max_prefill_mc = 1024;
       mc = std::min(m, max_prefill_mc);
       parallel_pack_activations = torchao::get_num_threads() > 1 && m >= 64;
