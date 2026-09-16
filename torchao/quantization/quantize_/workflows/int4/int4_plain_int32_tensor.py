@@ -95,13 +95,8 @@ class Int4PlainInt32Tensor(TorchAOBaseTensor):
     def dequantize(self, output_dtype: Optional[torch.dtype] = None) -> torch.Tensor:
         """Dequantize the int4 packed weight back to high-precision dtype.
 
-        Uses the existing _weight_int4pack_mm_with_scales_and_zeros kernel
-        with an identity matrix to recover the original weight values.
-
-        Handles logically transposed tensors: qdata/scale/zero_point are always
-        stored in the original [N, K/8] / [K/gs, N] layout. If the logical shape
-        has been transposed (detected via block_size), the dequantized result is
-        transposed to match.
+        Reconstructs the logical weight by running the packed INT4 kernel against
+        an identity matrix. The packed storage itself stays in its original layout.
         """
         if self.device.type != "xpu":
             raise NotImplementedError(
@@ -113,24 +108,17 @@ class Int4PlainInt32Tensor(TorchAOBaseTensor):
             output_dtype = self.dtype
 
         if self.ndim >= 3:
-            # Detect if logically transposed: original block_size is [1, 1, gs],
-            # after transpose(-2,-1) it becomes [1, gs, 1].
-            # Transposed means the group_size is NOT in the last position.
+            # Logical transpose swaps the non-unit block dimension away from the tail.
             is_transposed = self.block_size[-1] == 1 and any(
                 b != 1 for b in self.block_size[:-1]
             )
 
-            # Dequantize each 2D expert slice in its stored orientation
+            # Expert slices keep their packed layout, so materialize them one by one.
             E = self.qdata.shape[0]
-            # Find the actual group_size (the non-1 value in block_size)
             group_size = self._group_size()
 
             slices = []
             for i in range(E):
-                # qdata[i] is in original [N, K/8] packed format
-                # scale[i] is in [K/gs, N] format
-                # We need the original 2D shape [N, K] for the identity trick
-                # N = self.shape[-2] if not transposed, self.shape[-1] if transposed
                 if is_transposed:
                     orig_N = self.shape[-1]
                     orig_K = self.shape[-2]
@@ -142,22 +130,16 @@ class Int4PlainInt32Tensor(TorchAOBaseTensor):
                 result = torch.ops.aten._weight_int4pack_mm_with_scales_and_zeros(
                     identity, self.qdata[i], group_size, self.scale[i], self.zero_point[i]
                 )
-                # result is [K, N_padded], trim to [K, N]
                 result = result[:, :orig_N]
-                # result is [K, N], transpose to get [N, K]
                 slices.append(result.transpose(0, 1).contiguous().to(output_dtype))
 
-            # Stack: [E, N, K] (original orientation)
             stacked = torch.stack(slices, dim=0)
 
-            # If logically transposed, transpose last two dims to match self.shape
             if is_transposed:
                 stacked = stacked.transpose(-2, -1).contiguous()
 
             return stacked
 
-        # 2D case: use the matmul kernel with identity matrix
-        # Find group_size from block_size
         group_size = self._group_size()
         K = self.shape[1]
         N = self.shape[0]
@@ -166,9 +148,7 @@ class Int4PlainInt32Tensor(TorchAOBaseTensor):
         result = torch.ops.aten._weight_int4pack_mm_with_scales_and_zeros(
             identity, self.qdata, group_size, self.scale, self.zero_point
         )
-        # Trim to original output features (may have been padded)
         result = result[:, :N]
-        # result is [K, N], transpose to get [N, K]
         return result.transpose(0, 1).contiguous().to(output_dtype)
 
     @classmethod
@@ -201,7 +181,7 @@ def _from_hp_xpu(
     )
 
     if w.ndim >= 3:
-        # Quantize each 2D slice independently and stack
+        # Keep expert slices independently packed so expert selection stays cheap.
         results = [_from_hp_xpu_2d(cls, w[i], block_size[1:]) for i in range(w.shape[0])]
         qdata = torch.stack([r.qdata for r in results], dim=0)
         scale = torch.stack([r.scale for r in results], dim=0)
@@ -504,26 +484,21 @@ def _(func, types, args, kwargs):
         f"Only transpose of last two dims is supported, got dims {dim0}, {dim1}"
     )
 
-    # For packed int4 tensors, we do NOT physically transpose qdata/scale/zero_point.
-    # The packed format from _convert_weight_to_int4pack is not meaningfully transposable.
-    # We only update shape and block_size to reflect the logical transpose.
-    # dequantize() and grouped_mm know to handle the stored layout correctly.
+    # Packed buffers are layout-specific, so transpose only the logical metadata.
 
-    # Update block_size by swapping the dimensions
     block_size = self.block_size.copy()
     ndim = len(block_size)
     d0 = dim0 % ndim
     d1 = dim1 % ndim
     block_size[d0], block_size[d1] = block_size[d1], block_size[d0]
 
-    # Update shape by swapping the dimensions
     new_shape = list(self.shape)
     new_shape[d0], new_shape[d1] = new_shape[d1], new_shape[d0]
 
     new = Int4PlainInt32Tensor(
-        self.qdata,       # NOT transposed — packed format is layout-specific
-        self.scale,       # NOT transposed — stays in [E, K/gs, N] layout
-        self.zero_point,  # NOT transposed — stays in [E, K/gs, N] layout
+        self.qdata,
+        self.scale,
+        self.zero_point,
         block_size,
         new_shape,
         act_pre_scale=self.act_pre_scale,
@@ -535,8 +510,7 @@ def _(func, types, args, kwargs):
 def _(func, types, args, kwargs):
     """Select along the expert dimension for eager MoE dispatch.
 
-    Only dim=0 is supported for 3D expert stacks; this is the real MoE eager path.
-    Negative indices are normalized to their positive equivalent before slicing.
+    Expert stacks live on dim 0, so selection preserves the packed expert layout.
     """
     self, dim, index = args
 
@@ -684,6 +658,7 @@ def _(func, types, args, kwargs):
             expected_view_stride,
             expected_contiguous_transpose_stride,
         ):
+            # AOT may reconstruct a transpose-shaped alias; keep the packed buffers intact.
             block_size = self.block_size.copy()
             block_size[1], block_size[2] = block_size[2], block_size[1]
             new = Int4PlainInt32Tensor(
@@ -709,8 +684,8 @@ def _(func, types, args, kwargs):
 def _(func, types, args, kwargs):
     """Handles torch._grouped_mm when weight (mat_b) is an Int4PlainInt32Tensor.
 
-    Decomposes the grouped matmul into per-expert matmuls using the existing
-    int4 kernel (_weight_int4pack_mm_with_scales_and_zeros on XPU).
+    This keeps legacy grouped_mm call sites working by dequantizing the packed
+    weight and running a per-expert tensor fallback. It is not a fused INT4 kernel.
 
     The calling convention is:
         torch._grouped_mm(mat_a, weight.transpose(-2, -1), offs=offs)
@@ -727,33 +702,8 @@ def _(func, types, args, kwargs):
             f"Got device '{mat_b.device.type}'."
         )
 
-    # Dequantize and run a trace-friendly fallback that avoids aten._grouped_mm
-    # meta restrictions (grouped GEMM checks are CUDA/cuBLASLt-specific).
+    # Dequantize once, then execute each expert segment with regular matmul.
     return _grouped_mm_tensor_fallback(mat_a, mat_b.dequantize(), offs)
-
-
-if hasattr(torch.ops, "transformers") and hasattr(torch.ops.transformers, "grouped_mm_fallback"):
-
-    @implements([torch.ops.transformers.grouped_mm_fallback.default])
-    def _(func, types, args, kwargs):
-        """Handles transformers.grouped_mm_fallback with Int4PlainInt32Tensor weights.
-
-        Transformers can call this op on backends without a native grouped_mm kernel.
-        We dequantize Int4 weights and delegate to torch._grouped_mm.
-        """
-        mat_a, mat_b = args[0], args[1]
-        offs = args[2] if len(args) > 2 else kwargs.get("offs", None)
-        assert isinstance(mat_b, Int4PlainInt32Tensor)
-        assert offs is not None, "offs is required for transformers.grouped_mm_fallback"
-        if mat_b.device.type != "xpu":
-            raise NotImplementedError(
-                "Int4PlainInt32Tensor grouped_mm fallback currently supports only XPU. "
-                f"Got device '{mat_b.device.type}'."
-            )
-
-        # Dequantize and run a trace-friendly fallback that avoids aten._grouped_mm
-        # meta restrictions (grouped GEMM checks are CUDA/cuBLASLt-specific).
-        return _grouped_mm_tensor_fallback(mat_a, mat_b.dequantize(), offs)
 
 
 def _grouped_mm_tensor_fallback(
@@ -797,7 +747,7 @@ def _grouped_mm_tensor_fallback(
             f"Expected offs length to match number of experts ({num_experts}), got {offs.numel()}"
         )
 
-    # Keep indexing metadata on the same device as mat_a/mat_b to avoid cross-device failures.
+    # Keep the routing metadata on the same device as the operands.
     offs = offs.to(device=mat_a.device, dtype=torch.int64)
 
     if offs.numel() > 0:
@@ -817,7 +767,7 @@ def _grouped_mm_tensor_fallback(
     if total_m == 0:
         return mat_a.new_empty((0, mat_b.shape[-1]))
 
-    # Segment-wise execution avoids allocating a large [total_m, K, N] gathered-weight tensor.
+    # Segment-wise execution avoids materializing a full gathered weight tensor.
     out = mat_a.new_empty((total_m, mat_b.shape[-1]))
     start = 0
     for expert_idx in range(num_experts):
@@ -842,12 +792,8 @@ def _grouped_mm_tensor_fallback(
 def _(func, types, args, kwargs):
     """Handles torch.bmm when one operand is an Int4PlainInt32Tensor.
 
-    Used by the MoE batched_linear path:
-        torch.bmm(weight, input.unsqueeze(-1))  — weight is [S, N, K] Int4
-    or:
-        torch.bmm(input.unsqueeze(1), weight)   — weight is [S, K, N] Int4
-
-    Falls back to dequantizing the Int4 tensor and calling native bmm.
+    This is the generic fallback for batched expert-style matmuls when a packed
+    INT4 operand reaches bmm instead of linear.
     """
     a, b = args[0], args[1]
     if isinstance(a, Int4PlainInt32Tensor):
