@@ -39,12 +39,75 @@ from torchao.testing._mxfp8_test_utils import (
     make_mxfp8_semantic_cases,
 )
 from torchao.utils import (
+    is_ROCM,
     is_sm_at_least_89,
     is_sm_at_least_90,
     torch_version_at_least,
 )
 
 torch.manual_seed(2)
+
+
+@pytest.mark.skipif(
+    not torch.accelerator.is_available(), reason="Accelerator not available"
+)
+@pytest.mark.parametrize(
+    "rows,width,dim",
+    [((128, 256), 128, 0), ((128, 256), 160, -2), ((127, 2, 129), 160, -2)],
+)
+@pytest.mark.parametrize("elem_dtype", SUPPORTED_ELEM_DTYPES)
+def test_cat(rows, width, dim, elem_dtype):
+    device = torch.accelerator.current_accelerator()
+    is_swizzled_scales = device.type == "cuda" and not is_ROCM()
+    inputs = [torch.randn(n, width, device=device, dtype=torch.bfloat16) for n in rows]
+    mx_inputs = [
+        MXTensor.to_mx(x, elem_dtype, is_swizzled_scales=is_swizzled_scales)
+        for x in inputs
+    ]
+    if is_swizzled_scales and any(n % 128 for n in rows):
+        with pytest.raises(NotImplementedError, match="128-row tiles"):
+            torch.cat(mx_inputs, dim=dim)
+        return
+    result = torch.cat(mx_inputs, dim=dim)
+    expected = MXTensor.to_mx(
+        torch.cat(inputs),
+        elem_dtype,
+        is_swizzled_scales=is_swizzled_scales,
+    )
+    assert isinstance(result, MXTensor)
+    assert result.shape == expected.shape
+    assert result.is_swizzled_scales == is_swizzled_scales
+    torch.testing.assert_close(
+        result.dequantize(), expected.dequantize(), rtol=0, atol=0
+    )
+    # Cat preserves the quantized representation, not just dequantized values.
+    for field in ("qdata", "scale"):
+        assert torch.equal(
+            getattr(result, field).view(torch.uint8),
+            getattr(expected, field).view(torch.uint8),
+        )
+
+
+@pytest.mark.skipif(
+    not torch.accelerator.is_available(), reason="Accelerator not available"
+)
+@pytest.mark.parametrize("elem_dtype", SUPPORTED_ELEM_DTYPES)
+def test_cat_rejects_incompatible_weights(elem_dtype):
+    device = torch.accelerator.current_accelerator()
+    is_swizzled_scales = device.type == "cuda" and not is_ROCM()
+    first, second = [
+        MXTensor.to_mx(
+            torch.randn(rows, 32, device=device, dtype=torch.bfloat16),
+            elem_dtype,
+            is_swizzled_scales=is_swizzled_scales,
+        )
+        for rows in (128, 128)
+    ]
+    second.orig_dtype = torch.float32
+    with pytest.raises(ValueError, match="matching quantization metadata"):
+        torch.cat([first, second])
+    with pytest.raises(NotImplementedError, match="contiguous qdata"):
+        torch.cat([first.t(), first.t()])
 
 
 def test_f32_to_e8m0_rceil():

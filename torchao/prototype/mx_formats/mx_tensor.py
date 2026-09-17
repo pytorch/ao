@@ -931,6 +931,69 @@ def mx_slice(func, types, args, kwargs):
     )
 
 
+@implements([aten.cat.default])
+def mx_cat(func, types, args, kwargs):
+    tensors = args[0]
+    dim = args[1] if len(args) > 1 else kwargs.get("dim", 0)
+    # An empty list cannot dispatch to MXTensor. Reject mixed subclasses before
+    # accessing their quantization metadata.
+    if not all(isinstance(tensor, MXTensor) for tensor in tensors):
+        raise TypeError("MXTensor.cat expects only MXTensor inputs")
+    first = tensors[0]
+    if dim < -first.ndim or dim >= first.ndim:
+        raise IndexError(
+            f"Dimension out of range (expected to be in range of "
+            f"[{-first.ndim}, {first.ndim - 1}], but got {dim})"
+        )
+    if dim < 0:
+        dim += first.ndim
+    if first.ndim != 2 or dim != 0:
+        raise NotImplementedError("MXTensor only supports cat of 2D tensors at dim=0")
+    metadata = (
+        first.elem_dtype,
+        first.block_size,
+        first.orig_dtype,
+        first.kernel_preference,
+        first.act_quant_kwargs,
+        first.is_swizzled_scales,
+    )
+    for tensor in tensors:
+        tensor_metadata = (
+            tensor.elem_dtype,
+            tensor.block_size,
+            tensor.orig_dtype,
+            tensor.kernel_preference,
+            tensor.act_quant_kwargs,
+            tensor.is_swizzled_scales,
+        )
+        if tensor_metadata != metadata:
+            raise ValueError("MXTensor.cat requires matching quantization metadata")
+        if tensor.ndim != 2:
+            raise NotImplementedError("MXTensor.cat requires 2D tensors")
+        if not tensor.qdata.is_contiguous():
+            raise NotImplementedError("MXTensor.cat requires contiguous qdata")
+    if first.is_swizzled_scales and any(tensor.shape[0] % 128 for tensor in tensors):
+        raise NotImplementedError(
+            "MXTensor.cat requires swizzled scale inputs to align to 128-row tiles"
+        )
+
+    qdata = aten.cat.default([tensor.qdata for tensor in tensors], 0)
+    # Concatenate scale bytes: CUDA cat does not support every E8M0 layout.
+    # Aligned swizzled inputs already contain complete row tiles in order.
+    scale_bytes = [tensor.scale.view(torch.uint8) for tensor in tensors]
+    scale = aten.cat.default(scale_bytes, 0)
+    return MXTensor(
+        qdata,
+        scale.view(torch.float8_e8m0fnu),
+        first.elem_dtype,
+        first.block_size,
+        first.orig_dtype,
+        first.kernel_preference,
+        first.act_quant_kwargs,
+        first.is_swizzled_scales,
+    )
+
+
 @implements([aten.clone.default])
 def mx_clone(func, types, args, kwargs):
     self = args[0]
