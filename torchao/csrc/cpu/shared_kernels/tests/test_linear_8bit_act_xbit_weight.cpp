@@ -77,7 +77,7 @@ UKernelConfig get_ukernel_config() {
             kernel_1x8x16_f32_neondot<weight_nbit, has_weight_zeros, has_lut>};
   }
 
-  if constexpr (weight_nbit == 3 && !has_lut) {
+  if constexpr (!has_lut) {
     constexpr int large_prefill_mr = 8;
     constexpr int large_prefill_m_step = 8;
     uk.linear_configs[1] = UKernelConfig::linear_config_type{
@@ -548,6 +548,48 @@ TEST(test_linear_8bit_act_xbit_weight, ThreeBitPrefillAllOptions) {
       true /*has_bias*/,
       true /*has_clamp*/>(
       /*m=*/31, /*n=*/8 * 3 + 5, /*k=*/16 * 8, /*group_size=*/64);
+}
+
+TEST(test_linear_8bit_act_xbit_weight, ThreeBitParallelActivationPacking) {
+  test_linear_8bit_act_xbit_weight<
+      3 /*weight_nbit*/,
+      true /*has_weight_zeros*/,
+      true /*has_bias*/,
+      true /*has_clamp*/>(
+      /*m=*/65, /*n=*/8 * 3 + 5, /*k=*/16 * 8, /*group_size=*/64);
+  test_linear_8bit_act_xbit_weight<
+      3 /*weight_nbit*/,
+      true /*has_weight_zeros*/,
+      true /*has_bias*/,
+      true /*has_clamp*/>(
+      /*m=*/1025, /*n=*/8 * 3 + 5, /*k=*/16 * 8, /*group_size=*/64);
+}
+
+template <int weight_nbit>
+void test_prefill_for_bit_width() {
+  test_linear_8bit_act_xbit_weight<
+      weight_nbit,
+      false /*has_weight_zeros*/,
+      true /*has_bias*/,
+      true /*has_clamp*/>(
+      /*m=*/17, /*n=*/8 + 5, /*k=*/16 * 4, /*group_size=*/32);
+  test_linear_8bit_act_xbit_weight<
+      weight_nbit,
+      true /*has_weight_zeros*/,
+      true /*has_bias*/,
+      true /*has_clamp*/>(
+      /*m=*/17, /*n=*/8 + 5, /*k=*/16 * 4, /*group_size=*/32);
+}
+
+TEST(test_linear_8bit_act_xbit_weight, PrefillAllBitWidths) {
+  test_prefill_for_bit_width<1>();
+  test_prefill_for_bit_width<2>();
+  test_prefill_for_bit_width<3>();
+  test_prefill_for_bit_width<4>();
+  test_prefill_for_bit_width<5>();
+  test_prefill_for_bit_width<6>();
+  test_prefill_for_bit_width<7>();
+  test_prefill_for_bit_width<8>();
 }
 
 TEST(test_linear_8bit_act_xbit_weight, HasWeightZeros) {

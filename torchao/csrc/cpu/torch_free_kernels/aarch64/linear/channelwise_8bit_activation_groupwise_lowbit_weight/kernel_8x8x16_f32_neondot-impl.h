@@ -19,7 +19,6 @@ namespace internal {
 
 constexpr int kMr = 8;
 constexpr int kNr = 8;
-constexpr int kBytesPer128W3Values = 48;
 
 // Accumulator lanes represent four rows. Select four weight bytes at a time so
 // the same two output columns can be accumulated for all four rows.
@@ -91,53 +90,57 @@ inline void store_8_f32(
   }
 }
 
-template <int column_half, bool shift_weights_to_signed>
-TORCHAO_ALWAYS_INLINE inline void decode_4_cols_w3(
+template <int weight_nbit, int column_half, bool signed_weights>
+TORCHAO_ALWAYS_INLINE inline void decode_4_cols(
     int8x16_t& weights01_0,
     int8x16_t& weights01_1,
     int8x16_t& weights23_0,
     int8x16_t& weights23_1,
     const uint8_t* packed_weights) {
   static_assert(column_half == 0 || column_half == 1);
-  // An 8-column by 16-K W3 panel occupies 48 bytes. Decode either four-column
-  // half into the layout consumed by the lane dot-product instructions.
-  const uint8x16_t packed0 = vld1q_u8(packed_weights);
-  const uint8x16_t packed1 = vld1q_u8(packed_weights + 16);
-  const uint8x16_t packed2 = vld1q_u8(packed_weights + 32);
-  const uint8x16_t mask7 = vdupq_n_u8(7);
-
-  if constexpr (column_half == 0) {
-    weights01_0 = vreinterpretq_s8_u8(vandq_u8(vshrq_n_u8(packed0, 3), mask7));
-    weights01_1 = vreinterpretq_s8_u8(vandq_u8(vshrq_n_u8(packed2, 3), mask7));
-    weights23_0 = vreinterpretq_s8_u8(vandq_u8(packed0, mask7));
-    weights23_1 = vreinterpretq_s8_u8(vandq_u8(packed2, mask7));
+  constexpr int first = column_half * 2;
+  if constexpr (signed_weights) {
+    int8x16_t unpacked[8];
+    torchao::bitpacking::vec_unpack_128_lowbit_values<weight_nbit>(
+        unpacked[0],
+        unpacked[1],
+        unpacked[2],
+        unpacked[3],
+        unpacked[4],
+        unpacked[5],
+        unpacked[6],
+        unpacked[7],
+        packed_weights);
+    weights01_0 = unpacked[first];
+    weights01_1 = unpacked[first + 4];
+    weights23_0 = unpacked[first + 1];
+    weights23_1 = unpacked[first + 5];
   } else {
-    weights01_0 = vreinterpretq_s8_u8(vandq_u8(vshrq_n_u8(packed1, 3), mask7));
-    uint8x16_t weights45_1 = vandq_u8(vshrq_n_u8(packed2, 5), vdupq_n_u8(4));
-    weights45_1 = vorrq_u8(weights45_1, vshrq_n_u8(packed0, 6));
-    weights01_1 = vreinterpretq_s8_u8(weights45_1);
-    weights23_0 = vreinterpretq_s8_u8(vandq_u8(packed1, mask7));
-    uint8x16_t weights67_1 = vandq_u8(vshrq_n_u8(packed2, 4), vdupq_n_u8(4));
-    weights67_1 = vorrq_u8(weights67_1, vshrq_n_u8(packed1, 6));
-    weights23_1 = vreinterpretq_s8_u8(weights67_1);
-  }
-
-  if constexpr (shift_weights_to_signed) {
-    // Packed W3 codes are 0..7; symmetric weights use signed values -4..3.
-    const int8x16_t unshift = vdupq_n_s8(-4);
-    weights01_0 = vaddq_s8(weights01_0, unshift);
-    weights01_1 = vaddq_s8(weights01_1, unshift);
-    weights23_0 = vaddq_s8(weights23_0, unshift);
-    weights23_1 = vaddq_s8(weights23_1, unshift);
+    uint8x16_t unpacked[8];
+    torchao::bitpacking::vec_unpack_128_uintx_values<weight_nbit>(
+        unpacked[0],
+        unpacked[1],
+        unpacked[2],
+        unpacked[3],
+        unpacked[4],
+        unpacked[5],
+        unpacked[6],
+        unpacked[7],
+        packed_weights);
+    weights01_0 = vreinterpretq_s8_u8(unpacked[first]);
+    weights01_1 = vreinterpretq_s8_u8(unpacked[first + 4]);
+    weights23_0 = vreinterpretq_s8_u8(unpacked[first + 1]);
+    weights23_1 = vreinterpretq_s8_u8(unpacked[first + 5]);
   }
 }
 
 template <
+    int weight_nbit,
     int row_blocks,
     int column_blocks,
     int first_column_half,
-    bool shift_weights_to_signed>
-TORCHAO_ALWAYS_INLINE inline void dot_rows_cols_w3(
+    bool signed_weights>
+TORCHAO_ALWAYS_INLINE inline void dot_rows_cols(
     int32x4_t (&accumulators)[row_blocks][column_blocks * 4],
     const uint8_t* packed_weights,
     const char* const (&activation_ptrs)[(row_blocks + 1) / 2]) {
@@ -151,7 +154,7 @@ TORCHAO_ALWAYS_INLINE inline void dot_rows_cols_w3(
   int8x16_t weights23_0;
   int8x16_t weights23_1;
   if constexpr (column_blocks == 1) {
-    decode_4_cols_w3<first_column_half, shift_weights_to_signed>(
+    decode_4_cols<weight_nbit, first_column_half, signed_weights>(
         weights01_0,
         weights01_1,
         weights23_0,
@@ -191,7 +194,7 @@ TORCHAO_ALWAYS_INLINE inline void dot_rows_cols_w3(
       activations[block][3] = vld1q_s8(ptr + 48);
     }
 #define TORCHAO_DOT_COLUMN_BLOCK(COLUMN_BLOCK, COLUMN_HALF)          \
-  decode_4_cols_w3<COLUMN_HALF, shift_weights_to_signed>(           \
+  decode_4_cols<weight_nbit, COLUMN_HALF, signed_weights>(          \
       weights01_0,                                                   \
       weights01_1,                                                   \
       weights23_0,                                                   \
@@ -300,7 +303,11 @@ struct WeightGroupMetadata {
   int32x4_t zeros[column_blocks];
 };
 
-template <int column_blocks, int column_offset, bool has_weight_zeros>
+template <
+    int weight_nbit,
+    int column_blocks,
+    int column_offset,
+    bool has_weight_zeros>
 TORCHAO_ALWAYS_INLINE inline WeightGroupMetadata<column_blocks>
 load_weight_group_metadata(const char*& weight_ptr, int group_size) {
   static_assert(column_blocks == 1 || column_blocks == 2);
@@ -330,8 +337,11 @@ load_weight_group_metadata(const char*& weight_ptr, int group_size) {
           vld1q_s32(zeros + column_offset + block * 4);
       metadata.qvals_sums[block] = vmlsq_n_s32(
           metadata.qvals_sums[block], metadata.zeros[block], group_size);
-      metadata.zeros[block] =
-          vaddq_s32(metadata.zeros[block], vdupq_n_s32(4));
+      if constexpr (weight_nbit < 8) {
+        metadata.zeros[block] = vaddq_s32(
+            metadata.zeros[block],
+            vdupq_n_s32(1 << (weight_nbit - 1)));
+      }
     }
     weight_ptr += kNr * sizeof(int32_t);
   }
@@ -409,11 +419,12 @@ TORCHAO_ALWAYS_INLINE inline void store_results(
 }
 
 template <
+    int weight_nbit,
     int row_blocks,
     int column_blocks,
     int column_offset,
     bool has_weight_zeros>
-__attribute__((noinline)) void kernel_rows_w3(
+__attribute__((noinline)) void kernel_rows(
     float* output,
     int output_m_stride,
     int remaining_n,
@@ -485,23 +496,24 @@ __attribute__((noinline)) void kernel_rows_w3(
     }
 
     for (int i = 0; i < group_size; i += 16) {
-      dot_rows_cols_w3<
+      dot_rows_cols<
+          weight_nbit,
           row_blocks,
           column_blocks,
           column_offset / 4,
-          !has_weight_zeros>(
+          !has_weight_zeros || weight_nbit == 8>(
           accumulators,
           reinterpret_cast<const uint8_t*>(weight_ptr),
           activation_ptrs);
-      weight_ptr += kBytesPer128W3Values;
+      weight_ptr += 16 * weight_nbit;
       for (int block = 0; block < activation_blocks; block++) {
         activation_ptrs[block] += kMr * 16;
       }
     }
 
-    // Packed group metadata follows the W3 values for this group.
     const auto weight_metadata =
         load_weight_group_metadata<
+            weight_nbit,
             column_blocks,
             column_offset,
             has_weight_zeros>(
@@ -557,8 +569,8 @@ __attribute__((noinline)) void kernel_rows_w3(
       output, output_m_stride, remaining_n, valid_rows, results);
 }
 
-template <bool has_weight_zeros>
-__attribute__((noinline)) void kernel_1x8x16_w3_interleaved(
+template <int weight_nbit, bool has_weight_zeros>
+__attribute__((noinline)) void kernel_1x8x16_interleaved(
     float* output,
     int remaining_n,
     int k,
@@ -603,7 +615,10 @@ __attribute__((noinline)) void kernel_1x8x16_w3_interleaved(
       int8x16_t weights01_1;
       int8x16_t weights23_0;
       int8x16_t weights23_1;
-      decode_4_cols_w3<0, !has_weight_zeros>(
+      decode_4_cols<
+          weight_nbit,
+          0,
+          !has_weight_zeros || weight_nbit == 8>(
           weights01_0,
           weights01_1,
           weights23_0,
@@ -617,7 +632,10 @@ __attribute__((noinline)) void kernel_1x8x16_w3_interleaved(
           vdotq_s32(accumulators[1], weights23_0, activation_lo);
       accumulators[1] =
           vdotq_s32(accumulators[1], weights23_1, activation_hi);
-      decode_4_cols_w3<1, !has_weight_zeros>(
+      decode_4_cols<
+          weight_nbit,
+          1,
+          !has_weight_zeros || weight_nbit == 8>(
           weights01_0,
           weights01_1,
           weights23_0,
@@ -631,12 +649,12 @@ __attribute__((noinline)) void kernel_1x8x16_w3_interleaved(
           vdotq_s32(accumulators[3], weights23_0, activation_lo);
       accumulators[3] =
           vdotq_s32(accumulators[3], weights23_1, activation_hi);
-      weight_ptr += kBytesPer128W3Values;
+      weight_ptr += 16 * weight_nbit;
       activation_ptr += kMr * 16;
     }
 
     const auto weight_metadata =
-        load_weight_group_metadata<2, 0, has_weight_zeros>(
+        load_weight_group_metadata<weight_nbit, 2, 0, has_weight_zeros>(
             weight_ptr, group_size);
 
     int32x4_t corrected_0123 = vsubq_s32(
@@ -686,7 +704,7 @@ __attribute__((noinline)) void kernel_1x8x16_w3_interleaved(
   store_8_f32(output, remaining_n, result_0123, result_4567);
 }
 
-template <bool has_weight_zeros>
+template <int weight_nbit, bool has_weight_zeros>
 TORCHAO_ALWAYS_INLINE inline void run_16_row_tile(
     float* output,
     int output_m_stride,
@@ -707,7 +725,7 @@ TORCHAO_ALWAYS_INLINE inline void run_16_row_tile(
   const char* weight_panel = weight_data;
   for (int n_idx = 0; n_idx < n; n_idx += kNr) {
     const int remaining_n = n - n_idx;
-    kernel_rows_w3<4, 1, 0, has_weight_zeros>(
+    kernel_rows<weight_nbit, 4, 1, 0, has_weight_zeros>(
         output + n_idx,
         output_m_stride,
         remaining_n,
@@ -722,7 +740,7 @@ TORCHAO_ALWAYS_INLINE inline void run_16_row_tile(
         has_bias,
         has_clamp);
     if (remaining_n > 4) {
-      kernel_rows_w3<4, 1, 4, has_weight_zeros>(
+      kernel_rows<weight_nbit, 4, 1, 4, has_weight_zeros>(
           output + n_idx,
           output_m_stride,
           remaining_n,
@@ -741,7 +759,7 @@ TORCHAO_ALWAYS_INLINE inline void run_16_row_tile(
   }
 }
 
-template <int row_blocks, bool has_weight_zeros>
+template <int weight_nbit, int row_blocks, bool has_weight_zeros>
 TORCHAO_ALWAYS_INLINE inline void run_up_to_8_row_tile(
     float* output,
     int output_m_stride,
@@ -758,7 +776,7 @@ TORCHAO_ALWAYS_INLINE inline void run_up_to_8_row_tile(
     bool has_clamp) {
   const char* weight_panel = weight_data;
   for (int n_idx = 0; n_idx < n; n_idx += kNr) {
-    kernel_rows_w3<row_blocks, 2, 0, has_weight_zeros>(
+    kernel_rows<weight_nbit, row_blocks, 2, 0, has_weight_zeros>(
         output + n_idx,
         output_m_stride,
         n - n_idx,
@@ -796,8 +814,6 @@ void kernel_8x8x16_f32_neondot(
     bool has_clamp) {
   assert(k % group_size == 0);
   assert(group_size % 16 == 0);
-  static_assert(weight_nbit == 3);
-
   constexpr int mr = 8;
   constexpr int nr = 8;
   const std::size_t activation_row_size = sizeof(float) + sizeof(int8_t) + k +
@@ -816,7 +832,7 @@ void kernel_8x8x16_f32_neondot(
   for (; m_idx + 16 <= m; m_idx += 16) {
     const char* activation_block_0 =
         activation_data_bytes + m_idx * activation_row_size;
-    internal::run_16_row_tile<has_weight_zeros>(
+    internal::run_16_row_tile<weight_nbit, has_weight_zeros>(
         output + m_idx * output_m_stride,
         output_m_stride,
         n,
@@ -838,7 +854,7 @@ void kernel_8x8x16_f32_neondot(
     const int tail_rows = m - m_idx;
     const char* activation_block_0 =
         activation_data_bytes + m_idx * activation_row_size;
-    internal::run_16_row_tile<has_weight_zeros>(
+    internal::run_16_row_tile<weight_nbit, has_weight_zeros>(
         output + m_idx * output_m_stride,
         output_m_stride,
         n,
@@ -859,7 +875,7 @@ void kernel_8x8x16_f32_neondot(
     const int tail_rows = m - m_idx;
     const char* activation_block =
         activation_data_bytes + m_idx * activation_row_size;
-    internal::run_up_to_8_row_tile<2, has_weight_zeros>(
+    internal::run_up_to_8_row_tile<weight_nbit, 2, has_weight_zeros>(
         output + m_idx * output_m_stride,
         output_m_stride,
         n,
@@ -882,7 +898,7 @@ void kernel_8x8x16_f32_neondot(
     const int activation_block_idx = m_idx / mr;
     const char* activation_block = activation_data_bytes +
         activation_block_idx * activation_block_size;
-    internal::run_up_to_8_row_tile<1, has_weight_zeros>(
+    internal::run_up_to_8_row_tile<weight_nbit, 1, has_weight_zeros>(
         output + m_idx * output_m_stride,
         output_m_stride,
         n,
@@ -907,7 +923,7 @@ void kernel_8x8x16_f32_neondot(
         activation_block_idx * activation_block_size;
     const char* weight_panel = weight_data_bytes;
     for (int n_idx = 0; n_idx < n; n_idx += nr) {
-      internal::kernel_1x8x16_w3_interleaved<has_weight_zeros>(
+      internal::kernel_1x8x16_interleaved<weight_nbit, has_weight_zeros>(
           output + m_idx * output_m_stride + n_idx,
           n - n_idx,
           k,
