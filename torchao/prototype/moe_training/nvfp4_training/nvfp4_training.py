@@ -71,12 +71,12 @@ def _make_rht_sign_vector(
 class NVFP4TrainingConfig(AOBaseConfig):
     """Configuration for NVFP4 quantized training.
 
-    When passed to quantize_(), replaces nn.Linear modules with
-    NVFP4Linear, which quantizes all three GEMMs (forward
-    and backward) to NVFP4.
+    When passed to quantize_(), replaces nn.Linear modules with the module
+    implementing the selected recipe, which quantizes all three GEMMs
+    (forward and backward) to NVFP4.
 
     Args:
-        kernel_preference: Backend for quantization kernels.
+        kernel_preference: ("default" recipe) Backend for quantization kernels.
             TRITON: Pure-Triton RHT + stochastic rounding path.
             CUTEDSL: CuteDSL kernels for the full quantize path (amax, forward
                 RTNE quantize, SR backward quantize, and 2D weight quantize).
@@ -84,11 +84,13 @@ class NVFP4TrainingConfig(AOBaseConfig):
                 by 256. Under tensor parallel the same constraints apply to each
                 per-rank shard, and the per-rank M shard must be divisible by 256.
             Default: TRITON.
-        process_group: Optional ProcessGroup for tensor-parallel TP.
+        process_group: ("default" recipe) Optional ProcessGroup for
+            tensor-parallel TP.
             When set, forward dispatches to the selected NVFP4 tensor-parallel
             path (TRITON or CUTEDSL).
-        world_size: TP world size.  Inferred from process_group if None.
-        rht_sign_vector: Optional {-1, 1} sign vector of length 16 for the
+        world_size: ("default" recipe) TP world size.  Inferred from
+            process_group if None.
+        rht_sign_vector: ("default" recipe) Optional {-1, 1} sign vector of length 16 for the
             randomized Hadamard transform.  When None, each NVFP4Linear draws
             its own random vector.  In multi-rank settings (FSDP) replicas will
             therefore have different bases — harmless for convergence but
@@ -96,12 +98,90 @@ class NVFP4TrainingConfig(AOBaseConfig):
             consistency should broadcast a single vector before calling
             quantize_() and pass it here.  The TP path always enforces
             consistency via _replicate_rht_sign_vector regardless of this field.
+        recipe: Which NVFP4 training recipe to install.
+            "default": NVFP4Linear — randomized Hadamard transform + stochastic
+                rounding, configured by the fields above.
+            "four_over_six": NVFP4FourOverSixLinear — adaptive per-block
+                candidate selection between the standard map-to-6 encoding and
+                a 1.5x-scale map-to-4 encoding, configured by the fields below.
+                Stateless (no RHT/SR buffers, no TP support).
+            Each recipe's fields must stay at their defaults under the other
+            recipe.
+        err_mode: ("four_over_six" recipe) Candidate-selection error metric,
+            "mae" or "mse".
+        e4m3_scale_bound: ("four_over_six" recipe) Global E4M3 scale bound;
+            256 leaves map-to-4 headroom, 448 uses the full range.
+        row_scaled_activation: ("four_over_six" recipe) Derive one FP32 global
+            scale per activation row instead of per tensor.
+        backward_override: ("four_over_six" recipe) Backward mode — None
+            (recipe default), "quantized", "high_precision", or "dequantized".
+        weight_block: ("four_over_six" recipe) Weight block granularity,
+            "16x16" or "1x16".
     """
 
     kernel_preference: KernelPreference = KernelPreference.TRITON
     process_group: Optional[object] = field(default=None, compare=False)
     world_size: Optional[int] = None
     rht_sign_vector: Optional[object] = field(default=None, compare=False)
+    recipe: str = "default"
+    err_mode: str = "mae"
+    e4m3_scale_bound: int = 256
+    row_scaled_activation: bool = False
+    backward_override: Optional[str] = None
+    weight_block: str = "16x16"
+
+    def __post_init__(self):
+        if self.recipe not in ("default", "four_over_six"):
+            raise ValueError(
+                f"recipe must be 'default' or 'four_over_six', got {self.recipe!r}"
+            )
+        if self.recipe == "default":
+            four_over_six_defaults = (
+                ("err_mode", self.err_mode, "mae"),
+                ("e4m3_scale_bound", self.e4m3_scale_bound, 256),
+                ("row_scaled_activation", self.row_scaled_activation, False),
+                ("backward_override", self.backward_override, None),
+                ("weight_block", self.weight_block, "16x16"),
+            )
+            for name, value, default in four_over_six_defaults:
+                if value != default:
+                    raise ValueError(
+                        f"{name} configures the 'four_over_six' recipe and must "
+                        f"stay at its default under recipe='default', got {value!r}"
+                    )
+            return
+        if self.err_mode not in ("mae", "mse"):
+            raise ValueError(f"err_mode must be 'mae' or 'mse', got {self.err_mode!r}")
+        if self.e4m3_scale_bound not in (256, 448):
+            raise ValueError(
+                f"e4m3_scale_bound must be 256 or 448, got {self.e4m3_scale_bound}"
+            )
+        if self.backward_override not in (
+            None,
+            "quantized",
+            "high_precision",
+            "dequantized",
+        ):
+            raise ValueError(
+                f"backward_override must be None, 'quantized', 'high_precision', "
+                f"or 'dequantized', got {self.backward_override!r}"
+            )
+        if self.weight_block not in ("1x16", "16x16"):
+            raise ValueError(
+                f"weight_block must be '1x16' or '16x16', got {self.weight_block!r}"
+            )
+        default_recipe_defaults = (
+            ("kernel_preference", self.kernel_preference, KernelPreference.TRITON),
+            ("process_group", self.process_group, None),
+            ("world_size", self.world_size, None),
+            ("rht_sign_vector", self.rht_sign_vector, None),
+        )
+        for name, value, default in default_recipe_defaults:
+            if value is not default and value != default:
+                raise ValueError(
+                    f"{name} configures the 'default' recipe and must stay at "
+                    f"its default under recipe='four_over_six', got {value!r}"
+                )
 
 
 class NVFP4Linear(nn.Linear):
@@ -242,15 +322,31 @@ def _nvfp4_training_transform(
     config: NVFP4TrainingConfig,
     parameter_name: Optional[str] = None,
 ) -> nn.Module:
-    """Handler for quantize_(): replaces nn.Linear with NVFP4Linear."""
-    if isinstance(module, NVFP4Linear):
+    """Handler for quantize_(): replaces nn.Linear with config.recipe's module.
+
+    Modules already converted to either recipe are left alone.
+    """
+    from torchao.prototype.moe_training.nvfp4_training.four_over_six import (
+        NVFP4FourOverSixLinear,
+    )
+
+    if isinstance(module, (NVFP4Linear, NVFP4FourOverSixLinear)):
         return module
-    if isinstance(module, nn.Linear):
-        return NVFP4Linear.from_linear(
+    if not isinstance(module, nn.Linear):
+        return module
+    if config.recipe == "four_over_six":
+        return NVFP4FourOverSixLinear.from_linear(
             module,
-            kernel_preference=config.kernel_preference,
-            process_group=config.process_group,
-            world_size=config.world_size,
-            rht_sign_vector=config.rht_sign_vector,
+            err_mode=config.err_mode,
+            e4m3_scale_bound=config.e4m3_scale_bound,
+            row_scaled_activation=config.row_scaled_activation,
+            backward_override=config.backward_override,
+            weight_block=config.weight_block,
         )
-    return module
+    return NVFP4Linear.from_linear(
+        module,
+        kernel_preference=config.kernel_preference,
+        process_group=config.process_group,
+        world_size=config.world_size,
+        rht_sign_vector=config.rht_sign_vector,
+    )
