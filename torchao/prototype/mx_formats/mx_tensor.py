@@ -1006,22 +1006,16 @@ def mx_cat(func, types, args, kwargs):
             raise NotImplementedError("MXTensor.cat requires 2D tensors")
         if not tensor.qdata.is_contiguous():
             raise NotImplementedError("MXTensor.cat requires contiguous qdata")
+    if first.is_swizzled_scales and any(tensor.shape[0] % 128 for tensor in tensors):
+        raise NotImplementedError(
+            "MXTensor.cat requires swizzled scale inputs to align to 128-row tiles"
+        )
 
     qdata = aten.cat.default([tensor.qdata for tensor in tensors], 0)
     # Concatenate scale bytes: CUDA cat does not support every E8M0 layout.
-    scales = [tensor.scale.view(torch.uint8) for tensor in tensors]
-    if not first.is_swizzled_scales:
-        scale = aten.cat.default(scales, 0)
-    else:
-        # Independent inputs have independent padding. Recover logical rows
-        # before concatenation, then pack once for the combined weight shape.
-        scales = [
-            from_blocked(scale, tensor.shape[0], tensor.shape[1] // tensor.block_size)
-            for tensor, scale in zip(tensors, scales)
-        ]
-        rows = sum(tensor.shape[0] for tensor in tensors)
-        scale_shape = hp_data_dims_to_swizzled_scale_dims_mx(rows, first.shape[1])
-        scale = to_blocked(aten.cat.default(scales, 0)).view(scale_shape)
+    # Aligned swizzled inputs already contain complete row tiles in order.
+    scale_bytes = [tensor.scale.view(torch.uint8) for tensor in tensors]
+    scale = aten.cat.default(scale_bytes, 0)
     return MXTensor(
         qdata,
         scale.view(torch.float8_e8m0fnu),

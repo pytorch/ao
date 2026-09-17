@@ -52,7 +52,8 @@ torch.manual_seed(2)
     not torch.accelerator.is_available(), reason="Accelerator not available"
 )
 @pytest.mark.parametrize(
-    "rows,width,dim", [((128, 256), 128, 0), ((127, 2, 129), 160, -2)]
+    "rows,width,dim",
+    [((128, 256), 128, 0), ((128, 256), 160, -2), ((127, 2, 129), 160, -2)],
 )
 @pytest.mark.parametrize("elem_dtype", SUPPORTED_ELEM_DTYPES)
 def test_cat(rows, width, dim, elem_dtype):
@@ -63,6 +64,10 @@ def test_cat(rows, width, dim, elem_dtype):
         MXTensor.to_mx(x, elem_dtype, is_swizzled_scales=is_swizzled_scales)
         for x in inputs
     ]
+    if is_swizzled_scales and any(n % 128 for n in rows):
+        with pytest.raises(NotImplementedError, match="128-row tiles"):
+            torch.cat(mx_inputs, dim=dim)
+        return
     result = torch.cat(mx_inputs, dim=dim)
     expected = MXTensor.to_mx(
         torch.cat(inputs),
@@ -96,7 +101,7 @@ def test_cat_rejects_incompatible_weights(elem_dtype):
             elem_dtype,
             is_swizzled_scales=is_swizzled_scales,
         )
-        for rows in (2, 3)
+        for rows in (128, 128)
     ]
     second.orig_dtype = torch.float32
     with pytest.raises(ValueError, match="matching quantization metadata"):
