@@ -330,9 +330,8 @@ void kernel_8x8x16_f32_neondot(
     float clamp_max,
     bool has_weight_zeros_,
     bool has_bias,
-    bool has_clamp) {
+  bool has_clamp) {
   (void)has_weight_zeros_;
-  static_assert(weight_nbit == 3);
   kernel::kernel_8x8x16_f32_neondot<weight_nbit, has_weight_zeros>(
       output,
       output_m_stride,
