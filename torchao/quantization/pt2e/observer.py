@@ -197,6 +197,22 @@ class ObserverBase(ABC, nn.Module):
     with_callable_args = classmethod(_with_callable_args)
 
 
+def _assert_real_input(observer_name: str, x: torch.Tensor) -> None:
+    """Reject complex input.
+
+    The ``x.to(self.min_val.dtype)`` in each observer's ``forward`` silently drops the
+    imaginary part, so the qparams end up calibrated on the real part alone. The
+    quantize kernels then reject the very same tensor
+    ("Quantize only works on Float Tensor"), so the observer and the kernel disagree
+    about whether complex input is allowed. ``HistogramObserver`` already raises here,
+    through ``torch.aminmax``; raise explicitly so every observer agrees.
+    """
+    if x.is_complex():
+        raise NotImplementedError(
+            f"{observer_name} does not support complex input, got {x.dtype}."
+        )
+
+
 class UniformQuantizationObserverBase(ObserverBase):
     r"""Common base for all observers using uniform quantization to calculate
     scale and zero_point.
@@ -571,6 +587,7 @@ class MinMaxObserver(UniformQuantizationObserverBase):
         r"""Records the running minimum and maximum of ``x``."""
         if x_orig.numel() == 0:
             return x_orig
+        _assert_real_input(type(self).__name__, x_orig)
         x = x_orig.detach()  # avoid keeping autograd tape
         x = x.to(self.min_val.dtype)
         min_val_cur, max_val_cur = torch.aminmax(x)
@@ -680,6 +697,7 @@ class MovingAverageMinMaxObserver(MinMaxObserver):
     def forward(self, x_orig):
         if x_orig.numel() == 0:
             return x_orig
+        _assert_real_input(type(self).__name__, x_orig)
         x = x_orig.detach()  # avoid keeping autograd tape
         x = x.to(self.min_val.dtype)
         min_val = self.min_val
@@ -778,6 +796,7 @@ class PerChannelMinMaxObserver(UniformQuantizationObserverBase):
     def _forward(self, x_orig):
         if x_orig.numel() == 0:
             return x_orig
+        _assert_real_input(type(self).__name__, x_orig)
         x = x_orig.detach()  # avoid keeping autograd tape
         min_val = self.min_val
         max_val = self.max_val
@@ -970,6 +989,7 @@ class MovingAveragePerChannelMinMaxObserver(PerChannelMinMaxObserver):
     def forward(self, x_orig):
         if x_orig.numel() == 0:
             return x_orig
+        _assert_real_input(type(self).__name__, x_orig)
         x = x_orig.detach()  # avoid keeping autograd tape
         x = x.to(self.min_val.dtype)
         min_val = self.min_val
