@@ -232,10 +232,11 @@ class TestOptim(TestCase):
     @parametrize("optim_name", ["Adam8bit", "Adam4bit", "AdamFp8"])
     @parametrize("device", _DEVICES)
     def test_optim_default_dtype_bf16_step_counter(self, optim_name, device):
-        """The step counter must stay FP32 when the default dtype is BF16.
+        """The step counter must stay integral when the default dtype is BF16.
 
-        BF16 cannot represent 257, so a BF16 counter saturates at 256 and the bias
-        corrections derived from it freeze, silently shrinking every later update.
+        A float counter stops advancing once the increment falls below one ULP: BF16
+        cannot represent 257, so it saturates at 256 and the bias corrections derived
+        from it freeze, silently shrinking every later update.
         """
         if optim_name.endswith("Fp8") and device == "cuda":
             if torch.cuda.get_device_capability() < (8, 9):
@@ -255,7 +256,7 @@ class TestOptim(TestCase):
             optimizer.zero_grad()
 
             for p in model.parameters():
-                self.assertEqual(optimizer.state[p]["step"].dtype, torch.float32)
+                self.assertFalse(optimizer.state[p]["step"].dtype.is_floating_point)
 
             # Advance past 256, the point where a BF16 counter stops incrementing.
             for _ in range(260):
