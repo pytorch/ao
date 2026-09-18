@@ -129,6 +129,59 @@ def mx_fake_quantize(
     return _MXFakeQuantize.apply(input, config)
 
 
+def mx_fake_quantized_grouped_mm(
+    input: torch.Tensor,
+    weight: torch.Tensor,
+    offsets: torch.Tensor,
+    activation_config: MXFakeQuantizeConfig,
+    weight_config: MXFakeQuantizeConfig,
+    *,
+    emulate: bool = False,
+) -> torch.Tensor:
+    """Run grouped MM through stateless MX fake-quantized views.
+
+    ``input`` has shape ``(tokens, in_features)``, ``weight`` has shape
+    ``(experts, out_features, in_features)``, and cumulative ``offsets`` has
+    one entry per expert. Repeated offsets and an all-empty token dimension are
+    supported. ``emulate=True`` uses ordinary matmuls and is intended for
+    numerical validation; the default dispatches to ``torch._grouped_mm``.
+    """
+    if input.ndim != 2 or weight.ndim != 3:
+        raise ValueError("grouped MM requires 2-D input and 3-D expert weights")
+    if input.shape[-1] != weight.shape[-1]:
+        raise ValueError("input and expert weight feature dimensions must match")
+    if offsets.ndim != 1 or offsets.numel() != weight.shape[0]:
+        raise ValueError("offsets must contain one cumulative offset per expert")
+    if offsets.dtype not in (torch.int32, torch.int64):
+        raise ValueError("offsets must use torch.int32 or torch.int64")
+    if offsets.numel() and (
+        bool((offsets < 0).any())
+        or bool((offsets[1:] < offsets[:-1]).any())
+        or int(offsets[-1]) != input.shape[0]
+    ):
+        raise ValueError("offsets must be nonnegative, monotonic, and end at tokens")
+
+    if input.shape[0] == 0:
+        empty = input.new_empty((0, weight.shape[1]))
+        return empty + (input.sum() + weight.sum()) * 0
+
+    activation = mx_fake_quantize(input, activation_config)
+    quantized_weight = mx_fake_quantize(weight, weight_config)
+    if not emulate:
+        return torch._grouped_mm(
+            activation,
+            quantized_weight.transpose(-2, -1),
+            offs=offsets,
+        )
+
+    outputs = []
+    start = 0
+    for expert, stop in enumerate(offsets.tolist()):
+        outputs.append(activation[start:stop] @ quantized_weight[expert].t())
+        start = stop
+    return torch.cat(outputs, dim=0)
+
+
 class _MXQuantizedForwardFakeQuantizedBackward(torch.autograd.Function):
     """
     Autograd function for MX quantization + addmm in low precision during forward,
