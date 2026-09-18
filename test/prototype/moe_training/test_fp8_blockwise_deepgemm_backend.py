@@ -14,11 +14,11 @@ from torch.fx.experimental.symbolic_shapes import ShapeEnv, has_free_symbols
 pytest.importorskip("triton", reason="Triton required for blockwise FP8 modules")
 
 from torchao.float8.config import e4m3_dtype
-from torchao.prototype.blockwise_fp8_training import (
+from torchao.prototype.moe_training.kernels.fp8_blockwise import (
     deepgemm_grouped_kernels,
     grouped_kernels,
 )
-from torchao.prototype.blockwise_fp8_training.deepgemm_metadata import (
+from torchao.prototype.moe_training.kernels.fp8_blockwise.deepgemm_metadata import (
     build_deepgemm_grouped_offset_plan,
     group_sizes_from_offsets,
 )
@@ -86,7 +86,7 @@ def test_deepgemm_backend_reports_broken_install(monkeypatch, exc):
     [KernelPreference.AUTO, KernelPreference.DEEPGEMM],
 )
 def test_real_backend_selection_fails_without_deepgemm(monkeypatch, kernel_preference):
-    from torchao.prototype.moe_training.blockwise_fp8.grouped_mm_backend import (
+    from torchao.prototype.moe_training.fp8_grouped_mm import (
         _select_fp8_blockwise_grouped_mm_backend,
     )
 
@@ -106,7 +106,7 @@ def test_real_backend_selection_fails_without_deepgemm(monkeypatch, kernel_prefe
 
 
 def test_auto_backend_selection_requires_full_deepgemm_training_symbols(monkeypatch):
-    from torchao.prototype.moe_training.blockwise_fp8.grouped_mm_backend import (
+    from torchao.prototype.moe_training.fp8_grouped_mm import (
         _select_fp8_blockwise_grouped_mm_backend,
     )
 
@@ -143,7 +143,7 @@ def test_auto_backend_selection_requires_full_deepgemm_training_symbols(monkeypa
 def test_real_backend_selection_uses_deepgemm_when_training_supported(
     monkeypatch, kernel_preference
 ):
-    from torchao.prototype.moe_training.blockwise_fp8.grouped_mm_backend import (
+    from torchao.prototype.moe_training.fp8_grouped_mm import (
         _GroupedMMBackendKind,
         _select_fp8_blockwise_grouped_mm_backend,
     )
@@ -195,7 +195,7 @@ def test_real_backend_selection_uses_deepgemm_when_training_supported(
 
 
 def test_emulated_backend_selection_is_explicit():
-    from torchao.prototype.moe_training.blockwise_fp8.grouped_mm_backend import (
+    from torchao.prototype.moe_training.fp8_grouped_mm import (
         _GroupedMMBackendKind,
         _select_fp8_blockwise_grouped_mm_backend,
     )
@@ -240,13 +240,13 @@ def test_deepgemm_grouped_layout_from_padded_offsets():
 )
 @pytest.mark.parametrize("expert_step", [1, 2])
 def test_grouped_weight_quant_layouts_match_dense_per_expert_quantizers(expert_step):
-    from torchao.prototype.blockwise_fp8_training.grouped_weight_quant import (
-        triton_fp8_blockwise_weight_quant_grouped_dgrad_rhs,
-        triton_fp8_blockwise_weight_quant_grouped_forward_rhs,
-    )
     from torchao.prototype.blockwise_fp8_training.kernels import (
         triton_fp8_blockwise_weight_quant_rhs,
         triton_fp8_blockwise_weight_quant_transposed_rhs,
+    )
+    from torchao.prototype.moe_training.kernels.fp8_blockwise.grouped_weight_quant import (
+        triton_fp8_blockwise_weight_quant_grouped_dgrad_rhs,
+        triton_fp8_blockwise_weight_quant_grouped_forward_rhs,
     )
 
     def stack_per_expert_quant(quant_fn, weight):
@@ -320,7 +320,7 @@ def test_grouped_weight_quant_supports_compile_fullgraph(
 ):
     from torch._dynamo.testing import CompileCounterWithBackend
 
-    from torchao.prototype.blockwise_fp8_training.grouped_weight_quant import (
+    from torchao.prototype.moe_training.kernels.fp8_blockwise.grouped_weight_quant import (
         triton_fp8_blockwise_weight_quant_grouped_dgrad_rhs,
         triton_fp8_blockwise_weight_quant_grouped_forward_rhs,
     )
@@ -353,7 +353,7 @@ def test_grouped_weight_quant_supports_compile_fullgraph(
 
 
 def test_deepgemm_k_grouped_activation_quant_fake_contract_tracks_valid_tokens():
-    from torchao.prototype.blockwise_fp8_training.deepgemm_quant import (
+    from torchao.prototype.moe_training.kernels.fp8_blockwise.deepgemm_quant import (
         triton_fp8_blockwise_act_quant_k_grouped_deepgemm,
     )
 
@@ -391,12 +391,12 @@ def test_deepgemm_k_grouped_activation_quant_fake_contract_tracks_valid_tokens()
 def test_deepgemm_k_grouped_activation_quant_matches_flattened_torchao_layouts(
     offsets,
 ):
-    from torchao.prototype.blockwise_fp8_training.deepgemm_quant import (
-        triton_fp8_blockwise_act_quant_k_grouped_deepgemm,
-    )
     from torchao.prototype.blockwise_fp8_training.kernels import (
         triton_fp8_blockwise_act_quant_rhs,
         triton_fp8_blockwise_act_quant_transposed_lhs,
+    )
+    from torchao.prototype.moe_training.kernels.fp8_blockwise.deepgemm_quant import (
+        triton_fp8_blockwise_act_quant_k_grouped_deepgemm,
     )
 
     def flatten_transposed_lhs(q, group_sizes):
@@ -517,7 +517,7 @@ def test_deepgemm_matches_emulated_fp8_grouped_mm(
 ):
     pytest.importorskip("deep_gemm", reason="DeepGEMM is an optional dependency")
 
-    from torchao.prototype.moe_training.blockwise_fp8.grouped_mm import (
+    from torchao.prototype.moe_training.fp8_grouped_mm import (
         _to_fp8_blockwise_then_emulated_scaled_grouped_mm,
         _to_fp8_blockwise_then_scaled_grouped_mm,
     )
