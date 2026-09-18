@@ -43,6 +43,12 @@ def model_is_exported(m: torch.nn.Module) -> bool:
     )
 
 
+_DROPOUT_OPS = (
+    torch.ops.aten.dropout.default,
+    torch.ops.aten.dropout_.default,
+)
+
+
 def _replace_dropout(m: torch.fx.GraphModule, train_to_eval: bool):
     """
     Switch dropout patterns in the model between train and eval modes.
@@ -61,6 +67,8 @@ def _replace_dropout(m: torch.fx.GraphModule, train_to_eval: bool):
     m.graph.eliminate_dead_code()
     m.recompile()
 
+    from torch.fx.subgraph_rewriter import replace_pattern_with_filters
+
     for inplace in [False, True]:
 
         def dropout_train(x):
@@ -75,30 +83,48 @@ def _replace_dropout(m: torch.fx.GraphModule, train_to_eval: bool):
                 WrapperModule(dropout_train),
                 example_inputs,
             )
-            replacement_pattern = _get_aten_graph_module_for_pattern(
-                WrapperModule(dropout_eval),
-                example_inputs,
-            )
         else:
             match_pattern = _get_aten_graph_module_for_pattern(
                 WrapperModule(dropout_eval),
                 example_inputs,
             )
-            replacement_pattern = _get_aten_graph_module_for_pattern(
-                WrapperModule(dropout_train),
-                example_inputs,
-            )
 
-        from torch.fx.subgraph_rewriter import replace_pattern_with_filters
+        def replacement_callback(match, original_graph, pattern_graph):
+            # `ignore_literals=True` lets this pattern match dropout calls with
+            # any `p`, not just the literal 0.5 used to build the pattern above.
+            # Build the replacement using the *matched* node's actual `p` so we
+            # don't silently overwrite the user's configured dropout rate with
+            # 0.5. See https://github.com/pytorch/ao/issues/2980.
+            (dropout_pattern_node,) = [
+                n
+                for n in pattern_graph.nodes
+                if n.op == "call_function" and n.target in _DROPOUT_OPS
+            ]
+            matched_dropout_node = match.nodes_map[dropout_pattern_node]
+            p = matched_dropout_node.args[1]
+            target_training = not train_to_eval
+
+            def dropout_replacement(x):
+                return F.dropout(
+                    x, p=p, training=target_training, inplace=inplace
+                )
+
+            return _get_aten_graph_module_for_pattern(
+                WrapperModule(dropout_replacement),
+                example_inputs,
+            ).graph
 
         replace_pattern_with_filters(
             m,
             match_pattern,
-            replacement_pattern,
             match_filters=[],
             ignore_literals=True,
+            replacement_callback=replacement_callback,
         )
         m.recompile()
+
+
+_BATCHNORM_OPS = (torch.ops.aten.batch_norm.default,)
 
 
 def _replace_batchnorm(m: torch.fx.GraphModule, train_to_eval: bool):
@@ -110,9 +136,6 @@ def _replace_batchnorm(m: torch.fx.GraphModule, train_to_eval: bool):
     the batchnorm behavior between the two modes, so here we need to rewrite the aten
     batchnorm patterns manually to achieve the same effect.
     """
-    # TODO(Leslie): This function still fails to support custom momentum and eps value.
-    # Enable this support in future updates.
-
     # Avoid circular dependencies
     from .utils import _get_aten_graph_module_for_pattern
 
@@ -165,19 +188,61 @@ def _replace_batchnorm(m: torch.fx.GraphModule, train_to_eval: bool):
 
     if train_to_eval:
         match_pattern = bn_train_aten
-        replacement_pattern = bn_eval_aten
     else:
         match_pattern = bn_eval_aten
-        replacement_pattern = bn_train_aten
+
+    def replacement_callback(match, original_graph, pattern_graph):
+        # `ignore_literals=True` lets this pattern match batch_norm calls with
+        # any momentum/eps, not just the (unset, i.e. torch defaults of 0.1 and
+        # 1e-5) values used to build the pattern above. Build the replacement
+        # using the *matched* node's actual momentum/eps/cudnn_enabled so we
+        # don't silently overwrite the user's configured values.
+        # See https://github.com/pytorch/ao/issues/2980.
+        (bn_pattern_node,) = [
+            n
+            for n in pattern_graph.nodes
+            if n.op == "call_function" and n.target in _BATCHNORM_OPS
+        ]
+        matched_bn_node = match.nodes_map[bn_pattern_node]
+        # torch.ops.aten.batch_norm.default args:
+        # (input, weight, bias, running_mean, running_var, training, momentum,
+        #  eps, cudnn_enabled)
+        _, _, _, _, _, _, momentum, eps, cudnn_enabled = matched_bn_node.args
+        target_training = not train_to_eval
+
+        def bn_replacement(
+            x: torch.Tensor,
+            bn_weight: torch.Tensor,
+            bn_bias: torch.Tensor,
+            bn_running_mean: torch.Tensor,
+            bn_running_var: torch.Tensor,
+        ):
+            return torch.ops.aten.batch_norm.default(
+                x,
+                bn_weight,
+                bn_bias,
+                bn_running_mean,
+                bn_running_var,
+                target_training,
+                momentum,
+                eps,
+                cudnn_enabled,
+            )
+
+        return _get_aten_graph_module_for_pattern(
+            WrapperModule(bn_replacement),
+            example_inputs,
+            is_cuda,
+        ).graph
 
     from torch.fx.subgraph_rewriter import replace_pattern_with_filters
 
     replace_pattern_with_filters(
         m,
         match_pattern,
-        replacement_pattern,
         match_filters=[],
         ignore_literals=True,
+        replacement_callback=replacement_callback,
     )
     m.recompile()
 
