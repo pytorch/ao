@@ -154,12 +154,19 @@ def mx_fake_quantized_grouped_mm(
         raise ValueError("offsets must contain one cumulative offset per expert")
     if offsets.dtype not in (torch.int32, torch.int64):
         raise ValueError("offsets must use torch.int32 or torch.int64")
-    if offsets.numel() and (
-        bool((offsets < 0).any())
-        or bool((offsets[1:] < offsets[:-1]).any())
-        or int(offsets[-1]) != input.shape[0]
-    ):
-        raise ValueError("offsets must be nonnegative, monotonic, and end at tokens")
+    if emulate:
+        offset_values = offsets.tolist()
+        if offset_values and (
+            any(offset < 0 for offset in offset_values)
+            or any(
+                stop < start
+                for start, stop in zip(offset_values, offset_values[1:])
+            )
+            or offset_values[-1] != input.shape[0]
+        ):
+            raise ValueError(
+                "offsets must be nonnegative, monotonic, and end at tokens"
+            )
 
     if input.shape[0] == 0:
         empty = input.new_empty((0, weight.shape[1]))
@@ -176,7 +183,7 @@ def mx_fake_quantized_grouped_mm(
 
     outputs = []
     start = 0
-    for expert, stop in enumerate(offsets.tolist()):
+    for expert, stop in enumerate(offset_values):
         outputs.append(activation[start:stop] @ quantized_weight[expert].t())
         start = stop
     return torch.cat(outputs, dim=0)
