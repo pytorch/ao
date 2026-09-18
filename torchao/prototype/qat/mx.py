@@ -74,8 +74,59 @@ class MXFakeQuantizeConfig(FakeQuantizeConfigBase):
     kernel_preference: KernelPreference = KernelPreference.EMULATED
 
     def __post_init__(self):
+        if self.block_size <= 0:
+            raise ValueError(f"block_size must be positive, got {self.block_size}")
         _validate_elem_dtype(self.dtype)
         _validate_kernel_preference(self.kernel_preference, self.block_size, self.dtype)
+
+
+class _MXFakeQuantize(torch.autograd.Function):
+    """Apply MX quantize/dequantize in forward and an identity STE backward."""
+
+    @staticmethod
+    def forward(
+        ctx,
+        input: torch.Tensor,
+        config: MXFakeQuantizeConfig,
+    ) -> torch.Tensor:
+        del ctx
+        return MXTensor.to_mx(
+            input.contiguous(),
+            elem_dtype=config.dtype,
+            block_size=config.block_size,
+            scaling_mode=config.scaling_mode,
+            kernel_preference=config.kernel_preference,
+        ).dequantize(input.dtype)
+
+    @staticmethod
+    def backward(ctx, grad_output: torch.Tensor):
+        del ctx
+        return grad_output, None
+
+
+def mx_fake_quantize(
+    input: torch.Tensor,
+    config: MXFakeQuantizeConfig,
+) -> torch.Tensor:
+    """Emulate MX quantization while preserving identity gradients.
+
+    Quantization groups are formed along the final dimension. The returned
+    tensor has the input's shape and dtype, and no scales or packed tensors are
+    retained in module or optimizer state.
+    """
+    if input.ndim == 0:
+        raise ValueError("MX fake quantization requires at least one dimension")
+    if input.shape[-1] % config.block_size != 0:
+        raise ValueError(
+            f"input last dimension ({input.shape[-1]}) must be divisible by "
+            f"block_size ({config.block_size})"
+        )
+    if input.dtype not in (torch.bfloat16, torch.float32):
+        raise ValueError(
+            "MX fake quantization supports torch.bfloat16 and torch.float32 "
+            f"inputs, got {input.dtype}"
+        )
+    return _MXFakeQuantize.apply(input, config)
 
 
 class _MXQuantizedForwardFakeQuantizedBackward(torch.autograd.Function):
