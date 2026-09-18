@@ -121,11 +121,12 @@ class _AdamBase(Optimizer):
 
                     # State initialization
                     if len(state) == 0:
-                        # Pin the step counter to FP32 instead of letting it pick up the
-                        # default dtype. Under torch.set_default_dtype(torch.bfloat16) the
-                        # counter would be BF16, which cannot represent 257, so it saturates
-                        # at 256 and the bias corrections below freeze with it.
-                        state["step"] = torch.tensor(0.0, dtype=torch.float32)
+                        # Keep the step counter integral instead of letting it pick up the
+                        # default dtype. A float counter silently stops advancing once the
+                        # increment falls below one ULP -- at 256 under
+                        # torch.set_default_dtype(torch.bfloat16), and at 2**24 even in FP32 --
+                        # freezing the bias corrections derived from it below.
+                        state["step"] = torch.tensor(0, dtype=torch.int32)
                         state["exp_avg"] = self._new_buffer(p, True)
                         state["exp_avg_sq"] = self._new_buffer(p, False)
                         if group["amsgrad"]:
