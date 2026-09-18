@@ -231,6 +231,44 @@ class TestOptim(TestCase):
 
     @parametrize("optim_name", ["Adam8bit", "Adam4bit", "AdamFp8"])
     @parametrize("device", _DEVICES)
+    def test_optim_default_dtype_bf16_step_counter(self, optim_name, device):
+        """The step counter must stay FP32 when the default dtype is BF16.
+
+        BF16 cannot represent 257, so a BF16 counter saturates at 256 and the bias
+        corrections derived from it freeze, silently shrinking every later update.
+        """
+        if optim_name.endswith("Fp8") and device == "cuda":
+            if torch.cuda.get_device_capability() < (8, 9):
+                pytest.skip("FP8 CUDA requires compute capability >= 8.9")
+
+        old_dtype = torch.get_default_dtype()
+        torch.set_default_dtype(torch.bfloat16)
+
+        try:
+            model = nn.Sequential(nn.Linear(32, 256), nn.ReLU(), nn.Linear(256, 32))
+            model.to(device=device)
+            optimizer = getattr(optim, optim_name)(model.parameters())
+
+            x = torch.randn(4, 32, device=device)
+            model(x).sum().backward()
+            optimizer.step()
+            optimizer.zero_grad()
+
+            for p in model.parameters():
+                self.assertEqual(optimizer.state[p]["step"].dtype, torch.float32)
+
+            # Advance past 256, the point where a BF16 counter stops incrementing.
+            for _ in range(260):
+                optimizer.state[next(model.parameters())]["step"] += 1
+            self.assertEqual(
+                optimizer.state[next(model.parameters())]["step"].item(), 261.0
+            )
+
+        finally:
+            torch.set_default_dtype(old_dtype)
+
+    @parametrize("optim_name", ["Adam8bit", "Adam4bit", "AdamFp8"])
+    @parametrize("device", _DEVICES)
     def test_param_groups(self, optim_name, device):
         if optim_name.endswith("Fp8") and device == "cuda":
             if torch.cuda.get_device_capability() < (8, 9):
