@@ -64,6 +64,15 @@ class TestObserverComplexInput(TestCase):
         self.assertEqual(scale.numel(), zero_point.numel())
 
     @common_utils.parametrize("observer_cls", _MIN_MAX_OBSERVERS)
+    def test_observers_stay_scriptable(self, observer_cls):
+        # `_calculate_qparams` is `@torch.jit.export`, so these observers have to keep
+        # compiling. Reading the class name as `type(self).__name__` inside `forward`
+        # resolves to `Tensor.type` under TorchScript and breaks that.
+        scripted = torch.jit.script(observer_cls())
+
+        scripted(torch.tensor([[1.0, 2.0], [3.0, 4.0]]))
+
+    @common_utils.parametrize("observer_cls", _MIN_MAX_OBSERVERS)
     def test_empty_input_still_short_circuits(self, observer_cls):
         observer = observer_cls()
         empty = torch.empty(0)

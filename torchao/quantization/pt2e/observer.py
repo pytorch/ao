@@ -184,6 +184,10 @@ class ObserverBase(ABC, nn.Module):
         super().__init__()
         self.dtype = dtype
         self.is_dynamic = is_dynamic
+        # Recorded here rather than read as `type(self).__name__` in forward:
+        # TorchScript resolves that to `Tensor.type` and refuses to compile the
+        # observer, and `_calculate_qparams` is `@torch.jit.export`.
+        self._observer_name: str = type(self).__name__
 
     @abstractmethod
     def forward(self, x):
@@ -587,7 +591,7 @@ class MinMaxObserver(UniformQuantizationObserverBase):
         r"""Records the running minimum and maximum of ``x``."""
         if x_orig.numel() == 0:
             return x_orig
-        _assert_real_input(type(self).__name__, x_orig)
+        _assert_real_input(self._observer_name, x_orig)
         x = x_orig.detach()  # avoid keeping autograd tape
         x = x.to(self.min_val.dtype)
         min_val_cur, max_val_cur = torch.aminmax(x)
@@ -697,7 +701,7 @@ class MovingAverageMinMaxObserver(MinMaxObserver):
     def forward(self, x_orig):
         if x_orig.numel() == 0:
             return x_orig
-        _assert_real_input(type(self).__name__, x_orig)
+        _assert_real_input(self._observer_name, x_orig)
         x = x_orig.detach()  # avoid keeping autograd tape
         x = x.to(self.min_val.dtype)
         min_val = self.min_val
@@ -796,7 +800,7 @@ class PerChannelMinMaxObserver(UniformQuantizationObserverBase):
     def _forward(self, x_orig):
         if x_orig.numel() == 0:
             return x_orig
-        _assert_real_input(type(self).__name__, x_orig)
+        _assert_real_input(self._observer_name, x_orig)
         x = x_orig.detach()  # avoid keeping autograd tape
         min_val = self.min_val
         max_val = self.max_val
@@ -989,7 +993,7 @@ class MovingAveragePerChannelMinMaxObserver(PerChannelMinMaxObserver):
     def forward(self, x_orig):
         if x_orig.numel() == 0:
             return x_orig
-        _assert_real_input(type(self).__name__, x_orig)
+        _assert_real_input(self._observer_name, x_orig)
         x = x_orig.detach()  # avoid keeping autograd tape
         x = x.to(self.min_val.dtype)
         min_val = self.min_val
