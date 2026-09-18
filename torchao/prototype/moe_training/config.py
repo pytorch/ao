@@ -227,6 +227,67 @@ class MXFP8TrainingOpConfig(TrainingOpBaseConfig):
         )
 
 
+# register as pytree constant so we can use dynamo nonstrict trace in torchao.prototype.moe_training.ep
+@register_as_pytree_constant
+@dataclass
+class NVFP4FourOverSixTrainingOpConfig(TrainingOpBaseConfig):
+    """
+    The NVFP4FourOverSixTrainingOpConfig defines the NVFP4 four-over-six
+    training config for grouped GEMM ops.
+
+    Four-over-six scores two candidate encodings per 16-value block and keeps
+    the lower-error one; the knobs mirror
+    ``torchao.prototype.moe_training.nvfp4_training.four_over_six_grouped.four_over_six_grouped_mm``,
+    which the grouped GEMM dispatcher drives from this config.
+    """
+
+    # Candidate-selection error metric for four-over-six, "mae" or "mse".
+    err_mode: str = "mae"
+
+    # Global E4M3 scale bound; 256 leaves map-to-4 headroom, 448 uses the full range.
+    e4m3_scale_bound: int = 256
+
+    # Whether to derive one FP32 global scale per activation row instead of per token group.
+    row_scaled_activation: bool = False
+
+    # Weight quantization block shape, "16x16" or "1x16".
+    weight_block: str = "16x16"
+
+    # Backward computation override for the grouped GEMM. None or "high_precision"
+    # computes both gradients with plain grouped GEMMs on the saved high-precision
+    # operands. "dequantized" computes them from the dequantized forward operands.
+    # Grouped four-over-six has no quantized backward.
+    backward_override: Optional[str] = None
+
+    # Whether to pad the token group sizes to multiples of 128 (the grouped GEMM alignment).
+    pad_token_groups_for_grouped_mm: bool = False
+
+    def __eq__(self, other):
+        if isinstance(other, NVFP4FourOverSixTrainingOpConfig):
+            return (
+                self.err_mode == other.err_mode
+                and self.e4m3_scale_bound == other.e4m3_scale_bound
+                and self.row_scaled_activation == other.row_scaled_activation
+                and self.weight_block == other.weight_block
+                and self.backward_override == other.backward_override
+                and self.pad_token_groups_for_grouped_mm
+                == other.pad_token_groups_for_grouped_mm
+            )
+        return NotImplemented
+
+    def __hash__(self):
+        return hash(
+            (
+                self.err_mode,
+                self.e4m3_scale_bound,
+                self.row_scaled_activation,
+                self.weight_block,
+                self.backward_override,
+                self.pad_token_groups_for_grouped_mm,
+            )
+        )
+
+
 @register_quantize_module_handler(Float8TrainingOpConfig)
 @register_quantize_module_handler(MXFP8TrainingOpConfig)
 def _moe_training_transform(

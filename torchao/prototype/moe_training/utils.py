@@ -10,6 +10,7 @@ from torchao.float8.float8_utils import tensor_to_scale, to_fp8_saturated
 from torchao.prototype.moe_training.config import (
     Float8TrainingOpConfig,
     MXFP8TrainingOpConfig,
+    NVFP4FourOverSixTrainingOpConfig,
     TrainingOpBaseConfig,
 )
 from torchao.prototype.mx_formats.mx_tensor import to_mx
@@ -405,6 +406,36 @@ def _quantize_then_scaled_grouped_mm(
             offs,
             **kwargs,
         )
+    elif isinstance(config, NVFP4FourOverSixTrainingOpConfig):
+        from torchao.prototype.moe_training.nvfp4_training.four_over_six_grouped import (
+            four_over_six_grouped_mm,
+        )
+
+        # The dispatcher hands expert weights over as B_t with shape (E, K, N);
+        # the four-over-six op takes them in their stored (E, N, K) layout.
+        # Callers with padded token dispatchers over-allocate A past offs[-1],
+        # while the op requires offs[-1] == A.shape[0] and the unwritten tail
+        # rows must not feed its per-group amaxes: slice to the logical rows
+        # and zero-extend the output, which also routes zero gradients to the
+        # tail. The host read of offs[-1] keeps this dispatcher branch
+        # eager-only (the op itself is nonstrict-traced under compile).
+        num_tokens = int(offs[-1])
+        tail_rows = A.shape[0] - num_tokens
+        output = four_over_six_grouped_mm(
+            A[:num_tokens] if tail_rows > 0 else A,
+            B_t.transpose(-2, -1),
+            offs,
+            bias,
+            err_mode=config.err_mode,
+            e4m3_scale_bound=config.e4m3_scale_bound,
+            row_scaled_activation=config.row_scaled_activation,
+            weight_block=config.weight_block,
+            backward_override=config.backward_override,
+            pad_token_groups_for_grouped_mm=config.pad_token_groups_for_grouped_mm,
+        )
+        if tail_rows > 0:
+            output = torch.nn.functional.pad(output, (0, 0, 0, tail_rows))
+        return output
     else:
         raise ValueError(f"Unsupported config type: {type(config)}")
 
