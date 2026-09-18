@@ -48,6 +48,7 @@ from torchao.quantization.quant_api import (
     PerRow,
     PerTensor,
     _replace_with_custom_fn_if_matches_filter,
+    swap_conv2d_1x1_to_linear,
 )
 from torchao.quantization.quant_primitives import MappingType
 from torchao.quantization.utils import compute_error
@@ -168,6 +169,39 @@ class TestQuantFlow(TestCase):
         torch.backends.cuda.matmul.fp32_precision = self._prev_cuda_matmul_fp32
         torch.backends.mkldnn.matmul.fp32_precision = self._prev_mkldnn_matmul_fp32
         super().tearDown()
+
+    def test_swap_conv2d_1x1_to_linear_bias(self):
+        # Regression test for https://github.com/pytorch/ao/issues/4615
+        # `replace_conv2d_1x1` passed `bias=(conv.bias is None)` to `nn.Linear`,
+        # which is inverted relative to the intent (create a bias iff the
+        # source conv has one). The very next line unconditionally does
+        # `lin.bias = conv.bias`, which today happens to paper over the
+        # inverted flag and leaves the final module correct either way. This
+        # test locks in that end-to-end correctness and guards against the
+        # inverted flag becoming an actual bug if that line is ever touched.
+        model_with_bias = torch.nn.Sequential(
+            torch.nn.Conv2d(4, 8, kernel_size=1, bias=True)
+        )
+        model_without_bias = torch.nn.Sequential(
+            torch.nn.Conv2d(4, 8, kernel_size=1, bias=False)
+        )
+
+        swap_conv2d_1x1_to_linear(model_with_bias)
+        swap_conv2d_1x1_to_linear(model_without_bias)
+
+        self.assertIsNotNone(model_with_bias[0].mod.bias)
+        self.assertIsNone(model_without_bias[0].mod.bias)
+
+        # the converted module should also be numerically equivalent to the
+        # original conv (bias correctly carried over, weight correctly reshaped)
+        conv = torch.nn.Conv2d(4, 8, kernel_size=1, bias=True)
+        x = torch.randn(2, 4, 5, 5)
+        expected = conv(x)
+
+        converted = torch.nn.Sequential(conv)
+        swap_conv2d_1x1_to_linear(converted)
+        actual = converted(x)
+        torch.testing.assert_close(actual, expected)
 
     def test_quantize_does_not_leak_fp32_precision(self):
         # quantize_() must not mutate the process wide fp32 precision flags, torch's
