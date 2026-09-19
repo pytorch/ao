@@ -54,6 +54,62 @@ if not (is_sm_at_least_89() or is_MI300() or is_MI350()):
     )
 
 
+def _serialize_fsdp_comm_streams(test_cls) -> None:
+    """
+    Serialize all FSDP2's communication streams for this test to bypass the
+    following race condition:
+
+      1. FSDPTestMultiThread runs each rank as a thread on one device, and each
+         thread gets its own FSDP all-gather copy-in stream.
+      2. With fp8 all-gather, torchao computes the weight amax in
+         fsdp_pre_all_gather, so it lands on that per-thread stream.
+      3. ProcessLocalGroup reduces on rank 0's thread and stream, ordered only
+         by CPU condition variables; it never waits on the other thread's
+         stream.
+      4. Rank 0 can therefore read an amax whose kernel has not run yet, giving
+         a garbage scale and a NaN loss.
+
+    We achieve this by pointing all streams to the current stream, which
+    restores the ordering.
+
+    Note: This uses a private torch.distributed.fsdp API. If upstream changes
+    we will fail loudly here instead of silently allowing the race condition to
+    resurface.
+    """
+    try:
+        from torch.distributed.fsdp._fully_shard._fsdp_param_group import (
+            FSDPCommContext,
+        )
+    except ImportError as e:
+        raise ImportError(
+            "Cannot import FSDPCommContext to serialize FSDP2's communication "
+            "streams. This private API moved; update _serialize_fsdp_comm_streams "
+            "or these multi-threaded tests will race on the fp8 amax all-reduce."
+        ) from e
+
+    orig_lazy_init = FSDPCommContext.lazy_init
+
+    def serialized_lazy_init(self, device: torch.device) -> None:
+        orig_lazy_init(self, device)
+        current_stream = self.device_handle.current_stream()
+        required_streams = (
+            "all_gather_copy_in_stream",
+            "all_gather_stream",
+            "reduce_scatter_stream",
+        )
+        missing = [attr for attr in required_streams if not hasattr(self, attr)]
+        if missing:
+            raise AttributeError(
+                f"FSDPCommContext is missing {missing}; update "
+                "_serialize_fsdp_comm_streams for this version of torch."
+            )
+        for attr in required_streams:
+            setattr(self, attr, current_stream)
+
+    FSDPCommContext.lazy_init = serialized_lazy_init
+    test_cls.addCleanup(setattr, FSDPCommContext, "lazy_init", orig_lazy_init)
+
+
 class TestFloat8Common:
     def broadcast_module(self, module: nn.Module) -> None:
         # Broadcast for multi-threaded process group tests since seed is per
@@ -355,6 +411,10 @@ class TestFloat8MultiThread(FSDPTestMultiThread, TestFloat8Common):
     @property
     def world_size(self) -> int:
         return 2
+
+    def setUp(self):
+        super().setUp()
+        _serialize_fsdp_comm_streams(self)
 
     @unittest.skipIf(not TEST_CUDA, "no cuda")
     def test_weight_subclass_dynamic(self):
