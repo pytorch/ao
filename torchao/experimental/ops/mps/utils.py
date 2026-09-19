@@ -47,7 +47,14 @@ def _get_torchao_mps_lib_path():
 
 
 def _load_torchao_mps_lib():
-    """Load the MPS ops library."""
+    """Load the MPS ops library.
+
+    Raises ImportError (not RuntimeError) when the library is unavailable:
+    this runs at import time of ``torchao.experimental.ops.mps``, and
+    ``pkgutil.walk_packages`` -- used by diffusers/transformers to enumerate
+    backends -- only suppresses ImportError. Any other exception type aborts
+    the caller's whole package walk.
+    """
     try:
         for nbit in range(1, 8):
             getattr(torch.ops.torchao, f"_linear_fp_act_{nbit}bit_weight")
@@ -55,14 +62,14 @@ def _load_torchao_mps_lib():
     except AttributeError:
         libpath = _get_torchao_mps_lib_path()
         if libpath is None:
-            raise RuntimeError(
+            raise ImportError(
                 "Could not find libtorchao_ops_mps_aten.dylib. "
                 "Please build with TORCHAO_BUILD_EXPERIMENTAL_MPS=1"
             )
         try:
             torch.ops.load_library(libpath)
         except Exception as e:
-            raise RuntimeError(f"Failed to load library {libpath}: {e}")
+            raise ImportError(f"Failed to load library {libpath}: {e}") from e
 
         for nbit in range(1, 8):
             getattr(torch.ops.torchao, f"_linear_fp_act_{nbit}bit_weight")
