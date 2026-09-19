@@ -7,6 +7,7 @@ import copy
 import shutil
 import tempfile
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 import torch
@@ -249,6 +250,49 @@ class TestOptim(TestCase):
         loss.backward()
         optimizer.step()
         optimizer.zero_grad()
+
+    # issue #955: low-bit Adam optimizers should let users choose the
+    # torch.compile backend (e.g. aot_eager on MPS) instead of being locked
+    # to the default. these tests run on CPU and do not require MPS/CUDA.
+    @parametrize(
+        "optim_name",
+        ["Adam8bit", "AdamW8bit", "Adam4bit", "AdamW4bit", "AdamFp8", "AdamWFp8"],
+    )
+    def test_optim_accepts_compile_backend(self, optim_name):
+        # constructing with compile_backend must not raise (regression guard
+        # against the TypeError before compile_backend was exposed).
+        model = nn.Linear(4, 4)
+        getattr(optim, optim_name)(model.parameters(), compile_backend="aot_eager")
+
+    def _run_step_capturing_compile(self, **optim_kwargs):
+        # patch torch.compile with a fake that records the kwargs it receives
+        # and runs the function eagerly, so we can assert on forwarding without
+        # relying on a real compile backend.
+        model = nn.Linear(256, 32)  # weight (8192 elems) exercises the 8-bit path
+        optimizer = optim.Adam8bit(model.parameters(), **optim_kwargs)
+        model(torch.randn(8, 256)).sum().backward()
+
+        with patch("torch.compile", side_effect=lambda fn=None, **kw: fn) as mock:
+            optimizer.step()
+
+        assert mock.call_count > 0
+        return [call.kwargs for call in mock.call_args_list]
+
+    def test_optim_compile_backend_forwarded(self):
+        all_kwargs = self._run_step_capturing_compile(compile_backend="aot_eager")
+        for kwargs in all_kwargs:
+            assert kwargs.get("backend") == "aot_eager"
+            assert kwargs.get("fullgraph") is True
+            assert kwargs.get("dynamic") is False
+
+    def test_optim_compile_backend_default(self):
+        # when compile_backend is not provided, no backend kwarg is passed,
+        # preserving the original torch.compile behavior.
+        all_kwargs = self._run_step_capturing_compile()
+        for kwargs in all_kwargs:
+            assert "backend" not in kwargs
+            assert kwargs.get("fullgraph") is True
+            assert kwargs.get("dynamic") is False
 
     # aten.slice is required for dcp.load() when world size changes i.e. re-sharding
     # however, it's cumbersome to test it directly, since we would need to run distributed

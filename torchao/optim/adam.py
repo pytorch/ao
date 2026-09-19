@@ -29,6 +29,7 @@ class _AdamBase(Optimizer):
         block_size,
         bf16_stochastic_round,
         is_adamw,
+        compile_backend=None,
     ) -> None:
         if not 0.0 <= lr:
             raise ValueError("Invalid learning rate: {}".format(lr))
@@ -49,6 +50,7 @@ class _AdamBase(Optimizer):
         self.block_size = block_size
         self.bf16_stochastic_round = bf16_stochastic_round
         self.is_adamw = is_adamw
+        self.compile_backend = compile_backend
 
     def add_param_group(self, param_group: dict) -> None:
         super().add_param_group(param_group)
@@ -139,7 +141,19 @@ class _AdamBase(Optimizer):
                     # https://github.com/pytorch/ao/issues/652#issuecomment-2285040894
                     # thus, by calling p.detach(), DTensor won't have .grad anymore, which is ok since we
                     # are passing grad separately anyway.
-                    torch.compile(single_param_adam, fullgraph=True, dynamic=False)(
+                    # only pass `backend` when explicitly set so the default
+                    # behavior (inductor) is preserved unchanged.
+                    compile_kwargs = (
+                        {}
+                        if self.compile_backend is None
+                        else {"backend": self.compile_backend}
+                    )
+                    torch.compile(
+                        single_param_adam,
+                        fullgraph=True,
+                        dynamic=False,
+                        **compile_kwargs,
+                    )(
                         p.detach(),
                         grad,
                         state["step"],
@@ -221,6 +235,7 @@ class Adam8bit(_AdamBase):
         *,
         block_size=256,
         bf16_stochastic_round=False,
+        compile_backend=None,
     ) -> None:
         super().__init__(
             params,
@@ -231,6 +246,7 @@ class Adam8bit(_AdamBase):
             amsgrad,
             block_size=block_size,
             bf16_stochastic_round=bf16_stochastic_round,
+            compile_backend=compile_backend,
             is_adamw=False,
         )
         torch._C._log_api_usage_once("torchao.optim.Adam8bit")
@@ -254,6 +270,7 @@ class Adam4bit(_AdamBase):
         *,
         block_size=128,
         bf16_stochastic_round=False,
+        compile_backend=None,
     ) -> None:
         super().__init__(
             params,
@@ -264,6 +281,7 @@ class Adam4bit(_AdamBase):
             amsgrad,
             block_size=block_size,
             bf16_stochastic_round=bf16_stochastic_round,
+            compile_backend=compile_backend,
             is_adamw=False,
         )
         torch._C._log_api_usage_once("torchao.optim.Adam4bit")
@@ -287,6 +305,7 @@ class AdamFp8(_AdamBase):
         *,
         block_size=256,
         bf16_stochastic_round=False,
+        compile_backend=None,
     ) -> None:
         super().__init__(
             params,
@@ -297,6 +316,7 @@ class AdamFp8(_AdamBase):
             amsgrad,
             block_size=block_size,
             bf16_stochastic_round=bf16_stochastic_round,
+            compile_backend=compile_backend,
             is_adamw=False,
         )
         torch._C._log_api_usage_once("torchao.optim.AdamFp8")
@@ -318,6 +338,7 @@ class AdamW8bit(_AdamBase):
         *,
         block_size=256,
         bf16_stochastic_round=False,
+        compile_backend=None,
     ) -> None:
         super().__init__(
             params,
@@ -328,6 +349,7 @@ class AdamW8bit(_AdamBase):
             amsgrad,
             block_size=block_size,
             bf16_stochastic_round=bf16_stochastic_round,
+            compile_backend=compile_backend,
             is_adamw=True,
         )
         torch._C._log_api_usage_once("torchao.optim.AdamW8bit")
@@ -351,6 +373,7 @@ class AdamW4bit(_AdamBase):
         *,
         block_size=128,
         bf16_stochastic_round=False,
+        compile_backend=None,
     ) -> None:
         super().__init__(
             params,
@@ -361,6 +384,7 @@ class AdamW4bit(_AdamBase):
             amsgrad,
             block_size=block_size,
             bf16_stochastic_round=bf16_stochastic_round,
+            compile_backend=compile_backend,
             is_adamw=True,
         )
         torch._C._log_api_usage_once("torchao.optim.AdamW4bit")
@@ -384,6 +408,7 @@ class AdamWFp8(_AdamBase):
         *,
         block_size=256,
         bf16_stochastic_round=False,
+        compile_backend=None,
     ) -> None:
         super().__init__(
             params,
@@ -394,6 +419,7 @@ class AdamWFp8(_AdamBase):
             amsgrad,
             block_size=block_size,
             bf16_stochastic_round=bf16_stochastic_round,
+            compile_backend=compile_backend,
             is_adamw=True,
         )
         torch._C._log_api_usage_once("torchao.optim.AdamWFp8")
@@ -414,6 +440,7 @@ class _AdamW(_AdamBase):
         amsgrad=False,
         *,
         bf16_stochastic_round=False,
+        compile_backend=None,
     ) -> None:
         """AdamW optimizer that supports quantized training (parameter is quantized). This optimizer should
         only be used with torchao's quantized training."""
@@ -426,5 +453,6 @@ class _AdamW(_AdamBase):
             amsgrad,
             block_size=float("inf"),
             bf16_stochastic_round=bf16_stochastic_round,
+            compile_backend=compile_backend,
             is_adamw=True,
         )
