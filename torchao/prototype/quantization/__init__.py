@@ -1,9 +1,9 @@
 from .gguf import GGUFWeightOnlyConfig
+from .quant_api import Int8DynamicActivationUIntxWeightConfig, UIntxWeightOnlyConfig
 from .static_activation_qat import (
     IntxStaticActQATConfig,
     IntxStaticActQATLinear,
 )
-from .quant_api import Int8DynamicActivationUIntxWeightConfig, UIntxWeightOnlyConfig
 
 __all__ = [
     "GGUFWeightOnlyConfig",
