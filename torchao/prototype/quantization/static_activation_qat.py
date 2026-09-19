@@ -17,7 +17,7 @@ from torchao.quantization.qat.fake_quantize_config import (
     IntxFakeQuantizeConfig,
 )
 from torchao.quantization.qat.linear import FakeQuantizedLinear
-from torchao.quantization.quant_primitives import MappingType, ZeroPointDomain
+from torchao.quantization.quant_primitives import ZeroPointDomain
 from torchao.quantization.transform_module import (
     register_quantize_module_handler,
 )
@@ -47,6 +47,8 @@ class IntxStaticActQATLinear(FakeQuantizedLinear):
     the subsequent QAT forwards.
 
     Example::
+
+        from torchao.quantization.quant_primitives import MappingType
 
         activation_config = IntxFakeQuantizeConfig(
             torch.int16,
