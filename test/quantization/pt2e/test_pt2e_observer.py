@@ -47,9 +47,14 @@ class TestObserverComplexInput(TestCase):
             observer(x)
 
     def test_histogram_observer_still_rejects_complex_input(self):
+        # HistogramObserver rejects complex through torch.aminmax rather than
+        # through the check added here, so the exception is torch's and its type
+        # has changed: the dtype dispatch raised NotImplementedError through 2.14,
+        # and TORCH_CHECK_TYPE in ReduceOps.cpp raises TypeError on current main.
+        # Only assert that it does not silently accept.
         observer = HistogramObserver()
 
-        with self.assertRaises(NotImplementedError):
+        with self.assertRaises((NotImplementedError, TypeError)):
             observer(torch.tensor([1 + 1j, 2 + 2j], dtype=torch.complex64))
 
     @common_utils.parametrize("observer_cls", _MIN_MAX_OBSERVERS)
