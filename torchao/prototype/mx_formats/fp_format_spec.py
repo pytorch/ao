@@ -27,6 +27,8 @@ dtype_to_bitwidth = {
     torch.float16: 16,
     torch.float8_e4m3fn: 8,
     torch.float8_e5m2: 8,
+    torch.float8_e4m3fnuz: 8,
+    torch.float8_e5m2fnuz: 8,
     DTYPE_FP6_E3M2: 6,
     DTYPE_FP6_E2M3: 6,
 }
@@ -36,18 +38,23 @@ dtype_to_sem_len = {
     torch.float16: (1, 5, 10),
     torch.float8_e4m3fn: (1, 4, 3),
     torch.float8_e5m2: (1, 5, 2),
+    torch.float8_e4m3fnuz: (1, 4, 3),
+    torch.float8_e5m2fnuz: (1, 5, 2),
     # the line below is currently representing fp4 with bits 0:3 empty and
     # bits 4:7 containing the fp4 encoding
     # TODO(future): clean this up
     torch.uint8: (1, 2, 1),
 }
-# bias = 2 ** (exp_bitwidth - 1) - 1
+# bias = 2 ** (exp_bitwidth - 1) - 1, except for the fnuz dtypes where the
+# bias is 2 ** (exp_bitwidth - 1)
 dtype_to_exp_bias = {
     torch.float: 127,
     torch.bfloat16: 127,
     torch.float16: 15,
     torch.float8_e4m3fn: 7,
     torch.float8_e5m2: 15,
+    torch.float8_e4m3fnuz: 8,
+    torch.float8_e5m2fnuz: 16,
     DTYPE_FP6_E2M3: 1,
     DTYPE_FP6_E3M2: 3,
 }
@@ -57,6 +64,8 @@ dtype_to_int_dtype = {
     torch.bfloat16: torch.int16,
     torch.float8_e4m3fn: torch.int8,
     torch.float8_e5m2: torch.int8,
+    torch.float8_e4m3fnuz: torch.int8,
+    torch.float8_e5m2fnuz: torch.int8,
     # for fp4
     # TODO(future): clean it up
     torch.uint8: torch.uint8,
@@ -258,6 +267,46 @@ dtype_to_interesting_values = {
         (32.0, "0", "10100", "00", "random_pos"),
         (-24.0, "1", "10011", "10", "random_neg"),
     ],
+    torch.float8_e4m3fnuz: [
+        # zero, there is no negative zero
+        (0.0, "0", "0000", "000", "zero"),
+        # special values
+        # note: no pos or neg inf, and nan has a single encoding
+        (float("nan"), "1", "0000", "000", "nan"),
+        # values below checked with https://onnx.ai/onnx/technical/float8.html
+        # largest normal
+        (240.0, "0", "1111", "111", "largest_normal"),
+        (-240.0, "1", "1111", "111", "largest_normal_neg"),
+        # smallest normal
+        (2**-7, "0", "0001", "000", "smallest_normal"),
+        (-(2**-7), "1", "0001", "000", "smallest_normal_neg"),
+        # largest denormal
+        (0.875 * 2**-7, "0", "0000", "111", "largest_denormal"),
+        (-0.875 * 2**-7, "1", "0000", "111", "largest_denormal_neg"),
+        # smallest denormal
+        (2**-10, "0", "0000", "001", "smallest_denormal"),
+        (-(2**-10), "1", "0000", "001", "smallest_denormal_neg"),
+    ],
+    torch.float8_e5m2fnuz: [
+        # zero, there is no negative zero
+        (0.0, "0", "00000", "00", "zero"),
+        # special values
+        # note: no pos or neg inf, and nan has a single encoding
+        (float("nan"), "1", "00000", "00", "nan"),
+        # values below checked with https://onnx.ai/onnx/technical/float8.html
+        # largest normal
+        (57344.0, "0", "11111", "11", "largest_normal"),
+        (-57344.0, "1", "11111", "11", "largest_normal_neg"),
+        # smallest normal
+        (2**-15, "0", "00001", "00", "smallest_normal"),
+        (-(2**-15), "1", "00001", "00", "smallest_normal_neg"),
+        # largest denormal
+        (0.75 * 2**-15, "0", "00000", "11", "largest_denormal"),
+        (-0.75 * 2**-15, "1", "00000", "11", "largest_denormal_neg"),
+        # smallest denormal
+        (2**-17, "0", "00000", "01", "smallest_denormal"),
+        (-(2**-17), "1", "00000", "01", "smallest_denormal_neg"),
+    ],
 }
 
 # values for fp4_e2m1, as defined in the OCP spec for MXFP4
@@ -412,7 +461,13 @@ def sem_bits_to_sem_vals(s_enc, e_enc, m_enc, dtype):
     sign = 1 if s_enc == "0" else -1
 
     # handle special values
-    if all(bit == "1" for bit in e_enc):
+    if dtype in (torch.float8_e4m3fnuz, torch.float8_e5m2fnuz):
+        # the fnuz dtypes have no infinities and no negative zero, and the
+        # all-ones exponent holds normal values. the only special value is
+        # nan, encoded as {1}.{0...0}.{0...0}
+        if s_enc == "1" and all(b == "0" for b in e_enc + m_enc):
+            return None, None, None, float("nan")
+    elif all(bit == "1" for bit in e_enc):
         dtypes = (
             torch.float32,
             torch.bfloat16,
@@ -536,6 +591,8 @@ if __name__ == "__main__":
         torch.float16,
         torch.float8_e4m3fn,
         torch.float8_e5m2,
+        torch.float8_e4m3fnuz,
+        torch.float8_e5m2fnuz,
         DTYPE_FP6_E3M2,
         DTYPE_FP6_E2M3,
         torch.float4_e2m1fn_x2,
