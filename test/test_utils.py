@@ -9,6 +9,7 @@ from unittest.mock import patch
 import torch
 import torch.nn.functional as F
 
+from torchao.quantization import Int8Tensor
 from torchao.utils import TorchAOBaseTensor, torch_version_at_least
 
 
@@ -327,6 +328,178 @@ class TestTorchAOBaseTensor(unittest.TestCase):
             l.weight, "attr", None, zero_point=None, optional_attr="value"
         )
         self._test_default_impls_helper(lp_tensor, lp_tensor_for_copy)
+
+    def _get_copy_test_tensor_class(self):
+        class MyTensor(TorchAOBaseTensor):
+            tensor_data_names = ["qdata"]
+            tensor_attribute_names = ["attr", "device"]
+            optional_tensor_data_names = ["zero_point"]
+            optional_tensor_attribute_names = ["optional_attr"]
+
+            def __new__(
+                cls,
+                qdata,
+                attr="attr",
+                device=None,
+                zero_point=None,
+                optional_attr=None,
+            ):
+                if device is None:
+                    device = qdata.device
+                kwargs = {"device": device}
+                r = torch.Tensor._make_wrapper_subclass(cls, qdata.shape, **kwargs)  # type: ignore[attr-defined]
+                r.qdata = qdata
+                r.attr = attr
+                r.zero_point = zero_point
+                r.optional_attr = optional_attr
+                return r
+
+            def __init__(
+                self,
+                qdata,
+                attr="attr",
+                device=None,
+                zero_point=None,
+                optional_attr=None,
+            ):
+                pass
+
+        return MyTensor
+
+    def test_copy__attribute_mismatch_error_names_field(self):
+        """copy_ error should name the mismatched attribute and both values,
+        instead of dumping both tensors' full reprs (#3046)"""
+        MyTensor = self._get_copy_test_tensor_class()
+        lp_tensor = MyTensor(torch.randn(2, 3), "attr1")
+        lp_tensor_for_copy = MyTensor(torch.randn(2, 3), "attr2")
+        with self.assertRaisesRegex(ValueError, r"attr: 'attr1' vs 'attr2'") as context:
+            lp_tensor.copy_(lp_tensor_for_copy)
+        # the message should not contain tensor data dumps
+        self.assertNotIn("tensor(", str(context.exception))
+
+    def test_copy__type_mismatch_error_names_types(self):
+        MyTensor = self._get_copy_test_tensor_class()
+
+        class OtherTensor(TorchAOBaseTensor):
+            tensor_data_names = ["data"]
+            tensor_attribute_names = ["device"]
+
+            def __new__(cls, data, device=None):
+                if device is None:
+                    device = data.device
+                kwargs = {"device": device}
+                r = torch.Tensor._make_wrapper_subclass(cls, data.shape, **kwargs)  # type: ignore[attr-defined]
+                r.data = data
+                return r
+
+            def __init__(self, data, device=None):
+                pass
+
+        lp_tensor = MyTensor(torch.randn(2, 3))
+        other_tensor = OtherTensor(torch.randn(2, 3))
+        with self.assertRaisesRegex(ValueError, r"type: MyTensor vs OtherTensor"):
+            lp_tensor.copy_(other_tensor)
+
+    def _get_packed_copy_test_tensor_class(self):
+        """Outer shape is decoupled from the inner tensor shape, as in packed formats"""
+
+        class MyPackedTensor(TorchAOBaseTensor):
+            tensor_data_names = ["qdata"]
+            tensor_attribute_names = ["device"]
+
+            def __new__(cls, qdata, shape, device=None):
+                if device is None:
+                    device = qdata.device
+                kwargs = {"device": device}
+                r = torch.Tensor._make_wrapper_subclass(cls, shape, **kwargs)  # type: ignore[attr-defined]
+                r.qdata = qdata
+                return r
+
+            def __init__(self, qdata, shape, device=None):
+                pass
+
+        return MyPackedTensor
+
+    def test_copy__tensor_shape_mismatch_error_names_tensor(self):
+        """Inner tensor shape mismatch should be reported by name even when
+        the outer shapes match (e.g. packed formats)"""
+        MyPackedTensor = self._get_packed_copy_test_tensor_class()
+        lp_tensor = MyPackedTensor(torch.randn(2), torch.Size([4]))
+        lp_tensor_for_copy = MyPackedTensor(torch.randn(4), torch.Size([4]))
+        with self.assertRaisesRegex(
+            ValueError, r"qdata\.shape: torch\.Size\(\[2\]\) vs torch\.Size\(\[4\]\)"
+        ):
+            lp_tensor.copy_(lp_tensor_for_copy)
+
+    def test_copy__outer_shape_mismatch_reported_on_its_own(self):
+        """An outer shape mismatch is reported by itself when the inner tensors agree.
+
+        Packed formats decouple the two, so `shape` and `qdata.shape` are independent
+        signals and the message must not conflate them.
+        """
+        MyPackedTensor = self._get_packed_copy_test_tensor_class()
+        lp_tensor = MyPackedTensor(torch.randn(4), torch.Size([4]))
+        lp_tensor_for_copy = MyPackedTensor(torch.randn(4), torch.Size([2, 2]))
+        with self.assertRaisesRegex(
+            ValueError,
+            r"metadata mismatch: shape: torch\.Size\(\[4\]\) vs torch\.Size\(\[2, 2\]\)$",
+        ):
+            lp_tensor.copy_(lp_tensor_for_copy)
+
+    def test_copy__optional_tensor_presence_mismatch(self):
+        """A None vs non-None optional tensor should be reported as a metadata
+        mismatch (in both directions) instead of crashing"""
+        MyTensor = self._get_copy_test_tensor_class()
+        lp_tensor = MyTensor(torch.randn(2, 3))
+        lp_tensor_for_copy = MyTensor(torch.randn(2, 3), zero_point=torch.zeros(3))
+        with self.assertRaisesRegex(ValueError, r"zero_point: None vs Tensor"):
+            lp_tensor.copy_(lp_tensor_for_copy)
+        with self.assertRaisesRegex(ValueError, r"zero_point: Tensor vs None"):
+            lp_tensor_for_copy.copy_(lp_tensor)
+
+    def test_copy__multiple_mismatches_all_reported(self):
+        MyTensor = self._get_copy_test_tensor_class()
+        lp_tensor = MyTensor(torch.randn(2, 3), "attr1", optional_attr="value1")
+        lp_tensor_for_copy = MyTensor(
+            torch.randn(2, 3), "attr2", optional_attr="value2"
+        )
+        with self.assertRaisesRegex(
+            ValueError, r"attr: 'attr1' vs 'attr2'.*optional_attr: 'value1' vs 'value2'"
+        ):
+            lp_tensor.copy_(lp_tensor_for_copy)
+
+    def test_copy__with_matching_metadata_succeeds(self):
+        MyTensor = self._get_copy_test_tensor_class()
+        lp_tensor = MyTensor(torch.randn(2, 3), zero_point=torch.zeros(3))
+        lp_tensor_for_copy = MyTensor(torch.randn(2, 3), zero_point=torch.ones(3))
+        lp_tensor.copy_(lp_tensor_for_copy)
+        self.assertTrue(torch.equal(lp_tensor.qdata, lp_tensor_for_copy.qdata))
+        self.assertTrue(
+            torch.equal(lp_tensor.zero_point, lp_tensor_for_copy.zero_point)
+        )
+
+    def test_copy__real_tensor_subclass_names_the_single_field(self):
+        """End-to-end on a shipped subclass rather than a test-local one: the
+        message names the one field that differs instead of dumping both
+        tensors' full reprs (#3046)"""
+
+        def make_int8_tensor(block_size):
+            return Int8Tensor(
+                torch.randint(-8, 7, (4, 8), dtype=torch.int8),
+                torch.randn(4, 1),
+                block_size,
+                torch.bfloat16,
+            )
+
+        lp_tensor = make_int8_tensor([1, 8])
+        lp_tensor_for_copy = make_int8_tensor([1, 4])
+        with self.assertRaisesRegex(
+            ValueError, r"block_size: \[1, 8\] vs \[1, 4\]"
+        ) as context:
+            lp_tensor.copy_(lp_tensor_for_copy)
+        # the entire point of #3046: no tensor data, no wall of text
+        self.assertNotIn("tensor(", str(context.exception))
+        self.assertLess(len(str(context.exception)), 200)
 
     def test_implements_and_torch_function_together(self):
         """Ensure a function decorated with both @_implements and @_implements_torch_function works."""
