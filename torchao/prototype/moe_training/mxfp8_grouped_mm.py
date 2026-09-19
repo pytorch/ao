@@ -63,6 +63,7 @@ def _to_mxfp8_then_scaled_grouped_mm(
     wgrad_with_hp: bool = False,
     scale_calculation_mode: ScaleCalculationMode = ScaleCalculationMode.RCEIL,
     pad_token_groups_for_grouped_mm: bool = False,
+    bf16_bwd: bool = False,
 ) -> torch.Tensor:
     """
     Differentiable mxfp8 grouped gemm with dynamic mxfp8 quantization.
@@ -82,6 +83,8 @@ def _to_mxfp8_then_scaled_grouped_mm(
         wgrad_with_hp (bool): Whether to compute weight gradient in high precision. Defaults to False.
         scale_calculation_mode (ScaleCalculationMode): Mode for scale calculation (RCEIL, FLOOR, etc.). Defaults to ScaleCalculationMode.RCEIL.
         pad_token_groups_for_grouped_mm (bool): Whether to pad token groups to the next multiple of 32 (requirement for MXFP8 grouped GEMM). If your tokens are already padded, set to False.
+        bf16_bwd (bool): If True, use the QAT variant that quantizes the forward
+            to mxfp8 but computes the backward in high precision (bf16). Defaults to False.
 
     Returns:
         out (torch.Tensor): The result of the mxfp8 scaled grouped gemm.
@@ -89,22 +92,124 @@ def _to_mxfp8_then_scaled_grouped_mm(
     # block_size is always 32 for MXFP8
     block_size = 32
     _validate_grouped_mm_input_act(A, block_size)
-    output = _MXFP8GroupedMM.apply(
-        A,
-        B_t,
-        offs,
-        out_dtype,
-        kernel_preference,
-        wgrad_with_hp,
-        scale_calculation_mode,
-        pad_token_groups_for_grouped_mm,
-    )
+    if bf16_bwd:
+        output = _MXFP8GroupedMMFwdBF16Bwd.apply(
+            A,
+            B_t,
+            offs,
+            out_dtype,
+            kernel_preference,
+            scale_calculation_mode,
+            pad_token_groups_for_grouped_mm,
+        )
+    else:
+        output = _MXFP8GroupedMM.apply(
+            A,
+            B_t,
+            offs,
+            out_dtype,
+            kernel_preference,
+            wgrad_with_hp,
+            scale_calculation_mode,
+            pad_token_groups_for_grouped_mm,
+        )
 
     # add bias outside the autograd function so that autograd
     # handles the bias gradient automatically.
     if bias is not None:
         output = output + bias.to(output.dtype)
 
+    return output
+
+
+def _grouped_mm_mxfp8_forward(
+    ctx,
+    input_act: torch.Tensor,
+    weight_t: torch.Tensor,
+    group_end_offsets: Optional[torch.Tensor],
+    out_dtype: Optional[torch.dtype],
+    kernel_preference: KernelPreference,
+    scale_calculation_mode: ScaleCalculationMode,
+    pad_token_groups_for_grouped_mm: bool,
+) -> torch.Tensor:
+    """Shared forward for the mxfp8 grouped-mm autograd functions.
+
+    Pads token groups (if requested), runs the mxfp8-quantized scaled grouped GEMM,
+    unpads the output, and saves the high-precision tensors + config on ``ctx`` for
+    the backward. Callers are responsible for validating ``kernel_preference`` and
+    the input type (MXTensor vs high-precision) before calling this.
+    """
+    # block_size is always 32 for MXFP8
+    block_size = 32
+
+    # Input validation
+    assert input_act.ndim == 2, "input_act must be 2D"
+    assert weight_t.ndim == 3, "weight_t must be 3D"
+    assert group_end_offsets is not None, (
+        "group_end_offsets must be provided for 2d-3d grouped mm"
+    )
+    assert out_dtype in (
+        torch.bfloat16,
+        torch.float32,
+    ), "out_dtype must be bfloat16 or float32"
+
+    # Save original group_end_offsets and num_tokens before padding
+    num_tokens = input_act.shape[0]
+    padded_group_start_offsets = None
+    padded_group_end_offsets = None
+
+    # Conditionally pad token groups if not aligned to block_size
+    if pad_token_groups_for_grouped_mm:
+        padded_input_act, padded_group_start_offsets, padded_group_end_offsets = (
+            pad_token_groups(
+                input_act,
+                group_end_offsets,
+                alignment_size=block_size,
+                kernel_preference=kernel_preference,
+            )
+        )
+    else:
+        # padded_group_start_offsets stays None; only needed for the pad/unpad path
+        padded_input_act = input_act
+        padded_group_end_offsets = group_end_offsets
+
+    # Perform forward computation using the appropriate path
+    output = _compute_fwd(
+        padded_input_act,
+        weight_t,
+        padded_group_end_offsets,
+        block_size,
+        out_dtype,
+        scale_calculation_mode,
+        kernel_preference,
+    )
+
+    # Unpad output if padding was used
+    if pad_token_groups_for_grouped_mm:
+        output = unpad_token_groups(
+            output,
+            group_end_offsets,
+            padded_group_start_offsets,
+            num_tokens,
+            alignment_size=block_size,
+            kernel_preference=kernel_preference,
+        )
+
+    # Save high-precision tensors and config for backward
+    ctx.save_for_backward(
+        padded_input_act,
+        weight_t,
+        group_end_offsets,
+        padded_group_start_offsets,
+        padded_group_end_offsets,
+    )
+    ctx.out_dtype = out_dtype
+    ctx.kernel_preference = kernel_preference
+    ctx.scale_calculation_mode = scale_calculation_mode
+    ctx.pad_token_groups_for_grouped_mm = pad_token_groups_for_grouped_mm
+    ctx.num_tokens = num_tokens
+
+    assert output.shape[0] == num_tokens
     return output
 
 
@@ -145,9 +250,6 @@ class _MXFP8GroupedMM(torch.autograd.Function):
         Returns:
             Output tensor, shape (M, N)
         """
-        # block_size is always 32 for MXFP8
-        block_size = 32
-
         assert kernel_preference in (
             KernelPreference.AUTO,
             KernelPreference.EMULATED,
@@ -160,16 +262,6 @@ class _MXFP8GroupedMM(torch.autograd.Function):
                 "Otherwise, set kernel_preference=KernelPreference.EMULATED (emulated mode implements basic functionality without efficient kernels)."
             )
 
-        # Input validation
-        assert input_act.ndim == 2, "input_act must be 2D"
-        assert weight_t.ndim == 3, "weight_t must be 3D"
-        assert group_end_offsets is not None, (
-            "group_end_offsets must be provided for 2d-3d grouped mm"
-        )
-        assert out_dtype in (
-            torch.bfloat16,
-            torch.float32,
-        ), "out_dtype must be bfloat16 or float32"
         if isinstance(input_act, MXTensor):
             assert wgrad_with_hp, (
                 "only `wgrad_with_hp` recipe is supported for MXTensor inputs because "
@@ -177,65 +269,17 @@ class _MXFP8GroupedMM(torch.autograd.Function):
                 "for weight gradients"
             )
 
-        # Save original group_end_offsets and num_tokens before padding
-        num_tokens = input_act.shape[0]
-        padded_group_start_offsets = None
-        padded_group_end_offsets = None
-
-        # Conditionally pad token groups if not aligned to block_size
-        if pad_token_groups_for_grouped_mm:
-            padded_input_act, padded_group_start_offsets, padded_group_end_offsets = (
-                pad_token_groups(
-                    input_act,
-                    group_end_offsets,
-                    alignment_size=block_size,
-                    kernel_preference=kernel_preference,
-                )
-            )
-        else:
-            # We don't assign padded_group_start_offsets here because it's only needed for the pad/unpad path
-            padded_input_act = input_act
-            padded_group_end_offsets = group_end_offsets
-
-        # Perform forward computation using appropriate path
-        output = _compute_fwd(
-            padded_input_act,
-            weight_t,
-            padded_group_end_offsets,
-            block_size,
-            out_dtype,
-            scale_calculation_mode,
-            kernel_preference,
-        )
-
-        # Unpad output if padding was used
-        if pad_token_groups_for_grouped_mm:
-            output = unpad_token_groups(
-                output,
-                group_end_offsets,
-                padded_group_start_offsets,
-                num_tokens,
-                alignment_size=block_size,
-                kernel_preference=kernel_preference,
-            )
-
-        # Save tensors and config for backward
-        ctx.save_for_backward(
-            padded_input_act,
+        output = _grouped_mm_mxfp8_forward(
+            ctx,
+            input_act,
             weight_t,
             group_end_offsets,
-            padded_group_start_offsets,
-            padded_group_end_offsets,
+            out_dtype,
+            kernel_preference,
+            scale_calculation_mode,
+            pad_token_groups_for_grouped_mm,
         )
-        ctx.out_dtype = out_dtype
-        ctx.kernel_preference = kernel_preference
         ctx.wgrad_with_hp = wgrad_with_hp
-        ctx.scale_calculation_mode = scale_calculation_mode
-        ctx.pad_token_groups_for_grouped_mm = pad_token_groups_for_grouped_mm
-        ctx.num_tokens = num_tokens
-
-        assert output.shape[0] == num_tokens
-
         return output
 
     @staticmethod
@@ -327,6 +371,122 @@ class _MXFP8GroupedMM(torch.autograd.Function):
         )
 
 
+class _MXFP8GroupedMMFwdBF16Bwd(torch.autograd.Function):
+    """Grouped GEMM with mxfp8-quantized forward and high-precision (bf16) backward.
+
+    QAT-style variant of ``_MXFP8GroupedMM``: the forward is identical (real mxfp8
+    quantize + scaled grouped GEMM), but the backward computes ``grad_input`` and
+    ``grad_weight`` with plain bf16 ``torch._grouped_mm`` on the saved high-precision
+    tensors (straight-through estimator).
+
+    Compared to ``_MXFP8GroupedMM``, the forward additionally accepts
+    ``kernel_preference=TRITON``, which runs pure Triton kernels for the
+    quantization (the cutedsl quant kernels are not compatible with
+    nvidia-cutlass-dsl 4.6.0+; see https://github.com/pytorch/ao/issues/4647).
+    """
+
+    @staticmethod
+    def forward(
+        ctx,
+        input_act: torch.Tensor,
+        weight_t: torch.Tensor,
+        group_end_offsets: Optional[torch.Tensor] = None,
+        out_dtype: Optional[torch.dtype] = torch.bfloat16,
+        kernel_preference: KernelPreference = KernelPreference.AUTO,
+        scale_calculation_mode: ScaleCalculationMode = ScaleCalculationMode.RCEIL,
+        pad_token_groups_for_grouped_mm: bool = False,
+    ) -> torch.Tensor:
+        # Forward is identical to _MXFP8GroupedMM (real mxfp8); only the backward
+        # differs (high-precision bf16), so we share the forward helper.
+        assert kernel_preference in (
+            KernelPreference.AUTO,
+            KernelPreference.TRITON,
+        ), "kernel_preference must be AUTO or TRITON for the bf16-backward variant"
+        assert _SM100_KERNELS_AVAILABLE, (
+            "SM100 kernels not available. Please use a torchao CUDA 12.8+ build on "
+            "SM100/100a device(s)."
+        )
+        assert not isinstance(input_act, MXTensor), (
+            "bf16-backward variant expects high-precision activations"
+        )
+        return _grouped_mm_mxfp8_forward(
+            ctx,
+            input_act,
+            weight_t,
+            group_end_offsets,
+            out_dtype,
+            kernel_preference,
+            scale_calculation_mode,
+            pad_token_groups_for_grouped_mm,
+        )
+
+    @staticmethod
+    def backward(ctx, grad_output: torch.Tensor):
+        (
+            padded_input_act,
+            weight_t,
+            original_group_end_offsets,
+            padded_group_start_offsets,
+            padded_group_end_offsets,
+        ) = ctx.saved_tensors
+        block_size = 32
+        out_dtype = ctx.out_dtype
+        kernel_preference = ctx.kernel_preference
+        pad_token_groups_for_grouped_mm = ctx.pad_token_groups_for_grouped_mm
+        num_tokens = ctx.num_tokens
+
+        # grad_output may be non-contiguous (e.g. a broadcasted/expanded tensor with
+        # stride 0); torch._grouped_mm requires real strides.
+        grad_output = grad_output.contiguous()
+
+        if pad_token_groups_for_grouped_mm:
+            padded_grad_output, _, _ = pad_token_groups(
+                grad_output,
+                original_group_end_offsets,
+                alignment_size=block_size,
+                kernel_preference=kernel_preference,
+            )
+        else:
+            padded_grad_output = grad_output
+
+        # High-precision (bf16) backward: no quantization, plain bf16 grouped mm.
+        # dgrad: grad_input = grad_output @ weight, where weight = (E, N, K).
+        grad_input = torch._grouped_mm(
+            padded_grad_output,
+            weight_t.transpose(-2, -1),
+            offs=padded_group_end_offsets,
+            out_dtype=out_dtype,
+        )
+        # wgrad: grad_weight_t = (grad_output^T @ input_act)^T, shape (E, K, N).
+        grad_weight = torch._grouped_mm(
+            padded_grad_output.transpose(-2, -1),
+            padded_input_act,
+            offs=padded_group_end_offsets,
+            out_dtype=out_dtype,
+        )
+        grad_weight_t = grad_weight.transpose(-2, -1)
+
+        if pad_token_groups_for_grouped_mm:
+            grad_input = unpad_token_groups(
+                grad_input,
+                original_group_end_offsets,
+                padded_group_start_offsets,
+                num_tokens,
+                alignment_size=block_size,
+                kernel_preference=kernel_preference,
+            )
+
+        return (
+            grad_input,
+            grad_weight_t,
+            None,  # group_end_offsets
+            None,  # out_dtype
+            None,  # kernel_preference
+            None,  # scale_calculation_mode
+            None,  # pad_token_groups_for_grouped_mm
+        )
+
+
 def _compute_fwd(
     padded_input_act: torch.Tensor,
     weight_t: torch.Tensor,
@@ -337,7 +497,8 @@ def _compute_fwd(
     kernel_preference: KernelPreference,
 ) -> torch.Tensor:
     """
-    Forward computation wrapper that dispatches to AUTO or EMULATED path.
+    Forward computation wrapper that dispatches to the EMULATED path or the SM100
+    path (AUTO or TRITON kernel preference).
 
     Args:
         padded_input_act: Input activations (possibly padded), shape (M, K)
@@ -346,7 +507,7 @@ def _compute_fwd(
         block_size: Block size for quantization
         out_dtype: Output dtype
         scale_calculation_mode: Mode for scale calculation
-        kernel_preference: If EMULATED, use EMULATED path (native PyTorch), else use AUTO (SM100 kernels)
+        kernel_preference: If EMULATED, use the native PyTorch path; otherwise use the SM100 kernels.
 
     Returns:
         Output tensor, shape (M, N)
@@ -368,6 +529,7 @@ def _compute_fwd(
             block_size,
             out_dtype,
             scale_calculation_mode,
+            kernel_preference,
         )
 
 
@@ -381,7 +543,8 @@ def _compute_dgrad(
     kernel_preference: KernelPreference,
 ) -> torch.Tensor:
     """
-    Compute gradient w.r.t. input activations, dispatching to AUTO or EMULATED path.
+    Compute gradient w.r.t. input activations, dispatching to the EMULATED path or
+    the SM100 path.
 
     Args:
         grad_output: Gradient output, shape (M, N)
@@ -390,7 +553,7 @@ def _compute_dgrad(
         block_size: Block size for quantization
         out_dtype: Output dtype
         scale_calculation_mode: Mode for scale calculation
-        kernel_preference: If EMULATED, use EMULATED path (native PyTorch), else use AUTO (SM100 kernels)
+        kernel_preference: If EMULATED, use the native PyTorch path; otherwise use the SM100 kernels.
 
     Returns:
         grad_input, shape (M, K)
@@ -426,7 +589,8 @@ def _compute_wgrad(
     kernel_preference: KernelPreference,
 ) -> torch.Tensor:
     """
-    Compute gradient w.r.t. weights, dispatching to AUTO or EMULATED path.
+    Compute gradient w.r.t. weights, dispatching to the EMULATED path or the SM100
+    path.
 
     Args:
         grad_output: Gradient output (MXTensor or high-precision), shape (M, N)
@@ -436,7 +600,7 @@ def _compute_wgrad(
         out_dtype: Output dtype
         scale_calculation_mode: Mode for scale calculation
         wgrad_with_hp: Whether to compute weight gradient in high precision
-        kernel_preference: If EMULATED, use EMULATED path (native PyTorch), else use AUTO (SM100 kernels)
+        kernel_preference: If EMULATED, use the native PyTorch path; otherwise use the SM100 kernels.
 
     Returns:
         grad_weight_t, shape (E, K, N)
@@ -497,9 +661,10 @@ def _compute_fwd_sm100(
     block_size: int,
     out_dtype: torch.dtype,
     scale_calculation_mode: ScaleCalculationMode,
+    kernel_preference: KernelPreference,
 ) -> torch.Tensor:
     """
-    Forward computation using AUTO path (SM100 kernels).
+    Forward computation using the SM100 path (AUTO or TRITON kernel preference).
 
     Args:
         padded_input_act: Input activations (possibly padded), shape (M, K)
@@ -508,6 +673,8 @@ def _compute_fwd_sm100(
         block_size: Block size for quantization
         out_dtype: Output dtype
         scale_calculation_mode: Mode for scale calculation
+        kernel_preference: AUTO uses the cutedsl activation-quant kernel; TRITON
+            uses the Triton dim0 quant for the activation.
 
     Returns:
         Output tensor, shape (M, N)
@@ -524,6 +691,17 @@ def _compute_fwd_sm100(
             input_act_scales_blocked = mx_block_rearrange_2d_M_groups_cuda(
                 padded_input_act.scales, padded_group_end_offsets
             )
+    elif kernel_preference == KernelPreference.TRITON:
+        # Quantize the activation along dim0 with Triton and rearrange the scales to
+        # the blocked layout the scaled grouped mm expects.
+        input_act_e4m3, _act_scales = triton_to_mxfp8_dim0(
+            padded_input_act.contiguous(),
+            block_size,
+            scale_calculation_mode.value.lower(),
+        )
+        input_act_scales_blocked = mx_block_rearrange_2d_M_groups_cuda(
+            _act_scales, padded_group_end_offsets
+        )
     else:
         input_act_e4m3, input_act_scales_blocked = mxfp8_quantize_2d_1x32_cutedsl(
             padded_input_act,

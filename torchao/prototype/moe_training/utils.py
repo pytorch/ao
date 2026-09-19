@@ -396,6 +396,7 @@ def _quantize_then_scaled_grouped_mm(
             "wgrad_with_hp": config.wgrad_with_hp,
             "scale_calculation_mode": config.scale_calculation_mode,
             "pad_token_groups_for_grouped_mm": config.pad_token_groups_for_grouped_mm,
+            "bf16_bwd": config.bf16_bwd,
         }
         if bias is not None:
             kwargs["bias"] = bias
