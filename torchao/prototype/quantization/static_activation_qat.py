@@ -186,17 +186,13 @@ class IntxStaticActQATConfig(AOBaseConfig):
         _validate_activation_config(self.activation_config)
 
 
-@register_quantize_module_handler(
-    IntxStaticActQATConfig
-)
+@register_quantize_module_handler(IntxStaticActQATConfig)
 def _intx_static_activation_qat_transform(
     module: torch.nn.Module,
     config: IntxStaticActQATConfig,
 ) -> torch.nn.Module:
     if not isinstance(module, torch.nn.Linear):
-        raise ValueError(
-            "IntxStaticActQATConfig only supports torch.nn.Linear modules"
-        )
+        raise ValueError("IntxStaticActQATConfig only supports torch.nn.Linear modules")
     return IntxStaticActQATLinear.from_linear(
         module,
         config.activation_config,

@@ -544,12 +544,8 @@ class TestQAT(TestCase):
         linear(recalibration_input)
         recalibrated_min = torch.tensor(-8.0)
         recalibrated_max = torch.tensor(12.0)
-        torch.testing.assert_close(
-            linear.activation_observer.min_val, recalibrated_min
-        )
-        torch.testing.assert_close(
-            linear.activation_observer.max_val, recalibrated_max
-        )
+        torch.testing.assert_close(linear.activation_observer.min_val, recalibrated_min)
+        torch.testing.assert_close(linear.activation_observer.max_val, recalibrated_max)
         expected_scale, expected_zero_point = choose_qparams_affine_with_min_max(
             recalibrated_min,
             recalibrated_max,
