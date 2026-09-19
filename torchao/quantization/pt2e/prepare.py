@@ -213,6 +213,40 @@ def _has_same_attr(
     ) or (not hasattr(qspec_a, attr_name) and not hasattr(qspec_b, attr_name))
 
 
+def _validate_shared_quantization_specs(
+    edge_or_node_to_qspec: dict[EdgeOrNode, QuantizationSpecBase],
+) -> None:
+    """Validate that all SharedQuantizationSpec in the annotations are resolvable, that is:
+      (1) every SharedQuantizationSpec refers to an edge or node that is annotated
+      (2) following the chain of SharedQuantizationSpec reaches a concrete (non shared)
+          quantization spec, i.e. the chain does not form a cycle
+
+    Raises a ValueError describing the offending annotation otherwise, so that quantizer
+    authors get an actionable error instead of a KeyError or RecursionError deeper in
+    the prepare flow
+    """
+    for edge_or_node, qspec in edge_or_node_to_qspec.items():
+        chain = [edge_or_node]
+        while isinstance(qspec, SharedQuantizationSpec):
+            referenced = qspec.edge_or_node
+            if referenced not in edge_or_node_to_qspec:
+                raise ValueError(
+                    f"SharedQuantizationSpec at '{chain[-1]}' refers to '{referenced}', "
+                    "which is not annotated with a quantization spec, please make sure "
+                    "SharedQuantizationSpec only refers to an edge or node that is annotated"
+                )
+            if referenced in chain:
+                chain_str = " -> ".join(str(c) for c in chain + [referenced])
+                raise ValueError(
+                    f"SharedQuantizationSpec chain forms a cycle: {chain_str}, so it never "
+                    "reaches a concrete quantization spec, please make sure each sharing "
+                    "group has one edge or node that is annotated with a concrete "
+                    "quantization spec that the others (transitively) refer to"
+                )
+            chain.append(referenced)
+            qspec = edge_or_node_to_qspec[referenced]
+
+
 def _get_edge_or_node_to_qspec(
     model: torch.fx.GraphModule,
 ) -> dict[EdgeOrNode, QuantizationSpecBase]:
@@ -318,6 +352,10 @@ def _get_edge_or_node_to_group_id(
         # everything are in the same group because (cat1) and (cat1, cat2) are implicitly shared, which
         # connects the two sharing group around cat1 and cat2 op due to transitive sharing
     """
+    # validate first so that unresolvable SharedQuantizationSpec configurations fail
+    # with a descriptive error instead of a KeyError/RecursionError during union find
+    _validate_shared_quantization_specs(edge_or_node_to_qspec)
+
     # means the observer of key should be shared with observer with value, by default it will
     # be shared with itself
     shared_with_map: dict[EdgeOrNode, EdgeOrNode] = {
@@ -408,6 +446,21 @@ def _get_obs_or_fq_map(
     for edge_or_node, qspec in edge_or_node_to_qspec.items():
         group_id = edge_or_node_to_group_id[edge_or_node]
         if group_id not in group_id_to_obs_or_fq:
+            if (
+                isinstance(qspec, SharedQuantizationSpec)
+                and qspec.edge_or_node not in obs_or_fq_map
+            ):
+                # the first member of the sharing group (in graph order) has a
+                # SharedQuantizationSpec, which means the edge or node it refers to
+                # appears later in the graph and doesn't have an observer/fake_quant yet
+                raise ValueError(
+                    f"SharedQuantizationSpec at '{edge_or_node}' refers to "
+                    f"'{qspec.edge_or_node}', which appears later in the graph, the edge "
+                    "or node that a sharing group is anchored on (the one annotated with "
+                    "a concrete quantization spec) is expected to come before all edges "
+                    "and nodes that share with it, please update the annotation so that "
+                    "SharedQuantizationSpec refers back to an earlier edge or node"
+                )
             # TODO: maybe edge_or_node_to_qspec should be edge_or_node_to_root_qspec, this will simplify
             # the implementation for _create_obs_or_fq_from_qspec
             group_id_to_obs_or_fq[group_id] = _create_obs_or_fq_from_qspec(
