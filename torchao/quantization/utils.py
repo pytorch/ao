@@ -338,7 +338,7 @@ def groupwise_affine_quantize_tensor_from_qparams(
         _quantize_affine = quantize_affine
     elif zero_point_domain == ZeroPointDomain.FLOAT:
         _quantize_affine = _quantize_affine_tinygemm
-    elif ZeroPointDomain == ZeroPointDomain.NONE:
+    elif zero_point_domain == ZeroPointDomain.NONE:
         _quantize_affine = _quantize_affine_no_zero_point
     else:
         raise ValueError(f"Unrecognized zero point domain: {zero_point_domain}")
