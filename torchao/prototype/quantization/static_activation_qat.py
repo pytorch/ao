@@ -98,6 +98,8 @@ class IntxStaticActQATLinear(FakeQuantizedLinear):
             mapping_type=activation_config.mapping_type,
             target_dtype=activation_config.dtype,
             granularity=activation_config.granularity,
+            quant_min=activation_config.quant_min,
+            quant_max=activation_config.quant_max,
             eps=activation_config.eps,
             scale_dtype=activation_config.scale_precision,
             zero_point_dtype=activation_config.zero_point_precision,
