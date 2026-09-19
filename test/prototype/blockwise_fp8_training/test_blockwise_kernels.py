@@ -7,6 +7,15 @@
 import pytest
 import torch
 
+from torchao.utils import torch_version_at_least
+
+if not (
+    torch_version_at_least("2.7.0")
+    and torch.cuda.is_available()
+    and torch.cuda.get_device_capability()[0] >= 9
+):
+    pytest.skip("Requires CUDA capability >= 9.0", allow_module_level=True)
+
 triton = pytest.importorskip("triton", reason="Triton required to run this test")
 
 from packaging import version
