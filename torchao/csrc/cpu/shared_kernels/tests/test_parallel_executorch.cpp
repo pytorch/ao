@@ -23,7 +23,9 @@ TEST(ExecuTorchParallel, VisitsEachIndexExactlyOnce) {
   const int64_t end = 7 + 2 * threads + 1;
   const std::pair<int64_t, int64_t> ranges[] = {
       {0, 0}, {7, 7}, {7, 8}, {7, end}};
-  for (const auto& [begin, limit] : ranges) {
+  for (const auto& range : ranges) {
+    const int64_t begin = range.first;
+    const int64_t limit = range.second;
     SCOPED_TRACE(::testing::Message() << begin << ":" << limit);
     std::vector<std::atomic<int>> visits(end + 1);
     for (auto& count : visits) {
