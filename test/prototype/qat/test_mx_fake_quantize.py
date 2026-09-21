@@ -14,6 +14,7 @@ from torchao.prototype.qat import (
     mx_fake_quantize,
     mx_fake_quantized_grouped_mm,
 )
+from torchao.quantization.quantize_.common import KernelPreference
 
 
 class MXFakeQuantizeTest(unittest.TestCase):
@@ -75,7 +76,6 @@ class MXFakeQuantizeTest(unittest.TestCase):
             offsets,
             MXFakeQuantizeConfig(dtype=torch.float8_e4m3fn),
             MXFakeQuantizeConfig(dtype=torch.float4_e2m1fn_x2),
-            emulate=True,
         )
         self.assertEqual(output.shape, (5, 32))
         output.sum().backward()
@@ -94,11 +94,144 @@ class MXFakeQuantizeTest(unittest.TestCase):
             torch.tensor([0, 0], dtype=torch.int32),
             MXFakeQuantizeConfig(dtype=torch.float8_e4m3fn),
             MXFakeQuantizeConfig(dtype=torch.float4_e2m1fn_x2),
-            emulate=True,
         )
         self.assertEqual(output.shape, (0, 32))
         output.sum().backward()
         self.assertEqual(torch.count_nonzero(weight.grad), 0)
+
+    def test_grouped_mm_matches_independent_forward_and_gradient_reference(self):
+        activation = torch.randn(5, 64, requires_grad=True)
+        weight = torch.randn(3, 32, 64, requires_grad=True)
+        offsets = torch.tensor([0, 2, 5], dtype=torch.int32)
+        ac = MXFakeQuantizeConfig(dtype=torch.float8_e4m3fn)
+        wc = MXFakeQuantizeConfig(dtype=torch.float4_e2m1fn_x2)
+        actual = mx_fake_quantized_grouped_mm(activation, weight, offsets, ac, wc)
+        aq = MXTensor.to_mx(
+            activation.detach(),
+            elem_dtype=ac.dtype,
+            block_size=32,
+            scaling_mode=ac.scaling_mode,
+        ).dequantize(torch.float32)
+        wq = MXTensor.to_mx(
+            weight.detach(),
+            elem_dtype=wc.dtype,
+            block_size=32,
+            scaling_mode=wc.scaling_mode,
+        ).dequantize(torch.float32)
+        gradient = torch.randn_like(actual)
+        expected = torch.cat(
+            [aq[:0] @ wq[0].t(), aq[:2] @ wq[1].t(), aq[2:] @ wq[2].t()]
+        )
+        grad_input = torch.cat([gradient[:2] @ wq[1], gradient[2:] @ wq[2]])
+        grad_weight = torch.stack(
+            [
+                torch.zeros_like(wq[0]),
+                gradient[:2].t() @ aq[:2],
+                gradient[2:].t() @ aq[2:],
+            ]
+        )
+        actual.backward(gradient)
+        torch.testing.assert_close(actual, expected, rtol=0, atol=0)
+        torch.testing.assert_close(activation.grad, grad_input, rtol=0, atol=0)
+        torch.testing.assert_close(weight.grad, grad_weight, rtol=0, atol=0)
+
+    def _compare_grouped_mm(self, device, preference, *, compile_fn=False):
+        from dataclasses import replace
+
+        for counts in ((3, 0, 7), (0, 0, 0)):
+            with self.subTest(counts=counts, preference=preference):
+                torch.manual_seed(0)
+                activation = torch.randn(
+                    sum(counts),
+                    64,
+                    device=device,
+                    dtype=torch.bfloat16,
+                    requires_grad=True,
+                )
+                weight = torch.randn(
+                    3, 32, 64, device=device, dtype=torch.bfloat16, requires_grad=True
+                )
+                offsets = torch.tensor(counts, device=device, dtype=torch.int32).cumsum(
+                    0, dtype=torch.int32
+                )
+                ac = MXFakeQuantizeConfig(
+                    dtype=torch.float8_e4m3fn, kernel_preference=preference
+                )
+                wc = MXFakeQuantizeConfig(
+                    dtype=torch.float4_e2m1fn_x2, kernel_preference=preference
+                )
+                ref_input = activation.detach().cpu().requires_grad_()
+                ref_weight = weight.detach().cpu().requires_grad_()
+                reference = mx_fake_quantized_grouped_mm(
+                    ref_input,
+                    ref_weight,
+                    offsets.cpu(),
+                    replace(ac, kernel_preference=KernelPreference.EMULATED),
+                    replace(wc, kernel_preference=KernelPreference.EMULATED),
+                )
+                fn = mx_fake_quantized_grouped_mm
+                if compile_fn:
+                    fn = torch.compile(fn, fullgraph=True)
+                actual = fn(activation, weight, offsets, ac, wc)
+                gradient = torch.randn_like(actual)
+                actual.backward(gradient)
+                reference.backward(gradient.cpu())
+                torch.testing.assert_close(
+                    actual.cpu(), reference, rtol=0.02, atol=0.125
+                )
+                torch.testing.assert_close(
+                    activation.grad.cpu(), ref_input.grad, rtol=0.02, atol=0.125
+                )
+                torch.testing.assert_close(
+                    weight.grad.cpu(), ref_weight.grad, rtol=0.02, atol=0.125
+                )
+
+    @unittest.skipUnless(torch.cuda.is_available(), "CUDA is not available")
+    def test_real_grouped_mm_forward_and_backward(self):
+        self._compare_grouped_mm("cuda", KernelPreference.EMULATED)
+
+    @unittest.skipUnless(torch.cuda.is_available(), "CUDA is not available")
+    def test_compiled_grouped_mm_forward_and_backward(self):
+        self._compare_grouped_mm("cuda", KernelPreference.EMULATED, compile_fn=True)
+
+    @unittest.skipUnless(torch.cuda.is_available(), "CUDA is not available")
+    def test_native_mxfp8_grouped_mm_forward_and_backward(self):
+        from torchao.prototype.moe_training.mxfp8_grouped_mm import (
+            _SM100_KERNELS_AVAILABLE,
+        )
+
+        if not _SM100_KERNELS_AVAILABLE or torch.cuda.get_device_capability()[0] < 10:
+            self.skipTest(
+                "native MXFP8 grouped kernels require SM100 and kernel dependencies"
+            )
+        for compile_fn in (False, True):
+            self._compare_grouped_mm(
+                "cuda", KernelPreference.AUTO, compile_fn=compile_fn
+            )
+
+    def test_kernel_preference_validation(self):
+        from dataclasses import replace
+
+        ac = MXFakeQuantizeConfig(dtype=torch.float8_e4m3fn)
+        wc = MXFakeQuantizeConfig(dtype=torch.float4_e2m1fn_x2)
+        activation, weight = torch.randn(2, 64), torch.randn(1, 32, 64)
+        offsets = torch.tensor([2], dtype=torch.int32)
+        with self.assertRaisesRegex(ValueError, "must match"):
+            mx_fake_quantized_grouped_mm(
+                activation,
+                weight,
+                offsets,
+                ac,
+                replace(wc, kernel_preference=KernelPreference.AUTO),
+            )
+        with self.assertRaisesRegex(ValueError, "requires CUDA"):
+            mx_fake_quantized_grouped_mm(
+                activation,
+                weight,
+                offsets,
+                replace(ac, kernel_preference=KernelPreference.AUTO),
+                replace(wc, kernel_preference=KernelPreference.AUTO),
+            )
 
     def test_invalid_block_size_and_last_dimension_raise(self) -> None:
         with self.assertRaisesRegex(ValueError, "positive"):
