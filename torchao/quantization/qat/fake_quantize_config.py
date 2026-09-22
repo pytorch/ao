@@ -106,9 +106,9 @@ class Int4WeightFakeQuantizeConfig(FakeQuantizeConfigBase):
 class IntxFakeQuantizeConfig(FakeQuantizeConfigBase):
     """
     Config for how to fake quantize weights or activations,
-    targeting integer dtypes up to torch.int16. torch.uint16 is not supported.
-    torch.int32 can be used as a carrier for a smaller explicit quantization
-    range.
+    targeting integer dtypes up to torch.int16. torch.uint16 is not supported
+    natively, but torch.int32 can be used as a carrier by setting `quant_min`
+    and `quant_max`.
 
     Args:
         dtype: dtype to simulate during fake quantization, e.g. torch.int8.
@@ -139,9 +139,9 @@ class IntxFakeQuantizeConfig(FakeQuantizeConfigBase):
             Setting this to True selects `MappingType.SYMMETRIC`. Use
             `mapping_type` to select `MappingType.SYMMETRIC_NO_CLIPPING_ERR`.
         quant_min: optional lower bound for the quantized values. Must be set
-            together with `quant_max`.
-        quant_max: optional upper bound for the quantized values. Explicit bounds
-            are required for torch.int32 and supported only for per-tensor granularity.
+            together with `quant_max` and is supported only for torch.int32.
+        quant_max: optional upper bound for the quantized values. Must be set
+            together with `quant_min` and is supported only for torch.int32.
 
     Example usage::
 
@@ -180,11 +180,11 @@ class IntxFakeQuantizeConfig(FakeQuantizeConfigBase):
     scale_precision: torch.dtype
     zero_point_precision: torch.dtype
     zero_point_domain: ZeroPointDomain
-    quant_min: int
-    quant_max: int
     is_dynamic: bool = True
     range_learning: bool = False
     eps: Optional[float] = None
+    quant_min: Optional[int] = None
+    quant_max: Optional[int] = None
 
     def __init__(
         self,
@@ -232,28 +232,29 @@ class IntxFakeQuantizeConfig(FakeQuantizeConfigBase):
                 "for per-token quantization"
             )
 
-        has_custom_qrange = quant_min is not None or quant_max is not None
-        if (quant_min is None) != (quant_max is None):
-            raise ValueError("`quant_min` and `quant_max` must be set together")
-        if dtype == torch.int32 and not has_custom_qrange:
-            raise ValueError("torch.int32 requires an explicit quantization range")
-        if has_custom_qrange and not isinstance(self.granularity, PerTensor):
-            raise ValueError(
-                "An explicit quantization range is only supported for per-tensor quantization"
-            )
-
+        # Determine quant_min and quant_max. Explicit bounds are supported only
+        # for torch.int32. All other dtypes derive bounds automatically.
         dtype_qmin, dtype_qmax = _DTYPE_TO_QVALUE_BOUNDS[dtype]
-        if quant_min is None:
-            quant_min, quant_max = dtype_qmin, dtype_qmax
+        if quant_min is None and quant_max is None:
+            if dtype == torch.int32:
+                raise ValueError("torch.int32 requires an explicit quantization range")
+            resolved_quant_min, resolved_quant_max = dtype_qmin, dtype_qmax
+        elif quant_min is None or quant_max is None:
+            raise ValueError("`quant_min` and `quant_max` must be set together")
+        elif dtype != torch.int32:
+            raise ValueError(
+                "An explicit quantization range is only supported for torch.int32"
+            )
         else:
-            assert quant_max is not None
-        if not dtype_qmin <= quant_min < quant_max <= dtype_qmax:
+            resolved_quant_min, resolved_quant_max = quant_min, quant_max
+
+        if not dtype_qmin <= resolved_quant_min < resolved_quant_max <= dtype_qmax:
             raise ValueError(
                 "Quantization range [%s, %s] is invalid for dtype %s"
-                % (quant_min, quant_max, dtype)
+                % (resolved_quant_min, resolved_quant_max, dtype)
             )
-        self.quant_min = quant_min
-        self.quant_max = quant_max
+        self.quant_min = resolved_quant_min
+        self.quant_max = resolved_quant_max
 
         # Dynamic is not compatible with range learning
         if is_dynamic and range_learning:

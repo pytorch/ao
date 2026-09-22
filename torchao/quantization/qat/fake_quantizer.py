@@ -291,19 +291,32 @@ class IntxFakeQuantizer(FakeQuantizerBase):
         # get scales and zero points
         # TODO: refactor this to use `choose_qparams_affine`
         if self._should_compute_qparams():
-            bit_width = _DTYPE_TO_BIT_WIDTH[self.config.dtype]
-            if is_symmetric:
-                (self.scale, self.zero_point) = self._choose_group_qparams_symmetric(
-                    x, bit_width, group_size
+            if self.config.dtype == torch.int32:
+                (self.scale, self.zero_point) = choose_qparams_affine(
+                    x,
+                    mapping_type=self.config.mapping_type,
+                    block_size=(1, group_size),
+                    target_dtype=self.config.dtype,
+                    quant_min=self.config.quant_min,
+                    quant_max=self.config.quant_max,
+                    eps=self.config.eps,
+                    scale_dtype=scale_precision,
+                    zero_point_dtype=zero_point_precision,
                 )
             else:
-                (self.scale, self.zero_point) = get_groupwise_affine_qparams(
-                    x,
-                    bit_width,
-                    group_size,
-                    scale_precision,
-                    eps=self.config.eps,
-                )
+                bit_width = _DTYPE_TO_BIT_WIDTH[self.config.dtype]
+                if is_symmetric:
+                    self.scale, self.zero_point = self._choose_group_qparams_symmetric(
+                        x, bit_width, group_size
+                    )
+                else:
+                    (self.scale, self.zero_point) = get_groupwise_affine_qparams(
+                        x,
+                        bit_width,
+                        group_size,
+                        scale_precision,
+                        eps=self.config.eps,
+                    )
             self.zero_point = self.zero_point.to(zero_point_precision)
             self._maybe_update_qparams_for_range_learning()
 
@@ -347,6 +360,7 @@ class IntxFakeQuantizer(FakeQuantizerBase):
                 self.config.zero_point_precision,
             )
 
+        # TODO: Move other cases to choose_qparams_affine_with_min_max.
         return get_group_qparams_symmetric(
             x,
             bit_width,

@@ -1597,20 +1597,38 @@ class TestQAT(TestCase):
     def test_fake_quantize_config_custom_range(self):
         with self.assertRaisesRegex(ValueError, "must be set together"):
             IntxFakeQuantizeConfig(torch.int16, "per_tensor", quant_min=0)
-        with self.assertRaisesRegex(ValueError, "invalid for dtype"):
+        with self.assertRaisesRegex(ValueError, "only supported for torch.int32"):
             IntxFakeQuantizeConfig(
                 torch.int16,
                 "per_tensor",
-                quant_min=0,
-                quant_max=2**16 - 1,
+                quant_min=-100,
+                quant_max=100,
             )
-        with self.assertRaisesRegex(ValueError, "only supported for per-tensor"):
+        with self.assertRaisesRegex(ValueError, "invalid for dtype"):
             IntxFakeQuantizeConfig(
                 torch.int32,
-                "per_token",
+                "per_tensor",
                 quant_min=0,
-                quant_max=2**16 - 1,
+                quant_max=2**31,
             )
+        x = torch.tensor([[-2.0, -1.0, 0.0, 1.0], [2.0, 3.0, 4.0, 5.0]])
+        for granularity in (PerToken(), PerAxis(0), PerGroup(2), PerTensor()):
+            with self.subTest(granularity=granularity):
+                config = IntxFakeQuantizeConfig(
+                    torch.int32,
+                    granularity,
+                    MappingType.ASYMMETRIC,
+                    quant_min=0,
+                    quant_max=2**16 - 1,
+                )
+                fake_quantizer = IntxFakeQuantizer(config)
+                actual = fake_quantizer(x)
+                torch.testing.assert_close(
+                    actual,
+                    x,
+                    atol=float(fake_quantizer.scale.max()),
+                    rtol=0,
+                )
 
     def test_fake_quantize_config_dynamic_and_range_learning(self):
         """
