@@ -348,6 +348,7 @@ class IntxFakeQuantizer(FakeQuantizerBase):
                 self.config.zero_point_precision,
             )
 
+        # TODO: Move other cases to choose_qparams_affine_with_min_max.
         return get_group_qparams_symmetric(
             x,
             bit_width,
