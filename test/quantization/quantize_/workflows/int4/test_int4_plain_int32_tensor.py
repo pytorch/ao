@@ -4,6 +4,7 @@
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
 
+import copy
 import tempfile
 
 import pytest
@@ -28,6 +29,19 @@ def get_config(group_size):
         group_size=group_size,
         int4_packing_format="plain_int32",
     )
+
+
+class GroupedMMModel(torch.nn.Module):
+    """A toy model whose only op in forward is torch._grouped_mm."""
+
+    def __init__(self, E, K, N, device, dtype=torch.bfloat16):
+        super().__init__()
+        self.weight = torch.nn.Parameter(
+            torch.randn(E, N, K, device=device, dtype=dtype)
+        )
+
+    def forward(self, x, offs):
+        return torch._grouped_mm(x, self.weight.transpose(-2, -1), offs=offs)
 
 
 class Int4PlainInt32Tensor(TestCase):
@@ -110,6 +124,52 @@ class Int4PlainInt32Tensor(TestCase):
 
         # making sure activation pre scaling is successfully applied to the activation
         self.assertTrue(compute_error(original * _ACT_PRE_SCALE, quantized) > threshold)
+
+    @parametrize("dtype", [torch.bfloat16, torch.half])
+    @parametrize("group_size", [32, 64, 128])
+    def test_grouped_mm(self, device, dtype, group_size):
+        """Test Int4WeightOnlyConfig (plain_int32) with grouped_mm dispatch
+        (weight-only dequant path, since there is no native int4 grouped_mm kernel).
+        """
+        # local import to avoid collision with the `Int4PlainInt32Tensor`
+        # TestCase class defined in this module
+        from torchao.quantization import Int4PlainInt32Tensor
+
+        if "npu" in device:
+            pytest.skip("grouped_mm is only supported on XPU for Int4PlainInt32Tensor")
+
+        E, K, N = 4, 256, 256
+        m_per_group = [32, 64, 16, 48]
+        total_m = sum(m_per_group)
+
+        model_ref = GroupedMMModel(E, K, N, device=device, dtype=dtype)
+        model = copy.deepcopy(model_ref)
+
+        x = torch.randn(total_m, K, device=device, dtype=dtype)
+        offs = torch.tensor(
+            [sum(m_per_group[: i + 1]) for i in range(E)],
+            device=device,
+            dtype=torch.int32,
+        )
+
+        y_ref = model_ref(x, offs)
+
+        quantize_(
+            model,
+            get_config(group_size),
+            filter_fn=lambda mod, fqn: (
+                isinstance(mod, GroupedMMModel) and hasattr(mod, "weight")
+            ),
+        )
+
+        self.assertIsInstance(model.weight, Int4PlainInt32Tensor)
+
+        w_sqnr = compute_error(model_ref.weight, model.weight.dequantize())
+        self.assertGreater(w_sqnr, 19.0, f"Weight SQNR too low: {w_sqnr:.2f}")
+
+        y = model(x, offs)
+        y_sqnr = compute_error(y_ref, y)
+        self.assertGreater(y_sqnr, 15.0, f"Output SQNR too low: {y_sqnr:.2f}")
 
 
 instantiate_device_type_tests(

@@ -8,6 +8,7 @@
 from typing import List, Optional
 
 import torch
+from torch.utils._python_dispatch import return_and_correct_aliasing
 
 from torchao.quantization.quant_primitives import (
     MappingType,
@@ -28,9 +29,9 @@ class Int4PlainInt32Tensor(TorchAOBaseTensor):
     int4 weight-only quantization on XPU with oneDNN as backend (groupwise quantization only)
 
     Tensor Attributes:
-        qdata: (N, K/8), packed int4 weight, the data type is int32 here with 4*(int4*2), the original data type can be half and bfloat16
-        scale: (K/group_size, N), dtype is the same as the original Tensor dtype
-        zero_point: (K/group_size, N), dtype is int8
+        qdata: (N, K/8)/(E, N, K/8), packed int4 weight, the data type is int32 here with 4*(int4*2), the original data type can be half and bfloat16
+        scale: (K/group_size, N), dtype is the same as the original Tensor dtype, (E, K/group_size, N) for grouped weights
+        zero_point: (K/group_size, N), dtype is int8, (E, K/group_size, N) for grouped weights
 
     Non-Tensor Attributes:
         block_size: the block size for quantization, representing the granularity.
@@ -83,6 +84,60 @@ class Int4PlainInt32Tensor(TorchAOBaseTensor):
             s += f", act_pre_scale.shape={self.act_pre_scale.shape}"
         return s
 
+    def dequantize(self, output_dtype: Optional[torch.dtype] = None) -> torch.Tensor:
+        """Reconstruct the original high precision weight from the packed
+        int4 (plain int32) representation.
+
+        Currently only supported on XPU, where there is no native op to
+        unpack `torch.ops.aten._convert_weight_to_int4pack` output.
+        """
+        if self.device.type != "xpu":
+            raise NotImplementedError(
+                f"dequantize is only supported on XPU for Int4PlainInt32Tensor, got: {self.device.type}"
+            )
+        if output_dtype is None:
+            output_dtype = self.dtype
+
+        is_transposed = self.qdata.stride(-2) < self.qdata.stride(-1)
+        if is_transposed:
+            qdata = self.qdata.transpose(-2, -1)
+            scale = self.scale.transpose(-2, -1)
+            zero_point = self.zero_point.transpose(-2, -1)
+            n_dim, k_dim = self.shape[-1], self.shape[-2]
+        else:
+            qdata = self.qdata
+            scale = self.scale
+            zero_point = self.zero_point
+            n_dim, k_dim = self.shape[-2], self.shape[-1]
+        groupsize = self.block_size[-1]
+
+        def _dequant_2d(qdata, scale, zero_point):
+            identity = torch.eye(k_dim, dtype=self.dtype, device=qdata.device)
+            w_t = torch.ops.aten._weight_int4pack_mm_with_scales_and_zeros(
+                identity,
+                qdata.contiguous(),
+                groupsize,
+                scale.contiguous(),
+                zero_point.contiguous(),
+            )
+            return w_t[:, :n_dim].t().contiguous()
+
+        if len(self.block_size) == 3:
+            out = torch.stack(
+                [
+                    _dequant_2d(qdata[i], scale[i], zero_point[i])
+                    for i in range(qdata.shape[0])
+                ],
+                dim=0,
+            )
+        else:
+            out = _dequant_2d(qdata, scale, zero_point)
+
+        if is_transposed:
+            out = out.transpose(-2, -1)
+
+        return out.to(output_dtype)
+
     @classmethod
     def from_hp(
         cls,
@@ -99,19 +154,11 @@ class Int4PlainInt32Tensor(TorchAOBaseTensor):
             )
 
 
-def _from_hp_xpu(
-    cls,
-    w: torch.Tensor,
-    block_size: List[int],
-):
-    assert w.ndim == 2 and w.device.type == "xpu", (
-        f"Expecting 2D tensor on XPU, but got: {w.shape} on {w.device.type}"
-    )
-    assert len(block_size) == w.ndim
-    assert w.dtype in [torch.float16, torch.bfloat16], (
-        f"Expecting float16 or bfloat16 weight tensor, but got: {w.dtype}"
-    )
-    original_shape = w.shape
+def _quantize_and_pack_xpu_2d(w: torch.Tensor, block_size: List[int]):
+    """Quantize and pack a single 2D (N, K) weight tensor into the plain
+    int32 tinygemm packed format used on XPU. Returns (packed_weight, scale,
+    zero_point) with scale/zero_point of shape (K/group_size, N).
+    """
     mapping_type = MappingType.ASYMMETRIC
     target_dtype = torch.int32
     quant_min = 0
@@ -148,10 +195,45 @@ def _from_hp_xpu(
     )
     scale = scale.reshape(int_data.shape[0], -1)
     zero_point = zero_point.reshape(int_data.shape[0], -1)
-    return Int4PlainInt32Tensor(
+    return (
         packed_weight,
         scale.transpose(0, 1).contiguous(),
         zero_point.transpose(0, 1).contiguous().to(torch.int8),
+    )
+
+
+def _from_hp_xpu(
+    cls,
+    w: torch.Tensor,
+    block_size: List[int],
+):
+    assert w.ndim in (2, 3) and w.device.type == "xpu", (
+        f"Expecting 2D (N, K) or 3D (E, N, K) tensor on XPU, but got: {w.shape} on {w.device.type}"
+    )
+    assert len(block_size) == w.ndim
+    assert w.dtype in [torch.float16, torch.bfloat16], (
+        f"Expecting float16 or bfloat16 weight tensor, but got: {w.dtype}"
+    )
+    original_shape = w.shape
+
+    if w.ndim == 3:  # for moe quant
+        packed_weights, scales, zero_points = zip(
+            *[
+                _quantize_and_pack_xpu_2d(w[i], block_size[1:])
+                for i in range(w.shape[0])
+            ],
+            strict=False,
+        )
+        packed_weight = torch.stack(packed_weights, dim=0)
+        scale = torch.stack(scales, dim=0)
+        zero_point = torch.stack(zero_points, dim=0)
+    else:
+        packed_weight, scale, zero_point = _quantize_and_pack_xpu_2d(w, block_size)
+
+    return Int4PlainInt32Tensor(
+        packed_weight,
+        scale,
+        zero_point,
         block_size,
         original_shape,
         act_pre_scale=None,
@@ -375,6 +457,56 @@ def _linear_npu(
     y = y.reshape(*orig_act_size[:-1], orig_out_features)
 
     return y.to(orig_dtype)
+
+
+@implements(aten.transpose.int)
+def _(func, types, args, kwargs):
+    self, dim0, dim1 = args
+    assert self.ndim == 3, (
+        f"transpose is only supported for 3D grouped/MoE Int4PlainInt32Tensor, got {self.ndim}D"
+    )
+    valid_dims = ((1, 2), (2, 1), (-1, -2), (-2, -1))
+    assert (dim0, dim1) in valid_dims, f"transpose unsupported for {dim0=} {dim1=}"
+
+    new_shape = list(self.shape)
+    new_shape[dim0], new_shape[dim1] = new_shape[dim1], new_shape[dim0]
+
+    new = Int4PlainInt32Tensor(
+        func(self.qdata, dim0, dim1),
+        func(self.scale, dim0, dim1),
+        func(self.zero_point, dim0, dim1),
+        self.block_size,
+        new_shape,
+        act_pre_scale=self.act_pre_scale,
+    )
+    return return_and_correct_aliasing(func, args, kwargs, new)
+
+
+@implements([aten._grouped_mm.default])
+def _grouped_mm(func, types, args, kwargs):
+    """Handles `torch._grouped_mm` when weight (mat_b) is an
+    Int4PlainInt32Tensor.
+    """
+    mat_a, mat_b = args[0], args[1]
+    offs = args[2] if len(args) > 2 else kwargs.get("offs", None)
+    assert isinstance(mat_b, Int4PlainInt32Tensor), (
+        f"Expected mat_b to be Int4PlainInt32Tensor, got: {type(mat_b)}"
+    )
+    assert offs is not None, "offs is required for _grouped_mm"
+    assert mat_b.ndim == 3, (
+        f"Int4PlainInt32Tensor grouped_mm expects a 3D weight tensor "
+        f"(E, K, N), got shape: {mat_b.shape}"
+    )
+    is_transposed = mat_b.qdata.stride(-2) < mat_b.qdata.stride(-1)
+    assert is_transposed, (
+        "Int4PlainInt32Tensor grouped_mm expects mat_b to be transposed"
+    )
+    assert mat_a.shape[-1] == mat_b.shape[-2], (
+        f"Shapes of input and weight do not match, input: {mat_a.shape}, weight: {mat_b.shape}"
+    )
+
+    weight_hp = mat_b.dequantize(mat_a.dtype)
+    return torch._grouped_mm(mat_a, weight_hp, offs=offs)
 
 
 Int4PlainInt32Tensor.__module__ = "torchao.quantization"
