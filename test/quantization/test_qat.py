@@ -416,6 +416,63 @@ class TestQAT(TestCase):
         torch.testing.assert_close(group_fake_quantizer.zero_point, expected_zero_point)
         torch.testing.assert_close(actual, expected, atol=0, rtol=0)
 
+    def test_fake_quantizer_static_state_dict(self):
+        config = IntxFakeQuantizeConfig(
+            torch.int16,
+            PerTensor(),
+            MappingType.SYMMETRIC_NO_CLIPPING_ERR,
+            is_dynamic=False,
+        )
+        fake_quantizer = IntxFakeQuantizer(config)
+        fake_quantizer(torch.randn(4, 8))
+        state_dict = copy.deepcopy(fake_quantizer.state_dict())
+
+        restored = IntxFakeQuantizer(config)
+        restored.load_state_dict(state_dict)
+        x = torch.randn(4, 8)
+        torch.testing.assert_close(restored(x), fake_quantizer(x), atol=0, rtol=0)
+        self.assertIn("scale", dict(restored.named_buffers()))
+        self.assertIn("zero_point", dict(restored.named_buffers()))
+
+        moved_restored = IntxFakeQuantizer(config).to(dtype=torch.float64)
+        moved_restored.load_state_dict(state_dict)
+        self.assertEqual(moved_restored.scale.dtype, torch.float64)
+
+        legacy_state_dict = copy.deepcopy(state_dict)
+        legacy_state_dict.pop("scale")
+        legacy_state_dict.pop("zero_point")
+        legacy_restored = IntxFakeQuantizer(config)
+        legacy_restored.load_state_dict(legacy_state_dict)
+        self.assertNotIn("scale", legacy_state_dict)
+        self.assertNotIn("zero_point", legacy_state_dict)
+        # Empty buffers have zero elements and trigger qparam initialization.
+        self.assertEqual(legacy_restored.scale.numel(), 0)
+        self.assertEqual(legacy_restored.zero_point.numel(), 0)
+        x = torch.randn(4, 8)
+        expected = IntxFakeQuantizer(config)(x)
+        torch.testing.assert_close(legacy_restored(x), expected, atol=0, rtol=0)
+        self.assertEqual(legacy_restored.scale.numel(), 1)
+        self.assertEqual(legacy_restored.zero_point.numel(), 1)
+
+    def test_fake_quantizer_static_state_dict_per_group(self):
+        config = IntxFakeQuantizeConfig(
+            torch.int4,
+            PerGroup(4),
+            MappingType.SYMMETRIC_NO_CLIPPING_ERR,
+            is_dynamic=False,
+        )
+        fake_quantizer = IntxFakeQuantizer(config)
+        x = torch.randn(4, 8)
+        expected = fake_quantizer(x)
+        self.assertGreater(fake_quantizer.scale.numel(), 1)
+        self.assertGreater(fake_quantizer.zero_point.numel(), 1)
+
+        restored = IntxFakeQuantizer(config)
+        restored.load_state_dict(copy.deepcopy(fake_quantizer.state_dict()))
+        torch.testing.assert_close(restored(x), expected, atol=0, rtol=0)
+        torch.testing.assert_close(restored.scale, fake_quantizer.scale)
+        torch.testing.assert_close(restored.zero_point, fake_quantizer.zero_point)
+
     def _set_ptq_weight(
         self,
         ptq_linear: torch.nn.Module,
