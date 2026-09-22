@@ -17,7 +17,6 @@ from torchao.quantization.granularity import (
 )
 from torchao.quantization.quant_primitives import (
     _DTYPE_TO_BIT_WIDTH,
-    _DTYPE_TO_QVALUE_BOUNDS,
     MappingType,
     _choose_scale_float8,
     _dequantize_affine_float8,
@@ -252,7 +251,7 @@ class IntxFakeQuantizer(FakeQuantizerBase):
         """
         if self.config.is_symmetric:
             raise NotImplementedError("Symmetric per token is not supported yet")
-        qmin, qmax = _DTYPE_TO_QVALUE_BOUNDS[self.config.dtype]
+        qmin, qmax = self.config.quant_min, self.config.quant_max
         if self._should_compute_qparams():
             self.scale, self.zero_point = choose_qparams_affine(
                 x,
@@ -292,23 +291,36 @@ class IntxFakeQuantizer(FakeQuantizerBase):
         # get scales and zero points
         # TODO: refactor this to use `choose_qparams_affine`
         if self._should_compute_qparams():
-            bit_width = _DTYPE_TO_BIT_WIDTH[self.config.dtype]
-            if is_symmetric:
-                (self.scale, self.zero_point) = self._choose_group_qparams_symmetric(
-                    x, bit_width, group_size
+            if self.config.dtype == torch.int32:
+                (self.scale, self.zero_point) = choose_qparams_affine(
+                    x,
+                    mapping_type=self.config.mapping_type,
+                    block_size=(1, group_size),
+                    target_dtype=self.config.dtype,
+                    quant_min=self.config.quant_min,
+                    quant_max=self.config.quant_max,
+                    eps=self.config.eps,
+                    scale_dtype=scale_precision,
+                    zero_point_dtype=zero_point_precision,
                 )
             else:
-                (self.scale, self.zero_point) = get_groupwise_affine_qparams(
-                    x,
-                    bit_width,
-                    group_size,
-                    scale_precision,
-                    eps=self.config.eps,
-                )
+                bit_width = _DTYPE_TO_BIT_WIDTH[self.config.dtype]
+                if is_symmetric:
+                    self.scale, self.zero_point = self._choose_group_qparams_symmetric(
+                        x, bit_width, group_size
+                    )
+                else:
+                    (self.scale, self.zero_point) = get_groupwise_affine_qparams(
+                        x,
+                        bit_width,
+                        group_size,
+                        scale_precision,
+                        eps=self.config.eps,
+                    )
             self.zero_point = self.zero_point.to(zero_point_precision)
             self._maybe_update_qparams_for_range_learning()
 
-        qmin, qmax = _DTYPE_TO_QVALUE_BOUNDS[self.config.dtype]
+        qmin, qmax = self.config.quant_min, self.config.quant_max
         return _fake_quantize_per_channel_group(
             x,
             self.scale,
@@ -329,12 +341,12 @@ class IntxFakeQuantizer(FakeQuantizerBase):
             self.config.is_dynamic
             and bit_width == 4
             and self.config.mapping_type == MappingType.SYMMETRIC_NO_CLIPPING_ERR
-            and _DTYPE_TO_QVALUE_BOUNDS[self.config.dtype][0] < 0
+            and self.config.quant_min < 0
         ):
             x_grouped = x.reshape(x.shape[0], -1, group_size)
             min_val = torch.amin(x_grouped, dim=-1)
             max_val = torch.amax(x_grouped, dim=-1)
-            qmin, qmax = _DTYPE_TO_QVALUE_BOUNDS[self.config.dtype]
+            qmin, qmax = self.config.quant_min, self.config.quant_max
             return choose_qparams_affine_with_min_max(
                 min_val,
                 max_val,
@@ -360,7 +372,7 @@ class IntxFakeQuantizer(FakeQuantizerBase):
 
     def _per_tensor_forward(self, x: torch.Tensor) -> torch.Tensor:
         """Perform per-tensor fake quantization."""
-        qmin, qmax = _DTYPE_TO_QVALUE_BOUNDS[self.config.dtype]
+        qmin, qmax = self.config.quant_min, self.config.quant_max
         block_size = get_block_size(x.shape, self.config.granularity)
         if self._should_compute_qparams():
             self.scale, self.zero_point = choose_qparams_affine(
@@ -410,7 +422,7 @@ class IntxFakeQuantizer(FakeQuantizerBase):
         ):
             return
         scale, zero_point = self.scale, self.zero_point
-        qmin, qmax = _DTYPE_TO_QVALUE_BOUNDS[self.config.dtype]
+        qmin, qmax = self.config.quant_min, self.config.quant_max
         # Stabilize range learning
         scale = torch.clamp(scale, min=self._scale_eps)
         self.scale = torch.nn.Parameter(scale, requires_grad=True)
