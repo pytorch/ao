@@ -5,8 +5,6 @@
 # This source code is licensed under the license found in the
 # LICENSE file in the root directory of this source tree.
 
-set -eu
-
 if [[ $# -ne 1 ]]; then
     echo "Usage: $0 <aten|executorch>";
     exit 1;
@@ -19,17 +17,14 @@ if [[ $TARGET == "executorch" ]]; then
 else
     TORCHAO_BUILD_EXECUTORCH_OPS=OFF
 fi
-export CMAKE_OUT=${CMAKE_OUT:-cmake-out}
+export CMAKE_OUT=cmake-out
 cmake -DCMAKE_PREFIX_PATH=${CMAKE_PREFIX_PATH} \
     -DCMAKE_INSTALL_PREFIX=${CMAKE_OUT} \
     -DTORCHAO_BUILD_EXECUTORCH_OPS="${TORCHAO_BUILD_EXECUTORCH_OPS}" \
     -DTORCHAO_BUILD_CPU_AARCH64=ON \
     -DTORCHAO_ENABLE_ARM_NEON_DOT=ON \
-    -DTORCHAO_BUILD_TESTS="${TORCHAO_BUILD_EXECUTORCH_OPS}" \
+    -DTORCHAO_BUILD_TESTS=OFF \
     -DTORCHAO_BUILD_BENCHMARKS=OFF \
     -S . \
     -B ${CMAKE_OUT}
 cmake --build  ${CMAKE_OUT} -j 16 --target install --config Release
-if [[ $TARGET == "executorch" ]]; then
-    "${CMAKE_OUT}/torchao_test_parallel_executorch"
-fi

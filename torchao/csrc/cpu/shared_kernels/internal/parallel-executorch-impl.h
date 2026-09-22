@@ -6,18 +6,18 @@
 
 #pragma once
 
-#include <executorch/runtime/kernel/thread_parallel_interface.h>
+#include <executorch/extension/threadpool/threadpool.h>
 
 template <typename F>
 void torchao::parallel_1d(const int64_t begin, const int64_t end, const F& f) {
-  executorch::extension::parallel_for(
-      begin, end, 1, [&](int64_t chunk_begin, int64_t chunk_end) {
-        for (int64_t idx = chunk_begin; idx < chunk_end; ++idx) {
-          f(idx);
-        }
-      });
+  torch::executorch::threadpool::get_threadpool()->run(
+      [&](size_t i) {
+        int64_t idx = begin + i;
+        f(idx);
+      },
+      end - begin);
 }
 
 inline int torchao::get_num_threads() {
-  return executorch::extension::get_thread_count();
+  return torch::executorch::threadpool::get_threadpool()->get_thread_count();
 }

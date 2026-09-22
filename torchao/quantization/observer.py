@@ -145,53 +145,30 @@ class AffineQuantizedMinMaxObserver(AffineQuantizedObserverBase):
 
         input_detached = input.detach()
         assert self.granularity is not None, "granularity is None"
-        if isinstance(self.granularity, PerTensor):
-            min_val, max_val = torch.aminmax(input_detached)
-            if self.keepdim:
-                keepdim_shape = (1,) * input_detached.dim()
-                min_val = min_val.reshape(keepdim_shape)
-                max_val = max_val.reshape(keepdim_shape)
-        else:
-            block_size = get_block_size(input_detached.shape, self.granularity)
-            shape_for_reduction, reduction_dims = _get_reduction_params(
-                block_size, input_detached.size()
-            )
-            input_detached = input_detached.reshape(shape_for_reduction)
-            min_val = torch.amin(
-                input_detached,
-                dim=reduction_dims,
-                keepdim=self.keepdim,
-            )
-            max_val = torch.amax(
-                input_detached,
-                dim=reduction_dims,
-                keepdim=self.keepdim,
-            )
+        block_size = get_block_size(input_detached.shape, self.granularity)
+
+        shape_for_reduction, reduction_dims = _get_reduction_params(
+            block_size, input_detached.size()
+        )
+        input_detached = input_detached.view(shape_for_reduction)
+        min_val = torch.amin(input_detached, dim=reduction_dims, keepdim=self.keepdim)
+        max_val = torch.amax(input_detached, dim=reduction_dims, keepdim=self.keepdim)
         if not hasattr(self, "min_val") or not hasattr(self, "max_val"):
             self.min_val = min_val
             self.max_val = max_val
         else:
-            if (
-                self.min_val.shape != min_val.shape
-                or self.max_val.shape != max_val.shape
-            ):
-                raise ValueError(
-                    "Observer range shape changed between inputs: "
-                    f"min {self.min_val.shape} != {min_val.shape} or "
-                    f"max {self.max_val.shape} != {max_val.shape}"
-                )
+            assert self.min_val.shape == min_val.shape, (
+                f"Can't update existing min_val - shape mismatch, self.min_val:{self.min_val.shape} != min_val:{min_val.shape}"
+            )
+            assert self.max_val.shape == max_val.shape, (
+                f"Can't update existing max_val - shape mismatch, self.max_val {self.max_val.shape} != max_val:{max_val.shape}"
+            )
             min_val = torch.min(self.min_val, min_val)
             max_val = torch.max(self.max_val, max_val)
             self.min_val.copy_(min_val)
             self.max_val.copy_(max_val)
         # returning original input
         return input
-
-    def reset_min_max(self) -> None:
-        """Remove collected ranges before a new observation cycle."""
-        for name in ("min_val", "max_val"):
-            if hasattr(self, name):
-                delattr(self, name)
 
     def calculate_qparams(self) -> Tuple[torch.Tensor, torch.Tensor]:
         assert hasattr(self, "min_val") and hasattr(self, "max_val"), (

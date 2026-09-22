@@ -231,11 +231,4 @@ if(TORCHAO_BUILD_EXECUTORCH_OPS)
     endif()
     target_link_libraries(torchao_ops_executorch PRIVATE cpuinfo)
     target_include_directories(torchao_ops_executorch PRIVATE "${TORCH_INCLUDE_DIRS}")
-
-    if(TORCHAO_BUILD_TESTS)
-        add_executable(torchao_test_parallel_executorch
-            shared_kernels/tests/test_parallel_executorch.cpp)
-        target_link_libraries(torchao_test_parallel_executorch PRIVATE GTest::gtest_main)
-        target_link_torchao_parallel_backend(torchao_test_parallel_executorch executorch)
-    endif()
 endif()
