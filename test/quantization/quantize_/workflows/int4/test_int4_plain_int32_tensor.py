@@ -16,6 +16,7 @@ from torch.testing._internal.common_utils import (
     run_tests,
 )
 
+import torchao
 from torchao.quantization import (
     Int4WeightOnlyConfig,
     quantize_,
@@ -131,10 +132,6 @@ class Int4PlainInt32Tensor(TestCase):
         """Test Int4WeightOnlyConfig (plain_int32) with grouped_mm dispatch
         (weight-only dequant path, since there is no native int4 grouped_mm kernel).
         """
-        # local import to avoid collision with the `Int4PlainInt32Tensor`
-        # TestCase class defined in this module
-        from torchao.quantization import Int4PlainInt32Tensor
-
         if "npu" in device:
             pytest.skip("grouped_mm is only supported on XPU for Int4PlainInt32Tensor")
 
@@ -162,7 +159,7 @@ class Int4PlainInt32Tensor(TestCase):
             ),
         )
 
-        self.assertIsInstance(model.weight, Int4PlainInt32Tensor)
+        self.assertIsInstance(model.weight, torchao.quantization.Int4PlainInt32Tensor)
 
         w_sqnr = compute_error(model_ref.weight, model.weight.dequantize())
         self.assertGreater(w_sqnr, 19.0, f"Weight SQNR too low: {w_sqnr:.2f}")
