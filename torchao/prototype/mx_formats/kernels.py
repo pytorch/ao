@@ -248,6 +248,25 @@ if has_triton():
                         results.append(config)
         return results
 
+    def _prune_mxfp8_quant_configs(configs, named_args, **kwargs):
+        # Dim1 scale stores assume each tile is fully in-bounds and that
+        # ROW/COL_TILE_SIZE divide n_rows/n_cols. Larger autotune tiles (256, 512)
+        # are faster on big tensors but scramble e8m0 scales when M or K is 128.
+        n_rows = named_args.get("n_rows", kwargs.get("n_rows"))
+        n_cols = named_args.get("n_cols", kwargs.get("n_cols"))
+        if n_rows is None or n_cols is None:
+            raise KeyError(
+                f"missing n_rows/n_cols in prune; named_args={list(named_args)} kwargs={list(kwargs)}"
+            )
+        pruned = [
+            c
+            for c in configs
+            if n_rows % c.kwargs["ROW_TILE_SIZE"] == 0
+            and n_cols % c.kwargs["COL_TILE_SIZE"] == 0
+        ]
+        # Host launch already requires multiples of 128, so 128x128 always remains.
+        return pruned
+
     @triton.autotune(
         configs=_get_mxfp8_quant_autotune_configs(),
         key=["input_num_cols", "SCALE_BLOCK_SIZE"],
@@ -590,7 +609,8 @@ if _triton_kernels_available:
 
     @triton.autotune(
         configs=_get_mxfp8_quant_autotune_configs(),
-        key=["n_cols", "INNER_BLOCK_SIZE"],
+        key=["n_rows", "n_cols", "INNER_BLOCK_SIZE"],
+        prune_configs_by={"early_config_prune": _prune_mxfp8_quant_configs},
     )
     @triton.jit
     def to_mxfp8_dim1_kernel(
@@ -751,7 +771,8 @@ if _triton_kernels_available:
 
     @triton.autotune(
         configs=_get_mxfp8_quant_autotune_configs(),
-        key=["n_cols", "SCALE_BLOCK_SIZE"],
+        key=["n_rows", "n_cols", "SCALE_BLOCK_SIZE"],
+        prune_configs_by={"early_config_prune": _prune_mxfp8_quant_configs},
     )
     @triton.jit
     def to_mxfp8_dim0_kernel(
