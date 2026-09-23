@@ -482,6 +482,82 @@ def _(func, types, args, kwargs):
     return return_and_correct_aliasing(func, args, kwargs, new)
 
 
+@implements(aten.index.Tensor)
+def _(func, types, args, kwargs):
+    """Gather along the expert (dim 0) of a 3D grouped/MoE Int4PlainInt32Tensor."""
+    self, indices = args[0], args[1]
+    assert self.ndim == 3, (
+        f"index is only supported for 3D grouped/MoE Int4PlainInt32Tensor, got {self.ndim}D"
+    )
+    assert (
+        isinstance(indices, (list, tuple))
+        and len(indices) == 1
+        and indices[0] is not None
+    ), (
+        f"Int4PlainInt32Tensor only supports indexing along dim 0 (the expert "
+        f"dimension) with a single index Tensor, got: {indices}"
+    )
+    index = indices[0]
+
+    new_shape = [index.numel(), *self.shape[1:]]
+    new = Int4PlainInt32Tensor(
+        func(self.qdata, [index]),
+        func(self.scale, [index]),
+        func(self.zero_point, [index]),
+        self.block_size,
+        new_shape,
+        act_pre_scale=self.act_pre_scale,
+    )
+    return return_and_correct_aliasing(func, args, kwargs, new)
+
+
+@implements(aten.select.int)
+def _(func, types, args, kwargs):
+    """Select a single expert (dim 0) of a 3D grouped/MoE Int4PlainInt32Tensor."""
+    self, dim, index = args
+    assert self.ndim == 3, (
+        f"select is only supported for 3D grouped/MoE Int4PlainInt32Tensor, got {self.ndim}D"
+    )
+    assert dim in (0, -3), f"select is only supported along dim 0, got dim={dim}"
+
+    new = Int4PlainInt32Tensor(
+        func(self.qdata, 0, index),
+        func(self.scale, 0, index),
+        func(self.zero_point, 0, index),
+        self.block_size[1:],
+        self.shape[1:],
+        act_pre_scale=self.act_pre_scale,
+    )
+    return return_and_correct_aliasing(func, args, kwargs, new)
+
+
+@implements([aten.bmm.default])
+def _bmm(func, types, args, kwargs):
+    """Handles `torch.bmm(weight, input)` where `weight` is a 3D
+    Int4PlainInt32Tensor.
+    """
+    weight_tensor, act_tensor = args[0], args[1]
+    assert (
+        isinstance(weight_tensor, Int4PlainInt32Tensor) and weight_tensor.ndim == 3
+    ), (
+        f"Int4PlainInt32Tensor bmm expects mat1 (weight) to be a 3D "
+        f"(already-gathered) Int4PlainInt32Tensor, got: {type(weight_tensor)}"
+    )
+    assert not isinstance(act_tensor, Int4PlainInt32Tensor) and act_tensor.ndim == 3, (
+        f"Int4PlainInt32Tensor bmm expects mat2 (activation) to be an unquantized "
+        f"3D tensor of shape (batch, K, M), got: {type(act_tensor)} with shape {act_tensor.shape}"
+    )
+
+    num_batches = weight_tensor.shape[0]
+    outs = []
+    for i in range(num_batches):
+        weight_i = weight_tensor[i]
+        act_i = act_tensor[i].transpose(0, 1).contiguous()
+        y = _linear_xpu(act_i, weight_i, None)
+        outs.append(y.transpose(0, 1))
+    return torch.stack(outs, dim=0)
+
+
 @implements([aten._grouped_mm.default])
 def _grouped_mm(func, types, args, kwargs):
     """Handles `torch._grouped_mm` when weight (mat_b) is an

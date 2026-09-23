@@ -168,6 +168,81 @@ class Int4PlainInt32Tensor(TestCase):
         y_sqnr = compute_error(y_ref, y)
         self.assertGreater(y_sqnr, 15.0, f"Output SQNR too low: {y_sqnr:.2f}")
 
+    @parametrize("dtype", [torch.bfloat16, torch.half])
+    @parametrize("group_size", [32, 64, 128])
+    def test_index(self, device, dtype, group_size):
+        if "npu" in device:
+            pytest.skip(
+                "index dispatch is only supported on XPU for Int4PlainInt32Tensor"
+            )
+
+        E, K, N = 4, 256, 256
+        S = 6
+
+        weight_ref = torch.randn(E, N, K, device=device, dtype=dtype)
+        weight = torchao.quantization.Int4PlainInt32Tensor.from_hp(
+            weight_ref, block_size=[1, 1, group_size]
+        )
+
+        expert_ids = torch.randint(0, E, (S,), device=device, dtype=torch.long)
+
+        selected_weight = weight[expert_ids]
+        self.assertIsInstance(
+            selected_weight, torchao.quantization.Int4PlainInt32Tensor
+        )
+        self.assertEqual(selected_weight.shape, (S, N, K))
+
+        selected_weight_ref = weight_ref[expert_ids]
+        w_sqnr = compute_error(selected_weight_ref, selected_weight.dequantize())
+        self.assertGreater(w_sqnr, 19.0, f"Weight SQNR too low: {w_sqnr:.2f}")
+
+    @parametrize("dtype", [torch.bfloat16, torch.half])
+    @parametrize("group_size", [32, 64, 128])
+    def test_select(self, device, dtype, group_size):
+        if "npu" in device:
+            pytest.skip(
+                "select dispatch is only supported on XPU for Int4PlainInt32Tensor"
+            )
+
+        E, K, N = 4, 256, 256
+
+        weight_ref = torch.randn(E, N, K, device=device, dtype=dtype)
+        weight = torchao.quantization.Int4PlainInt32Tensor.from_hp(
+            weight_ref, block_size=[1, 1, group_size]
+        )
+
+        selected_weight = weight[1]
+        self.assertIsInstance(
+            selected_weight, torchao.quantization.Int4PlainInt32Tensor
+        )
+        self.assertEqual(selected_weight.shape, (N, K))
+        self.assertEqual(selected_weight.block_size, [1, group_size])
+
+        w_sqnr = compute_error(weight_ref[1], selected_weight.dequantize())
+        self.assertGreater(w_sqnr, 19.0, f"Weight SQNR too low: {w_sqnr:.2f}")
+
+    @parametrize("dtype", [torch.bfloat16, torch.half])
+    @parametrize("group_size", [32, 64, 128])
+    @parametrize("M", [1, 8])
+    def test_bmm(self, device, dtype, group_size, M):
+        if "npu" in device:
+            pytest.skip(
+                "bmm dispatch is only supported on XPU for Int4PlainInt32Tensor"
+            )
+
+        S, K, N = 6, 256, 256  # S: number of selected token-expert pairs
+
+        weight_ref = torch.randn(S, N, K, device=device, dtype=dtype)
+        weight = torchao.quantization.Int4PlainInt32Tensor.from_hp(
+            weight_ref, block_size=[1, 1, group_size]
+        )
+
+        x = torch.randn(S, K, M, device=device, dtype=dtype)
+        y_ref = torch.bmm(weight_ref, x)
+        y = torch.bmm(weight, x)
+        y_sqnr = compute_error(y_ref, y)
+        self.assertGreater(y_sqnr, 15.0, f"Output SQNR too low: {y_sqnr:.2f}")
+
 
 instantiate_device_type_tests(
     Int4PlainInt32Tensor, globals(), only_for=("xpu", "npu"), allow_xpu=True
