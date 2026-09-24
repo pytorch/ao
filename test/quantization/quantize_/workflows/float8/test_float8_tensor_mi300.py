@@ -16,21 +16,18 @@ from torchao.quantization import (
     quantize_,
 )
 from torchao.quantization.utils import compute_error
+from torchao.testing.model_architectures import ToyTwoLinearModel
 from torchao.utils import get_current_accelerator_device, is_fbcode, is_MI300
 
 
-class ToyLinearModel(torch.nn.Module):
+class ToyLinearModel(ToyTwoLinearModel):
     def __init__(self, in_features, out_features, bias):
-        super().__init__()
+        super().__init__(
+            in_features, out_features, in_features,
+            torch.float32, "cpu", has_bias=bias,
+        )
         self.in_features = in_features
         self.out_features = out_features
-        self.linear1 = torch.nn.Linear(in_features, out_features, bias=bias)
-        self.linear2 = torch.nn.Linear(out_features, in_features, bias=bias)
-
-    def forward(self, x):
-        x = self.linear1(x)
-        x = self.linear2(x)
-        return x
 
     def check_weight_scaling(self, granularity: Granularity):
         qs1 = self.linear1.weight.scale
