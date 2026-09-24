@@ -26,6 +26,62 @@ FLOAT8_OPS_TABLE: Dict[Any, Any] = {}
 # Cublas defines scale to always mean a multiplicative factor for the respective matrices
 # For a,b going from fp8 -> fp32 we multiple by the inverse of the scale
 # For output going from fp32 -> fp8 we multiply by the scale
+def _addmm_float8_unwrapped_npu(
+    a_data: torch.Tensor,
+    a_scale: torch.Tensor,
+    b_data: torch.Tensor,
+    b_scale: torch.Tensor,
+    output_dtype: torch.dtype,
+    bias: Optional[torch.Tensor] = None,
+) -> torch.Tensor:
+    """
+    NPU backend for float8 matmul using torch_npu.npu_quant_matmul.
+
+    npu_quant_matmul signature (from op_plugin_functions.yaml):
+        npu_quant_matmul(Tensor x1, Tensor x2, Tensor scale, *,
+                         Tensor? offset=None, Tensor? pertoken_scale=None,
+                         Tensor? bias=None, int? output_dtype=None, ...)
+
+    It takes only 3 positional args: x1, x2, scale.
+    - scale: the weight scale (b_scale)
+    - pertoken_scale: the activation scale (a_scale), applied per-token/per-row
+    """
+    import torch_npu
+
+    # npu_quant_matmul's output_dtype is an integer passed to GetAclDataType().
+    # When the value < 256, it is treated as a PyTorch ScalarType and
+    # auto-converted to the corresponding ACL dtype.  We can therefore
+    # simply forward the torch dtype's ScalarType ordinal.
+    npu_output_dtype = None
+    if output_dtype is not None:
+        # torch dtype objects expose their ScalarType via _to_c_type() or
+        # by converting with torch._C._jit_get_scalar_type, but the most
+        # portable way is via the internal mapping used by at::ScalarType.
+        _NPU_DTYPE_MAP = {
+            torch.float16: 5,   # at::ScalarType::Half
+            torch.bfloat16: 15, # at::ScalarType::BFloat16
+            torch.float32: 6,   # at::ScalarType::Float
+        }
+        npu_output_dtype = _NPU_DTYPE_MAP.get(output_dtype)
+
+    # npu_quant_matmul expects scales to be at least 1-dim.
+    # In tensorwise scaling, scales are 0-dim scalars — reshape to [1].
+    if b_scale.dim() == 0:
+        b_scale = b_scale.reshape(1)
+    if a_scale.dim() == 0:
+        a_scale = a_scale.reshape(1)
+
+    output = torch_npu.npu_quant_matmul(
+        a_data,
+        b_data,
+        b_scale,
+        pertoken_scale=a_scale,
+        bias=bias,
+        output_dtype=npu_output_dtype,
+    )
+    return output
+
+
 def addmm_float8_unwrapped(
     a_data: torch.Tensor,
     a_scale: torch.Tensor,
@@ -41,6 +97,12 @@ def addmm_float8_unwrapped(
     as inputs. This is used to standardize the logic between subclassed and non subclassed
     versions of the linear module.
     """
+    # NPU path: use npu_quant_matmul which accepts direct scales
+    if a_data.device.type == "npu":
+        return _addmm_float8_unwrapped_npu(
+            a_data, a_scale, b_data, b_scale, output_dtype, bias=bias,
+        )
+
     a_inverse_scale = a_scale.reciprocal()
     b_inverse_scale = b_scale.reciprocal()
 
