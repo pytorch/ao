@@ -30,7 +30,7 @@ jobs:
     permissions:
       id-token: write
       contents: read
-    uses: pytorch/test-infra/.github/workflows/linux_job_v2.yml@main
+    uses: jithunnair-amd/test-infra/.github/workflows/linux_job_v2.yml@patch-5
     with:
       timeout: 210
       no-sudo: ${{ matrix.gpu-arch-type == 'rocm' }}
