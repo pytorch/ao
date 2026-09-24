@@ -1,6 +1,7 @@
 # Copyright (c) Meta Platforms, Inc. and affiliates.
 # All rights reserved.
-
+# Copyright 2026 Arm Limited and/or its affiliates.
+#
 # This source code is licensed under the license found in the
 # LICENSE file in the root directory of this source tree.
 
@@ -252,3 +253,139 @@ class MXFakeQuantizedLinear(torch.nn.Linear):
             new_linear.weight = mod.weight
             new_linear.bias = mod.bias
         return new_linear
+
+
+class MXFakeQuantizedConv2d(torch.nn.Conv2d):
+    """Conv2d module with fake-quantized MX weights and activations.
+
+    Activations and weights are fake quantized in blocks along their input
+    channel dimension. The quantized values are dequantized before the
+    convolution, so the convolution itself runs in the original high-precision
+    dtype. As in :class:`MXFakeQuantizedLinear`, the backward pass uses a
+    straight-through estimator.
+
+    The input channels and the input channels per group must be divisible by
+    their respective block sizes because ``MXTensor`` does not pad incomplete
+    blocks. The high-precision activation and weight dtypes must be
+    ``torch.float32`` or ``torch.bfloat16``, matching ``MXTensor`` support.
+    """
+
+    def __init__(
+        self,
+        in_channels: int,
+        out_channels: int,
+        kernel_size,
+        stride=1,
+        padding=0,
+        dilation=1,
+        groups: int = 1,
+        bias: bool = True,
+        padding_mode: str = "zeros",
+        activation_config: Optional[MXFakeQuantizeConfig] = None,
+        weight_config: Optional[MXFakeQuantizeConfig] = None,
+        device=None,
+        dtype=None,
+    ):
+        super().__init__(
+            in_channels,
+            out_channels,
+            kernel_size,
+            stride,
+            padding,
+            dilation,
+            groups,
+            bias,
+            padding_mode,
+            device=device,
+            dtype=dtype,
+        )
+        if weight_config is None:
+            raise ValueError("Must specify `weight_config`")
+        if activation_config is None:
+            raise ValueError("Weight only MX QAT not supported yet")
+        if in_channels % activation_config.block_size != 0:
+            raise ValueError(
+                "Input channels must be divisible by the activation block size"
+            )
+        if (in_channels // groups) % weight_config.block_size != 0:
+            raise ValueError(
+                "Input channels per group must be divisible by the weight block size"
+            )
+        self.activation_config = activation_config
+        self.weight_config = weight_config
+
+    @staticmethod
+    def _fake_quantize_input_channel_blocks(
+        tensor: torch.Tensor,
+        config: MXFakeQuantizeConfig,
+    ) -> torch.Tensor:
+        # Both Conv2d inputs (..., C, H, W) and weights (O, I, H, W) have
+        # their input-channel dimension at -3. MXTensor quantizes its last
+        # dimension, so move the channels there temporarily.
+        tensor_channel_last = tensor.movedim(-3, -1).contiguous()
+        tensor_channel_last = MXTensor.to_mx(
+            tensor_channel_last,
+            elem_dtype=config.dtype,
+            block_size=config.block_size,
+            scaling_mode=config.scaling_mode,
+            kernel_preference=config.kernel_preference,
+        ).dequantize(tensor.dtype)
+        return tensor_channel_last.movedim(-1, -3).contiguous()
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        quantized_input = self._fake_quantize_input_channel_blocks(
+            x, self.activation_config
+        )
+        quantized_weight = self._fake_quantize_input_channel_blocks(
+            self.weight, self.weight_config
+        )
+
+        input_ste = x + (quantized_input - x).detach()
+        weight_ste = self.weight + (quantized_weight - self.weight).detach()
+        return self._conv_forward(input_ste, weight_ste, self.bias)
+
+    def to_conv2d(self) -> torch.nn.Conv2d:
+        new_conv = torch.nn.Conv2d(
+            self.in_channels,
+            self.out_channels,
+            self.kernel_size,
+            self.stride,
+            self.padding,
+            self.dilation,
+            self.groups,
+            self.bias is not None,
+            self.padding_mode,
+            device=self.weight.device,
+            dtype=self.weight.dtype,
+        )
+        if self.weight.device != torch.device("meta"):
+            new_conv.weight = self.weight
+            new_conv.bias = self.bias
+        return new_conv
+
+    @classmethod
+    def from_conv2d(
+        cls,
+        mod: torch.nn.Conv2d,
+        activation_config: Optional[MXFakeQuantizeConfig] = None,
+        weight_config: Optional[MXFakeQuantizeConfig] = None,
+    ) -> "MXFakeQuantizedConv2d":
+        new_conv = cls(
+            mod.in_channels,
+            mod.out_channels,
+            mod.kernel_size,
+            mod.stride,
+            mod.padding,
+            mod.dilation,
+            mod.groups,
+            mod.bias is not None,
+            mod.padding_mode,
+            activation_config=activation_config,
+            weight_config=weight_config,
+            device=mod.weight.device,
+            dtype=mod.weight.dtype,
+        )
+        if mod.weight.device != torch.device("meta"):
+            new_conv.weight = mod.weight
+            new_conv.bias = mod.bias
+        return new_conv
