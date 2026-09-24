@@ -467,7 +467,7 @@ if has_triton():
         # [group0_col0, group_0_col1, ..., group2_col0, group2_col1]
         # note: input tensor is in col-major memory layout.
         scales_offs = block_col_offs + (N * offset_idx)
-        scales_mask = tl.arange(0, BLOCK_SIZE) < N
+        scales_mask = block_col_offs < N
         tl.store(scales_ptr + scales_offs, scales, mask=scales_mask)
 
         # perform float8 conversion for this group
@@ -569,7 +569,7 @@ if has_triton():
 
         # Store scales
         scales_offs = block_col_offs + (N * offset_idx)
-        scales_mask = tl.arange(0, BLOCK_SIZE) < N
+        scales_mask = block_col_offs < N
         tl.store(scales_ptr + scales_offs, scales, mask=scales_mask)
 
         # Scale from registers (no second HBM read) and write fp8
