@@ -83,8 +83,9 @@ void kernel_1x8x16_f32_neondot(
   assert(group_size % 16 == 0);
   static_assert(!has_weight_zeros || has_activation_qvals_sum);
 
-  constexpr bool use_unsigned_w3 =
-      weight_nbit == 3 && !has_lut && has_activation_qvals_sum;
+  constexpr bool use_unsigned_weights =
+      weight_nbit < 8 && !has_lut && has_activation_qvals_sum;
+  constexpr int weight_qval_offset = 1 << (weight_nbit - 1);
 
   int8x16_t lut;
   if constexpr (!has_lut) {
@@ -198,9 +199,9 @@ void kernel_1x8x16_f32_neondot(
                 weight_q_cols67_1,
                 (uint8_t*)weight_data_byte_ptr,
                 lut);
-          } else if constexpr (use_unsigned_w3) {
+          } else if constexpr (use_unsigned_weights) {
             uint8x16_t unsigned_weights[8];
-            torchao::bitpacking::vec_unpack_128_uintx_values<3>(
+            torchao::bitpacking::vec_unpack_128_uintx_values<weight_nbit>(
                 unsigned_weights[0],
                 unsigned_weights[1],
                 unsigned_weights[2],
@@ -307,9 +308,11 @@ void kernel_1x8x16_f32_neondot(
           weight_data_byte_ptr += 16;
 
           int32x4_t term2_0123;
-          if constexpr (use_unsigned_w3) {
+          if constexpr (use_unsigned_weights) {
             term2_0123 = vmulq_n_s32(
-                vaddq_s32(weight_zeros, vdupq_n_s32(4)), activation_qvals_sum);
+                vaddq_s32(
+                    weight_zeros, vdupq_n_s32(weight_qval_offset)),
+                activation_qvals_sum);
           } else {
             term2_0123 = vmulq_n_s32(weight_zeros, activation_qvals_sum);
           }
@@ -321,9 +324,11 @@ void kernel_1x8x16_f32_neondot(
           weight_data_byte_ptr += 16;
 
           int32x4_t term2_4567;
-          if constexpr (use_unsigned_w3) {
+          if constexpr (use_unsigned_weights) {
             term2_4567 = vmulq_n_s32(
-                vaddq_s32(weight_zeros, vdupq_n_s32(4)), activation_qvals_sum);
+                vaddq_s32(
+                    weight_zeros, vdupq_n_s32(weight_qval_offset)),
+                activation_qvals_sum);
           } else {
             term2_4567 = vmulq_n_s32(weight_zeros, activation_qvals_sum);
           }
@@ -344,16 +349,18 @@ void kernel_1x8x16_f32_neondot(
         } else {
           // Do updates
           int32x4_t tmp = vsubq_s32(qval_dot_0123, term1_0123);
-          if constexpr (use_unsigned_w3) {
+          if constexpr (use_unsigned_weights) {
             tmp = vsubq_s32(
-                tmp, vdupq_n_s32(4 * activation_qvals_sum));
+                tmp,
+                vdupq_n_s32(weight_qval_offset * activation_qvals_sum));
           }
           res_0123 = vmlaq_f32(res_0123, scale_factor_0123, vcvtq_f32_s32(tmp));
 
           tmp = vsubq_s32(qval_dot_4567, term1_4567);
-          if constexpr (use_unsigned_w3) {
+          if constexpr (use_unsigned_weights) {
             tmp = vsubq_s32(
-                tmp, vdupq_n_s32(4 * activation_qvals_sum));
+                tmp,
+                vdupq_n_s32(weight_qval_offset * activation_qvals_sum));
           }
           res_4567 = vmlaq_f32(res_4567, scale_factor_4567, vcvtq_f32_s32(tmp));
         }

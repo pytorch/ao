@@ -53,7 +53,7 @@ UKernelConfig get_ukernel_config() {
       &torchao::weight_packing::pack_weights<weight_nbit, nr, kr, sr>,
       /*linear_configs*/ {});
 
-  if constexpr (weight_nbit == 3 && !has_weight_zeros && !has_lut) {
+  if constexpr (weight_nbit < 8 && !has_weight_zeros && !has_lut) {
     constexpr bool has_activation_qvals_sum = true;
     uk.linear_configs[0] = UKernelConfig::linear_config_type{
         m_step,
@@ -452,22 +452,30 @@ TEST(test_linear_8bit_act_xbit_weight, Standard) {
       /*m=*/13, /*n=*/8 * 10 + 3, /*k=*/16 * 3, /*group_size=*/16);
 }
 
-TEST(test_linear_8bit_act_xbit_weight, ThreeBitDecodeUnsignedWeights) {
+template <int weight_nbit>
+void test_decode_for_bit_width() {
   test_linear_8bit_act_xbit_weight<
-      3 /*weight_nbit*/,
+      weight_nbit,
       true /*has_weight_zeros*/,
       true /*has_bias*/,
       true /*has_clamp*/>(
       /*m=*/1, /*n=*/8 * 3 + 5, /*k=*/16 * 8, /*group_size=*/64);
-}
-
-TEST(test_linear_8bit_act_xbit_weight, ThreeBitDecodeUnsignedSymmetricWeights) {
   test_linear_8bit_act_xbit_weight<
-      3 /*weight_nbit*/,
+      weight_nbit,
       false /*has_weight_zeros*/,
       true /*has_bias*/,
       true /*has_clamp*/>(
       /*m=*/3, /*n=*/8 * 3 + 5, /*k=*/16 * 8, /*group_size=*/64);
+}
+
+TEST(test_linear_8bit_act_xbit_weight, DecodeAllLowBitWidths) {
+  test_decode_for_bit_width<1>();
+  test_decode_for_bit_width<2>();
+  test_decode_for_bit_width<3>();
+  test_decode_for_bit_width<4>();
+  test_decode_for_bit_width<5>();
+  test_decode_for_bit_width<6>();
+  test_decode_for_bit_width<7>();
 }
 
 TEST(test_linear_8bit_act_xbit_weight, ThreeBitPrefill) {

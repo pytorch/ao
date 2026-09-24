@@ -53,9 +53,10 @@ inline size_t packed_activations_offset(
   return (m_idx / mr) * packed_activations_size_mr_rows;
 }
 
-// The symmetric W3 decode kernel keeps packed weights in their unsigned 0..7
-// representation. Store activation sums so it can remove the resulting +4
-// offset after the dot product without changing the weight format.
+// The symmetric low-bit decode kernel keeps packed weights in their unsigned
+// representation. Store activation sums so it can remove the resulting
+// 2^(weight_nbit - 1) offset after the dot product without changing the weight
+// format.
 inline size_t packed_activations_with_qvals_sum_size(
     int m,
     int k,
