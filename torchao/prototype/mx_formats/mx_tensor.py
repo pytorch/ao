@@ -749,7 +749,7 @@ def _addmm_mx_dispatch(
             k.block_size,
             k.scaling_mode,
             k.kernel_preference,
-            k.is_swizzled_scales,
+            is_swizzled_scales=k.is_swizzled_scales,
         )
 
     gemm_choice = _get_gemm_choice(a.kernel_preference, b.kernel_preference)
