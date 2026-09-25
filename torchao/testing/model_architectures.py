@@ -80,6 +80,26 @@ class ToyTwoLinearModel(torch.nn.Module):
         return x
 
 
+class ToyConvModel(torch.nn.Module):
+    def __init__(
+        self, dim, in_channels, out_channels, kernel_size, bias, padding, dtype, device
+    ):
+        super().__init__()
+        convs = {1: torch.nn.Conv1d, 2: torch.nn.Conv2d, 3: torch.nn.Conv3d}
+        self.conv = convs[dim](
+            in_channels,
+            out_channels,
+            kernel_size,
+            bias=bias,
+            padding=padding,
+            dtype=dtype,
+            device=device,
+        )
+
+    def forward(self, x):
+        return self.conv(x)
+
+
 class ConvWithSharedWeightInExportedModel(nn.Module):
     def __init__(
         self,
