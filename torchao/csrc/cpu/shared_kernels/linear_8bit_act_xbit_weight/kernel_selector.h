@@ -169,7 +169,7 @@ void register_ukernel_config_universal(
                  kernel_8x8x16_f32_neondot<weight_nbit, has_weight_zeros>});
       } else {
         constexpr bool has_weight_zeros = false;
-        if constexpr (weight_nbit == 3) {
+        if constexpr (weight_nbit < 8) {
           constexpr bool has_activation_qvals_sum = true;
           uk.linear_configs[0] = UKernelConfig::linear_config_type(
               {m_step,
