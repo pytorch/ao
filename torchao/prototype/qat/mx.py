@@ -74,8 +74,212 @@ class MXFakeQuantizeConfig(FakeQuantizeConfigBase):
     kernel_preference: KernelPreference = KernelPreference.EMULATED
 
     def __post_init__(self):
+        if self.block_size <= 0:
+            raise ValueError(f"block_size must be positive, got {self.block_size}")
         _validate_elem_dtype(self.dtype)
         _validate_kernel_preference(self.kernel_preference, self.block_size, self.dtype)
+
+
+class _MXFakeQuantize(torch.autograd.Function):
+    """Apply MX quantize/dequantize in forward and an identity STE backward."""
+
+    @staticmethod
+    def forward(
+        ctx,
+        input: torch.Tensor,
+        config: MXFakeQuantizeConfig,
+    ) -> torch.Tensor:
+        del ctx
+        return MXTensor.to_mx(
+            input.contiguous(),
+            elem_dtype=config.dtype,
+            block_size=config.block_size,
+            scaling_mode=config.scaling_mode,
+            kernel_preference=config.kernel_preference,
+        ).dequantize(input.dtype)
+
+    @staticmethod
+    def backward(ctx, grad_output: torch.Tensor):
+        del ctx
+        return grad_output, None
+
+
+def mx_fake_quantize(
+    input: torch.Tensor,
+    config: MXFakeQuantizeConfig,
+) -> torch.Tensor:
+    """Emulate MX quantization while preserving identity gradients.
+
+    Quantization groups are formed along the final dimension. The returned
+    tensor has the input's shape and dtype, and no scales or packed tensors are
+    retained in module or optimizer state.
+    """
+    if input.ndim == 0:
+        raise ValueError("MX fake quantization requires at least one dimension")
+    if input.shape[-1] % config.block_size != 0:
+        raise ValueError(
+            f"input last dimension ({input.shape[-1]}) must be divisible by "
+            f"block_size ({config.block_size})"
+        )
+    if input.dtype not in (torch.bfloat16, torch.float32):
+        raise ValueError(
+            "MX fake quantization supports torch.bfloat16 and torch.float32 "
+            f"inputs, got {input.dtype}"
+        )
+    return _MXFakeQuantize.apply(input, config)
+
+
+class _MXQATNativeGroupedMM(torch.autograd.Function):
+    """Native MXFP8 forward with high-precision QAT gradients.
+
+    The operands are already fake quantized. Reuse the MoE forward dispatcher,
+    but retain QAT's STE backward rather than quantizing the output gradients.
+    """
+
+    @staticmethod
+    def forward(ctx, activation, weight, offsets, scaling_mode):
+        from torchao.prototype.moe_training import _to_mxfp8_then_scaled_grouped_mm
+        from torchao.prototype.moe_training.utils import (
+            pad_token_groups,
+            unpad_token_groups,
+        )
+
+        ctx.save_for_backward(activation, weight, offsets)
+        # The native activation quantizer requires 128-aligned rows and K.
+        # Reuse the grouped padding utilities; zero feature padding preserves
+        # the existing 32-element quantization blocks and the QAT gradients.
+        feature_padding = -activation.shape[-1] % 128
+        if feature_padding:
+            activation = torch.nn.functional.pad(activation, (0, feature_padding))
+            weight = torch.nn.functional.pad(weight, (0, feature_padding))
+        padded, starts, ends = pad_token_groups(
+            activation,
+            offsets,
+            alignment_size=128,
+            kernel_preference=KernelPreference.AUTO,
+        )
+        output = _to_mxfp8_then_scaled_grouped_mm(
+            padded,
+            weight.transpose(-2, -1),
+            offs=ends,
+            out_dtype=activation.dtype,
+            kernel_preference=KernelPreference.AUTO,
+            scale_calculation_mode=scaling_mode,
+        )
+        return unpad_token_groups(
+            output,
+            offsets,
+            starts,
+            activation.shape[0],
+            alignment_size=128,
+            kernel_preference=KernelPreference.AUTO,
+        )
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        activation, weight, offsets = ctx.saved_tensors
+        grad_output = grad_output.contiguous()
+        grad_activation = grad_weight = None
+        if ctx.needs_input_grad[0]:
+            grad_activation = torch._grouped_mm(grad_output, weight, offs=offsets)
+        if ctx.needs_input_grad[1]:
+            grad_weight = torch._grouped_mm(grad_output.t(), activation, offs=offsets)
+        return grad_activation, grad_weight, None, None
+
+
+def mx_fake_quantized_grouped_mm(
+    input: torch.Tensor,
+    weight: torch.Tensor,
+    offsets: torch.Tensor,
+    activation_config: MXFakeQuantizeConfig,
+    weight_config: MXFakeQuantizeConfig,
+) -> torch.Tensor:
+    """Run grouped MM through stateless MX fake-quantized views.
+
+    ``input`` has shape ``(tokens, in_features)``, ``weight`` has shape
+    ``(experts, out_features, in_features)``, and cumulative ``offsets`` has
+    one entry per expert. Repeated offsets and an all-empty token dimension are
+    supported. Both configs must agree on ``kernel_preference``. EMULATED
+    multiplies dequantized operands (a CPU reference loop or CUDA grouped MM).
+    AUTO uses the existing native MXFP8 grouped-MM forward and high-precision
+    backward with identity STEs. AUTO requires CUDA SM100 kernels, MXFP4 weights,
+    at most 32 local experts, and E4M3 activations with 32-element blocks
+    and RCEIL or FLOOR scaling.
+    It never silently falls back to emulation.
+    """
+    if input.ndim != 2 or weight.ndim != 3:
+        raise ValueError("grouped MM requires 2-D input and 3-D expert weights")
+    if input.shape[-1] != weight.shape[-1]:
+        raise ValueError("input and expert weight feature dimensions must match")
+    if offsets.ndim != 1 or offsets.numel() != weight.shape[0]:
+        raise ValueError("offsets must contain one cumulative offset per expert")
+    if offsets.dtype != torch.int32:
+        raise ValueError("offsets must use torch.int32")
+    if input.device != weight.device or input.device != offsets.device:
+        raise ValueError("input, weight, and offsets must be on the same device")
+    if input.dtype != weight.dtype:
+        raise ValueError("input and weight must have the same dtype")
+    if weight.shape[0] == 0:
+        raise ValueError("grouped MM requires at least one expert")
+    preference = activation_config.kernel_preference
+    if preference != weight_config.kernel_preference:
+        raise ValueError("activation and weight kernel_preference must match")
+    if preference == KernelPreference.AUTO:
+        if (
+            activation_config.dtype != torch.float8_e4m3fn
+            or weight_config.dtype != torch.float4_e2m1fn_x2
+            or activation_config.block_size != 32
+            or weight_config.block_size != 32
+            or activation_config.scaling_mode
+            not in (ScaleCalculationMode.RCEIL, ScaleCalculationMode.FLOOR)
+        ):
+            raise ValueError(
+                "AUTO requires MXFP4 weights and 1x32 E4M3 activations with RCEIL or FLOOR scaling"
+            )
+        if input.device.type != "cuda":
+            raise ValueError(
+                "AUTO grouped MX QAT requires CUDA; use KernelPreference.EMULATED on CPU"
+            )
+        if weight.shape[0] > 32:
+            raise ValueError("AUTO grouped MX QAT supports at most 32 local experts")
+    elif preference != KernelPreference.EMULATED:
+        raise ValueError(f"Unsupported grouped MX QAT kernel_preference: {preference}")
+    if input.device.type != "cuda":
+        offset_values = offsets.tolist()
+        if offset_values and (
+            any(offset < 0 for offset in offset_values)
+            or any(
+                stop < start for start, stop in zip(offset_values, offset_values[1:])
+            )
+            or offset_values[-1] != input.shape[0]
+        ):
+            raise ValueError(
+                "offsets must be nonnegative, monotonic, and end at tokens"
+            )
+
+    if input.shape[0] == 0:
+        empty = input.new_empty((0, weight.shape[1]))
+        return empty + (input.sum() + weight.sum()) * 0
+
+    activation = mx_fake_quantize(input, activation_config)
+    quantized_weight = mx_fake_quantize(weight, weight_config)
+    if preference == KernelPreference.AUTO:
+        return _MXQATNativeGroupedMM.apply(
+            activation, quantized_weight, offsets, activation_config.scaling_mode
+        )
+    if input.device.type == "cuda":
+        return torch._grouped_mm(
+            activation,
+            quantized_weight.transpose(-2, -1),
+            offs=offsets,
+        )
+
+    outputs = []
+    start = 0
+    for expert, stop in enumerate(offset_values):
+        outputs.append(activation[start:stop] @ quantized_weight[expert].t())
+        start = stop
+    return torch.cat(outputs, dim=0)
 
 
 class _MXQuantizedForwardFakeQuantizedBackward(torch.autograd.Function):
