@@ -28,6 +28,7 @@ jobs:
     with:
       package-type: wheel
       os: linux
+      runner-fleet: osdc
       with-cpu: enable
       with-cuda: enable
       with-rocm: enable
