@@ -24,19 +24,19 @@ jobs:
       matrix:
         include:
           - name: SM-89
-            runs-on: linux.g6.4xlarge.experimental.nvidia.gpu
+            runs-on: mt-l-x86aavx2-11-41-l4
             torch-spec: '--pre torch --index-url https://download.pytorch.org/whl/nightly/cu126'
             gpu-arch-type: "cuda"
             gpu-arch-version: "12.6"
           - name: SM-89 2.13
-            runs-on: linux.g6.4xlarge.experimental.nvidia.gpu
+            runs-on: mt-l-x86aavx2-11-41-l4
             torch-spec: 'torch==2.13.0 --index-url https://download.pytorch.org/whl/cu126'
             gpu-arch-type: "cuda"
             gpu-arch-version: "12.6"
     permissions:
       id-token: write
       contents: read
-    uses: pytorch/test-infra/.github/workflows/linux_job_v2.yml@main
+    uses: pytorch/test-infra/.github/workflows/linux_job_v3.yml@main
     with:
       timeout: 60
       runner: ${{ matrix.runs-on }}

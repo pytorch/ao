@@ -20,7 +20,7 @@ jobs:
       matrix:
         include:
           - name: CUDA Nightly
-            runs-on: linux.g5.12xlarge.nvidia.gpu
+            runs-on: mt-l-x86aavx2-45-167-a10g-4
             torch-spec: '--pre torch --index-url https://download.pytorch.org/whl/nightly/cu126'
             gpu-arch-type: "cuda"
             gpu-arch-version: "12.6"
@@ -28,7 +28,7 @@ jobs:
     permissions:
       id-token: write
       contents: read
-    uses: pytorch/test-infra/.github/workflows/linux_job_v2.yml@main
+    uses: pytorch/test-infra/.github/workflows/linux_job_v3.yml@main
     with:
       runner: ${{ matrix.runs-on }}
       gpu-arch-type: ${{ matrix.gpu-arch-type }}
