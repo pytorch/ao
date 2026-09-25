@@ -14,7 +14,7 @@ jobs:
   test-cpu-ops:
     strategy:
       matrix:
-        runner: [macos-14, linux.arm64.2xlarge]
+        runner: [macos-14, ubuntu-24.04-arm]
     runs-on: ${{matrix.runner}}
     defaults:
       run:
