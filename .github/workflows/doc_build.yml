@@ -57,59 +57,21 @@ jobs:
           name: Doc-Build
           path: docs/build/html/
 
-  doc-preview:
-    runs-on: [self-hosted, linux.2xlarge]
-    needs: build_docs
-    if: ${{ github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' }}
-    permissions:
-      pull-requests: write
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-      - name: Download artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: Doc-Build
-          path: docs
-      - name: Upload docs preview
-        uses: seemethere/upload-artifact-s3@v5
-        if: ${{ github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' }}
-        with:
-          retention-days: 14
-          s3-bucket: doc-previews
-          if-no-files-found: error
-          path: docs
-          s3-prefix: pytorch/ao/${{ github.event_name == 'pull_request' && github.event.pull_request.number || github.run_id }}
-      - name: Get preview URL
-        if: ${{ github.event_name == 'workflow_dispatch' }}
-        id: preview-url
+      # Staged for upload-docs-preview.yml, which does the S3 write from the
+      # base-repo context. A fork PR cannot authenticate to AWS from here.
+      - name: Stage the docs preview
+        if: ${{ github.event_name == 'pull_request' }}
         run: |
-          echo "url=https://docs-preview.pytorch.org/pytorch/ao/${{ github.run_id }}/index.html" >> $GITHUB_OUTPUT
-      - name: Find associated PR and post comment
-        if: ${{ github.event_name == 'workflow_dispatch' }}
-        uses: actions/github-script@v7
+          set -eu
+          mkdir -p docs-preview/content
+          cp -a docs/build/html/. docs-preview/content/
+          echo "PR_NUMBER=${{ github.event.pull_request.number }}" > docs-preview/pr-metadata.txt
+
+      - uses: actions/upload-artifact@v4
+        if: ${{ github.event_name == 'pull_request' }}
         with:
-          script: |
-            const prs = await github.rest.pulls.list({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              head: `${context.repo.owner}:${context.ref.replace('refs/heads/', '')}`,
-              state: 'open'
-            });
-            console.log(`Found ${prs.data.length} open PRs for branch ${context.ref}`);
-            if (prs.data.length > 0) {
-              const prNumber = prs.data[0].number;
-              console.log(`Posting comment to PR #${prNumber}`);
-              const previewUrl = '${{ steps.preview-url.outputs.url }}';
-              await github.rest.issues.createComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: prNumber,
-                body: `## 📄 Doc Preview (workflow_dispatch)\n\nYou triggered a doc build manually via workflow_dispatch.\nThe pytorchbot doc preview link will not work for this build.\n\n**Use this link instead:** ${previewUrl}`
-              });
-            } else {
-              console.log('No open PR found for this branch');
-            }
+          name: docs-preview
+          path: docs-preview/
 
   upload:
     runs-on: ubuntu-latest
