@@ -148,8 +148,14 @@ def _to_fp8_row_major_t(
         block_col_offs[:, None] * output_stride_row
         + block_row_offs[None, :] * output_stride_col
     )
-    out_mask = (block_row_offs[:, None] < output_num_rows) & (
-        block_col_offs[None, :] < output_num_cols
+    # The transposed store indexes the output row by block_col_offs and the
+    # output column by block_row_offs, so the bounds mask must be checked
+    # against the same axes. Using block_row_offs against output_num_rows here
+    # swaps the axes relative to out_offs, which for rectangular / non-tile
+    # aligned shapes masks off whole valid tiles (leaving uninitialized garbage)
+    # or lets out-of-bounds tiles through.
+    out_mask = (block_col_offs[:, None] < output_num_rows) & (
+        block_row_offs[None, :] < output_num_cols
     )
     tl.store(out_ptr + out_offs, fp8_vals.trans(1, 0), mask=out_mask)
 
