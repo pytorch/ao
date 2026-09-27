@@ -166,13 +166,16 @@ def _(func, types, args, kwargs):
 
 @OptimState4bit.implements(aten._to_copy.default)
 def _(func, types, args, kwargs):
-    # only change the appearance dtype
+    # only change the appearance dtype.
+    # clone internal tensors so the result is a true copy (not a view).
+    # without clone, same-device _to_copy shares storage, which confuses
+    # torch.compile's fake-tensor metadata checks.
     dtype = kwargs.get("dtype", args[0].dtype)
     device = kwargs.get("device", None)
     out = OptimState4bit(
-        args[0].codes.to(device=device),
-        args[0].scale.to(device=device),
-        args[0].qmap.to(device=device),
+        args[0].codes.to(device=device).clone(),
+        args[0].scale.to(device=device).clone(),
+        args[0].qmap.to(device=device).clone(),
         args[0].signed,
         args[0].shape,
         dtype=dtype,
@@ -192,14 +195,22 @@ def _(func, types, args, kwargs):
     x, shape = args
 
     if tuple(x.shape) == tuple(shape):
-        return OptimState4bit(x.codes, x.scale, x.qmap, x.signed, x._shape)
+        return OptimState4bit(x.codes, x.scale, x.qmap, x.signed, x._shape, dtype=x.dtype)
 
     if len(shape) == 1 and shape[0] == -1:
-        return OptimState4bit(x.codes, x.scale, x.qmap, x.signed, (x.numel(),))
+        return OptimState4bit(x.codes, x.scale, x.qmap, x.signed, (x.numel(),), dtype=x.dtype)
 
     raise ValueError(
         f"{x.__class__.__name__} only supports .view() with same shape or shape=[-1]"
     )
+
+
+# this is needed for torch.compile fake tensor creation when appearance dtype
+# differs from internal storage dtype (e.g. bf16 wrapper over uint8 codes)
+@OptimState4bit.implements(aten.view.dtype)
+def _(func, types, args, kwargs):
+    x, dtype = args
+    return OptimState4bit(x.codes, x.scale, x.qmap, x.signed, x.shape, dtype=dtype)
 
 
 # Build the list of c10d operations to implement
