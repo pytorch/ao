@@ -24,6 +24,7 @@ from torchao.quantization.quant_primitives import (
     _dequantize_affine_float8,
     _quantize_affine_float8,
 )
+from torchao.testing.model_architectures import ToyTwoLinearModel
 from torchao.utils import (
     get_current_accelerator_device,
     is_sm_at_least_89,
@@ -31,18 +32,6 @@ from torchao.utils import (
 
 random.seed(0)
 torch.manual_seed(0)
-
-
-class ToyLinearModel(torch.nn.Module):
-    def __init__(self, in_features, out_features):
-        super().__init__()
-        self.linear1 = torch.nn.Linear(in_features, out_features, bias=False)
-        self.linear2 = torch.nn.Linear(out_features, in_features, bias=False)
-
-    def forward(self, x):
-        x = self.linear1(x)
-        x = self.linear2(x)
-        return x
 
 
 class TestAffineQuantizedFloat8Compile(InductorTestCase):
@@ -89,7 +78,7 @@ class TestAffineQuantizedFloat8Compile(InductorTestCase):
             AssertionError,
             match="PerRow quantization only works for bfloat16 precision",
         ):
-            model = ToyLinearModel(64, 64).eval().to(torch.float32).to("cuda")
+            model = ToyTwoLinearModel(64, 64, 64, torch.float32, "cuda").eval()
             quantize_(
                 model,
                 Float8DynamicActivationFloat8WeightConfig(granularity=PerRow()),
