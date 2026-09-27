@@ -352,13 +352,16 @@ def constant_fold(
             replace_node_with_constant(gm, node, constant)
 
         erased_params = []
+        live_targets: set[str] = set()
         for node in gm.graph.find_nodes(op="get_attr"):
             if len(node.users) == 0:
-                if hasattr(gm, node.target):
-                    delattr(gm, node.target)
                 erased_params.append(node)
+            else:
+                live_targets.add(node.target)
 
         for node in erased_params:
+            if node.target not in live_targets and hasattr(gm, node.target):
+                delattr(gm, node.target)
             gm.graph.erase_node(node)
 
         gm.graph.eliminate_dead_code()
