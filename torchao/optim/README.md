@@ -5,6 +5,7 @@ This module implements:
 - 8-bit optimizers as outlined in https://arxiv.org/abs/2110.02861
 - 4-bit optimizers as outlined in https://arxiv.org/abs/2309.01507
 - FP8 optimizers using the native `torch.float8_e4m3fn` dtype (experimental)
+- FP8 optimizers with COAT dynamic range expansion as outlined in https://arxiv.org/abs/2410.19313 (experimental)
 - Stochastic rounding for BF16 weight (https://arxiv.org/abs/2010.06192, experimental)
 - CPU offload optimizers for single GPU training
 
@@ -24,6 +25,8 @@ optim = Adam8bit(model.parameters())
 To use 4-bit Adam, replace the above with `Adam4bit`. Similarly for `AdamFp8`. You can also change quantization block size by passing `block_size=value` to the optimizer. By default, block size is 256 for 8-bit and FP8 optimizers, and 128 for 4-bit optimizers.
 
 **Other optimizers**: AdamW is also available as `AdamW8bit`, `AdamW4bit`, and `AdamWFp8`. Other optimizers can be added based on demand.
+
+**COAT FP8 optimizers**: `AdamFp8Coat` and `AdamWFp8Coat` store the optimizer state in FP8 with [COAT](https://arxiv.org/abs/2410.19313) dynamic range expansion. The dynamic range of optimizer states is usually much smaller than FP8's representable range, so plain FP8 quantization wastes most of the exponent bits. COAT first applies an expansion function `f(x) = sign(x) * |x| ** k` per block, stretching the block's dynamic range to match FP8's before quantizing, which lowers the quantization error of the optimizer state. These are drop-in replacements for `AdamFp8` / `AdamWFp8`.
 
 NOTE:
 - The low-bit optimizers require PyTorch >= 2.3
