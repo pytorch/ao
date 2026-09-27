@@ -103,11 +103,13 @@ def _reference_quantized_linear(
     weight_i16 = weight_i8.to(torch.int16)
     # always set bias to None so that the same representation can work for the case
     # no matter if bias_scale == x_scale * weight_scale or not
+    x_i32 = (x_i16 - x_zero_point).to(torch.int32)
+    weight_i32 = (weight_i16 - weight_zero_point).to(torch.int32)
     acc_i32 = out_dtype(
         torch.ops.aten.linear.default,
         torch.int32,
-        x_i16 - x_zero_point,
-        weight_i16 - weight_zero_point,
+        x_i32,
+        weight_i32,
         None,
     )
     # TODO: change to mul.Scalar
@@ -124,7 +126,7 @@ def _reference_quantized_linear(
             x_scale * weight_scale / out_scale,
         )
         + out_zero_point
-    )
+    ).to(torch.int32)
     out_i8 = torch.ops.aten.clamp(acc_i32, out_quant_min, out_quant_max).to(torch.int8)
     return out_i8
 
@@ -184,7 +186,7 @@ def _reference_dynamic_quantized_linear(
     # pytorch is rounding to even, which is also common for most of the backends
     x_fp32 = torch.round(x_fp32)  # fp32
     x_i32 = x_fp32.to(dtype=torch.int32)  # int32
-    x_i32 = x_i32 + x_zero_point  # int32
+    x_i32 = (x_i32 + x_zero_point).to(torch.int32)  # int32
     # clamp works for fp32, int32 and int8 dtypes
     x_i32 = torch.clamp(x_i32, x_quant_min, x_quant_max)  # int32
     x_i8 = x_i32.to(dtype=torch.int8)
@@ -195,11 +197,13 @@ def _reference_dynamic_quantized_linear(
     weight_i16 = weight_i8.to(torch.int16)
     # always set bias to None so that the same representation can work for the case
     # no matter if bias_scale == x_scale * weight_scale or not
+    x_i32 = (x_i16 - x_zero_point).to(torch.int32)
+    weight_i32 = (weight_i16 - weight_zero_point).to(torch.int32)
     acc_i32 = out_dtype(
         torch.ops.aten.linear.default,
         torch.int32,
-        x_i16 - x_zero_point,
-        weight_i16 - weight_zero_point,
+        x_i32,
+        weight_i32,
         None,
     )
     bias_scale = x_scale * weight_scale
@@ -567,11 +571,13 @@ def _reference_quantized_conv2d(
     weight_i16 = weight_i8.to(torch.int16)
     # always set bias to None so that the same representation can work for the case
     # no matter if bias_scale == x_scale * weight_scale or not
+    x_i32 = (x_i16 - x_zero_point).to(torch.int32)
+    weight_i32 = (weight_i16 - weight_zero_point).to(torch.int32)
     acc_i32 = out_dtype(
         torch.ops.aten.convolution.default,
         torch.int32,
-        x_i16 - x_zero_point,
-        weight_i16 - weight_zero_point,
+        x_i32,
+        weight_i32,
         None,
         stride,
         padding,
@@ -611,7 +617,7 @@ def _reference_quantized_conv2d(
             x_scale * weight_scale / out_scale,
         )
         + out_zero_point
-    )
+    ).to(torch.int32)
     out_i8 = torch.ops.aten.clamp(acc_i32, out_quant_min, out_quant_max).to(torch.int8)
     return out_i8
 
@@ -664,16 +670,16 @@ def _reference_quantized_add_relu(
     x_i32 = out_dtype(
         torch.ops.aten.mul.Tensor,
         torch.int32,
-        (x_i32 - x_zero_point),
+        (x_i32 - x_zero_point).to(torch.int32),
         (x_scale / out_scale),
     )
     y_i32 = out_dtype(
         torch.ops.aten.mul.Tensor,
         torch.int32,
-        (y_i32 - y_zero_point),
+        (y_i32 - y_zero_point).to(torch.int32),
         (y_scale / out_scale),
     )
-    out_i32 = x_i32 + y_i32 + out_zero_point
+    out_i32 = (x_i32 + y_i32 + out_zero_point).to(torch.int32)
     # out_i32 = torch.ops.aten.clamp(out_i32, out_zero_point)
     out_i8 = torch.ops.aten.clamp(out_i32, out_zero_point, quant_max).to(torch.int8)
     return out_i8
@@ -738,7 +744,7 @@ def _reference_quantized_add(
     # TODO: use out_dtype op
     x_i32 = torch.round((x_scale / out_scale) * (x_i32 - x_zero_point)).to(torch.int32)
     y_i32 = torch.round((y_scale / out_scale) * (y_i32 - y_zero_point)).to(torch.int32)
-    out_i32 = x_i32 + y_i32 + out_zero_point
+    out_i32 = (x_i32 + y_i32 + out_zero_point).to(torch.int32)
     quant_min = -128
     quant_max = 127
     out_i8 = torch.ops.aten.clamp(out_i32, quant_min, quant_max).to(torch.int8)
@@ -793,7 +799,12 @@ def _reference_quantized_max_pool2d(
     x_i8 = torch.clamp(x_i8, x_quant_min, x_quant_max)
     x_i32 = x_i8.to(torch.int32)
     out_i32, _ = torch.ops.aten.max_pool2d_with_indices.default(
-        x_i32 - x_zero_point, kernel_size, stride, padding, dilation, ceil_mode
+        (x_i32 - x_zero_point).to(torch.int32),
+        kernel_size,
+        stride,
+        padding,
+        dilation,
+        ceil_mode,
     )
     out_fp32 = out_i32 * (x_scale / out_scale) + out_zero_point
     out_fp32 = torch.clamp(out_fp32, out_quant_min, out_quant_max)
@@ -817,7 +828,7 @@ def _reference_quantize_per_tensor_int8(
     # pytorch is rounding to even, which is also common for most of the backends
     x = torch.round(x)  # fp32
     x = x.to(dtype=torch.int32)  # int32
-    x = x + zero_point  # int32
+    x = (x + zero_point).to(torch.int32)  # int32
     # clamp works for fp32, int32 and int8 dtypes
     x = torch.clamp(x, quant_min, quant_max)  # int32
     x = x.to(dtype=torch.int8)
@@ -858,7 +869,9 @@ def _reference_quantize_per_channel_int8(
 ):
     x_fp32 = torch.transpose(x_fp32, ch_axis, -1)
     out_i32 = torch.ops.aten.clamp(
-        torch.round(x_fp32 / scales).to(torch.int32) + zero_points, quant_min, quant_max
+        (torch.round(x_fp32 / scales).to(torch.int32) + zero_points).to(torch.int32),
+        quant_min,
+        quant_max,
     )
     out_i32 = torch.transpose(out_i32, ch_axis, -1)
     return out_i32.to(torch.int8)
