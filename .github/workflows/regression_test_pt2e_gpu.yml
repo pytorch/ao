@@ -42,18 +42,18 @@ jobs:
           # PyTorch nightly -- catches breakages from upstream PT2E/Inductor
           # changes early.
           - name: CUDA Nightly
-            runs-on: linux.g5.12xlarge.nvidia.gpu
+            runs-on: mt-l-x86aavx2-45-167-a10g-4
             torch-spec: '--pre torch torchvision --index-url https://download.pytorch.org/whl/nightly/cu126'
           # Pinned release -- validates PT2E against the currently supported
           # stable PyTorch.
           - name: CUDA 2.13
-            runs-on: linux.g5.12xlarge.nvidia.gpu
+            runs-on: mt-l-x86aavx2-45-167-a10g-4
             torch-spec: 'torch==2.13.0 torchvision==0.28.0 --index-url https://download.pytorch.org/whl/cu126'
 
     permissions:
       id-token: write
       contents: read
-    uses: pytorch/test-infra/.github/workflows/linux_job_v2.yml@main
+    uses: pytorch/test-infra/.github/workflows/linux_job_v3.yml@main
     with:
       timeout: 120
       runner: ${{ matrix.runs-on }}

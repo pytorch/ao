@@ -39,18 +39,18 @@ jobs:
           # PyTorch nightly -- catches breakages from upstream PT2E/Inductor
           # changes early.
           - name: CPU Nightly
-            runs-on: linux.4xlarge
+            runs-on: mt-l-x86iavx512-16-128
             torch-spec: '--pre torch torchvision --index-url https://download.pytorch.org/whl/nightly/cpu'
           # Pinned release -- validates PT2E against the currently supported
           # stable PyTorch.
           - name: CPU 2.13
-            runs-on: linux.4xlarge
+            runs-on: mt-l-x86iavx512-16-128
             torch-spec: 'torch==2.13.0 torchvision==0.28.0 --index-url https://download.pytorch.org/whl/cpu'
 
     permissions:
       id-token: write
       contents: read
-    uses: pytorch/test-infra/.github/workflows/linux_job_v2.yml@main
+    uses: pytorch/test-infra/.github/workflows/linux_job_v3.yml@main
     with:
       timeout: 120
       runner: ${{ matrix.runs-on }}
