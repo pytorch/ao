@@ -1,0 +1,8 @@
+# Same paths doc_build triggers on. It has no pull_request trigger -- the doc
+# preview needs OIDC that a fork PR cannot get -- so this label is what builds
+# the docs and publishes a preview for a PR that changes them.
+ciflow/docs:
+- changed-files:
+  - any-glob-to-any-file:
+    - 'docs/**'
+    - '.github/workflows/doc_build.yml'
