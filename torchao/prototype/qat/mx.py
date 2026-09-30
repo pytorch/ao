@@ -20,6 +20,7 @@ Key differences between MX and NVFP4:
 """
 
 from dataclasses import dataclass
+from math import lcm
 from typing import Optional
 
 import torch
@@ -37,6 +38,8 @@ from torchao.quantization.qat import FakeQuantizeConfigBase
 from torchao.quantization.quantize_.common.kernel_preference import KernelPreference
 
 _DEFAULT_MX_DTYPE = torch.float4_e2m1fn_x2
+# Bound eager quantization's FP32/int32 temporaries independently of model size.
+_MX_FAKE_QUANT_CHUNK_SIZE = 64 * 1024 * 1024
 
 
 @dataclass
@@ -80,6 +83,18 @@ class MXFakeQuantizeConfig(FakeQuantizeConfigBase):
         _validate_kernel_preference(self.kernel_preference, self.block_size, self.dtype)
 
 
+def _mx_quantize_dequantize(
+    input: torch.Tensor, config: MXFakeQuantizeConfig
+) -> torch.Tensor:
+    return MXTensor.to_mx(
+        input,
+        elem_dtype=config.dtype,
+        block_size=config.block_size,
+        scaling_mode=config.scaling_mode,
+        kernel_preference=config.kernel_preference,
+    ).dequantize(input.dtype)
+
+
 class _MXFakeQuantize(torch.autograd.Function):
     """Apply MX quantize/dequantize in forward and an identity STE backward."""
 
@@ -90,13 +105,22 @@ class _MXFakeQuantize(torch.autograd.Function):
         config: MXFakeQuantizeConfig,
     ) -> torch.Tensor:
         del ctx
-        return MXTensor.to_mx(
-            input.contiguous(),
-            elem_dtype=config.dtype,
-            block_size=config.block_size,
-            scaling_mode=config.scaling_mode,
-            kernel_preference=config.kernel_preference,
-        ).dequantize(input.dtype)
+        input = input.contiguous()
+        # Keep a single graph so compilers can fuse these temporaries.
+        if torch.compiler.is_compiling() or input.numel() <= _MX_FAKE_QUANT_CHUNK_SIZE:
+            return _mx_quantize_dequantize(input, config)
+
+        # Quantization blocks are independent. Keep blocks and packed FP4 byte
+        # pairs intact, including when the configured block size is odd.
+        alignment = lcm(config.block_size, 2)
+        chunk_size = max(alignment, _MX_FAKE_QUANT_CHUNK_SIZE // alignment * alignment)
+        flat = input.view(-1)
+        output = torch.empty_like(flat)
+        for start in range(0, flat.numel(), chunk_size):
+            output[start : start + chunk_size].copy_(
+                _mx_quantize_dequantize(flat[start : start + chunk_size], config)
+            )
+        return output.view_as(input)
 
     @staticmethod
     def backward(ctx, grad_output: torch.Tensor):

@@ -5,9 +5,11 @@
 # LICENSE file in the root directory of this source tree.
 
 import unittest
+from unittest.mock import patch
 
 import torch
 
+from torchao.prototype.mx_formats.config import ScaleCalculationMode
 from torchao.prototype.mx_formats.mx_tensor import MXTensor
 from torchao.prototype.qat import (
     MXFakeQuantizeConfig,
@@ -18,6 +20,85 @@ from torchao.quantization.quantize_.common import KernelPreference
 
 
 class MXFakeQuantizeTest(unittest.TestCase):
+    def test_chunked_forward_bounds_scratch_and_preserves_numerics_and_ste(self):
+        # Force several chunks, including a short final chunk, on a small input.
+        # Compare with the existing whole-tensor implementation independently.
+        for dtype in (torch.bfloat16, torch.float32):
+            for elem_dtype in (
+                torch.float4_e2m1fn_x2,
+                torch.float8_e4m3fn,
+                torch.float8_e5m2,
+            ):
+                for scaling_mode in ScaleCalculationMode:
+                    with self.subTest(
+                        dtype=dtype, elem_dtype=elem_dtype, mode=scaling_mode
+                    ):
+                        config = MXFakeQuantizeConfig(
+                            dtype=elem_dtype, scaling_mode=scaling_mode
+                        )
+                        value = torch.randn(3, 5, 64, dtype=dtype).transpose(0, 1)
+                        value[0, 0, :8] = torch.tensor(
+                            [
+                                0.0,
+                                -0.0,
+                                1.0e-38,
+                                -1.0e-38,
+                                1.0e20,
+                                -1.0e20,
+                                float("inf"),
+                                float("nan"),
+                            ],
+                            dtype=dtype,
+                        )
+                        value.requires_grad_()
+                        expected = MXTensor.to_mx(
+                            value.detach().contiguous(),
+                            elem_dtype=elem_dtype,
+                            block_size=32,
+                            scaling_mode=scaling_mode,
+                            kernel_preference=config.kernel_preference,
+                        ).dequantize(dtype)
+                        original = MXTensor.to_mx
+                        sizes = []
+
+                        def checked(part, *args, **kwargs):
+                            sizes.append(part.numel())
+                            self.assertLessEqual(part.numel(), 224)
+                            return original(part, *args, **kwargs)
+
+                        with (
+                            patch(
+                                "torchao.prototype.qat.mx._MX_FAKE_QUANT_CHUNK_SIZE",
+                                224,
+                            ),
+                            patch.object(MXTensor, "to_mx", side_effect=checked),
+                        ):
+                            actual = mx_fake_quantize(value, config)
+                        self.assertGreater(len(sizes), 1)
+                        self.assertEqual(sum(sizes), value.numel())
+                        torch.testing.assert_close(
+                            actual, expected, rtol=0, atol=0, equal_nan=True
+                        )
+                        gradient = torch.randn_like(value)
+                        actual.backward(gradient)
+                        torch.testing.assert_close(value.grad, gradient, rtol=0, atol=0)
+
+    def test_chunked_blocks_and_compiled_ste(self):
+        for block_size in (3, 32, 64):
+            with self.subTest(block_size=block_size):
+                value = torch.randn(37, block_size * 2, requires_grad=True)
+                config = MXFakeQuantizeConfig(block_size=block_size)
+                with patch("torchao.prototype.qat.mx._MX_FAKE_QUANT_CHUNK_SIZE", 96):
+                    expected = self._assert_matches_reference(value, config)
+                    compiled = torch.compile(
+                        mx_fake_quantize, backend="aot_eager", fullgraph=True
+                    )
+                    actual = compiled(value, config)
+                torch.testing.assert_close(actual, expected, rtol=0, atol=0)
+                gradient = torch.randn_like(value)
+                actual.backward(gradient)
+                torch.testing.assert_close(value.grad, gradient, rtol=0, atol=0)
+
     def _assert_matches_reference(
         self,
         value: torch.Tensor,
@@ -189,6 +270,11 @@ class MXFakeQuantizeTest(unittest.TestCase):
     @unittest.skipUnless(torch.cuda.is_available(), "CUDA is not available")
     def test_real_grouped_mm_forward_and_backward(self):
         self._compare_grouped_mm("cuda", KernelPreference.EMULATED)
+
+    @unittest.skipUnless(torch.cuda.is_available(), "CUDA is not available")
+    def test_chunked_grouped_mm_forward_and_backward(self):
+        with patch("torchao.prototype.qat.mx._MX_FAKE_QUANT_CHUNK_SIZE", 256):
+            self._compare_grouped_mm("cuda", KernelPreference.EMULATED)
 
     @unittest.skipUnless(torch.cuda.is_available(), "CUDA is not available")
     def test_compiled_grouped_mm_forward_and_backward(self):
