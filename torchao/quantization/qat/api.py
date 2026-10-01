@@ -84,10 +84,6 @@ class QATConfig(AOBaseConfig):
     not exist yet. Without a base config, the convert step restores the original
     floating-point module types without applying PTQ.
 
-    ``torch.nn.Conv2d`` currently supports this second form with explicit MX
-    activation and weight fake-quantize configs. MX Conv2d inference conversion
-    is not supported, so a base config cannot be used with Conv2d.
-
     Example usage::
 
         from torchao.quantization import quantize_
@@ -128,9 +124,10 @@ class QATConfig(AOBaseConfig):
         ValueError: If either `activation_config` or `weight_config` is specified
              and `step` is "convert"
         ValueError: If `step` is not one of "prepare" or "convert"
-        ValueError: If the config is applied on an unsupported module, or it is
-            applied on `torch.nn.Embedding` with an activation config.
-        ValueError: If a base config is applied on `torch.nn.Conv2d`.
+        ValueError: If any of the following conditions are met:
+            - The config is applied to an unsupported module.
+            - An activation config is applied to `torch.nn.Embedding`.
+            - A base config is applied to `torch.nn.Conv2d`.
     """
 
     base_config: Optional[AOBaseConfig]
@@ -229,8 +226,8 @@ def _qat_config_transform(
         if isinstance(module, torch.nn.Conv2d):
             if base_config is not None:
                 raise ValueError(
-                    "MX Conv2d QAT requires explicit fake-quantize configs because "
-                    "MX Conv2d inference conversion is not supported"
+                    "torch.nn.Conv2d QAT requires explicit fake-quantize configs; "
+                    "base configs are not supported"
                 )
             if not isinstance(act_config, MXFakeQuantizeConfig) or not isinstance(
                 weight_config, MXFakeQuantizeConfig
