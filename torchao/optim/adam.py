@@ -7,7 +7,7 @@ from typing import Optional
 
 import torch
 from torch import Tensor
-from torch.distributed._tensor import DTensor
+from torch.distributed._tensor import DTensor, Replicate, Shard
 from torch.optim import Optimizer
 
 from .quant_utils import _fp32_to_bf16_sr
@@ -71,8 +71,23 @@ class _AdamBase(Optimizer):
     def _new_buffer(self, p: Tensor, signed: bool):
         local_p = p.to_local() if isinstance(p, DTensor) else p
 
-        # follow bitsandbytes, only quantize tensors >= 4096 values
-        if local_p.numel() >= 4096 and local_p.numel() % self.block_size == 0:
+        # Use the logical parameter size so sharding does not change state precision.
+        if p.numel() >= 4096 and p.numel() % self.block_size == 0:
+            if isinstance(p, DTensor) and (
+                local_p.numel() < 4096 or local_p.numel() % self.block_size != 0
+            ):
+                if any(
+                    not isinstance(placement, Replicate)
+                    and not (isinstance(placement, Shard) and placement.dim == 0)
+                    for placement in p.placements
+                ):
+                    raise ValueError(
+                        "Low-bit optimizer state requires replication or dimension-0 sharding"
+                    )
+                if local_p.numel() == 0 or local_p.numel() % self.block_size != 0:
+                    raise ValueError(
+                        "Low-bit optimizer state requires nonempty, block-aligned shards"
+                    )
             out = self._subclass_zeros(local_p, signed, self.block_size)
         else:
             out = torch.zeros_like(local_p)
