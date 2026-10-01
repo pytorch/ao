@@ -1,6 +1,7 @@
 # Copyright (c) Meta Platforms, Inc. and affiliates.
 # All rights reserved.
-
+# Copyright 2026 Arm Limited and/or its affiliates.
+#
 # This source code is licensed under the license found in the
 # LICENSE file in the root directory of this source tree.
 
@@ -46,11 +47,12 @@ class QATConfig(AOBaseConfig):
     to be used with :func:`~torchao.quantization.quant_api.quantize_`.
 
     This config has two steps, "prepare" and "convert". The prepare step applies
-    "fake" quantization to the model and should be applied before training, while
-    the convert step converts the model into an actual quantized model. Fake
-    quantization here refers to simulating the quantization numerics (e.g. int4)
-    using high precision arithmetic (e.g. bf16), with the goal of reducing
-    eventual degradation from quantization.
+    "fake" quantization to the model and should be applied before training. The
+    convert step restores the original module types and, when a base PTQ config
+    is present, converts them into an actual quantized model. Fake quantization
+    here refers to simulating the quantization numerics (e.g. int4) using high
+    precision arithmetic (e.g. bf16), with the goal of reducing eventual
+    degradation from quantization.
 
     There are two ways to use this config. The first involves passing a base
     post-training quantization (PTQ) config, which we will use to automatically
@@ -79,7 +81,12 @@ class QATConfig(AOBaseConfig):
     schemes directly. Users will pass in :class:`~torchao.quantization.qat.FakeQuantizeConfigBase`
     for weights and/or activations instead of the base PTQ config. This use case
     is mostly for experimentation, e.g. when the corresponding PTQ config does
-    not exist yet.
+    not exist yet. Without a base config, the convert step restores the original
+    floating-point module types without applying PTQ.
+
+    ``torch.nn.Conv2d`` currently supports this second form with explicit MX
+    activation and weight fake-quantize configs. MX Conv2d inference conversion
+    is not supported, so a base config cannot be used with Conv2d.
 
     Example usage::
 
@@ -121,9 +128,9 @@ class QATConfig(AOBaseConfig):
         ValueError: If either `activation_config` or `weight_config` is specified
              and `step` is "convert"
         ValueError: If `step` is not one of "prepare" or "convert"
-        ValueError: If the config is applied on a module that is not a
-            `torch.nn.Linear` or `torch.nn.Embedding`, or it is applied on
-            `torch.nn.Embedding` with an activation config
+        ValueError: If the config is applied on an unsupported module, or it is
+            applied on `torch.nn.Embedding` with an activation config.
+        ValueError: If a base config is applied on `torch.nn.Conv2d`.
     """
 
     base_config: Optional[AOBaseConfig]
@@ -201,12 +208,14 @@ def _qat_config_transform(
     # specific quantization schemes do not leak here
     from torchao.prototype.qat import (
         MXFakeQuantizeConfig,
+        MXFakeQuantizedConv2d,
         MXFakeQuantizedLinear,
         NVFP4FakeQuantizeConfig,
         NVFP4FakeQuantizedLinear,
     )
 
     # Prepare step
+    # Swap nn.Conv2d -> MXFakeQuantizedConv2d
     # Swap nn.Linear -> FakeQuantizedLinear
     # Swap nn.Embedding -> FakeQuantizedEmbedding
     base_config = config.base_config
@@ -217,7 +226,18 @@ def _qat_config_transform(
         else:
             act_config = config.activation_config
             weight_config = config.weight_config
-        if isinstance(module, torch.nn.Linear):
+        if isinstance(module, torch.nn.Conv2d):
+            if base_config is not None:
+                raise ValueError(
+                    "MX Conv2d QAT requires explicit fake-quantize configs because "
+                    "MX Conv2d inference conversion is not supported"
+                )
+            if not isinstance(act_config, MXFakeQuantizeConfig) or not isinstance(
+                weight_config, MXFakeQuantizeConfig
+            ):
+                raise ValueError("Conv2d QAT requires MX activation and weight configs")
+            return MXFakeQuantizedConv2d.from_conv2d(module, act_config, weight_config)
+        elif isinstance(module, torch.nn.Linear):
             if isinstance(weight_config, NVFP4FakeQuantizeConfig):
                 assert act_config is None or isinstance(
                     act_config, NVFP4FakeQuantizeConfig
@@ -258,6 +278,7 @@ def _qat_config_transform(
             (
                 FakeQuantizedLinear,
                 FakeQuantizedEmbedding,
+                MXFakeQuantizedConv2d,
                 MXFakeQuantizedLinear,
                 NVFP4FakeQuantizedLinear,
             ),
@@ -277,11 +298,17 @@ def _qat_config_transform(
             kwargs["custom_zero_point"] = module.weight_fake_quantizer.zero_point
             has_custom_scale_and_zero_point = True
 
-        # Swap FakeQuantizedLinear -> nn.Linear
-        # Swap FakeQuantizedEmbedding -> nn.Embedding
+        # Swap fake Conv2d, Linear, and Embedding modules back to built-ins.
         # Then apply the base config's transform function to quantize the model
         # If there is no base config, then simply perform the module swap
-        if isinstance(
+        if isinstance(module, MXFakeQuantizedConv2d):
+            if base_config is not None:
+                raise ValueError(
+                    "MX Conv2d QAT conversion does not accept a base config because "
+                    "MX Conv2d inference conversion is not supported"
+                )
+            module = module.to_conv2d()
+        elif isinstance(
             module,
             (FakeQuantizedLinear, MXFakeQuantizedLinear, NVFP4FakeQuantizedLinear),
         ):

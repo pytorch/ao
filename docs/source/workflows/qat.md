@@ -135,6 +135,40 @@ train_loop(model)
 # convert: (not shown, same as before)
 ```
 
+MX fake quantization can also be applied experimentally to `torch.nn.Conv2d`
+modules by passing explicit MX fake-quantize configs:
+
+```python
+from torchao.prototype.qat import MXFakeQuantizeConfig
+from torchao.quantization import quantize_
+from torchao.quantization.qat import QATConfig
+
+mx_config = MXFakeQuantizeConfig()
+conv_filter = lambda module, _: isinstance(module, torch.nn.Conv2d)
+quantize_(
+    model,
+    QATConfig(
+        activation_config=mx_config,
+        weight_config=mx_config,
+        step="prepare",
+    ),
+    conv_filter,
+)
+
+train_loop(model)
+
+# This restores floating-point Conv2d modules. MX Conv2d inference conversion
+# is not currently supported.
+quantize_(model, QATConfig(step="convert"), conv_filter)
+```
+
+This path accepts the dtypes, block sizes, scaling modes, and kernel preferences
+supported by `MXFakeQuantizeConfig`. It fake quantizes activation and weight
+blocks along the input-channel dimension, then runs the convolution in the
+original high-precision dtype. Input channels and input channels per group must
+be divisible by their respective MX block sizes. The supported high-precision
+activation and weight dtypes are `torch.float32` and `torch.bfloat16`.
+
 To fake quantize embedding in addition to linear, you can additionally call
 the following with a filter function during the prepare step:
 
