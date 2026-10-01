@@ -255,6 +255,22 @@ class MXFakeQuantizedLinear(torch.nn.Linear):
         return new_linear
 
 
+class _MXFakeQuantizedConv2dSTE(torch.autograd.Function):
+    """Use fake-quantized values in forward and identity in backward."""
+
+    @staticmethod
+    def forward(
+        ctx,
+        original: torch.Tensor,
+        fake_quantized: torch.Tensor,
+    ) -> torch.Tensor:
+        return fake_quantized
+
+    @staticmethod
+    def backward(ctx, grad_output: torch.Tensor):
+        return grad_output, None
+
+
 class MXFakeQuantizedConv2d(torch.nn.Conv2d):
     """Conv2d module with fake-quantized MX weights and activations.
 
@@ -264,10 +280,10 @@ class MXFakeQuantizedConv2d(torch.nn.Conv2d):
     dtype. As in :class:`MXFakeQuantizedLinear`, the backward pass uses a
     straight-through estimator.
 
-    The input channels and the input channels per group must be divisible by
-    their respective block sizes because ``MXTensor`` does not pad incomplete
-    blocks. The high-precision activation and weight dtypes must be
-    ``torch.float32`` or ``torch.bfloat16``, matching ``MXTensor`` support.
+    The input channels per group must be divisible by both the activation and
+    weight block sizes because ``MXTensor`` does not pad incomplete blocks.
+    The high-precision activation and weight dtypes must be ``torch.float32``
+    or ``torch.bfloat16``, matching ``MXTensor`` support.
     """
 
     def __init__(
@@ -303,9 +319,15 @@ class MXFakeQuantizedConv2d(torch.nn.Conv2d):
             raise ValueError("Must specify `weight_config`")
         if activation_config is None:
             raise ValueError("Weight only MX QAT not supported yet")
-        if in_channels % activation_config.block_size != 0:
+        if self.weight.dtype not in (torch.float32, torch.bfloat16):
             raise ValueError(
-                "Input channels must be divisible by the activation block size"
+                "MXFakeQuantizedConv2d only supports torch.float32 and "
+                f"torch.bfloat16 weights, got {self.weight.dtype}"
+            )
+        if (in_channels // groups) % activation_config.block_size != 0:
+            raise ValueError(
+                "Input channels per group must be divisible by the activation "
+                "block size"
             )
         if (in_channels // groups) % weight_config.block_size != 0:
             raise ValueError(
@@ -315,6 +337,7 @@ class MXFakeQuantizedConv2d(torch.nn.Conv2d):
         self.weight_config = weight_config
 
     @staticmethod
+    @torch.no_grad()
     def _fake_quantize_input_channel_blocks(
         tensor: torch.Tensor,
         config: MXFakeQuantizeConfig,
@@ -322,6 +345,12 @@ class MXFakeQuantizedConv2d(torch.nn.Conv2d):
         # Both Conv2d inputs (..., C, H, W) and weights (O, I, H, W) have
         # their input-channel dimension at -3. MXTensor quantizes its last
         # dimension, so move the channels there temporarily.
+        memory_format = (
+            torch.channels_last
+            if tensor.ndim == 4
+            and tensor.is_contiguous(memory_format=torch.channels_last)
+            else torch.contiguous_format
+        )
         tensor_channel_last = tensor.movedim(-3, -1).contiguous()
         tensor_channel_last = MXTensor.to_mx(
             tensor_channel_last,
@@ -330,7 +359,9 @@ class MXFakeQuantizedConv2d(torch.nn.Conv2d):
             scaling_mode=config.scaling_mode,
             kernel_preference=config.kernel_preference,
         ).dequantize(tensor.dtype)
-        return tensor_channel_last.movedim(-1, -3).contiguous()
+        return tensor_channel_last.movedim(-1, -3).contiguous(
+            memory_format=memory_format
+        )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         quantized_input = self._fake_quantize_input_channel_blocks(
@@ -340,8 +371,8 @@ class MXFakeQuantizedConv2d(torch.nn.Conv2d):
             self.weight, self.weight_config
         )
 
-        input_ste = x + (quantized_input - x).detach()
-        weight_ste = self.weight + (quantized_weight - self.weight).detach()
+        input_ste = _MXFakeQuantizedConv2dSTE.apply(x, quantized_input)
+        weight_ste = _MXFakeQuantizedConv2dSTE.apply(self.weight, quantized_weight)
         return self._conv_forward(input_ste, weight_ste, self.bias)
 
     def to_conv2d(self) -> torch.nn.Conv2d:
