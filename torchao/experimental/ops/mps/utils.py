@@ -6,6 +6,7 @@
 
 import glob
 import os
+import sys
 
 import torch
 
@@ -47,23 +48,46 @@ def _get_torchao_mps_lib_path():
 
 
 def _load_torchao_mps_lib():
-    """Load the MPS ops library."""
+    """Load the MPS ops library.
+
+    Raises:
+        ImportError: if the library isn't available, e.g. because we're not
+            on macOS, or the package wasn't built with MPS support. This is
+            deliberately ImportError (not RuntimeError): this function runs
+            eagerly at `torchao.experimental.ops.mps` import time, and tools
+            like `pkgutil.walk_packages` / `pkgutil.iter_modules` (used by
+            libraries such as diffusers and transformers for optional-backend
+            discovery) only catch ImportError when probing submodules for
+            importability, not arbitrary exceptions. See
+            https://github.com/pytorch/ao/issues/4577.
+    """
     try:
         for nbit in range(1, 8):
             getattr(torch.ops.torchao, f"_linear_fp_act_{nbit}bit_weight")
             getattr(torch.ops.torchao, f"_pack_weight_{nbit}bit")
+        return
     except AttributeError:
-        libpath = _get_torchao_mps_lib_path()
-        if libpath is None:
-            raise RuntimeError(
-                "Could not find libtorchao_ops_mps_aten.dylib. "
-                "Please build with TORCHAO_BUILD_EXPERIMENTAL_MPS=1"
-            )
-        try:
-            torch.ops.load_library(libpath)
-        except Exception as e:
-            raise RuntimeError(f"Failed to load library {libpath}: {e}")
+        pass
 
-        for nbit in range(1, 8):
-            getattr(torch.ops.torchao, f"_linear_fp_act_{nbit}bit_weight")
-            getattr(torch.ops.torchao, f"_pack_weight_{nbit}bit")
+    # The MPS ops are backed by a macOS-only .dylib. On any other platform
+    # (e.g. an XPU wheel running on Windows/Linux) the library can never
+    # exist, so fail fast with ImportError instead of searching for it.
+    if sys.platform != "darwin":
+        raise ImportError(
+            f"torchao MPS ops are only available on macOS, not {sys.platform!r}."
+        )
+
+    libpath = _get_torchao_mps_lib_path()
+    if libpath is None:
+        raise ImportError(
+            "Could not find libtorchao_ops_mps_aten.dylib. "
+            "Please build with TORCHAO_BUILD_EXPERIMENTAL_MPS=1"
+        )
+    try:
+        torch.ops.load_library(libpath)
+    except Exception as e:
+        raise ImportError(f"Failed to load library {libpath}: {e}") from e
+
+    for nbit in range(1, 8):
+        getattr(torch.ops.torchao, f"_linear_fp_act_{nbit}bit_weight")
+        getattr(torch.ops.torchao, f"_pack_weight_{nbit}bit")
