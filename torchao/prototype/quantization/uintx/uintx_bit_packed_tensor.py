@@ -141,10 +141,16 @@ class UIntxBitPackedTensor(TorchAOBaseTensor):
                 int_data, scales=scale, bias=None
             )
         else:
+            # gemlite infers its compute dtype from the scale dtype, but the 4-bit
+            # HQQ path above always produces float16 scales. Pass the original
+            # weight dtype explicitly so bfloat16 weights don't get a float16
+            # kernel baked into meta_args.
             if mode == "dynamic":
                 if hasattr(gemlite.helper, "A8Wn_dynamic"):
                     gemlite_linear = gemlite.helper.A8Wn_dynamic(
-                        device=int_data.device, packing_bitwidth=packing_bitwidth
+                        device=int_data.device,
+                        dtype=hp_tensor.dtype,
+                        packing_bitwidth=packing_bitwidth,
                     ).from_weights(
                         int_data,
                         scale,
@@ -156,6 +162,7 @@ class UIntxBitPackedTensor(TorchAOBaseTensor):
                 elif hasattr(gemlite.helper, "A8Wn_HQQ_INT_dynamic"):
                     gemlite_linear = gemlite.helper.A8Wn_HQQ_INT_dynamic(
                         device=int_data.device,
+                        dtype=hp_tensor.dtype,
                         packing_bitwidth=packing_bitwidth,
                         W_nbits=bit_width,
                     ).from_weights(int_data, scale, zero_point, bias=None)
@@ -165,7 +172,9 @@ class UIntxBitPackedTensor(TorchAOBaseTensor):
                     )
             else:
                 gemlite_linear = gemlite.helper.A16Wn(
-                    device=int_data.device, packing_bitwidth=packing_bitwidth
+                    device=int_data.device,
+                    dtype=hp_tensor.dtype,
+                    packing_bitwidth=packing_bitwidth,
                 ).from_weights(
                     int_data,
                     scale,
