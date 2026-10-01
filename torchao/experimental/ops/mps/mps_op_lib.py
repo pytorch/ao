@@ -9,7 +9,7 @@ from torch import Tensor
 from torch.library import impl
 
 torchao_lib = torch.library.Library("torchao", "IMPL")
-for nbit in range(1, 8):
+for nbit in range(1, 9):
 
     @impl(torchao_lib, f"_linear_fp_act_{nbit}bit_weight", "Meta")
     def _(

@@ -63,7 +63,7 @@ bool check_linear_mps_args(
   ET_LOG_MSG_AND_RETURN_IF_FALSE(
       group_size == 32 || group_size == 64 || group_size == 128 ||
           group_size == 256,
-      "Expect group_size to be 32, 64, 128 or 256");
+      "Expect group_size to be 32, 64, 128, or 256");
 
   ET_LOG_MSG_AND_RETURN_IF_FALSE(
       S.dim() == 2 && S.size(0) == N,
@@ -138,4 +138,8 @@ EXECUTORCH_LIBRARY(torchao, "_linear_fp_act_6bit_weight.out", linear_mps_kernel_
 
 namespace {
 EXECUTORCH_LIBRARY(torchao, "_linear_fp_act_7bit_weight.out", linear_mps_kernel_et_ctx_out<7>);
+}
+
+namespace {
+EXECUTORCH_LIBRARY(torchao, "_linear_fp_act_8bit_weight.out", linear_mps_kernel_et_ctx_out<8>);
 }
