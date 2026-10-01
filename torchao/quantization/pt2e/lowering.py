@@ -39,13 +39,17 @@ def lower_pt2e_quantized_to_x86(
         return decomp_table
 
     def _node_replace(m):  # type: ignore[no-untyped-def]
-        # Replace aten.t(x) with aten.permute(x, [1, 0])
+        # Replace 2D aten.t(x) with aten.permute(x, [1, 0]).
         aten = torch.ops.aten
         g = m.graph
         for node in g.nodes:
             if node.target == aten.t.default:
                 with g.inserting_before(node):
                     x = node.args[0]
+                    if x.meta["val"].ndim < 2:
+                        node.replace_all_uses_with(x)
+                        g.erase_node(node)
+                        continue
                     dims = [1, 0]
                     perm_node = g.call_function(aten.permute.default, args=(x, dims))
                     node.replace_all_uses_with(perm_node)
