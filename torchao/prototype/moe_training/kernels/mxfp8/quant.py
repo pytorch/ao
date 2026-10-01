@@ -1060,6 +1060,9 @@ def _mxfp8_quantize_2d_1x32_cutedsl_custom_op(
     stage_count: int = 2,
     offs: torch.Tensor = None,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
+    # stage_count: accepted but ignored -- this kernel has no TMA pipeline to
+    # stage, same as the FlyDSL kernels below. Kept in the signature purely
+    # for API parity with the other cutedsl/flydsl quantize ops.
     from torchao.prototype.moe_training.kernels.mxfp8.cutedsl_quantize_2d_1x32 import (
         mxfp8_quantize_cutedsl_2d_1x32,
     )
@@ -1068,7 +1071,6 @@ def _mxfp8_quantize_2d_1x32_cutedsl_custom_op(
         x,
         block_size=block_size,
         scaling_mode=scaling_mode,
-        stage_count=stage_count,
         blocked_scale_output=True,
         offs=offs,
     )
@@ -1500,7 +1502,9 @@ def mxfp8_quantize_2d_1x32_cutedsl(
         x: Input tensor of shape (M, K)
         block_size: Block size for quantization (only 32 supported)
         scaling_mode: Scaling mode ("floor" or "rceil")
-        stage_count: Number of pipeline stages (1 or 2)
+        stage_count: Accepted but ignored -- this kernel has no TMA pipeline
+            to stage. Kept for API parity with the other cutedsl/flydsl
+            quantize ops.
         offs: Optional tensor of group end offsets for validation (must have group sizes as multiples of 128)
 
     Returns:
