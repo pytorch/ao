@@ -5,7 +5,7 @@
 # LICENSE file in the root directory of this source tree.
 
 from dataclasses import dataclass
-from typing import List
+from typing import List, Optional
 
 import torch
 
@@ -29,25 +29,39 @@ class CodebookWeightOnlyConfig(AOBaseConfig):
 def _codebook_weight_only_transform(
     module: torch.nn.Module,
     config: CodebookWeightOnlyConfig,
+    custom_codebook: Optional[torch.Tensor] = None,
 ):
     """
     Applies codebook weight-only quantization to linear layers.
 
     Args:
         dtype: torch.uint1 to torch.uint8, torch.int32 supported.
+        custom_codebook: an optional pre-computed codebook (lookup table). When
+            provided, the weight is quantized by assigning each element to the
+            nearest entry of this codebook instead of running k-means. This is
+            used by codebook QAT convert so the deployed grid matches the one
+            training optimized against.
     Returns:
         Callable for quantization transformation.
     """
-    if not is_package_at_least("coremltools", "8.3.0"):
+    if custom_codebook is None and not is_package_at_least("coremltools", "8.3.0"):
         raise ImportError("Requires coremltools >= 8.3.0")
 
     dtype = config.dtype
     weight = module.weight
 
-    quantized_weight = CodebookQuantizedTensor.from_float(
-        weight,
-        dtype,
-        config.block_size,
-    )
+    if custom_codebook is not None:
+        quantized_weight = CodebookQuantizedTensor.from_float_and_codebook(
+            weight,
+            dtype,
+            config.block_size,
+            custom_codebook,
+        )
+    else:
+        quantized_weight = CodebookQuantizedTensor.from_float(
+            weight,
+            dtype,
+            config.block_size,
+        )
     module.weight = torch.nn.Parameter(quantized_weight, requires_grad=False)
     return module
