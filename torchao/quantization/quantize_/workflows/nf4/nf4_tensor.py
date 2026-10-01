@@ -8,14 +8,18 @@ import math
 import sys
 from dataclasses import dataclass, replace
 from enum import Enum, auto
-from typing import Any, Dict, Optional, Tuple, Union
+from typing import TYPE_CHECKING, Any, Dict, Optional, Tuple, Union
 
 import torch
 import torch.nn.functional as F
 from torch._prims_common import make_contiguous_strides_for
-from torch.distributed.device_mesh import DeviceMesh
 
 from torchao.utils import torch_version_at_least
+
+if TYPE_CHECKING:
+    # torch built with USE_DISTRIBUTED=0 has no DeviceMesh, and it is only
+    # needed here as a type annotation.
+    from torch.distributed.device_mesh import DeviceMesh
 
 aten = torch.ops.aten
 
@@ -63,10 +67,15 @@ def scatter_nf4tensor(func, *args, **kwargs):
     return new_attr, update_work
 
 
-NF4_OPS_TABLE: Dict[Any, Any] = {
-    torch.ops._c10d_functional.all_gather_into_tensor.default: nf4_all_gather_into_tensor,
-    torch.ops.c10d.scatter_.default: scatter_nf4tensor,
-}
+NF4_OPS_TABLE: Dict[Any, Any] = {}
+
+# The c10d ops below do not exist when torch is built with USE_DISTRIBUTED=0,
+# and nothing can call them on such a build.
+if torch.distributed.is_available():
+    NF4_OPS_TABLE[torch.ops._c10d_functional.all_gather_into_tensor.default] = (
+        nf4_all_gather_into_tensor
+    )
+    NF4_OPS_TABLE[torch.ops.c10d.scatter_.default] = scatter_nf4tensor
 
 
 _INNER_TENSOR_NAMES_FOR_SHARDING = [
@@ -508,11 +517,16 @@ def nf4_cat(aten_op: torch._ops.OpOverload, args, kwargs=None):
     return tensors
 
 
-@implements(
-    [
-        torch.ops._c10d_functional.wait_tensor.default,
-    ]
+# this op does not exist when torch is built with USE_DISTRIBUTED=0, and
+# nothing can call it on such a build
+_wait_tensor_ops = (
+    [torch.ops._c10d_functional.wait_tensor.default]
+    if torch.distributed.is_available()
+    else []
 )
+
+
+@implements(_wait_tensor_ops)
 def wait_tensor(func, *args, **kwargs):
     nf4tensor = args[0][0]
     updated_attrs = {}
@@ -974,7 +988,7 @@ class NF4Tensor(torch.Tensor):
             return func(*args, **kwargs)
 
     def fsdp_pre_all_gather(
-        self, mesh: DeviceMesh
+        self, mesh: "DeviceMesh"
     ) -> Tuple[Tuple[torch.Tensor, ...], Any]:
         return (
             self.quantized_scalers,
