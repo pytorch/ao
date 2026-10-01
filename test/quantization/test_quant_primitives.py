@@ -697,6 +697,24 @@ class TestQuantPrimitives(unittest.TestCase):
 
             self.assertTrue(torch.equal(w_int4x8, w_int4x8_ref))
 
+    def test_groupwise_affine_quantize_tensor_from_qparams_none_domain(self):
+        # Regression test for https://github.com/pytorch/ao/issues/4693
+        # `ZeroPointDomain.NONE` used to hit an always-false comparison
+        # (`ZeroPointDomain == ZeroPointDomain.NONE` instead of
+        # `zero_point_domain == ZeroPointDomain.NONE`) and fall through to
+        # the `raise ValueError` branch instead of dispatching to
+        # `_quantize_affine_no_zero_point`.
+        input = torch.randn(10, 256)
+        scales = torch.randn(10, 2)
+        zeros = torch.randn(10, 2)
+        n_bit = 4
+        groupsize = 128
+
+        w_int4x8 = groupwise_affine_quantize_tensor_from_qparams(
+            input, scales, zeros, n_bit, groupsize, ZeroPointDomain.NONE
+        )
+        self.assertEqual(w_int4x8.dtype, torch.int32)
+
     def test_groupwise_affine_dequantize_tensor_from_qparams(self):
         input = torch.randint(0, 15, (10, 256), dtype=torch.int32)
         scales = torch.randn(10, 2).bfloat16()
