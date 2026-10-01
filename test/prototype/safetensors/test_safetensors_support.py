@@ -59,8 +59,8 @@ else:
             (Int4WeightOnlyConfig(int4_packing_format="tile_packed_to_4d"), False),
         ]
 
-    # MX and NVFP4 configs require torch >= 2.11
-    if torch_version_at_least("2.11.0.dev"):
+    # MX and NVFP4 configs require torch >= 2.11 and sm100+
+    if torch_version_at_least("2.11.0.dev") and is_sm_at_least_100():
         _ALL_TEST_CONFIGS += [
             (MXDynamicActivationMXWeightConfig(), False),
             (NVFP4DynamicActivationNVFP4WeightConfig(), False),
