@@ -9,9 +9,10 @@ on:
     tags:
       - v[0-9]+.[0-9]+.[0-9]
       - v[0-9]+.[0-9]+.[0-9]+-rc[0-9]+
-  pull_request:
-    paths:
-      - 'docs/**'
+      # A fork PR gets no OIDC token, so doc-preview could not assume role/arc
+      # to write to S3. The ciflow/docs label tags the PR head instead and fires
+      # this trigger from the base repo. Matches pytorch/pytorch's ciflow/docker.
+      - ciflow/docs/*
   workflow_dispatch:
 
 concurrency:
@@ -58,11 +59,14 @@ jobs:
           path: docs/build/html/
 
   doc-preview:
-    runs-on: [self-hosted, linux.2xlarge]
+    runs-on: mt-l-x86iavx512-8-64
+    container:
+      image: docker.io/python:3.11-slim
     needs: build_docs
-    if: ${{ github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' }}
+    if: ${{ github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/ciflow/docs/') }}
     permissions:
       pull-requests: write
+      id-token: write
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -71,15 +75,32 @@ jobs:
         with:
           name: Doc-Build
           path: docs
+      # The tag is ciflow/docs/<pr>, so it still names the pull request and the
+      # upload keeps the per-PR prefix. An expression cannot split a ref, hence
+      # the step.
+      - name: Resolve the preview prefix
+        id: preview
+        run: |
+          set -euo pipefail
+          if [[ "${GITHUB_REF}" == refs/tags/ciflow/docs/* ]]; then
+            echo "prefix=${GITHUB_REF##*/}" >> "${GITHUB_OUTPUT}"
+          else
+            echo "prefix=${GITHUB_RUN_ID}" >> "${GITHUB_OUTPUT}"
+          fi
+      # The S3 write used to come from the EC2 instance role. A pod has none.
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4
+        with:
+          role-to-assume: arn:aws:iam::308535385114:role/arc
+          aws-region: us-east-1
       - name: Upload docs preview
         uses: seemethere/upload-artifact-s3@v5
-        if: ${{ github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' }}
         with:
           retention-days: 14
           s3-bucket: doc-previews
           if-no-files-found: error
           path: docs
-          s3-prefix: pytorch/ao/${{ github.event_name == 'pull_request' && github.event.pull_request.number || github.run_id }}
+          s3-prefix: pytorch/ao/${{ steps.preview.outputs.prefix }}
       - name: Get preview URL
         if: ${{ github.event_name == 'workflow_dispatch' }}
         id: preview-url
