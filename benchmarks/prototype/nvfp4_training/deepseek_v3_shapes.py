@@ -28,7 +28,9 @@ class DeepSeekV3WeightShape:
 DEEPSEEK_V3_MODEL_CONFIGS = (
     DeepSeekV3ModelConfig("debugmodel", 8, 1, 256, 256),
     DeepSeekV3ModelConfig("16B", 64, 8, 2048, 1408),
-    DeepSeekV3ModelConfig("671B", 256, 2, 7168, 2048),
+    # 671B trains at EP=64: 256 routed experts / 64 == 4 local experts per rank, which
+    # is why every caller here passes factorized_experts=4 (or 2 in tests).
+    DeepSeekV3ModelConfig("671B", 256, 64, 7168, 2048),
 )
 
 
