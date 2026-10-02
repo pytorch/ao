@@ -142,8 +142,9 @@ class BitNetTrainingLinearWeight(TorchAOBaseTensor):
 
 @BitNetTrainingLinearWeight.implements_torch_function(F.linear)
 def _(func, types, args, kwargs):
-    if torch.is_autocast_enabled("cuda"):
-        dtype = torch.get_autocast_gpu_dtype()
+    device_type = args[0].device.type
+    if torch.is_autocast_enabled(device_type):
+        dtype = torch.get_autocast_dtype(device_type)
         args = tuple(x.to(dtype) if x is not None else x for x in args)
     return _BitNetTrainingLinear.apply(*args, **kwargs)
 
