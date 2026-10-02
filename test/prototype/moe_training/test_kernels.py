@@ -55,6 +55,10 @@ from torchao.prototype.moe_training.kernels.mxfp8 import (
     triton_mx_block_rearrange_2d_M_groups,
     triton_mx_block_rearrange_per_group_3d,
 )
+from torchao.prototype.moe_training.kernels.mxfp8.cutedsl_pad_token_groups import (
+    _pad_token_groups_cutedsl,
+    _unpad_token_groups_cutedsl,
+)
 from torchao.prototype.moe_training.kernels.mxfp8.cutedsl_rearrange_2d_m_groups import (
     _mx_block_rearrange_2d_m_groups_cutedsl,
 )
@@ -1225,109 +1229,127 @@ def test_cuda_mx_3d_cutedsl_edge_inputs(
     assert y.stride() == y_ref.stride()
 
 
-@pytest.mark.skipif(
-    not _mxfp8_cuda_kernels_available,
-    reason="CUDA kernel requires sm_100 and CUDA 12.8+",
-)
+# Cases are listed per impl rather than crossed, so merging the cuda and cutedsl
+# tests preserves exactly the coverage each had before.
+_PAD_CASES = [
+    *(("cuda", t, 7168, g, 32) for t in (128, 157, 4096, 16392) for g in (1, 2, 4, 8)),
+    *(
+        ("cutedsl", t, d, g, 32)
+        for t in (128, 157, 4096)
+        for d in (32, 7168)
+        for g in (1, 8)
+    ),
+]
+
+_UNPAD_CASES = [
+    *(("cuda", t, 7168, g, 32) for t in (128, 157, 4096) for g in (1, 2, 4, 8)),
+    *(
+        ("cutedsl", t, d, g, 32)
+        for t in (128, 157, 4096)
+        for d in (32, 7168)
+        for g in (1, 8)
+    ),
+]
+
+
+def _skip_if_impl_unavailable(impl: str):
+    if impl == "cuda" and not _mxfp8_cuda_kernels_available:
+        pytest.skip("CUDA kernel requires sm_100 and CUDA 12.8+")
+    if impl == "cutedsl" and not _mxfp8_cutedsl_kernels_available:
+        pytest.skip("MXFP8 cutedsl kernels not available")
+
+
 @skip_if_rocm("ROCm enablement in progress")
-@pytest.mark.parametrize("num_tokens", [128, 157, 4096, 16392])
-@pytest.mark.parametrize("dim", [7168])
-@pytest.mark.parametrize("num_groups", [1, 2, 4, 8])
-@pytest.mark.parametrize("alignment_size", [32])
+@pytest.mark.parametrize("impl,num_tokens,dim,num_groups,alignment_size", _PAD_CASES)
 @pytest.mark.parametrize("dtype", [torch.bfloat16])
-def test_cuda_fused_pad_token_groups(
-    num_tokens: int, dim: int, num_groups: int, alignment_size: int, dtype: torch.dtype
+def test_fused_pad_token_groups(
+    impl: str,
+    num_tokens: int,
+    dim: int,
+    num_groups: int,
+    alignment_size: int,
+    dtype: torch.dtype,
 ):
-    """Test fused_pad_token_groups_cuda kernel for padding token groups to alignment."""
+    """Pad token groups to alignment, cuda and cutedsl against the torch reference."""
+    _skip_if_impl_unavailable(impl)
     device = "cuda"
-
-    # Create input activations
     inputs = torch.randn(num_tokens, dim, dtype=dtype, device=device)
-
-    # Generate group offsets (end indices for each group)
     group_offsets = generate_jagged_offs(
         num_groups, num_tokens, multiple_of=1, device=device
     )
 
-    # Get reference output
-    ref_padded_tokens, ref_padded_start_offsets, ref_padded_offsets = (
-        torch_pad_token_groups(inputs, group_offsets, alignment_size)
+    ref_padded_tokens, ref_start_offsets, ref_end_offsets = torch_pad_token_groups(
+        inputs, group_offsets, alignment_size
+    )
+    kernel = (
+        _pad_token_groups_cutedsl if impl == "cutedsl" else fused_pad_token_groups_cuda
+    )
+    padded_tokens, start_offsets, end_offsets = kernel(
+        inputs, group_offsets, alignment_size
     )
 
-    # Run CUDA kernel
-    kernel_padded_tokens, kernel_padded_start_offsets, kernel_padded_end_offsets = (
-        fused_pad_token_groups_cuda(inputs, group_offsets, alignment_size)
-    )
-
-    # All implementations now use the same upper bound output size
-    # Verify outputs match
-    assert torch.allclose(ref_padded_tokens, kernel_padded_tokens, rtol=0, atol=1e-5), (
-        "Padded tokens do not match"
-    )
-    assert torch.equal(ref_padded_start_offsets, kernel_padded_start_offsets), (
+    if impl == "cutedsl":
+        assert torch.equal(ref_padded_tokens, padded_tokens)
+    else:
+        assert torch.allclose(ref_padded_tokens, padded_tokens, rtol=0, atol=1e-5), (
+            "Padded tokens do not match"
+        )
+    assert torch.equal(ref_start_offsets, start_offsets), (
         "Padded group start offsets do not match"
     )
-    assert torch.equal(ref_padded_offsets, kernel_padded_end_offsets), (
+    assert torch.equal(ref_end_offsets, end_offsets), (
         "Padded group end offsets do not match"
     )
 
 
-@pytest.mark.skipif(
-    not _mxfp8_cuda_kernels_available,
-    reason="CUDA kernel requires sm_100 and CUDA 12.8+",
-)
 @skip_if_rocm("ROCm enablement in progress")
-@pytest.mark.parametrize("num_tokens", [128, 157, 4096])
-@pytest.mark.parametrize("dim", [7168])
-@pytest.mark.parametrize("num_groups", [1, 2, 4, 8])
-@pytest.mark.parametrize("alignment_size", [32])
+@pytest.mark.parametrize("impl,num_tokens,dim,num_groups,alignment_size", _UNPAD_CASES)
 @pytest.mark.parametrize("dtype", [torch.bfloat16])
-def test_cuda_fused_unpad_token_groups(
-    num_tokens: int, dim: int, num_groups: int, alignment_size: int, dtype: torch.dtype
+def test_fused_unpad_token_groups(
+    impl: str,
+    num_tokens: int,
+    dim: int,
+    num_groups: int,
+    alignment_size: int,
+    dtype: torch.dtype,
 ):
-    """Test fused_unpad_token_groups_cuda kernel for removing padding from token groups."""
+    """Remove padding from token groups, cuda and cutedsl against the torch reference."""
+    _skip_if_impl_unavailable(impl)
     device = "cuda"
-
-    # Create input activations
     inputs = torch.randn(num_tokens, dim, dtype=dtype, device=device)
-
-    # Generate group offsets (end indices for each group)
     group_offsets = generate_jagged_offs(
         num_groups, num_tokens, multiple_of=1, device=device
     )
-
-    # First pad the tokens to create padded inputs
-    padded_tokens, padded_group_start_offsets, padded_offsets = torch_pad_token_groups(
+    padded_tokens, padded_group_start_offsets, _ = torch_pad_token_groups(
         inputs, group_offsets, alignment_size
     )
 
-    # Get reference output using torch implementation
-    ref_unpadded_tokens = torch_unpad_token_groups(
+    call_args = (
         padded_tokens,
         group_offsets,
         padded_group_start_offsets,
         num_tokens,
         alignment_size,
     )
-
-    # Run CUDA kernel
-    kernel_unpadded_tokens = fused_unpad_token_groups_cuda(
-        padded_tokens,
-        group_offsets,
-        padded_group_start_offsets,
-        num_tokens,
-        alignment_size,
+    ref_unpadded_tokens = torch_unpad_token_groups(*call_args)
+    kernel = (
+        _unpad_token_groups_cutedsl
+        if impl == "cutedsl"
+        else fused_unpad_token_groups_cuda
     )
+    unpadded_tokens = kernel(*call_args)
 
-    # Verify outputs match
-    assert torch.allclose(
-        ref_unpadded_tokens, kernel_unpadded_tokens, rtol=0, atol=1e-5
-    ), "Unpadded tokens do not match"
-
-    # Verify that unpad correctly reverses pad operation
-    assert torch.allclose(inputs, kernel_unpadded_tokens, rtol=0, atol=1e-5), (
-        "Unpadded tokens should match original inputs"
-    )
+    if impl == "cutedsl":
+        assert torch.equal(ref_unpadded_tokens, unpadded_tokens)
+        # unpad must exactly reverse pad
+        assert torch.equal(inputs, unpadded_tokens)
+    else:
+        assert torch.allclose(
+            ref_unpadded_tokens, unpadded_tokens, rtol=0, atol=1e-5
+        ), "Unpadded tokens do not match"
+        assert torch.allclose(inputs, unpadded_tokens, rtol=0, atol=1e-5), (
+            "unpad did not reverse pad"
+        )
 
 
 @pytest.mark.parametrize("round_scales_to_power_of_2", [True, False])
