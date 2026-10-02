@@ -23,6 +23,7 @@ from torchao.core.config import (
 from torchao.prototype.awq import (
     AWQConfig,
 )
+from torchao.prototype.mx_formats import MXDynamicActivationMXWeightConfig
 from torchao.quantization import (
     PerBlock,
     PerGroup,
@@ -79,6 +80,7 @@ configs = [
         Int4WeightOnlyConfig(group_size=128), step=QuantizationStep.PREPARE_FOR_LOADING
     ),
     AWQConfig(Int4WeightOnlyConfig(group_size=128), step="prepare_for_loading"),
+    MXDynamicActivationMXWeightConfig(),
 ]
 
 
@@ -139,8 +141,13 @@ def test_reconstructable_dict_file_round_trip(config):
             os.unlink(temp_file_path)
 
 
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
-@pytest.mark.skipif(not is_sm_at_least_89(), reason="needs CUDA capability 8.9+")
+@pytest.mark.skipif(
+    not torch.accelerator.is_available(), reason="CUDA or XPU not available"
+)
+@pytest.mark.skipif(
+    torch.cuda.is_available() and not is_sm_at_least_89(),
+    reason="needs CUDA capability 8.9+",
+)
 @pytest.mark.parametrize(
     "granularity",
     [
@@ -155,7 +162,8 @@ def test_granularity_serialization(granularity):
     in `Float8DynamicActivationFloat8WeightConfig`.
     """
 
-    m = torch.nn.Linear(128, 256, bias=False, dtype=torch.bfloat16, device="cuda")
+    device = torch.accelerator.current_accelerator().type
+    m = torch.nn.Linear(128, 256, bias=False, dtype=torch.bfloat16, device=device)
     fname = None
     with tempfile.NamedTemporaryFile(delete=False, mode="w") as f:
         config = Float8DynamicActivationFloat8WeightConfig(granularity=granularity)
@@ -237,6 +245,30 @@ def test_default_version():
 
     config = DummyConfig()
     assert config.version == 1, "Default version must be 1"
+
+
+def test_mxconfig_include_pybind11_enum_serialization():
+    """Test that MXDynamicActivationMXWeightConfig with `swizzled_type`, a
+    pybind11-backed enum (torch.nn.functional.SwizzleType) that is not a
+    subclass of Python's `enum.Enum`, is serialized to a fully-qualified
+    "<module>.<name>" `_type` and correctly reconstructed.
+    """
+    from torch.nn.functional import SwizzleType
+
+    for swizzle in (SwizzleType.NO_SWIZZLE, SwizzleType.SWIZZLE_32_4_4):
+        config = MXDynamicActivationMXWeightConfig(swizzled_type=swizzle)
+        reconstructable = config_to_dict(config)
+
+        # The pybind11 enum should be serialized with its fully-qualified
+        # module path, not just its (leading-underscore) class name
+        assert reconstructable["_data"]["swizzled_type"] == {
+            "_type": "torch.nn.functional.SwizzleType",
+            "_data": swizzle.name,
+        }
+
+        reconstructed = config_from_dict(reconstructable)
+        assert isinstance(reconstructed, MXDynamicActivationMXWeightConfig)
+        assert reconstructed.swizzled_type is swizzle
 
 
 if __name__ == "__main__":
