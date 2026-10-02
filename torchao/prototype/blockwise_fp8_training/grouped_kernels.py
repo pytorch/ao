@@ -6,6 +6,9 @@
 
 import torch
 
+from torchao.prototype.blockwise_fp8_training.cutedsl_grouped_gemm import (
+    maybe_cutedsl_fp8_blockwise_scaled_grouped_mm,
+)
 from torchao.prototype.blockwise_fp8_training.kernels import (
     BLOCKWISE_1X128_SCALING_TYPE,
     BLOCKWISE_128X128_SCALING_TYPE,
@@ -142,3 +145,42 @@ def _(
     if b.ndim == 3:
         return a.new_empty((a.shape[0], b.shape[-1]), dtype=out_dtype)
     return a.new_empty((offs.numel(), a.shape[0], b.shape[-1]), dtype=out_dtype)
+
+
+def blockwise_scaled_grouped_mm(
+    a: torch.Tensor,
+    b: torch.Tensor,
+    a_s: torch.Tensor,
+    scale_recipe_a: int,
+    b_s: torch.Tensor,
+    scale_recipe_b: int,
+    offs: torch.Tensor,
+    out_dtype: torch.dtype,
+    block_size: int = 128,
+) -> torch.Tensor:
+    b_s = _prepare_grouped_rhs_scale(b_s, scale_recipe_b)
+    did_dispatch, out = maybe_cutedsl_fp8_blockwise_scaled_grouped_mm(
+        a,
+        b,
+        a_s,
+        scale_recipe_a,
+        b_s,
+        scale_recipe_b,
+        offs,
+        out_dtype,
+        block_size,
+    )
+    if did_dispatch:
+        assert out is not None
+        return out
+    return emulated_blockwise_scaled_grouped_mm(
+        a,
+        b,
+        a_s,
+        scale_recipe_a,
+        b_s,
+        scale_recipe_b,
+        offs,
+        out_dtype,
+        block_size,
+    )
