@@ -30,7 +30,7 @@ class Float8PackingFormat(str, Enum):
     Sparse packing format for 2:4 sparsity + FP8 quantization
 
     SPARSE_2D_DATA_2D_METADATA will pack the quantized_data into two tensors, qdata and sparse_metadata, for the specified values and metadata respectively.
-    This packing format will dispatch to `rowwise_scaled_linear_sparse_cutlass_f8f8`, which will fuse the per-row scaling into the sparse matmul.
+    This packing format will dispatch to a CuTeDSL sparse GEMM kernel, which will fuse the per-row scaling into the sparse matmul.
     """
     SPARSE_2D_DATA_2D_METADATA = "sparse_2d_data_2d_metadata"
     """

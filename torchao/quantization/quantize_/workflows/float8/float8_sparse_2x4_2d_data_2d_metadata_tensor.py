@@ -12,10 +12,6 @@ import torch
 from torchao.float8.inference import (
     FP8Granularity,
 )
-from torchao.ops import (
-    rowwise_scaled_linear_sparse_cutlass_f8f8,
-    to_sparse_semi_structured_cutlass_sm9x_f8,
-)
 from torchao.quantization.granularity import PerRow
 from torchao.quantization.quant_primitives import (
     _choose_scale_float8,
@@ -23,6 +19,10 @@ from torchao.quantization.quant_primitives import (
 )
 from torchao.quantization.quantize_.common import (
     _choose_quant_func_and_quantize_tensor,
+)
+from torchao.quantization.quantize_.workflows.float8.kernels import (
+    _rowwise_scaled_linear_sparse_cutedsl,
+    _to_sparse_semi_structured_cutedsl,
 )
 from torchao.quantization.utils import get_block_size
 from torchao.utils import (
@@ -42,7 +42,7 @@ from .float8_tensor import QuantizeTensorToFloat8Kwargs
 
 class Float8Sparse2x4_2DData2DMetadataTensor(TorchAOBaseTensor):
     """
-    Float8 Quantized + 2:4 sparse (weight) Tensor using CUTLASS kernels, with float8 dynamic quantization for activation.
+    Float8 Quantized + 2:4 sparse (weight) Tensor using CuTeDSL kernels, with float8 dynamic quantization for activation.
 
     Tensor Attributes:
         qdata: float8 raw data
@@ -54,8 +54,6 @@ class Float8Sparse2x4_2DData2DMetadataTensor(TorchAOBaseTensor):
         sharing the same set of quantization parameters (scale), have the same rank as qdata or
         is an empty list (representing per tensor quantization)
         act_quant_kwargs (QuantizeTensorToFloat8Kwargs): the kwargs for Sparse2x4Float8Tensor.from_hp
-        packing_format (Float8PackingFormat): the preference for quantize, mm etc. kernel to use,
-        by default, this will be chosen for user based on hardware, library availabilities etc.
         dtype: Original Tensor dtype
     """
 
@@ -111,9 +109,9 @@ class Float8Sparse2x4_2DData2DMetadataTensor(TorchAOBaseTensor):
         return f"{self.act_quant_kwargs=}, {self.block_size=}, {self.scale.shape=}"
 
     def dequantize(self, output_dtype: Optional[torch.dtype] = None) -> torch.Tensor:
-        # No support in CUTLASS to convert back to dense from sparse
-        # semi-structured format, so multiplying with identity matrix,
-        # and using identity scale factors, for the conversion.
+        # No support for converting back to dense from sparse semi-structured
+        # format, so multiplying with identity matrix, and using identity
+        # scale factors, for the conversion.
         cols = self.shape[1]
         input = torch.eye(cols, dtype=self.qdata.dtype, device=self.qdata.device)
         input_scale = torch.ones(
@@ -122,7 +120,7 @@ class Float8Sparse2x4_2DData2DMetadataTensor(TorchAOBaseTensor):
 
         out_dtype = torch.bfloat16
         dense = (
-            rowwise_scaled_linear_sparse_cutlass_f8f8(
+            _rowwise_scaled_linear_sparse_cutedsl(
                 input,
                 input_scale,
                 self.qdata,
@@ -159,22 +157,21 @@ class Float8Sparse2x4_2DData2DMetadataTensor(TorchAOBaseTensor):
         hp_dtype = hp_tensor.dtype
 
         assert is_sm_at_least_90(), (
-            "CUTLASS sparse kernel requires hardware >= SM 9.0 (>= H100)"
+            "CuTeDSL sparse kernel requires hardware >= SM 9.0 (>= H100)"
         )
         assert isinstance(granularity, PerRow), (
-            "CUTLASS sparse kernel only supports per-row quantization"
+            "CuTeDSL sparse kernel only supports per-row quantization"
         )
-        # CUTLASS path only supports quantizing along the last dim
+        # CuTeDSL path only supports quantizing along the last dim
         assert granularity.dim in (-1, len(hp_tensor.shape) - 1), (
-            "CUTLASS sparse kernel only supports quantizing along the last dimension"
+            "CuTeDSL sparse kernel only supports quantizing along the last dimension"
         )
         assert float8_dtype == torch.float8_e4m3fn, (
-            "CUTLASS sparse kernel only supports float8_e4m3fn dtype"
+            "CuTeDSL sparse kernel only supports float8_e4m3fn dtype"
         )
-        assert hp_value_lb is None, "CUTLASS sparse kernel does not support hp_value_lb"
+        assert hp_value_lb is None, "CuTeDSL sparse kernel does not support hp_value_lb"
 
-        # Use CUTLASS rowwise fp8 + 2:4 sparse mm kernel
-        qdata, sparse_metadata = to_sparse_semi_structured_cutlass_sm9x_f8(data)
+        qdata, sparse_metadata = _to_sparse_semi_structured_cutedsl(data)
 
         return Float8Sparse2x4_2DData2DMetadataTensor(
             qdata,
@@ -218,8 +215,14 @@ def _(func, types, args, kwargs):
     weight_scale = weight_tensor.scale.squeeze(1)
     out_dtype = input_tensor.dtype
 
-    out = rowwise_scaled_linear_sparse_cutlass_f8f8(
-        input, input_scale, weight, weight_meta, weight_scale, bias, out_dtype
+    out = _rowwise_scaled_linear_sparse_cutedsl(
+        input,
+        input_scale,
+        weight,
+        weight_meta,
+        weight_scale,
+        bias,
+        out_dtype,
     )
     return out
 
