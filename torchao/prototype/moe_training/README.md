@@ -123,6 +123,7 @@ quantize_(model, config=config, filter_fn=moe_module_filter_fn)
 ## System requirements
 - torchao 0.14+
 - For MXFP8 MoE training, CUDA 12.8+ and SM100+ GPU arch are required.
+- MXFP8 training with DTensor requires PyTorch 2.12+.
 - For FP8 rowwise MoE training, CUDA 12.4+ and SM89+ GPU arch are required.
 
 

@@ -31,6 +31,19 @@ aten = torch.ops.aten
 
 logger: logging.Logger = logging.getLogger(__name__)
 
+
+def _assert_mxfp8_dtensor_supported() -> None:
+    from torch.distributed.tensor import _dispatch, _ops
+
+    if not (
+        hasattr(_ops, "scaled_mm_single_dim_strategy")
+        and hasattr(_dispatch, "is_pinned_handler")
+    ):
+        raise RuntimeError(
+            "MXFP8 training with DTensor requires PyTorch 2.12 or later."
+        )
+
+
 _ops_to_preserve_subclass = {
     torch.ops.aten.empty_like.default,
     torch.ops.aten.new_zeros.default,
@@ -277,6 +290,16 @@ class MXFP8TrainingWeightWrapperTensor(TrainingWeightWrapperBaseTensor):
     to use dynamic quantization of inputs to MXFP8, then runs the MXFP8 grouped_mm/linear,
     based on the training config.
     """
+
+    @staticmethod
+    def __new__(
+        cls,
+        tensor: torch.Tensor,
+        config: MXFP8TrainingOpConfig,
+    ):
+        if isinstance(tensor, DTensor):
+            _assert_mxfp8_dtensor_supported()
+        return TrainingWeightWrapperBaseTensor.__new__(cls, tensor, config)
 
     @classmethod
     def __torch_function__(cls, func, types, args, kwargs={}):
