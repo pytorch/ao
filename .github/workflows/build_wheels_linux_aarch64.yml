@@ -27,6 +27,7 @@ jobs:
     with:
       package-type: wheel
       os: linux-aarch64
+      runner-fleet: osdc
       with-cpu: enable
       with-cuda: enable
       # TODO: consider enabling python-abi3, which would halve the number of
