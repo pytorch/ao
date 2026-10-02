@@ -10,6 +10,7 @@ import copy
 import gc
 import tempfile
 import unittest
+from collections import OrderedDict
 
 import torch
 from torch.testing._internal import common_utils
@@ -641,6 +642,30 @@ class TestQuantFlow(TestCase):
 
 
 common_utils.instantiate_parametrized_tests(TestQuantFlow)
+
+
+class TestFqnToConfigRegexNonePrecedence(TestCase):
+    def test_fqn_to_config_regex_none_before_quant_regex(self):
+        """First matching param regex wins; None must not be overridden by a later regex."""
+
+        class M(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.lin = torch.nn.Linear(4, 4)
+
+        m = M()
+        cfg = FqnToConfig(
+            fqn_to_config=OrderedDict(
+                [
+                    ("re:lin\\.weight", None),
+                    ("re:lin\\..+", Int8WeightOnlyConfig()),
+                ]
+            )
+        )
+        quantize_(m, cfg, filter_fn=None)
+        assert isinstance(m.lin.weight, torch.nn.Parameter)
+        assert not isinstance(m.lin.weight, Int8Tensor)
+        assert isinstance(m.lin.bias, Int8Tensor)
 
 
 @unittest.skipIf(not torch.accelerator.is_available(), "Need CUDA available")
