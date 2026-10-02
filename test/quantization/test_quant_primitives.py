@@ -629,6 +629,52 @@ class TestQuantPrimitives(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "is invalid for input of size 1"):
             _ = quantize_affine(input, block_size, scale, zero_point, dtype)
 
+    def test_choose_qparams_affine_block_size_all_ones(self):
+        """Regression test for https://github.com/pytorch/ao/issues/3458.
+
+        `block_size` with every entry equal to 1 (e.g. `PerGroup(1)`) means
+        each element is its own block, so there's nothing to reduce over.
+        `_choose_qparams_affine` used to pass `dim=[]` (the resulting empty
+        `reduction_dims`) to `torch.amin`/`amax`, which -- like `dim=None` --
+        reduces over *all* dims instead of none, collapsing the per-element
+        min/max to a single scalar shared by the whole tensor and producing
+        a scale with 1 element instead of one per input element.
+        """
+        input = torch.randn(4, 8)
+        block_size = (1, 1)
+
+        scale, zero_point = choose_qparams_affine(
+            input,
+            MappingType.ASYMMETRIC,
+            block_size,
+            target_dtype=torch.int8,
+        )
+        # one scale/zero_point per input element, not a single shared scalar
+        self.assertEqual(scale.numel(), input.numel())
+        self.assertEqual(zero_point.numel(), input.numel())
+
+        # end to end: quantizing with these qparams should actually work,
+        # instead of raising the shape-mismatch RuntimeError from before
+        q = quantize_affine(
+            input, block_size, scale, zero_point, torch.int8
+        )
+        dq = dequantize_affine(
+            q, block_size, scale, zero_point, torch.int8
+        )
+        # per-element quantization (no grouping) should be near-lossless
+        self.assertTrue(torch.allclose(input, dq, atol=1e-1))
+
+        # keepdim=True path (used by IntxUnpackedToInt8Tensor.from_hp)
+        scale_kd, zero_point_kd = choose_qparams_affine(
+            input,
+            MappingType.ASYMMETRIC,
+            block_size,
+            target_dtype=torch.int8,
+            keepdim=True,
+        )
+        self.assertEqual(scale_kd.shape, input.shape)
+        self.assertEqual(zero_point_kd.shape, input.shape)
+
     def test_get_groupwise_affine_qparams(self):
         input = torch.randn(10, 256)
         n_bit = 4
