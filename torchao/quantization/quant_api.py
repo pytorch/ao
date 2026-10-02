@@ -933,7 +933,6 @@ def _int8_dynamic_activation_int8_weight_transform(
         f"applying int8 dynamic activation int8 weight quant requires module to have {parameter_name} attribute"
         + f" but {module} does not have one"
     )
-
     new_weight = _int8_dynamic_activation_int8_weight_quantize_tensor(
         getattr(module, parameter_name), config
     )
