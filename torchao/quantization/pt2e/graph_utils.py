@@ -4,7 +4,6 @@
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
 
-# mypy: allow-untyped-defs
 import itertools
 import operator
 from collections import OrderedDict
@@ -28,7 +27,7 @@ __all__ = [
     "collect_producer_nodes",
 ]
 
-_EQUIVALENT_TYPES: list[set] = [
+_EQUIVALENT_TYPES: list[set[Any]] = [
     {torch.nn.Conv1d, torch.nn.functional.conv1d},
     {torch.nn.Conv2d, torch.nn.functional.conv2d},
     {torch.nn.AdaptiveAvgPool2d, torch.nn.functional.adaptive_avg_pool2d},
@@ -40,7 +39,8 @@ _EQUIVALENT_TYPES: list[set] = [
 ]
 
 
-def _create_equivalent_types_dict():
+def _create_equivalent_types_dict() -> dict[Any, list[Any]]:
+    """Create a mapping from each type or operation to its list of equivalent types or operations."""
     _DICT = {}
     for values in _EQUIVALENT_TYPES:
         for v in values:
@@ -51,14 +51,24 @@ def _create_equivalent_types_dict():
 _EQUIVALENT_TYPES_DICT = _create_equivalent_types_dict()
 
 
-def get_equivalent_types() -> list[set]:
+def get_equivalent_types() -> list[set[Any]]:
+    """Return the default list of equivalent type sets used for pattern matching."""
     return _EQUIVALENT_TYPES
 
 
-def update_equivalent_types_dict(customized_equivalent_types=None):
-    """Help function for user who wants to customize the _EQUIVALENT_TYPES and _EQUIVALENT_TYPES_DICT.
-    When customized_equivalent_types passes in,
-    re-generate _EQUIVALENT_TYPES and _EQUIVALENT_TYPES_DICT.
+def update_equivalent_types_dict(
+    customized_equivalent_types: Optional[list[set[Any]]] = None,
+) -> None:
+    """Helper function for users who want to customize ``_EQUIVALENT_TYPES`` and ``_EQUIVALENT_TYPES_DICT``.
+
+    When ``customized_equivalent_types`` is passed, re-generates ``_EQUIVALENT_TYPES``
+    and ``_EQUIVALENT_TYPES_DICT``.
+
+    Args:
+        customized_equivalent_types: List of sets specifying custom equivalent types.
+
+    Raises:
+        ValueError: If ``customized_equivalent_types`` is None.
     """
     if customized_equivalent_types is None:
         raise ValueError("customized_equivalent_types should not be None")
@@ -68,7 +78,8 @@ def update_equivalent_types_dict(customized_equivalent_types=None):
     _EQUIVALENT_TYPES_DICT = _create_equivalent_types_dict()
 
 
-def _partitions_sequential(partitions: Sequence[SourcePartition]):
+def _partitions_sequential(partitions: Sequence[SourcePartition]) -> bool:
+    """Check if a sequence of SourcePartition subgraphs are connected in order."""
     prev_partition = None
     for partition in partitions:
         if prev_partition is not None and not check_subgraphs_connected(
@@ -79,15 +90,17 @@ def _partitions_sequential(partitions: Sequence[SourcePartition]):
     return True
 
 
-def _get_matching_types(partition_type):
+def _get_matching_types(partition_type: Any) -> list[Any]:
+    """Get all equivalent types matching the given partition type."""
     matching_types = [partition_type]
     if partition_type in _EQUIVALENT_TYPES_DICT:
         matching_types.extend(_EQUIVALENT_TYPES_DICT[partition_type])
     return matching_types
 
 
-def _valid_type_sequence(partition_types: list[Any]):
-    partition_types_set = set()  # type: ignore[var-annotated]
+def _valid_type_sequence(partition_types: list[Any]) -> bool:
+    """Check if all partition types in the sequence are distinct across equivalence sets."""
+    partition_types_set: set[Any] = set()
     for partition_type in partition_types:
         matching_types = _get_matching_types(partition_type)
         matching_types_set = set(matching_types)
@@ -100,9 +113,20 @@ def _valid_type_sequence(partition_types: list[Any]):
 def find_sequential_partitions(
     gm: torch.fx.GraphModule,
     partition_types: list[Any],
-    include_functional_equivalent=True,
+    include_functional_equivalent: bool = True,
     filter_fn: Optional[Callable[[Node], bool]] = None,
-):
+) -> list[tuple[SourcePartition, ...]]:
+    """Find sequential subgraphs matching the given sequence of partition types.
+
+    Args:
+        gm: Target FX GraphModule to search within.
+        partition_types: Ordered list of types/operations to match sequentially.
+        include_functional_equivalent: Whether to match functionally equivalent types.
+        filter_fn: Optional filter function applied to nodes.
+
+    Returns:
+        List of tuples of SourcePartitions representing sequential matches.
+    """
     if not _valid_type_sequence(partition_types):
         raise ValueError(
             f"Invalid partition types: {partition_types}. Each type in the sequence must be unique"
@@ -129,6 +153,7 @@ def find_sequential_partitions(
 def _get_submodule(
     graph_module: torch.fx.GraphModule, node: torch.fx.Node, arg_index: int
 ) -> tuple[str, torch.nn.Module, torch.fx.Node]:
+    """Retrieve a control flow submodule target name, Module instance, and user Node."""
     submod_node = node.args[arg_index]
     assert isinstance(submod_node, torch.fx.Node)
     assert submod_node.op == "get_attr"
@@ -141,8 +166,7 @@ def _get_submodule(
 def _get_control_flow_submodules(
     graph_module: torch.fx.GraphModule,
 ) -> list[tuple[str, torch.nn.Module, torch.fx.Node]]:
-    """
-    Returns a list of submodules used for control flow operations
+    """Returns a list of submodules used for control flow operations
     (torch.ops.higher_order.cond/map) that are in the given toplevel graph (does not look
     into submodules). Specifically, the returned value is a list containing a
     tuple of (name of the submodule that's stored in the graph module, the
@@ -167,10 +191,15 @@ def _get_control_flow_submodules(
 
 
 def bfs_trace_with_node_process(
-    model: Union[ExportedProgram, torch.fx.GraphModule], node_op: Callable
+    model: Union[ExportedProgram, torch.fx.GraphModule],
+    node_op: Callable[[Node], Any],
 ) -> None:
-    """Traverse the graph module and apply node_op to each node."""
+    """Traverse the graph module via BFS and apply ``node_op`` to each node.
 
+    Args:
+        model: An ExportedProgram or FX GraphModule to traverse.
+        node_op: Callable executed on each non-output and non-placeholder FX node.
+    """
     assert isinstance(model, (ExportedProgram, torch.fx.GraphModule)), (
         f"Expected GraphModule or ExportedProgram, got {type(model)}"
     )
@@ -191,8 +220,15 @@ def bfs_trace_with_node_process(
         queue.extend(control_flow_submodules)
 
 
-def collect_producer_nodes(node: Node) -> list[Node] | None:
-    """Trace a node's producer chain until input or getattr is reached."""
+def collect_producer_nodes(node: Node) -> Optional[list[Node]]:
+    """Trace a node's producer chain until input or getattr is reached.
+
+    Args:
+        node: Starting FX Node for backward producer tracing.
+
+    Returns:
+        List of producer FX Nodes, or None if a graph input (placeholder) was reached.
+    """
     nodes = [node]
     frontier = [node]
     while frontier:
@@ -208,3 +244,4 @@ def collect_producer_nodes(node: Node) -> list[Node] | None:
             if not (arg.op == "call_function" and arg.target is getattr):
                 frontier.append(arg)
     return nodes
+
