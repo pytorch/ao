@@ -12,18 +12,18 @@ from typing import Optional
 
 import torch
 
-from torchao.prototype.blockwise_fp8_training.deepgemm_metadata import (
-    DeepGemmGroupedOffsetPlan,
-    DeepGemmKGroupedQuantMetadata,
-)
-from torchao.prototype.blockwise_fp8_training.deepgemm_quant import (
-    _triton_fp8_blockwise_act_quant_k_grouped_deepgemm_with_group_sizes,
-)
 from torchao.prototype.blockwise_fp8_training.kernels import (
     BLOCKWISE_1X128_SCALING_TYPE,
     BLOCKWISE_128X128_SCALING_TYPE,
     _is_row_major,
     _scaling_type_value,
+)
+from torchao.prototype.moe_training.kernels.fp8_blockwise.deepgemm_metadata import (
+    DeepGemmGroupedOffsetPlan,
+    DeepGemmKGroupedQuantMetadata,
+)
+from torchao.prototype.moe_training.kernels.fp8_blockwise.deepgemm_quant import (
+    _triton_fp8_blockwise_act_quant_k_grouped_deepgemm_with_group_sizes,
 )
 
 

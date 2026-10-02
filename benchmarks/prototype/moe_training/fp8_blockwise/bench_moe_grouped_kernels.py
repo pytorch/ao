@@ -17,7 +17,7 @@ accumulators) are visible.
 Byte accounting for the cast kernels counts the high-precision input read plus
 the FP8 data and FP32 scale writes (the actual operand tensors produced).
 
-Kernels timed, matching torchao.prototype.moe_training.blockwise_fp8.grouped_mm:
+Kernels timed, matching torchao.prototype.moe_training.fp8_grouped_mm:
 
   forward
     - act_quant_lhs                 (activations -> FP8 1x128)
@@ -42,25 +42,25 @@ from tabulate import tabulate
 from triton.testing import do_bench
 
 from torchao.float8.config import e4m3_dtype
-from torchao.prototype.blockwise_fp8_training.deepgemm_grouped_kernels import (
+from torchao.prototype.blockwise_fp8_training.kernels import (
+    BLOCKWISE_1X128_SCALING_TYPE,
+    BLOCKWISE_128X128_SCALING_TYPE,
+    _scaling_type_value,
+    triton_fp8_blockwise_act_quant_lhs,
+)
+from torchao.prototype.moe_training.kernels.fp8_blockwise.deepgemm_grouped_kernels import (
     _quantize_wgrad_operand,
     deepgemm_blockwise_scaled_grouped_mm,
     deepgemm_blockwise_scaled_grouped_mm_wgrad,
     is_deep_gemm_available,
     prepare_deepgemm_wgrad_plan,
 )
-from torchao.prototype.blockwise_fp8_training.deepgemm_metadata import (
+from torchao.prototype.moe_training.kernels.fp8_blockwise.deepgemm_metadata import (
     build_deepgemm_grouped_offset_plan,
 )
-from torchao.prototype.blockwise_fp8_training.grouped_weight_quant import (
+from torchao.prototype.moe_training.kernels.fp8_blockwise.grouped_weight_quant import (
     triton_fp8_blockwise_weight_quant_grouped_dgrad_rhs,
     triton_fp8_blockwise_weight_quant_grouped_forward_rhs,
-)
-from torchao.prototype.blockwise_fp8_training.kernels import (
-    BLOCKWISE_1X128_SCALING_TYPE,
-    BLOCKWISE_128X128_SCALING_TYPE,
-    _scaling_type_value,
-    triton_fp8_blockwise_act_quant_lhs,
 )
 from torchao.prototype.moe_training.utils import generate_jagged_offs
 from torchao.testing.training.roofline_utils import gpu_name_to_specs

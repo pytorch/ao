@@ -15,6 +15,8 @@ then
 pytest test/prototype/moe_training/test_kernels.py -s -v
 pytest test/prototype/moe_training/test_mxfp8_grouped_mm.py -s -v
 pytest test/prototype/moe_training/test_fp8_grouped_mm.py -s -v
+pytest test/prototype/moe_training/test_fp8_blockwise_grouped_mm.py -s -v
+pytest test/prototype/moe_training/test_fp8_blockwise_deepgemm_backend.py -s -v
 pytest test/prototype/moe_training/test_training.py -s -v
 ./test/prototype/moe_training/test_distributed.sh -s -v
 fi
