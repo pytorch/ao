@@ -20,6 +20,9 @@ class MXFP8Dim0CastKernelChoice(Enum):
 
     TRITON = "triton"
     TORCH = "torch"
+    # NVIDIA Blackwell+ via CuTeDSL. Emits scales already in the blocked
+    # tcgen05 layout, so it always produces is_swizzled_scales=True.
+    CUTEDSL = "cutedsl"
 
 
 class MXFP8Dim1CastKernelChoice(Enum):
