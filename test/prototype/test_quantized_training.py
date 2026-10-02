@@ -4,6 +4,7 @@
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
 import copy
+from unittest import mock
 
 import pytest
 import torch
@@ -33,6 +34,14 @@ from torchao.prototype.quantized_training import (
     int8_weight_only_quantized_training,
     quantize_int8_rowwise,
 )
+from torchao.prototype.quantized_training.bitnet import (
+    BitNetTrainingLinearWeight,
+    _BitNetTrainingLinear,
+)
+from torchao.prototype.quantized_training.int8_mixed_precision import (
+    Int8MixedPrecisionTrainingLinearWeight,
+    _Int8MixedPrecisionTrainingLinearFunction,
+)
 from torchao.quantization.quant_api import quantize_
 from torchao.utils import torch_version_at_least
 
@@ -40,6 +49,13 @@ if common_utils.SEED is None:
     common_utils.SEED = 1234
 
 _DEVICES = ["cpu"] + (["cuda"] if torch.cuda.is_available() else [])
+_AUTOCAST_LINEAR_CASES = [
+    (
+        Int8MixedPrecisionTrainingLinearWeight,
+        _Int8MixedPrecisionTrainingLinearFunction,
+    ),
+    (BitNetTrainingLinearWeight, _BitNetTrainingLinear),
+]
 
 
 def _reset():
@@ -226,6 +242,50 @@ class TestQuantizedTraining(TestCase):
             loss_int8.backward()
             optim_int8.step()
             optim_int8.zero_grad()
+
+    @parametrize(
+        "weight_cls,linear_function",
+        _AUTOCAST_LINEAR_CASES,
+    )
+    def test_non_cuda_autocast(self, weight_cls, linear_function):
+        input = torch.randn(4, 8)
+        weight_data = torch.randn(16, 8)
+        bias = torch.randn(16)
+        if weight_cls is Int8MixedPrecisionTrainingLinearWeight:
+            weight = weight_cls(weight_data, Int8MixedPrecisionTrainingConfig())
+        else:
+            weight = weight_cls(weight_data)
+
+        expected = torch.empty(4, 16, dtype=torch.bfloat16)
+        with mock.patch.object(
+            linear_function, "apply", return_value=expected
+        ) as apply:
+            with torch.autocast("cpu", dtype=torch.bfloat16):
+                output = F.linear(input, weight, bias)
+
+        assert output is expected
+        forwarded_args = apply.call_args.args
+        assert all(arg.dtype == torch.bfloat16 for arg in forwarded_args)
+
+    @parametrize("weight_cls,linear_function", _AUTOCAST_LINEAR_CASES)
+    def test_unsupported_device_skips_autocast_query(self, weight_cls, linear_function):
+        input = torch.randn(4, 8, device="meta")
+        weight_data = torch.randn(16, 8, device="meta")
+        bias = torch.randn(16, device="meta")
+        if weight_cls is Int8MixedPrecisionTrainingLinearWeight:
+            weight = weight_cls(weight_data, Int8MixedPrecisionTrainingConfig())
+        else:
+            weight = weight_cls(weight_data)
+
+        expected = torch.empty(4, 16, device="meta")
+        with mock.patch.object(
+            linear_function, "apply", return_value=expected
+        ) as apply:
+            output = F.linear(input, weight, bias)
+
+        assert output is expected
+        forwarded_args = apply.call_args.args
+        assert all(arg.dtype == torch.float32 for arg in forwarded_args)
 
     @parametrize("compile", [False, True])
     @parametrize(
