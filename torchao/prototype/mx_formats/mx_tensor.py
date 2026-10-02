@@ -648,6 +648,7 @@ class MXTensor(TorchAOBaseTensor):
         assert mxfp8_dim0_cast_kernel_choice in (
             MXFP8Dim0CastKernelChoice.TRITON,
             MXFP8Dim0CastKernelChoice.TORCH,
+            MXFP8Dim0CastKernelChoice.CUTEDSL,
         ), (
             f"unsupported kernel choice for mxfp8_dim0_cast_kernel_choice: {mxfp8_dim0_cast_kernel_choice}"
         )
@@ -662,6 +663,29 @@ class MXTensor(TorchAOBaseTensor):
             scale_e8m0_biased, data_lp = to_mx(
                 data_hp, elem_dtype, block_size, scaling_mode, is_swizzled_scales
             )
+        elif mxfp8_dim0_cast_kernel_choice == MXFP8Dim0CastKernelChoice.CUTEDSL:
+            assert elem_dtype == torch.float8_e4m3fn, (
+                f"cutedsl kernel unsupported for {elem_dtype=}"
+            )
+            assert scaling_mode in (
+                ScaleCalculationMode.FLOOR,
+                ScaleCalculationMode.RCEIL,
+            ), f"cutedsl kernel unsupported for {scaling_mode=}"
+
+            # avoid circular import
+            from torchao.prototype.moe_training.kernels.mxfp8.quant import (
+                mxfp8_quantize_2d_1x32_cutedsl,
+            )
+
+            data_lp, scale_e8m0_biased = mxfp8_quantize_2d_1x32_cutedsl(
+                data_hp,
+                block_size=block_size,
+                scaling_mode=scaling_mode.value,
+            )
+            # This kernel writes the scales in the blocked tcgen05 layout
+            # unconditionally, so the caller's request is upgraded rather than
+            # honored as-is.
+            is_swizzled_scales = True
         else:
             assert triton_kernel_supported, (
                 f"triton kernel unsupported for {data_hp.dtype=}, {elem_dtype=}, {scaling_mode=}, {is_swizzled_scales=}"
@@ -763,21 +787,20 @@ def _addmm_mx_dispatch(
         assert b.block_size == 32, f"Invalid block size {b.block_size}"
         assert a.is_swizzled_scales == b.is_swizzled_scales
 
+        # Native scaled-mm requires swizzled scales; swizzle on the fly if needed.
         if a.is_swizzled_scales:
             a_scale_block = a.scale
         else:
-            a_scale_block = a.scale.view(M, K // a.block_size)
+            a_scale_block = to_blocked(a.scale.view(M, K // a.block_size))
 
         if b.is_swizzled_scales:
             b_scale_block = b.scale.t()
         else:
-            b_scale_block = b.scale.t().view(N, K // b.block_size)
+            b_scale_block = to_blocked(
+                b.scale.t().reshape(N, K // b.block_size).contiguous()
+            )
 
-        swizzle = (
-            SwizzleType.SWIZZLE_32_4_4
-            if a.is_swizzled_scales
-            else SwizzleType.NO_SWIZZLE
-        )
+        swizzle = SwizzleType.SWIZZLE_32_4_4
         res = F.scaled_mm(
             a.qdata.view(a.elem_dtype),
             b.qdata.view(b.elem_dtype),
