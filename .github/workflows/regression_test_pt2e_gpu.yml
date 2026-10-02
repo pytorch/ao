@@ -69,12 +69,7 @@ jobs:
         pip install . --no-build-isolation
         export CONDA=$(dirname $(dirname $(which conda)))
         export LD_LIBRARY_PATH=$CONDA/lib/:$LD_LIBRARY_PATH
-        # Run PT2E tests, excluding the slow CPU-only x86 Inductor tests (they
-        # are owned by regression_test_pt2e_cpu.yml). Everything else runs so the
-        # CUDA-specific PT2E paths get coverage.
-        pytest test/quantization/pt2e --verbose -s \
-          --ignore=test/quantization/pt2e/test_x86inductor_fusion.py \
-          --ignore=test/quantization/pt2e/test_x86inductor_quantizer.py
+        bash .github/scripts/ci_test_pt2e_gpu.sh
 
   # ROCm leg. Kept as a separate job (rather than a matrix row on `test`) because
   # ROCm needs a custom docker image and no-sudo, which the CUDA rows do not set.
@@ -113,8 +108,4 @@ jobs:
         pip install . --no-build-isolation
         export CONDA=$(dirname $(dirname $(which conda)))
         export LD_LIBRARY_PATH=$CONDA/lib/:$LD_LIBRARY_PATH
-        # Run PT2E tests, excluding the slow CPU-only x86 Inductor tests (they
-        # are owned by regression_test_pt2e_cpu.yml).
-        pytest test/quantization/pt2e --verbose -s \
-          --ignore=test/quantization/pt2e/test_x86inductor_fusion.py \
-          --ignore=test/quantization/pt2e/test_x86inductor_quantizer.py
+        bash .github/scripts/ci_test_pt2e_gpu.sh

@@ -108,6 +108,59 @@ NP_RANDOM_SEED = 19
 tolerance = 1e-6
 
 
+class _LearnableFakeQuantizeAcceleratorAwareTestCase(TestCase):
+    def _test_device_compatibility(self, device: torch.device) -> None:
+        lfq = LearnableFakeQuantize(observer=MovingAverageMinMaxObserver).to(device)
+        x = torch.randn(4, 4, device=device)
+        output = lfq(x)
+
+        self.assertEqual(output.device, x.device)
+        self.assertEqual(output.shape, x.shape)
+
+    def _test_numerical_consistency_per_tensor(self, device: torch.device) -> None:
+        torch_types = [torch.qint8, torch.quint8]
+        float_types = [torch.float, torch.float16, torch.bfloat16, torch.float64]
+
+        for torch_type, float_type in itertools.product(torch_types, float_types):
+            with self.subTest(
+                torch_type=str(torch_type),
+                float_type=str(float_type),
+                device=str(device),
+            ):
+                X = torch.randn(3, 3, device=device).to(float_type)
+                scale = (10 * torch.randn(1, device=device)).abs().item()
+                zero_point = (10 * torch.randn(1, device=device)).abs().item()
+                quant_min = torch.iinfo(torch_type).min
+                quant_max = torch.iinfo(torch_type).max
+
+                # Quantize/dequantize operation
+                Y = (
+                    torch.dequantize(
+                        torch.quantize_per_tensor(
+                            X.to("cpu").to(torch.float),
+                            scale,
+                            int(zero_point),
+                            torch_type,
+                        )
+                    )
+                    .to(device)
+                    .to(float_type)
+                )
+
+                # Fake quantize operation
+                Y_prime = torch.fake_quantize_per_tensor_affine(
+                    X, scale, int(zero_point), quant_min, quant_max
+                )
+
+                torch.testing.assert_close(
+                    Y,
+                    Y_prime,
+                    rtol=tolerance,
+                    atol=tolerance,
+                    msg="Difference found between dequant+quant_per_tensor and fake_quantize_per_tensor",
+                )
+
+
 class TestLearnableFakeQuantize(TestCase):
     """Test cases for LearnableFakeQuantize module."""
 
@@ -535,7 +588,9 @@ class TestLearnableFakeQuantize(TestCase):
         # (though they might not change significantly with this data)
 
 
-class TestLearnableFakeQuantizeIntegration(TestCase):
+class TestLearnableFakeQuantizeIntegration(
+    _LearnableFakeQuantizeAcceleratorAwareTestCase
+):
     """Integration tests for LearnableFakeQuantize with neural network modules."""
 
     def setUp(self):
@@ -653,22 +708,8 @@ class TestLearnableFakeQuantizeIntegration(TestCase):
         self.assertEqual(output_eval.shape, (2, 3))
 
     def test_device_compatibility(self):
-        """Test LearnableFakeQuantize with different devices."""
-        devices = ["cpu"]
-        if torch.cuda.is_available():
-            devices.append("cuda")
-
-        for device in devices:
-            with self.subTest(device=device):
-                lfq = LearnableFakeQuantize(observer=MovingAverageMinMaxObserver).to(
-                    device
-                )
-
-                x = torch.randn(4, 4, device=device)
-                output = lfq(x)
-
-                self.assertEqual(output.device, x.device)
-                self.assertEqual(output.shape, x.shape)
+        """Test LearnableFakeQuantize on CPU."""
+        self._test_device_compatibility(torch.device("cpu"))
 
     def test_optimizer_updates_scale_and_zero_point(self):
         """Test that optimizer.step() actually updates scale and zero_point parameters."""
@@ -707,7 +748,9 @@ class TestLearnableFakeQuantizeIntegration(TestCase):
         )
 
 
-class TestLearnableFakeQuantizeComparison(TestCase):
+class TestLearnableFakeQuantizeComparison(
+    _LearnableFakeQuantizeAcceleratorAwareTestCase
+):
     """Test cases comparing LearnableFakeQuantize with reference implementations."""
 
     def setUp(self):
@@ -743,53 +786,8 @@ class TestLearnableFakeQuantizeComparison(TestCase):
         self.assertEqual(original_qparams[1], loaded_qparams[1])  # zero_point
 
     def test_numerical_consistency_per_tensor(self):
-        """Test numerical consistency of per-tensor quantization."""
-        torch_types = [torch.qint8, torch.quint8]
-        float_types = [torch.float, torch.float16, torch.bfloat16, torch.float64]
-        devices = [torch.device("cpu")]
-        if torch.cuda.is_available():
-            devices.append(torch.device("cuda"))
-
-        for torch_type, float_type, device in itertools.product(
-            torch_types, float_types, devices
-        ):
-            with self.subTest(
-                torch_type=str(torch_type),
-                float_type=str(float_type),
-                device=str(device),
-            ):
-                X = torch.randn(3, 3, device=device).to(float_type)
-                scale = (10 * torch.randn(1, device=device)).abs().item()
-                zero_point = (10 * torch.randn(1, device=device)).abs().item()
-                quant_min = torch.iinfo(torch_type).min
-                quant_max = torch.iinfo(torch_type).max
-
-                # Quantize/dequantize operation
-                Y = (
-                    torch.dequantize(
-                        torch.quantize_per_tensor(
-                            X.to("cpu").to(torch.float),
-                            scale,
-                            int(zero_point),
-                            torch_type,
-                        )
-                    )
-                    .to(device)
-                    .to(float_type)
-                )
-
-                # Fake quantize operation
-                Y_prime = torch.fake_quantize_per_tensor_affine(
-                    X, scale, int(zero_point), quant_min, quant_max
-                )
-
-                torch.testing.assert_close(
-                    Y,
-                    Y_prime,
-                    rtol=tolerance,
-                    atol=tolerance,
-                    msg="Difference found between dequant+quant_per_tensor and fake_quantize_per_tensor",
-                )
+        """Test numerical consistency of per-tensor quantization on CPU."""
+        self._test_numerical_consistency_per_tensor(torch.device("cpu"))
 
 
 if __name__ == "__main__":
