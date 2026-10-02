@@ -9,12 +9,13 @@ import enum
 import importlib
 import json
 import warnings
-from typing import Any, Dict
+from typing import Any, Dict, Iterable
 
 import torch
 
 __all__ = [
     "AOBaseConfig",
+    "are_configs_equivalent",
     "config_from_dict",
     "config_to_dict",
     "ALLOWED_AO_MODULES",
@@ -65,6 +66,27 @@ class AOBaseConfig(abc.ABC):
     default Version of a config, should never change
     """
     version: int = _DEFAULT_VERSION
+
+
+def are_configs_equivalent(configs: Iterable[AOBaseConfig]) -> bool:
+    """Return whether all configs in an iterable compare equal.
+
+    This is useful when a workflow requires multiple modules to use the same
+    quantization recipe. Empty and single-item iterables return ``True``.
+
+    Args:
+        configs: Configs to compare.
+
+    Returns:
+        ``True`` if every config compares equal to the first config, or if the
+        iterable contains fewer than two configs. Otherwise, ``False``.
+    """
+    config_iterator = iter(configs)
+    try:
+        first_config = next(config_iterator)
+    except StopIteration:
+        return True
+    return all(config == first_config for config in config_iterator)
 
 
 class ConfigJSONEncoder(json.JSONEncoder):
