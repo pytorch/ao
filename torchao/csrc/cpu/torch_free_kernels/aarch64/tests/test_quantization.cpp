@@ -10,6 +10,10 @@
 #include <gtest/gtest.h>
 #include <torchao/csrc/cpu/torch_free_kernels/aarch64/quantization/quantize.h>
 #include <torchao/csrc/cpu/torch_free_kernels/aarch64/reduction/reduction.h>
+#include <algorithm>
+#include <array>
+#include <cfenv>
+#include <cmath>
 #include <vector>
 
 // Demonstrate some basic assertions.
@@ -69,6 +73,52 @@ TEST(test_quantize, ExpectedOutput) {
       EXPECT_NEAR(dq, expectedResult[i], 0.0001);
     }
   }
+}
+
+TEST(test_quantize, VectorAndScalarTailMatch) {
+  constexpr int size = 17;
+  constexpr float scale = 0.125f;
+  constexpr int8_t zero = -3;
+  constexpr int8_t qmin = -128;
+  constexpr int8_t qmax = 127;
+  std::array<float, size> vals = {
+      -20.0f,
+      -15.91f,
+      -8.03f,
+      -1.01f,
+      -0.19f,
+      0.01f,
+      0.18f,
+      1.01f,
+      2.01f,
+      3.91f,
+      5.01f,
+      7.01f,
+      9.01f,
+      12.91f,
+      15.99f,
+      19.99f,
+      0.31f};
+  std::array<int8_t, size> expected;
+  std::array<int8_t, size> actual;
+
+  const int original_rounding_mode = fegetround();
+  fesetround(FE_TONEAREST);
+  const float inv_scale = 1.0f / (scale + 1e-16f);
+  for (int i = 0; i < size; i++) {
+    const int qval = static_cast<int>(
+        std::nearbyint(zero + vals[i] * inv_scale));
+    expected[i] = static_cast<int8_t>(std::max(
+        static_cast<int>(qmin), std::min(qval, static_cast<int>(qmax))));
+  }
+
+  fesetround(FE_DOWNWARD);
+  torchao::kernels::cpu::aarch64::quantization::quantize(
+      actual.data(), vals.data(), size, scale, zero, qmin, qmax);
+  EXPECT_EQ(fegetround(), FE_DOWNWARD);
+  fesetround(original_rounding_mode);
+
+  EXPECT_EQ(actual, expected);
 }
 
 #endif // defined(__aarch64__) || defined(__ARM_NEON)
