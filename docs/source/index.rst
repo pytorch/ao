@@ -70,7 +70,7 @@ Please see the `torchao compatibility table <https://github.com/pytorch/ao/issue
 Optional Dependencies
 ^^^^^^^^^^^^^^^^^^^^^
 
-`MSLK <https://github.com/pytorch/MSLK>`__ is an optional runtime dependency that provides accelerated kernels for some of the workflows in torchao. Stable MSLK should be used with stable torchao, and nightly MSLK with nightly torchao.
+`MSLK <https://github.com/meta-pytorch/MSLK>`__ is an optional runtime dependency that provides accelerated kernels for some of the workflows in torchao. Stable MSLK should be used with stable torchao, and nightly MSLK with nightly torchao.
 
 .. code:: bash
 
