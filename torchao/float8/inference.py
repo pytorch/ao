@@ -83,6 +83,47 @@ def preprocess_scale(input_scale: torch.Tensor, input_shape: Tuple[int, ...]):
     return input_scale
 
 
+def _float8_scaled_mm_decomposition(
+    a: Tensor,
+    a_scale: Tensor,
+    b: Tensor,
+    b_scale: Tensor,
+    bias: Optional[Tensor],
+    output_dtype: torch.dtype,
+    use_fast_accum: bool,
+    output_scale: Optional[Tensor] = None,
+) -> Tensor:
+    if output_dtype == torch.float32 and bias is not None:
+        # Bias is not supported by _scaled_mm when output is fp32
+        output = torch._scaled_mm(
+            a,
+            b,
+            scale_a=a_scale,
+            scale_b=b_scale,
+            scale_result=output_scale,
+            out_dtype=output_dtype,
+            use_fast_accum=use_fast_accum,
+        )
+        return output + bias
+    return torch._scaled_mm(
+        a,
+        b,
+        scale_a=a_scale,
+        scale_b=b_scale,
+        bias=bias,
+        scale_result=output_scale,
+        out_dtype=output_dtype,
+        use_fast_accum=use_fast_accum,
+    )
+
+
+import torchao.ops  # noqa: E402, F401
+
+torch.library.impl("torchao::float8_scaled_mm", "CompositeImplicitAutograd")(
+    _float8_scaled_mm_decomposition
+)
+
+
 def addmm_float8_unwrapped_inference(
     a_data: Tensor,
     a_scale: Tensor,
@@ -97,29 +138,14 @@ def addmm_float8_unwrapped_inference(
     This is the unwrapped version of addmm_float8, which does not take in Float8TrainingTensors
     as inputs. This is used to standardize the logic between subclassed and non subclassed
     versions of the linear module.
-    """
 
-    if output_dtype == torch.float32 and bias is not None:
-        # Bias is not supported by _scaled_mm when output is fp32
-        output = torch._scaled_mm(
-            a_data,
-            b_data,
-            scale_a=a_scale,
-            scale_b=b_scale,
-            scale_result=output_scale,
-            out_dtype=output_dtype,
-            use_fast_accum=use_fast_accum,
-        )
-        return output + bias
-    return torch._scaled_mm(
-        a_data,
-        b_data,
-        scale_a=a_scale,
-        scale_b=b_scale,
-        bias=bias,
-        scale_result=output_scale,
-        out_dtype=output_dtype,
-        use_fast_accum=use_fast_accum,
+    Routes through torch.ops.torchao.float8_scaled_mm so that third-party
+    backends can register a PrivateUse1 impl instead of monkey-patching
+    this function or the entire Float8Tensor dispatch handler.
+    """
+    return torch.ops.torchao.float8_scaled_mm(
+        a_data, a_scale, b_data, b_scale,
+        bias, output_dtype, use_fast_accum, output_scale,
     )
 
 
