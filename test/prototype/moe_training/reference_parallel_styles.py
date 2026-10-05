@@ -191,7 +191,7 @@ class ExpertTensorParallel(ExpertParallel):
     def _token_combine(self, mod, routed_output, device_mesh):
         return super()._token_combine(mod, routed_output, self.ep_mesh)
 
-    def _apply(self, mod, device_mesh):
+    def _apply(self, module: nn.Module, device_mesh: DeviceMesh) -> nn.Module:
         self.tp_mesh = device_mesh["tp"]
         self.ep_mesh = device_mesh["ep"]
-        return super()._apply(mod, device_mesh)
+        return super()._apply(module, device_mesh)
