@@ -165,12 +165,12 @@ class ExpertTensorParallel(ExpertParallel):
         routed_input, num_tokens_per_expert = inputs
 
         routed_input = DTensor.from_local(
-            routed_input, device_mesh["tp"], (Replicate(),)
+            routed_input, self.tp_mesh, (Replicate(),)
         ).to_local(grad_placements=(Partial(),))
 
         inputs = (routed_input, num_tokens_per_expert)
 
-        return super()._token_dispatch(mod, inputs, device_mesh["ep"])
+        return super()._token_dispatch(mod, inputs, self.ep_mesh)
 
     def _partition_fn(self, name: str, mod: nn.Module, device_mesh: DeviceMesh) -> None:
         from torch.distributed.tensor import distribute_tensor
@@ -189,15 +189,9 @@ class ExpertTensorParallel(ExpertParallel):
         )
 
     def _token_combine(self, mod, routed_output, device_mesh):
-        return super()._token_combine(mod, routed_output, device_mesh["ep"])
+        return super()._token_combine(mod, routed_output, self.ep_mesh)
 
-    def _apply(self, module: nn.Module, device_mesh: DeviceMesh) -> nn.Module:
-        from torch.distributed.tensor import distribute_module
-
-        return distribute_module(
-            module,
-            device_mesh,
-            partition_fn=self._partition_fn,
-            input_fn=self._token_dispatch,
-            output_fn=self._token_combine,
-        )
+    def _apply(self, mod, device_mesh):
+        self.tp_mesh = device_mesh["tp"]
+        self.ep_mesh = device_mesh["ep"]
+        return super()._apply(mod, device_mesh)
