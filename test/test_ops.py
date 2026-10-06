@@ -16,10 +16,8 @@ from torch.testing._internal.common_utils import (
     instantiate_parametrized_tests,
     parametrize,
 )
-from torch.testing._internal.optests import opcheck
 
 IS_CUDA = torch.cuda.is_available() and torch.version.cuda
-IS_ROCM = torch.cuda.is_available() and torch.version.hip
 
 from torchao.quantization import PerGroup, PerRow, PerTensor
 from torchao.quantization.quant_primitives import (
@@ -272,26 +270,6 @@ class TestOps(TestCase):
 
 
 instantiate_parametrized_tests(TestOps)
-
-
-@pytest.mark.skipif(not IS_ROCM, reason="ROCm not available")
-def test_swizzle_mm():
-    test_utils = [
-        "test_schema",
-        "test_autograd_registration",
-        "test_faketensor",
-    ]
-
-    test_utils.append("test_aot_dispatch_dynamic")
-
-    mat1 = torch.randint(0, 16, dtype=torch.float, size=(16, 32), device="cuda")
-    mat2 = torch.randint(0, 16, dtype=torch.float, size=(32, 16), device="cuda")
-
-    opcheck(
-        torch.ops.torchao.swizzle_mm,
-        (mat1, mat2, False, False),
-        test_utils=test_utils,
-    )
 
 
 EMBEDINGBAG_MULTIHOT_SIZES = [1, 2, 3, 10]

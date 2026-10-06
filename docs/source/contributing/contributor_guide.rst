@@ -12,7 +12,6 @@ To contribute to existing code base:
 * Adding new quantization APIs: `torchao/quantization/quant_api.py <https://github.com/pytorch/ao/blob/main/torchao/quantization/quant_api.py>`__
 * Adding features to existing Tensor subclasses like ``Float8Tensor``, e.g. adding new operator support, making it trainable, add tensor parallelism support etc., `tensor subclasses <https://github.com/pytorch/ao/tree/main/torchao/quantization/quantize_/workflows>`__, `tests <https://github.com/pytorch/ao/tree/main/test/quantization/quantize_/workflows>`__
 * Adding new quantization primitive ops, e.g. slight variations of existing quantization primitive ops: `torchao/quantization/quant_primitives.py <https://github.com/pytorch/ao/blob/main/torchao/quantization/quant_primitives.py>`__
-* Adding new autotuned triton kernels: `torchao/kernel <https://github.com/pytorch/ao/tree/main/torchao/kernel>`__
 * Adding new custom cpu/cuda/mps kernels: `torchao/csrc <https://github.com/pytorch/ao/tree/main/torchao/csrc>`__
 
 Adding New Tensor Subclasses
@@ -35,12 +34,7 @@ Adding Efficient Kernels
 
 Custom triton kernels
 #####################
-Custom triton kernels can be implemented and registered in `torchao/kernel <https://github.com/pytorch/ao/tree/main/torchao/kernel>`__
-
-* `Implementation Example <https://github.com/pytorch/ao/blob/0bdde92114b470823aa24725bf3b0811e980c8ce/torchao/kernel/intmm_triton.py#L270-L302>`__
-* `Register as a custom op <https://github.com/pytorch/ao/blob/0bdde92114b470823aa24725bf3b0811e980c8ce/torchao/kernel/intmm_triton.py#L337-L364>`__
-
-You may need to define you own `autotuner <https://github.com/pytorch/ao/blob/main/torchao/kernel/autotuner.py>`__ as well.
+Custom triton kernels can be implemented alongside the tensor subclass or workflow that consumes them, and exposed as custom ops using the registration helpers in `torchao/ops.py <https://github.com/pytorch/ao/blob/main/torchao/ops.py>`__.
 
 Custom hand written kernels
 ###########################
@@ -140,24 +134,4 @@ The output of all linear shapes can be copy pasted to microbenchmarking script c
 
 For benchmark helper functions, right now we have `1 <https://github.com/pytorch/ao/blob/0bdde92114b470823aa24725bf3b0811e980c8ce/torchao/utils.py#L55>`__ and `2 <https://github.com/pytorch/ao/blob/0bdde92114b470823aa24725bf3b0811e980c8ce/torchao/utils.py#L139>`__, feel free to use either one for now, but we'll probably keep one in the future.
 
-Model Benchmarks and Eval
-~~~~~~~~~~~~~~~~~~~~~~~~~
-
-After you have the quantization flow implemented, you can run benchmark and eval on llama (llama2/llama3) or sam models that are already modified to be friendly to torch.compile, and compare with existing techniques in torchao.
-
-Note: llama model (llama2/llama3) is our representative model for memory bound models and sam is our representative model for compute bound models.
-
-* `llama <https://github.com/pytorch/ao/tree/main/torchao/_models/llama>`__
-
-  * `benchmark <https://github.com/pytorch/ao/blob/main/torchao/_models/llama/generate.py>`__
-  * `eval <https://github.com/pytorch/ao/blob/main/torchao/_models/llama/eval.py>`__
-
-* `sam <https://github.com/pytorch/ao/tree/main/torchao/_models/sam>`__
-
-  * `benchmark and eval <https://github.com/pytorch/ao/blob/main/torchao/_models/sam/eval_combo.py>`__
-
-Please checkout the ``--help`` option for each of the script to understand the supported options, e.g. you can use ``--profile=profile_path`` to get the chrome trace of the run to understand detailed `chrome trace <https://pytorch.org/tutorials/recipes/recipes/profiler_recipe.html#using-tracing-functionality>`__.
-
-Please let us know if there are any new important models that makes sense to be added to torchao model benchmark/eval folder.
-
-Please also check out `Benchmarking User Guide <https://docs.pytorch.org/ao/main/benchmarking_user_guide.html>`__ and `Benchmarking API Guide <https://docs.pytorch.org/ao/main/benchmarking_api_guide.html>`__ to understand how to use our benchmarking framework.
+For quantization microbenchmarks, see the ``benchmarks/`` directory.

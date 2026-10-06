@@ -7,7 +7,6 @@
 #### Code structure
 
 - ~~`low_bit_optim`~~ - re-implementation of 8-bit optimizers from [bitsandbytes](https://github.com/TimDettmers/bitsandbytes) and 4-bit optimizers from [lpmm](https://github.com/thu-ml/low-bit-optimizers). **Promoted to `torchao.optim`.**
-- [`spinquant`](spinquant) - re-implementation of [SpinQuant](https://arxiv.org/abs/2405.16406)
 
 #### Roadmap
 

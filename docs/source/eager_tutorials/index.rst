@@ -17,4 +17,3 @@ Tutorials for quantization using eager mode execution.
    subclass_basic
    subclass_advanced
    mxfp8_expert_parallel_training
-   debugging_weights_and_activations

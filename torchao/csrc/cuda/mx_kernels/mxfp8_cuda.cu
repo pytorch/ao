@@ -26,8 +26,6 @@ DType get_input_dtype(const Tensor &t) {
   switch (t.scalar_type()) {
   case torch::headeronly::ScalarType::Float:
     return DType::kFloat32;
-  case torch::headeronly::ScalarType::Half:
-    return DType::kFloat16;
   case torch::headeronly::ScalarType::BFloat16:
     return DType::kBFloat16;
   case torch::headeronly::ScalarType::Byte:
@@ -66,6 +64,11 @@ void mxfp8_quantize_cuda(const Tensor &input,
                          int64_t scale_dim_y,
                          const std::string &fp8_format,
                          const std::string &scaling_mode) {
+
+  // This op encodes TMA descriptors through the driver API, which needs a
+  // current context on the calling thread. Autograd backward runs on a worker
+  // thread that may not have used CUDA yet, so bind it before going further.
+  ensure_current_context();
 
   // Get tensor properties
   const int64_t rows = input.size(0);

@@ -31,6 +31,9 @@ class MXFP8Dim1CastKernelChoice(Enum):
     CUDA = "cuda"
     TORCH = "torch"
     CUTEDSL = "cutedsl"
+    # AMD CDNA3+ counterpart of CUTEDSL via FlyDSL. Supports both FLOOR and
+    # RCEIL scale modes; defaults to RCEIL (matches CUTEDSL).
+    FLYDSL = "flydsl"
 
 
 # register as pytree constant so we can use dynamo nonstrict trace in torchao.prototype.moe_training.ep

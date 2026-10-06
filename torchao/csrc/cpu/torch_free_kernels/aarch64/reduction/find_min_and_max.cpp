@@ -31,8 +31,19 @@ void torchao::kernels::cpu::aarch64::reduction::find_min_and_max(
       mins = vminq_f32(mins, v);
       maxes = vmaxq_f32(maxes, v);
     }
+#if defined(__aarch64__)
     min = vminvq_f32(mins);
     max = vmaxvq_f32(maxes);
+#else
+    // vminvq_f32/vmaxvq_f32 (across-vector reductions) are AArch64-only. On
+    // AArch32 NEON, fold the 128-bit vector to a scalar with pairwise reductions.
+    float32x2_t min_pair = vpmin_f32(vget_low_f32(mins), vget_high_f32(mins));
+    min_pair = vpmin_f32(min_pair, min_pair);
+    min = vget_lane_f32(min_pair, 0);
+    float32x2_t max_pair = vpmax_f32(vget_low_f32(maxes), vget_high_f32(maxes));
+    max_pair = vpmax_f32(max_pair, max_pair);
+    max = vget_lane_f32(max_pair, 0);
+#endif
   }
 
   // Remainder

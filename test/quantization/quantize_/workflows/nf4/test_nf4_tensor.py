@@ -30,6 +30,8 @@ from torch.testing._internal.common_utils import (
     run_tests,
 )
 
+from torchao.testing.utils import skip_if_xpu
+
 if common_utils.SEED is None:
     common_utils.SEED = 1234
 
@@ -223,15 +225,17 @@ class TestNF4Linear(TestCase):
         input_tensor = torch.rand(128, device="cpu")
         input_tensor_nf4 = to_nf4(input_tensor, 32, 2)
         nf4_to_dtype = input_tensor_nf4.to(dtype)
-        torch.testing.assert_allclose(input_tensor, nf4_to_dtype, atol=0.13, rtol=0.13)
+        torch.testing.assert_close(
+            input_tensor, nf4_to_dtype, atol=0.13, rtol=0.13, check_dtype=False
+        )
 
         if torch.accelerator.is_available():
             device = get_current_accelerator_device()
             input_tensor = torch.rand(128, device=device)
             input_tensor_nf4 = to_nf4(input_tensor, 32, 2)
             nf4_to_dtype = input_tensor_nf4.to(dtype)
-            torch.testing.assert_allclose(
-                input_tensor, nf4_to_dtype, atol=0.13, rtol=0.13
+            torch.testing.assert_close(
+                input_tensor, nf4_to_dtype, atol=0.13, rtol=0.13, check_dtype=False
             )
 
     @unittest.skipIf(not torch.accelerator.is_available(), "Need gpu for test")
@@ -766,6 +770,7 @@ class TestQLoRA(FSDPTest):
             self.assertEqual(fsdp_loss, base_loss)
 
 
+@skip_if_xpu("Distributed test is not supported on XPU currently")
 class TestComm(FSDPTest):
     @property
     def world_size(self) -> int:

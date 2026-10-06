@@ -25,7 +25,6 @@ from torchao.float8.float8_training_tensor import (
 from torchao.float8.fsdp_utils import WeightWithDynamicFloat8CastTensor
 
 
-@torch._dynamo.allow_in_graph
 class matmul_with_hp_or_float8_args(torch.autograd.Function):
     """
     Like torch.matmul, but with the arguments in either high precision or float8.

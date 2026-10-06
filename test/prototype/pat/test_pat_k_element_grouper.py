@@ -20,18 +20,18 @@ class TestKElementGrouper(common_utils.TestCase):
         self.reg_lambda = 1.0
         self.prox_map = ProxGroupLasso(self.reg_lambda)
 
-    @common_utils.parametrize("k", (2, 4))
-    def test_even_divisible(self, k):
-        """Tensor (2, 8) with k dividing 8 evenly."""
-        M, N = 2, 8
+    @common_utils.parametrize(
+        "M,N,k",
+        [(2, 8, 1), (2, 8, 2), (2, 8, 4), (3, 6, 6)],
+    )
+    def test_divisible_shape_count_and_round_trip(self, M, N, k):
         p = torch.nn.Parameter(torch.randn(M, N))
-        orig_shape = p.shape
+        original = p.detach().clone()
         with KElementGrouper(p, k=k) as grouper:
             self.assertEqual(grouper.group_size(), k)
             self.assertEqual(grouper.n_groups(), M * N // k)
-            self.assertEqual(grouper.p.data.shape, (M * N // k, k))
-        # Shape restored after exit
-        self.assertEqual(p.shape, orig_shape)
+            self.assertEqual(grouper.p.shape, (M * N // k, k))
+        self.assertEqual(p, original)
 
     @common_utils.parametrize("k", (4,))
     def test_remainder(self, k):
@@ -49,21 +49,14 @@ class TestKElementGrouper(common_utils.TestCase):
         self.assertEqual(p.shape, orig_shape)
         torch.testing.assert_close(p.data, orig_data)
 
-    def test_data_preserved_after_context(self):
-        """Verify data values survive the enter/exit round-trip."""
-        p = torch.nn.Parameter(torch.arange(12, dtype=torch.float).reshape(3, 4))
-        orig_data = p.data.clone()
-        with KElementGrouper(p, k=2):
-            pass
-        torch.testing.assert_close(p.data, orig_data)
+    def test_noncontiguous_padded_write_back(self):
+        p = torch.arange(30.0).reshape(2, 3, 5).transpose(1, 2)
+        self.assertFalse(p.is_contiguous())
 
-    def test_data_preserved_remainder(self):
-        """Verify data round-trips correctly with padding."""
-        p = torch.nn.Parameter(torch.arange(15, dtype=torch.float).reshape(3, 5))
-        orig_data = p.data.clone()
-        with KElementGrouper(p, k=4):
-            pass
-        torch.testing.assert_close(p.data, orig_data)
+        with KElementGrouper(p, k=4) as grouper:
+            grouper.p.zero_()
+
+        self.assertTrue(p.eq(0).all())
 
     @common_utils.parametrize(
         "shape,k",
@@ -106,22 +99,6 @@ class TestKElementGrouper(common_utils.TestCase):
             )(grouper.p, gamma)
         # With a large enough gamma, all groups should be pruned to zero
         self.assertTrue(torch.all(p.data == 0))
-
-    def test_k_equals_one(self):
-        """k=1 should behave like element-wise grouping."""
-        M, N = 3, 5
-        p = torch.nn.Parameter(torch.randn(M, N))
-        with KElementGrouper(p, k=1) as grouper:
-            self.assertEqual(grouper.group_size(), 1)
-            self.assertEqual(grouper.n_groups(), M * N)
-
-    def test_k_equals_n(self):
-        """k=N means each row is one group."""
-        M, N = 3, 6
-        p = torch.nn.Parameter(torch.randn(M, N))
-        with KElementGrouper(p, k=N) as grouper:
-            self.assertEqual(grouper.group_size(), N)
-            self.assertEqual(grouper.n_groups(), M)
 
     def test_k_must_be_positive(self):
         p = torch.nn.Parameter(torch.randn(2, 4))

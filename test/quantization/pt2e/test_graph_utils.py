@@ -121,14 +121,18 @@ class TestGraphUtils(TestCase):
             *copy.deepcopy(example_inputs),
             aten_graph=True,
         )
-        customized_equivalent_types = get_equivalent_types()
+        original_equivalent_types = copy.deepcopy(get_equivalent_types())
+        customized_equivalent_types = copy.deepcopy(original_equivalent_types)
         customized_equivalent_types.append({torch.nn.ReLU6, torch.nn.functional.relu6})
-        update_equivalent_types_dict(customized_equivalent_types)
-        fused_partitions = find_sequential_partitions(
-            m,
-            [torch.nn.Conv2d, torch.nn.ReLU6],
-        )
-        self.assertEqual(len(fused_partitions), 1)
+        try:
+            update_equivalent_types_dict(customized_equivalent_types)
+            fused_partitions = find_sequential_partitions(
+                m,
+                [torch.nn.Conv2d, torch.nn.ReLU6],
+            )
+            self.assertEqual(len(fused_partitions), 1)
+        finally:
+            update_equivalent_types_dict(original_equivalent_types)
 
     @unittest.skipIf(IS_WINDOWS, "torch.compile is not supported on Windows")
     def test_collect_producer_nodes_no_placeholder(self):

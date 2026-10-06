@@ -108,6 +108,16 @@ def convert_to_float8_training(
        :language: python
     """
     torch._C._log_api_usage_once("torchao.float8.convert_to_float8_training")
+
+    # Work around a Triton fp8 store miscompile triggered by inductor's
+    # PropagateNan.ALL min/max codegen (triton-lang/triton#11111). Scoped to the
+    # float8 training entry point (rather than at import) so it only affects users
+    # who actually convert a model to float8 training, and is applied here before
+    # any float8 kernel is compiled.
+    from torchao.float8._inductor_patch import _patch_inductor_min_max_codegen
+
+    _patch_inductor_min_max_codegen()
+
     if config is None:
         config = Float8LinearConfig()
 

@@ -6,8 +6,17 @@
 
 import pytest
 import torch
+from torch._dynamo.testing import CompileCounterWithBackend
+from torch.nn import functional as F
+from torch.utils._triton import has_triton
 
-from torchao.utils import is_MI300, is_MI350, is_sm_at_least_90
+from torchao.utils import (
+    is_MI300,
+    is_MI350,
+    is_sm_at_least_90,
+    is_sm_at_least_100,
+    torch_version_at_least,
+)
 
 if not (
     torch.cuda.is_available() and (is_sm_at_least_90() or is_MI300() or is_MI350())
@@ -22,11 +31,35 @@ from torchao.prototype.moe_training.nvfp4_grouped_mm import (
     _emulated_nvfp4_scaled_grouped_mm_2d_2d,
     _emulated_nvfp4_scaled_grouped_mm_2d_3d,
 )
+from torchao.prototype.moe_training.nvfp4_training.hadamard_cutedsl_utils import (
+    cutedsl_nvfp4_kernels_available,
+)
 from torchao.prototype.moe_training.utils import generate_jagged_offs
 from torchao.prototype.mx_formats.nvfp4_tensor import nvfp4_quantize
+from torchao.quantization.quantize_.common.kernel_preference import KernelPreference
 from torchao.testing.utils import skip_if_rocm
 
+if has_triton() and is_sm_at_least_100() and torch_version_at_least("2.10.0"):
+    from torchao.prototype.moe_training.nvfp4_training import nvfp4_grouped_mm
+    from torchao.prototype.moe_training.nvfp4_training.nvfp4_grouped_mm import (
+        _resolve_backends,
+        _to_nvfp4_rht_rs_then_scaled_grouped_mm,
+    )
+
 BLOCK_SIZE = 16
+
+_KERNEL_PREFERENCES = [
+    pytest.param(KernelPreference.AUTO, id="auto"),
+    pytest.param(KernelPreference.TRITON, id="triton"),
+    pytest.param(
+        KernelPreference.CUTEDSL,
+        marks=pytest.mark.skipif(
+            not cutedsl_nvfp4_kernels_available(),
+            reason="requires the CuteDSL runtime",
+        ),
+        id="cutedsl",
+    ),
+]
 
 
 def _quantize_for_test(x: torch.Tensor):
@@ -122,6 +155,323 @@ def test_emulated_nvfp4_grouped_gemm_2d_2d(M, K, N, num_experts):
     sqnr = compute_error(ref_out, out)
     min_sqnr = 16.0
     assert sqnr >= min_sqnr, f"sqnr {sqnr} is too low, must be >= {min_sqnr}"
+
+
+@skip_if_rocm("ROCm not supported")
+@pytest.mark.skipif(not has_triton(), reason="unsupported without triton")
+@pytest.mark.skipif(not is_sm_at_least_100(), reason="Requires SM100+")
+@pytest.mark.skipif(
+    not torch_version_at_least("2.10.0"), reason="requires PyTorch 2.10+"
+)
+# Keep the ungrouped dim above 128 here. The columnwise scale buffer is
+# (ungrouped // 128, tokens // 64, 32, 16), so at or below one 128-row tile the
+# per-group and whole-extent block layouts are the same permutation and wgrad
+# layout bugs are invisible at any expert count -- 8 experts at K=N=128 scores
+# the same 15.06 dB with or without such a bug. Expert count is not the axis
+# that gives this coverage; the ungrouped dim is.
+@pytest.mark.parametrize("M,K,N", [(1024, 1024, 1024)])
+@pytest.mark.parametrize("num_experts", (1, 8))
+@pytest.mark.parametrize("kernel_preference", _KERNEL_PREFERENCES)
+def test_nvfp4_grouped_gemm_fwd_bwd(M, K, N, num_experts, kernel_preference):
+    torch.manual_seed(42)
+    x = torch.randn(M, K, dtype=torch.bfloat16, device="cuda", requires_grad=True)
+    weight = torch.randn(
+        num_experts,
+        N,
+        K,
+        dtype=torch.bfloat16,
+        device="cuda",
+        requires_grad=True,
+    )
+    offs = generate_jagged_offs(num_experts, M, multiple_of=128, dtype=torch.int32)
+    sign_vector = tuple(1 if i % 2 == 0 else -1 for i in range(16))
+    sr_seed = torch.tensor([1234], dtype=torch.int64, device="cuda")
+
+    x_ref = x.detach().clone().requires_grad_(True)
+    weight_ref = weight.detach().clone().requires_grad_(True)
+    out_ref = torch._grouped_mm(
+        x_ref,
+        weight_ref.transpose(-2, -1),
+        offs=offs.clone(),
+        out_dtype=torch.bfloat16,
+    )
+    out = _to_nvfp4_rht_rs_then_scaled_grouped_mm(
+        x,
+        weight,
+        sign_vector,
+        sr_seed,
+        offs=offs,
+        pad_token_groups_for_grouped_mm=False,
+        kernel_preference=kernel_preference,
+    )
+
+    assert out.shape == out_ref.shape == (M, N)
+    output_sqnr = compute_error(out_ref, out)
+    assert output_sqnr >= 15.0, f"Output SQNR {output_sqnr} is below 15.0"
+
+    labels = torch.ones_like(out_ref)
+    F.mse_loss(out_ref, labels).backward()
+    F.mse_loss(out, labels).backward()
+
+    assert x.grad.shape == x_ref.grad.shape == (M, K)
+    input_grad_sqnr = compute_error(x_ref.grad, x.grad)
+    assert input_grad_sqnr >= 14.0, f"Input grad SQNR {input_grad_sqnr} is below 14.0"
+
+    assert weight.grad.shape == weight_ref.grad.shape == (num_experts, N, K)
+    # One bound for any expert count. The multi-expert case had been relaxed to
+    # 5.0, which hid a columnwise scale-layout bug in the wgrad GEMM that put it
+    # at ~6.7 dB; that is fixed. 12.0 keeps this a regression test for it while
+    # clearing the tightest legitimate shape (8 experts x 128 rows measures
+    # 13.4 dB -- fewer tokens per expert means less averaging of quantization
+    # noise). Single-expert shapes run ~15.5 dB.
+    min_weight_grad_sqnr = 12.0
+    weight_grad_sqnr = compute_error(weight_ref.grad, weight.grad)
+    assert weight_grad_sqnr >= min_weight_grad_sqnr, (
+        f"Weight grad SQNR {weight_grad_sqnr} is below {min_weight_grad_sqnr}"
+    )
+
+
+@skip_if_rocm("ROCm not supported")
+@pytest.mark.skipif(not has_triton(), reason="unsupported without triton")
+@pytest.mark.skipif(not is_sm_at_least_100(), reason="Requires SM100+")
+@pytest.mark.skipif(
+    not torch_version_at_least("2.10.0"), reason="requires PyTorch 2.10+"
+)
+@pytest.mark.parametrize("kernel_preference", _KERNEL_PREFERENCES)
+def test_nvfp4_grouped_gemm_compile_fwd_bwd(kernel_preference):
+    """Compiles once under fullgraph=True and keeps eager numerics across jagged routings.
+
+    The invariant worth pinning is the frame count. Routing changes every step in
+    training, so `offs` holds different values on every call; if Dynamo ever starts
+    guarding on its contents rather than treating it as an opaque tensor input, this goes
+    from one compile to one per step -- a production perf cliff that numerics assertions
+    cannot see. Five steps with five fresh routings must still compile exactly one graph.
+
+    E = 4 is load-bearing. At E = 8 with M = 1024 and multiple_of = 128 there are exactly
+    8 candidate offsets and generate_jagged_offs must take 7 of the first 7, so `offs` is
+    forced to [128, 256, ..., 1024] -- uniform, identical every call, and no test of the
+    jagged path at all. E = 4 draws 3 of 7 and actually varies.
+
+    Scope limit: _to_nvfp4_rht_rs_then_scaled_grouped_mm carries @conditional_nostrict_trace,
+    so Dynamo captures the whole call as one opaque invoke_leaf_function node and never
+    traces into _NVFP4GroupedMM's forward or backward. fullgraph=True therefore guards the
+    call boundary -- argument flattening, the sign_vector/KernelPreference constants,
+    autograd wiring around the leaf -- not the bodies. Backward runs eager over a compiled
+    forward.
+
+    SQNR bounds are the ones test_nvfp4_grouped_gemm_fwd_bwd justifies; this asserts
+    compile does not move them, not what they should be."""
+    torch.manual_seed(42)
+    M = K = N = 1024
+    num_experts = 4
+    sign_vector = tuple(1 if i % 2 == 0 else -1 for i in range(16))
+    sr_seed = torch.tensor([1234], dtype=torch.int64, device="cuda")
+
+    x = torch.randn(M, K, dtype=torch.bfloat16, device="cuda", requires_grad=True)
+    weight = torch.randn(
+        num_experts, N, K, dtype=torch.bfloat16, device="cuda", requires_grad=True
+    )
+    x_ref = x.detach().clone().requires_grad_(True)
+    weight_ref = weight.detach().clone().requires_grad_(True)
+
+    def grouped_mm(a, b, o):
+        return _to_nvfp4_rht_rs_then_scaled_grouped_mm(
+            a,
+            b,
+            sign_vector,
+            sr_seed,
+            offs=o,
+            pad_token_groups_for_grouped_mm=False,
+            kernel_preference=kernel_preference,
+        )
+
+    # reset() so the frame count below reflects this parametrization alone -- Dynamo's
+    # code cache is global and the three kernel_preference cases share a code object.
+    torch._dynamo.reset()
+    counter = CompileCounterWithBackend("inductor")
+    compiled = torch.compile(grouped_mm, fullgraph=True, backend=counter)
+
+    for step in range(5):
+        offs = generate_jagged_offs(num_experts, M, multiple_of=128, dtype=torch.int32)
+        for t in (x, weight, x_ref, weight_ref):
+            t.grad = None
+
+        out_ref = torch._grouped_mm(
+            x_ref,
+            weight_ref.transpose(-2, -1),
+            offs=offs.clone(),
+            out_dtype=torch.bfloat16,
+        )
+        out = compiled(x, weight, offs)
+
+        assert out.shape == out_ref.shape == (M, N)
+        assert torch.isfinite(out).all()
+        output_sqnr = compute_error(out_ref, out)
+        assert output_sqnr >= 15.0, (
+            f"step {step} offs {offs.tolist()}: output SQNR {output_sqnr} is below 15.0"
+        )
+
+        labels = torch.ones_like(out_ref)
+        F.mse_loss(out_ref, labels).backward()
+        F.mse_loss(out, labels).backward()
+
+        input_grad_sqnr = compute_error(x_ref.grad, x.grad)
+        assert input_grad_sqnr >= 14.0, (
+            f"step {step} offs {offs.tolist()}: input grad SQNR {input_grad_sqnr} "
+            "is below 14.0"
+        )
+        weight_grad_sqnr = compute_error(weight_ref.grad, weight.grad)
+        assert weight_grad_sqnr >= 12.0, (
+            f"step {step} offs {offs.tolist()}: weight grad SQNR {weight_grad_sqnr} "
+            "is below 12.0"
+        )
+
+    assert counter.frame_count == 1, (
+        f"expected one compiled graph across 5 routings, got {counter.frame_count}"
+    )
+
+
+@pytest.mark.skipif(not has_triton(), reason="unsupported without triton")
+@pytest.mark.skipif(not is_sm_at_least_100(), reason="Requires SM100+")
+@pytest.mark.skipif(
+    not torch_version_at_least("2.10.0"), reason="requires PyTorch 2.10+"
+)
+def test_resolve_backends_falls_back_without_cutedsl(monkeypatch):
+    """AUTO degrades to Triton where CuteDSL cannot run; CUTEDSL says so instead."""
+    monkeypatch.setattr(
+        nvfp4_grouped_mm, "cutedsl_nvfp4_kernels_available", lambda: False
+    )
+
+    assert _resolve_backends(KernelPreference.AUTO, 8) == (False, False)
+    assert _resolve_backends(KernelPreference.TRITON, 8) == (False, False)
+    with pytest.raises(RuntimeError, match="CUTEDSL requires"):
+        _resolve_backends(KernelPreference.CUTEDSL, 8)
+    with pytest.raises(ValueError, match="AUTO, TRITON, or CUTEDSL"):
+        _resolve_backends(KernelPreference.TORCH, 8)
+
+
+@pytest.mark.skipif(not has_triton(), reason="unsupported without triton")
+@pytest.mark.skipif(not is_sm_at_least_100(), reason="Requires SM100+")
+@pytest.mark.skipif(
+    not torch_version_at_least("2.10.0"), reason="requires PyTorch 2.10+"
+)
+@pytest.mark.skipif(
+    not cutedsl_nvfp4_kernels_available(), reason="requires the CuteDSL runtime"
+)
+def test_resolve_backends_is_per_op():
+    """The expert cap belongs to the RHT ops alone: the weight quantize now accepts
+    every shape the grouped GEMM does, so the RHT path falling back must not drag it."""
+    assert _resolve_backends(KernelPreference.AUTO, 8) == (True, True)
+    # 65 experts exceeds the CuteDSL group cap; the weight quantize is unaffected.
+    assert _resolve_backends(KernelPreference.AUTO, 65) == (False, True)
+
+    with pytest.raises(ValueError, match="at most 64 experts"):
+        _resolve_backends(KernelPreference.CUTEDSL, 65)
+
+
+@skip_if_rocm("ROCm not supported")
+@pytest.mark.skipif(not has_triton(), reason="unsupported without triton")
+@pytest.mark.skipif(not is_sm_at_least_100(), reason="Requires SM100+")
+@pytest.mark.skipif(
+    not torch_version_at_least("2.10.0"), reason="requires PyTorch 2.10+"
+)
+def test_nvfp4_grouped_gemm_unaligned_padding():
+    # K=N=256, not 128: this is the only coverage of the padded/unaligned group
+    # path, and that path depends on the padding restoring the 128-aligned group
+    # boundaries the columnwise scale store requires. At 128 the scale layout is
+    # a single row-tile and degenerate (see the note above the fwd/bwd shapes),
+    # so the test cannot see a layout error in the path it exists to guard.
+    M, K, N, num_experts = 256, 256, 256, 2
+    torch.manual_seed(42)
+    x = torch.randn(M, K, dtype=torch.bfloat16, device="cuda", requires_grad=True)
+    weight = torch.randn(
+        num_experts,
+        N,
+        K,
+        dtype=torch.bfloat16,
+        device="cuda",
+        requires_grad=True,
+    )
+    offs = torch.tensor([64, M], dtype=torch.int32, device="cuda")
+    sign_vector = tuple(1 if i % 2 == 0 else -1 for i in range(16))
+    sr_seed = torch.tensor([1234], dtype=torch.int64, device="cuda")
+
+    x_ref = x.detach().clone().requires_grad_(True)
+    weight_ref = weight.detach().clone().requires_grad_(True)
+    out_ref = torch._grouped_mm(
+        x_ref,
+        weight_ref.transpose(-2, -1),
+        offs=offs,
+        out_dtype=torch.bfloat16,
+    )
+    out = _to_nvfp4_rht_rs_then_scaled_grouped_mm(
+        x,
+        weight,
+        sign_vector,
+        sr_seed,
+        offs=offs,
+        pad_token_groups_for_grouped_mm=True,
+    )
+    labels = torch.ones_like(out)
+    F.mse_loss(out_ref, labels).backward()
+    F.mse_loss(out, labels).backward()
+
+    assert out.shape == out_ref.shape == (M, N)
+    assert compute_error(out_ref, out) >= 15.0
+    assert x.grad.shape == x_ref.grad.shape == (M, K)
+    assert compute_error(x_ref.grad, x.grad) >= 14.0
+    assert weight.grad.shape == weight_ref.grad.shape == (num_experts, N, K)
+    assert compute_error(weight_ref.grad, weight.grad) >= 12.0
+
+
+@skip_if_rocm("ROCm not supported")
+@pytest.mark.skipif(not has_triton(), reason="unsupported without triton")
+@pytest.mark.skipif(not is_sm_at_least_100(), reason="Requires SM100+")
+@pytest.mark.skipif(
+    not torch_version_at_least("2.10.0"), reason="requires PyTorch 2.10+"
+)
+@pytest.mark.parametrize("kernel_preference", _KERNEL_PREFERENCES)
+@torch.no_grad()
+def test_nvfp4_grouped_gemm_masks_allocation_tail(kernel_preference, monkeypatch):
+    """Dispatcher capacity past the final expert must remain unaddressable.
+
+    Parametrized because both backends skip the tail by their own means -- Triton
+    early-outs the tile, CuteDSL bounds its traversal -- and an unparametrized call
+    takes AUTO, which resolves to CuteDSL on every box that can run this file and so
+    never reaches the Triton path at all.
+    """
+    logical_rows, capacity_rows, K, N = 128, 256, 128, 128
+    torch.manual_seed(42)
+    valid = torch.randn(logical_rows, K, dtype=torch.bfloat16, device="cuda")
+    capacity = torch.empty(capacity_rows, K, dtype=torch.bfloat16, device="cuda")
+    capacity[:logical_rows].copy_(valid)
+    capacity[logical_rows:].fill_(1000.0)
+    weight = torch.randn(1, N, K, dtype=torch.bfloat16, device="cuda")
+    offs = torch.tensor([logical_rows], dtype=torch.int32, device="cuda")
+    sign_vector = tuple(1 if i % 2 == 0 else -1 for i in range(16))
+    sr_seed = torch.tensor([1234], dtype=torch.int64, device="cuda")
+    monkeypatch.setattr(nvfp4_grouped_mm, "_DEVICE_ASSERTS", True)
+
+    expected = _to_nvfp4_rht_rs_then_scaled_grouped_mm(
+        valid,
+        weight,
+        sign_vector,
+        sr_seed,
+        offs=offs,
+        pad_token_groups_for_grouped_mm=False,
+        kernel_preference=kernel_preference,
+    )
+    actual = _to_nvfp4_rht_rs_then_scaled_grouped_mm(
+        capacity,
+        weight,
+        sign_vector,
+        sr_seed,
+        offs=offs,
+        pad_token_groups_for_grouped_mm=False,
+        kernel_preference=kernel_preference,
+    )
+
+    assert torch.equal(actual[:logical_rows], expected)
 
 
 def test_nvfp4_dequant_roundtrip():

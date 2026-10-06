@@ -52,7 +52,6 @@ This page provides an overview of the various workflows available in torchao.
 | Intel® BMG | int8 | int8 | 🟠 | 🟢 [(link)](qat.md) | ⚪ | 🟢 [(link)](inference.md) |
 
 ### Other
-* [Sparsity README.md](https://github.com/pytorch/ao/tree/main/torchao/sparsity/README.md), includes different techniques such as 2:4 sparsity and block sparsity
 * [the prototype folder](https://github.com/pytorch/ao/tree/main/torchao/prototype) for other prototype features
 
 ```{toctree}

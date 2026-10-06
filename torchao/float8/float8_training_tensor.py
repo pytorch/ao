@@ -119,7 +119,6 @@ def choose_scaled_mm_config(
         raise AssertionError(f"unexpected a_role {a_role} and b_role {b_role}")
 
 
-@torch._dynamo.allow_in_graph
 class _ToFloat8ConstrFunc(torch.autograd.Function):
     """
     A differentiable conversion to fp8.
@@ -192,7 +191,6 @@ class _ToFloat8ConstrFunc(torch.autograd.Function):
         return g, None, None, None, None, None
 
 
-@torch._dynamo.allow_in_graph
 class _FromFloat8ConstrFunc(torch.autograd.Function):
     """
     A differentiable conversion from fp8.

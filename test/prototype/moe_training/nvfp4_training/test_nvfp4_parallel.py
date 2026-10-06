@@ -24,6 +24,9 @@ from torch.distributed.tensor import DTensor, Replicate, Shard
 from torch.distributed.tensor.parallel import parallelize_module
 from torch.utils._triton import has_triton
 
+from torchao.prototype.moe_training.nvfp4_training.hadamard_cutedsl_utils import (
+    cutedsl_nvfp4_kernels_available,
+)
 from torchao.prototype.moe_training.nvfp4_training.hadamard_utils import (
     prepare_for_cuda_graph,
 )
@@ -227,7 +230,7 @@ def test_swap_first_dims(distributed_env: DeviceMesh):
 def test_column_single_rank_equivalence(distributed_env: DeviceMesh):
     """Verify the TP autograd function matches the single-GPU NVFP4 path at world_size=1."""
     from torchao.prototype.moe_training.nvfp4_training.nvfp4_linear import (
-        nvfp4_mm_triton,
+        nvfp4_matmul,
     )
 
     mesh = distributed_env
@@ -247,7 +250,7 @@ def test_column_single_rank_equivalence(distributed_env: DeviceMesh):
 
     # Single-GPU reference
     sr_seed_ref = sr_seed.clone()
-    y_ref = nvfp4_mm_triton.apply(
+    y_ref = nvfp4_matmul.apply(
         x.clone(), w.clone(), bias.clone(), sr_seed_ref, _CUSTOM_RHT_SIGN_VECTOR
     )
 
@@ -270,7 +273,7 @@ def test_column_single_rank_equivalence(distributed_env: DeviceMesh):
 def test_column_single_rank_backward_equivalence(distributed_env: DeviceMesh):
     """Verify column-parallel backward matches the single-GPU NVFP4 path at world_size=1."""
     from torchao.prototype.moe_training.nvfp4_training.nvfp4_linear import (
-        nvfp4_mm_triton,
+        nvfp4_matmul,
     )
 
     mesh = distributed_env
@@ -292,7 +295,7 @@ def test_column_single_rank_backward_equivalence(distributed_env: DeviceMesh):
     x_ref = x.clone().detach().requires_grad_(True)
     w_ref = w.clone().detach().requires_grad_(True)
     bias_ref = bias.clone().detach().requires_grad_(True)
-    y_ref = nvfp4_mm_triton.apply(
+    y_ref = nvfp4_matmul.apply(
         x_ref, w_ref, bias_ref, sr_seed.clone(), _CUSTOM_RHT_SIGN_VECTOR
     )
 
@@ -569,7 +572,7 @@ def test_column_parallelize_module(distributed_env: DeviceMesh):
 def test_row_single_rank_equivalence(distributed_env: DeviceMesh):
     """Verify the row-parallel autograd function matches the single-GPU NVFP4 path at world_size=1."""
     from torchao.prototype.moe_training.nvfp4_training.nvfp4_linear import (
-        nvfp4_mm_triton,
+        nvfp4_matmul,
     )
 
     mesh = distributed_env
@@ -588,7 +591,7 @@ def test_row_single_rank_equivalence(distributed_env: DeviceMesh):
     sr_seed = torch.randint(-(2**63), 2**63 - 1, (1,), dtype=torch.int64, device=device)
 
     sr_seed_ref = sr_seed.clone()
-    y_ref = nvfp4_mm_triton.apply(
+    y_ref = nvfp4_matmul.apply(
         x.clone(), w.clone(), bias.clone(), sr_seed_ref, _CUSTOM_RHT_SIGN_VECTOR
     )
 
@@ -609,7 +612,7 @@ def test_row_single_rank_equivalence(distributed_env: DeviceMesh):
 def test_row_single_rank_backward_equivalence(distributed_env: DeviceMesh):
     """Verify row-parallel backward matches the single-GPU NVFP4 path at world_size=1."""
     from torchao.prototype.moe_training.nvfp4_training.nvfp4_linear import (
-        nvfp4_mm_triton,
+        nvfp4_matmul,
     )
 
     mesh = distributed_env
@@ -631,7 +634,7 @@ def test_row_single_rank_backward_equivalence(distributed_env: DeviceMesh):
     x_ref = x.clone().detach().requires_grad_(True)
     w_ref = w.clone().detach().requires_grad_(True)
     bias_ref = bias.clone().detach().requires_grad_(True)
-    y_ref = nvfp4_mm_triton.apply(
+    y_ref = nvfp4_matmul.apply(
         x_ref, w_ref, bias_ref, sr_seed.clone(), _CUSTOM_RHT_SIGN_VECTOR
     )
 
@@ -1028,3 +1031,345 @@ def test_mlp_colwise_rowwise_parallelize_module_cuda_graph_compile(
         assert param.grad is not None, f"{name}.grad is None"
         grad = param.grad.to_local() if isinstance(param.grad, DTensor) else param.grad
         assert not grad.isnan().any(), f"{name}.grad contains NaN"
+
+
+# ---------------------------------------------------------------------------
+# CuteDSL tensor-parallel tests (kernel_preference=CUTEDSL). The CuteDSL amax +
+# quantize replace Triton's for both forward (RTNE) and backward (cvt.rs SR). The
+# per-rank M shard must be divisible by 128 (128 * world_size for row-parallel).
+# ---------------------------------------------------------------------------
+
+_skip_no_cutedsl = pytest.mark.skipif(
+    not cutedsl_nvfp4_kernels_available(),
+    reason="requires SM100 + CuteDSL runtime (cuda-python, nvidia-cutlass-dsl, apache-tvm-ffi)",
+)
+
+
+def test_row_parallel_rejects_m_not_divisible_by_world_size(
+    distributed_env: DeviceMesh,
+):
+    """M % (128 * world_size) is the one TP shape rule not derivable from the shard.
+
+    Both backends need the reduce-scattered M // world_size grad shard 128-row aligned,
+    and M alone looks fine (384 % 128 == 0) -- only world_size makes it illegal. Raised
+    in forward, before any collective, so a bad shape cannot hang the group.
+    """
+    mesh = distributed_env
+    pg = mesh.get_group()
+    device = torch.device(f"cuda:{torch.cuda.current_device()}")
+    x = torch.randn(384, 256, dtype=torch.bfloat16, device=device)
+    w = torch.randn(256, 256, dtype=torch.bfloat16, device=device)
+    sr_seed = torch.zeros(1, dtype=torch.int64, device=device)
+
+    with pytest.raises(ValueError, match=r"M % 256 == 0"):
+        nvfp4_row_parallel_mm.apply(x, w, None, sr_seed, pg, 2, _CUSTOM_RHT_SIGN_VECTOR)
+
+
+@_skip_no_cutedsl
+@pytest.mark.parametrize(
+    "kernel_preference,expected_cutedsl",
+    [
+        (KernelPreference.AUTO, True),
+        (KernelPreference.CUTEDSL, True),
+        (KernelPreference.TRITON, False),
+    ],
+    ids=["auto", "cutedsl", "triton"],
+)
+def test_tp_forward_resolves_backend_like_single_gpu(
+    kernel_preference, expected_cutedsl, monkeypatch
+):
+    """The TP branch must resolve its backend through _resolve_use_cutedsl.
+
+    AUTO was once hardcoded to Triton here while the single-GPU path took CuteDSL --
+    a per-layer slowdown under TP only, invisible to every numeric test in this file
+    because both backends are bitwise identical under RTNE. Intercepting the dispatch
+    is what makes the decision observable; running it would not be, and would need a
+    mesh to say nothing extra.
+    """
+    from torchao.prototype.moe_training.nvfp4_training import nvfp4_tensor_parallel
+
+    captured = {}
+
+    def _capture(x, w, bias, **kwargs):
+        captured.update(kwargs)
+        return x.new_zeros(x.shape[0], w.shape[0])
+
+    monkeypatch.setattr(nvfp4_tensor_parallel, "nvfp4_col_parallel_linear", _capture)
+    m = NVFP4Linear(
+        256,
+        256,
+        kernel_preference=kernel_preference,
+        process_group=object(),
+        world_size=1,
+        device="cuda",
+        dtype=torch.bfloat16,
+    )
+    m(torch.randn(256, 256, device="cuda", dtype=torch.bfloat16))
+
+    assert captured["use_cutedsl"] is expected_cutedsl
+
+
+def _cutedsl_tp_forward_equiv(tp_fn, seed, device, pg):
+    """The TP fn (use_cutedsl) at world_size=1 must equal the single-GPU CuteDSL path."""
+    from torchao.prototype.moe_training.nvfp4_training.nvfp4_linear import (
+        nvfp4_matmul,
+    )
+
+    M = K = N = 256
+    torch.manual_seed(seed)
+    x = torch.randn(M, K, dtype=torch.bfloat16, device=device)
+    w = torch.randn(N, K, dtype=torch.bfloat16, device=device)
+    bias = torch.randn(N, dtype=torch.bfloat16, device=device)
+    sr = torch.randint(-(2**63), 2**63 - 1, (1,), dtype=torch.int64, device=device)
+    y_ref = nvfp4_matmul.apply(
+        x.clone(), w.clone(), bias.clone(), sr.clone(), _CUSTOM_RHT_SIGN_VECTOR, True
+    )
+    y_tp = tp_fn.apply(
+        x.clone(),
+        w.clone(),
+        bias.clone(),
+        sr.clone(),
+        pg,
+        1,
+        _CUSTOM_RHT_SIGN_VECTOR,
+        True,
+    )
+    torch.testing.assert_close(y_ref, y_tp, atol=0, rtol=0)
+
+
+def _cutedsl_tp_backward_equiv(tp_fn, seed, device, pg):
+    """The TP fn backward (use_cutedsl) at world_size=1 must equal the single-GPU CuteDSL path."""
+    from torchao.prototype.moe_training.nvfp4_training.nvfp4_linear import (
+        nvfp4_matmul,
+    )
+
+    M = K = N = 256
+    torch.manual_seed(seed)
+    x = torch.randn(M, K, dtype=torch.bfloat16, device=device)
+    w = torch.randn(N, K, dtype=torch.bfloat16, device=device)
+    bias = torch.randn(N, dtype=torch.bfloat16, device=device)
+    dy = torch.randn(M, N, dtype=torch.bfloat16, device=device)
+    sr = torch.randint(-(2**63), 2**63 - 1, (1,), dtype=torch.int64, device=device)
+
+    x_ref, w_ref, b_ref = (
+        t.clone().detach().requires_grad_(True) for t in (x, w, bias)
+    )
+    y_ref = nvfp4_matmul.apply(
+        x_ref, w_ref, b_ref, sr.clone(), _CUSTOM_RHT_SIGN_VECTOR, True
+    )
+    x_tp, w_tp, b_tp = (t.clone().detach().requires_grad_(True) for t in (x, w, bias))
+    y_tp = tp_fn.apply(
+        x_tp, w_tp, b_tp, sr.clone(), pg, 1, _CUSTOM_RHT_SIGN_VECTOR, True
+    )
+
+    rng = torch.cuda.get_rng_state()
+    torch.cuda.set_rng_state(rng.clone())
+    y_ref.backward(dy)
+    torch.cuda.set_rng_state(rng.clone())
+    y_tp.backward(dy)
+
+    torch.testing.assert_close(x_ref.grad, x_tp.grad, atol=0, rtol=0)
+    torch.testing.assert_close(w_ref.grad, w_tp.grad, atol=0, rtol=0)
+    torch.testing.assert_close(b_ref.grad, b_tp.grad, atol=0, rtol=0)
+
+
+@_skip_no_cutedsl
+@pytest.mark.skipif(not has_triton(), reason="unsupported without triton")
+@pytest.mark.skipif(not is_sm_at_least_100(), reason="Requires SM100+")
+def test_cutedsl_column_single_rank_equivalence(distributed_env: DeviceMesh):
+    """CuteDSL column-parallel forward matches the single-GPU CuteDSL path at world_size=1."""
+    pg = dist.new_group([0])
+    if dist.get_rank() != 0:
+        dist.barrier()
+        return
+    _cutedsl_tp_forward_equiv(nvfp4_col_parallel_mm, 7, distributed_env.device_type, pg)
+    dist.barrier()
+
+
+@_skip_no_cutedsl
+@pytest.mark.skipif(not has_triton(), reason="unsupported without triton")
+@pytest.mark.skipif(not is_sm_at_least_100(), reason="Requires SM100+")
+def test_cutedsl_column_single_rank_backward_equivalence(distributed_env: DeviceMesh):
+    """CuteDSL column-parallel backward matches the single-GPU CuteDSL path at world_size=1."""
+    pg = dist.new_group([0])
+    if dist.get_rank() != 0:
+        dist.barrier()
+        return
+    _cutedsl_tp_backward_equiv(
+        nvfp4_col_parallel_mm, 71, distributed_env.device_type, pg
+    )
+    dist.barrier()
+
+
+@_skip_no_cutedsl
+@pytest.mark.skipif(not has_triton(), reason="unsupported without triton")
+@pytest.mark.skipif(not is_sm_at_least_100(), reason="Requires SM100+")
+def test_cutedsl_row_single_rank_equivalence(distributed_env: DeviceMesh):
+    """CuteDSL row-parallel forward matches the single-GPU CuteDSL path at world_size=1."""
+    pg = dist.new_group([0])
+    if dist.get_rank() != 0:
+        dist.barrier()
+        return
+    _cutedsl_tp_forward_equiv(
+        nvfp4_row_parallel_mm, 17, distributed_env.device_type, pg
+    )
+    dist.barrier()
+
+
+@_skip_no_cutedsl
+@pytest.mark.skipif(not has_triton(), reason="unsupported without triton")
+@pytest.mark.skipif(not is_sm_at_least_100(), reason="Requires SM100+")
+def test_cutedsl_row_single_rank_backward_equivalence(distributed_env: DeviceMesh):
+    """CuteDSL row-parallel backward matches the single-GPU CuteDSL path at world_size=1."""
+    pg = dist.new_group([0])
+    if dist.get_rank() != 0:
+        dist.barrier()
+        return
+    _cutedsl_tp_backward_equiv(
+        nvfp4_row_parallel_mm, 73, distributed_env.device_type, pg
+    )
+    dist.barrier()
+
+
+@_skip_no_cutedsl
+@pytest.mark.skipif(not has_triton(), reason="unsupported without triton")
+@pytest.mark.skipif(not is_sm_at_least_100(), reason="Requires SM100+")
+def test_cutedsl_column_forward(distributed_env: DeviceMesh):
+    """CuteDSL column-parallel forward through the real collectives: SQNR vs fp32 reference."""
+    mesh = distributed_env
+    device = mesh.device_type
+    rank = dist.get_rank()
+    world_size = dist.get_world_size()
+    tp_group = mesh.get_group()
+    M, K, N = 512, 256, 512
+    M_per_rank, N_per_rank = M // world_size, N // world_size
+
+    torch.manual_seed(11)
+    x_full = torch.randn(M, K, dtype=torch.bfloat16, device=device)
+    w_full = torch.randn(N, K, dtype=torch.bfloat16, device=device)
+    bias_full = torch.randn(N, dtype=torch.bfloat16, device=device)
+    x_local = x_full[rank * M_per_rank : (rank + 1) * M_per_rank, :].contiguous()
+    w_local = w_full[rank * N_per_rank : (rank + 1) * N_per_rank, :].contiguous()
+    bias_local = bias_full[rank * N_per_rank : (rank + 1) * N_per_rank].contiguous()
+    sr_seed = torch.randint(-(2**63), 2**63 - 1, (1,), dtype=torch.int64, device=device)
+
+    y = nvfp4_col_parallel_mm.apply(
+        x_local,
+        w_local,
+        bias_local,
+        sr_seed,
+        tp_group,
+        world_size,
+        _CUSTOM_RHT_SIGN_VECTOR,
+        True,
+    )
+    assert y.shape == (M, N_per_rank)
+    assert not y.isnan().any()
+    y_ref = (x_full.float() @ w_full.float().t() + bias_full.float())[
+        :, rank * N_per_rank : (rank + 1) * N_per_rank
+    ]
+    sqnr = compute_error(y_ref, y.float())
+    assert sqnr >= 15.0, f"CuteDSL col forward SQNR {sqnr:.2f} dB < 15"
+
+
+@_skip_no_cutedsl
+@pytest.mark.skipif(not has_triton(), reason="unsupported without triton")
+@pytest.mark.skipif(not is_sm_at_least_100(), reason="Requires SM100+")
+def test_cutedsl_row_forward(distributed_env: DeviceMesh):
+    """CuteDSL row-parallel forward through the real collectives: SQNR vs fp32 reference."""
+    mesh = distributed_env
+    device = mesh.device_type
+    rank = dist.get_rank()
+    world_size = dist.get_world_size()
+    tp_group = mesh.get_group()
+    M, K, N = 512, 256, 512
+    M_per_rank, K_per_rank = M // world_size, K // world_size
+
+    torch.manual_seed(19)
+    x_full = torch.randn(M, K, dtype=torch.bfloat16, device=device)
+    w_full = torch.randn(N, K, dtype=torch.bfloat16, device=device)
+    bias = torch.randn(N, dtype=torch.bfloat16, device=device)
+    x_local = x_full[:, rank * K_per_rank : (rank + 1) * K_per_rank].contiguous()
+    w_local = w_full[:, rank * K_per_rank : (rank + 1) * K_per_rank].contiguous()
+    sr_seed = torch.randint(-(2**63), 2**63 - 1, (1,), dtype=torch.int64, device=device)
+
+    y = nvfp4_row_parallel_mm.apply(
+        x_local,
+        w_local,
+        bias,
+        sr_seed,
+        tp_group,
+        world_size,
+        _CUSTOM_RHT_SIGN_VECTOR,
+        True,
+    )
+    assert y.shape == (M_per_rank, N)
+    assert not y.isnan().any()
+    y_ref = (x_full.float() @ w_full.float().t() + bias.float())[
+        rank * M_per_rank : (rank + 1) * M_per_rank, :
+    ]
+    sqnr = compute_error(y_ref, y.float())
+    assert sqnr >= 15.0, f"CuteDSL row forward SQNR {sqnr:.2f} dB < 15"
+
+
+@_skip_no_cutedsl
+@pytest.mark.skipif(not has_triton(), reason="unsupported without triton")
+@pytest.mark.skipif(not is_sm_at_least_100(), reason="Requires SM100+")
+def test_cutedsl_column_parallelize_module(distributed_env: DeviceMesh):
+    """End-to-end: NVFP4Linear(CUTEDSL) through parallelize_module exercises NVFP4Linear.forward's
+    dispatch (kernel_preference=CUTEDSL -> use_cutedsl) plus the TP collectives, vs fp32."""
+    mesh = distributed_env
+    device = mesh.device_type
+    rank = dist.get_rank()
+    world_size = dist.get_world_size()
+    M, K, N = 512, 256, 512
+    M_per_rank, N_per_rank = M // world_size, N // world_size
+    rank_sign_vector = _CUSTOM_RHT_SIGN_VECTOR if rank == 0 else _OTHER_RHT_SIGN_VECTOR
+
+    torch.manual_seed(29)
+    module = NVFP4Linear(
+        K,
+        N,
+        bias=True,
+        kernel_preference=KernelPreference.CUTEDSL,
+        device=device,
+        dtype=torch.bfloat16,
+        rht_sign_vector=rank_sign_vector,
+    )
+    w_full = module.weight.detach().clone()
+    bias_full = module.bias.detach().clone()
+    module = parallelize_module(module, mesh, NVFP4ColwiseParallel())
+    assert module.tensor_parallel_style == "colwise"
+
+    x_full = torch.randn(M, K, dtype=torch.bfloat16, device=device)
+    dy_full = torch.randn(M, N, dtype=torch.bfloat16, device=device)
+    x_local = (
+        x_full[rank * M_per_rank : (rank + 1) * M_per_rank, :]
+        .contiguous()
+        .detach()
+        .requires_grad_(True)
+    )
+    dy_local = dy_full[:, rank * N_per_rank : (rank + 1) * N_per_rank].contiguous()
+
+    y = module(x_local)
+    y.backward(dy_local)
+    weight_grad = module.weight.grad.to_local()
+    bias_grad = module.bias.grad.to_local()
+    assert y.shape == (M, N_per_rank)
+    assert not y.isnan().any()
+    assert (
+        x_local.grad is not None and weight_grad is not None and bias_grad is not None
+    )
+
+    x_ref = x_full.float().detach().requires_grad_(True)
+    w_ref = w_full.float().detach().requires_grad_(True)
+    y_ref = x_ref @ w_ref.t() + bias_full.float()
+    y_ref.backward(dy_full.float())
+    y_ref_shard = y_ref[:, rank * N_per_rank : (rank + 1) * N_per_rank]
+    dx_ref = x_ref.grad[rank * M_per_rank : (rank + 1) * M_per_rank, :]
+    dw_ref = w_ref.grad[rank * N_per_rank : (rank + 1) * N_per_rank, :]
+
+    assert compute_error(y_ref_shard, y.float()) >= 15.0
+    assert compute_error(dx_ref, x_local.grad.float()) >= 14.0
+    assert compute_error(dw_ref, weight_grad.float()) >= 14.0
+    torch.testing.assert_close(bias_grad, dy_local.sum(dim=0), atol=0, rtol=0)

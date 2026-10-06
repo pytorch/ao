@@ -1,6 +1,3 @@
-from .llm_ptq_data_getter import (
-    LLMPTQDataGetter,
-)
 from .ptq_data_getter import (
     DataGetter,
     get_module_input_data,
@@ -9,5 +6,4 @@ from .ptq_data_getter import (
 __all__ = [
     "DataGetter",
     "get_module_input_data",
-    "LLMPTQDataGetter",
 ]

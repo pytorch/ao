@@ -13,10 +13,11 @@ if torch.cuda.is_available():
     from triton.testing import do_bench
 
     from torchao.float8.float8_utils import compute_error
-    from torchao.kernel.blockwise_quantization import (
-        blockwise_fp8_gemm,
+    from torchao.prototype.blockwise_fp8_inference.kernels import (
         fp8_blockwise_act_quant,
-        fp8_blockwise_weight_quant,
+    )
+    from torchao.quantization.quantize_.workflows.float8.kernels import (
+        _blockwise_fp8_gemm,
     )
     from torchao.utils import is_sm_at_least_89
 else:
@@ -59,7 +60,7 @@ def benchmark_latency(
 
     A, A_scale, B, B_scale = get_blockwise_problem(m, n, k, block_size, dtype, device)
     blockwise_time = benchmark_microseconds(
-        blockwise_fp8_gemm, A, A_scale, B, B_scale, block_size
+        _blockwise_fp8_gemm, A, A_scale, B, B_scale, block_size
     )
 
     return {
@@ -74,6 +75,16 @@ def benchmark_latency(
     }
 
 
+def _weight_quant_reference(w: torch.Tensor, block_size: int, dtype: torch.dtype):
+    # Eager reference for block_size x block_size blockwise fp8 weight quant
+    # (replaces the removed fp8_blockwise_weight_quant helper).
+    n, k = w.shape
+    wr = w.reshape(n // block_size, block_size, k // block_size, block_size)
+    s = wr.abs().amax(dim=(1, 3), keepdim=True).float() / 448.0
+    w_q = (wr / s).to(dtype).reshape(n, k)
+    return w_q, s.reshape(n // block_size, k // block_size)
+
+
 def benchmark_precision(
     m: int, k: int, n: int, block_size: int, dtype: torch.dtype, device
 ):
@@ -83,8 +94,8 @@ def benchmark_precision(
     output = A @ W.T
 
     A_q, A_s = fp8_blockwise_act_quant(A, block_size, dtype)
-    W_q, W_s = fp8_blockwise_weight_quant(W, block_size, dtype)
-    output_blockwise = blockwise_fp8_gemm(A_q, A_s, W_q, W_s, block_size)
+    W_q, W_s = _weight_quant_reference(W, block_size, dtype)
+    output_blockwise = _blockwise_fp8_gemm(A_q, A_s, W_q, W_s, block_size)
 
     return {
         "m": m,

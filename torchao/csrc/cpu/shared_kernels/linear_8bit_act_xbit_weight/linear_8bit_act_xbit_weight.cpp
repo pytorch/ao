@@ -16,7 +16,19 @@
 
 namespace torchao::ops::linear_8bit_act_xbit_weight {
 
-void pack_weights_operator(
+// TODO: Weak-symbol coexistence is wired up for the linear kernel only, since it
+// is currently the only shared kernel that can be linked into the same binary as
+// its registered ExecuTorch operator (via quantized_moe_ffn). If another shared
+// kernel later needs a single-threaded torch_free variant co-linked with its
+// threaded build, apply the same weak/strong operator-symbol treatment to that
+// kernel's operators.
+#if defined(TORCHAO_WEAK_LINEAR_OPERATOR_SYMBOLS)
+#define TORCHAO_LINEAR_OPERATOR_SYMBOL __attribute__((weak))
+#else
+#define TORCHAO_LINEAR_OPERATOR_SYMBOL
+#endif
+
+TORCHAO_LINEAR_OPERATOR_SYMBOL void pack_weights_operator(
     const UKernelConfig& uk,
     // Outputs
     void* packed_weights,
@@ -75,7 +87,7 @@ void pack_weights_operator(
   });
 }
 
-void pack_weights_with_lut_operator(
+TORCHAO_LINEAR_OPERATOR_SYMBOL void pack_weights_with_lut_operator(
     const UKernelConfig& uk,
     // Outputs
     void* packed_weights,
@@ -130,7 +142,8 @@ void pack_weights_with_lut_operator(
   });
 }
 
-LinearTilingParams LinearTilingParams::from_target_tiles_per_thread(
+TORCHAO_LINEAR_OPERATOR_SYMBOL LinearTilingParams
+LinearTilingParams::from_target_tiles_per_thread(
     int m,
     int m_step,
     int n,
@@ -172,7 +185,7 @@ LinearTilingParams LinearTilingParams::from_target_tiles_per_thread(
   return tiling_params;
 }
 
-void linear_operator(
+TORCHAO_LINEAR_OPERATOR_SYMBOL void linear_operator(
     const UKernelConfig& uk,
     const std::optional<LinearTilingParams>& tiling_params,
     // Outputs
@@ -198,12 +211,14 @@ void linear_operator(
 
   // Choose tiling params
   int mc, nc;
+  bool parallel_pack_activations = false;
   if (tiling_params.has_value()) {
     mc = tiling_params->mc;
     nc = tiling_params->nc;
   } else {
     auto params = LinearTilingParams::from_target_tiles_per_thread(
-        // We process m sequentially, so m_step is the "m" for the purpose of computing tiling params
+        // We process m sequentially, so m_step is the "m" for the purpose of
+        // computing tiling params
         m_step,
         m_step,
         n,
@@ -211,6 +226,11 @@ void linear_operator(
         /*target_tiles_per_thread=*/5);
     mc = params.mc;
     nc = params.nc;
+    if (linear_config.mr == 8 && m >= 16) {
+      constexpr int max_prefill_mc = 1024;
+      mc = std::min(m, max_prefill_mc);
+      parallel_pack_activations = torchao::get_num_threads() > 1 && m >= 64;
+    }
   }
   TORCHAO_CHECK(mc >= 1, "mc must be >= 1");
   TORCHAO_CHECK(nc >= 1, "nc must be >= 1");
@@ -234,16 +254,45 @@ void linear_operator(
     int mc_tile_size = std::min(mc, m - m_idx);
     int activations_offset = m_idx * k;
 
-    linear_config.pack_activations(
-        packed_activations.get(),
-        /*m=*/mc_tile_size,
-        k,
-        group_size,
-        activations + activations_offset,
-        uk.has_weight_zeros,
-        linear_config.mr,
-        uk.kr,
-        uk.sr);
+    if (parallel_pack_activations) {
+      constexpr int activation_pack_mc = 16;
+      const int num_activation_panels =
+          (mc_tile_size + activation_pack_mc - 1) / activation_pack_mc;
+      torchao::parallel_1d(0, num_activation_panels, [&](int64_t idx) {
+        const int pack_m_idx = idx * activation_pack_mc;
+        const int panel_m =
+            std::min(activation_pack_mc, mc_tile_size - pack_m_idx);
+        const auto packed_offset = linear_config.packed_activations_offset(
+            pack_m_idx,
+            k,
+            group_size,
+            uk.has_weight_zeros,
+            linear_config.mr,
+            uk.kr,
+            uk.sr);
+        linear_config.pack_activations(
+            static_cast<char*>(packed_activations.get()) + packed_offset,
+            panel_m,
+            k,
+            group_size,
+            activations + activations_offset + pack_m_idx * k,
+            uk.has_weight_zeros,
+            linear_config.mr,
+            uk.kr,
+            uk.sr);
+      });
+    } else {
+      linear_config.pack_activations(
+          packed_activations.get(),
+          /*m=*/mc_tile_size,
+          k,
+          group_size,
+          activations + activations_offset,
+          uk.has_weight_zeros,
+          linear_config.mr,
+          uk.kr,
+          uk.sr);
+    }
 
     torchao::parallel_1d(0, num_nc_panels, [&](int64_t idx) {
       int nc_tile_idx = idx;
@@ -279,5 +328,14 @@ void linear_operator(
     });
   }
 }
+
+// Out-of-line accessor so consumers in other translation units can link against
+// the linked kernel's thread count (get_num_threads() itself is inline-only).
+// Weak/strong like the operators above, so it co-resolves with linear_operator.
+TORCHAO_LINEAR_OPERATOR_SYMBOL int linear_operator_num_threads() {
+  return get_num_threads();
+}
+
+#undef TORCHAO_LINEAR_OPERATOR_SYMBOL
 
 } // namespace torchao::ops::linear_8bit_act_xbit_weight

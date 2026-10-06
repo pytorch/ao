@@ -208,8 +208,26 @@ def _to_mxfp8_dim1_kernel_wrapper(
             blocked_scale_output=True,
         )
         is_swizzled_scales = True
+    elif cast_kernel_choice == MXFP8Dim1CastKernelChoice.FLYDSL:
+        # AMD via FlyDSL. FlyDSL kernels leave is_swizzled_scales=False
+        # (no tcgen05 blocked layout on AMD).
+        assert scale_calculation_mode in (
+            ScaleCalculationMode.FLOOR,
+            ScaleCalculationMode.RCEIL,
+        )
+        from torchao.prototype.moe_training.kernels.mxfp8.quant import (
+            mxfp8_quantize_2d_32x1_flydsl,
+        )
+
+        a_data, a_scale = mxfp8_quantize_2d_32x1_flydsl(
+            a,
+            block_size=block_size,
+            scaling_mode=scale_calculation_mode.value,
+        )
     else:
-        raise ValueError(f"must be one of [CUDA, TRITON], got {cast_kernel_choice}")
+        raise ValueError(
+            f"must be one of [CUDA, TRITON, CUTEDSL, FLYDSL], got {cast_kernel_choice}"
+        )
 
     # MXTensor wraps DTensor inner tensors directly (MXTensor(DTensor) ordering).
     # DTensor's .t() handles placement transposition automatically.

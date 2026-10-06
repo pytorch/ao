@@ -1,10 +1,14 @@
 from torchao.prototype.moe_training.kernels.mxfp8.quant import (
     _mxfp8_cuda_kernels_available,  # noqa: F401
+    _mxfp8_flydsl_kernels_available,  # noqa: F401
     fused_pad_token_groups_cuda,  # noqa: F401
     fused_unpad_token_groups_cuda,  # noqa: F401
     mx_block_rearrange_2d_M_groups_cuda,  # noqa: F401
     mxfp8_quantize_2d_1x32_cutedsl,  # noqa: F401
+    mxfp8_quantize_2d_1x32_flydsl,  # noqa: F401
     mxfp8_quantize_2d_32x1_cutedsl,  # noqa: F401
+    mxfp8_quantize_2d_32x1_flydsl,  # noqa: F401
+    mxfp8_quantize_3d_flydsl,  # noqa: F401
     mxfp8_quantize_cuda_3d,  # noqa: F401
     torch_pad_token_groups,  # noqa: F401
     torch_to_blocked_2d_K_groups,  # noqa: F401

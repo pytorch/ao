@@ -393,6 +393,15 @@ class FusedMovingAvgObsFakeQuantize(FakeQuantize):
     Similar to :class:`~torchao.quantization.pt2e.FakeQuantize`, and accepts the same attributes as the
     base class.
 
+    Args:
+        observer (class): Observer class for collecting statistics on input tensors
+        quant_min (int): Min quantized value
+        quant_max (int): Max quantized value
+        use_kernel_qparams (bool, default False): If True, `calculate_qparams` returns
+          the qparams computed by the fused kernel instead of the inner observer's.
+          Note: these qparams can be stale if fake quant was disabled during the last
+          forward, in which case the kernel stops updating our local qparam buffers.
+        observer_kwargs (optional): Arguments for the observer class
     """
 
     def __init__(
@@ -400,9 +409,11 @@ class FusedMovingAvgObsFakeQuantize(FakeQuantize):
         observer: Any = MovingAverageMinMaxObserver,
         quant_min: int = 0,
         quant_max: int = 255,
+        use_kernel_qparams: bool = False,
         **observer_kwargs: Any,
     ) -> None:
         super().__init__(observer, quant_min, quant_max, **observer_kwargs)
+        self.use_kernel_qparams = use_kernel_qparams
         assert isinstance(
             self.activation_post_process,
             (MovingAverageMinMaxObserver, MovingAveragePerChannelMinMaxObserver),
@@ -417,7 +428,17 @@ class FusedMovingAvgObsFakeQuantize(FakeQuantize):
 
     @torch.jit.export
     def calculate_qparams(self) -> tuple[torch.Tensor, torch.Tensor]:
-        return self.activation_post_process.calculate_qparams()
+        """
+        If `use_kernel_qparams` is True, return the last (scale, zero_point)
+        computed by the fused kernel in forward.
+
+        Otherwise, calculate them using the inner observer, which computes
+        qparams using a slightly different formula than the fused kernel.
+        """
+        if self.use_kernel_qparams:
+            return self.scale, self.zero_point
+        else:
+            return self.activation_post_process.calculate_qparams()
 
     @torch.jit.export
     def extra_repr(self) -> str:

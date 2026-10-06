@@ -10,7 +10,6 @@ import torch
 from torch.utils._python_dispatch import return_and_correct_aliasing
 
 from torchao.float8.inference import _slice_scale_for_dimension
-from torchao.kernel import int_scaled_matmul
 from torchao.quantization.granularity import (
     Granularity,
     PerRow,
@@ -26,6 +25,7 @@ from torchao.quantization.quantize_.common import (
     QuantizeTensorKwargs,
     _choose_quant_func_and_quantize_tensor,
 )
+from torchao.quantization.quantize_.workflows.int8.kernels import _int_scaled_matmul
 from torchao.quantization.utils import get_block_size
 from torchao.utils import (
     TorchAOBaseTensor,
@@ -308,11 +308,11 @@ def _(func, types, args, kwargs):
         w_scales = weight_tensor.scale
 
         tmp = x_vals_int8.reshape(-1, x_vals_int8.shape[-1])
-        # Cast FP16 scale to float to avoid overflow in int_scaled_matmul
+        # Cast FP16 scale to float to avoid overflow in _int_scaled_matmul
         intermediate_dtype = (
             torch.float if x_scales.dtype == torch.half else x_scales.dtype
         )
-        y_dot_scaled = int_scaled_matmul(
+        y_dot_scaled = _int_scaled_matmul(
             tmp, w_vals_int8_t, x_scales.reshape(-1, 1).to(intermediate_dtype)
         ).to(output_dtype)
 

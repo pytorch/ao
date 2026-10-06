@@ -1,8 +1,3 @@
-from torchao.kernel import (
-    int_scaled_matmul,
-    safe_int_mm,
-)
-
 from .granularity import (
     Granularity,
     PerAxis,
@@ -108,9 +103,6 @@ __all__ = [
     "choose_qparams_affine_with_min_max",
     "quantize_affine",
     "dequantize_affine",
-    # operators/kernels
-    "safe_int_mm",
-    "int_scaled_matmul",
     # registration of module transforms for quantize_
     "register_quantize_module_handler",
     # dataclasses and types

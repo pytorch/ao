@@ -1,5 +1,6 @@
 # Test utilities
 pytest==9.0.3
+pytest-xdist==3.8.0
 unittest-xml-reporting
 parameterized
 packaging

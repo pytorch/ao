@@ -167,19 +167,43 @@ def _replace_with_custom_fn_if_matches_filter(
 
 def _is_linear(mod, *args):
     # avoid circular dependencies
+    from torchao.prototype.gptq.observer import GPTQObserverTensor
     from torchao.quantization.qat.affine_fake_quantized_tensor import (
         _AffineFakeQuantizedTensor,
     )
+    from torchao.utils import TorchAOBaseTensor
 
-    # adding weight tensor subclass isinstance check to make sure the weight is only quantized once
-    # when it is shared by multiple linear modules
-    # TODO: check isinstance(TorchAOBaseTensor)?
-    return (
+    if not (
         isinstance(mod, torch.nn.Linear)
         and hasattr(mod, "weight")
-        and not isinstance(mod.weight, _AffineFakeQuantizedTensor)
         and not isinstance(mod, nn.modules.linear.NonDynamicallyQuantizableLinear)
-    )
+    ):
+        return False
+
+    # Skip fake-quantized (QAT) weights. This is intended when a weight is shared
+    # by multiple linear modules, and is not an error, so skip silently.
+    if isinstance(mod.weight, _AffineFakeQuantizedTensor):
+        return False
+
+    if isinstance(mod.weight, TorchAOBaseTensor):
+        # A GPTQ observer weight is an intermediate (non-final) tensor that the
+        # GPTQ convert step is meant to replace with a real quantized tensor, so
+        # let it through here rather than treating it as already quantized.
+        if isinstance(mod.weight, GPTQObserverTensor):
+            return True
+
+        # Skip weights that are already a final quantized tensor so that a second
+        # quantize_() call is a no-op instead of re-running from_hp() on an
+        # already-quantized tensor, which hits unimplemented ops (see #4845).
+        fqn = args[0] if args and args[0] else "<root>"
+        logger.warning(
+            f"Skipping quantization of '{fqn}': weight is already quantized "
+            f"({type(mod.weight).__name__}); quantize_() does not re-quantize "
+            "already-quantized weights."
+        )
+        return False
+
+    return True
 
 
 def _get_subclass_inserter(cls, enable_parametrization=False, **kwargs):
@@ -1282,6 +1306,46 @@ def _float8_dynamic_activation_float8_weight_quantize_tensor(weight, config):
         return quantized_weight
 
 
+def _maybe_warn_rowwise_fp8_cuda_12_9(
+    config: Float8DynamicActivationFloat8WeightConfig,
+) -> None:
+    if not torch.cuda.is_available():
+        return
+    # torch.version.cuda is None on ROCm/HIP builds (where torch.cuda.is_available()
+    # is still True); the CUDA 12.9 regression does not apply there.
+    if torch.version.cuda is None or not torch.version.cuda.startswith("12.9"):
+        return
+    # config.granularity is normalized to [activation, weight] in __post_init__.
+    if not any(isinstance(g, PerRow) for g in config.granularity):
+        return
+    # user is already on the mslk (CUTLASS) kernel, which is unaffected.
+    if config.kernel_preference == KernelPreference.MSLK:
+        return
+    # user has already disabled fast accumulation, which avoids the failing path.
+    # mm_config is populated in __post_init__, which runs before this.
+    if config.mm_config is not None and not config.mm_config.use_fast_accum:
+        return
+    warnings.warn(
+        "Rowwise fp8 (Float8DynamicActivationFloat8WeightConfig with PerRow()) on "
+        "CUDA 12.9 can crash with CUBLAS_STATUS_NOT_SUPPORTED for some large-K + "
+        "small-M/N GEMM shapes, due to a cuBLASLt regression specific to CUDA 12.9 "
+        "(not present in 12.6, fixed in 13.0). We can't reliably predict which "
+        "shapes fail, so we warn rather than guard. If you hit this, work around it "
+        "with any of:\n"
+        "  (1) upgrade to CUDA 13.0 (or downgrade to 12.6), where the regression is "
+        "not present; or\n"
+        "on the affected layers (e.g. via FqnToConfig):\n"
+        "  (2) the mslk kernel, which uses CUTLASS instead of cuBLASLt and is "
+        "unaffected: Float8DynamicActivationFloat8WeightConfig(granularity=PerRow(), "
+        "kernel_preference=KernelPreference.MSLK). This requires the mslk package to "
+        "be installed (see https://github.com/pytorch/MSLK); or\n"
+        "  (3) disabling fast accumulation, which avoids the failing cuBLASLt path: "
+        "Float8DynamicActivationFloat8WeightConfig(granularity=PerRow(), "
+        "mm_config=Float8MMConfig(use_fast_accum=False)).\n"
+        "See https://github.com/pytorch/ao/issues/4582."
+    )
+
+
 @register_quantize_module_handler(Float8DynamicActivationFloat8WeightConfig)
 def _float8_dynamic_activation_float8_weight_transform(
     module: torch.nn.Module,
@@ -1289,6 +1353,7 @@ def _float8_dynamic_activation_float8_weight_transform(
     *,
     parameter_name: str = "weight",
 ):
+    _maybe_warn_rowwise_fp8_cuda_12_9(config)
     if torch.cuda.is_available():
         assert is_sm_at_least_89() or is_MI300() or is_MI350(), (
             "Float8 dynamic activation quantization is only supported on CUDA>=8.9 and MI300+"
@@ -1498,7 +1563,7 @@ def _intx_weight_only_transform(
 
 @dataclass
 class FqnToConfig(AOBaseConfig):
-    """Configuration class for applying different quantization configs to modules or parameters based on their fully qualified names (FQNs).
+    r"""Configuration class for applying different quantization configs to modules or parameters based on their fully qualified names (FQNs).
 
     Args:
         `fqn_to_config`: typing.OrderedDict[str, Optional[AOBaseConfig]]: an
