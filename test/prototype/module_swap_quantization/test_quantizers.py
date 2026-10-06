@@ -1,8 +1,21 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+# All rights reserved.
+#
+# This source code is licensed under the BSD 3-Clause license found in the
+# LICENSE file in the root directory of this source tree.
+
 import unittest
 
 import torch
 
-from torchao.prototype.quantization.module_swap import IntQuantizer
+from torchao.prototype.quantization.module_swap import (
+    CodeBookQuantizer,
+    IntQuantizer,
+    QuantizedLinear,
+)
+from torchao.prototype.quantization.module_swap.quantizers import (
+    VectorQuantizerFunction,
+)
 
 
 class TestIntQuantizer(unittest.TestCase):
@@ -152,11 +165,87 @@ class TestIntQuantizer(unittest.TestCase):
 
 
 class TestCodebookQuantizer(unittest.TestCase):
+    def devices(self):
+        return ["cpu"] + [f"cuda:{i}" for i in range(torch.cuda.device_count())]
+
     def test_codebook_quantizer(self) -> None:
-        pass
+        for device in self.devices():
+            with self.subTest(device=device):
+                quantizer = CodeBookQuantizer(n_bits=1, features=4, codebook_dim=2).to(
+                    device
+                )
+                with torch.no_grad():
+                    quantizer.codebook.copy_(
+                        torch.tensor(
+                            [[-1, -1], [1, 1], [9, 9], [-9, -9]], device=device
+                        )
+                    )
+                inputs = torch.tensor(
+                    [[-2, -2, -1, -3], [2, 2, 1, 3]],
+                    dtype=torch.float32,
+                    device=device,
+                    requires_grad=True,
+                )
+                output = quantizer(inputs)
+                expected = torch.tensor(
+                    [[-1.5, -2.5, -1.5, -2.5], [1.5, 2.5, 1.5, 2.5]], device=device
+                )
+                self.assertEqual(output.device, inputs.device)
+                torch.testing.assert_close(output, expected, rtol=0, atol=0)
+                output.sum().backward()
+                torch.testing.assert_close(inputs.grad, torch.ones_like(inputs))
 
     def test_vector_quantizer(self) -> None:
-        pass
+        for device in self.devices():
+            with self.subTest(device=device):
+                inputs = torch.tensor(
+                    [[-3, -1], [-1, -3], [1, 3], [3, 1]],
+                    dtype=torch.float32,
+                    device=device,
+                    requires_grad=True,
+                )
+                codebook = torch.tensor(
+                    [[-2.0, -2.0], [2.0, 2.0], [99.0, 99.0]], device=device
+                )
+                output = VectorQuantizerFunction.apply(inputs, codebook)
+                expected = torch.tensor(
+                    [[-2, -2], [-2, -2], [2, 2], [2, 2]], device=device
+                )
+                self.assertEqual(output.device, inputs.device)
+                torch.testing.assert_close(output, expected.float(), rtol=0, atol=0)
+                torch.testing.assert_close(
+                    codebook,
+                    torch.tensor([[-2.0, -2.0], [2.0, 2.0], [0.0, 0.0]], device=device),
+                    rtol=0,
+                    atol=0,
+                )
+                gradient = torch.arange(8, device=device, dtype=torch.float32).reshape(
+                    4, 2
+                )
+                output.backward(gradient)
+                torch.testing.assert_close(inputs.grad, gradient, rtol=0, atol=0)
+
+    def test_quantized_linear_with_codebook(self) -> None:
+        quantizer = CodeBookQuantizer(n_bits=1, features=4, codebook_dim=2)
+        layer = QuantizedLinear(
+            in_features=4,
+            out_features=2,
+            bias=False,
+            activation_bits=8,
+            weight_quantizer=quantizer,
+            input_quantization=False,
+            activation_quantization=False,
+        )
+        with torch.no_grad():
+            layer.weight.copy_(
+                torch.tensor([[-2.0, -2.0, -1.0, -3.0], [2.0, 2.0, 1.0, 3.0]])
+            )
+            quantizer.codebook.copy_(
+                torch.tensor([[-1.0, -1.0], [1.0, 1.0], [9.0, 9.0], [-9.0, -9.0]])
+            )
+        actual = layer(torch.eye(4))
+        expected = torch.tensor([[-1.5, 1.5], [-2.5, 2.5], [-1.5, 1.5], [-2.5, 2.5]])
+        torch.testing.assert_close(actual, expected, rtol=0, atol=0)
 
 
 if __name__ == "__main__":
