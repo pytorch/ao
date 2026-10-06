@@ -59,10 +59,10 @@ struct UKernelConfigRegistrationTable {
     // Idempotent: first registration wins. Concurrent callers of
     // `select_ukernel_config` may both observe a missing entry and attempt
     // to register the same deterministic config.
-    config.validate();
     if (registration_table_.find(key) != registration_table_.end()) {
       return;
     }
+    config.validate();
     registration_table_[key] = config;
   }
   std::optional<UKernelConfig> get_ukernel_config(
