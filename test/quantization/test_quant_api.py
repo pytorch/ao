@@ -431,17 +431,22 @@ class TestQuantFlow(TestCase):
     @common_utils.parametrize(
         "config",
         [
-            Float8WeightOnlyConfig(),
-            Float8DynamicActivationFloat8WeightConfig(),
+            common_utils.subtest(
+                Float8WeightOnlyConfig(),
+                decorators=[skip_if_xpu("XPU enablement in progress")],
+            ),
+            common_utils.subtest(
+                Float8DynamicActivationFloat8WeightConfig(),
+                decorators=[skip_if_xpu("XPU enablement in progress")],
+            ),
             Int8DynamicActivationInt8WeightConfig(),
             Int8WeightOnlyConfig(),
         ],
     )
-    @skip_if_xpu("XPU enablement in progress")
     @skip_if_rocm("ROCm enablement in progress")
     def test_workflow_e2e_numerics(self, config):
         """
-        Simple test of e2e Int4WeightOnlyConfig workflow, comparing numerics
+        Simple test of e2e quantization workflows, comparing numerics
         to a bfloat16 baseline.
         """
         if (
@@ -471,6 +476,7 @@ class TestQuantFlow(TestCase):
             y_q = m_q(x)
 
         sqnr = compute_error(y_ref, y_q)
+        print(f"{type(config).__name__}: SQNR={sqnr.item():.4f} dB, device={device}")
         assert sqnr >= 16.5, f"SQNR {sqnr} is too low"
 
     @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
