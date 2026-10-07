@@ -8,6 +8,8 @@
 # This test takes a long time to run
 import copy
 import gc
+import subprocess
+import sys
 import tempfile
 import unittest
 
@@ -638,6 +640,42 @@ class TestQuantFlow(TestCase):
         model(*example_inputs)
         assert isinstance(model.linear1.weight, Float8Tensor)
         assert not isinstance(model.linear2.weight, Float8Tensor)
+
+    @unittest.skipIf(
+        not torch.backends.mkldnn.is_available(), "onednn qlinear needs mkldnn"
+    )
+    def test_int8_dynamic_activation_cpu_lowers_to_qlinear_after_load(self):
+        # The fusion patterns are registered globally and cannot be unregistered,
+        # so compile in a fresh process. It loads a checkpoint rather than calling
+        # quantize_, as a user restoring a saved model would.
+        script = """
+import sys
+
+import torch
+from torch._inductor import config
+from torch._inductor.utils import run_and_get_code
+
+import torchao.quantization  # makes Int8Tensor loadable with weights_only=True
+
+m = torch.nn.Linear(64, 128, bias=False).to(torch.bfloat16).eval()
+m.load_state_dict(torch.load(sys.argv[1], weights_only=True), assign=True)
+config.freezing = True
+with torch.no_grad():
+    _, (code,) = run_and_get_code(
+        torch.compile(m), torch.randn(1, 1, 64, dtype=torch.bfloat16)
+    )
+if "qlinear_pointwise" not in code or "_int_mm" in code:
+    print(code)
+    raise AssertionError("int8 linear was not lowered to onednn::qlinear")
+"""
+        m = torch.nn.Linear(64, 128, bias=False).to(torch.bfloat16).eval()
+        quantize_(m, Int8DynamicActivationInt8WeightConfig(set_inductor_config=False))
+        with tempfile.NamedTemporaryFile(suffix=".pt") as f:
+            torch.save(m.state_dict(), f.name)
+            out = subprocess.run(
+                [sys.executable, "-c", script, f.name], capture_output=True, text=True
+            )
+        self.assertEqual(out.returncode, 0, out.stdout + out.stderr)
 
 
 common_utils.instantiate_parametrized_tests(TestQuantFlow)
