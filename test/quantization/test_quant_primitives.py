@@ -14,6 +14,7 @@ from torchao.quantization.granularity import PerRow
 from torchao.quantization.quant_primitives import (
     MappingType,
     ZeroPointDomain,
+    _choose_qparams_affine_dont_preserve_zero,
     _choose_qparams_affine_tinygemm,
     _choose_qparams_and_quantize_scale_only_sinq,
     _choose_scale_float8,
@@ -628,6 +629,74 @@ class TestQuantPrimitives(unittest.TestCase):
         block_size = (1, 1)
         with self.assertRaisesRegex(RuntimeError, "is invalid for input of size 1"):
             _ = quantize_affine(input, block_size, scale, zero_point, dtype)
+
+    def test_choose_qparams_affine_all_ones_block_size(self):
+        """Regression test for https://github.com/pytorch/ao/issues/3458.
+
+        A ``block_size`` of all 1s (e.g. ``PerGroup(1)``) means every element is
+        its own block, so ``_get_reduction_params`` returns an empty
+        ``reduction_dims``. ``torch.amin``/``amax`` treat an empty ``dim`` the
+        same as ``dim=None`` -- reducing over *all* dims -- which collapses the
+        per-element min/max to a single scalar shared by the whole tensor, so
+        the returned scale/zero_point have one element instead of one per input
+        element and quantizing then raises a shape-mismatch ``RuntimeError``.
+
+        ``_choose_qparams_affine`` was fixed for this; the two specialized
+        variants exercised here (used by the tinygemm / ``preserve_zero=False``
+        paths) had the identical bug.
+        """
+        torch.manual_seed(0)
+        input = torch.randn(3, 4)
+        block_size = (1, 1)
+        for fn in (
+            _choose_qparams_affine_tinygemm,
+            _choose_qparams_affine_dont_preserve_zero,
+        ):
+            scale, zero_point = fn(
+                input,
+                MappingType.ASYMMETRIC,
+                block_size,
+                torch.int32,
+                quant_min=0,
+                quant_max=15,
+            )
+            # one scale/zero_point per input element, not a single shared scalar
+            self.assertEqual(scale.numel(), input.numel())
+            self.assertEqual(zero_point.numel(), input.numel())
+
+            # each element's qparams must equal computing that element on its
+            # own as a 1x1 block -- a formula-independent oracle for what an
+            # all-ones block_size means ("every element is its own block")
+            scale = scale.reshape(input.shape)
+            zero_point = zero_point.reshape(input.shape)
+            for i in range(input.shape[0]):
+                for j in range(input.shape[1]):
+                    s_ij, z_ij = fn(
+                        input[i : i + 1, j : j + 1],
+                        MappingType.ASYMMETRIC,
+                        block_size,
+                        torch.int32,
+                        quant_min=0,
+                        quant_max=15,
+                    )
+                    self.assertTrue(torch.allclose(scale[i, j], s_ij.reshape(())))
+                    self.assertTrue(
+                        torch.allclose(
+                            zero_point[i, j].float(), z_ij.reshape(()).float()
+                        )
+                    )
+
+            # end to end: quantizing with these qparams must not raise the
+            # shape-mismatch RuntimeError reported in the issue
+            _ = quantize_affine(
+                input,
+                block_size,
+                scale.reshape(-1),
+                zero_point.reshape(-1),
+                torch.int32,
+                quant_min=0,
+                quant_max=15,
+            )
 
     def test_get_groupwise_affine_qparams(self):
         input = torch.randn(10, 256)
