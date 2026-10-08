@@ -12,17 +12,13 @@ from typing import Optional, Union
 
 import torch
 import torch.nn as nn
-from torch.ao.quantization.fx._decomposed import (
-    quantize_per_channel_group,
-)
+from torch.ao.quantization.fx._decomposed import quantize_per_channel_group
 
 from torchao.core.config import AOBaseConfig
 from torchao.quantization.quant_primitives import (
     _choose_qparams_and_quantize_affine_hqq,
 )
-from torchao.quantization.transform_module import (
-    register_quantize_module_handler,
-)
+from torchao.quantization.transform_module import register_quantize_module_handler
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.WARNING)
@@ -190,7 +186,7 @@ def _replace_linear_with_quantized_linear_mps(module: nn.Module, kwargs={}):
     nbit = kwargs["nbit"]
 
     assert not isinstance(module, nn.Linear)
-    assert nbit >= 1 and nbit <= 7
+    assert nbit >= 1 and nbit <= 8
 
     for name, child in module.named_children():
         if not isinstance(child, nn.Linear):
@@ -242,9 +238,9 @@ class UIntxWeightOnlyLinearQuantizer:
         if bitwidth is None:
             bitwidth = 4
             logger.warning(f"bitwidth not specified, defaulting to {bitwidth}.")
-        if bitwidth not in range(1, 8):
+        if bitwidth not in range(1, 9):
             raise ValueError(
-                "Only bitwidts 1 to 7 are supported in UIntxWeightOnlyLinearQuantizer"
+                "Only bitwidths 1 to 8 are supported in UIntxWeightOnlyLinearQuantizer"
             )
         else:
             self.bitwidth = bitwidth
@@ -281,9 +277,10 @@ class UIntxWeightOnlyConfig(AOBaseConfig):
     to linear layers for MPS devices.
 
     Args:
-        bitwidth (int): Number of bits for quantization, must be between 1 and 7 inclusive.
+        bitwidth (int): Number of bits for quantization, must be between 1 and 8 inclusive.
             Default is 4.
-        group_size (int): Group size for quantization. Must be one of [32, 64, 128, 256].
+        group_size (int): Group size for quantization. Must be one of [32, 64, 128, 256],
+            or -1 for per-channel (int8 only, delegates to native _weight_int8pack_mm).
             Default is 128.
         uintx_choose_qparams_algorithm (Union[UIntxChooseQParamsAlgorithm, str]): Algorithm for
             choosing quantization parameters. Options:
@@ -298,13 +295,14 @@ class UIntxWeightOnlyConfig(AOBaseConfig):
     )
 
     def __post_init__(self):
-        if self.bitwidth not in range(1, 8):
+        if self.bitwidth not in range(1, 9):
             raise ValueError(
-                f"bitwidth must be between 1 and 7 inclusive, got {self.bitwidth}"
+                f"bitwidth must be between 1 and 8 inclusive, got {self.bitwidth}"
             )
-        if self.group_size not in [32, 64, 128, 256]:
+        if self.group_size not in [32, 64, 128, 256] and self.group_size != -1:
             raise ValueError(
-                f"group_size must be one of [32, 64, 128, 256], got {self.group_size}"
+                f"group_size must be one of [32, 64, 128, 256], or -1 for "
+                f"per-channel, got {self.group_size}"
             )
         # Convert string to enum if necessary
         if isinstance(self.uintx_choose_qparams_algorithm, str):
@@ -315,24 +313,53 @@ class UIntxWeightOnlyConfig(AOBaseConfig):
 
 @register_quantize_module_handler(UIntxWeightOnlyConfig)
 def _uintx_weight_only_mps_transform(
-    module: torch.nn.Module, config: UIntxWeightOnlyConfig
+    module: torch.nn.Module,
+    config: UIntxWeightOnlyConfig,
+    *,
+    parameter_name: str = "weight",
 ) -> torch.nn.Module:
     nbit = config.bitwidth
     group_size = config.group_size
     uintx_choose_qparams_algorithm = config.uintx_choose_qparams_algorithm
 
-    if not module.weight.is_contiguous():
+    weight = getattr(module, parameter_name)
+
+    if not weight.is_contiguous():
         raise ValueError(
-            "UIntxWeightOnlyQuantizedLinear requires contiguous weights. "
+            "UIntxWeightOnlyConfig requires contiguous weights. "
             "Please call .contiguous() on the weight tensor before quantization."
         )
 
-    qlinear = UIntxWeightOnlyQuantizedLinear(
-        pack_weight_op=getattr(torch.ops.torchao, f"_pack_weight_{nbit}bit"),
-        linear_op=getattr(torch.ops.torchao, f"_linear_fp_act_{nbit}bit_weight"),
-        bias=module.bias,
-    )
-    qlinear.quantize_and_pack_weights(
-        module.weight, nbit, group_size, uintx_choose_qparams_algorithm
-    )
-    return qlinear
+    if uintx_choose_qparams_algorithm == UIntxChooseQParamsAlgorithm.MIN_MAX:
+        from torchao.prototype.quantization.intx_mps.intx_mps_experimental_tensor import (
+            IntxMPSExperimentalTensor,
+        )
+
+        # group_size == -1 means per-channel: use K (in_features) as group_size
+        effective_group_size = weight.shape[-1] if group_size == -1 else group_size
+        block_size = [1 for _ in range(weight.ndim - 1)] + [effective_group_size]
+        quantized_weight = IntxMPSExperimentalTensor.from_hp(
+            weight,
+            block_size,
+            nbit=nbit,
+            choose_qparams_algorithm=uintx_choose_qparams_algorithm.value,
+        )
+        setattr(
+            module,
+            parameter_name,
+            torch.nn.Parameter(quantized_weight, requires_grad=False),
+        )
+        return module
+    else:
+        qlinear = UIntxWeightOnlyQuantizedLinear(
+            pack_weight_op=getattr(torch.ops.torchao, f"_pack_weight_{nbit}bit"),
+            linear_op=getattr(torch.ops.torchao, f"_linear_fp_act_{nbit}bit_weight"),
+            bias=module.bias if parameter_name == "weight" else None,
+        )
+        qlinear.quantize_and_pack_weights(
+            weight,
+            nbit,
+            weight.shape[-1] if group_size == -1 else group_size,
+            uintx_choose_qparams_algorithm,
+        )
+        return qlinear
