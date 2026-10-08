@@ -4,6 +4,7 @@
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
 
+import math
 import random
 import unittest
 
@@ -21,6 +22,7 @@ from torchao.prototype.pat.group import (
 from torchao.prototype.pat.optim import (
     ProxGroupLasso,
     ProxNuclearNorm,
+    PruneOptimizer,
 )
 
 
@@ -81,6 +83,72 @@ class TestAttentionHeadGrouper(common_utils.TestCase):
             )(grouper.p, gamma)
             self.assertEqual(grouper.p.size(head_pack_dim), num_heads)
         self._test_post_prune(p, p_orig, head_pack_dim, view_shape, reduce_dim, gamma)
+
+
+class TestFixedHeadWidth(common_utils.TestCase):
+    def test_equivalence_and_writeback(self):
+        for cls, axis in ((AttentionHeadGrouperDim0, 0), (AttentionHeadGrouperDim1, 1)):
+            for heads in (2, 4):
+                with self.subTest(grouper=cls.__name__, heads=heads):
+                    shape = (heads * 3, 5) if axis == 0 else (5, heads * 3)
+                    original = torch.arange(1.0, 1 + math.prod(shape)).reshape(shape)
+                    by_count, by_width = original.clone(), original.clone()
+                    with (
+                        cls(by_count, num_heads=heads) as a,
+                        cls(by_width, head_dim=3) as b,
+                    ):
+                        self.assertEqual(a.p, b.p)
+                        self.assertEqual(b.num_heads, heads)
+                        if axis == 0:
+                            a.p[0].zero_()
+                            b.p[0].zero_()
+                        else:
+                            a.p[:, 0].zero_()
+                            b.p[:, 0].zero_()
+                    expected = original.clone()
+                    if axis == 0:
+                        expected[:3].zero_()
+                    else:
+                        expected[:, :3].zero_()
+                    self.assertEqual(by_count, expected)
+                    self.assertEqual(by_width, expected)
+
+    def test_invalid_arguments(self):
+        for cls in (AttentionHeadGrouperDim0, AttentionHeadGrouperDim1):
+            for kwargs, message in (
+                ({}, "exactly one"),
+                ({"num_heads": 2, "head_dim": 3}, "exactly one"),
+                ({"head_dim": 0}, "positive integer"),
+                ({"num_heads": -1}, "positive integer"),
+                ({"head_dim": 1.5}, "positive integer"),
+                ({"num_heads": True}, "positive integer"),
+                ({"head_dim": 4}, "not divisible"),
+                ({"num_heads": 4}, "not divisible"),
+            ):
+                with self.subTest(grouper=cls.__name__, kwargs=kwargs):
+                    with self.assertRaisesRegex(ValueError, message):
+                        cls(torch.ones(6, 6), **kwargs)
+
+    def test_optimizer_config(self):
+        for axis in (0, 1):
+            params = [nn.Parameter(torch.arange(1.0, 25.0).reshape(6, 4))]
+            if axis == 1:
+                params = [nn.Parameter(params[0].detach().t().contiguous())]
+            group = {
+                "params": params,
+                "group_type": f"AttentionHeadGrouperDim{axis}",
+                "prox_type": "MinSparsityConstraint",
+                "min_sparsity": 0.5,
+                "head_dim": 3,
+            }
+            opt = PruneOptimizer(torch.optim.SGD([group], lr=0.0))
+            params[0].grad = torch.zeros_like(params[0])
+            opt.step()
+            self.assertEqual(int(params[0].eq(0).sum()), 12)
+            for kwargs in ({}, {"num_heads": 2, "head_dim": 3}):
+                invalid = {"group_type": group["group_type"], **kwargs}
+                with self.assertRaisesRegex(ValueError, "exactly one"):
+                    opt._get_grouper_kwargs(invalid)
 
 
 class TestDimGrouper(common_utils.TestCase):
