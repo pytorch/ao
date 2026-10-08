@@ -54,7 +54,7 @@ class TestPATSubsetDeviceMesh(_GlooMultiProcessTestCase):
             param.grad = torch.zeros_like(param)
         optimizer.step()
 
-    def test_coupled_subset_mesh_materialized_state(self):
+    def test_coupled_subset_mesh_fast_and_materialized_state(self):
         self._init_process_group()
         try:
             mesh = DeviceMesh("cpu", [1, 2])
@@ -72,95 +72,130 @@ class TestPATSubsetDeviceMesh(_GlooMultiProcessTestCase):
             counts = [int(p.eq(0).sum()) for p in expected]
             total = sum(p.numel() for p in expected)
             groupers = (Dim1Grouper, Dim0Grouper)
-            direct = [
-                distribute_tensor(p.clone(), mesh, [Shard(0)], src_data_rank=None)
-                for p in originals
-            ]
-            params = [
-                torch.nn.Parameter(
-                    distribute_tensor(p.clone(), mesh, [Shard(0)], src_data_rank=None)
-                )
-                for p in originals
-            ]
-            groups = [
-                {
-                    "params": [p],
-                    "group_type": cls.__name__,
-                    "prox_type": "CoupledMinSparsityConstraint",
-                    "couple_key": "residual",
-                    "min_sparsity": 0.5,
-                }
-                for p, cls in zip(params, groupers)
-            ]
-            optimizer = PruneOptimizer(torch.optim.SGD(groups, lr=0.0))
-            optimizer.relative_sparsity = 0.375
-            optimizer.relative_factored_frac = 0.25
-            with mock.patch.object(
-                executor, "distribute_tensor", wraps=executor.distribute_tensor
-            ) as redistributed:
-                result = executor.apply_coupled_prox(
-                    [(p, cls, {}) for p, cls in zip(direct, groupers)],
-                    CoupledMinSparsityConstraint(0.0, 0.5),
-                    0.5,
-                )
-                for _ in range(2):
-                    self._step(optimizer, params)
-                    if participant:
+            for forced in (False, True):
+                with self.subTest(forced=forced):
+                    direct = [
+                        distribute_tensor(
+                            p.clone(), mesh, [Shard(0)], src_data_rank=None
+                        )
+                        for p in originals
+                    ]
+                    params = [
+                        torch.nn.Parameter(
+                            distribute_tensor(
+                                p.clone(), mesh, [Shard(0)], src_data_rank=None
+                            )
+                        )
+                        for p in originals
+                    ]
+                    groups = [
+                        {
+                            "params": [p],
+                            "group_type": cls.__name__,
+                            "prox_type": "CoupledMinSparsityConstraint",
+                            "couple_key": "residual",
+                            "min_sparsity": 0.5,
+                        }
+                        for p, cls in zip(params, groupers)
+                    ]
+                    optimizer = PruneOptimizer(torch.optim.SGD(groups, lr=0.0))
+                    optimizer.relative_sparsity = 0.375
+                    optimizer.relative_factored_frac = 0.25
+                    route_patch = (
+                        mock.patch.object(
+                            executor, "_coupled_fast_path", return_value=None
+                        )
+                        if forced
+                        else mock.patch.object(
+                            executor,
+                            "_coupled_prox_sharded",
+                            wraps=executor._coupled_prox_sharded,
+                        )
+                    )
+                    with (
+                        route_patch as route,
+                        mock.patch.object(
+                            executor,
+                            "distribute_tensor",
+                            wraps=executor.distribute_tensor,
+                        ) as redistributed,
+                    ):
+                        result = executor.apply_coupled_prox(
+                            [(p, cls, {}) for p, cls in zip(direct, groupers)],
+                            CoupledMinSparsityConstraint(0.0, 0.5),
+                            0.5,
+                        )
+                        for _ in range(2):
+                            self._step(optimizer, params)
+                            if participant:
+                                self.assertEqual(
+                                    optimizer.relative_sparsity, sum(counts) / total
+                                )
+                            else:
+                                self.assertEqual(optimizer.relative_sparsity, 0.375)
+                                self.assertEqual(optimizer.relative_factored_frac, 0.25)
+                                for p in params:
+                                    self.assertNotIn(
+                                        "sparsity_frac", optimizer.state[p]
+                                    )
+                    if forced:
                         self.assertEqual(
-                            optimizer.relative_sparsity, sum(counts) / total
+                            redistributed.call_count, 6 if participant else 0
+                        )
+                        for call in redistributed.call_args_list:
+                            self.assertIn("src_data_rank", call.kwargs)
+                            self.assertIsNone(call.kwargs["src_data_rank"])
+                    else:
+                        self.assertEqual(route.call_count, 3 if participant else 0)
+                        self.assertEqual(redistributed.call_count, 0)
+                    if participant:
+                        self.assertEqual(result.zero_channels, 4)
+                        self.assertEqual(result.channels, 8)
+                        self.assertEqual(result.zero_elts, sum(counts))
+                        self.assertEqual(result.numel, total)
+                        self.assertEqual(len(result.parameters), 2)
+                        for i, (p, q, dense) in enumerate(
+                            zip(direct, params, expected)
+                        ):
+                            self.assertIs(result.parameters[i].parameter, p)
+                            self.assertEqual(result.parameters[i].zero_elts, counts[i])
+                            self.assertEqual(result.parameters[i].numel, dense.numel())
+                            self.assertEqual(p.full_tensor(), dense, rtol=0, atol=0)
+                            self.assertEqual(q.full_tensor(), dense, rtol=0, atol=0)
+                            self.assertEqual(
+                                optimizer.state[q]["sparsity_frac"],
+                                counts[i] / dense.numel(),
+                            )
+                        self.assertEqual(optimizer.relative_factored_frac, 0.0)
+                        record = (
+                            True,
+                            result.zero_channels,
+                            result.zero_elts,
+                            optimizer.relative_sparsity,
                         )
                     else:
-                        self.assertEqual(optimizer.relative_sparsity, 0.375)
-                        self.assertEqual(optimizer.relative_factored_frac, 0.25)
-                        for p in params:
-                            self.assertNotIn("sparsity_frac", optimizer.state[p])
-            self.assertEqual(redistributed.call_count, 6 if participant else 0)
-            for call in redistributed.call_args_list:
-                self.assertIn("src_data_rank", call.kwargs)
-                self.assertIsNone(call.kwargs["src_data_rank"])
-            if participant:
-                self.assertEqual(result.zero_channels, 4)
-                self.assertEqual(result.channels, 8)
-                self.assertEqual(result.zero_elts, sum(counts))
-                self.assertEqual(result.numel, total)
-                self.assertEqual(len(result.parameters), 2)
-                for i, (p, q, dense) in enumerate(zip(direct, params, expected)):
-                    self.assertIs(result.parameters[i].parameter, p)
-                    self.assertEqual(result.parameters[i].zero_elts, counts[i])
-                    self.assertEqual(result.parameters[i].numel, dense.numel())
-                    self.assertEqual(p.full_tensor(), dense, rtol=0, atol=0)
-                    self.assertEqual(q.full_tensor(), dense, rtol=0, atol=0)
+                        self.assertEqual(result.parameters, ())
+                        self.assertEqual(
+                            (
+                                result.zero_elts,
+                                result.numel,
+                                result.zero_channels,
+                                result.channels,
+                            ),
+                            (0, 0, 0, 0),
+                        )
+                        record = (
+                            False,
+                            optimizer.relative_sparsity,
+                            optimizer.relative_factored_frac,
+                        )
+                    records = [None] * self.world_size
+                    dist.all_gather_object(records, record)
+                    self.assertEqual(records[0], (False, 0.375, 0.25))
+                    self.assertEqual(records[1], records[2])
                     self.assertEqual(
-                        optimizer.state[q]["sparsity_frac"], counts[i] / dense.numel()
+                        records[1], (True, 4, sum(counts), sum(counts) / total)
                     )
-                self.assertEqual(optimizer.relative_factored_frac, 0.0)
-                record = (
-                    True,
-                    result.zero_channels,
-                    result.zero_elts,
-                    optimizer.relative_sparsity,
-                )
-            else:
-                self.assertEqual(result.parameters, ())
-                self.assertEqual(
-                    (
-                        result.zero_elts,
-                        result.numel,
-                        result.zero_channels,
-                        result.channels,
-                    ),
-                    (0, 0, 0, 0),
-                )
-                record = (
-                    False,
-                    optimizer.relative_sparsity,
-                    optimizer.relative_factored_frac,
-                )
-            records = [None] * self.world_size
-            dist.all_gather_object(records, record)
-            self.assertEqual(records[0], (False, 0.375, 0.25))
-            self.assertEqual(records[1], records[2])
-            self.assertEqual(records[1], (True, 4, sum(counts), sum(counts) / total))
         finally:
             if dist.is_initialized():
                 dist.destroy_process_group()
