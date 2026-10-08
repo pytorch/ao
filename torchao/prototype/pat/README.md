@@ -47,6 +47,12 @@ Pruning configs are dictionaries that define which parameter groups to prune and
 - regex pattern (string): for example, `:.*attn\.qkv\.weight`
 - module type and parameter name suffix (`(class, string)` tuple): for example, `(torch.nn.Linear, "weight")`
 
+## Direct projection
+
+`PruneOptimizer(..., latent_weights=False)` and `build_prune_optimizer(..., latent_weights=False)` step directly from projected parameters instead of restoring PAT's dense latent weights. The default remains `True`. Direct projection removes PAT's latent copy but changes the optimization trajectory; it does not remove the base optimizer's momentum or AdamW moments. Gradients or momentum may revive zeros during pruning; the existing healing mask freezes them once healing starts.
+
+The mode is a constructor setting, not part of the delegated optimizer state dict. When resuming, reconstruct the same mode before loading both model and optimizer checkpoints. Cross-mode resume is unsupported: direct checkpoints do not contain the latent weights needed by default-mode restoration.
+
 ## Groupers and proximal maps
 
 A pruning entry pairs a **grouper** with a **proximal map**. The grouper reshapes a tensor into `(n_groups, group_size)`, or exposes singular values for an SVD grouper, and the proximal map is then applied to that view.
@@ -60,10 +66,12 @@ A pruning entry pairs a **grouper** with a **proximal map**. The grouper reshape
 | `LayerGrouper` | Whole tensor as one group for layer-level pruning |
 | `KElementGrouper(k)` | `(numel / k, k)` blocks of `k` consecutive elements |
 | `ConvFilterGrouper` | One group per `(c_out, c_in)` filter slice of a Conv2d kernel |
-| `AttentionHeadGrouperDim0(num_heads)` | One group per attention head along dimension 0 |
-| `AttentionHeadGrouperDim1(num_heads)` | One group per attention head along dimension 1 |
+| `AttentionHeadGrouperDim0(num_heads=..., head_dim=...)` | One group per attention head along dimension 0; specify exactly one argument |
+| `AttentionHeadGrouperDim1(num_heads=..., head_dim=...)` | One group per attention head along dimension 1; specify exactly one argument |
 | `SVDGrouper` | Decompose `W = U diag(s) Vh` and expose its singular values |
 | `PackedSVDGrouper(npack)` | Apply SVD independently to each of `npack` sub-tensors |
+
+Attention-head groupers accept exactly one positive integer `num_heads` or `head_dim`, and the packed dimension must be divisible by it. Existing positional `num_heads` calls remain supported. For heterogeneous layer widths, use a fixed `head_dim` in the pruning config so each tensor derives its own head count; for example, `group_type: AttentionHeadGrouperDim0` with `head_dim: 64`.
 
 ### Proximal maps (`torchao.prototype.pat.optim`)
 
@@ -93,6 +101,8 @@ A pruning entry pairs a **grouper** with a **proximal map**. The grouper reshape
 `MinSparsityConstraint`, `GlobalMinSparsityConstraint`, `MinRankConstraint`, and `NMSparseConstraint` are hard-zero maps: they ignore `reg_lambda` and `gamma` and are driven by their target argument. Set `min_sparsity_schedule: true` to ramp a minimum-sparsity or minimum-rank target cubically from the end of warmup to `healing_start_step`. Regardless of `prox_freq` alignment, PAT applies a hard constraint once at `healing_start_step - 1` so healing freezes the final target mask rather than an earlier mask.
 
 `GlobalMinSparsityConstraint` computes one budget as `ceil(min_sparsity * total_groups)` for each optimizer parameter group, not one budget per tensor and not a parameter-count budget. It jointly ranks the groups exposed by the configured grouper, and all parameters in that optimizer group must produce scores on the same device. Use `score_type: rms` by default when tensors have different group sizes because it normalizes L2 magnitude by `sqrt(group_size)`. Raw `l2` tends to favor retaining larger groups because their norms grow with group size, while `param_cost` divides by the full group size and more strongly favors removing groups that save more parameters. Padded `KElementGrouper` views are rejected because padding would distort both scoring and accounting; choose a `k` that divides every grouped dimension.
+
+For recipes whose initialization scales magnitudes by the inverse square root of the number of groups, set the optional `score_group_count_ref` positive integer in a global pruning group. This multiplies each tensor's scores by `sqrt(n_groups / score_group_count_ref)` before joint selection. It is separate from RMS normalization by group size, is not automatically enabled by `head_dim`, and is disabled by default. Different positive reference magnitudes produce the same mathematical ranking because the reference contributes one common scale factor across candidates.
 
 For DTensor parameters, global selection requires full materialization of every grouped tensor on every rank before the shared top-k decision, followed by scattering the selected masks back to the original placements. The current internal `CACHE_FULL_TENSORS` policy gathers each DTensor once and retains all dense copies until selection and write-back finish, so peak dense memory is the sum of the tensors in the optimizer parameter group. A future lower-memory policy could release each copy after scoring, but would need to gather each DTensor again to apply the selected mask. Every rank gathers the same tensors and performs the same deterministic selection, so masks are expected to agree, but current PAT CI covers the DTensor API only at world size one rather than exercising true multi-rank execution.
 

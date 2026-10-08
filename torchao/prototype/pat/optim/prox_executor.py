@@ -283,6 +283,7 @@ def apply_global_prox(
     grouper_kwargs: dict[str, Any],
     min_sparsity: float,
     *,
+    score_group_count_ref: int | None = None,
     materialization_policy: GlobalDTensorMaterializationPolicy = (
         GlobalDTensorMaterializationPolicy.CACHE_FULL_TENSORS
     ),
@@ -303,6 +304,13 @@ def apply_global_prox(
         raise NotImplementedError(
             f"Unsupported materialization policy: {materialization_policy}"
         )
+
+    if score_group_count_ref is not None and (
+        not isinstance(score_group_count_ref, int)
+        or isinstance(score_group_count_ref, bool)
+        or score_group_count_ref <= 0
+    ):
+        raise ValueError("score_group_count_ref must be a positive integer")
 
     dtensor_params = [p for p in params if _is_dtensor(p)]
     if dtensor_params:
@@ -340,6 +348,8 @@ def apply_global_prox(
                     f"for parameter shape {tuple(p.shape)}."
                 )
             scores = prox_map.score(view).detach()
+            if score_group_count_ref is not None:
+                scores = scores * math.sqrt(scores.numel() / score_group_count_ref)
             entries.append((p, grouper, view, full, scores, grouper.p.numel()))
             score_chunks.append(scores)
 
@@ -373,9 +383,7 @@ def apply_global_prox(
             )
             zero_mask[drop_idx] = True
 
-        parameter_results = []
-        group_zeros = 0
-        group_params = 0
+        zero_counts = []
         offset = 0
         for p, grouper, view, full, scores, numel in entries:
             n_local = scores.numel()
@@ -393,7 +401,18 @@ def apply_global_prox(
                         placements=grouper.p.placements,
                     )
                 )
-            zero_elts = int(zeros.item()) if torch.is_tensor(zeros) else int(zeros)
+            zero_counts.append(
+                zeros
+                if torch.is_tensor(zeros)
+                else torch.tensor(zeros, device=view.device, dtype=torch.long)
+            )
+
+        # One device-to-host synchronization for the whole parameter group.
+        counts = torch.stack(zero_counts).to(torch.long).tolist()
+        parameter_results = []
+        group_zeros = 0
+        group_params = 0
+        for (p, grouper, view, full, scores, numel), zero_elts in zip(entries, counts):
             parameter_results.append(
                 ParameterSparsity(parameter=p, zero_elts=zero_elts, numel=numel)
             )

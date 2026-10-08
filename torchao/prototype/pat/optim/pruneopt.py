@@ -37,6 +37,9 @@ class PruneOptimizer(Optimizer):
             pruned parameters are frozen. Must be greater than warmup_steps.
         reg_lambda: Regularization strength for the proximal updates. Can be
             overridden per parameter group.
+        latent_weights: Keep dense latent weights for AProx updates by default.
+            If False, step directly from projected weights without latent storage.
+            Reconstruct the same mode when loading an optimizer checkpoint.
     """
 
     def __init__(
@@ -45,6 +48,7 @@ class PruneOptimizer(Optimizer):
         warmup_steps: int = 0,
         healing_start_step: int = sys.maxsize,
         reg_lambda: float = 0.0,
+        latent_weights: bool = True,
     ) -> None:
         # need to reconstruct these objects if loading checkpoint
         self.base_optimizer = base_optimizer
@@ -56,6 +60,7 @@ class PruneOptimizer(Optimizer):
         self.num_steps = 0
         self.warmup_steps = warmup_steps
         self.healing_start_step = healing_start_step
+        self.latent_weights = latent_weights
 
         for group in self.regularized_param_groups():
             group.setdefault("gamma", 0.0)
@@ -186,7 +191,13 @@ class PruneOptimizer(Optimizer):
     def _get_grouper_kwargs(group: dict[str, Any]) -> dict[str, Any]:
         grouper_kwargs = {}
         if group["group_type"].startswith("AttentionHeadGrouper"):
-            grouper_kwargs["num_heads"] = group["num_heads"]
+            num_heads, head_dim = group.get("num_heads"), group.get("head_dim")
+            if (num_heads is None) == (head_dim is None):
+                raise ValueError("specify exactly one of num_heads or head_dim")
+            if head_dim is not None:
+                grouper_kwargs["head_dim"] = head_dim
+            else:
+                grouper_kwargs["num_heads"] = num_heads
         elif group["group_type"] == "KElementGrouper":
             grouper_kwargs["k"] = group["k"]
         elif group["group_type"] == "PackedSVDGrouper":
@@ -338,16 +349,18 @@ class PruneOptimizer(Optimizer):
             del healing_masks
             if is_healing:
                 self._apply_prox_to_through_heal_groups()
-            self._init_latent_state()
+            if self.latent_weights:
+                self._init_latent_state()
             self.num_steps += 1
             return loss
 
-        if self.num_steps == self.warmup_steps:
-            # first PAT step: save latent params
-            self.save_latent_params()
-        else:
-            # restore latent params for base optimizer update
-            self.restore_latent_params()
+        if self.latent_weights:
+            if self.num_steps == self.warmup_steps:
+                # first PAT step: save latent params
+                self.save_latent_params()
+            else:
+                # restore latent params for base optimizer update
+                self.restore_latent_params()
 
         # call base optimizer step() method to update latent parameters
         loss = self.base_optimizer.step(closure=closure)  # pyre-ignore[6]
@@ -379,7 +392,7 @@ class PruneOptimizer(Optimizer):
                 # Keep latent parameters aligned with the base optimizer while
                 # retaining cached sparsity and factorization metrics.
                 for p in group["params"]:
-                    if not p.requires_grad:
+                    if not p.requires_grad or not self.latent_weights:
                         continue
                     self.state[p]["latent"].copy_(p)
                 continue
@@ -389,14 +402,16 @@ class PruneOptimizer(Optimizer):
                     self._build_global_prox_artifacts(group)
                 )
                 params = [p for p in group["params"] if p.requires_grad]
-                for p in params:
-                    self.state[p]["latent"].copy_(p)
+                if self.latent_weights:
+                    for p in params:
+                        self.state[p]["latent"].copy_(p)
                 global_result = apply_global_prox(
                     params,
                     prox_map,
                     grouper_cls,
                     grouper_kwargs,
                     self._effective_min_sparsity(group),
+                    score_group_count_ref=group.get("score_group_count_ref"),
                 )
                 for param_result in global_result.parameters:
                     state = self.state[param_result.parameter]
@@ -417,7 +432,8 @@ class PruneOptimizer(Optimizer):
                     continue
 
                 state = self.state[p]
-                state["latent"].copy_(p)
+                if self.latent_weights:
+                    state["latent"].copy_(p)
                 result = apply_prox_to_param(
                     p,
                     prox_map,
