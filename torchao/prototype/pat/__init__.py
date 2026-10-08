@@ -16,6 +16,7 @@ from .group import (  # noqa: F401
     SVDGrouper,
 )
 from .optim import (  # noqa: F401
+    CoupledMinSparsityConstraint,
     ProxGroupLasso,
     ProxGroupLassoVectorized,
     ProxLasso,
