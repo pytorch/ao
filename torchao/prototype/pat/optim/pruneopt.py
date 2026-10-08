@@ -4,6 +4,7 @@
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
 
+import math
 import sys
 from collections import defaultdict
 from collections.abc import Callable
@@ -21,7 +22,15 @@ from ..distributed_utils import (
     _sum_async_streams,
 )
 from ..utils import instantiate_module
-from .prox_executor import apply_global_prox, apply_prox_to_param
+from .prox_executor import (
+    _validate_coupled_specs,
+    apply_coupled_prox,
+    apply_global_prox,
+    apply_prox_to_param,
+)
+
+_COUPLED_INHERITED_KEYS = ("min_sparsity_schedule", "reg_lambda", "score_type")
+_GROUP_STATE_KEYS = ("params", "gamma", "num_steps", "factored_frac", "initial_lr")
 
 
 class PruneOptimizer(Optimizer):
@@ -52,6 +61,11 @@ class PruneOptimizer(Optimizer):
     ) -> None:
         # need to reconstruct these objects if loading checkpoint
         self.base_optimizer = base_optimizer
+        for group in self.param_groups:
+            if "coupled" in group and not group.get("prox_type"):
+                raise ValueError(
+                    "nested coupled requires a regularized parent prox_type"
+                )
 
         # need to store these attributes in state_dict for checkpoint
         assert warmup_steps < healing_start_step, (
@@ -72,6 +86,7 @@ class PruneOptimizer(Optimizer):
                     "the ramp ends when the mask freezes."
                 )
 
+        self._coupled_clusters()
         self.relative_sparsity = 0
         self.relative_factored_frac = 0
 
@@ -227,6 +242,98 @@ class PruneOptimizer(Optimizer):
         )
         return grouper_cls, self._get_grouper_kwargs(group)
 
+    def _coupled_config(self, group: dict[str, Any]) -> dict[str, Any] | None:
+        """Resolve top-level or nested coupling without inheriting target/frequency."""
+        if group.get("prox_type") == "CoupledMinSparsityConstraint":
+            if "coupled" in group:
+                raise ValueError(
+                    "top-level coupled prox cannot also carry a nested coupled stage"
+                )
+            cfg = {
+                key: value
+                for key, value in group.items()
+                if key not in self.base_optimizer.defaults
+                and key not in _GROUP_STATE_KEYS
+            }
+        else:
+            if "coupled" not in group:
+                return None
+            if not group.get("prox_type"):
+                raise ValueError(
+                    "nested coupled requires a regularized parent prox_type"
+                )
+            nested = group["coupled"]
+            if not isinstance(nested, dict):
+                raise ValueError("nested coupled must be a dictionary")
+            cfg = {key: group[key] for key in _COUPLED_INHERITED_KEYS if key in group}
+            cfg.update(nested)
+        for key in ("couple_key", "group_type", "min_sparsity"):
+            if key not in cfg:
+                raise ValueError(f"coupled prune group requires {key!r}")
+        if not isinstance(cfg["couple_key"], str) or not cfg["couple_key"]:
+            raise ValueError("couple_key must be a nonempty string")
+        if any(
+            str(config.get("group_type", "")).endswith("SVDGrouper")
+            for config in (group, cfg)
+        ):
+            raise ValueError("SVD groupers cannot be composed with coupled pruning")
+        cfg["prox_type"] = "CoupledMinSparsityConstraint"
+        cfg.setdefault("min_sparsity_schedule", False)
+        cfg.setdefault("score_type", "rms")
+        cfg.setdefault("prox_freq", 1)
+        freq = cfg["prox_freq"]
+        if not isinstance(freq, int) or isinstance(freq, bool) or freq <= 0:
+            raise ValueError("coupled prox_freq must be a positive integer")
+        if cfg["min_sparsity_schedule"] and (
+            self.healing_start_step == sys.maxsize
+            or not math.isfinite(self.healing_start_step)
+        ):
+            raise ValueError(
+                "coupled min_sparsity_schedule requires a finite healing_start_step"
+            )
+        return cfg
+
+    def _coupled_clusters(self) -> dict[str, tuple[dict[str, Any], list]]:
+        """Collect tensor-axis specs and validate effective cluster settings."""
+        clusters = {}
+        seen = set()
+        for group in self.param_groups:
+            cfg = self._coupled_config(group)
+            if cfg is None:
+                continue
+            # Validate target and score type before any optimizer mutation.
+            instantiate_module(
+                "torchao.prototype.pat.optim.CoupledMinSparsityConstraint"
+            )(cfg.get("reg_lambda", 0.0), cfg["min_sparsity"], cfg["score_type"])
+            key = cfg["couple_key"]
+            cls, kwargs = self._build_group_artifacts(cfg)
+            if key not in clusters:
+                clusters[key] = (cfg, [])
+            else:
+                first = clusters[key][0]
+                for field in (
+                    "min_sparsity",
+                    "min_sparsity_schedule",
+                    "score_type",
+                    "prox_freq",
+                ):
+                    if first[field] != cfg[field]:
+                        raise ValueError(
+                            f"coupled group {key!r} has conflicting {field!r}: {first[field]!r} vs {cfg[field]!r}"
+                        )
+            for p in group["params"]:
+                if not p.requires_grad:
+                    continue
+                if id(p) in seen:
+                    raise ValueError(
+                        "each parameter may participate in only one coupled cluster"
+                    )
+                seen.add(id(p))
+                clusters[key][1].append((p, cls, kwargs))
+        for _, specs in clusters.values():
+            _validate_coupled_specs(specs)
+        return clusters
+
     def _build_global_prox_artifacts(self, group: dict[str, Any]):
         """Build global prox artifacts without resolving the scheduled budget."""
         assert "min_sparsity" in group, (
@@ -263,6 +370,7 @@ class PruneOptimizer(Optimizer):
     def should_prune(self, group: dict[str, Any], step: int) -> bool:
         """Run the group's prox map every ``prox_freq`` steps after warmup."""
         hard_constraints = {
+            "CoupledMinSparsityConstraint",
             "GlobalMinSparsityConstraint",
             "MinRankConstraint",
             "MinSparsityConstraint",
@@ -318,6 +426,10 @@ class PruneOptimizer(Optimizer):
         # opted into through-heal instead reapply their prox map because dense
         # low-rank weights have no literal zeros to mask. Soft SVD maps default
         # to unconstrained healing unless they explicitly opt in.
+        coupled_clusters = self._coupled_clusters()
+        coupled_param_ids = {
+            id(p) for _, specs in coupled_clusters.values() for p, _, _ in specs
+        }
         healing_masks = {}
         is_healing = self.num_steps >= self.healing_start_step
         if is_healing:
@@ -397,6 +509,13 @@ class PruneOptimizer(Optimizer):
                     self.state[p]["latent"].copy_(p)
                 continue
 
+            if group["prox_type"] == "CoupledMinSparsityConstraint":
+                if self.latent_weights:
+                    for p in group["params"]:
+                        if p.requires_grad:
+                            self.state[p]["latent"].copy_(p)
+                continue
+
             if group["prox_type"] == "GlobalMinSparsityConstraint":
                 prox_map, grouper_cls, grouper_kwargs = (
                     self._build_global_prox_artifacts(group)
@@ -414,14 +533,16 @@ class PruneOptimizer(Optimizer):
                     score_group_count_ref=group.get("score_group_count_ref"),
                 )
                 for param_result in global_result.parameters:
+                    if id(param_result.parameter) in coupled_param_ids:
+                        continue
                     state = self.state[param_result.parameter]
                     state["sparsity_frac"] = (
                         param_result.zero_elts / param_result.numel
                         if param_result.numel
                         else 0.0
                     )
-                regularized_zeros += global_result.zero_elts
-                regularized_params += global_result.numel
+                    regularized_zeros += param_result.zero_elts
+                    regularized_params += param_result.numel
                 continue
 
             prox_map, grouper_cls, grouper_kwargs, prox_kwargs = (
@@ -445,6 +566,9 @@ class PruneOptimizer(Optimizer):
                 if result is None:
                     continue
 
+                if id(p) in coupled_param_ids:
+                    # Account coupled tensors once, from final surviving zeros.
+                    continue
                 zero_elts = result.zero_elts
                 zeros_are_summed = result.zeros_are_summed
                 numel = result.numel
@@ -483,6 +607,25 @@ class PruneOptimizer(Optimizer):
                 else:
                     regularized_zeros += zero_elts
                     regularized_params += numel
+
+        for cfg, specs in coupled_clusters.values():
+            if not self.should_prune(cfg, self.num_steps):
+                all_groups_ran = False
+                continue
+            prox_map = instantiate_module(
+                "torchao.prototype.pat.optim.CoupledMinSparsityConstraint"
+            )(cfg.get("reg_lambda", 0.0), cfg["min_sparsity"], cfg["score_type"])
+            result = apply_coupled_prox(
+                specs, prox_map, self._effective_min_sparsity(cfg)
+            )
+            for param_result in result.parameters:
+                self.state[param_result.parameter]["sparsity_frac"] = (
+                    param_result.zero_elts / param_result.numel
+                    if param_result.numel
+                    else 0.0
+                )
+                regularized_zeros += param_result.zero_elts
+                regularized_params += param_result.numel
 
         self.num_steps += 1
 
