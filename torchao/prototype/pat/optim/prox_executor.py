@@ -53,6 +53,17 @@ class GlobalProxResult:
     numel: int
 
 
+@dataclass(frozen=True)
+class CoupledProxResult:
+    """Final literal zeros and shared channel selection for a coupled cluster."""
+
+    parameters: tuple[ParameterSparsity, ...]
+    zero_elts: int
+    numel: int
+    zero_channels: int
+    channels: int
+
+
 class GlobalDTensorMaterializationPolicy(Enum):
     """Internal policy for full DTensor views used by global selection."""
 
@@ -276,6 +287,186 @@ def grouped_view(grouper):
     return view, full
 
 
+def _check_mesh_compatibility(params: Sequence[Tensor], what: str) -> bool:
+    """Return False when this rank sits outside the shared DeviceMesh."""
+    dtensor_params = [p for p in params if _is_dtensor(p)]
+    if not dtensor_params:
+        return True
+    if len(dtensor_params) != len(params):
+        raise ValueError(f"{what} cannot mix dense tensors and DTensors in one group.")
+    first_mesh = dtensor_params[0].device_mesh
+    if any(p.device_mesh != first_mesh for p in dtensor_params[1:]):
+        raise ValueError(f"{what} requires all DTensors to use the same DeviceMesh.")
+    return first_mesh.get_coordinate() is not None
+
+
+def _validate_coupled_specs(specs) -> bool:
+    """Preflight layouts using meta tensors, without gathering or changing weights."""
+    params = [p for p, _, _ in specs]
+    if not params:
+        return True
+    if len({id(p) for p in params}) != len(params):
+        raise ValueError("CoupledMinSparsityConstraint requires distinct parameters")
+    if not _check_mesh_compatibility(params, "CoupledMinSparsityConstraint"):
+        return False
+    if any(p.device != params[0].device for p in params):
+        raise ValueError(
+            "CoupledMinSparsityConstraint requires every parameter to live on the same device."
+        )
+    if any(not p.is_floating_point() for p in params):
+        raise ValueError(
+            "CoupledMinSparsityConstraint requires real floating-point tensors."
+        )
+    n_channels = None
+    for p, cls, kwargs in specs:
+        if cls.__name__.endswith("SVDGrouper"):
+            raise ValueError("SVD groupers cannot be composed with coupled pruning")
+        surrogate = (
+            torch.empty(p.shape, device="meta", dtype=p.dtype)
+            if _is_dtensor(p)
+            else torch.empty_strided(p.shape, p.stride(), device="meta", dtype=p.dtype)
+        )
+        try:
+            with cls(surrogate, **kwargs) as grouper:
+                if hasattr(grouper, "_pad_size"):
+                    raise ValueError(
+                        "CoupledMinSparsityConstraint does not support padded KElementGrouper groups."
+                    )
+                if isinstance(grouper, ElemGrouper):
+                    shape = (grouper.p.numel(), 1)
+                elif isinstance(grouper, LayerGrouper):
+                    shape = (1, grouper.p.numel())
+                elif getattr(grouper, "in_dims", 0) == 1 and grouper.p.dim() == 2:
+                    shape = tuple(reversed(grouper.p.shape))
+                else:
+                    shape = grouper.p.shape
+                if len(shape) != 2:
+                    raise ValueError(
+                        "CoupledMinSparsityConstraint requires a grouper that produces a 2-D (n_channels, group_size) view."
+                    )
+                if n_channels is None:
+                    n_channels = shape[0]
+                elif shape[0] != n_channels:
+                    raise ValueError(
+                        "CoupledMinSparsityConstraint requires every parameter to expose the same leading dimension."
+                    )
+        except RuntimeError as error:
+            raise ValueError(
+                "CoupledMinSparsityConstraint encountered an unsupported tensor layout"
+            ) from error
+    return True
+
+
+def apply_coupled_prox(
+    specs: Sequence[tuple[Tensor, Any, dict[str, Any]]],
+    prox_map,
+    min_sparsity: float,
+    *,
+    materialization_policy: GlobalDTensorMaterializationPolicy = (
+        GlobalDTensorMaterializationPolicy.CACHE_FULL_TENSORS
+    ),
+) -> CoupledProxResult:
+    """Zero one shared set of channel indices across ``specs`` in place.
+
+    Each spec holds (parameter, grouper class, grouper kwargs). Groupers must
+    expose 2-D (channels, group_size) views of the same leading dimension.
+    Reported element counts include all final literal zeros, including zeros
+    from a prior prox; callers must account each participating parameter once.
+
+    DTensor execution caches every grouped full tensor, so peak dense memory
+    is the sum of clustered tensors. Every mesh participant selects from the
+    same materialized scores; nonparticipants skip processing.
+    """
+    if (
+        materialization_policy
+        is not GlobalDTensorMaterializationPolicy.CACHE_FULL_TENSORS
+    ):
+        raise NotImplementedError(
+            f"Unsupported materialization policy: {materialization_policy}"
+        )
+    if not 0.0 <= min_sparsity <= 1.0:
+        raise ValueError("min_sparsity must be in [0, 1]")
+    empty = CoupledProxResult(
+        parameters=(), zero_elts=0, numel=0, zero_channels=0, channels=0
+    )
+    if not specs:
+        return empty
+    if not _validate_coupled_specs(specs):
+        return empty
+
+    with contextlib.ExitStack() as stack:
+        entries = []
+        n_channels = None
+        sq_norm_sum = None
+        group_size_sum = 0
+        for p, cls, kwargs in specs:
+            # Group the dense view so uneven DTensor reshapes cannot fail before
+            # the fallback gets a chance to materialize the parameter.
+            dense = p.full_tensor() if _is_dtensor(p) else p
+            grouper = stack.enter_context(cls(dense, **kwargs))
+            if hasattr(grouper, "_pad_size"):
+                raise ValueError(
+                    "CoupledMinSparsityConstraint does not support padded KElementGrouper groups."
+                )
+            view, full = grouped_view(grouper)
+            if view.dim() != 2:
+                raise ValueError(
+                    "CoupledMinSparsityConstraint requires a grouper that produces a 2-D "
+                    f"(n_channels, group_size) view; {cls.__name__} produced shape {tuple(view.shape)}."
+                )
+            if n_channels is None:
+                n_channels = view.size(0)
+            elif view.size(0) != n_channels:
+                raise ValueError(
+                    "CoupledMinSparsityConstraint requires every parameter to expose the same leading dimension."
+                )
+            sq_norm = torch.linalg.vector_norm(view.float(), dim=1).square()
+            sq_norm_sum = sq_norm if sq_norm_sum is None else sq_norm_sum + sq_norm
+            group_size_sum += view.size(1)
+            entries.append((p, grouper, view, full, dense))
+
+        scores = prox_map.combine_scores(sq_norm_sum, group_size_sum)
+        n_zero = math.ceil(min_sparsity * n_channels)
+        if n_zero <= 0:
+            zero_idx = torch.empty(0, dtype=torch.long, device=scores.device)
+        elif n_zero >= n_channels:
+            zero_idx = torch.arange(n_channels, device=scores.device)
+        else:
+            _, zero_idx = torch.topk(scores, k=n_zero, largest=False, sorted=False)
+        for p, grouper, view, full, dense in entries:
+            prox_map.zero_groups_(view, zero_idx)
+            if isinstance(grouper, (ElemGrouper, LayerGrouper)):
+                # Flattening a noncontiguous tensor may have allocated a copy.
+                full.copy_(view.reshape(full.shape))
+        # Flush reshaped groupers' write-back before redistributing/counting.
+        stack.close()
+        zero_counts = []
+        for p, _, _, _, dense in entries:
+            if _is_dtensor(p):
+                p.copy_(
+                    distribute_tensor(
+                        dense,
+                        device_mesh=p.device_mesh,
+                        placements=p.placements,
+                        src_data_rank=None,
+                    )
+                )
+            zero_counts.append((dense == 0).sum())
+        parameters = tuple(
+            ParameterSparsity(parameter=p, zero_elts=zeros, numel=dense.numel())
+            for (p, _, _, _, dense), zeros in zip(
+                entries, torch.stack(zero_counts).to(torch.long).tolist()
+            )
+        )
+        return CoupledProxResult(
+            parameters=parameters,
+            zero_elts=sum(p.zero_elts for p in parameters),
+            numel=sum(p.numel for p in parameters),
+            zero_channels=zero_idx.numel(),
+            channels=n_channels,
+        )
+
+
 def apply_global_prox(
     params: Sequence[Tensor],
     prox_map,
@@ -283,6 +474,7 @@ def apply_global_prox(
     grouper_kwargs: dict[str, Any],
     min_sparsity: float,
     *,
+    score_group_count_ref: int | None = None,
     materialization_policy: GlobalDTensorMaterializationPolicy = (
         GlobalDTensorMaterializationPolicy.CACHE_FULL_TENSORS
     ),
@@ -303,6 +495,13 @@ def apply_global_prox(
         raise NotImplementedError(
             f"Unsupported materialization policy: {materialization_policy}"
         )
+
+    if score_group_count_ref is not None and (
+        not isinstance(score_group_count_ref, int)
+        or isinstance(score_group_count_ref, bool)
+        or score_group_count_ref <= 0
+    ):
+        raise ValueError("score_group_count_ref must be a positive integer")
 
     dtensor_params = [p for p in params if _is_dtensor(p)]
     if dtensor_params:
@@ -340,6 +539,8 @@ def apply_global_prox(
                     f"for parameter shape {tuple(p.shape)}."
                 )
             scores = prox_map.score(view).detach()
+            if score_group_count_ref is not None:
+                scores = scores * math.sqrt(scores.numel() / score_group_count_ref)
             entries.append((p, grouper, view, full, scores, grouper.p.numel()))
             score_chunks.append(scores)
 
@@ -373,9 +574,7 @@ def apply_global_prox(
             )
             zero_mask[drop_idx] = True
 
-        parameter_results = []
-        group_zeros = 0
-        group_params = 0
+        zero_counts = []
         offset = 0
         for p, grouper, view, full, scores, numel in entries:
             n_local = scores.numel()
@@ -393,7 +592,18 @@ def apply_global_prox(
                         placements=grouper.p.placements,
                     )
                 )
-            zero_elts = int(zeros.item()) if torch.is_tensor(zeros) else int(zeros)
+            zero_counts.append(
+                zeros
+                if torch.is_tensor(zeros)
+                else torch.tensor(zeros, device=view.device, dtype=torch.long)
+            )
+
+        # One device-to-host synchronization for the whole parameter group.
+        counts = torch.stack(zero_counts).to(torch.long).tolist()
+        parameter_results = []
+        group_zeros = 0
+        group_params = 0
+        for (p, grouper, view, full, scores, numel), zero_elts in zip(entries, counts):
             parameter_results.append(
                 ParameterSparsity(parameter=p, zero_elts=zero_elts, numel=numel)
             )
