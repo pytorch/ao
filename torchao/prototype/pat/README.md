@@ -47,6 +47,12 @@ Pruning configs are dictionaries that define which parameter groups to prune and
 - regex pattern (string): for example, `:.*attn\.qkv\.weight`
 - module type and parameter name suffix (`(class, string)` tuple): for example, `(torch.nn.Linear, "weight")`
 
+## Direct projection
+
+`PruneOptimizer(..., latent_weights=False)` and `build_prune_optimizer(..., latent_weights=False)` step directly from projected parameters instead of restoring PAT's dense latent weights. The default remains `True`. Direct projection removes PAT's latent copy but changes the optimization trajectory; it does not remove the base optimizer's momentum or AdamW moments. Gradients or momentum may revive zeros during pruning; the existing healing mask freezes them once healing starts.
+
+The mode is a constructor setting, not part of the delegated optimizer state dict. When resuming, reconstruct the same mode before loading both model and optimizer checkpoints. Cross-mode resume is unsupported: direct checkpoints do not contain the latent weights needed by default-mode restoration.
+
 ## Groupers and proximal maps
 
 A pruning entry pairs a **grouper** with a **proximal map**. The grouper reshapes a tensor into `(n_groups, group_size)`, or exposes singular values for an SVD grouper, and the proximal map is then applied to that view.
