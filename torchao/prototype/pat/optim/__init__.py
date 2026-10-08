@@ -26,6 +26,7 @@ def build_prune_optimizer(
     prune_reg_lambda: float,
     prune_warmup_steps: int = 0,
     prune_healing_start_step: int = sys.maxsize,
+    latent_weights: bool = True,
 ) -> PruneOptimizer:
     prune_opt_cls = PruneOptimizer  # TODO: support other prune optimizers
     return prune_opt_cls(
@@ -33,4 +34,5 @@ def build_prune_optimizer(
         warmup_steps=prune_warmup_steps,
         healing_start_step=prune_healing_start_step,
         reg_lambda=prune_reg_lambda,
+        latent_weights=latent_weights,
     )
