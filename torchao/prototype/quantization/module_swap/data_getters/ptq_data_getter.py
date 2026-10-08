@@ -51,17 +51,18 @@ def get_module_input_data(
 
         hook = module.register_forward_hook(_input_data_hook)
 
-        for i in range(num_batches):
-            try:
-                this_batch = data[i * batch_size : (i + 1) * batch_size]
-                this_batch = this_batch.to(next(model.parameters()).device)
-                if layer_kwargs:
-                    model(this_batch, **layer_kwargs)
-                else:
-                    model(this_batch)
-            except ExpectedError:
-                pass
-
-        hook.remove()
+        try:
+            for i in range(num_batches):
+                try:
+                    this_batch = data[i * batch_size : (i + 1) * batch_size]
+                    this_batch = this_batch.to(next(model.parameters()).device)
+                    if layer_kwargs:
+                        model(this_batch, **layer_kwargs)
+                    else:
+                        model(this_batch)
+                except ExpectedError:
+                    pass
+        finally:
+            hook.remove()
         return_data = torch.cat(input_data, dim=0)
         return return_data
