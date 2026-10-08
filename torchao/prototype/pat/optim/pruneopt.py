@@ -403,6 +403,7 @@ class PruneOptimizer(Optimizer):
                     grouper_cls,
                     grouper_kwargs,
                     self._effective_min_sparsity(group),
+                    score_group_count_ref=group.get("score_group_count_ref"),
                 )
                 for param_result in global_result.parameters:
                     state = self.state[param_result.parameter]
