@@ -21,6 +21,86 @@ from torchao.quantization.pt2e.graph_utils import (
 
 
 class TestGraphUtils(TestCase):
+    def test_include_functional_equivalent(self):
+        class FunctionalConv(torch.nn.Module):
+            def forward(self, x, weight):
+                return torch.nn.functional.conv2d(x, weight)
+
+        class ModuleConv(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.conv = torch.nn.Conv2d(1, 1, 3)
+
+            def forward(self, x):
+                return self.conv(x)
+
+        x = torch.randn(1, 1, 8, 8)
+        weight = torch.randn(1, 1, 3, 3)
+        for model, inputs, exact_type in (
+            (FunctionalConv(), (x, weight), torch.nn.functional.conv2d),
+            (ModuleConv().eval(), (x,), torch.nn.Conv2d),
+        ):
+            gm = torchdynamo.export(
+                model, aten_graph=True, assume_static_by_default=True
+            )(*inputs).graph_module
+            for partition_type in (torch.nn.Conv2d, torch.nn.functional.conv2d):
+                with self.subTest(model=type(model), partition_type=partition_type):
+                    self.assertEqual(
+                        len(find_sequential_partitions(gm, [partition_type])), 1
+                    )
+                    self.assertEqual(
+                        len(
+                            find_sequential_partitions(
+                                gm, [partition_type], include_functional_equivalent=True
+                            )
+                        ),
+                        1,
+                    )
+                    self.assertEqual(
+                        len(
+                            find_sequential_partitions(
+                                gm,
+                                [partition_type],
+                                include_functional_equivalent=False,
+                            )
+                        ),
+                        int(partition_type is exact_type),
+                    )
+
+    def test_exact_module_and_functional_sequence(self):
+        class MixedConv(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.conv = torch.nn.Conv2d(1, 1, 3)
+
+            def forward(self, x, weight):
+                return torch.nn.functional.conv2d(self.conv(x), weight)
+
+        gm = torchdynamo.export(
+            MixedConv().eval(), aten_graph=True, assume_static_by_default=True
+        )(torch.randn(1, 1, 8, 8), torch.randn(1, 1, 3, 3)).graph_module
+        types = [torch.nn.Conv2d, torch.nn.functional.conv2d]
+        self.assertEqual(
+            len(
+                find_sequential_partitions(
+                    gm, types, include_functional_equivalent=False
+                )
+            ),
+            1,
+        )
+        with self.assertRaisesRegex(
+            ValueError, "Each type in the sequence must be unique"
+        ):
+            find_sequential_partitions(gm, types)
+        with self.assertRaisesRegex(
+            ValueError, "Each type in the sequence must be unique"
+        ):
+            find_sequential_partitions(
+                gm,
+                [torch.nn.Conv2d, torch.nn.Conv2d],
+                include_functional_equivalent=False,
+            )
+
     @unittest.skipIf(IS_WINDOWS, "torch.compile is not supported on Windows")
     def test_conv_bn_conv_relu(self):
         class M(torch.nn.Module):
