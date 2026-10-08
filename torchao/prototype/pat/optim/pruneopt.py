@@ -186,7 +186,13 @@ class PruneOptimizer(Optimizer):
     def _get_grouper_kwargs(group: dict[str, Any]) -> dict[str, Any]:
         grouper_kwargs = {}
         if group["group_type"].startswith("AttentionHeadGrouper"):
-            grouper_kwargs["num_heads"] = group["num_heads"]
+            num_heads, head_dim = group.get("num_heads"), group.get("head_dim")
+            if (num_heads is None) == (head_dim is None):
+                raise ValueError("specify exactly one of num_heads or head_dim")
+            if head_dim is not None:
+                grouper_kwargs["head_dim"] = head_dim
+            else:
+                grouper_kwargs["num_heads"] = num_heads
         elif group["group_type"] == "KElementGrouper":
             grouper_kwargs["k"] = group["k"]
         elif group["group_type"] == "PackedSVDGrouper":
@@ -397,6 +403,7 @@ class PruneOptimizer(Optimizer):
                     grouper_cls,
                     grouper_kwargs,
                     self._effective_min_sparsity(group),
+                    score_group_count_ref=group.get("score_group_count_ref"),
                 )
                 for param_result in global_result.parameters:
                     state = self.state[param_result.parameter]
