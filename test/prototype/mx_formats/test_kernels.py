@@ -485,8 +485,18 @@ def triton_to_mxfp8_dim0_reference(
     not is_sm_at_least_100() and not is_MI350(),
     reason="mxfp8 requires CUDA capability 10.0 or greater or ROCm gfx950 or greater.",
 )
-@pytest.mark.parametrize("M", (128, 256))
-@pytest.mark.parametrize("K", (128, 256))
+@pytest.mark.parametrize(
+    "M, K",
+    (
+        (128, 128),
+        (128, 256),
+        (256, 128),
+        (256, 256),
+        # 384 is not a multiple of the 256-row tile; 512 covers a second row tile.
+        (384, 384),
+        (512, 384),
+    ),
+)
 @pytest.mark.parametrize(
     "scaling_mode", (ScaleCalculationMode.FLOOR, ScaleCalculationMode.RCEIL)
 )
