@@ -30,7 +30,7 @@ from torch.utils._python_dispatch import (
 )
 from torch.utils._pytree import tree_map
 
-from torchao.utils import is_sm_at_least_100, torch_version_at_least
+from torchao.utils import is_ROCM, is_sm_at_least_100, torch_version_at_least
 
 if torch_version_at_least("2.12.0.dev0"):
     from torch._higher_order_ops.inline_asm_elementwise import inline_asm_elementwise
@@ -68,6 +68,7 @@ from torchao.prototype.mx_formats.kernels import (
     f32_to_f6_e2m3_unpacked,
     f32_to_f6_e3m2_unpacked,
     pack_uint4,
+    triton_mx_block_rearrange,
     triton_to_mxfp8_dim0,
     unpack_uint4,
 )
@@ -652,9 +653,7 @@ class MXTensor(TorchAOBaseTensor):
             f"unsupported kernel choice for mxfp8_dim0_cast_kernel_choice: {mxfp8_dim0_cast_kernel_choice}"
         )
 
-        triton_kernel_supported = (
-            elem_dtype == torch.float8_e4m3fn and not is_swizzled_scales
-        )
+        triton_kernel_supported = elem_dtype == torch.float8_e4m3fn
         if (
             mxfp8_dim0_cast_kernel_choice == MXFP8Dim0CastKernelChoice.TORCH
             or kernel_preference == KernelPreference.EMULATED
@@ -671,6 +670,13 @@ class MXTensor(TorchAOBaseTensor):
                 inner_block_size=block_size,
                 scaling_mode=scaling_mode.value,
             )
+            if is_swizzled_scales:
+                leading_dims = data_hp.shape[:-2]
+                M, K = data_hp.shape[-2:]
+                scale_2d = scale_e8m0_biased.reshape(-1, K // block_size)
+                scale = triton_mx_block_rearrange(scale_2d).flatten()
+                scale_M, scale_K = hp_data_dims_to_swizzled_scale_dims_mx(M, K)
+                scale_e8m0_biased = scale.view(*leading_dims, scale_M, scale_K)
         return MXTensor(
             data_lp,
             scale_e8m0_biased,
@@ -773,11 +779,16 @@ def _addmm_mx_dispatch(
         else:
             b_scale_block = b.scale.t().view(N, K // b.block_size)
 
-        swizzle = (
-            SwizzleType.SWIZZLE_32_4_4
-            if a.is_swizzled_scales
-            else SwizzleType.NO_SWIZZLE
-        )
+        if a.is_swizzled_scales:
+            swizzle = SwizzleType.SWIZZLE_32_4_4
+        elif is_ROCM():
+            swizzle = SwizzleType.NO_SWIZZLE
+        else:
+            # CUDA scaled_mm v2 needs blocked scales even when the MXTensors
+            # were created with the default row-major scale layout.
+            a_scale_block = triton_mx_block_rearrange(a_scale_block)
+            b_scale_block = triton_mx_block_rearrange(b_scale_block)
+            swizzle = SwizzleType.SWIZZLE_32_4_4
         res = F.scaled_mm(
             a.qdata.view(a.elem_dtype),
             b.qdata.view(b.elem_dtype),
