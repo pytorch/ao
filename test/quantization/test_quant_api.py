@@ -476,7 +476,6 @@ class TestQuantFlow(TestCase):
             y_q = m_q(x)
 
         sqnr = compute_error(y_ref, y_q)
-        print(f"{type(config).__name__}: SQNR={sqnr.item():.4f} dB, device={device}")
         assert sqnr >= 16.5, f"SQNR {sqnr} is too low"
 
     @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
