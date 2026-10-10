@@ -25,7 +25,7 @@ jobs:
 
     strategy:
       matrix:
-        python-version: ["3.9"]
+        python-version: ["3.11"]
     steps:
     - name: Extract PR info
       if: github.event_name == 'workflow_dispatch'
