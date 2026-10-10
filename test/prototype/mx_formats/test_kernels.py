@@ -573,6 +573,7 @@ def test_triton_mxfp8_dequant_dim0(M, K, orig_dtype):
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+@pytest.mark.parametrize("column_major", [False, True])
 @pytest.mark.parametrize(
     "shape",
     [
@@ -586,9 +587,11 @@ def test_triton_mxfp8_dequant_dim0(M, K, orig_dtype):
         (128, 1),
     ],
 )
-def test_rearrange(shape):
+def test_rearrange(shape, column_major):
     scales = torch.randint(256, size=shape, device="cuda", dtype=torch.uint8)
-    eager = to_blocked(scales, False)
+    if column_major:
+        scales = scales.t().contiguous().t()
+    eager = to_blocked(scales.contiguous(), False)
     triton = to_blocked(scales, True)
     torch.testing.assert_close(eager, triton, atol=0, rtol=0)
 
