@@ -13,6 +13,11 @@ from torchao.prototype.safetensors.safetensors_utils import (
 logger: logging.Logger = logging.getLogger(__name__)
 
 
+def _tensor_data_prefix(tensor_name: str) -> str:
+    module_fqn, separator, weight_name = tensor_name.rpartition(".")
+    return f"{module_fqn}{separator}_{weight_name}_"
+
+
 def unflatten_tensor_state_dict(
     tensors_data_dict: Dict[str, Any],
     metadata: Dict[str, Any],
@@ -71,9 +76,7 @@ def unflatten_tensor_state_dict(
     for tensor_name in tensor_names:
         processed_tensors = []
 
-        module_fqn, weight_name = tensor_name.rsplit(".", 1)
-
-        prefix = f"{module_fqn}._{weight_name}_"
+        prefix = _tensor_data_prefix(tensor_name)
         tensor_tensors = {}
 
         for key, value in combined_data.items():
@@ -181,8 +184,9 @@ def flatten_tensor_state_dict(
             tensor_metadata = json.dumps(tensor, cls=TensorSubclassAttributeJSONEncoder)
 
             # Clone tensors to avoid memory sharing issues
+            prefix = _tensor_data_prefix(tensor_name)
             tensors_dict_to_save = {
-                f"{tensor_name.rsplit('.', 1)[0]}._{tensor_name.rsplit('.', 1)[1]}_{key}": (
+                f"{prefix}{key}": (
                     value.detach().clone() if isinstance(value, torch.Tensor) else value
                 )
                 for key, value in tensor_dict.items()
