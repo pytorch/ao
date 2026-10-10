@@ -1135,7 +1135,7 @@ def test_cuda_mx_3d_cutedsl_edge_inputs(
 @pytest.mark.parametrize("num_tokens", [128, 157, 4096, 16392])
 @pytest.mark.parametrize("dim", [7168])
 @pytest.mark.parametrize("num_groups", [1, 2, 4, 8])
-@pytest.mark.parametrize("alignment_size", [32])
+@pytest.mark.parametrize("alignment_size", [32, 128])
 @pytest.mark.parametrize("dtype", [torch.bfloat16])
 def test_cuda_fused_pad_token_groups(
     num_tokens: int, dim: int, num_groups: int, alignment_size: int, dtype: torch.dtype
@@ -1182,7 +1182,7 @@ def test_cuda_fused_pad_token_groups(
 @pytest.mark.parametrize("num_tokens", [128, 157, 4096])
 @pytest.mark.parametrize("dim", [7168])
 @pytest.mark.parametrize("num_groups", [1, 2, 4, 8])
-@pytest.mark.parametrize("alignment_size", [32])
+@pytest.mark.parametrize("alignment_size", [32, 128])
 @pytest.mark.parametrize("dtype", [torch.bfloat16])
 def test_cuda_fused_unpad_token_groups(
     num_tokens: int, dim: int, num_groups: int, alignment_size: int, dtype: torch.dtype
