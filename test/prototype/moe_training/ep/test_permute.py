@@ -1,14 +1,16 @@
 import pytest
 import torch
 
-from torchao.utils import is_cuda_version_at_least, is_sm_at_least_100
+from torchao.utils import is_cuda_version_at_least, is_MI350, is_sm_at_least_100
 
 if not (
     torch.cuda.is_available()
-    and is_sm_at_least_100()
-    and is_cuda_version_at_least(12, 8)
+    and ((is_sm_at_least_100() and is_cuda_version_at_least(12, 8)) or is_MI350())
 ):
-    pytest.skip("Test requires CUDA 12.8+ with SM >= 100", allow_module_level=True)
+    pytest.skip(
+        "Test requires CUDA 12.8+ with SM >= 100, or ROCm gfx950",
+        allow_module_level=True,
+    )
 
 from torchao.prototype.moe_training.ep import permute_mxfp8_fwd_hp_bwd
 from torchao.prototype.moe_training.ep.permute import permute_and_pad
