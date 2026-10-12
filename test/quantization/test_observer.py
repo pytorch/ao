@@ -19,6 +19,7 @@ from torchao.quantization.observer import (
     AffineQuantizedMinMaxObserver,
     AffineQuantizedMSEObserver,
 )
+from torchao.quantization.pt2e import observer as pt2e_observer
 from torchao.quantization.quant_primitives import MappingType
 
 
@@ -286,6 +287,26 @@ class TestQuantFlow(TestCase):
         self.assertTrue(torch.allclose(scale_no_keepdim, scale_keepdim.squeeze()))
         self.assertTrue(
             torch.allclose(zp_no_keepdim.float(), zp_keepdim.squeeze().float())
+        )
+
+
+class TestObserverStateDict(TestCase):
+    def test_load_restores_versioned_observer_state(self):
+        expected_epsilon = 2**-32
+        source = torch.nn.Module()
+        source.add_module(
+            "activation_post_process_0",
+            pt2e_observer.MinMaxObserver(eps=expected_epsilon),
+        )
+        observer_state = pt2e_observer.get_observer_state_dict(source)
+
+        restored = torch.nn.Module()
+        restored.add_module("activation_post_process_0", pt2e_observer.MinMaxObserver())
+        pt2e_observer.load_observer_state_dict(restored, observer_state)
+
+        self.assertEqual(
+            expected_epsilon,
+            restored.activation_post_process_0.eps.item(),
         )
 
 
