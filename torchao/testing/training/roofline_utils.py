@@ -117,6 +117,83 @@ def get_specs(gpu_name: Optional[str] = None):
     return gpu_name_to_specs[gpu_name]
 
 
+def get_device_peak_mem_bw_bytes_sec() -> Optional[float]:
+    props = torch.cuda.get_device_properties(0)
+    memory_clock_khz = getattr(props, "memory_clock_rate", 0)
+    memory_bus_width_bits = getattr(props, "memory_bus_width", 0)
+    if memory_clock_khz <= 0 or memory_bus_width_bits <= 0:
+        return None
+    return (memory_bus_width_bits / 8.0) * (memory_clock_khz * 1e3) * 2.0
+
+
+def _benchmark_cuda_ms(fn):
+    from triton.testing import do_bench
+
+    return do_bench(fn, return_mode="median")
+
+
+def _measure_copy_bandwidth_bytes_sec(numel: int) -> float:
+    src = torch.randn(numel, device="cuda", dtype=torch.bfloat16)
+    dst = torch.empty_like(src)
+    dst.copy_(src)
+    torch.cuda.synchronize()
+    ms = _benchmark_cuda_ms(lambda: dst.copy_(src))
+    bytes_moved = 2 * src.numel() * src.element_size()
+    return bytes_moved / (ms / 1000.0)
+
+
+def _measure_bf16_mm_tops(m: int, n: int, k: int) -> float:
+    a = torch.randn(m, k, device="cuda", dtype=torch.bfloat16)
+    b = torch.randn(k, n, device="cuda", dtype=torch.bfloat16)
+    torch.mm(a, b)
+    torch.cuda.synchronize()
+    ms = _benchmark_cuda_ms(lambda: torch.mm(a, b))
+    return (2 * m * n * k) / (ms / 1000.0)
+
+
+def _measure_fp8_scaled_mm_tops(m: int, n: int, k: int) -> float:
+    a = torch.randn(m, k, device="cuda", dtype=torch.bfloat16).to(torch.float8_e4m3fn)
+    b_t = torch.randn(n, k, device="cuda", dtype=torch.bfloat16).to(torch.float8_e4m3fn)
+    b = b_t.contiguous().t()
+    scale_a = torch.ones(1, device="cuda")
+    scale_b = torch.ones(1, device="cuda")
+    torch._scaled_mm(a, b, scale_a, scale_b, out_dtype=torch.bfloat16)
+    torch.cuda.synchronize()
+    ms = _benchmark_cuda_ms(
+        lambda: torch._scaled_mm(a, b, scale_a, scale_b, out_dtype=torch.bfloat16)
+    )
+    return (2 * m * n * k) / (ms / 1000.0)
+
+
+def calibrate_specs(
+    gpu_name: Optional[str] = None,
+    mm_shape: tuple[int, int, int] = (16384, 8192, 8192),
+    copy_numel: int = 256 * 1024 * 1024,
+):
+    specs = dict(get_specs(gpu_name))
+    peak_mem_bw = get_device_peak_mem_bw_bytes_sec()
+    if peak_mem_bw is not None:
+        specs["peak_mem_bw_bytes_sec"] = peak_mem_bw
+
+    copy_bw = _measure_copy_bandwidth_bytes_sec(copy_numel)
+    bf16_tops = _measure_bf16_mm_tops(*mm_shape)
+    fp8_tops = _measure_fp8_scaled_mm_tops(*mm_shape)
+
+    specs["pct_achievable_mem_bw"] = copy_bw / specs["peak_mem_bw_bytes_sec"]
+    specs["pct_achievable_bf16_gemm_tops"] = bf16_tops / specs["bf16_peak_tops"]
+    specs["pct_achievable_fp8_gemm_tops"] = fp8_tops / specs["fp8_peak_tops"]
+    specs["pct_achievable_gemm_tops"] = min(
+        specs["pct_achievable_bf16_gemm_tops"],
+        specs["pct_achievable_fp8_gemm_tops"],
+    )
+    specs["calibrated_copy_bandwidth_bytes_sec"] = copy_bw
+    specs["calibrated_bf16_tops"] = bf16_tops
+    specs["calibrated_fp8_tops"] = fp8_tops
+    specs["calibration_mm_shape"] = mm_shape
+    specs["calibration_copy_numel"] = copy_numel
+    return specs
+
+
 # Source: run a triton kernel with a single element read/write on an H100 and
 # measure GPU time from the trace
 # TODO(future): audit this across different hardware and triton/non-triton

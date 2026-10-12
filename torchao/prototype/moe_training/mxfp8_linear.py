@@ -30,6 +30,8 @@ def _to_mxfp8_then_scaled_mm(
     kernel_preference: KernelPreference,
     scale_calculation_mode: ScaleCalculationMode,
     wgrad_with_hp: bool = False,
+    mxfp8_dim0_cast_kernel_choice: MXFP8Dim0CastKernelChoice = MXFP8Dim0CastKernelChoice.CUTEDSL,
+    mxfp8_dim1_cast_kernel_choice: MXFP8Dim1CastKernelChoice = MXFP8Dim1CastKernelChoice.CUTEDSL,
 ) -> torch.Tensor:
     """
     Performs a matrix multiplication with MXFP8 quantization on both forward and backward passes.
@@ -48,6 +50,8 @@ def _to_mxfp8_then_scaled_mm(
         kernel_preference: Whether to use AUTO (best kernel for each operation) or EMULATED mode
         scale_calculation_mode: Scale calculation method (RCEIL or FLOOR) for MXFP8 quantization
         wgrad_with_hp: If True, compute grad_weight in high precision instead of MXFP8. Default: False
+        mxfp8_dim0_cast_kernel_choice: Kernel to use for the dim0 casts. Default: CUTEDSL
+        mxfp8_dim1_cast_kernel_choice: Kernel to use for the dim1 casts. Default: CUTEDSL
 
     Returns:
         Output tensor of shape [..., out_features] in high precision
@@ -56,14 +60,11 @@ def _to_mxfp8_then_scaled_mm(
         Forward and backward grad_input are always computed using MXFP8 with block_size=32
         and element_dtype=float8_e4m3fn. Backward grad_weight uses MXFP8 by default, but can
         optionally use high precision when wgrad_with_hp=True for improved accuracy.
-        The Triton kernel is used for dim0 quantization and CUDA kernel for dim1 quantization.
     """
     in_elem_dtype = torch.float8_e4m3fn
     w_elem_dtype = torch.float8_e4m3fn
     grad_elem_dtype = torch.float8_e4m3fn
     block_size = 32
-    mxfp8_dim0_cast_kernel_choice = MXFP8Dim0CastKernelChoice.TRITON
-    mxfp8_dim1_cast_kernel_choice = MXFP8Dim1CastKernelChoice.CUDA
 
     return mx_mm.apply(
         input_hp,
@@ -257,15 +258,15 @@ class mx_mm(torch.autograd.Function):
         return (
             grad_input,
             grad_weight,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
+            None,  # in_elem_dtype
+            None,  # w_elem_dtype
+            None,  # grad_elem_dtype
+            None,  # block_size
+            None,  # kernel_preference
+            None,  # mxfp8_dim0_cast_kernel_choice
+            None,  # mxfp8_dim1_cast_kernel_choice
+            None,  # scale_calculation_mode
+            None,  # wgrad_with_hp
         )
 
 
@@ -280,6 +281,8 @@ class MXFP8Linear(nn.Linear):
         kernel_preference: KernelPreference = KernelPreference.AUTO,
         scale_calculation_mode: ScaleCalculationMode = ScaleCalculationMode.RCEIL,
         wgrad_with_hp: bool = False,
+        mxfp8_dim0_cast_kernel_choice: MXFP8Dim0CastKernelChoice = MXFP8Dim0CastKernelChoice.CUTEDSL,
+        mxfp8_dim1_cast_kernel_choice: MXFP8Dim1CastKernelChoice = MXFP8Dim1CastKernelChoice.CUTEDSL,
         **kwargs,
     ):
         """
@@ -287,11 +290,15 @@ class MXFP8Linear(nn.Linear):
             kernel_preference: Whether to use AUTO (best sm100 kernel for each operation) or EMULATED mode (torch native code with MXFP8 emulation). Default: AUTO
             scale_calculation_mode: Scale calculation method (RCEIL or FLOOR) for MXFP8 scale factor calculation. Default: RCEIL
             wgrad_with_hp: If True, compute grad_weight in high precision instead of MXFP8. Default: False
+            mxfp8_dim0_cast_kernel_choice: Kernel to use for the dim0 casts. Default: CUTEDSL
+            mxfp8_dim1_cast_kernel_choice: Kernel to use for the dim1 casts. Default: CUTEDSL
         """
         super().__init__(*args, **kwargs)
         self.kernel_preference = kernel_preference
         self.scale_calculation_mode = scale_calculation_mode
         self.wgrad_with_hp = wgrad_with_hp
+        self.mxfp8_dim0_cast_kernel_choice = mxfp8_dim0_cast_kernel_choice
+        self.mxfp8_dim1_cast_kernel_choice = mxfp8_dim1_cast_kernel_choice
 
     def forward(self, input: torch.Tensor) -> torch.Tensor:
         output = _to_mxfp8_then_scaled_mm(
@@ -300,6 +307,8 @@ class MXFP8Linear(nn.Linear):
             kernel_preference=self.kernel_preference,
             scale_calculation_mode=self.scale_calculation_mode,
             wgrad_with_hp=self.wgrad_with_hp,
+            mxfp8_dim0_cast_kernel_choice=self.mxfp8_dim0_cast_kernel_choice,
+            mxfp8_dim1_cast_kernel_choice=self.mxfp8_dim1_cast_kernel_choice,
         )
         if self.bias is not None:
             output = output + self.bias.to(output.dtype)

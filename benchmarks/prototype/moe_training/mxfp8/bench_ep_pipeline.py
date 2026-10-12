@@ -41,6 +41,10 @@ from torchao.prototype.moe_training.ep.unpermute import _unpermute_bf16
 from torchao.prototype.moe_training.mxfp8_grouped_mm import (
     _to_mxfp8_then_scaled_grouped_mm,
 )
+from torchao.prototype.mx_formats.config import (
+    MXFP8Dim0CastKernelChoice,
+    MXFP8Dim1CastKernelChoice,
+)
 
 device = torch.device("cuda")
 
@@ -126,6 +130,8 @@ def standard_pipeline(
     ep_degree: int,
     num_experts: int,
     group,
+    mxfp8_dim0_cast_kernel_choice: MXFP8Dim0CastKernelChoice,
+    mxfp8_dim1_cast_kernel_choice: MXFP8Dim1CastKernelChoice,
 ) -> torch.Tensor:
     """
     Standard BF16 pipeline:
@@ -160,6 +166,8 @@ def standard_pipeline(
         offs=offsets,
         out_dtype=torch.bfloat16,
         wgrad_with_hp=True,
+        mxfp8_dim0_cast_kernel_choice=mxfp8_dim0_cast_kernel_choice,
+        mxfp8_dim1_cast_kernel_choice=mxfp8_dim1_cast_kernel_choice,
     )
 
     # Step 4: Unpermute (BF16)
@@ -189,6 +197,8 @@ def mxfp8_pipeline(
     ep_degree: int,
     num_experts: int,
     group,
+    mxfp8_dim0_cast_kernel_choice: MXFP8Dim0CastKernelChoice,
+    mxfp8_dim1_cast_kernel_choice: MXFP8Dim1CastKernelChoice,
 ) -> torch.Tensor:
     """
     MXFP8 optimized pipeline with chained autograd functions:
@@ -227,6 +237,8 @@ def mxfp8_pipeline(
         expert_weights_t,
         offs=mx_group_offsets,
         wgrad_with_hp=True,
+        mxfp8_dim0_cast_kernel_choice=mxfp8_dim0_cast_kernel_choice,
+        mxfp8_dim1_cast_kernel_choice=mxfp8_dim1_cast_kernel_choice,
     )
 
     # Step 4: Unpermute - maintains BF16
@@ -342,6 +354,8 @@ def run_experiment(
             ep_degree,
             num_experts,
             group,
+            MXFP8Dim0CastKernelChoice(args.dim0_cast_kernel),
+            MXFP8Dim1CastKernelChoice(args.dim1_cast_kernel),
         )
 
     warmup(lambda: bf16_fwd(ref_input_tensor, ref_expert_weights.transpose(-2, -1)))
@@ -426,6 +440,8 @@ def run_experiment(
             ep_degree,
             num_experts,
             group,
+            MXFP8Dim0CastKernelChoice(args.dim0_cast_kernel),
+            MXFP8Dim1CastKernelChoice(args.dim1_cast_kernel),
         )
 
     warmup(lambda: mxfp8_fwd(input_tensor, expert_weights.transpose(-2, -1)))
@@ -596,6 +612,18 @@ if __name__ == "__main__":
         "--compile",
         action="store_true",
         help="Use torch.compile",
+    )
+    parser.add_argument(
+        "--dim0-cast-kernel",
+        choices=[c.value for c in MXFP8Dim0CastKernelChoice],
+        default=MXFP8Dim0CastKernelChoice.CUTEDSL.value,
+        help="Kernel to use for the MXFP8 dim0 casts",
+    )
+    parser.add_argument(
+        "--dim1-cast-kernel",
+        choices=[c.value for c in MXFP8Dim1CastKernelChoice],
+        default=MXFP8Dim1CastKernelChoice.CUTEDSL.value,
+        help="Kernel to use for the MXFP8 dim1 casts",
     )
     args = parser.parse_args()
     main(args)

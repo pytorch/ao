@@ -8,7 +8,11 @@ import pytest
 import torch
 from torch.nn import functional as F
 
-from torchao.prototype.mx_formats.config import ScaleCalculationMode
+from torchao.prototype.mx_formats.config import (
+    MXFP8Dim0CastKernelChoice,
+    MXFP8Dim1CastKernelChoice,
+    ScaleCalculationMode,
+)
 from torchao.utils import (
     is_MI300,
     is_MI350,
@@ -48,6 +52,13 @@ from torchao.testing.utils import skip_if_rocm
 
 # Needed since changing args to function causes recompiles
 torch._dynamo.config.cache_size_limit = 1000
+
+# The CuTeDSL kernels and the triton/cuda kernels they replace. Only relevant
+# for KernelPreference.AUTO; EMULATED ignores both.
+_CAST_KERNEL_CHOICES = (
+    (MXFP8Dim0CastKernelChoice.CUTEDSL, MXFP8Dim1CastKernelChoice.CUTEDSL),
+    (MXFP8Dim0CastKernelChoice.TRITON, MXFP8Dim1CastKernelChoice.CUDA),
+)
 
 
 @skip_if_rocm("ROCm not supported")
@@ -262,6 +273,10 @@ def test_emulate_mxfp8_grouped_gemm_2d_2d(M, N, num_experts):
 @pytest.mark.parametrize(
     "scale_mode", (ScaleCalculationMode.FLOOR, ScaleCalculationMode.RCEIL)
 )
+@pytest.mark.parametrize(
+    "mxfp8_dim0_cast_kernel_choice,mxfp8_dim1_cast_kernel_choice",
+    _CAST_KERNEL_CHOICES,
+)
 def test_mxfp8_grouped_gemm_with_dq_fwd_bwd(
     M,
     K,
@@ -271,6 +286,8 @@ def test_mxfp8_grouped_gemm_with_dq_fwd_bwd(
     use_compile,
     kernel_preference,
     scale_mode,
+    mxfp8_dim0_cast_kernel_choice,
+    mxfp8_dim1_cast_kernel_choice,
 ):
     # MXFP8 hardware path requires SM100
     if kernel_preference != KernelPreference.EMULATED and not is_sm_version(10, 0):
@@ -281,6 +298,11 @@ def test_mxfp8_grouped_gemm_with_dq_fwd_bwd(
         pytest.skip(
             "torch native dynamic per group pad/unpad functions do not work with torch.compile yet: https://github.com/pytorch/pytorch/issues/176770"
         )
+    if (
+        kernel_preference == KernelPreference.EMULATED
+        and mxfp8_dim0_cast_kernel_choice != MXFP8Dim0CastKernelChoice.CUTEDSL
+    ):
+        pytest.skip("EMULATED does not consult the cast kernel choices")
 
     x = torch.randn(M, K, dtype=torch.bfloat16, device="cuda", requires_grad=True)
     w = torch.randn(
@@ -313,6 +335,8 @@ def test_mxfp8_grouped_gemm_with_dq_fwd_bwd(
         wgrad_with_hp=wgrad_with_hp,
         scale_calculation_mode=scale_mode,
         pad_token_groups_for_grouped_mm=False,
+        mxfp8_dim0_cast_kernel_choice=mxfp8_dim0_cast_kernel_choice,
+        mxfp8_dim1_cast_kernel_choice=mxfp8_dim1_cast_kernel_choice,
     )
     ref_out = torch._grouped_mm(x_ref, w_t_ref, offs=offs_ref, out_dtype=torch.bfloat16)
     sqnr = compute_error(ref_out, out)
@@ -338,6 +362,80 @@ def test_mxfp8_grouped_gemm_with_dq_fwd_bwd(
     sqnr = compute_error(w_t_ref.grad, w_t.grad)
     assert sqnr >= min_weight_grad_sqnr, (
         f"Weight grad sqnr {sqnr} is too low, must be >= {min_weight_grad_sqnr}"
+    )
+
+
+@skip_if_rocm("ROCm not supported")
+@pytest.mark.skipif(
+    not is_sm_version(10, 0),
+    reason="MXFP8 grouped GEMM requires SM100",
+)
+@pytest.mark.parametrize(
+    "mxfp8_dim0_cast_kernel_choice,mxfp8_dim1_cast_kernel_choice",
+    _CAST_KERNEL_CHOICES,
+)
+def test_mxfp8_grouped_gemm_padded_fwd_bwd(
+    mxfp8_dim0_cast_kernel_choice, mxfp8_dim1_cast_kernel_choice
+):
+    K, N, num_experts = 1024, 2048, 8
+    group_sizes = [97, 113, 121, 99, 111, 123, 109, 123]
+    M = sum(group_sizes)
+    offs = torch.tensor(group_sizes, dtype=torch.int32, device="cuda").cumsum(
+        0, dtype=torch.int32
+    )
+    x = torch.randn(M, K, dtype=torch.bfloat16, device="cuda", requires_grad=True)
+    w = torch.randn(num_experts, N, K, dtype=torch.bfloat16, device="cuda")
+    w_t = w.transpose(-2, -1).requires_grad_(True)
+
+    x_ref = x.detach().clone().requires_grad_(True)
+    w_t_ref = w_t.detach().clone().requires_grad_(True)
+
+    out = _to_mxfp8_then_scaled_grouped_mm(
+        x,
+        w_t,
+        offs=offs,
+        out_dtype=torch.bfloat16,
+        kernel_preference=KernelPreference.AUTO,
+        wgrad_with_hp=True,
+        scale_calculation_mode=ScaleCalculationMode.RCEIL,
+        pad_token_groups_for_grouped_mm=True,
+        mxfp8_dim0_cast_kernel_choice=mxfp8_dim0_cast_kernel_choice,
+        mxfp8_dim1_cast_kernel_choice=mxfp8_dim1_cast_kernel_choice,
+    )
+
+    ref_out = _to_mxfp8_then_scaled_grouped_mm(
+        x_ref,
+        w_t_ref,
+        offs=offs,
+        out_dtype=torch.bfloat16,
+        kernel_preference=KernelPreference.EMULATED,
+        wgrad_with_hp=True,
+        scale_calculation_mode=ScaleCalculationMode.RCEIL,
+        pad_token_groups_for_grouped_mm=True,
+    )
+
+    output_sqnr = compute_error(ref_out, out)
+    min_output_sqnr = 27.0
+    assert output_sqnr >= min_output_sqnr, (
+        f"Output sqnr {output_sqnr} is too low, must be >= {min_output_sqnr}"
+    )
+
+    labels = torch.ones_like(ref_out)
+    F.mse_loss(ref_out, labels).backward()
+    F.mse_loss(out, labels).backward()
+
+    input_grad_sqnr = compute_error(x_ref.grad, x.grad)
+    min_input_grad_sqnr = 25.0
+    assert input_grad_sqnr >= min_input_grad_sqnr, (
+        f"Input grad sqnr {input_grad_sqnr} is too low, "
+        f"must be >= {min_input_grad_sqnr}"
+    )
+
+    weight_grad_sqnr = compute_error(w_t_ref.grad, w_t.grad)
+    min_weight_grad_sqnr = 24.0
+    assert weight_grad_sqnr >= min_weight_grad_sqnr, (
+        f"Weight grad sqnr {weight_grad_sqnr} is too low, "
+        f"must be >= {min_weight_grad_sqnr}"
     )
 
 
@@ -415,7 +513,24 @@ def test_mxfp8_grouped_gemm_from_qdata_and_scales_matches_dynamic():
 
 
 @skip_if_rocm("ROCm not supported")
-def test_mxfp8_grouped_gemm_from_qdata_and_scales_forward():
+@pytest.mark.parametrize(
+    "kernel_preference", (KernelPreference.EMULATED, KernelPreference.AUTO)
+)
+@pytest.mark.parametrize(
+    "mxfp8_dim0_cast_kernel_choice,mxfp8_dim1_cast_kernel_choice",
+    _CAST_KERNEL_CHOICES,
+)
+def test_mxfp8_grouped_gemm_from_qdata_and_scales_forward(
+    kernel_preference, mxfp8_dim0_cast_kernel_choice, mxfp8_dim1_cast_kernel_choice
+):
+    if kernel_preference != KernelPreference.EMULATED and not is_sm_version(10, 0):
+        pytest.skip("MXFP8 grouped GEMM requires SM100")
+    if (
+        kernel_preference == KernelPreference.EMULATED
+        and mxfp8_dim0_cast_kernel_choice != MXFP8Dim0CastKernelChoice.CUTEDSL
+    ):
+        pytest.skip("EMULATED does not consult the cast kernel choices")
+
     block_size = 32
     M, K, N, num_experts = 4096, 1024, 2048, 8
     x = torch.randn(M, K, dtype=torch.bfloat16, device="cuda")
@@ -435,6 +550,8 @@ def test_mxfp8_grouped_gemm_from_qdata_and_scales_forward():
         block_size=block_size,
         scaling_mode=ScaleCalculationMode.RCEIL,
     )
+    # is_swizzled_scales=False so the grouped mm has to run the M-groups scale
+    # rearrange, which is what the cast kernel choice selects here.
     x_mx = MXTensor.from_qdata_and_scales(
         x_qdata,
         x_scale,
@@ -447,9 +564,11 @@ def test_mxfp8_grouped_gemm_from_qdata_and_scales_forward():
         w_t,
         offs=offs,
         out_dtype=torch.bfloat16,
-        kernel_preference=KernelPreference.EMULATED,
+        kernel_preference=kernel_preference,
         wgrad_with_hp=True,
         scale_calculation_mode=ScaleCalculationMode.RCEIL,
+        mxfp8_dim0_cast_kernel_choice=mxfp8_dim0_cast_kernel_choice,
+        mxfp8_dim1_cast_kernel_choice=mxfp8_dim1_cast_kernel_choice,
     )
     out_ref = _to_mxfp8_then_scaled_grouped_mm(
         x,
@@ -462,7 +581,9 @@ def test_mxfp8_grouped_gemm_from_qdata_and_scales_forward():
     )
 
     output_sqnr = compute_error(out_ref, out_mx)
-    min_output_sqnr = 60.0
+    # Both sides quantize identically under EMULATED; the real kernels only have
+    # to land within normal MXFP8 error of the emulated reference.
+    min_output_sqnr = 60.0 if kernel_preference == KernelPreference.EMULATED else 27.0
     assert output_sqnr >= min_output_sqnr, (
         f"Output sqnr {output_sqnr} is too low, must be >= {min_output_sqnr}"
     )
