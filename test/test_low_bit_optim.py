@@ -30,6 +30,7 @@ if common_utils.SEED is None:
     common_utils.SEED = 1234
 
 from packaging.version import Version
+
 from torchao import optim
 from torchao.optim.quant_utils import (
     _fp32_to_bf16_sr,
@@ -38,7 +39,8 @@ from torchao.optim.quant_utils import (
 )
 from torchao.optim.subclass_4bit import OptimState4bit
 from torchao.optim.subclass_8bit import OptimState8bit
-from torchao.optim.subclass_fp8 import OptimStateFp8
+from torchao.optim.subclass_coat_fp8 import OptimStateCoatFp8, quantize_coat_fp8
+from torchao.optim.subclass_fp8 import OptimStateFp8, quantize_fp8
 from torchao.testing.utils import skip_if_rocm
 from torchao.utils import (
     get_available_devices,
@@ -162,13 +164,22 @@ class TestQuantize(TestCase):
 class TestOptim(TestCase):
     @parametrize(
         "optim_name",
-        ["Adam8bit", "AdamW8bit", "Adam4bit", "AdamW4bit", "AdamFp8", "AdamWFp8"],
+        [
+            "Adam8bit",
+            "AdamW8bit",
+            "Adam4bit",
+            "AdamW4bit",
+            "AdamFp8",
+            "AdamWFp8",
+            "AdamFp8Coat",
+            "AdamWFp8Coat",
+        ],
     )
     @parametrize("dtype", [torch.float32, torch.bfloat16])
     @parametrize("device", _DEVICES)
     @skip_if_rocm("ROCm enablement in progress")
     def test_optim_smoke(self, optim_name, dtype, device):
-        if optim_name.endswith("Fp8") and device == "cuda":
+        if "Fp8" in optim_name and device == "cuda":
             if torch.cuda.get_device_capability() < (8, 9):
                 pytest.skip("FP8 CUDA requires compute capability >= 8.9")
 
@@ -255,11 +266,14 @@ class TestOptim(TestCase):
     # test 2 times with different world size, and persist checkpoint across the 2 runs.
     # thus, we only test for the required op. note that future implementations of dcp.load()
     # may use other ops.
-    @parametrize("subclass", [OptimState4bit, OptimState8bit, OptimStateFp8])
+    @parametrize(
+        "subclass",
+        [OptimState4bit, OptimState8bit, OptimStateFp8, OptimStateCoatFp8],
+    )
     @parametrize("shape", [(4096,), (256, 256)])
     @parametrize("device", _DEVICES)
     def test_subclass_slice(self, subclass, shape, device):
-        if subclass == OptimStateFp8:
+        if subclass in (OptimStateFp8, OptimStateCoatFp8):
             if device == "cuda" and torch.cuda.get_device_capability() < (8, 9):
                 pytest.skip("FP8 CUDA requires compute capability >= 8.9")
 
@@ -274,7 +288,10 @@ class TestOptim(TestCase):
             tensor[offset : offset * 2].dequantize(),
         )
 
-    @parametrize("subclass", [OptimState4bit, OptimState8bit, OptimStateFp8])
+    @parametrize(
+        "subclass",
+        [OptimState4bit, OptimState8bit, OptimStateFp8, OptimStateCoatFp8],
+    )
     @parametrize("device", _DEVICES)
     def test_subclass_appearance_dtype(self, subclass, device):
         shape = (1024,)
@@ -299,6 +316,50 @@ class TestOptim(TestCase):
         # direct BF16 creation
         tensor_bf16 = subclass.zeros(shape, device=device, dtype=torch.bfloat16)
         self.assertEqual(tensor_bf16.dtype, torch.bfloat16)
+
+    @parametrize("device", _DEVICES)
+    def test_coat_fp8_reduces_quant_error(self, device):
+        # COAT dynamic range expansion targets tensors whose dynamic range is much
+        # smaller than FP8's, which is typical for optimizer states. On such tensors
+        # it should round-trip with less error than plain FP8 quantization.
+        if device == "cuda" and torch.cuda.get_device_capability() < (8, 9):
+            pytest.skip("FP8 CUDA requires compute capability >= 8.9")
+
+        torch.manual_seed(2024)
+        block_size = 256
+        # small magnitudes with a modest dynamic range, e.g. an Adam 2nd moment buffer
+        x = torch.rand(32, block_size, device=device) * 1e-3 + 1e-6
+
+        codes, scale = quantize_fp8(x, block_size)
+        deq_fp8 = OptimStateFp8(codes, scale).dequantize()
+
+        codes, scale, k, sqrt_minmax = quantize_coat_fp8(x, block_size)
+        coat = OptimStateCoatFp8(codes, scale, k, sqrt_minmax)
+        deq_coat = coat.dequantize()
+
+        err_fp8 = (deq_fp8 - x).abs().mean()
+        err_coat = (deq_coat - x).abs().mean()
+
+        # expansion should be active (k > 1) and improve accuracy
+        assert (k >= 1).all()
+        assert k.max() > 1
+        assert err_coat < err_fp8
+
+    @parametrize("device", _DEVICES)
+    def test_coat_fp8_roundtrip(self, device):
+        if device == "cuda" and torch.cuda.get_device_capability() < (8, 9):
+            pytest.skip("FP8 CUDA requires compute capability >= 8.9")
+
+        # signed values: sign must be preserved through the expansion transform
+        x = torch.randn(8, 256, device=device) * 0.01
+        codes, scale, k, sqrt_minmax = quantize_coat_fp8(x, 256)
+        deq = OptimStateCoatFp8(codes, scale, k, sqrt_minmax).dequantize()
+        assert (deq.sign() == x.sign()).all()
+        torch.testing.assert_close(deq, x, rtol=0.1, atol=1e-4)
+
+        # an all-zero state must round-trip exactly to zeros (identity transform)
+        zeros = OptimStateCoatFp8.zeros((4096,), device=device)
+        assert zeros.dequantize().abs().max() == 0
 
     @pytest.mark.skipif(bnb is None, reason="bitsandbytes is not available")
     @pytest.mark.skipif(
@@ -543,6 +604,7 @@ class TestFSDP2(FSDPTest):
         ]
         if torch.cuda.get_device_capability() >= (8, 9):
             args_list.append((optim.AdamWFp8, OffloadPolicy))
+            args_list.append((optim.AdamWFp8Coat, OffloadPolicy))
 
         self.run_subtests(
             {"args": args_list},
@@ -631,7 +693,7 @@ class TestFSDP2(FSDPTest):
         if dist.get_rank() == 0:
             shutil.rmtree(checkpoint_id)
 
-        subclasses = (OptimState4bit, OptimState8bit, OptimStateFp8)
+        subclasses = (OptimState4bit, OptimState8bit, OptimStateFp8, OptimStateCoatFp8)
 
         for v1, v2 in zip(
             pytree.tree_iter(resumed_fsdp_optim.state_dict()),
