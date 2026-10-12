@@ -9,7 +9,7 @@ import torch
 from torch._subclasses.fake_tensor import FakeTensorMode
 
 # FP8 MoE kernels require FP8-capable hardware (SM 10.x on CUDA, MI300+ on ROCm)
-from torchao.utils import is_MI300, is_MI350
+from torchao.utils import ceil_div, is_MI300, is_MI350
 
 
 def _is_sm_10x() -> bool:
@@ -58,6 +58,9 @@ from torchao.prototype.moe_training.kernels.mxfp8 import (
 from torchao.prototype.moe_training.kernels.mxfp8.cutedsl_pad_token_groups import (
     _pad_token_groups_cutedsl,
     _unpad_token_groups_cutedsl,
+)
+from torchao.prototype.moe_training.kernels.mxfp8.cutedsl_rearrange_2d_k_groups import (
+    _mx_block_rearrange_2d_k_groups_cutedsl,
 )
 from torchao.prototype.moe_training.kernels.mxfp8.cutedsl_rearrange_2d_m_groups import (
     _mx_block_rearrange_2d_m_groups_cutedsl,
@@ -431,41 +434,69 @@ def test_mxfp8_per_group_blocked_scales_3d(
     )
 
 
+# Cases listed per impl rather than crossed, so merging the triton and cutedsl
+# tests preserves exactly the coverage each had. Scales are raw bytes: a rearrange
+# only moves bytes, so their values are irrelevant, and both impls share the same
+# torch reference.
+_K_GROUPS_CASES = [
+    *(
+        ("triton", m, total_k, n_groups)
+        for m in (256, 512, 1024, 5120)
+        for total_k in (512, 1024, 2048, 4096, 8192, 16384)
+        for n_groups in (1, 4, 8, 16)
+    ),
+    # 4097 exercises scale_cols not a multiple of 4, and can yield empty groups
+    *(
+        ("cutedsl", m, total_k, n_groups)
+        for m, total_k, n_groups in (
+            (256, 512, 1),
+            (256, 1024, 4),
+            (512, 2048, 8),
+            (1024, 4096, 8),
+            (1024, 4097, 8),
+        )
+    ),
+]
+
+
 @skip_if_rocm("ROCm enablement in progress")
-@pytest.mark.parametrize("m", [256, 512, 1024, 5120])
-@pytest.mark.parametrize("total_k", [512, 1024, 2048, 4096, 8192, 16384])
-@pytest.mark.parametrize("n_groups", [1, 4, 8, 16])
-def test_triton_mx_block_rearrange_2d_K_groups(
+@pytest.mark.parametrize(("impl", "m", "total_k", "n_groups"), _K_GROUPS_CASES)
+def test_mx_block_rearrange_2d_K_groups(
+    impl: str,
     m: int,
     total_k: int,
     n_groups: int,
 ):
+    if impl == "cutedsl" and not _mxfp8_cutedsl_kernels_available:
+        pytest.skip("CuteDSL MXFP8 kernels are unavailable")
     device = "cuda"
     block_size = 32
-    input_data = torch.randn(m, total_k, device=device)
-
-    e8m0_scales, _ = to_mx(
-        input_data, elem_dtype=torch.float8_e4m3fn, block_size=block_size
+    scale_cols = ceil_div(total_k, block_size)
+    e8m0_scales = (
+        torch.arange(m * scale_cols, device=device, dtype=torch.int32)
+        .remainder(251)
+        .to(torch.uint8)
+        .reshape(m, scale_cols)
+        .view(torch.float8_e8m0fnu)
+    )
+    scale_group_offsets = generate_jagged_offs(
+        n_groups,
+        scale_cols,
+        multiple_of=1,
+        device=device,
     )
 
-    # Generate group end offsets along total_K, then divide by block_size to get scale group end offsets
-    input_group_offsets = generate_jagged_offs(
-        n_groups, total_k, multiple_of=block_size, device=device
-    )
-    scale_group_offsets = input_group_offsets // block_size
-
-    # torch reference
-    ref_out_scales, ref_start_cols_after_padding = torch_to_blocked_2d_K_groups(
+    ref_out_scales, _ = torch_to_blocked_2d_K_groups(
         e8m0_scales,
         scale_group_offsets,
     )
-
-    # triton kernel
-    triton_out_scales = triton_mx_block_rearrange_2d_K_groups(
-        e8m0_scales,
-        scale_group_offsets,
+    kernel = (
+        _mx_block_rearrange_2d_k_groups_cutedsl
+        if impl == "cutedsl"
+        else triton_mx_block_rearrange_2d_K_groups
     )
-    assert torch.equal(ref_out_scales, triton_out_scales), "blocked scales not equal"
+    out_scales = kernel(e8m0_scales, scale_group_offsets)
+    assert torch.equal(ref_out_scales, out_scales), "blocked scales not equal"
 
 
 @pytest.mark.skipif(
