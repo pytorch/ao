@@ -8,7 +8,9 @@ import functools
 
 import torch
 
-from torchao.utils import ceil_div
+from torchao.utils import ceil_div, round_up
+
+from .cute_utils import current_cuda_stream
 
 
 @functools.cache
@@ -44,10 +46,6 @@ def _compile_mx_block_rearrange_2d_k_groups_cutedsl(
 
     class MXBlockRearrange2dKGroups:
         @cute.jit
-        def _ceil_div(self, a: cutlass.Int32, b: cutlass.Int32):
-            return (a + b - 1) // b
-
-        @cute.jit
         def _group_start_after_padding(
             self,
             input_offsets: cute.Tensor,
@@ -59,13 +57,8 @@ def _compile_mx_block_rearrange_2d_k_groups_cutedsl(
                 end = cutlass.Int32((input_offsets.iterator + g).load())
                 if cutlass.Int32(g) < group:
                     group_size = end - prev
-                    start_after_padding = (
-                        start_after_padding
-                        + self._ceil_div(
-                            group_size,
-                            SF_COLS,
-                        )
-                        * SF_COLS
+                    start_after_padding = start_after_padding + round_up(
+                        group_size, SF_COLS
                     )
                 prev = end
             return start_after_padding
@@ -150,7 +143,7 @@ def _compile_mx_block_rearrange_2d_k_groups_cutedsl(
             for g in range(NUM_GROUPS):
                 end = cutlass.Int32((input_offsets.iterator + g).load())
                 group_size_for_scan = end - prev_end
-                chunks_in_group = self._ceil_div(group_size_for_scan, CHUNK_WIDTH)
+                chunks_in_group = ceil_div(group_size_for_scan, CHUNK_WIDTH)
                 next_chunk_cumsum = chunk_cumsum + chunks_in_group
                 if flat_col_chunk < next_chunk_cumsum and active == 0:
                     group = cutlass.Int32(g)
@@ -162,7 +155,7 @@ def _compile_mx_block_rearrange_2d_k_groups_cutedsl(
                 prev_end = end
 
             group_size = group_end - group_start
-            group_col_blocks = self._ceil_div(group_size, SF_COLS)
+            group_col_blocks = ceil_div(group_size, SF_COLS)
 
             smem_allocator = utils.SmemAllocator()
             storage = smem_allocator.allocate(SharedStorage)
@@ -372,7 +365,7 @@ def _mx_block_rearrange_2d_k_groups_cutedsl_impl(
     assert scales_tensor.is_contiguous()
     rows, cols = scales_tensor.shape
     num_groups = input_offsets.shape[0]
-    padded_rows = ceil_div(rows, 128) * 128
+    padded_rows = round_up(rows, 128)
     padded_cols = cols + num_groups * 4
     if chunk_width is None:
         if cols >= 64:
@@ -395,9 +388,7 @@ def _mx_block_rearrange_2d_k_groups_cutedsl_impl(
         chunk_width,
         cols % 16 == 0,
     )
-    import cuda.bindings.driver as cuda
-
-    stream = cuda.CUstream(int(torch.cuda.current_stream().cuda_stream))
+    stream = current_cuda_stream()
     compiled(
         scales_tensor.view(torch.uint8),
         input_offsets,
@@ -442,7 +433,7 @@ def _fake_mx_block_rearrange_2d_k_groups_cutedsl_custom_op(
     assert input_offsets.ndim == 1
     rows, cols = scales_tensor.shape
     num_groups = input_offsets.shape[0]
-    padded_rows = ceil_div(rows, 128) * 128
+    padded_rows = round_up(rows, 128)
     padded_cols = cols + num_groups * 4
     return scales_tensor.new_empty((padded_rows, padded_cols))
 
