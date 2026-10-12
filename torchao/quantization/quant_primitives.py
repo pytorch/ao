@@ -1347,8 +1347,18 @@ def _choose_qparams_affine_tinygemm(
     )
     input = input.view(shape_for_reduction)
 
-    min_val = torch.amin(input, dim=reduction_dims, keepdim=False)
-    max_val = torch.amax(input, dim=reduction_dims, keepdim=False)
+    if len(reduction_dims) == 0:
+        # `block_size` is 1 in every dim (e.g. `PerGroup(1)`), so every element
+        # is its own block and there is nothing to reduce over: each element is
+        # its own min/max. `torch.amin`/`amax` treat an empty `dim` like
+        # `dim=None` -- reducing over *all* dims -- which would otherwise
+        # collapse this to a single scalar shared by the whole tensor instead
+        # of one value per element (see https://github.com/pytorch/ao/issues/3458).
+        min_val = input
+        max_val = input
+    else:
+        min_val = torch.amin(input, dim=reduction_dims, keepdim=False)
+        max_val = torch.amax(input, dim=reduction_dims, keepdim=False)
 
     # For preserve_zero=False, we don't ensure zero is exactly representable
     min_val_neg = min_val
@@ -1418,8 +1428,18 @@ def _choose_qparams_affine_dont_preserve_zero(
     )
     input = input.view(shape_for_reduction)
 
-    min_val = torch.amin(input, dim=reduction_dims, keepdim=False)
-    max_val = torch.amax(input, dim=reduction_dims, keepdim=False)
+    if len(reduction_dims) == 0:
+        # `block_size` is 1 in every dim (e.g. `PerGroup(1)`), so every element
+        # is its own block and there is nothing to reduce over: each element is
+        # its own min/max. `torch.amin`/`amax` treat an empty `dim` like
+        # `dim=None` -- reducing over *all* dims -- which would otherwise
+        # collapse this to a single scalar shared by the whole tensor instead
+        # of one value per element (see https://github.com/pytorch/ao/issues/3458).
+        min_val = input
+        max_val = input
+    else:
+        min_val = torch.amin(input, dim=reduction_dims, keepdim=False)
+        max_val = torch.amax(input, dim=reduction_dims, keepdim=False)
 
     # For no preserve zero, we don't ensure zero is exactly representable
     min_val_neg = min_val
