@@ -8,6 +8,10 @@ import functools
 
 import torch
 
+from torchao.utils import ceil_div, round_up
+
+from .cute_utils import current_cuda_stream
+
 
 @functools.cache
 def _compile_copy_token_groups_cutedsl(
@@ -27,7 +31,6 @@ def _compile_copy_token_groups_cutedsl(
     IS_PAD = is_pad
     ROW_BYTES_ALIGNED = row_bytes_aligned
     ALIGNMENT_SIZE = alignment_size
-    ALIGNMENT_MASK = alignment_size - 1
     VEC_ELEMS = 16 // ELEMENT_SIZE
     WARP_SIZE = 32
     WARPS_PER_BLOCK = 8
@@ -78,10 +81,7 @@ def _compile_copy_token_groups_cutedsl(
             for g in range(NUM_GROUPS):
                 group_end = cutlass.Int32((group_end_offsets.iterator + g).load())
                 group_size = group_end - previous
-                padded_size = (
-                    (group_size + cutlass.Int32(ALIGNMENT_MASK))
-                    // cutlass.Int32(ALIGNMENT_SIZE)
-                ) * cutlass.Int32(ALIGNMENT_SIZE)
+                padded_size = round_up(group_size, ALIGNMENT_SIZE)
                 if g < group:
                     cumulative = cumulative + padded_size
                 previous = group_end
@@ -100,10 +100,7 @@ def _compile_copy_token_groups_cutedsl(
                 group_start = self._group_start(group, group_end_offsets)
                 group_end = cutlass.Int32((group_end_offsets.iterator + group).load())
                 group_size = group_end - group_start
-                padded_size = (
-                    (group_size + cutlass.Int32(ALIGNMENT_MASK))
-                    // cutlass.Int32(ALIGNMENT_SIZE)
-                ) * cutlass.Int32(ALIGNMENT_SIZE)
+                padded_size = round_up(group_size, ALIGNMENT_SIZE)
                 padded_start = self._padded_start(group, group_end_offsets)
                 (padded_group_start_offsets.iterator + group).store(padded_start)
                 (padded_group_end_offsets.iterator + group).store(
@@ -173,10 +170,7 @@ def _compile_copy_token_groups_cutedsl(
                                 (group_end_offsets.iterator + group).load()
                             )
                             group_size = group_end - previous
-                            padded_size = (
-                                (group_size + cutlass.Int32(ALIGNMENT_MASK))
-                                // cutlass.Int32(ALIGNMENT_SIZE)
-                            ) * cutlass.Int32(ALIGNMENT_SIZE)
+                            padded_size = round_up(group_size, ALIGNMENT_SIZE)
                             if row < group_end:
                                 group_start = previous
                                 padded_start = cumulative
@@ -344,10 +338,7 @@ def _pad_token_groups_cutedsl(
         dtype=group_end_offsets.dtype,
         device=group_end_offsets.device,
     )
-    output_rows = num_tokens + num_groups * alignment_size
-    output_rows = (
-        (output_rows + alignment_size - 1) // alignment_size
-    ) * alignment_size
+    output_rows = round_up(num_tokens + num_groups * alignment_size, alignment_size)
     output = torch.zeros(
         (output_rows, dim),
         dtype=inputs.dtype,
@@ -360,9 +351,7 @@ def _pad_token_groups_cutedsl(
         dim * inputs.element_size() % 16 == 0,
         alignment_size,
     )
-    import cuda.bindings.driver as cuda
-
-    stream = cuda.CUstream(int(torch.cuda.current_stream().cuda_stream))
+    stream = current_cuda_stream()
     compiled(
         inputs,
         group_end_offsets,
@@ -371,7 +360,7 @@ def _pad_token_groups_cutedsl(
         output,
         int(num_tokens),
         int(dim),
-        int((num_tokens + 7) // 8),
+        int(ceil_div(num_tokens, 8)),
         stream,
     )
     return output, padded_group_start_offsets, padded_group_end_offsets
@@ -410,9 +399,7 @@ def _unpad_token_groups_cutedsl(
         dim * padded_inputs.element_size() % 16 == 0,
         alignment_size,
     )
-    import cuda.bindings.driver as cuda
-
-    stream = cuda.CUstream(int(torch.cuda.current_stream().cuda_stream))
+    stream = current_cuda_stream()
     compiled(
         padded_inputs,
         group_end_offsets,
@@ -421,7 +408,7 @@ def _unpad_token_groups_cutedsl(
         output,
         int(num_tokens),
         int(dim),
-        int((num_tokens + 7) // 8),
+        int(ceil_div(num_tokens, 8)),
         stream,
     )
     return output

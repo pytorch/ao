@@ -8,7 +8,9 @@ import functools
 
 import torch
 
-from torchao.utils import ceil_div
+from torchao.utils import ceil_div, round_up
+
+from .cute_utils import current_cuda_stream
 
 
 @functools.cache
@@ -48,10 +50,6 @@ def _compile_mx_block_rearrange_2d_m_groups_cutedsl(
 
     class MXBlockRearrange2dMGroups:
         @cute.jit
-        def _ceil_div(self, a: cutlass.Int32, b: cutlass.Int32):
-            return (a + b - 1) // b
-
-        @cute.jit
         def _fill_group_data(
             self,
             input_offsets: cute.Tensor,
@@ -64,7 +62,7 @@ def _compile_mx_block_rearrange_2d_m_groups_cutedsl(
                 for g in range(NUM_GROUPS):
                     end = cutlass.Int32((input_offsets.iterator + g).load())
                     group_size = end - prev_offset
-                    chunks_in_group = self._ceil_div(group_size, SF_ROWS)
+                    chunks_in_group = ceil_div(group_size, SF_ROWS)
                     chunk_cumsum = chunk_cumsum + chunks_in_group
                     (group_data.iterator + g).store(cutlass.Int32(chunks_in_group))
                     (group_data.iterator + NUM_GROUPS + g).store(
@@ -429,7 +427,7 @@ def _compile_mx_block_rearrange_2d_m_groups_cutedsl(
                         )
                         cute.copy(bulk_store_atom, src, dst)
                 else:
-                    valid_sf_tiles = (cols_in_chunk + SF_COLS - 1) // SF_COLS
+                    valid_sf_tiles = ceil_div(cols_in_chunk, SF_COLS)
                     for tile in range(SF_TILES_PER_CHUNK):
                         if tile < valid_sf_tiles:
                             src = cute.make_tensor(
@@ -574,7 +572,7 @@ def _mx_block_rearrange_2d_m_groups_cutedsl_impl(
     rows, cols = scales_tensor.shape
     num_groups = input_offsets.shape[0]
     padded_rows = rows + num_groups * 128
-    padded_cols = ceil_div(cols, 4) * 4
+    padded_cols = round_up(cols, 4)
     if chunk_width is None:
         if cols >= 64:
             chunk_width = 64
@@ -596,9 +594,7 @@ def _mx_block_rearrange_2d_m_groups_cutedsl_impl(
         cols % 16 == 0,
         cols % chunk_width == 0,
     )
-    import cuda.bindings.driver as cuda
-
-    stream = cuda.CUstream(int(torch.cuda.current_stream().cuda_stream))
+    stream = current_cuda_stream()
     compiled(
         scales_tensor.view(torch.uint8),
         input_offsets,
@@ -644,7 +640,7 @@ def _fake_mx_block_rearrange_2d_m_groups_cutedsl_custom_op(
     rows, cols = scales_tensor.shape
     num_groups = input_offsets.shape[0]
     padded_rows = rows + num_groups * 128
-    padded_cols = ceil_div(cols, 4) * 4
+    padded_cols = round_up(cols, 4)
     return scales_tensor.new_empty((padded_rows, padded_cols))
 
 
