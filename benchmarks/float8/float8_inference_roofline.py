@@ -71,13 +71,19 @@ def get_gpu_kernel_time(m, x, trace_filename=None):
     for _ in range(2):
         __ = m(x)
 
+    device = torch.accelerator.current_accelerator().type
+
     # capture a profiling run
-    activities = [ProfilerActivity.CPU, ProfilerActivity.CUDA]
+    if device == "xpu":
+        activities = [ProfilerActivity.CPU, ProfilerActivity.XPU]
+    else:
+        activities = [ProfilerActivity.CPU, ProfilerActivity.CUDA]
+
     n_iter = 5
     with profile(activities=activities) as prof:
         for _ in range(n_iter):
             __ = m(x)
-            torch.cuda.synchronize()
+            torch.accelerator.synchronize()
 
     # save a trace, if requested
     if trace_filename is not None:
@@ -100,7 +106,7 @@ def get_gemm_times(
     fast_accum: bool,
     recipe_name: Optional[str],
 ):
-    device = torch.device("cuda")
+    device = torch.accelerator.current_accelerator()
 
     # bf16 time
     x_bf16 = torch.randn(M, K, dtype=torch.bfloat16, device=device)
@@ -139,7 +145,10 @@ def get_gemm_times(
             .t()
         )
 
-    if recipe_name == "rowwise":
+    if recipe_name == "tensorwise":
+        scale_a = torch.tensor([1.0], device=device)
+        scale_b = torch.tensor([1.0], device=device)
+    elif recipe_name == "rowwise":
         scale_a = torch.ones(M, 1, device=device)
         scale_b = torch.ones(1, N, device=device)
     elif recipe_name == "mxfp8_cublas":
@@ -208,7 +217,7 @@ def get_conv_times(
 
     This measures only the conv kernel time itself, without quantization overhead.
     """
-    device = torch.device("cuda")
+    device = torch.accelerator.current_accelerator()
 
     # Create input tensors
     if op_name == "conv2d":
@@ -406,6 +415,7 @@ def _create_model_and_input(
     """
     Build the model and its corresponding input tensor for benchmarking.
     """
+    device = torch.accelerator.current_accelerator()
 
     def _stack_layers_conv(
         core_layer: nn.Module, add_post_relu: bool = False
@@ -429,7 +439,7 @@ def _create_model_and_input(
         )
         memory_format = torch.channels_last
         x = torch.randn(
-            batch, in_channels, H, W, dtype=torch.bfloat16, device="cuda"
+            batch, in_channels, H, W, dtype=torch.bfloat16, device=device
         ).to(memory_format=memory_format)
         m_orig = _stack_layers_conv(core_layer)
     elif op_name == "conv3d":
@@ -443,7 +453,7 @@ def _create_model_and_input(
         )
         memory_format = torch.channels_last_3d
         x = torch.randn(
-            batch, in_channels, D, H, W, dtype=torch.bfloat16, device="cuda"
+            batch, in_channels, D, H, W, dtype=torch.bfloat16, device=device
         ).to(memory_format=memory_format)
         m_orig = _stack_layers_conv(core_layer)
     else:
@@ -455,12 +465,12 @@ def _create_model_and_input(
             )
         memory_format = None
         x = torch.randn(
-            batch, in_channels, dtype=torch.bfloat16, device="cuda"
+            batch, in_channels, dtype=torch.bfloat16, device=device
         ).requires_grad_()
 
     if memory_format is not None:
         m_orig = m_orig.to(memory_format=memory_format)
-    m_orig = m_orig.cuda().bfloat16()
+    m_orig = m_orig.to(device).bfloat16()
 
     return m_orig, x
 
@@ -530,8 +540,27 @@ def run(
             "Expected kernel_size to be specified for conv3d"
         )
 
+    device = torch.accelerator.current_accelerator().type
+
+    if device == "xpu":
+        assert recipe_name in (
+            "tensorwise",
+            "rowwise",
+        ), "Currently only tensorwise and rowwise quantization are supported on XPU."
+
+        if op_name in ("conv2d", "conv3d") and do_benchmarks:
+            raise NotImplementedError(
+                "FP8 convolution benchmarking is not yet implemented for XPU. "
+                "To skip fp8 conv benchmarking, set --do_benchmarks=False to run roofline model only."
+            )
+
+    if device == "xpu":
+        gpu_name = torch.xpu.get_device_name(0)
+    else:
+        gpu_name = torch.cuda.get_device_name(0)
+
     config_table = [
-        ["GPU", torch.cuda.get_device_name(0)],
+        ["GPU", gpu_name],
         ["torch version", torch.__version__],
         ["torchao version", torchao.__version__],
         ["recipe_name", recipe_name],
@@ -733,7 +762,11 @@ def run(
         b_bf16_e2e_time_s, b_fp8_e2e_time_s = 0, 0
 
         if do_benchmarks:
-            if op_name in ("conv2d", "conv3d") and not is_sm_at_least_100():
+            if (
+                device == "cuda"
+                and op_name in ("conv2d", "conv3d")
+                and not is_sm_at_least_100()
+            ):
                 print(
                     f"WARNING: Skipping {op_name} benchmarks for shape ({M_val}, {K_val}, {N_val}). "
                     f"Float8 convolution requires SM 10.0+ (Blackwell/B100 GPUs). "
@@ -815,7 +848,7 @@ def run(
                     # this benchmark is performance-only, so a toy datum is fine
                     quantize_(m_fp8_dyn, config_calib)
                     toy_datum = torch.randn(
-                        M_val, K_val, dtype=torch.bfloat16, device="cuda"
+                        M_val, K_val, dtype=torch.bfloat16, device=device
                     )
                     m_fp8_dyn(toy_datum)
 
