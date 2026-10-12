@@ -25,6 +25,14 @@ To use 4-bit Adam, replace the above with `Adam4bit`. Similarly for `AdamFp8`. Y
 
 **Other optimizers**: AdamW is also available as `AdamW8bit`, `AdamW4bit`, and `AdamWFp8`. Other optimizers can be added based on demand.
 
+**Choosing a `torch.compile` backend**: the low-bit Adam optimizers accept an optional `compile_backend` argument, which is forwarded to `torch.compile()` as its `backend`. This is useful when the default backend (`inductor`) is not available on your platform, e.g. on MPS:
+
+```python
+optim = Adam8bit(model.parameters(), compile_backend="aot_eager")
+```
+
+If `compile_backend` is not provided, the default `torch.compile()` behavior is unchanged.
+
 NOTE:
 - The low-bit optimizers require PyTorch >= 2.3
 - For FP8 optimizers on CUDA, PyTorch >= 2.4 and CUDA compute capability >= 8.9 are required.
