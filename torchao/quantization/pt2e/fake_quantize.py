@@ -4,9 +4,7 @@
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
 
-# mypy: allow-untyped-decorators
-# mypy: allow-untyped-defs
-"""Implements modules  used to perform fake quantization."""
+"""Implements modules used to perform fake quantization."""
 
 import re
 from abc import ABC, abstractmethod
@@ -116,11 +114,11 @@ class FakeQuantizeBase(ABC, Module):
         self.register_buffer("observer_enabled", torch.tensor([1], dtype=torch.uint8))
 
     @abstractmethod
-    def forward(self, x):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         pass
 
     @abstractmethod
-    def calculate_qparams(self, **kwargs):
+    def calculate_qparams(self, **kwargs: Any) -> Tuple[torch.Tensor, torch.Tensor]:
         pass
 
     @torch.jit.export
@@ -128,7 +126,7 @@ class FakeQuantizeBase(ABC, Module):
         self.fake_quant_enabled[0] = 1 if enabled else 0
 
     @torch.jit.export
-    def disable_fake_quant(self):
+    def disable_fake_quant(self) -> None:
         self.enable_fake_quant(False)
 
     @torch.jit.export
@@ -136,16 +134,17 @@ class FakeQuantizeBase(ABC, Module):
         self.observer_enabled[0] = 1 if enabled else 0
 
     @torch.jit.export
-    def disable_observer(self):
+    def disable_observer(self) -> None:
         self.enable_observer(False)
 
     @classmethod
-    def with_args(cls, **kwargs):
+    def with_args(cls, **kwargs: Any) -> Any:
         fake_quant_constructor = _with_args(cls, **kwargs)
         # need to assign the correct module to fake_quantize
         # constructors to satisfy public v private requirements
         fake_quant_constructor.__module__ = "torchao.quantization.pt2e.fake_quantize"
         return fake_quant_constructor
+
 
 
 class FakeQuantize(FakeQuantizeBase):
