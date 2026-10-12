@@ -2455,6 +2455,49 @@ class TestQuantizePT2E(PT2EQuantizationTestCase):
         self.assertTrue(bn_node is not None)
         self.assertTrue(bn_node.args[5])
 
+    @parametrize("device", DEVICE_LIST)
+    def test_move_exported_model_bn_custom_eps_momentum(self, device):
+        """
+        Test that switching batch_norm between train and eval modes keeps the
+        momentum and eps the model was built with, instead of resetting them to
+        the defaults baked into the replacement pattern.
+        """
+        eps = 1e-3
+        momentum = 0.03
+
+        class M(torch.nn.Module):
+            def __init__(self) -> None:
+                super().__init__()
+                self.bn = torch.nn.BatchNorm2d(3, eps=eps, momentum=momentum)
+
+            def forward(self, x):
+                return self.bn(x)
+
+        if TEST_CUDA or TEST_HPU or TEST_XPU:
+            m = M().train().to(device)
+            example_inputs = (torch.randn((1, 3, 3, 3), device=device),)
+        else:
+            m = M().train()
+            example_inputs = (torch.randn(1, 3, 3, 3),)
+        bn_train_op, bn_eval_op = self._get_bn_train_eval_ops()
+        m = torch.export.export(m, example_inputs, strict=True).module()
+
+        def assert_eps_and_momentum(node):
+            self.assertTrue(node is not None)
+            self.assertEqual(node.args[6], momentum)
+            self.assertEqual(node.args[7], eps)
+
+        # After export
+        assert_eps_and_momentum(self._get_node(m, bn_train_op))
+
+        # After moving to eval
+        torchao.quantization.pt2e.move_exported_model_to_eval(m)
+        assert_eps_and_momentum(self._get_node(m, bn_eval_op))
+
+        # After moving back to train
+        torchao.quantization.pt2e.move_exported_model_to_train(m)
+        assert_eps_and_momentum(self._get_node(m, bn_train_op))
+
     def test_disallow_eval_train(self):
         m = TestHelperModules.ConvWithBNRelu(relu=True)
         example_inputs = (torch.rand(3, 3, 5, 5),)
