@@ -5,6 +5,7 @@ This module implements:
 - 8-bit optimizers as outlined in https://arxiv.org/abs/2110.02861
 - 4-bit optimizers as outlined in https://arxiv.org/abs/2309.01507
 - FP8 optimizers using the native `torch.float8_e4m3fn` dtype (experimental)
+- COAT FP8 optimizers with Dynamic Range Expansion (experimental)
 - Stochastic rounding for BF16 weight (https://arxiv.org/abs/2010.06192, experimental)
 - CPU offload optimizers for single GPU training
 
@@ -21,14 +22,22 @@ model = ...
 optim = Adam8bit(model.parameters())
 ```
 
-To use 4-bit Adam, replace the above with `Adam4bit`. Similarly for `AdamFp8`. You can also change quantization block size by passing `block_size=value` to the optimizer. By default, block size is 256 for 8-bit and FP8 optimizers, and 128 for 4-bit optimizers.
+To use 4-bit Adam, replace the above with `Adam4bit`. Similarly for `AdamFp8`.
+`CoatAdam` adds [COAT Dynamic Range Expansion](https://arxiv.org/abs/2410.19313)
+to make better use of FP8's representable range for optimizer states. You can also
+change quantization block size by passing `block_size=value` to the optimizer. By
+default, block size is 256 for 8-bit and FP8 optimizers, and 128 for 4-bit optimizers.
 
-**Other optimizers**: AdamW is also available as `AdamW8bit`, `AdamW4bit`, and `AdamWFp8`. Other optimizers can be added based on demand.
+**Other optimizers**: AdamW is also available as `AdamW8bit`, `AdamW4bit`,
+`AdamWFp8`, and `CoatAdamW`. Other optimizers can be added based on demand.
 
 NOTE:
 - The low-bit optimizers require PyTorch >= 2.3
 - For FP8 optimizers on CUDA, PyTorch >= 2.4 and CUDA compute capability >= 8.9 are required.
 - For 4-bit optimizers, we don't implement rank-1 normalization for quantizing 2nd moment as originally done in the paper.
+
+The benchmark script accepts `--optim CoatAdamWAo` to measure COAT accuracy,
+throughput, and peak memory alongside the other AdamW implementations.
 
 ## Benchmarks
 
@@ -153,4 +162,5 @@ Credits to
 
 - Tim Dettmers for creating the wonderful [bitsandbytes](https://github.com/TimDettmers/bitsandbytes) library.
 - [lpmm](https://github.com/thu-ml/low-bit-optimizers) authors for their work on 4-bit optimizers.
+- [NVlabs/COAT](https://github.com/NVlabs/COAT) authors for Dynamic Range Expansion.
 - [DeepSpeed](https://github.com/microsoft/DeepSpeed) team for [ZeRO-Offload](https://arxiv.org/abs/2101.06840).

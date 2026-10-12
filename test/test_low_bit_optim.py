@@ -4,6 +4,7 @@
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
 import copy
+import math
 import shutil
 import tempfile
 from pathlib import Path
@@ -39,6 +40,7 @@ from torchao.optim.quant_utils import (
 from torchao.optim.subclass_4bit import OptimState4bit
 from torchao.optim.subclass_8bit import OptimState8bit
 from torchao.optim.subclass_fp8 import OptimStateFp8
+from torchao.optim.subclass_fp8_coat import OptimStateFp8Coat
 from torchao.testing.utils import skip_if_rocm
 from torchao.utils import (
     get_available_devices,
@@ -59,9 +61,70 @@ if torch.version.hip is not None:
     pytest.skip("Skipping the test in ROCm", allow_module_level=True)
 
 _DEVICES = get_available_devices()
+_FP8_OPTIM_NAMES = {"AdamFp8", "AdamWFp8", "CoatAdam", "CoatAdamW"}
+_OPTIM_STATE_SUBCLASSES = (
+    OptimState4bit,
+    OptimState8bit,
+    OptimStateFp8,
+    OptimStateFp8Coat,
+)
+_FP8_OPTIM_STATE_SUBCLASSES = (OptimStateFp8, OptimStateFp8Coat)
 
 
 class TestQuantize(TestCase):
+    @parametrize("device", _DEVICES)
+    def test_quantize_fp8_coat_expansion_matches_reference(self, device):
+        block_size = 256
+        x = torch.linspace(1, 4, block_size, device=device)
+        coat = OptimStateFp8Coat.zeros(x.shape, block_size, device)
+        coat.copy_(x)
+
+        ratio_upper_bound = torch.finfo(torch.float8_e4m3fn).max**2 / 2
+        expected = (
+            math.floor(math.log2(ratio_upper_bound) / math.log2(4) * 16) / 16
+        )
+        torch.testing.assert_close(
+            coat.expansion, coat.expansion.new_tensor([expected])
+        )
+        torch.testing.assert_close(
+            coat.sqrt_minmax, coat.sqrt_minmax.new_tensor([2])
+        )
+
+    @parametrize("block_size", [128, 256])
+    @parametrize("device", _DEVICES)
+    def test_quantize_fp8_coat_roundtrip(self, block_size, device):
+        magnitudes = torch.linspace(0.75, 1.25, block_size, device=device)
+        signs = torch.where(
+            torch.arange(block_size, device=device) % 2 == 0, 1.0, -1.0
+        )
+        x = (magnitudes * signs).repeat(16)
+
+        plain = OptimStateFp8.zeros(x.shape, block_size, device)
+        plain.copy_(x)
+        coat = OptimStateFp8Coat.zeros(x.shape, block_size, device)
+        coat.copy_(x)
+
+        plain_mse = (plain.dequantize() - x).square().mean()
+        coat_mse = (coat.dequantize() - x).square().mean()
+        self.assertLess(coat_mse, plain_mse)
+
+    @parametrize("device", _DEVICES)
+    def test_quantize_fp8_coat_edge_cases(self, device):
+        x = torch.cat(
+            (
+                torch.zeros(256, device=device),
+                torch.ones(256, device=device),
+                torch.cat(
+                    (torch.zeros(255, device=device), torch.ones(1, device=device))
+                ),
+            )
+        )
+        coat = OptimStateFp8Coat.zeros(x.shape, 256, device)
+        coat.copy_(x)
+
+        self.assertTrue(torch.isfinite(coat.dequantize()).all())
+        torch.testing.assert_close(coat.dequantize(), x)
+
     @parametrize("device", _DEVICES)
     def test_quantize_8bit_with_qmap_correctness(self, device):
         x = torch.rand(32, 1024, device=device)
@@ -162,13 +225,22 @@ class TestQuantize(TestCase):
 class TestOptim(TestCase):
     @parametrize(
         "optim_name",
-        ["Adam8bit", "AdamW8bit", "Adam4bit", "AdamW4bit", "AdamFp8", "AdamWFp8"],
+        [
+            "Adam8bit",
+            "AdamW8bit",
+            "Adam4bit",
+            "AdamW4bit",
+            "AdamFp8",
+            "AdamWFp8",
+            "CoatAdam",
+            "CoatAdamW",
+        ],
     )
     @parametrize("dtype", [torch.float32, torch.bfloat16])
     @parametrize("device", _DEVICES)
     @skip_if_rocm("ROCm enablement in progress")
     def test_optim_smoke(self, optim_name, dtype, device):
-        if optim_name.endswith("Fp8") and device == "cuda":
+        if optim_name in _FP8_OPTIM_NAMES and device == "cuda":
             if torch.cuda.get_device_capability() < (8, 9):
                 pytest.skip("FP8 CUDA requires compute capability >= 8.9")
 
@@ -205,10 +277,10 @@ class TestOptim(TestCase):
         for p1, p2 in zip(model.parameters(), model2.parameters()):
             torch.testing.assert_close(p2, p1)
 
-    @parametrize("optim_name", ["Adam8bit", "Adam4bit", "AdamFp8"])
+    @parametrize("optim_name", ["Adam8bit", "Adam4bit", "AdamFp8", "CoatAdam"])
     @parametrize("device", _DEVICES)
     def test_optim_default_dtype_bf16(self, optim_name, device):
-        if optim_name.endswith("Fp8") and device == "cuda":
+        if optim_name in _FP8_OPTIM_NAMES and device == "cuda":
             if torch.cuda.get_device_capability() < (8, 9):
                 pytest.skip("FP8 CUDA requires compute capability >= 8.9")
 
@@ -229,10 +301,10 @@ class TestOptim(TestCase):
         finally:
             torch.set_default_dtype(old_dtype)
 
-    @parametrize("optim_name", ["Adam8bit", "Adam4bit", "AdamFp8"])
+    @parametrize("optim_name", ["Adam8bit", "Adam4bit", "AdamFp8", "CoatAdam"])
     @parametrize("device", _DEVICES)
     def test_param_groups(self, optim_name, device):
-        if optim_name.endswith("Fp8") and device == "cuda":
+        if optim_name in _FP8_OPTIM_NAMES and device == "cuda":
             if torch.cuda.get_device_capability() < (8, 9):
                 pytest.skip("FP8 CUDA requires compute capability >= 8.9")
 
@@ -255,11 +327,11 @@ class TestOptim(TestCase):
     # test 2 times with different world size, and persist checkpoint across the 2 runs.
     # thus, we only test for the required op. note that future implementations of dcp.load()
     # may use other ops.
-    @parametrize("subclass", [OptimState4bit, OptimState8bit, OptimStateFp8])
+    @parametrize("subclass", _OPTIM_STATE_SUBCLASSES)
     @parametrize("shape", [(4096,), (256, 256)])
     @parametrize("device", _DEVICES)
     def test_subclass_slice(self, subclass, shape, device):
-        if subclass == OptimStateFp8:
+        if subclass in _FP8_OPTIM_STATE_SUBCLASSES:
             if device == "cuda" and torch.cuda.get_device_capability() < (8, 9):
                 pytest.skip("FP8 CUDA requires compute capability >= 8.9")
 
@@ -274,7 +346,7 @@ class TestOptim(TestCase):
             tensor[offset : offset * 2].dequantize(),
         )
 
-    @parametrize("subclass", [OptimState4bit, OptimState8bit, OptimStateFp8])
+    @parametrize("subclass", _OPTIM_STATE_SUBCLASSES)
     @parametrize("device", _DEVICES)
     def test_subclass_appearance_dtype(self, subclass, device):
         shape = (1024,)
@@ -299,6 +371,26 @@ class TestOptim(TestCase):
         # direct BF16 creation
         tensor_bf16 = subclass.zeros(shape, device=device, dtype=torch.bfloat16)
         self.assertEqual(tensor_bf16.dtype, torch.bfloat16)
+
+    @parametrize("device", _DEVICES)
+    def test_coat_adamw_correctness(self, device):
+        if device == "cuda" and torch.cuda.get_device_capability() < (8, 9):
+            pytest.skip("FP8 CUDA requires compute capability >= 8.9")
+
+        torch.manual_seed(42)
+        p_ref = torch.randn(4096, device=device, requires_grad=True)
+        p_coat = p_ref.detach().clone().requires_grad_()
+        optim_ref = torch.optim.AdamW([p_ref], lr=1e-3)
+        optim_coat = optim.CoatAdamW([p_coat], lr=1e-3)
+
+        for _ in range(5):
+            grad = torch.randn_like(p_ref)
+            p_ref.grad = grad
+            p_coat.grad = grad.clone()
+            optim_ref.step()
+            optim_coat.step()
+
+        torch.testing.assert_close(p_coat, p_ref, rtol=2e-2, atol=2e-3)
 
     @pytest.mark.skipif(bnb is None, reason="bitsandbytes is not available")
     @pytest.mark.skipif(
@@ -543,6 +635,7 @@ class TestFSDP2(FSDPTest):
         ]
         if torch.cuda.get_device_capability() >= (8, 9):
             args_list.append((optim.AdamWFp8, OffloadPolicy))
+            args_list.append((optim.CoatAdamW, OffloadPolicy))
 
         self.run_subtests(
             {"args": args_list},
@@ -631,7 +724,7 @@ class TestFSDP2(FSDPTest):
         if dist.get_rank() == 0:
             shutil.rmtree(checkpoint_id)
 
-        subclasses = (OptimState4bit, OptimState8bit, OptimStateFp8)
+        subclasses = _OPTIM_STATE_SUBCLASSES
 
         for v1, v2 in zip(
             pytree.tree_iter(resumed_fsdp_optim.state_dict()),
