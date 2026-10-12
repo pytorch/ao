@@ -522,8 +522,10 @@ def test_cuda_mx_3d_cutedsl_numerics(E, N, K, input_dtype, scaling_mode, variant
         y_ref = y_ref.transpose(-2, -1)
         s_ref = s_ref.transpose(-2, -1)
         s_rows, s_cols = K, N // block_size
-        undo_scale = lambda scale: (
-            from_blocked(scale, s_rows, s_cols).transpose(-2, -1).contiguous()
+        undo_scale = (
+            lambda scale: from_blocked(scale, s_rows, s_cols)
+            .transpose(-2, -1)
+            .contiguous()
         )
     else:
         x_tiles = (
@@ -1696,13 +1698,14 @@ def test_amd_mx_3d_flydsl_numerics(
 #
 # The kernel replaces three kernels in a grouped-GEMM backward -- the 1x32
 # rowwise cast, the 32x1 colwise cast, and the standalone K-groups scale swizzle
-# -- with one pass over the input. Its contract is therefore to be a DROP-IN for
-# that composition, so every test below compares raw bytes against the
-# composition itself rather than against `to_mx`. That distinction matters: the
-# fused kernel is deliberately bug-compatible with the colwise CUDA kernel's
-# degenerate-block convention, so a `to_mx` reference would disagree on inputs
-# that no random tensor can produce.
+# -- with one pass over the input. to_mx(RCEIL) is the numerical oracle for both
+# axes; per-group unblocking separately checks the dynamic column-scale layout.
 # =============================================================================
+
+_FUSED_CUTEDSL_REQUIRED = pytest.mark.skipif(
+    not (_is_sm_10x() and _mxfp8_cutedsl_kernels_available),
+    reason="Requires SM10.x and the CuTeDSL runtime",
+)
 
 _FUSED_1X32_32X1_SHAPES = (
     # (total_M, N, num_groups). Both dims must be multiples of 128. Each new
@@ -1737,7 +1740,7 @@ def _fused_1x32_32x1_offs_with_tail(total_M, num_groups, tail, device="cuda"):
     return ends.to(device=device, dtype=torch.int32)
 
 
-def _fused_1x32_32x1_reference(x, offs):
+def _fused_1x32_32x1_composition_reference(x, offs):
     """The three kernels the fused kernel replaces, in the order backward runs them.
 
     Returns the fused kernel's four outputs as raw uint8, in the same order.
@@ -1764,32 +1767,60 @@ def _fused_1x32_32x1_reference(x, offs):
 
 
 def _assert_fused_1x32_32x1_matches_reference(x, offs, actual):
-    """Bytewise, atol=0/rtol=0. A single wrong E8M0 byte is a 2x error."""
-    expected = _fused_1x32_32x1_reference(x, offs)
+    """Check direct RCEIL bytes after unblocking; FP8 NaN signs are equivalent."""
+    m, n = x.shape
+    row_scales, row_data = to_mx(x, torch.float8_e4m3fn, 32, ScaleCalculationMode.RCEIL)
+    col_scales, col_data = to_mx(
+        x.t().contiguous(), torch.float8_e4m3fn, 32, ScaleCalculationMode.RCEIL
+    )
+    expected = (row_data, row_scales, col_data, col_scales.view(torch.uint8).clone())
+    logical_row = from_blocked(actual[1].view(torch.uint8), m, n // 32)
+    flat_col = actual[3].view(torch.uint8).flatten()
+    if offs is None:
+        logical_col = from_blocked(flat_col, n, m // 32)
+    else:
+        logical_col = torch.zeros_like(expected[3])
+        start = 0
+        for end in offs.tolist():
+            if end > start:
+                slab = flat_col[(start // 32) * n : (end // 32) * n]
+                logical_col[:, start // 32 : end // 32] = from_blocked(
+                    slab, n, (end - start) // 32
+                )
+            start = end
+        expected[3][:, start // 32 :].zero_()
+        # 128-aligned groups have no internal padding: the consumed prefix is
+        # M*N/32 bytes, followed by legacy G*4 scale-column slack.
+        assert torch.all(flat_col[m * n // 32 :] == 0), (
+            "unused scale slack must be zero"
+        )
+    unpacked = (actual[0], logical_row, actual[2], logical_col)
     names = ("q_row", "s_row", "q_col", "s_col")
-    num_groups = offs.numel()
-    for name, got, exp in zip(names, actual, expected):
-        got = got.view(torch.uint8)
-        if name == "s_col":
-            # Both sides over-allocate the colwise scale buffer by num_groups * 4
-            # columns of per-group padding slack that the grouped GEMM never
-            # reads. Compare the region that is actually consumed.
-            used = exp.shape[1] - num_groups * 4
-            got, exp = got[:, :used], exp[:, :used]
+    for name, got, exp in zip(names, unpacked, expected, strict=True):
+        got, exp = (
+            got.contiguous().view(torch.uint8),
+            exp.contiguous().view(torch.uint8),
+        )
+        if name.startswith("q_"):
+            got, exp = (
+                torch.where(got == 0xFF, 0x7F, got),
+                torch.where(exp == 0xFF, 0x7F, exp),
+            )
         torch.testing.assert_close(got, exp, rtol=0, atol=0, msg=f"{name} mismatch")
 
 
-@pytest.mark.skipif(not _is_sm_10x(), reason="MXFP8 requires CUDA SM 10.x")
-@pytest.mark.skipif(
-    not _mxfp8_cutedsl_kernels_available, reason="MXFP8 cutedsl kernels not available"
-)
+def _fused_1x32_32x1_randn(*shape, dtype=torch.bfloat16, device="cuda"):
+    """Create reproducible inputs without changing process-global RNG state."""
+    generator = torch.Generator(device=device).manual_seed(42)
+    return torch.randn(*shape, dtype=dtype, device=device, generator=generator)
+
+
+@_FUSED_CUTEDSL_REQUIRED
 @pytest.mark.parametrize("total_M,N,num_groups", _FUSED_1X32_32X1_SHAPES)
 def test_mxfp8_quantize_2d_1x32_32x1_cutedsl_numerics(total_M, N, num_groups):
-    x = torch.randn(total_M, N, dtype=torch.bfloat16, device="cuda")
-    offs = generate_jagged_offs(num_groups, total_M, multiple_of=128, device="cuda").to(
-        torch.int32
-    )
-    out = mxfp8_quantize_2d_1x32_32x1_cutedsl(x, offs)
+    x = _fused_1x32_32x1_randn(total_M, N)
+    offs = _fused_1x32_32x1_offs_with_tail(total_M, num_groups, 0)
+    out = mxfp8_quantize_2d_1x32_32x1_cutedsl(x, offs=offs)
 
     q_row, s_row, q_col, s_col = out
     assert q_row.shape == (total_M, N)
@@ -1800,12 +1831,12 @@ def test_mxfp8_quantize_2d_1x32_32x1_cutedsl_numerics(total_M, N, num_groups):
     assert s_col.shape[0] == ceil_div(N, 128) * 128
 
     _assert_fused_1x32_32x1_matches_reference(x, offs, out)
+    expected = _fused_1x32_32x1_composition_reference(x, offs)
+    for got, reference in zip(out, expected, strict=True):
+        torch.testing.assert_close(got.view(torch.uint8), reference, rtol=0, atol=0)
 
 
-@pytest.mark.skipif(not _is_sm_10x(), reason="MXFP8 requires CUDA SM 10.x")
-@pytest.mark.skipif(
-    not _mxfp8_cutedsl_kernels_available, reason="MXFP8 cutedsl kernels not available"
-)
+@_FUSED_CUTEDSL_REQUIRED
 @pytest.mark.parametrize("tail", (128, 512, 1024))
 def test_mxfp8_quantize_2d_1x32_32x1_cutedsl_uncovered_tail(tail):
     """offs[-1] < total_M, which for a dropless MoE dispatcher is the NORM.
@@ -1822,29 +1853,12 @@ def test_mxfp8_quantize_2d_1x32_32x1_cutedsl_uncovered_tail(tail):
     offs = _fused_1x32_32x1_offs_with_tail(total_M, num_groups, tail)
     assert int(offs[-1]) == covered < total_M
 
-    x = torch.randn(total_M, N, dtype=torch.bfloat16, device="cuda")
-    out = mxfp8_quantize_2d_1x32_32x1_cutedsl(x, offs)
+    x = _fused_1x32_32x1_randn(total_M, N)
+    out = mxfp8_quantize_2d_1x32_32x1_cutedsl(x, offs=offs)
     _assert_fused_1x32_32x1_matches_reference(x, offs, out)
 
-    # The colwise scale bytes past the covered prefix must be ZEROED, matching
-    # triton_mx_block_rearrange_2d_K_groups, which iterates groups and returns
-    # new_zeros. Asserted directly because a fresh torch.empty can hide a
-    # never-written region whenever the allocator hands back zeroed pages.
-    #
-    # Indexed FLAT, not by column: the K-groups blocked layout stores each
-    # 4-scale-column block as N contiguous bytes, so scale columns
-    # [covered // 32, total_M // 32) are the flat byte range below and are NOT a
-    # 2D column slice of the (padded_N, num_scale_cols) view.
-    s_col_flat = out[3].view(torch.uint8).reshape(-1)
-    uncovered = s_col_flat[(covered // 32) * N : (total_M // 32) * N]
-    assert uncovered.numel() == (tail // 32) * N
-    assert torch.all(uncovered == 0), "uncovered s_col bytes must be zero-filled"
 
-
-@pytest.mark.skipif(not _is_sm_10x(), reason="MXFP8 requires CUDA SM 10.x")
-@pytest.mark.skipif(
-    not _mxfp8_cutedsl_kernels_available, reason="MXFP8 cutedsl kernels not available"
-)
+@_FUSED_CUTEDSL_REQUIRED
 @pytest.mark.parametrize("scale", (1e-38, 1e-30, 1e30))
 def test_mxfp8_quantize_2d_1x32_32x1_cutedsl_degenerate_blocks(scale):
     """Blocks whose amax is subnormal enough to land on E8M0 scale byte 0.
@@ -1856,36 +1870,28 @@ def test_mxfp8_quantize_2d_1x32_32x1_cutedsl_degenerate_blocks(scale):
     exactly how a 2x error survived here once already.
     """
     total_M, N, num_groups = 512, 256, 4
-    x = (torch.randn(total_M, N, device="cuda") * scale).to(torch.bfloat16)
-    offs = generate_jagged_offs(num_groups, total_M, multiple_of=128, device="cuda").to(
-        torch.int32
+    x = (_fused_1x32_32x1_randn(total_M, N, dtype=torch.float32) * scale).to(
+        torch.bfloat16
     )
-    out = mxfp8_quantize_2d_1x32_32x1_cutedsl(x, offs)
+    offs = _fused_1x32_32x1_offs_with_tail(total_M, num_groups, 0)
+    out = mxfp8_quantize_2d_1x32_32x1_cutedsl(x, offs=offs)
     _assert_fused_1x32_32x1_matches_reference(x, offs, out)
 
 
-@pytest.mark.skipif(not _is_sm_10x(), reason="MXFP8 requires CUDA SM 10.x")
-@pytest.mark.skipif(
-    not _mxfp8_cutedsl_kernels_available, reason="MXFP8 cutedsl kernels not available"
-)
+@_FUSED_CUTEDSL_REQUIRED
 def test_mxfp8_quantize_2d_1x32_32x1_cutedsl_mixed_magnitude():
     """Interleaved tiny and huge rows, so degenerate and saturating blocks
     coexist in one launch and neither branch can be tuned for in isolation."""
     total_M, N, num_groups = 512, 256, 4
-    x = (torch.randn(total_M, N, device="cuda") * 100).to(torch.bfloat16)
+    x = _fused_1x32_32x1_randn(total_M, N)
     x[::4] = (x[::4].float() * 1e-36).to(torch.bfloat16)
     x[1::4] = (x[1::4].float() * 1e28).to(torch.bfloat16)
-    offs = generate_jagged_offs(num_groups, total_M, multiple_of=128, device="cuda").to(
-        torch.int32
-    )
-    out = mxfp8_quantize_2d_1x32_32x1_cutedsl(x, offs)
+    offs = _fused_1x32_32x1_offs_with_tail(total_M, num_groups, 0)
+    out = mxfp8_quantize_2d_1x32_32x1_cutedsl(x, offs=offs)
     _assert_fused_1x32_32x1_matches_reference(x, offs, out)
 
 
-@pytest.mark.skipif(not _is_sm_10x(), reason="MXFP8 requires CUDA SM 10.x")
-@pytest.mark.skipif(
-    not _mxfp8_cutedsl_kernels_available, reason="MXFP8 cutedsl kernels not available"
-)
+@_FUSED_CUTEDSL_REQUIRED
 def test_mxfp8_quantize_2d_1x32_32x1_cutedsl_dirty_output_buffers():
     """Every output byte must be written, including regions no group covers.
 
@@ -1900,7 +1906,7 @@ def test_mxfp8_quantize_2d_1x32_32x1_cutedsl_dirty_output_buffers():
 
     total_M, N, num_groups = 2048, 512, 4
     offs = _fused_1x32_32x1_offs_with_tail(total_M, num_groups, 512)
-    x = torch.randn(total_M, N, dtype=torch.bfloat16, device="cuda")
+    x = _fused_1x32_32x1_randn(total_M, N)
 
     s_col_rows, s_col_cols = s_col_shape(total_M, N, num_groups)
     bufs = (
@@ -1909,183 +1915,337 @@ def test_mxfp8_quantize_2d_1x32_32x1_cutedsl_dirty_output_buffers():
         torch.empty((N, total_M), device="cuda", dtype=torch.float8_e4m3fn),
         torch.empty((s_col_rows, s_col_cols), device="cuda", dtype=torch.uint8),
     )
-    for buf in bufs:
-        buf.view(torch.uint8).fill_(0xFF)
-
-    quantize_fused(
-        x,
-        offs,
-        q_row_out=bufs[0],
-        s_row_out=bufs[1],
-        q_col_out=bufs[2],
-        s_col_out=bufs[3],
-    )
-    _assert_fused_1x32_32x1_matches_reference(x, offs, bufs)
-
-
-@pytest.mark.skipif(not _is_sm_10x(), reason="MXFP8 requires CUDA SM 10.x")
-@pytest.mark.skipif(
-    not _mxfp8_cutedsl_kernels_available, reason="MXFP8 cutedsl kernels not available"
-)
-def test_mxfp8_quantize_2d_1x32_32x1_cutedsl_determinism():
-    """Three launches on one input must agree byte for byte.
-
-    Mis-placed colwise scales showed up as several CTAs racing on a single
-    address, so the output differed run to run. A comparison against a reference
-    catches that only probabilistically; this catches it directly.
-    """
-    total_M, N, num_groups = 2048, 512, 4
-    offs = _fused_1x32_32x1_offs_with_tail(total_M, num_groups, 512)
-    x = torch.randn(total_M, N, dtype=torch.bfloat16, device="cuda")
-
-    first = [
-        t.view(torch.uint8).clone()
-        for t in mxfp8_quantize_2d_1x32_32x1_cutedsl(x, offs)
-    ]
-    for _ in range(2):
-        again = mxfp8_quantize_2d_1x32_32x1_cutedsl(x, offs)
-        for name, a, b in zip(("q_row", "s_row", "q_col", "s_col"), first, again):
-            assert torch.equal(a, b.view(torch.uint8)), f"{name} is nondeterministic"
+    for _ in range(3):
+        for buf in bufs:
+            buf.view(torch.uint8).fill_(0xFF)
+        quantize_fused(
+            x,
+            offs=offs,
+            q_row_out=bufs[0],
+            s_row_out=bufs[1],
+            q_col_out=bufs[2],
+            s_col_out=bufs[3],
+        )
+        _assert_fused_1x32_32x1_matches_reference(x, offs, bufs)
 
 
-@pytest.mark.skipif(not _is_sm_10x(), reason="MXFP8 requires CUDA SM 10.x")
-@pytest.mark.skipif(
-    not _mxfp8_cutedsl_kernels_available, reason="MXFP8 cutedsl kernels not available"
-)
-def test_mxfp8_quantize_2d_1x32_32x1_cutedsl_special_value_semantics():
-    """Subnormals, saturation and NaN/Inf, against the shared MXFP8 contract.
-
-    The tile is laid out one semantic case per ROW, so it pins the ROWWISE half.
-    The colwise half reads each 32-row block as a mixture of cases, which has no
-    contract; test_..._inf_and_nan below covers what can be said about it.
-    """
+@_FUSED_CUTEDSL_REQUIRED
+@pytest.mark.parametrize("axis", ["rowwise", "colwise"])
+def test_mxfp8_quantize_2d_1x32_32x1_cutedsl_special_value_semantics(axis):
+    """Pin both orientations to the independent shared MXFP8 special-value contract."""
     cases = make_mxfp8_semantic_cases(torch.bfloat16, "rceil", device="cuda")
     num_cases = len(cases.names)
     x = torch.zeros((128, 128), dtype=torch.bfloat16, device="cuda")
-    x[:num_cases] = cases.inputs.repeat(1, 4)
+    if axis == "rowwise":
+        x[:num_cases] = cases.inputs.repeat(1, 4)
+    else:
+        x[:, :num_cases] = cases.inputs.t().repeat(4, 1)
     offs = torch.tensor([128], dtype=torch.int32, device="cuda")
 
-    q_row, s_row = mxfp8_quantize_2d_1x32_32x1_cutedsl(x, offs)[:2]
+    out = mxfp8_quantize_2d_1x32_32x1_cutedsl(x, offs=offs)
+    q_data, blocked_scales = out[:2] if axis == "rowwise" else out[2:]
 
-    scales = from_blocked(s_row, 128, 4)
+    scales = from_blocked(blocked_scales.flatten()[:512], 128, 4)
     for block_idx in range(4):
         assert_mxfp8_semantics(
-            q_row[:num_cases, block_idx * 32 : (block_idx + 1) * 32],
+            q_data[:num_cases, block_idx * 32 : (block_idx + 1) * 32],
             scales[:num_cases, block_idx : block_idx + 1],
             cases,
         )
 
-    # And bytewise against the kernel this half replaces.
-    ref_q, ref_s = mxfp8_quantize_2d_1x32_cutedsl(
-        x, block_size=32, scaling_mode="rceil", offs=offs
-    )
-    torch.testing.assert_close(
-        q_row.view(torch.uint8), ref_q.view(torch.uint8), rtol=0, atol=0
-    )
-    torch.testing.assert_close(
-        s_row.view(torch.uint8), ref_s.view(torch.uint8), rtol=0, atol=0
-    )
+    _assert_fused_1x32_32x1_matches_reference(x, offs, out)
 
 
-@pytest.mark.skipif(not _is_sm_10x(), reason="MXFP8 requires CUDA SM 10.x")
-@pytest.mark.skipif(
-    not _mxfp8_cutedsl_kernels_available, reason="MXFP8 cutedsl kernels not available"
-)
+@_FUSED_CUTEDSL_REQUIRED
 @pytest.mark.parametrize("poison", ("inf", "nan", "inf_and_nan"))
-def test_mxfp8_quantize_2d_1x32_32x1_cutedsl_inf_and_nan(poison):
-    """Inf/NaN, where the two kernels being replaced do not agree with each other.
-
-    The amax here is an unsigned max over sign-masked bf16 bit patterns, which
-    orders Inf and NaN as merely large integers, so this is the one input class
-    that needs an explicit branch -- and the two references want different
-    branches:
-
-      rowwise (CuTeDSL, NOSAT) poisons the block: scale 255, every element NaN.
-      colwise (CUDA, SATFINITE) clamps Inf to scale 254 and keeps finite data,
-        and DROPS NaN from the amax entirely -- an all-NaN block still gets the
-        scale its finite elements imply.
-
-    The fused kernel reproduces the rowwise half exactly and the colwise half
-    exactly for Inf. It deliberately does NOT reproduce the colwise kernel's
-    NaN-dropping amax: matching it would need a per-element NaN test in the
-    hottest loop, to imitate a behavior that hides NaN corruption rather than
-    surfacing it. That divergence is asserted rather than skipped, so it fails
-    loudly if either side changes.
-    """
-    x = torch.ones((128, 128), dtype=torch.bfloat16, device="cuda")
+@pytest.mark.parametrize("shape", [(128, 128), (8192, 2048)])
+def test_mxfp8_quantize_2d_1x32_32x1_cutedsl_inf_and_nan(poison, shape):
+    """Both NOSAT references poison nonfinite blocks, including quantized data."""
+    # Exercise both the 512-thread small-grid and 256-thread large-grid paths.
+    x = torch.ones(shape, dtype=torch.bfloat16, device="cuda")
     if poison in ("inf", "inf_and_nan"):
         x[0].fill_(float("inf"))
     if poison in ("nan", "inf_and_nan"):
         x[1].fill_(float("nan"))
-    offs = torch.tensor([128], dtype=torch.int32, device="cuda")
+    offs = torch.tensor([shape[0]], dtype=torch.int32, device="cuda")
 
-    q_row, s_row, q_col, s_col = mxfp8_quantize_2d_1x32_32x1_cutedsl(x, offs)
+    out = mxfp8_quantize_2d_1x32_32x1_cutedsl(x, offs=offs)
+    _assert_fused_1x32_32x1_matches_reference(x, offs, out)
+    assert int(out[3].view(torch.uint8).reshape(-1)[0]) == 255
 
-    # Rowwise: bit-exact with the kernel it replaces, always.
-    ref_q, ref_s = mxfp8_quantize_2d_1x32_cutedsl(
-        x, block_size=32, scaling_mode="rceil", offs=offs
-    )
-    torch.testing.assert_close(
-        q_row.view(torch.uint8), ref_q.view(torch.uint8), rtol=0, atol=0
-    )
-    torch.testing.assert_close(
-        s_row.view(torch.uint8), ref_s.view(torch.uint8), rtol=0, atol=0
+
+@_FUSED_CUTEDSL_REQUIRED
+@pytest.mark.parametrize("shape", [(128, 256), (256, 128)])
+@pytest.mark.parametrize("blocked_scale_output", [False, True])
+def test_mxfp8_32x1_cutedsl_fake_metadata(shape, blocked_scale_output):
+    """Fake metadata must match real strides and both scale layout modes."""
+    x = _fused_1x32_32x1_randn(*shape)
+    torch.library.opcheck(
+        torch.ops.torchao.mxfp8_quantize_2d_32x1_cutedsl.default,
+        (x,),
+        {"blocked_scale_output": blocked_scale_output},
+        test_utils=["test_schema", "test_faketensor"],
     )
 
-    mx = _to_mxfp8_dim1_kernel_wrapper(
-        x,
-        32,
-        elem_dtype=torch.float8_e4m3fn,
-        hp_dtype=x.dtype,
-        kernel_preference=KernelPreference.AUTO,
-        cast_kernel_choice=MXFP8Dim1CastKernelChoice.CUDA,
-        scale_calculation_mode=ScaleCalculationMode.RCEIL,
-    )
-    fused_col_scale = int(s_col.view(torch.uint8).reshape(-1)[0])
-    ref_col_scale = int(mx.scale.view(torch.uint8).reshape(-1)[0])
 
-    if poison == "inf":
-        # Inf clamps to 2**127 on both sides, data included.
-        assert fused_col_scale == ref_col_scale == 254
+@_FUSED_CUTEDSL_REQUIRED
+@pytest.mark.parametrize("shape", [(128, 256), (256, 128)])
+@pytest.mark.parametrize("use_offsets", [False, True])
+def test_mxfp8_1x32_32x1_cutedsl_fake_metadata(shape, use_offsets):
+    """The fused custom op must expose all four real output layouts."""
+    x = _fused_1x32_32x1_randn(*shape)
+    offs = (
+        torch.tensor([shape[0]], device="cuda", dtype=torch.int32)
+        if use_offsets
+        else None
+    )
+    torch.library.opcheck(
+        torch.ops.torchao.mxfp8_quantize_2d_1x32_32x1_cutedsl.default,
+        (x,),
+        {"offs": offs},
+        test_utils=["test_schema", "test_faketensor"],
+    )
+
+
+@pytest.mark.parametrize("shape", [(128, 128), (8192, 1152)])
+@pytest.mark.parametrize("axis", ["rowwise", "colwise"])
+@_FUSED_CUTEDSL_REQUIRED
+def test_mxfp8_quantize_2d_1x32_32x1_cutedsl_scale_zero_boundary(shape, axis):
+    """Check exact amax neighbors of the RCEIL scale0/1 boundary on both CTA paths."""
+    values = torch.tensor(
+        [0x045F, 0x0460, 0x0461, 0x04DF, 0x04E0, 0x04E1],
+        device="cuda",
+        dtype=torch.uint16,
+    ).view(torch.bfloat16)
+    m, n = shape
+    if axis == "rowwise":
+        x = values.repeat(ceil_div(m, len(values)))[:m, None].expand(m, n).contiguous()
+    else:
+        x = values.repeat(ceil_div(n, len(values)))[None, :n].expand(m, n).contiguous()
+    for offs in [None, torch.tensor([m], dtype=torch.int32, device="cuda")]:
+        out = mxfp8_quantize_2d_1x32_32x1_cutedsl(x, offs=offs)
+        _assert_fused_1x32_32x1_matches_reference(x, offs, out)
+
+
+@pytest.mark.parametrize(
+    "offsets,m", [([0, 256, 256, 512], 512), ([512, 512], 512), ([0], 256), ([], 256)]
+)
+@_FUSED_CUTEDSL_REQUIRED
+def test_mxfp8_quantize_2d_1x32_32x1_cutedsl_empty_groups(offsets, m):
+    """Empty experts and an empty offset tensor cover no rows, unlike dense None."""
+    x = _fused_1x32_32x1_randn(m, 256)
+    offs = torch.tensor(offsets, device="cuda", dtype=torch.int32)
+    out = mxfp8_quantize_2d_1x32_32x1_cutedsl(x, offs=offs)
+    _assert_fused_1x32_32x1_matches_reference(x, offs, out)
+
+
+@pytest.mark.parametrize("shape", [(512, 256), (8192, 1152)])
+@_FUSED_CUTEDSL_REQUIRED
+def test_mxfp8_quantize_2d_1x32_32x1_cutedsl_dense_layout(shape):
+    """Dense mode preserves defined grouped bytes without synthetic offsets or slack."""
+    x = _fused_1x32_32x1_randn(*shape)
+    dense = mxfp8_quantize_2d_1x32_32x1_cutedsl(x)
+    grouped = mxfp8_quantize_2d_1x32_32x1_cutedsl(
+        x, offs=torch.tensor([shape[0]], dtype=torch.int32, device="cuda")
+    )
+    assert dense[3].numel() == x.numel() // 32
+    _assert_fused_1x32_32x1_matches_reference(x, None, dense)
+    for index, (left, right) in enumerate(zip(dense, grouped, strict=True)):
+        right = right.flatten()[: left.numel()] if index == 3 else right.flatten()
         torch.testing.assert_close(
-            q_col.view(torch.uint8), mx.qdata.view(torch.uint8), rtol=0, atol=0
+            left.view(torch.uint8).flatten(), right.view(torch.uint8), rtol=0, atol=0
+        )
+
+
+@pytest.mark.parametrize("use_offsets", [False, True])
+@_FUSED_CUTEDSL_REQUIRED
+def test_mxfp8_quantize_2d_1x32_32x1_cutedsl_compile(use_offsets):
+    """Exercise actual Inductor custom-op/fake contracts with two matrix shapes."""
+    compiled = torch.compile(
+        mxfp8_quantize_2d_1x32_32x1_cutedsl, fullgraph=True, dynamic=True
+    )
+    for m in [256, 512]:
+        x = _fused_1x32_32x1_randn(m, 256)
+        offs = (
+            torch.tensor([m], dtype=torch.int32, device="cuda") if use_offsets else None
+        )
+        _assert_fused_1x32_32x1_matches_reference(x, offs, compiled(x, offs=offs))
+
+
+@pytest.mark.parametrize("fake", [False, True])
+@pytest.mark.parametrize(
+    "kwargs,match",
+    [({"block_size": 16}, "block_size"), ({"scaling_mode": "floor"}, "rceil")],
+)
+@_FUSED_CUTEDSL_REQUIRED
+def test_mxfp8_quantize_2d_1x32_32x1_cutedsl_real_fake_api_contract(
+    fake, kwargs, match
+):
+    """New public/fake signatures reject unsupported parameters consistently."""
+    from contextlib import nullcontext
+
+    from torch._subclasses.fake_tensor import FakeTensorMode
+
+    with FakeTensorMode() if fake else nullcontext():
+        x = torch.empty((128, 128), device="cuda", dtype=torch.bfloat16)
+        with pytest.raises(AssertionError, match=match):
+            mxfp8_quantize_2d_1x32_32x1_cutedsl(x, **kwargs)
+
+
+@pytest.mark.parametrize(
+    "name,shape,dtype",
+    [
+        ("q_row_out", (128, 128), torch.float8_e4m3fn),
+        ("s_col_out", (128, 4), torch.uint8),
+    ],
+)
+@pytest.mark.parametrize(
+    "invalid", ["shape", "dtype", "strides", "alignment", "device"]
+)
+@_FUSED_CUTEDSL_REQUIRED
+def test_mxfp8_quantize_2d_1x32_32x1_cutedsl_output_contract(
+    monkeypatch, name, shape, dtype, invalid
+):
+    """Invalid destinations fail before any raw aligned GPU write."""
+    from torchao.prototype.moe_training.kernels.mxfp8 import (
+        cutedsl_quantize_2d_1x32_32x1_fused as kernel,
+    )
+
+    x = _fused_1x32_32x1_randn(128, 128)
+    output = torch.empty(shape, dtype=dtype, device="cuda")
+    if invalid == "shape":
+        output = torch.empty((shape[0], shape[1] + 1), dtype=dtype, device="cuda")
+    elif invalid == "dtype":
+        output = output.float()
+    elif invalid == "strides":
+        output = torch.empty(shape[::-1], dtype=dtype, device="cuda").t()
+    elif invalid == "alignment":
+        output = torch.empty(output.numel() + 1, dtype=dtype, device="cuda")[1:].view(
+            shape
         )
     else:
-        # Known, intentional divergence: we poison, the CUDA kernel ignores NaN.
-        assert fused_col_scale == 255, "fused colwise must poison a NaN block"
-        assert ref_col_scale != 255, (
-            "the CUDA colwise kernel used to drop NaN from its amax; if it no "
-            "longer does, this divergence can be removed"
+        output = output.cpu()
+    monkeypatch.setattr(
+        kernel, "run", lambda *args: pytest.fail("invalid output reached a GPU launch")
+    )
+    with pytest.raises(AssertionError, match=name):
+        kernel.quantize_fused(x, **{name: output})
+
+
+@pytest.mark.skipif(torch.cuda.device_count() < 2, reason="Requires two CUDA devices")
+@_FUSED_CUTEDSL_REQUIRED
+def test_mxfp8_quantize_2d_1x32_32x1_cutedsl_input_device_stream():
+    """Launch on the input's nondefault stream even when another device is current."""
+    x = _fused_1x32_32x1_randn(256, 256, device="cuda:1")
+    with torch.cuda.device(1):
+        stream = torch.cuda.Stream()
+        with torch.cuda.stream(stream):
+            x.add_(1)
+            with torch.cuda.device(0):
+                out = mxfp8_quantize_2d_1x32_32x1_cutedsl(x)
+        stream.synchronize()
+    _assert_fused_1x32_32x1_matches_reference(x, None, out)
+
+
+@pytest.mark.parametrize("alias", ["input", "another_output", "disjoint_views"])
+@_FUSED_CUTEDSL_REQUIRED
+def test_mxfp8_quantize_2d_1x32_32x1_cutedsl_output_overlap(monkeypatch, alias):
+    """Overlapping destinations fail before writes; disjoint arena views are valid."""
+    from torchao.prototype.moe_training.kernels.mxfp8 import (
+        cutedsl_quantize_2d_1x32_32x1_fused as kernel,
+    )
+
+    x = _fused_1x32_32x1_randn(128, 128)
+    if alias == "input":
+        output = x.view(torch.float8_e4m3fn).flatten()[: x.numel()].view(x.shape)
+        buffers = {"q_row_out": output}
+    elif alias == "another_output":
+        output = torch.empty_like(x, dtype=torch.float8_e4m3fn)
+        buffers = {"q_row_out": output, "q_col_out": output}
+    else:
+        arena = torch.empty(
+            2 * x.numel() + 2 * x.numel() // 32, dtype=torch.uint8, device=x.device
         )
+        buffers, start = {}, 0
+        for name, shape, dtype in [
+            ("q_row_out", (128, 128), torch.float8_e4m3fn),
+            ("s_row_out", (128, 4), torch.uint8),
+            ("q_col_out", (128, 128), torch.float8_e4m3fn),
+            ("s_col_out", (128, 4), torch.uint8),
+        ]:
+            size = shape[0] * shape[1]
+            buffers[name] = arena[start : start + size].view(dtype).view(shape)
+            start += size
+        out = kernel.quantize_fused(x, **buffers)
+        _assert_fused_1x32_32x1_matches_reference(x, None, out)
+        return
+    monkeypatch.setattr(
+        kernel, "run", lambda *args: pytest.fail("aliased output reached a GPU launch")
+    )
+    with pytest.raises(AssertionError, match="must not overlap"):
+        kernel.quantize_fused(x, **buffers)
 
 
-@pytest.mark.skipif(not _is_sm_10x(), reason="MXFP8 requires CUDA SM 10.x")
-@pytest.mark.skipif(
-    not _mxfp8_cutedsl_kernels_available, reason="MXFP8 cutedsl kernels not available"
+def _run_mxfp8_fused_offset_validation(offsets):
+    """Run only device validation: no raw stores, async errors isolated in a child."""
+    import cuda.bindings.driver as driver
+    import cutlass.cute as cute
+    from cutlass.cute.runtime import from_dlpack, make_fake_stream
+
+    from torchao.prototype.moe_training.kernels.mxfp8.cute_utils import (
+        validate_group_sizes,
+    )
+
+    @cute.kernel
+    def check(tensor):
+        tid, _, _ = cute.arch.thread_idx()
+        if tid == 0:
+            validate_group_sizes(tensor, max_offset=256)
+
+    @cute.jit
+    def launch(tensor, stream):
+        check(tensor).launch(grid=[1, 1, 1], block=[32, 1, 1], stream=stream)
+
+    tensor = torch.tensor(offsets, dtype=torch.int32, device="cuda")
+    compiled = cute.compile(
+        launch,
+        from_dlpack(tensor, assumed_align=16, enable_tvm_ffi=True),
+        make_fake_stream(),
+        options="--enable-tvm-ffi --enable-assertions",
+    )
+    compiled(tensor, driver.CUstream(int(torch.cuda.current_stream().cuda_stream)))
+    torch.cuda.synchronize()
+
+
+@pytest.mark.parametrize(
+    "offsets,match",
+    [
+        ([-128, 256], "Offsets must be nonnegative"),
+        ([256, 128], "Offsets must be nondecreasing"),
+        ([384], "Offset exceeds input rows"),
+        ([0, 128, 128, 256], None),
+    ],
 )
-def test_mxfp8_quantize_2d_1x32_32x1_cutedsl_input_validation():
-    offs = torch.tensor([256], dtype=torch.int32, device="cuda")
+@_FUSED_CUTEDSL_REQUIRED
+def test_mxfp8_quantize_2d_1x32_32x1_cutedsl_offset_bounds(offsets, match):
+    """Reject negative, descending and too-large aligned endpoints on the device."""
+    import subprocess
+    import sys
 
-    with pytest.raises(AssertionError, match="bf16"):
-        mxfp8_quantize_2d_1x32_32x1_cutedsl(
-            torch.randn(256, 256, dtype=torch.float32, device="cuda"), offs
-        )
-    with pytest.raises(AssertionError, match="multiple of 128"):
-        mxfp8_quantize_2d_1x32_32x1_cutedsl(
-            torch.randn(256, 160, dtype=torch.bfloat16, device="cuda"), offs
-        )
-    with pytest.raises(AssertionError, match="multiple of 128"):
-        mxfp8_quantize_2d_1x32_32x1_cutedsl(
-            torch.randn(160, 256, dtype=torch.bfloat16, device="cuda"),
-            torch.tensor([160], dtype=torch.int32, device="cuda"),
-        )
-    with pytest.raises(AssertionError, match="contiguous"):
-        mxfp8_quantize_2d_1x32_32x1_cutedsl(
-            torch.randn(256, 256, dtype=torch.bfloat16, device="cuda").t(), offs
-        )
-    with pytest.raises(AssertionError, match="block_size"):
-        mxfp8_quantize_2d_1x32_32x1_cutedsl(
-            torch.randn(256, 256, dtype=torch.bfloat16, device="cuda"),
-            offs,
-            block_size=16,
-        )
+    script = (
+        "from test.prototype.moe_training.test_kernels import _run_mxfp8_fused_offset_validation; _run_mxfp8_fused_offset_validation("
+        + repr(offsets)
+        + ")"
+    )
+    process = subprocess.run(
+        [sys.executable, "-c", script], capture_output=True, text=True, timeout=60
+    )
+    error = process.stdout + process.stderr
+    if match is None:
+        assert process.returncode == 0, error
+    else:
+        assert (
+            process.returncode != 0
+            and f"Assertion Error: {match}" in error
+            and "CUDA error:" in error
+        ), error

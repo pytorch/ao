@@ -1103,19 +1103,20 @@ def _mxfp8_quantize_2d_32x1_cutedsl_custom_op(
 )
 def _mxfp8_quantize_2d_1x32_32x1_cutedsl_custom_op(
     x: torch.Tensor,
-    offs: torch.Tensor,
     block_size: int = 32,
     scaling_mode: str = "rceil",
+    offs: torch.Tensor = None,
 ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    """Return both quantized orientations with typed blocked E8M0 scales."""
     from torchao.prototype.moe_training.kernels.mxfp8.cutedsl_quantize_2d_1x32_32x1_fused import (
         quantize_fused,
     )
 
     q_row, s_row, q_col, s_col = quantize_fused(
         x,
-        offs,
         block_size=block_size,
         scaling_mode=scaling_mode,
+        offs=offs,
     )
     # The kernel writes raw E8M0 bytes; hand them back typed, matching what the
     # 1x32 and 32x1 ops above return.
@@ -1173,7 +1174,7 @@ def _fake_mxfp8_quantize_2d_32x1_cutedsl_custom_op(
     # For 32x1 scaling, output data has same dimensions as input (no padding)
     q_data = torch.empty_strided(
         (m, k),
-        (k, 1),
+        (1, m),
         device=x.device,
         dtype=torch.float8_e4m3fn,
     )
@@ -1182,8 +1183,13 @@ def _fake_mxfp8_quantize_2d_32x1_cutedsl_custom_op(
     m_blocks = m // block_size
     padded_scale_rows = ceil_div(m_blocks, 4) * 4
     padded_scale_cols = ceil_div(k, 128) * 128
+    scale_shape = (
+        (padded_scale_cols * padded_scale_rows,)
+        if blocked_scale_output
+        else (k, m_blocks)
+    )
     scales = x.new_empty(
-        (padded_scale_cols * padded_scale_rows,),
+        scale_shape,
         dtype=torch.float8_e8m0fnu,
     )
     return q_data, scales
@@ -1192,14 +1198,27 @@ def _fake_mxfp8_quantize_2d_32x1_cutedsl_custom_op(
 @_mxfp8_quantize_2d_1x32_32x1_cutedsl_custom_op.register_fake
 def _fake_mxfp8_quantize_2d_1x32_32x1_cutedsl_custom_op(
     x: torch.Tensor,
-    offs: torch.Tensor,
     block_size: int = 32,
     scaling_mode: str = "rceil",
+    offs: torch.Tensor = None,
 ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    """Match dense/grouped runtime layouts without reading offset values."""
     assert x.ndim == 2, "input tensor must be 2D"
     assert block_size == 32, "Only block_size=32 is supported"
+    assert scaling_mode == "rceil", "Only rceil is supported"
+    assert x.dtype == torch.bfloat16 and x.is_contiguous(), (
+        "input must be contiguous bf16"
+    )
     total_m, n = x.shape
-    num_groups = offs.shape[0]
+    assert total_m > 0 and n > 0 and total_m % 128 == n % 128 == 0, (
+        "input axes must be positive multiples of 128"
+    )
+    if offs is not None:
+        assert offs.ndim == 1 and offs.dtype == torch.int32, "offs must be 1D int32"
+        assert offs.device == x.device and offs.is_contiguous(), (
+            "offs must be contiguous on x.device"
+        )
+    num_groups = offs.shape[0] if offs is not None else 0
 
     q_row = torch.empty_strided(
         (total_m, n),
@@ -1645,9 +1664,9 @@ def mxfp8_quantize_2d_32x1_cutedsl(
 
 def mxfp8_quantize_2d_1x32_32x1_cutedsl(
     x: torch.Tensor,
-    offs: torch.Tensor,
     block_size: int = 32,
     scaling_mode: str = "rceil",
+    offs: torch.Tensor = None,
 ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
     """
     Quantize a 2D tensor of shape (total_M, N) along BOTH axes in one pass,
@@ -1658,12 +1677,20 @@ def mxfp8_quantize_2d_1x32_32x1_cutedsl(
     wgrad), each with its scales already in the blocked layout its consumer
     expects. Bit-exact with mxfp8_quantize_2d_1x32_cutedsl composed with the
     colwise cast and a standalone K-groups swizzle, degenerate blocks included,
-    while moving 4.0625 bytes per input element instead of 6.125.
+    while moving 4.0625 bytes per input element instead of 6.125 for that older
+    three-kernel composition. The existing dense CUDA API already fuses both
+    casts, but requires separate blocked-scale rearrangements.
+    AO grouped-GEMM wiring is separate from this kernel API; dense consumers
+    such as TorchTitan can use it directly.
 
     Args:
         x: Input tensor of shape (total_M, N), bfloat16, row-major contiguous.
-            Both dimensions must be multiples of 128.
-        offs: Group end offsets along total_M, int32, ascending, every group
+            Both dimensions must be positive multiples of 128.
+        block_size: Block size for quantization (only 32 supported)
+        scaling_mode: Scaling mode (only "rceil" supported)
+        offs: None selects a dense matrix without offset processing or scale
+            slack. Otherwise, group end offsets along total_M, int32, nondecreasing,
+            within [0, total_M], every group
             size a multiple of 128 -- checked with a device-side assert, which
             surfaces as an async CUDA error rather than a Python exception
             here. offs[-1] MAY be less than total_M: a dropless MoE
@@ -1671,12 +1698,12 @@ def mxfp8_quantize_2d_1x32_32x1_cutedsl(
             a prefix, so an uncovered tail is the norm. Rows past offs[-1] are
             still quantized into q_row/q_col/s_row, but their s_col scale
             columns are zeroed, matching the K-groups swizzle.
-        block_size: Block size for quantization (only 32 supported)
-        scaling_mode: Scaling mode (only "rceil" supported)
+            An empty offset tensor covers no rows; it is not dense mode.
 
     Returns:
         q_row (total_M, N) row-major, s_row (total_M, N // 32) M-groups blocked,
-        q_col (N, total_M) row-major, s_col K-groups blocked.
+        q_col (N, total_M) row-major, s_col (N, total_M // 32 + 4*G)
+        K-groups blocked; G=0 in dense mode. Scales use E8M0 dtype.
     """
     if not _mxfp8_cutedsl_kernels_available:
         missing_packages = _missing_cutedsl_runtime_packages()
@@ -1692,9 +1719,9 @@ def mxfp8_quantize_2d_1x32_32x1_cutedsl(
         )
     return _mxfp8_quantize_2d_1x32_32x1_cutedsl_custom_op(
         x,
-        offs,
         block_size=block_size,
         scaling_mode=scaling_mode,
+        offs=offs,
     )
 
 

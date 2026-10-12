@@ -37,6 +37,7 @@ exactly the case where dispatch overhead dominates the number being reported.
 
 import itertools
 import os
+import random
 from dataclasses import dataclass
 from typing import List
 
@@ -147,7 +148,7 @@ def assert_graph_capture_is_real(x: torch.Tensor, offs: torch.Tensor):
     def run():
         quantize_fused(
             x,
-            offs,
+            offs=offs,
             block_size=BLOCK_SIZE,
             scaling_mode="rceil",
             q_row_out=bufs[0],
@@ -205,7 +206,10 @@ def validate_outputs(fused, unfused, num_groups: int):
         if name == "s_col":
             # Trailing per-group padding slack, never read by the grouped GEMM.
             used = exp.shape[1] - num_groups * 4
-            got, exp = got[:, :used], exp[:, :used]
+            got, exp = (
+                got.flatten()[: exp.shape[0] * used],
+                exp.flatten()[: exp.shape[0] * used],
+            )
         torch.testing.assert_close(got, exp, rtol=0, atol=0, msg=f"{name} mismatch")
 
 
@@ -218,14 +222,16 @@ def run_experiment(config: ExperimentConfig) -> ExperimentResult:
         torch.int32
     )
 
-    fused_out = quantize_fused(x, offs, block_size=BLOCK_SIZE, scaling_mode="rceil")
+    fused_out = quantize_fused(
+        x, block_size=BLOCK_SIZE, scaling_mode="rceil", offs=offs
+    )
     if VALIDATE:
         validate_outputs(fused_out, unfused_baseline(x, offs), num_groups)
 
     assert_graph_capture_is_real(x, offs)
 
     fused_time_us = benchmark_cuda_graph_in_microseconds(
-        quantize_fused, x, offs, block_size=BLOCK_SIZE, scaling_mode="rceil"
+        quantize_fused, x, block_size=BLOCK_SIZE, scaling_mode="rceil", offs=offs
     )
     unfused_time_us = benchmark_cuda_graph_in_microseconds(unfused_baseline, x, offs)
 
@@ -290,6 +296,7 @@ def print_results(experiments: List[Experiment]):
 
 def main():
     torch.random.manual_seed(123)
+    random.seed(123)
     configs = get_configs()
     results = []
     for config in tqdm(configs):
