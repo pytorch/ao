@@ -870,8 +870,8 @@ def _(func, types, args, kwargs):
         )
         # Merging leading dimensions preserves contiguous quantization blocks
         # only when a block spans one batch or the entire row dimension.
-        assert self.block_size[0] == 1 or self.block_size[1] == original_shape[1], (
-            "Cannot merge leading dimensions with non-contiguous quantization blocks"
+        if self.block_size[0] == 1 or self.block_size[1] == original_shape[1]:
+            raise RuntimeError("Cannot merge leading dimensions with non-contiguous quantization blocks")
         )
         qdata = self.qdata.reshape(*size)
         block_size = [self.block_size[0] * self.block_size[1], self.block_size[2]]
