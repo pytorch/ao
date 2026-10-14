@@ -53,6 +53,8 @@ class PruneOptimizer(Optimizer):
         assert warmup_steps < healing_start_step, (
             f"Invalid {warmup_steps=} >= {healing_start_step=}"
         )
+        for group in self.param_groups:
+            self._validate_score_group_count_ref(group)
         self.num_steps = 0
         self.warmup_steps = warmup_steps
         self.healing_start_step = healing_start_step
@@ -61,6 +63,7 @@ class PruneOptimizer(Optimizer):
             group.setdefault("gamma", 0.0)
             group.setdefault("reg_lambda", reg_lambda)
             self._validate_prox_through_heal(group)
+            self._get_grouper_kwargs(group)
             if group.get("min_sparsity_schedule", False):
                 assert self.healing_start_step != sys.maxsize, (
                     "min_sparsity_schedule requires a finite healing_start_step; "
@@ -275,6 +278,18 @@ class PruneOptimizer(Optimizer):
             return True
         offset = step - self.warmup_steps
         return offset >= 0 and offset % freq == 0
+
+    @staticmethod
+    def _validate_score_group_count_ref(group: dict[str, Any]) -> None:
+        ref = group.get("score_group_count_ref")
+        if ref is None:
+            return
+        if group.get("prox_type") != "GlobalMinSparsityConstraint":
+            raise ValueError(
+                "score_group_count_ref requires GlobalMinSparsityConstraint"
+            )
+        if not isinstance(ref, int) or isinstance(ref, bool) or ref <= 0:
+            raise ValueError("score_group_count_ref must be a positive integer")
 
     @staticmethod
     def _validate_prox_through_heal(group: dict[str, Any]) -> bool:
