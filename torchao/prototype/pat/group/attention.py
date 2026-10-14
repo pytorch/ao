@@ -14,9 +14,10 @@ def _resolve_heads(
 ) -> tuple[int, int]:
     if (num_heads is None) == (head_dim is None):
         raise ValueError("specify exactly one of num_heads or head_dim")
-    name, value = (
-        ("head_dim", head_dim) if head_dim is not None else ("num_heads", num_heads)
-    )
+    if head_dim is not None:
+        name, value = "head_dim", head_dim
+    else:
+        name, value = "num_heads", num_heads
     if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
         raise ValueError(f"{name} must be a positive integer, got {value!r}")
     if packed_dim % value:
