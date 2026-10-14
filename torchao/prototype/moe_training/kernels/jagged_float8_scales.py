@@ -120,6 +120,7 @@ if has_triton():
             k,
             n_groups,
             hp_tensor.stride(0),
+            output_buffer.stride(0),
             output_buffer.stride(1),
             fp8_dtype_min,
             fp8_dtype_max,
@@ -127,7 +128,6 @@ if has_triton():
             tl_output_dtype,
             round_scales_to_power_of_2,
             EPS=EPS,
-            STRIDE_OUTPUT_ROW=1,
             STRIDE_INPUT_COL=hp_tensor.stride(1),
         )
         return output_buffer, scales_buffer
@@ -168,6 +168,7 @@ if has_triton():
         K: tl.int64,
         N_GROUPS: tl.int64,
         stride_input_row: tl.int64,
+        stride_output_row: tl.int64,
         stride_output_col: tl.int64,
         fp8_dtype_min: tl.constexpr,
         fp8_dtype_max: tl.constexpr,
@@ -177,7 +178,6 @@ if has_triton():
         BLOCK_SIZE: tl.constexpr,
         BLOCK_SIZE_ITER: tl.constexpr,
         EPS: tl.constexpr,
-        STRIDE_OUTPUT_ROW: tl.constexpr,
         STRIDE_INPUT_COL: tl.constexpr,
     ):
         # parallel across rows and groups (offsets)
@@ -253,7 +253,7 @@ if has_triton():
                 output_dtype
             )
             out_offs = (
-                block_row_offs[:, None] * STRIDE_OUTPUT_ROW
+                block_row_offs[:, None] * stride_output_row
                 + block_col_offs[None, :] * stride_output_col
             )
             tl.store(out_ptr + out_offs, fp8_data, mask=block_mask)
