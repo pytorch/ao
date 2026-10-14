@@ -113,6 +113,75 @@ def _moment_keys(name):
 
 
 class TestDirectProjection(common_utils.TestCase):
+    def test_direct_mode_rejects_soft_prox_before_warmup(self):
+        for prox_type in ("ProxLasso", "ProxGroupLasso", "ProxNuclearNorm"):
+            for builder in (False, True):
+                with self.subTest(prox_type=prox_type, builder=builder):
+                    param = torch.nn.Parameter(torch.ones(4, 4))
+                    group = {
+                        "params": [param],
+                        "prox_type": prox_type,
+                        "group_type": (
+                            "SVDGrouper"
+                            if prox_type == "ProxNuclearNorm"
+                            else "Dim0Grouper"
+                        ),
+                    }
+                    base = torch.optim.SGD([group], lr=0.1)
+                    with self.assertRaisesRegex(
+                        ValueError,
+                        f"latent_weights=False.*hard constraints.*{prox_type}",
+                    ):
+                        if builder:
+                            build_prune_optimizer(
+                                base,
+                                prune_reg_lambda=1.0,
+                                prune_warmup_steps=10,
+                                latent_weights=False,
+                            )
+                        else:
+                            PruneOptimizer(
+                                base,
+                                reg_lambda=1.0,
+                                warmup_steps=10,
+                                latent_weights=False,
+                            )
+
+    def test_direct_mode_supports_hard_constraints(self):
+        for prox_type in (
+            "MinSparsityConstraint",
+            "GlobalMinSparsityConstraint",
+            "NMSparseConstraint",
+            "MinRankConstraint",
+        ):
+            with self.subTest(prox_type=prox_type):
+                is_rank = prox_type == "MinRankConstraint"
+                param = torch.nn.Parameter(
+                    torch.diag(torch.arange(1.0, 5.0))
+                    if is_rank
+                    else torch.arange(1.0, 17.0).reshape(4, 4)
+                )
+                group = {
+                    "params": [param],
+                    "prox_type": prox_type,
+                    "group_type": "SVDGrouper" if is_rank else "Dim0Grouper",
+                    "min_sparsity": 0.5,
+                    "n_nonzero": 2,
+                }
+                optimizer = PruneOptimizer(
+                    torch.optim.SGD([group], lr=0.1),
+                    reg_lambda=1.0,
+                    latent_weights=False,
+                )
+                for _ in range(2):
+                    param.grad = torch.zeros_like(param)
+                    optimizer.step()
+                    self._assert_no_latent(optimizer)
+                    if is_rank:
+                        self.assertEqual(int(torch.linalg.matrix_rank(param)), 2)
+                    else:
+                        self.assertEqual(int(param.eq(0).sum()), 8)
+
     def _assert_no_latent(self, optimizer):
         self.assertNotIn("_state", optimizer.__dict__)
         for state in optimizer.state.values():
