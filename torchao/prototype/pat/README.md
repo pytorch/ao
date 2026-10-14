@@ -87,7 +87,7 @@ Attention-head groupers accept exactly one positive integer `num_heads` or `head
 | **Row sparsity** | `Dim0Grouper` | `MinSparsityConstraint` or `ProxGroupLasso` | Use the hard constraint for an exact target or group Lasso for a smooth regularization knob |
 | **Column sparsity** | `Dim1Grouper` | `MinSparsityConstraint` or `ProxGroupLasso` | Drops input channels of a Linear layer |
 | **Conv filter sparsity** | `ConvFilterGrouper` | `MinSparsityConstraint` or `ProxGroupLasso` | Drops complete `(c_out, c_in)` filter slices |
-| **Attention head sparsity** | `AttentionHeadGrouperDim0` and/or `AttentionHeadGrouperDim1` | `MinSparsityConstraint` | Configure matching `num_heads` for the selected projections |
+| **Attention head sparsity** | `AttentionHeadGrouperDim0` and/or `AttentionHeadGrouperDim1` | `MinSparsityConstraint` | Configure matching `num_heads` or `head_dim` for the selected projections |
 | **Global structured sparsity** | Any supported non-SVD grouper | `GlobalMinSparsityConstraint` | Shares one group-count budget across every tensor in the optimizer parameter group; `score_type: rms` is the recommended default |
 | **Low-rank approximation, smooth** | `SVDGrouper` or `PackedSVDGrouper` | `ProxNuclearNorm` | Uses regularization-controlled rank decay |
 | **Low-rank approximation, exact target** | `SVDGrouper` or `PackedSVDGrouper` | `MinRankConstraint(min_sparsity)` | Zeros `ceil(min_sparsity * k)` and retains `k - ceil(min_sparsity * k)` singular values per matrix |
