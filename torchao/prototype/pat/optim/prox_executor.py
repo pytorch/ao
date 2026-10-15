@@ -349,6 +349,10 @@ def apply_global_prox(
                 )
             scores = prox_map.score(view).detach()
             if score_group_count_ref is not None:
+                # Scale low-precision scores in FP32 to avoid overflow and
+                # additional rounding before global ranking.
+                if scores.dtype in (torch.float16, torch.bfloat16):
+                    scores = scores.float()
                 scores = scores * math.sqrt(scores.numel() / score_group_count_ref)
             entries.append((p, grouper, view, full, scores, grouper.p.numel()))
             score_chunks.append(scores)
