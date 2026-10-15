@@ -158,6 +158,7 @@ class IntxUnpackedToInt8Tensor(TorchAOBaseTensor):
         device = kwargs.pop("device")
         dtype = kwargs.pop("dtype")
         assert dtype in _FLOAT_TYPES
+
         return IntxUnpackedToInt8Tensor(
             self.qdata.to(device),
             self.scale.to(device=device, dtype=dtype),
@@ -376,8 +377,69 @@ def _(func, types, args, kwargs):
         args[0],
         args[1],
     )
-    weight_tensor = weight_tensor.dequantize()
-    return torch.nn.functional.embedding(indices, weight_tensor, **kwargs)
+    assert isinstance(weight_tensor, IntxUnpackedToInt8Tensor)
+
+    padding_idx = kwargs.get("padding_idx", None)
+
+    if weight_tensor.block_size[0] == 1:
+        sliced_qdata = weight_tensor.qdata[indices]
+        sliced_scale = weight_tensor.scale[indices]
+        sliced_zero_point = weight_tensor.zero_point[indices]
+
+        new_block_size = [1] * indices.ndim + list(weight_tensor.block_size[1:])
+        qmin, qmax = _DTYPE_TO_QVALUE_BOUNDS[weight_tensor.target_dtype]
+
+        weight_sliced_dequant = dequantize_affine(
+            sliced_qdata,
+            new_block_size,
+            sliced_scale,
+            sliced_zero_point,
+            torch.int8,
+            qmin,
+            qmax,
+            output_dtype=weight_tensor.dtype,
+        )
+
+        if padding_idx is not None:
+            mask = indices == padding_idx
+            weight_sliced_dequant = torch.where(
+                mask.unsqueeze(-1),
+                torch.zeros_like(weight_sliced_dequant),
+                weight_sliced_dequant,
+            )
+
+        return weight_sliced_dequant
+    else:
+        weight_tensor = weight_tensor.dequantize()
+        return torch.nn.functional.embedding(indices, weight_tensor, **kwargs)
+
+
+@implements(aten.select.int)
+def _(func, types, args, kwargs):
+    self, dim, index = args[0], args[1], args[2]
+    assert isinstance(self, IntxUnpackedToInt8Tensor)
+    if dim == 0 and self.block_size[0] == 1:
+        sliced_qdata = self.qdata[index]
+        sliced_scale = self.scale[index]
+        sliced_zero_point = self.zero_point[index]
+
+        new_block_size = list(self.block_size[1:])
+        qmin, qmax = _DTYPE_TO_QVALUE_BOUNDS[self.target_dtype]
+
+        dequantized_row = dequantize_affine(
+            sliced_qdata,
+            new_block_size,
+            sliced_scale,
+            sliced_zero_point,
+            torch.int8,
+            qmin,
+            qmax,
+            output_dtype=self.dtype,
+        )
+        return dequantized_row
+    else:
+        dequantized = self.dequantize()
+        return aten.select.int(dequantized, dim, index)
 
 
 @implements(aten.slice.Tensor)
