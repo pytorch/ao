@@ -340,7 +340,8 @@ if _cutedsl_runtime_available():
         return compute_scale_floor(amax)
 
     @cute.jit
-    def validate_group_sizes(offs: cute.Tensor):
+    def validate_group_sizes(offs: cute.Tensor, max_offset: cutlass.Constexpr = None):
+        """Check aligned, nondecreasing endpoints and an optional row bound."""
         # Only first thread validates to avoid redundant work
         num_groups = offs.shape[0]
 
@@ -351,6 +352,11 @@ if _cutedsl_runtime_available():
                 first_group_size % 128 == 0,
                 "Group sizes must be multiples of 128",
             )
+            cute.testing.assert_(first_group_size >= 0, "Offsets must be nonnegative")
+            if cutlass.const_expr(max_offset is not None):
+                cute.testing.assert_(
+                    first_group_size <= max_offset, "Offset exceeds input rows"
+                )
 
         # Validate subsequent groups
         for i in range(1, num_groups):
@@ -361,3 +367,8 @@ if _cutedsl_runtime_available():
                 group_size % 128 == 0,
                 "Group sizes must be multiples of 128",
             )
+            cute.testing.assert_(curr_end >= prev_end, "Offsets must be nondecreasing")
+            if cutlass.const_expr(max_offset is not None):
+                cute.testing.assert_(
+                    curr_end <= max_offset, "Offset exceeds input rows"
+                )
