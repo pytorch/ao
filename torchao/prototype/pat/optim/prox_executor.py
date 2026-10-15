@@ -372,7 +372,7 @@ def _shard_mesh_dim(p: Tensor) -> int | None:
     return found
 
 
-def _coupled_fast_path(specs) -> tuple[Any, int, int] | None:
+def _coupled_fast_path(specs) -> tuple[Any, int, int, tuple[int, ...]] | None:
     """Find eligible mesh-local reader reductions and writer gathers.
 
     Readers (Dim1) are row-sharded and hold partial norms for every channel.
@@ -413,15 +413,22 @@ def _coupled_fast_path(specs) -> tuple[Any, int, int] | None:
         return None
     if any(cls is Dim0Grouper and p.size(0) % n_shard for p, cls, _ in specs):
         return None
-    return mesh.get_group(mesh_dim), coordinate[mesh_dim], n_shard
+    shard_group = mesh.get_group(mesh_dim)
+    mesh_index: list[int | slice] = list(coordinate)
+    mesh_index[mesh_dim] = slice(None)
+    mesh_ranks = mesh.mesh[tuple(mesh_index)].tolist()
+    # Collectives gather in process-group order; DTensor shard ownership
+    # follows mesh coordinates, which can differ on reordered meshes.
+    gather_order = tuple(dist.get_group_rank(shard_group, rank) for rank in mesh_ranks)
+    return shard_group, coordinate[mesh_dim], n_shard, gather_order
 
 
 def _coupled_prox_sharded(
-    specs, prox_map, min_sparsity, shard_group, shard_rank, n_shard
+    specs, prox_map, min_sparsity, shard_group, shard_coordinate, n_shard, gather_order
 ) -> CoupledProxResult:
     """Apply a coupled mask with at most three mesh-scoped collectives.
 
-    Gather all readers' partials and accumulate in shard-rank order, gather
+    Gather all readers' partials and accumulate in mesh-coordinate order, gather
     all writers' channel blocks together, then reduce one vector of integer
     literal-zero counts. Replicas with identical inputs use the same score
     arithmetic, independent of communicator reduction order. Replica mesh
@@ -429,6 +436,11 @@ def _coupled_prox_sharded(
     """
     reader_sq = None
     writer_blocks = []
+    order = (
+        None
+        if gather_order == tuple(range(n_shard))
+        else torch.tensor(gather_order, device=specs[0][0].device, dtype=torch.long)
+    )
     group_size_sum = 0
     for p, cls, _ in specs:
         local = p.to_local()
@@ -448,9 +460,11 @@ def _coupled_prox_sharded(
         )
         dist.all_gather_into_tensor(gathered_readers, reader_sq, group=shard_group)
         partials = gathered_readers.view(n_shard, reader_sq.numel())
+        if order is not None:
+            partials = partials.index_select(0, order)
         reader_sq = partials[0].clone()
-        # Fix the order locally so replica communicators cannot round a
-        # near-tied channel score differently during a floating-point reduce.
+        # Add in mesh-coordinate order even when replica process-group orders
+        # differ. Keep this explicit: sum(dim=0) may regroup additions.
         for part in partials[1:]:
             reader_sq.add_(part)
     writer_sq = None
@@ -464,9 +478,11 @@ def _coupled_prox_sharded(
             device=stacked.device,
         )
         dist.all_gather_into_tensor(gathered, stacked, group=shard_group)
+        gathered = gathered.view(n_shard, n_writers, local_channels)
+        if order is not None:
+            gathered = gathered.index_select(0, order)
         writer_sq = (
-            gathered.view(n_shard, n_writers, local_channels)
-            .permute(1, 0, 2)
+            gathered.permute(1, 0, 2)
             .reshape(n_writers, n_shard * local_channels)
             .sum(dim=0)
         )
@@ -491,7 +507,7 @@ def _coupled_prox_sharded(
         if cls is Dim1Grouper:
             local[:, zero_idx] = 0.0
         else:
-            offset = shard_rank * local.size(0)
+            offset = shard_coordinate * local.size(0)
             local_idx = (
                 zero_idx[(zero_idx >= offset) & (zero_idx < offset + local.size(0))]
                 - offset
@@ -533,7 +549,7 @@ def apply_coupled_prox(
     grouped full tensor, so peak dense memory is the sum of clustered tensors.
     Floating-point reduction order can affect selection at tied or near-tied
     score boundaries across layouts. The fast path gathers reader partials
-    and accumulates them in shard-rank order so identical replicas compute
+    and accumulates them in mesh-coordinate order so identical replicas compute
     identical scores without depending on communicator reduction order.
     """
     if (

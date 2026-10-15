@@ -237,6 +237,70 @@ class TestPATCoupledShardedParity(_CoupledParityMixin, _GlooMultiProcessTestCase
         finally:
             dist.destroy_process_group()
 
+    def test_permuted_mesh_preserves_mixed_reader_writer_channels(self):
+        self._init_process_group()
+        try:
+            for ranks, placements in (
+                ([2, 0, 3, 1], (Shard(0),)),
+                ([[0, 1], [3, 2]], (Replicate(), Shard(0))),
+                ([[0, 3], [1, 2]], (Shard(0), Replicate())),
+            ):
+                mesh = DeviceMesh("cpu", ranks)
+                for groupers in (
+                    (Dim1Grouper, Dim0Grouper, Dim1Grouper, Dim0Grouper),
+                    (Dim0Grouper,) * 3,
+                    (Dim1Grouper,) * 3,
+                ):
+                    for score_type in ("rms", "l2", "param_cost"):
+                        with self.subTest(
+                            ranks=ranks, groupers=groupers, score_type=score_type
+                        ):
+                            originals = _fixture(groupers)
+                            expected, chosen = _dense_reference(originals, 0.26)
+                            reference = [
+                                (p.clone(), cls, kwargs) for p, cls, kwargs in originals
+                            ]
+                            b = executor.apply_coupled_prox(
+                                reference,
+                                CoupledMinSparsityConstraint(0.0, 0.26, score_type),
+                                0.26,
+                            )
+                            actual = self._distribute(originals, mesh, placements)
+                            a = self._apply(actual, 0.26, score_type, "fast")
+                            shard_dim = next(
+                                i
+                                for i, placement in enumerate(placements)
+                                if placement.is_shard()
+                            )
+                            coordinate = mesh.get_coordinate()[shard_dim]
+                            for entry, (p, _, _), (dense, _, _), (oracle, _, _) in zip(
+                                a.parameters, actual, reference, expected
+                            ):
+                                self.assertEqual(dense, oracle, rtol=0, atol=0)
+                                # Check local shards directly: full_tensor() in
+                                # some PyTorch builds also gathers reordered
+                                # meshes without restoring coordinate order.
+                                offset = coordinate * math.ceil(
+                                    dense.size(0) / mesh.size(shard_dim)
+                                )
+                                self.assertEqual(
+                                    p.to_local(),
+                                    dense[offset : offset + p.to_local().size(0)],
+                                    rtol=0,
+                                    atol=0,
+                                )
+                                self.assertEqual(
+                                    entry.zero_elts, int(dense.eq(0).sum())
+                                )
+                                self.assertEqual(entry.numel, dense.numel())
+                            self.assertEqual(a.zero_channels, chosen)
+                            self.assertEqual(
+                                (a.zero_elts, a.numel, a.zero_channels, a.channels),
+                                (b.zero_elts, b.numel, b.zero_channels, b.channels),
+                            )
+        finally:
+            dist.destroy_process_group()
+
     def test_unsupported_layouts_and_groupers_materialize(self):
         self._init_process_group()
         try:
@@ -330,13 +394,15 @@ class TestPATCoupledReplicaScoreOrder(_CoupledParityMixin, _GlooMultiProcessTest
             )
             reader[1:, 1] = 0.5
             # Accumulating the small partials first changes the first channel's
-            # FP32 score. Replicas must all use the same shard-rank order.
+            # FP32 score. Replicas must all use the same mesh-coordinate order.
             expected_sq = reader[0].square()
             for row in reader[1:]:
                 expected_sq += row.square()
             for ranks, placements in (
                 ([[0, 1, 2, 3], [4, 5, 6, 7]], (Replicate(), Shard(0))),
                 ([[0, 4], [1, 5], [2, 6], [3, 7]], (Shard(0), Replicate())),
+                ([[0, 1, 2, 3], [7, 6, 5, 4]], (Replicate(), Shard(0))),
+                ([[0, 7], [1, 6], [2, 5], [3, 4]], (Shard(0), Replicate())),
             ):
                 with self.subTest(placements=placements):
                     mesh = DeviceMesh("cpu", ranks)
@@ -361,13 +427,13 @@ class TestPATCoupledReplicaScoreOrder(_CoupledParityMixin, _GlooMultiProcessTest
                         self.assertEqual(reduced.call_count, 1)
                         self.assertEqual(reduced.call_args.args[0].dtype, torch.long)
                     actual_sq = combined.call_args.args[0]
-                    self.assertEqual(actual_sq, expected_sq, rtol=0, atol=0)
                     mask = specs[0][0].to_local().eq(0).all(0)
-                    self.assertEqual(int(mask.sum()), 1)
-                    self.assertEqual(result.zero_elts, 4)
                     record = (actual_sq.tolist(), mask.tolist(), result.zero_elts)
                     records = [None] * self.world_size
                     dist.all_gather_object(records, record)
+                    self.assertEqual(actual_sq, expected_sq, rtol=0, atol=0)
+                    self.assertEqual(int(mask.sum()), 1)
+                    self.assertEqual(result.zero_elts, 4)
                     self.assertEqual(records, [record] * self.world_size)
         finally:
             dist.destroy_process_group()
