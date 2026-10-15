@@ -32,6 +32,16 @@ from .prox_executor import (
 _COUPLED_INHERITED_KEYS = ("min_sparsity_schedule", "reg_lambda", "score_type")
 _GROUP_STATE_KEYS = ("params", "gamma", "num_steps", "factored_frac", "initial_lr")
 
+_HARD_CONSTRAINT_PROX_TYPES = frozenset(
+    {
+        "CoupledMinSparsityConstraint",
+        "GlobalMinSparsityConstraint",
+        "MinRankConstraint",
+        "MinSparsityConstraint",
+        "NMSparseConstraint",
+    }
+)
+
 
 class PruneOptimizer(Optimizer):
     """Wraps a base optimizer to apply proximal updates that induce sparsity
@@ -48,6 +58,7 @@ class PruneOptimizer(Optimizer):
             overridden per parameter group.
         latent_weights: Keep dense latent weights for AProx updates by default.
             If False, step directly from projected weights without latent storage.
+            Direct mode supports only hard-constraint proximal maps.
             Reconstruct the same mode when loading an optimizer checkpoint.
     """
 
@@ -71,12 +82,23 @@ class PruneOptimizer(Optimizer):
         assert warmup_steps < healing_start_step, (
             f"Invalid {warmup_steps=} >= {healing_start_step=}"
         )
+        for group in self.param_groups:
+            self._validate_score_group_count_ref(group)
         self.num_steps = 0
         self.warmup_steps = warmup_steps
         self.healing_start_step = healing_start_step
         self.latent_weights = latent_weights
 
         for group in self.regularized_param_groups():
+            if (
+                not self.latent_weights
+                and group["prox_type"] not in _HARD_CONSTRAINT_PROX_TYPES
+            ):
+                raise ValueError(
+                    "latent_weights=False supports only hard constraints; "
+                    f"got prox_type={group['prox_type']!r}. "
+                    "Use latent_weights=True for soft proximal maps."
+                )
             group.setdefault("gamma", 0.0)
             group.setdefault("reg_lambda", reg_lambda)
             self._validate_prox_through_heal(group)
@@ -87,6 +109,8 @@ class PruneOptimizer(Optimizer):
                 )
 
         self._coupled_clusters()
+        for group in self.regularized_param_groups():
+            self._get_grouper_kwargs(group)
         self.relative_sparsity = 0
         self.relative_factored_frac = 0
 
@@ -369,16 +393,9 @@ class PruneOptimizer(Optimizer):
 
     def should_prune(self, group: dict[str, Any], step: int) -> bool:
         """Run the group's prox map every ``prox_freq`` steps after warmup."""
-        hard_constraints = {
-            "CoupledMinSparsityConstraint",
-            "GlobalMinSparsityConstraint",
-            "MinRankConstraint",
-            "MinSparsityConstraint",
-            "NMSparseConstraint",
-        }
         if (
             step == self.healing_start_step - 1
-            and group.get("prox_type") in hard_constraints
+            and group.get("prox_type") in _HARD_CONSTRAINT_PROX_TYPES
         ):
             # Materialize the final hard mask immediately before healing,
             # regardless of prox_freq alignment.
@@ -388,6 +405,18 @@ class PruneOptimizer(Optimizer):
             return True
         offset = step - self.warmup_steps
         return offset >= 0 and offset % freq == 0
+
+    @staticmethod
+    def _validate_score_group_count_ref(group: dict[str, Any]) -> None:
+        ref = group.get("score_group_count_ref")
+        if ref is None:
+            return
+        if group.get("prox_type") != "GlobalMinSparsityConstraint":
+            raise ValueError(
+                "score_group_count_ref requires GlobalMinSparsityConstraint"
+            )
+        if not isinstance(ref, int) or isinstance(ref, bool) or ref <= 0:
+            raise ValueError("score_group_count_ref must be a positive integer")
 
     @staticmethod
     def _validate_prox_through_heal(group: dict[str, Any]) -> bool:
