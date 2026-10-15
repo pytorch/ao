@@ -61,6 +61,7 @@ class PruneOptimizer(Optimizer):
             group.setdefault("gamma", 0.0)
             group.setdefault("reg_lambda", reg_lambda)
             self._validate_prox_through_heal(group)
+            self._get_grouper_kwargs(group)
             if group.get("min_sparsity_schedule", False):
                 assert self.healing_start_step != sys.maxsize, (
                     "min_sparsity_schedule requires a finite healing_start_step; "
@@ -186,7 +187,13 @@ class PruneOptimizer(Optimizer):
     def _get_grouper_kwargs(group: dict[str, Any]) -> dict[str, Any]:
         grouper_kwargs = {}
         if group["group_type"].startswith("AttentionHeadGrouper"):
-            grouper_kwargs["num_heads"] = group["num_heads"]
+            num_heads, head_dim = group.get("num_heads"), group.get("head_dim")
+            if (num_heads is None) == (head_dim is None):
+                raise ValueError("specify exactly one of num_heads or head_dim")
+            if head_dim is not None:
+                grouper_kwargs["head_dim"] = head_dim
+            else:
+                grouper_kwargs["num_heads"] = num_heads
         elif group["group_type"] == "KElementGrouper":
             grouper_kwargs["k"] = group["k"]
         elif group["group_type"] == "PackedSVDGrouper":

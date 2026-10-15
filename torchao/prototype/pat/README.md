@@ -60,10 +60,12 @@ A pruning entry pairs a **grouper** with a **proximal map**. The grouper reshape
 | `LayerGrouper` | Whole tensor as one group for layer-level pruning |
 | `KElementGrouper(k)` | `(numel / k, k)` blocks of `k` consecutive elements |
 | `ConvFilterGrouper` | One group per `(c_out, c_in)` filter slice of a Conv2d kernel |
-| `AttentionHeadGrouperDim0(num_heads)` | One group per attention head along dimension 0 |
-| `AttentionHeadGrouperDim1(num_heads)` | One group per attention head along dimension 1 |
+| `AttentionHeadGrouperDim0(num_heads=..., head_dim=...)` | One group per attention head along dimension 0; specify exactly one argument |
+| `AttentionHeadGrouperDim1(num_heads=..., head_dim=...)` | One group per attention head along dimension 1; specify exactly one argument |
 | `SVDGrouper` | Decompose `W = U diag(s) Vh` and expose its singular values |
 | `PackedSVDGrouper(npack)` | Apply SVD independently to each of `npack` sub-tensors |
+
+Attention-head groupers accept exactly one positive integer `num_heads` or `head_dim`, and the packed dimension must be divisible by it. Existing positional `num_heads` calls remain supported. For heterogeneous layer widths, use a fixed `head_dim` in the pruning config so each tensor derives its own head count; for example, `group_type: AttentionHeadGrouperDim0` with `head_dim: 64`.
 
 ### Proximal maps (`torchao.prototype.pat.optim`)
 
@@ -85,7 +87,7 @@ A pruning entry pairs a **grouper** with a **proximal map**. The grouper reshape
 | **Row sparsity** | `Dim0Grouper` | `MinSparsityConstraint` or `ProxGroupLasso` | Use the hard constraint for an exact target or group Lasso for a smooth regularization knob |
 | **Column sparsity** | `Dim1Grouper` | `MinSparsityConstraint` or `ProxGroupLasso` | Drops input channels of a Linear layer |
 | **Conv filter sparsity** | `ConvFilterGrouper` | `MinSparsityConstraint` or `ProxGroupLasso` | Drops complete `(c_out, c_in)` filter slices |
-| **Attention head sparsity** | `AttentionHeadGrouperDim0` and/or `AttentionHeadGrouperDim1` | `MinSparsityConstraint` | Configure matching `num_heads` for the selected projections |
+| **Attention head sparsity** | `AttentionHeadGrouperDim0` and/or `AttentionHeadGrouperDim1` | `MinSparsityConstraint` | Configure matching `num_heads` or `head_dim` for the selected projections |
 | **Global structured sparsity** | Any supported non-SVD grouper | `GlobalMinSparsityConstraint` | Shares one group-count budget across every tensor in the optimizer parameter group; `score_type: rms` is the recommended default |
 | **Low-rank approximation, smooth** | `SVDGrouper` or `PackedSVDGrouper` | `ProxNuclearNorm` | Uses regularization-controlled rank decay |
 | **Low-rank approximation, exact target** | `SVDGrouper` or `PackedSVDGrouper` | `MinRankConstraint(min_sparsity)` | Zeros `ceil(min_sparsity * k)` and retains `k - ceil(min_sparsity * k)` singular values per matrix |
