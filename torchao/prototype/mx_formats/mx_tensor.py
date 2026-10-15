@@ -1,4 +1,4 @@
-# Copyright (c) Meta Platforms, Inc. and affiliates.
+﻿# Copyright (c) Meta Platforms, Inc. and affiliates.
 # Copyright (c) 2025, NVIDIA CORPORATION.
 # All rights reserved.
 
@@ -77,6 +77,7 @@ from torchao.prototype.mx_formats.utils import (
     hp_data_dims_to_swizzled_scale_dims_mx,
     to_blocked,
 )
+from torchao.prototype.mx_formats import npu_kernels
 from torchao.quantization.quantize_.common import (
     QuantizeTensorKwargs,
 )
@@ -655,7 +656,13 @@ class MXTensor(TorchAOBaseTensor):
         triton_kernel_supported = (
             elem_dtype == torch.float8_e4m3fn and not is_swizzled_scales
         )
-        if (
+        if kernel_preference == KernelPreference.ASCEND:
+            # Ascend NPU: torch_npu's fused dynamic MX quantization op computes
+            # the E8M0 scales and casts to low precision in a single kernel.
+            scale_e8m0_biased, data_lp = npu_kernels.to_mx_npu(
+                data_hp, elem_dtype, block_size, scaling_mode, is_swizzled_scales
+            )
+        elif (
             mxfp8_dim0_cast_kernel_choice == MXFP8Dim0CastKernelChoice.TORCH
             or kernel_preference == KernelPreference.EMULATED
         ):
@@ -790,6 +797,10 @@ def _addmm_mx_dispatch(
             bias=bias,
             output_dtype=torch.bfloat16,
         )
+
+    elif gemm_choice == KernelPreference.ASCEND:
+        # MX gemm backed by torch_npu native quantized kernels
+        res = npu_kernels.mx_gemm_npu(a, b, bias=bias)
 
     else:
         assert gemm_choice == KernelPreference.EMULATED, "unimplemented"
