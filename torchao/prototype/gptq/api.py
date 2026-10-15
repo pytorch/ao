@@ -108,6 +108,16 @@ class GPTQConfig(AOBaseConfig):
 gptq_convert_layer_counter = 0
 
 
+def _synchronize_gptq_device(device: torch.device) -> None:
+    if device.type == "cpu":
+        return
+
+    device_module = torch.get_device_module(device)
+    synchronize = getattr(device_module, "synchronize", None)
+    if synchronize is not None:
+        synchronize()
+
+
 @register_quantize_module_handler(GPTQConfig)
 def _gptq_config_transform(
     module: torch.nn.Module, config: GPTQConfig, *, parameter_name="weight"
@@ -387,8 +397,6 @@ def gptq_quantize(H: torch.Tensor, W_t: torch.Tensor, config: GPTQConfig):
     columns = W_t.shape[1]
     device = W_t.device
 
-    assert device.type == "cuda", "GPTQ only supports CUDA currently"
-
     dead = torch.diag(H) == 0
     H[dead, dead] = 1
     W_t[:, dead] = 0
@@ -531,7 +539,7 @@ def gptq_quantize(H: torch.Tensor, W_t: torch.Tensor, config: GPTQConfig):
             Hinv[B_cur_k_start:B_cur_k_end, B_cur_k_end:]
         )
 
-    torch.cuda.synchronize()
+    _synchronize_gptq_device(device)
 
     # Create the final quantized tensor, which has the same qparams (scale, zero_point), but different qdata
     if isinstance(base_config, Int4WeightOnlyConfig):
