@@ -144,11 +144,45 @@ class TestFixedHeadWidth(common_utils.TestCase):
             opt = PruneOptimizer(torch.optim.SGD([group], lr=0.0))
             params[0].grad = torch.zeros_like(params[0])
             opt.step()
+            # The lower-norm head contains half the elements and is pruned.
             self.assertEqual(int(params[0].eq(0).sum()), 12)
-            for kwargs in ({}, {"num_heads": 2, "head_dim": 3}):
-                invalid = {"group_type": group["group_type"], **kwargs}
-                with self.assertRaisesRegex(ValueError, "exactly one"):
-                    opt._get_grouper_kwargs(invalid)
+
+    def test_optimizer_rejects_invalid_config_before_warmup(self):
+        for axis in (0, 1):
+            for kwargs in (
+                {},
+                {"num_heads": None, "head_dim": None},
+                {"num_heads": 2, "head_dim": 3},
+            ):
+                with self.subTest(axis=axis, kwargs=kwargs):
+                    group = {
+                        "params": [nn.Parameter(torch.ones(6, 6))],
+                        "group_type": f"AttentionHeadGrouperDim{axis}",
+                        "prox_type": "MinSparsityConstraint",
+                        "min_sparsity": 0.5,
+                        **kwargs,
+                    }
+                    with self.assertRaisesRegex(ValueError, "exactly one"):
+                        PruneOptimizer(
+                            torch.optim.SGD([group], lr=0.0), warmup_steps=10
+                        )
+
+    def test_optimizer_rejects_indivisible_head_dim(self):
+        for axis in (0, 1):
+            with self.subTest(axis=axis):
+                shape = (6, 4) if axis == 0 else (4, 6)
+                param = nn.Parameter(torch.ones(shape))
+                group = {
+                    "params": [param],
+                    "group_type": f"AttentionHeadGrouperDim{axis}",
+                    "prox_type": "MinSparsityConstraint",
+                    "min_sparsity": 0.5,
+                    "head_dim": 5,
+                }
+                opt = PruneOptimizer(torch.optim.SGD([group], lr=0.0))
+                param.grad = torch.zeros_like(param)
+                with self.assertRaisesRegex(ValueError, "not divisible"):
+                    opt.step()
 
 
 class TestDimGrouper(common_utils.TestCase):

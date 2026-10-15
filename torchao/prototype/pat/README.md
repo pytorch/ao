@@ -51,6 +51,8 @@ Pruning configs are dictionaries that define which parameter groups to prune and
 
 `PruneOptimizer(..., latent_weights=False)` and `build_prune_optimizer(..., latent_weights=False)` step directly from projected parameters instead of restoring PAT's dense latent weights. The default remains `True`. Direct projection removes PAT's latent copy but changes the optimization trajectory; it does not remove the base optimizer's momentum or AdamW moments. Gradients or momentum may revive zeros during pruning; the existing healing mask freezes them once healing starts.
 
+Direct mode supports only `MinSparsityConstraint`, `GlobalMinSparsityConstraint`, `MinRankConstraint`, and `NMSparseConstraint`, which ignore cumulative `gamma`. Other proximal maps are rejected at optimizer construction. Soft maps such as `ProxLasso`, `ProxGroupLasso`, and `ProxNuclearNorm` require `latent_weights=True` because applying cumulative shrinkage repeatedly to projected weights would over-regularize them.
+
 The mode is a constructor setting, not part of the delegated optimizer state dict. When resuming, reconstruct the same mode before loading both model and optimizer checkpoints. Cross-mode resume is unsupported: direct checkpoints do not contain the latent weights needed by default-mode restoration.
 
 ## Groupers and proximal maps
@@ -93,7 +95,7 @@ Attention-head groupers accept exactly one positive integer `num_heads` or `head
 | **Row sparsity** | `Dim0Grouper` | `MinSparsityConstraint` or `ProxGroupLasso` | Use the hard constraint for an exact target or group Lasso for a smooth regularization knob |
 | **Column sparsity** | `Dim1Grouper` | `MinSparsityConstraint` or `ProxGroupLasso` | Drops input channels of a Linear layer |
 | **Conv filter sparsity** | `ConvFilterGrouper` | `MinSparsityConstraint` or `ProxGroupLasso` | Drops complete `(c_out, c_in)` filter slices |
-| **Attention head sparsity** | `AttentionHeadGrouperDim0` and/or `AttentionHeadGrouperDim1` | `MinSparsityConstraint` | Configure matching `num_heads` for the selected projections |
+| **Attention head sparsity** | `AttentionHeadGrouperDim0` and/or `AttentionHeadGrouperDim1` | `MinSparsityConstraint` | Configure matching `num_heads` or `head_dim` for the selected projections |
 | **Global structured sparsity** | Any supported non-SVD grouper | `GlobalMinSparsityConstraint` | Shares one group-count budget across every tensor in the optimizer parameter group; `score_type: rms` is the recommended default |
 | **Low-rank approximation, smooth** | `SVDGrouper` or `PackedSVDGrouper` | `ProxNuclearNorm` | Uses regularization-controlled rank decay |
 | **Low-rank approximation, exact target** | `SVDGrouper` or `PackedSVDGrouper` | `MinRankConstraint(min_sparsity)` | Zeros `ceil(min_sparsity * k)` and retains `k - ceil(min_sparsity * k)` singular values per matrix |
