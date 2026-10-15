@@ -103,6 +103,43 @@ class TestFloat8Sparse2x4_2DData2DMetadataTensor(common_utils.TestCase):
         self.assertEqual(legacy_meta, cutedsl_meta)
 
     @unittest.skipIf(not is_sm_at_least_90(), "Need H100 to run")
+    @unittest.skipIf(not _cutedsl_runtime_available(), "CuTeDSL runtime unavailable")
+    @common_utils.parametrize("rows, cols", [(0, 64), (128, 0), (0, 0)])
+    def test_cutedsl_sparse_conversion_empty(self, rows, cols):
+        weight = torch.empty((rows, cols), dtype=torch.float8_e4m3fn, device="cuda")
+        data, meta = _to_sparse_semi_structured_cutedsl(weight)
+        self.assertEqual(data.shape, (rows, (cols + 31) // 32 * 16))
+        self.assertEqual(meta.shape, ((rows + 63) // 64 * 64, (cols + 127) // 128 * 16))
+
+    @unittest.skipIf(not is_sm_at_least_90(), "Need H100 to run")
+    @unittest.skipIf(not _cutedsl_runtime_available(), "CuTeDSL runtime unavailable")
+    def test_cutedsl_sparse_conversion_large(self):
+        # rows * cols past 2^31 elements, where 32-bit element offsets would
+        # overflow.
+        rows, cols = 65600, 32768
+        if torch.cuda.mem_get_info()[0] < 12 * 2**30:
+            self.skipTest("Not enough free GPU memory")
+        # Exactly two nonzero bytes in every group of four, in one of the six
+        # 2:4 patterns. Nonzero values avoid 0x00 and 0x80 (+0 and -0), so the
+        # compressed data is just the nonzero bytes in order.
+        patterns = torch.tensor(
+            [[1, 1, 0, 0], [1, 0, 1, 0], [1, 0, 0, 1], [0, 1, 1, 0], [0, 1, 0, 1]]
+            + [[0, 0, 1, 1]],
+            dtype=torch.uint8,
+            device="cuda",
+        )
+        choice = torch.randint(0, 6, (rows, cols // 4), device="cuda")
+        weight = patterns[choice].view(rows, cols)
+        del choice
+        weight *= torch.randint(1, 128, (rows, cols), dtype=torch.uint8, device="cuda")
+        data, _ = _to_sparse_semi_structured_cutedsl(weight.view(torch.float8_e4m3fn))
+        # Check the rows on both sides of the 2^31 boundary, and the last rows.
+        for first in (2**31 // cols - 2, rows - 4):
+            tail = weight[first : first + 4]
+            expected = tail[tail != 0].view(4, cols // 2)
+            self.assertEqual(data[first : first + 4].view(torch.uint8), expected)
+
+    @unittest.skipIf(not is_sm_at_least_90(), "Need H100 to run")
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     @common_utils.parametrize("compile", [True, False])
     def test_fp8_cutlass_sparse(self, compile):

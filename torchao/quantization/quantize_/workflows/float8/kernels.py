@@ -11,6 +11,8 @@ from typing import Callable, Optional, Tuple
 
 import torch
 
+from torchao.utils import ceil_div, round_up
+
 # The blockwise fp8 GEMM is a Triton kernel. Triton is imported and the kernel is
 # built lazily (and cached) on first use so this module imports fine on machines
 # without Triton, and the (one-time) Triton import cost is only paid when the
@@ -151,27 +153,68 @@ def _blockwise_fp8_gemm(
 
 
 @functools.cache
+def _cutlass_dtype(dtype: torch.dtype):
+    import cutlass
+
+    return {
+        torch.float8_e4m3fn: cutlass.Float8E4M3FN,
+        torch.float8_e5m2: cutlass.Float8E5M2,
+        torch.float16: cutlass.Float16,
+        torch.bfloat16: cutlass.BFloat16,
+        torch.float32: cutlass.Float32,
+    }[dtype]
+
+
+def _current_raw_stream(device_index: int) -> int:
+    # The raw cudaStream_t handle of the current stream. The TVM-FFI entry
+    # points accept it directly, and it is a few microseconds per call cheaper
+    # than building a torch.cuda.Stream object with torch.cuda.current_stream().
+    return torch._C._cuda_getCurrentRawStream(device_index)
+
+
+# FP8 2:4 sparse compression (dense -> compressed data + metadata), replacing
+# the legacy to_sparse_semi_structured_cutlass_sm9x_f8. The compressed data and
+# metadata layouts are the ones defined by CUTLASS
+# (include/cutlass/transform/kernel/sm90_sparse_gemm_compressor.hpp, with the
+# metadata layout from Sm90GemmSparseConfig in
+# include/cutlass/gemm/collective/builders/sm90_sparse_config.inl), which the
+# legacy CUTLASS sparse GEMM consumes; the output is bitwise identical to the
+# legacy op, padding included. Deviation from CUTLASS's compressor: one thread
+# encodes one 8-column metadata chunk directly from global memory, and the same
+# launch zeroes the padding, instead of CUTLASS's tiled shared-memory
+# implementation.
+_CONVERSION_THREADS = 256
+
+
+def _sparse_semi_structured_shapes(rows: int, cols: int) -> Tuple[int, int, int]:
+    """Returns (compressed_cols, metadata_rows, metadata_cols) for a weight."""
+    return round_up(cols, 32) // 2, round_up(rows, 64), round_up(cols, 128) // 8
+
+
+@functools.cache
 def _compile_to_sparse_semi_structured_cutedsl(
-    float8_dtype: str,
+    float8_dtype: torch.dtype,
     has_padding: bool,
+    wide_offsets: bool,
 ):
     import cuda.bindings.driver as cuda
     import cutlass
     import cutlass.cute as cute
     from cutlass.cute.runtime import make_fake_stream, make_fake_tensor
 
-    THREADS_PER_BLOCK = 256
-    float8_element_type = (
-        cutlass.Float8E5M2 if float8_dtype == "e5m2" else cutlass.Float8E4M3FN
-    )
+    THREADS_PER_BLOCK = _CONVERSION_THREADS
+    float8_element_type = _cutlass_dtype(float8_dtype)
     HAS_PADDING = has_padding
+    # Weight and output element offsets reach 2^31 only for weights of 2 GiB
+    # or more; 64-bit offsets cost a few percent, so only those get them.
+    OFFSET = cutlass.Int64 if wide_offsets else cutlass.Int32
 
     class ToSparseSemiStructured:
         @cute.jit
         def _load_nonzero(
             self,
             weight: cute.Tensor,
-            offset: cutlass.Int32,
+            offset: OFFSET,
         ):
             value = (
                 cute.recast_ptr(weight.iterator + offset, dtype=cutlass.Uint8)
@@ -185,10 +228,10 @@ def _compile_to_sparse_semi_structured_cutedsl(
         def _encode_chunk(
             self,
             weight: cute.Tensor,
-            row_base: cutlass.Int32,
+            row_base: OFFSET,
             chunk_col: cutlass.Int32,
             output: cute.Tensor,
-            output_base: cutlass.Int32,
+            output_base: OFFSET,
         ):
             value0, nz0 = self._load_nonzero(weight, row_base + chunk_col)
             value1, nz1 = self._load_nonzero(weight, row_base + chunk_col + 1)
@@ -291,7 +334,9 @@ def _compile_to_sparse_semi_structured_cutedsl(
                     output_pad_row = linear // output_padding_cols
                     output_pad_col = linear - output_pad_row * output_padding_cols
                     output_offset = (
-                        output_pad_row * compressed_cols + cols // 2 + output_pad_col
+                        OFFSET(output_pad_row) * compressed_cols
+                        + cols // 2
+                        + output_pad_col
                     )
                     output_value = cutlass.Uint8(0)
                     cute.recast_ptr(
@@ -373,8 +418,8 @@ def _compile_to_sparse_semi_structured_cutedsl(
                     + col_in_tile
                 )
                 if row < rows:
-                    row_base = row * cols
-                    compressed_row_base = row * compressed_cols
+                    row_base = OFFSET(row) * cols
+                    compressed_row_base = OFFSET(row) * compressed_cols
                     chunk_col = metadata_col * 8
                     output_base = compressed_row_base + metadata_col * 4
                     lo = self._encode_chunk(
@@ -471,29 +516,29 @@ def _to_sparse_semi_structured_cutedsl(
     )
     assert weight.stride(1) == 1, "Expected weight in row-major layout"
     rows, cols = weight.shape
-    assert weight.stride(0) == cols, "Expected weight rows to be densely packed"
+    assert weight.numel() == 0 or weight.stride(0) == cols, (
+        "Expected weight rows to be densely packed"
+    )
     assert cols % 8 == 0, "Expected number of columns to be divisible by 8"
 
-    compressed_cols = (((cols + 31) // 32) * 32) // 2
+    compressed_cols, metadata_rows, metadata_cols = _sparse_semi_structured_shapes(
+        rows, cols
+    )
     output = torch.empty(
         (rows, compressed_cols),
         dtype=weight.dtype,
         device=weight.device,
     )
-    metadata_rows = ((rows + 63) // 64) * 64
-    metadata_cols = (((cols + 127) // 128) * 128) // 8
     metadata = torch.empty(
         (metadata_rows, metadata_cols),
         dtype=torch.uint8,
         device=weight.device,
     )
-    float8_dtype = "e5m2" if weight.dtype == torch.float8_e5m2 else "e4m3"
     has_padding = (
         compressed_cols != cols // 2
         or metadata_rows != rows
         or metadata_cols != cols // 8
     )
-    compiled = _compile_to_sparse_semi_structured_cutedsl(float8_dtype, has_padding)
     logical_metadata_cols = cols // 8
     total_metadata = rows * logical_metadata_cols
     total_padding = (
@@ -502,7 +547,14 @@ def _to_sparse_semi_structured_cutedsl(
         + (metadata_rows - rows) * metadata_cols
     )
     total_work = max(total_metadata, total_padding) if has_padding else total_metadata
-    num_blocks = (total_work + 255) // 256
+    if total_work == 0:
+        # Only an empty weight gets here, and both outputs are empty too; a
+        # zero-sized grid would be rejected by the launch.
+        return output, metadata
+    num_blocks = ceil_div(total_work, _CONVERSION_THREADS)
+    compiled = _compile_to_sparse_semi_structured_cutedsl(
+        weight.dtype, has_padding, rows * cols >= 2**31
+    )
     # The --enable-tvm-ffi runtime is positional-only, so this must match
     # ToSparseSemiStructured.__call__'s parameter order exactly.
     compiled(
@@ -515,7 +567,7 @@ def _to_sparse_semi_structured_cutedsl(
         metadata_cols,
         metadata_rows,
         num_blocks,
-        torch.cuda.current_stream(),
+        _current_raw_stream(weight.get_device()),
     )
     return output, metadata
 
@@ -523,9 +575,9 @@ def _to_sparse_semi_structured_cutedsl(
 @_to_sparse_semi_structured_cutedsl.register_fake
 def _(weight: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
     rows, cols = weight.shape
-    compressed_cols = (((cols + 31) // 32) * 32) // 2
-    metadata_rows = ((rows + 63) // 64) * 64
-    metadata_cols = (((cols + 127) // 128) * 128) // 8
+    compressed_cols, metadata_rows, metadata_cols = _sparse_semi_structured_shapes(
+        rows, cols
+    )
     return (
         weight.new_empty((rows, compressed_cols)),
         weight.new_empty((metadata_rows, metadata_cols), dtype=torch.uint8),
