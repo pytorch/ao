@@ -98,7 +98,7 @@ class _CoupledParityMixin:
                         side_effect=AssertionError("materialized DTensor"),
                     )
                 )
-                collectives = []
+                collectives = {}
                 for name in (
                     "all_reduce",
                     "all_gather_into_tensor",
@@ -108,10 +108,8 @@ class _CoupledParityMixin:
                     "reduce_scatter_tensor",
                     "all_to_all_single",
                 ):
-                    collectives.append(
-                        stack.enter_context(
-                            mock.patch.object(dist, name, wraps=getattr(dist, name))
-                        )
+                    collectives[name] = stack.enter_context(
+                        mock.patch.object(dist, name, wraps=getattr(dist, name))
                     )
             else:
                 if route == "forced":
@@ -142,12 +140,19 @@ class _CoupledParityMixin:
             result = executor.apply_coupled_prox(specs, prox, budget)
             if route == "fast":
                 self.assertEqual(sharded.call_count, 1)
-                self.assertGreater(sum(call.call_count for call in collectives), 0)
-                self.assertLessEqual(sum(call.call_count for call in collectives), 3)
+                self.assertGreater(
+                    sum(call.call_count for call in collectives.values()), 0
+                )
+                self.assertLessEqual(
+                    sum(call.call_count for call in collectives.values()), 3
+                )
                 shard_group = executor._coupled_fast_path(specs)[0]
-                for collective in collectives:
+                for collective in collectives.values():
                     for call in collective.call_args_list:
                         self.assertIs(call.kwargs["group"], shard_group)
+                # Only integer counts may use backend-dependent reduction order.
+                for call in collectives["all_reduce"].call_args_list:
+                    self.assertEqual(call.args[0].dtype, torch.long)
             else:
                 self.assertEqual(grouped.call_count, len(specs))
                 self.assertEqual(redistributed.call_count, len(specs))
@@ -307,6 +312,63 @@ class TestPATCoupledShardedParity(_CoupledParityMixin, _GlooMultiProcessTestCase
                             expected[0][0][:, mask] = 0.0
                             expected[1][0][mask] = 0.0
                             self._check_result(result, specs, expected, 4)
+        finally:
+            dist.destroy_process_group()
+
+
+class TestPATCoupledReplicaScoreOrder(_CoupledParityMixin, _GlooMultiProcessTestCase):
+    @property
+    def world_size(self):
+        return 8
+
+    def test_reader_scores_agree_across_four_shard_replicas(self):
+        self._init_process_group()
+        try:
+            reader = torch.ones(4, 8)
+            reader[0] = torch.tensor(
+                [4096, 4096, 8192, 16384, 32768, 65536, 131072, 262144]
+            )
+            reader[1:, 1] = 0.5
+            # Accumulating the small partials first changes the first channel's
+            # FP32 score. Replicas must all use the same shard-rank order.
+            expected_sq = reader[0].square()
+            for row in reader[1:]:
+                expected_sq += row.square()
+            for ranks, placements in (
+                ([[0, 1, 2, 3], [4, 5, 6, 7]], (Replicate(), Shard(0))),
+                ([[0, 4], [1, 5], [2, 6], [3, 7]], (Shard(0), Replicate())),
+            ):
+                with self.subTest(placements=placements):
+                    mesh = DeviceMesh("cpu", ranks)
+                    specs = self._distribute(
+                        [(reader, Dim1Grouper, {})], mesh, placements
+                    )
+                    prox = CoupledMinSparsityConstraint(0.0, 0.125, "l2")
+                    with (
+                        mock.patch.object(
+                            prox, "combine_scores", wraps=prox.combine_scores
+                        ) as combined,
+                        mock.patch.object(
+                            dist, "all_reduce", wraps=dist.all_reduce
+                        ) as reduced,
+                        mock.patch.object(
+                            DTensor,
+                            "full_tensor",
+                            side_effect=AssertionError("materialized DTensor"),
+                        ),
+                    ):
+                        result = executor.apply_coupled_prox(specs, prox, 0.125)
+                        self.assertEqual(reduced.call_count, 1)
+                        self.assertEqual(reduced.call_args.args[0].dtype, torch.long)
+                    actual_sq = combined.call_args.args[0]
+                    self.assertEqual(actual_sq, expected_sq, rtol=0, atol=0)
+                    mask = specs[0][0].to_local().eq(0).all(0)
+                    self.assertEqual(int(mask.sum()), 1)
+                    self.assertEqual(result.zero_elts, 4)
+                    record = (actual_sq.tolist(), mask.tolist(), result.zero_elts)
+                    records = [None] * self.world_size
+                    dist.all_gather_object(records, record)
+                    self.assertEqual(records, [record] * self.world_size)
         finally:
             dist.destroy_process_group()
 

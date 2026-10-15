@@ -168,6 +168,47 @@ class TestGroupCountCorrection(common_utils.TestCase):
         self.assertEqual([_count_zero_groups(p) for p in params], [1, 0])
         self.assertEqual(optimizer.relative_sparsity, 0.1)
 
+    def test_optimizer_rejects_invalid_reference_before_warmup(self):
+        for ref in (0, -1, 1.5, True):
+            with self.subTest(reference=ref):
+                params = [torch.nn.Parameter(p) for p in self._params()]
+                group = {**_global_group(params, 0.1), "score_group_count_ref": ref}
+                with self.assertRaisesRegex(ValueError, "positive integer"):
+                    PruneOptimizer(torch.optim.SGD([group], lr=0.1), warmup_steps=10)
+
+    def test_optimizer_rejects_reference_on_non_global_groups(self):
+        for prox_type in ("MinSparsityConstraint", "ProxGroupLasso", None):
+            with self.subTest(prox_type=prox_type):
+                params = [torch.nn.Parameter(p) for p in self._params()]
+                group = {
+                    **_global_group(params, 0.1),
+                    "prox_type": prox_type,
+                    "score_group_count_ref": 2,
+                }
+                with self.assertRaisesRegex(
+                    ValueError,
+                    "score_group_count_ref requires GlobalMinSparsityConstraint",
+                ):
+                    PruneOptimizer(torch.optim.SGD([group], lr=0.1), warmup_steps=10)
+
+    def test_optimizer_disabled_reference_preserves_default(self):
+        for prox_type in ("GlobalMinSparsityConstraint", "MinSparsityConstraint"):
+            with self.subTest(prox_type=prox_type):
+                results = []
+                for kwargs in ({}, {"score_group_count_ref": None}):
+                    params = [torch.nn.Parameter(p) for p in self._params()]
+                    group = {
+                        **_global_group(params, 0.1),
+                        "prox_type": prox_type,
+                        **kwargs,
+                    }
+                    optimizer = PruneOptimizer(torch.optim.SGD([group], lr=0.1))
+                    for p in params:
+                        p.grad = torch.ones_like(p)
+                    optimizer.step()
+                    results.append([p.detach().clone() for p in params])
+                self.assertEqual(results[0], results[1])
+
 
 class TestGlobalMinSparsityOptimizer(common_utils.TestCase):
     def _run(self, params, min_sparsity, score_type="rms", steps=3, lr=0.1):

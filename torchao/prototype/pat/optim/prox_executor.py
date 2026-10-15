@@ -421,9 +421,11 @@ def _coupled_prox_sharded(
 ) -> CoupledProxResult:
     """Apply a coupled mask with at most three mesh-scoped collectives.
 
-    Aggregate all readers' partials together, gather all writers' channel
-    blocks together, then reduce one vector of literal-zero counts. Replica
-    mesh dimensions never participate in these collectives.
+    Gather all readers' partials and accumulate in shard-rank order, gather
+    all writers' channel blocks together, then reduce one vector of integer
+    literal-zero counts. Replicas with identical inputs use the same score
+    arithmetic, independent of communicator reduction order. Replica mesh
+    dimensions never participate in these collectives.
     """
     reader_sq = None
     writer_blocks = []
@@ -439,7 +441,18 @@ def _coupled_prox_sharded(
             group_size_sum += p.size(1)
 
     if reader_sq is not None:
-        dist.all_reduce(reader_sq, group=shard_group)
+        gathered_readers = torch.empty(
+            n_shard * reader_sq.numel(),
+            dtype=reader_sq.dtype,
+            device=reader_sq.device,
+        )
+        dist.all_gather_into_tensor(gathered_readers, reader_sq, group=shard_group)
+        partials = gathered_readers.view(n_shard, reader_sq.numel())
+        reader_sq = partials[0].clone()
+        # Fix the order locally so replica communicators cannot round a
+        # near-tied channel score differently during a floating-point reduce.
+        for part in partials[1:]:
+            reader_sq.add_(part)
     writer_sq = None
     if writer_blocks:
         stacked = torch.stack(writer_blocks).contiguous()
@@ -519,7 +532,9 @@ def apply_coupled_prox(
     Eligible Shard(0) layouts avoid full tensors. The fallback caches every
     grouped full tensor, so peak dense memory is the sum of clustered tensors.
     Floating-point reduction order can affect selection at tied or near-tied
-    score boundaries across layouts; selection is consistent within a mesh.
+    score boundaries across layouts. The fast path gathers reader partials
+    and accumulates them in shard-rank order so identical replicas compute
+    identical scores without depending on communicator reduction order.
     """
     if (
         materialization_policy

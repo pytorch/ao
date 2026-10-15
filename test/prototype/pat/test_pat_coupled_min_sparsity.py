@@ -575,6 +575,13 @@ class TestCoupledOptimizer(_CoupledAssertions, common_utils.TestCase):
                     group_type="Dim0Grouper",
                     min_sparsity=0.0,
                 )
+                if prox_type == "ProxGroupLasso" and not latent:
+                    with self.assertRaisesRegex(
+                        ValueError,
+                        "latent_weights=False supports only hard constraints",
+                    ):
+                        _optimizer([group, untouched], lr=1.0, latent_weights=latent)
+                    continue
                 optimizer = _optimizer(
                     [group, untouched], lr=1.0, latent_weights=latent
                 )
