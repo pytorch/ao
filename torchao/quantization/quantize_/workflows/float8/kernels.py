@@ -7,9 +7,11 @@
 import functools
 import math
 from threading import Lock
-from typing import Callable, Optional, Tuple
+from typing import Callable, NamedTuple, Optional, Tuple
 
 import torch
+
+from torchao.utils import ceil_div, round_up
 
 # The blockwise fp8 GEMM is a Triton kernel. Triton is imported and the kernel is
 # built lazily (and cached) on first use so this module imports fine on machines
@@ -151,27 +153,77 @@ def _blockwise_fp8_gemm(
 
 
 @functools.cache
+def _cutlass_dtype(dtype: torch.dtype):
+    import cutlass
+
+    return {
+        torch.float8_e4m3fn: cutlass.Float8E4M3FN,
+        torch.float8_e5m2: cutlass.Float8E5M2,
+        torch.float16: cutlass.Float16,
+        torch.bfloat16: cutlass.BFloat16,
+        torch.float32: cutlass.Float32,
+    }[dtype]
+
+
+# PTX type names of the FP8 dtypes, for the sparse WGMMA opcode.
+_FP8_PTX_NAMES = {torch.float8_e4m3fn: "e4m3", torch.float8_e5m2: "e5m2"}
+
+
+@functools.cache
+def _num_sms(device_index: int) -> int:
+    return torch.cuda.get_device_properties(device_index).multi_processor_count
+
+
+def _current_raw_stream(device_index: int) -> int:
+    # The raw cudaStream_t handle of the current stream. The TVM-FFI entry
+    # points accept it directly, and it is a few microseconds per call cheaper
+    # than building a torch.cuda.Stream object with torch.cuda.current_stream().
+    return torch._C._cuda_getCurrentRawStream(device_index)
+
+
+# FP8 2:4 sparse compression (dense -> compressed data + metadata), replacing
+# the legacy to_sparse_semi_structured_cutlass_sm9x_f8. The compressed data and
+# metadata layouts are the ones defined by CUTLASS
+# (include/cutlass/transform/kernel/sm90_sparse_gemm_compressor.hpp, with the
+# metadata layout from Sm90GemmSparseConfig in
+# include/cutlass/gemm/collective/builders/sm90_sparse_config.inl), which the
+# sparse GEMM below and the legacy CUTLASS GEMM both consume; the output is
+# bitwise identical to the legacy op, padding included. Deviation from
+# CUTLASS's compressor: one thread encodes one 8-column metadata chunk directly
+# from global memory, and the same launch zeroes the padding, instead of
+# CUTLASS's tiled shared-memory implementation.
+_CONVERSION_THREADS = 256
+
+
+def _sparse_semi_structured_shapes(rows: int, cols: int) -> Tuple[int, int, int]:
+    """Returns (compressed_cols, metadata_rows, metadata_cols) for a weight."""
+    return round_up(cols, 32) // 2, round_up(rows, 64), round_up(cols, 128) // 8
+
+
+@functools.cache
 def _compile_to_sparse_semi_structured_cutedsl(
-    float8_dtype: str,
+    float8_dtype: torch.dtype,
     has_padding: bool,
+    wide_offsets: bool,
 ):
     import cuda.bindings.driver as cuda
     import cutlass
     import cutlass.cute as cute
     from cutlass.cute.runtime import make_fake_stream, make_fake_tensor
 
-    THREADS_PER_BLOCK = 256
-    float8_element_type = (
-        cutlass.Float8E5M2 if float8_dtype == "e5m2" else cutlass.Float8E4M3FN
-    )
+    THREADS_PER_BLOCK = _CONVERSION_THREADS
+    float8_element_type = _cutlass_dtype(float8_dtype)
     HAS_PADDING = has_padding
+    # Weight and output element offsets reach 2^31 only for weights of 2 GiB
+    # or more; 64-bit offsets cost a few percent, so only those get them.
+    OFFSET = cutlass.Int64 if wide_offsets else cutlass.Int32
 
     class ToSparseSemiStructured:
         @cute.jit
         def _load_nonzero(
             self,
             weight: cute.Tensor,
-            offset: cutlass.Int32,
+            offset: OFFSET,
         ):
             value = (
                 cute.recast_ptr(weight.iterator + offset, dtype=cutlass.Uint8)
@@ -185,10 +237,10 @@ def _compile_to_sparse_semi_structured_cutedsl(
         def _encode_chunk(
             self,
             weight: cute.Tensor,
-            row_base: cutlass.Int32,
+            row_base: OFFSET,
             chunk_col: cutlass.Int32,
             output: cute.Tensor,
-            output_base: cutlass.Int32,
+            output_base: OFFSET,
         ):
             value0, nz0 = self._load_nonzero(weight, row_base + chunk_col)
             value1, nz1 = self._load_nonzero(weight, row_base + chunk_col + 1)
@@ -291,7 +343,9 @@ def _compile_to_sparse_semi_structured_cutedsl(
                     output_pad_row = linear // output_padding_cols
                     output_pad_col = linear - output_pad_row * output_padding_cols
                     output_offset = (
-                        output_pad_row * compressed_cols + cols // 2 + output_pad_col
+                        OFFSET(output_pad_row) * compressed_cols
+                        + cols // 2
+                        + output_pad_col
                     )
                     output_value = cutlass.Uint8(0)
                     cute.recast_ptr(
@@ -373,8 +427,8 @@ def _compile_to_sparse_semi_structured_cutedsl(
                     + col_in_tile
                 )
                 if row < rows:
-                    row_base = row * cols
-                    compressed_row_base = row * compressed_cols
+                    row_base = OFFSET(row) * cols
+                    compressed_row_base = OFFSET(row) * compressed_cols
                     chunk_col = metadata_col * 8
                     output_base = compressed_row_base + metadata_col * 4
                     lo = self._encode_chunk(
@@ -471,29 +525,29 @@ def _to_sparse_semi_structured_cutedsl(
     )
     assert weight.stride(1) == 1, "Expected weight in row-major layout"
     rows, cols = weight.shape
-    assert weight.stride(0) == cols, "Expected weight rows to be densely packed"
+    assert weight.numel() == 0 or weight.stride(0) == cols, (
+        "Expected weight rows to be densely packed"
+    )
     assert cols % 8 == 0, "Expected number of columns to be divisible by 8"
 
-    compressed_cols = (((cols + 31) // 32) * 32) // 2
+    compressed_cols, metadata_rows, metadata_cols = _sparse_semi_structured_shapes(
+        rows, cols
+    )
     output = torch.empty(
         (rows, compressed_cols),
         dtype=weight.dtype,
         device=weight.device,
     )
-    metadata_rows = ((rows + 63) // 64) * 64
-    metadata_cols = (((cols + 127) // 128) * 128) // 8
     metadata = torch.empty(
         (metadata_rows, metadata_cols),
         dtype=torch.uint8,
         device=weight.device,
     )
-    float8_dtype = "e5m2" if weight.dtype == torch.float8_e5m2 else "e4m3"
     has_padding = (
         compressed_cols != cols // 2
         or metadata_rows != rows
         or metadata_cols != cols // 8
     )
-    compiled = _compile_to_sparse_semi_structured_cutedsl(float8_dtype, has_padding)
     logical_metadata_cols = cols // 8
     total_metadata = rows * logical_metadata_cols
     total_padding = (
@@ -502,7 +556,14 @@ def _to_sparse_semi_structured_cutedsl(
         + (metadata_rows - rows) * metadata_cols
     )
     total_work = max(total_metadata, total_padding) if has_padding else total_metadata
-    num_blocks = (total_work + 255) // 256
+    if total_work == 0:
+        # Only an empty weight gets here, and both outputs are empty too; a
+        # zero-sized grid would be rejected by the launch.
+        return output, metadata
+    num_blocks = ceil_div(total_work, _CONVERSION_THREADS)
+    compiled = _compile_to_sparse_semi_structured_cutedsl(
+        weight.dtype, has_padding, rows * cols >= 2**31
+    )
     # The --enable-tvm-ffi runtime is positional-only, so this must match
     # ToSparseSemiStructured.__call__'s parameter order exactly.
     compiled(
@@ -515,7 +576,7 @@ def _to_sparse_semi_structured_cutedsl(
         metadata_cols,
         metadata_rows,
         num_blocks,
-        torch.cuda.current_stream(),
+        _current_raw_stream(weight.get_device()),
     )
     return output, metadata
 
@@ -523,31 +584,13 @@ def _to_sparse_semi_structured_cutedsl(
 @_to_sparse_semi_structured_cutedsl.register_fake
 def _(weight: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
     rows, cols = weight.shape
-    compressed_cols = (((cols + 31) // 32) * 32) // 2
-    metadata_rows = ((rows + 63) // 64) * 64
-    metadata_cols = (((cols + 127) // 128) * 128) // 8
+    compressed_cols, metadata_rows, metadata_cols = _sparse_semi_structured_shapes(
+        rows, cols
+    )
     return (
         weight.new_empty((rows, compressed_cols)),
         weight.new_empty((metadata_rows, metadata_cols), dtype=torch.uint8),
     )
-
-
-def _float8_name(dtype: torch.dtype) -> str:
-    if dtype == torch.float8_e4m3fn:
-        return "e4m3"
-    if dtype == torch.float8_e5m2:
-        return "e5m2"
-    raise AssertionError(f"Unsupported FP8 dtype: {dtype}")
-
-
-def _float_name(dtype: torch.dtype) -> str:
-    if dtype == torch.float16:
-        return "fp16"
-    if dtype == torch.bfloat16:
-        return "bf16"
-    if dtype == torch.float32:
-        return "fp32"
-    raise AssertionError(f"Unsupported dtype: {dtype}")
 
 
 def _sparse_wgmma_opcode(input_dtype: str, weight_dtype: str, n: int) -> str:
@@ -562,27 +605,42 @@ def _sparse_wgmma_opcode(input_dtype: str, weight_dtype: str, n: int) -> str:
     )
 
 
+# FP8 2:4 sparse GEMM with rowwise scales and optional bias, replacing the
+# legacy rowwise_scaled_linear_sparse_cutlass_f8f8. It follows CUTLASS's SM90
+# sparse warp-specialized mainloop
+# (include/cutlass/gemm/collective/sm90_sparse_mma_tma_gmma_ss_warpspecialized_fp8.hpp)
+# in a cooperative arrangement
+# (include/cutlass/gemm/kernel/sm90_gemm_tma_warpspecialized_cooperative.hpp):
+# one producer warpgroup issues TMA loads into a multi-stage mbarrier ring and
+# the consumer warpgroups run wgmma.mma_async.sp on slices of the CTA's weight
+# rows. The weight is the sparse operand, so weight rows take the WGMMA M mode
+# and input rows take N. Deviations from CUTLASS, and from the legacy kernel
+# (KernelTmaWarpSpecializedPingpongFP8FastAccum, persistent):
+# - cooperative instead of ping-pong, and a non-persistent grid; ping-pong was
+#   measured slower for this kernel;
+# - the sparse WGMMA is issued as inline PTX with hand-packed shared memory
+#   descriptors;
+# - metadata goes through shared memory with bulk copies when the CTA's weight
+#   rows are covered by the padded metadata, and is read from global memory
+#   otherwise, with the row window clamped for ragged N;
+# - the CTA tile is 128 or 256 weight rows by 128 input rows, chosen from the
+#   problem size by _select_config, with a 1x2 cluster multicasting the weight
+#   tile when M is a multiple of 256; for M <= 64 it is legacy's own decode
+#   tile instead (_DECODE_CONFIG);
+# - the rowwise scales and bias are applied to the accumulators in registers,
+#   then the tile is staged through shared memory for a TMA store, instead of
+#   CUTLASS's epilogue visitor tree broadcast nodes;
+# - tiles are rasterized in groups of _RASTER_GROUP_N weight-row blocks.
 _WGMMA_WEIGHT_ROWS = 64
-_WGMMA_INPUT_ROWS = 128
 _WGMMA_LOGICAL_K = 64
 _WGMMA_COMPRESSED_K = _WGMMA_LOGICAL_K // 2
 _WGMMA_THREADS = 128
-_WGMMA_ACC_REGS = _WGMMA_WEIGHT_ROWS * _WGMMA_INPUT_ROWS // _WGMMA_THREADS
 _WARPS_PER_WARPGROUP = 4
 _MMA_PER_WG_CHOICES = (1, 2)
 _MMA_PER_WG_DEFAULT = 2
-_CONSUMER_WARPGROUPS = 2
-_PRODUCER_WARPGROUPS = 1
-_WARPGROUPS = _CONSUMER_WARPGROUPS + _PRODUCER_WARPGROUPS
-_CTA_THREADS = _WGMMA_THREADS * _WARPGROUPS
-_PRODUCER_WARP = _CONSUMER_WARPGROUPS * _WARPS_PER_WARPGROUP
 _PRODUCER_REGS = 32
 _CONSUMER_REGS = 232
-_A_TILE_BYTES = _WGMMA_WEIGHT_ROWS * _WGMMA_COMPRESSED_K
-_STAGES = 4
-_K_GROUP = 2
-_BUFFERS = _STAGES * _K_GROUP
-_B_STAGE_BYTES = _WGMMA_INPUT_ROWS * _WGMMA_LOGICAL_K
+_GMMA_LAYOUT_TYPE_B128 = 1
 _GMMA_LAYOUT_TYPE_B64 = 2
 _GMMA_LAYOUT_TYPE_B32 = 3
 _GMMA_DESC_UNIT_BYTES = 16
@@ -594,46 +652,93 @@ _A_GMMA_DESC_STRIDE_OFFSET = (
 _B_GMMA_DESC_STRIDE_OFFSET = (
     _GMMA_DESC_ROWS_PER_GROUP * _WGMMA_LOGICAL_K // _GMMA_DESC_UNIT_BYTES
 )
-_B_STAGE_DESC_UNITS = _B_STAGE_BYTES // _GMMA_DESC_UNIT_BYTES
 
 _META_UINT32_PER_ROW = 4
-_META_HALVES_PER_GROUP = max(1, _K_GROUP // 2)
 _RASTER_GROUP_N = 8
-_META_SMEM_STAGED = _K_GROUP % 2 == 0
-_EPI_TILE_M = 64
 _EPI_TILE_N = 64
 _EPI_STAGES = 2
-_EPI_M_SUBTILES = _WGMMA_INPUT_ROWS // _EPI_TILE_M
-_EPI_SLOTS = _CONSUMER_WARPGROUPS * _EPI_STAGES
-_EPI_VID2_PER_SUBTILE = _WGMMA_ACC_REGS // 4 // _EPI_M_SUBTILES
+_MAX_SMEM_BYTES = 232448
 
 
-def _cta_weight_rows(mma_per_wg: int) -> int:
-    return _WGMMA_WEIGHT_ROWS * mma_per_wg * _CONSUMER_WARPGROUPS
+class _LinearConfig(NamedTuple):
+    # Input rows of a CTA tile, i.e. the WGMMA N.
+    input_rows: int
+    consumer_warpgroups: int
+    stages: int
+    # K tiles of _WGMMA_LOGICAL_K per pipeline stage.
+    k_group: int
+    # Stop the K loop after the last real group of K tiles, instead of running
+    # whole waves of `stages` groups; the extra groups only add zeros, but cost
+    # up to stages - 1 groups of work, which matters when stages is large.
+    exact_k_loop: bool
+    # 128-byte swizzled A and B buffers spanning a whole stage's K, as CUTLASS
+    # uses, so one TMA copy per operand fills a stage, instead of one per K tile
+    # into 32- and 64-byte swizzled buffers.
+    swizzle128: bool
 
 
-def _select_mma_per_wg(m: int, n: int, num_sms: int) -> int:
-    wide = _cta_weight_rows(_MMA_PER_WG_DEFAULT)
-    ctas = ((n + wide - 1) // wide) * ((m + _WGMMA_INPUT_ROWS - 1) // _WGMMA_INPUT_ROWS)
-    if m <= _WGMMA_INPUT_ROWS // 2:
-        limit = num_sms // 4
-    else:
-        limit = num_sms // 2
-    return 1 if ctas <= limit else _MMA_PER_WG_DEFAULT
+# Two consumer warpgroups splitting 128 or 256 weight rows, on 128 input rows.
+_DEFAULT_CONFIG = _LinearConfig(
+    input_rows=128,
+    consumer_warpgroups=2,
+    stages=4,
+    k_group=2,
+    exact_k_loop=False,
+    swizzle128=False,
+)
+# Legacy's configuration for M <= 64, read from its kernel name in ncu:
+# TileShape 64x32x256, 12 stages, no cluster. That is one consumer warpgroup
+# on 64 weight rows and 32 input rows, with K step 256, and the deep pipeline
+# is what keeps enough weight bytes in flight when there are few CTAs.
+_DECODE_CONFIG = _LinearConfig(
+    input_rows=32,
+    consumer_warpgroups=1,
+    stages=12,
+    k_group=4,
+    exact_k_loop=True,
+    swizzle128=True,
+)
+_DECODE_MAX_M = 64
+
+
+def _cta_weight_rows(mma_per_wg: int, config: _LinearConfig) -> int:
+    return _WGMMA_WEIGHT_ROWS * mma_per_wg * config.consumer_warpgroups
+
+
+def _select_config(m: int, n: int, num_sms: int) -> Tuple[_LinearConfig, int]:
+    """Returns the configuration and the MMAs per consumer warpgroup."""
+    if m <= _DECODE_MAX_M:
+        # Its shared memory allows one CTA per SM, and with a non-persistent
+        # grid every further wave refills the 12-stage pipeline from cold.
+        # Measured on H100 against the default configuration: with one block
+        # of input rows (M <= 32) it was faster at every shape tried, up to 6.8
+        # waves; with two, where each weight tile is read twice, up to 2.4
+        # waves, and mostly slower from 3.4.
+        decode_ctas = ceil_div(n, _cta_weight_rows(1, _DECODE_CONFIG)) * ceil_div(
+            m, _DECODE_CONFIG.input_rows
+        )
+        if m <= _DECODE_CONFIG.input_rows or decode_ctas <= 3 * num_sms:
+            return _DECODE_CONFIG, 1
+    config = _DEFAULT_CONFIG
+    wide = _cta_weight_rows(_MMA_PER_WG_DEFAULT, config)
+    ctas = ceil_div(n, wide) * ceil_div(m, config.input_rows)
+    limit = num_sms // 4 if m <= config.input_rows // 2 else num_sms // 2
+    return config, (1 if ctas <= limit else _MMA_PER_WG_DEFAULT)
 
 
 @functools.cache
 def _compile_rowwise_scaled_linear_sparse_cutedsl(
-    input_dtype: str,
-    weight_dtype: str,
-    scale_dtype: str,
-    output_dtype: str,
+    input_dtype: torch.dtype,
+    weight_dtype: torch.dtype,
+    scale_dtype: torch.dtype,
+    output_dtype: torch.dtype,
     has_bias: bool,
     m_exact: bool,
     n_exact: bool,
     cluster_mcast: bool,
     meta_block_safe: bool,
     mma_per_wg: int,
+    config: _LinearConfig,
 ):
     import cuda.bindings.driver as cuda
     import cutlass
@@ -643,19 +748,73 @@ def _compile_rowwise_scaled_linear_sparse_cutedsl(
     from cutlass.cute.runtime import make_fake_stream, make_fake_tensor
     from cutlass.cutlass_dsl import T, dsl_user_op
 
-    if scale_dtype not in ("fp16", "bf16", "fp32"):
+    if scale_dtype not in (torch.float16, torch.bfloat16, torch.float32):
         raise AssertionError(f"Unsupported scale dtype: {scale_dtype}")
-    if output_dtype not in ("fp16", "bf16"):
+    if output_dtype not in (torch.float16, torch.bfloat16):
         raise AssertionError(f"Unsupported output dtype: {output_dtype}")
     if mma_per_wg not in _MMA_PER_WG_CHOICES:
         raise AssertionError(f"Unsupported MMAs per warpgroup: {mma_per_wg}")
+
+    _WGMMA_INPUT_ROWS = config.input_rows
+    _CONSUMER_WARPGROUPS = config.consumer_warpgroups
+    _STAGES = config.stages
+    _K_GROUP = config.k_group
+    _WGMMA_ACC_REGS = _WGMMA_WEIGHT_ROWS * _WGMMA_INPUT_ROWS // _WGMMA_THREADS
+    _CTA_THREADS = _WGMMA_THREADS * (_CONSUMER_WARPGROUPS + 1)
+    _PRODUCER_WARP = _CONSUMER_WARPGROUPS * _WARPS_PER_WARPGROUP
+    _BUFFERS = _STAGES * _K_GROUP
+    # K tiles per A or B shared-memory buffer.
+    _K_TILES_PER_BUF = _K_GROUP if config.swizzle128 else 1
+    _BUFS_PER_STAGE = _K_GROUP // _K_TILES_PER_BUF
+    _N_BUFS = _STAGES * _BUFS_PER_STAGE
+    _A_BUF_K = _WGMMA_COMPRESSED_K * _K_TILES_PER_BUF
+    _B_BUF_K = _WGMMA_LOGICAL_K * _K_TILES_PER_BUF
+    _B_STAGE_BYTES = _WGMMA_INPUT_ROWS * _WGMMA_LOGICAL_K
+    _META_HALVES_PER_GROUP = max(1, _K_GROUP // 2)
+    _META_SMEM_STAGED = _K_GROUP % 2 == 0
+    _EPI_TILE_M = min(64, _WGMMA_INPUT_ROWS)
+    _EPI_M_SUBTILES = _WGMMA_INPUT_ROWS // _EPI_TILE_M
+    _EPI_SLOTS = _CONSUMER_WARPGROUPS * _EPI_STAGES
+    _EPI_VID2_PER_SUBTILE = _WGMMA_ACC_REGS // 4 // _EPI_M_SUBTILES
+    _EXACT_K_LOOP = config.exact_k_loop
 
     _MMA_PER_WG = mma_per_wg
     _WG_WEIGHT_ROWS = _WGMMA_WEIGHT_ROWS * _MMA_PER_WG
     _CTA_WEIGHT_ROWS = _WG_WEIGHT_ROWS * _CONSUMER_WARPGROUPS
     _TOTAL_ACC_REGS = _WGMMA_ACC_REGS * _MMA_PER_WG
     _A_STAGE_BYTES = _CTA_WEIGHT_ROWS * _WGMMA_COMPRESSED_K
-    _A_STAGE_DESC_UNITS = _A_STAGE_BYTES // _GMMA_DESC_UNIT_BYTES
+    _A_BUF_DESC_UNITS = _CTA_WEIGHT_ROWS * _A_BUF_K // _GMMA_DESC_UNIT_BYTES
+    _B_BUF_DESC_UNITS = _WGMMA_INPUT_ROWS * _B_BUF_K // _GMMA_DESC_UNIT_BYTES
+    if config.swizzle128:
+        if _A_BUF_K > 128:
+            raise AssertionError("An A buffer must fit one 128-byte swizzle atom")
+        _A_LAYOUT_TYPE = _GMMA_LAYOUT_TYPE_B128
+        _B_LAYOUT_TYPE = _GMMA_LAYOUT_TYPE_B128
+        _A_DESC_STRIDE = _GMMA_DESC_ROWS_PER_GROUP * 128 // _GMMA_DESC_UNIT_BYTES
+        _B_DESC_STRIDE = _A_DESC_STRIDE
+    else:
+        _A_LAYOUT_TYPE = _GMMA_LAYOUT_TYPE_B32
+        _B_LAYOUT_TYPE = _GMMA_LAYOUT_TYPE_B64
+        _A_DESC_STRIDE = _A_GMMA_DESC_STRIDE_OFFSET
+        _B_DESC_STRIDE = _B_GMMA_DESC_STRIDE_OFFSET
+
+    def _a_desc_units(k_tile):
+        # An A buffer holds _K_TILES_PER_BUF K tiles side by side in each row.
+        buf, i = divmod(k_tile, _K_TILES_PER_BUF)
+        return (
+            buf * _A_BUF_DESC_UNITS + i * _WGMMA_COMPRESSED_K // _GMMA_DESC_UNIT_BYTES
+        )
+
+    def _b_desc_units(k_tile):
+        # Past 128 bytes of K, a B buffer continues in the next swizzle atom,
+        # which follows all of the buffer's rows.
+        buf, i = divmod(k_tile, _K_TILES_PER_BUF)
+        atom, inner = divmod(i * _WGMMA_LOGICAL_K, 128)
+        return (
+            buf * _B_BUF_DESC_UNITS
+            + (atom * _WGMMA_INPUT_ROWS * 128 + inner) // _GMMA_DESC_UNIT_BYTES
+        )
+
     _TMA_STAGE_BYTES = _A_STAGE_BYTES + _B_STAGE_BYTES
     _TMA_GROUP_BYTES = _K_GROUP * _TMA_STAGE_BYTES
     _META_STAGE_UINT32 = _CTA_WEIGHT_ROWS * _META_UINT32_PER_ROW
@@ -664,21 +823,20 @@ def _compile_rowwise_scaled_linear_sparse_cutedsl(
     _META_SMEM_UINT32 = _STAGES * _META_HALVES_PER_GROUP * _META_STAGE_UINT32
     _EPI_N_SUBTILES = _WG_WEIGHT_ROWS // _EPI_TILE_N
 
-    opcode = _sparse_wgmma_opcode(input_dtype, weight_dtype, _WGMMA_INPUT_ROWS)
+    opcode = _sparse_wgmma_opcode(
+        _FP8_PTX_NAMES[input_dtype], _FP8_PTX_NAMES[weight_dtype], _WGMMA_INPUT_ROWS
+    )
     _use_a_mcast = cluster_mcast
     _meta_staged = _META_SMEM_STAGED and meta_block_safe
+    if _EXACT_K_LOOP and not _meta_staged:
+        # The global-memory metadata path prefetches one wave ahead, which
+        # assumes whole waves.
+        raise AssertionError("The exact K loop needs staged metadata")
 
-    INPUT_DTYPE = cutlass.Float8E5M2 if input_dtype == "e5m2" else cutlass.Float8E4M3FN
-    WEIGHT_DTYPE = (
-        cutlass.Float8E5M2 if weight_dtype == "e5m2" else cutlass.Float8E4M3FN
-    )
-    if scale_dtype == "fp16":
-        SCALE_DTYPE = cutlass.Float16
-    elif scale_dtype == "bf16":
-        SCALE_DTYPE = cutlass.BFloat16
-    else:
-        SCALE_DTYPE = cutlass.Float32
-    OUTPUT_DTYPE = cutlass.Float16 if output_dtype == "fp16" else cutlass.BFloat16
+    INPUT_DTYPE = _cutlass_dtype(input_dtype)
+    WEIGHT_DTYPE = _cutlass_dtype(weight_dtype)
+    SCALE_DTYPE = _cutlass_dtype(scale_dtype)
+    OUTPUT_DTYPE = _cutlass_dtype(output_dtype)
 
     @dsl_user_op
     def _pack_gmma_smem_desc_k(
@@ -771,6 +929,24 @@ def _compile_rowwise_scaled_linear_sparse_cutedsl(
 
         return op
 
+    @dsl_user_op
+    def _opaque_i64(value, *, loc=None, ip=None):
+        # A copy the compiler cannot see through, so values derived from it
+        # inside a loop are not hoisted out of it.
+        return cutlass.Int64(
+            llvm.inline_asm(
+                T.i64(),
+                [cutlass.Int64(value).ir_value(loc=loc, ip=ip)],
+                "mov.b64 $0, $1;",
+                "=l,l",
+                has_side_effects=True,
+                is_align_stack=False,
+                asm_dialect=llvm.AsmDialect.AD_ATT,
+                loc=loc,
+                ip=ip,
+            )
+        )
+
     _wgmma_fence = _acc_only_asm("wgmma.fence.sync.aligned;\n", _TOTAL_ACC_REGS)
     _wgmma_commit_wait = _acc_only_asm(
         "wgmma.commit_group.sync.aligned;\nwgmma.wait_group.sync.aligned 1;\n",
@@ -808,23 +984,29 @@ def _compile_rowwise_scaled_linear_sparse_cutedsl(
             8,
         ]
 
+    if SharedStorage.size_in_bytes() > _MAX_SMEM_BYTES:
+        raise AssertionError(
+            f"{config} needs {SharedStorage.size_in_bytes()} bytes of shared memory"
+        )
+
     def _make_smem_layouts():
+        kinds = cute.nvgpu.warpgroup.SmemLayoutAtomKind
         a_atom = cute.nvgpu.warpgroup.make_smem_layout_atom(
-            cute.nvgpu.warpgroup.SmemLayoutAtomKind.K_SW32,
+            kinds.K_SW128 if config.swizzle128 else kinds.K_SW32,
             WEIGHT_DTYPE,
         )
         b_atom = cute.nvgpu.warpgroup.make_smem_layout_atom(
-            cute.nvgpu.warpgroup.SmemLayoutAtomKind.K_SW64,
+            kinds.K_SW128 if config.swizzle128 else kinds.K_SW64,
             INPUT_DTYPE,
         )
         a_staged = cute.tile_to_shape(
             a_atom,
-            (_CTA_WEIGHT_ROWS, _WGMMA_COMPRESSED_K, _BUFFERS),
+            (_CTA_WEIGHT_ROWS, _A_BUF_K, _N_BUFS),
             order=(0, 1, 2),
         )
         b_staged = cute.tile_to_shape(
             b_atom,
-            (_WGMMA_INPUT_ROWS, _WGMMA_LOGICAL_K, _BUFFERS),
+            (_WGMMA_INPUT_ROWS, _B_BUF_K, _N_BUFS),
             order=(0, 1, 2),
         )
         return a_staged, b_staged
@@ -895,8 +1077,8 @@ def _compile_rowwise_scaled_linear_sparse_cutedsl(
                     )
                     a_tma_crd = cluster_coord_mnk[1]
 
-            num_n_blocks = (n_size + _CTA_WEIGHT_ROWS - 1) // _CTA_WEIGHT_ROWS
-            num_m_blocks = (m_size + _WGMMA_INPUT_ROWS - 1) // _WGMMA_INPUT_ROWS
+            num_n_blocks = ceil_div(n_size, _CTA_WEIGHT_ROWS)
+            num_m_blocks = ceil_div(m_size, _WGMMA_INPUT_ROWS)
             if cutlass.const_expr(cluster_mcast):
                 num_m_units = num_m_blocks // 2
             else:
@@ -949,11 +1131,14 @@ def _compile_rowwise_scaled_linear_sparse_cutedsl(
                 meta_stage_base = cutlass.min(n_base, metadata_rows - _CTA_WEIGHT_ROWS)
             meta_shift = n_base - meta_stage_base
 
-            k_tiles = (k_size + _WGMMA_LOGICAL_K - 1) // _WGMMA_LOGICAL_K
+            k_tiles = ceil_div(k_size, _WGMMA_LOGICAL_K)
             meta_last_half = (k_tiles - 1) // 2
-            num_groups = (k_tiles + _K_GROUP - 1) // _K_GROUP
-            num_waves = (num_groups + _STAGES - 1) // _STAGES
-            groups_rounded = num_waves * _STAGES
+            num_groups = ceil_div(k_tiles, _K_GROUP)
+            num_waves = ceil_div(num_groups, _STAGES)
+            # One past the last group the producer loads and the consumers run.
+            group_limit = num_waves * _STAGES
+            if cutlass.const_expr(_EXACT_K_LOOP):
+                group_limit = num_groups
             meta_row_stride = metadata_rows * 4
             meta_u32 = cute.recast_ptr(weight_meta.iterator, dtype=cutlass.Uint32)
 
@@ -980,16 +1165,18 @@ def _compile_rowwise_scaled_linear_sparse_cutedsl(
                 tma_group_bytes,
                 meta_stage_uint32,
                 meta_group_bytes,
+                bufs_per_stage,
+                meta_halves,
             ):
                 with cute.arch.elect_one():
                     cute.arch.mbarrier_arrive_and_expect_tx(
                         bar + stage,
                         tma_group_bytes + (meta_group_bytes if staged else 0),
                     )
-                for sub in cutlass.range_constexpr(_K_GROUP):
-                    buf = stage * _K_GROUP + sub
-                    kt = group * _K_GROUP + sub
-                    a_dst = sa_[stage_const * _K_GROUP + sub]
+                for sub in cutlass.range_constexpr(bufs_per_stage):
+                    buf = stage * bufs_per_stage + sub
+                    kt = group * bufs_per_stage + sub
+                    a_dst = sa_[stage_const * bufs_per_stage + sub]
                     if cutlass.const_expr(use_a_mcast):
                         cute.copy(
                             atom_a.with_(
@@ -1015,11 +1202,11 @@ def _compile_rowwise_scaled_linear_sparse_cutedsl(
                 if cutlass.const_expr(staged):
                     # Bulk-copy atoms require the caller to elect one issuing thread.
                     with cute.arch.elect_one():
-                        for i in cutlass.range_constexpr(_META_HALVES_PER_GROUP):
-                            half = group * _META_HALVES_PER_GROUP + i
+                        for i in cutlass.range_constexpr(meta_halves):
+                            half = group * meta_halves + i
                             if half > last_half:
                                 half = last_half
-                            slot = stage * _META_HALVES_PER_GROUP + i
+                            slot = stage * meta_halves + i
                             cute.copy(
                                 atom_m,
                                 cute.make_tensor(
@@ -1033,20 +1220,28 @@ def _compile_rowwise_scaled_linear_sparse_cutedsl(
                                 mbar_ptr=bar + stage,
                             )
 
-            def group_metas_smem(stage, smeta_, lanes, mma_per_wg, meta_stage_uint32):
+            def group_metas_smem(
+                stage,
+                smeta_,
+                lanes,
+                mma_per_wg,
+                meta_stage_uint32,
+                k_group,
+                meta_halves,
+            ):
                 out = ()
-                for sub in cutlass.range_constexpr(_K_GROUP):
-                    slot = stage * _META_HALVES_PER_GROUP + sub // 2
+                for sub in cutlass.range_constexpr(k_group):
+                    slot = stage * meta_halves + sub // 2
                     for j in cutlass.range_constexpr(mma_per_wg):
                         out = out + (
                             smeta_[slot * meta_stage_uint32 + lanes[j] + 2 * (sub % 2)],
                         )
                 return out
 
-            def group_metas(group, bases, row_strides, k_tiles_, mma_per_wg):
+            def group_metas(group, bases, row_strides, k_tiles_, mma_per_wg, k_group):
                 out = ()
-                for sub in cutlass.range_constexpr(_K_GROUP):
-                    kt = group * _K_GROUP + sub
+                for sub in cutlass.range_constexpr(k_group):
+                    kt = group * k_group + sub
                     if kt >= k_tiles_:
                         kt = k_tiles_ - 1
                     half = kt // 2
@@ -1064,16 +1259,20 @@ def _compile_rowwise_scaled_linear_sparse_cutedsl(
                 cute.arch.sync_threads()
 
             if warpgroup == _CONSUMER_WARPGROUPS:
-                cute.arch.setmaxregister_decrease(_PRODUCER_REGS)
+                # With 256 threads every warp already gets 255 registers, and
+                # setmaxnreg.inc to _CONSUMER_REGS would be a decrease, which
+                # setmaxnreg does not allow; so only rebalance with 384.
+                if cutlass.const_expr(_CONSUMER_WARPGROUPS > 1):
+                    cute.arch.setmaxregister_decrease(_PRODUCER_REGS)
                 if warp_idx == _PRODUCER_WARP:
                     ga = cute.local_tile(
                         tma_tensor_a,
-                        (_CTA_WEIGHT_ROWS, _WGMMA_COMPRESSED_K),
+                        (_CTA_WEIGHT_ROWS, _A_BUF_K),
                         (n_block, None),
                     )
                     gb = cute.local_tile(
                         tma_tensor_b,
-                        (_WGMMA_INPUT_ROWS, _WGMMA_LOGICAL_K),
+                        (_WGMMA_INPUT_ROWS, _B_BUF_K),
                         (m_block, None),
                     )
                     _, tma_ga = cute.nvgpu.cpasync.tma_partition(
@@ -1084,7 +1283,7 @@ def _compile_rowwise_scaled_linear_sparse_cutedsl(
                         cute.group_modes(ga, 0, 2),
                     )
                     tma_sa = ()
-                    for b in cutlass.range_constexpr(_BUFFERS):
+                    for b in cutlass.range_constexpr(_N_BUFS):
                         sa_buf, _ = cute.nvgpu.cpasync.tma_partition(
                             tma_atom_a,
                             a_tma_crd,
@@ -1102,37 +1301,44 @@ def _compile_rowwise_scaled_linear_sparse_cutedsl(
                     )
                     meta_src = meta_u32 + meta_stage_base * _META_UINT32_PER_ROW
                     for st in cutlass.range_constexpr(_STAGES):
-                        issue_group(
-                            cutlass.Int32(st),
-                            cutlass.Int32(st),
-                            st,
-                            mbar,
-                            tma_atom_a,
-                            tma_ga,
-                            tma_sa,
-                            tma_atom_b,
-                            tma_gb,
-                            tma_sb,
-                            bulk_atom,
-                            meta_src,
-                            meta_row_stride,
-                            smeta,
-                            meta_last_half,
-                            _meta_staged,
-                            a_mcast_mask,
-                            _use_a_mcast,
-                            _MMA_PER_WG,
-                            _TMA_GROUP_BYTES,
-                            _META_STAGE_UINT32,
-                            _META_GROUP_BYTES,
-                        )
+                        prologue_issue = True
+                        if cutlass.const_expr(_EXACT_K_LOOP):
+                            # A short K can have fewer groups than stages.
+                            prologue_issue = cutlass.Int32(st) < group_limit
+                        if prologue_issue:
+                            issue_group(
+                                cutlass.Int32(st),
+                                cutlass.Int32(st),
+                                st,
+                                mbar,
+                                tma_atom_a,
+                                tma_ga,
+                                tma_sa,
+                                tma_atom_b,
+                                tma_gb,
+                                tma_sb,
+                                bulk_atom,
+                                meta_src,
+                                meta_row_stride,
+                                smeta,
+                                meta_last_half,
+                                _meta_staged,
+                                a_mcast_mask,
+                                _use_a_mcast,
+                                _MMA_PER_WG,
+                                _TMA_GROUP_BYTES,
+                                _META_STAGE_UINT32,
+                                _META_GROUP_BYTES,
+                                _BUFS_PER_STAGE,
+                                _META_HALVES_PER_GROUP,
+                            )
                     wave = cutlass.Int32(0)
                     while wave < num_waves:
                         phase = wave & 1
                         base_group = wave * _STAGES
                         for st in cutlass.range_constexpr(_STAGES):
                             prefetch_group = base_group + st + _STAGES
-                            if prefetch_group < groups_rounded:
+                            if prefetch_group < group_limit:
                                 cute.arch.mbarrier_wait(mbar_empty + st, phase)
                                 issue_group(
                                     prefetch_group,
@@ -1157,19 +1363,22 @@ def _compile_rowwise_scaled_linear_sparse_cutedsl(
                                     _TMA_GROUP_BYTES,
                                     _META_STAGE_UINT32,
                                     _META_GROUP_BYTES,
+                                    _BUFS_PER_STAGE,
+                                    _META_HALVES_PER_GROUP,
                                 )
                         wave = wave + 1
             else:
-                cute.arch.setmaxregister_increase(_CONSUMER_REGS)
+                if cutlass.const_expr(_CONSUMER_WARPGROUPS > 1):
+                    cute.arch.setmaxregister_increase(_CONSUMER_REGS)
                 wg_base = n_base + warpgroup * _WG_WEIGHT_ROWS
                 m_base = m_block * _WGMMA_INPUT_ROWS
                 desc_a_bases = tuple(
                     _pack_gmma_smem_desc_k(
                         sa.iterator,
-                        (warpgroup * _MMA_PER_WG + j) * _A_TILE_BYTES,
+                        (warpgroup * _MMA_PER_WG + j) * _WGMMA_WEIGHT_ROWS * _A_BUF_K,
                         _GMMA_DESC_LEADING_OFFSET,
-                        _A_GMMA_DESC_STRIDE_OFFSET,
-                        _GMMA_LAYOUT_TYPE_B32,
+                        _A_DESC_STRIDE,
+                        _A_LAYOUT_TYPE,
                     )
                     for j in range(_MMA_PER_WG)
                 )
@@ -1177,8 +1386,8 @@ def _compile_rowwise_scaled_linear_sparse_cutedsl(
                     sb.iterator,
                     0,
                     _GMMA_DESC_LEADING_OFFSET,
-                    _B_GMMA_DESC_STRIDE_OFFSET,
-                    _GMMA_LAYOUT_TYPE_B64,
+                    _B_DESC_STRIDE,
+                    _B_LAYOUT_TYPE,
                 )
                 meta_lane_row = (
                     (tid_wg // 4) % 8 + 8 * (tid_wg % 2) + 16 * (tid_wg // 32)
@@ -1264,60 +1473,77 @@ def _compile_rowwise_scaled_linear_sparse_cutedsl(
                             meta_strides,
                             k_tiles,
                             _MMA_PER_WG,
+                            _K_GROUP,
                         )
                 wave = cutlass.Int32(0)
                 while wave < num_waves:
                     phase = wave & 1
                     base_group = wave * _STAGES
                     next_metas = ()
+                    wave_desc_a = desc_a_bases
+                    wave_desc_b = desc_b_base
+                    if cutlass.const_expr(_BUFFERS > 16):
+                        # Each buffer's descriptor is a constant offset from the
+                        # base. Hoisted out of the loop, that is two 64-bit
+                        # registers per buffer, more than there are with many
+                        # buffers, so derive them per wave from opaque copies.
+                        wave_desc_a = tuple(_opaque_i64(d) for d in desc_a_bases)
+                        wave_desc_b = _opaque_i64(desc_b_base)
                     n_meta = _K_GROUP * _MMA_PER_WG
                     for st in cutlass.range_constexpr(_STAGES):
                         group = base_group + st
-                        if cutlass.const_expr(_meta_staged):
-                            cute.arch.mbarrier_wait(mbar + st, phase)
-                            cute.arch.fence_view_async_shared()
-                            cur_meta = group_metas_smem(
-                                st,
-                                smeta,
-                                meta_smem_lanes,
-                                _MMA_PER_WG,
-                                _META_STAGE_UINT32,
-                            )
-                        else:
-                            cur_meta = metas[st * n_meta : (st + 1) * n_meta]
+                        if cutlass.const_expr(not _meta_staged):
+                            prefetched_meta = metas[st * n_meta : (st + 1) * n_meta]
                             next_metas = next_metas + group_metas(
                                 group + _STAGES,
                                 meta_ptrs,
                                 meta_strides,
                                 k_tiles,
                                 _MMA_PER_WG,
+                                _K_GROUP,
                             )
+                        consume = True
+                        if cutlass.const_expr(_EXACT_K_LOOP):
+                            consume = group < group_limit
+                        if consume:
                             cute.arch.mbarrier_wait(mbar + st, phase)
                             cute.arch.fence_view_async_shared()
-                        acc = _wgmma_fence(acc)
-                        for sub in cutlass.range_constexpr(_K_GROUP):
-                            buf = st * _K_GROUP + sub
-                            for j in cutlass.range_constexpr(_MMA_PER_WG):
-                                lo = j * _WGMMA_ACC_REGS
-                                hi = lo + _WGMMA_ACC_REGS
-                                part = _wgmma_sp(
-                                    desc_a_bases[j] + buf * _A_STAGE_DESC_UNITS,
-                                    desc_b_base + buf * _B_STAGE_DESC_UNITS,
-                                    cur_meta[sub * _MMA_PER_WG + j],
-                                    acc[lo:hi],
+                            if cutlass.const_expr(_meta_staged):
+                                cur_meta = group_metas_smem(
+                                    st,
+                                    smeta,
+                                    meta_smem_lanes,
+                                    _MMA_PER_WG,
+                                    _META_STAGE_UINT32,
+                                    _K_GROUP,
+                                    _META_HALVES_PER_GROUP,
                                 )
-                                acc = acc[:lo] + part + acc[hi:]
-                        acc = _wgmma_commit_wait(acc)
-                        prev_st = (st - 1) % _STAGES
-                        released = cutlass.const_expr(st > 0) or wave > 0
-                        if tid_wg == 0:
-                            if released:
-                                cute.arch.mbarrier_arrive(mbar_empty + prev_st)
-                                if cutlass.const_expr(cluster_mcast):
-                                    cute.arch.mbarrier_arrive(
-                                        mbar_empty + prev_st,
-                                        peer_cta_rank_in_cluster=peer_cta_rank,
+                            else:
+                                cur_meta = prefetched_meta
+                            acc = _wgmma_fence(acc)
+                            for sub in cutlass.range_constexpr(_K_GROUP):
+                                buf = st * _K_GROUP + sub
+                                for j in cutlass.range_constexpr(_MMA_PER_WG):
+                                    lo = j * _WGMMA_ACC_REGS
+                                    hi = lo + _WGMMA_ACC_REGS
+                                    part = _wgmma_sp(
+                                        wave_desc_a[j] + _a_desc_units(buf),
+                                        wave_desc_b + _b_desc_units(buf),
+                                        cur_meta[sub * _MMA_PER_WG + j],
+                                        acc[lo:hi],
                                     )
+                                    acc = acc[:lo] + part + acc[hi:]
+                            acc = _wgmma_commit_wait(acc)
+                            prev_st = (st - 1) % _STAGES
+                            released = cutlass.const_expr(st > 0) or wave > 0
+                            if tid_wg == 0:
+                                if released:
+                                    cute.arch.mbarrier_arrive(mbar_empty + prev_st)
+                                    if cutlass.const_expr(cluster_mcast):
+                                        cute.arch.mbarrier_arrive(
+                                            mbar_empty + prev_st,
+                                            peer_cta_rank_in_cluster=peer_cta_rank,
+                                        )
                     if cutlass.const_expr(not _meta_staged):
                         metas = next_metas
                     wave = wave + 1
@@ -1417,14 +1643,14 @@ def _compile_rowwise_scaled_linear_sparse_cutedsl(
                 ),
                 weight,
                 cute.slice_(a_staged, (None, None, 0)),
-                (_CTA_WEIGHT_ROWS, _WGMMA_COMPRESSED_K),
+                (_CTA_WEIGHT_ROWS, _A_BUF_K),
                 num_multicast=2 if cutlass.const_expr(_use_a_mcast) else 1,
             )
             tma_atom_b, tma_tensor_b = cute.nvgpu.cpasync.make_tiled_tma_atom(
                 cute.nvgpu.cpasync.CopyBulkTensorTileG2SOp(),
                 input,
                 cute.slice_(b_staged, (None, None, 0)),
-                (_WGMMA_INPUT_ROWS, _WGMMA_LOGICAL_K),
+                (_WGMMA_INPUT_ROWS, _B_BUF_K),
             )
             tma_atom_c, tma_tensor_c = cute.nvgpu.cpasync.make_tiled_tma_atom(
                 cute.nvgpu.cpasync.CopyBulkTensorTileS2GOp(),
@@ -1571,6 +1797,9 @@ def _rowwise_scaled_linear_sparse_cutedsl(
         assert bias.dim() == 1, "Expected bias to be 1D"
 
     k = input.shape[-1]
+    # An empty K would leave the kernel's K loop with nothing to wait on while
+    # the producer's prologue loads are still in flight, so it is declined.
+    assert k > 0, "Input K must be positive"
     assert k % 32 == 0, "Input K must be divisible by 32"
     assert weight.dim() == 2, f"Expected weight to be 2D, got {weight.dim()}D"
     n, weight_cols = weight.shape
@@ -1578,16 +1807,21 @@ def _rowwise_scaled_linear_sparse_cutedsl(
     assert k == 2 * weight_cols, "Input K must match compressed weight columns"
     assert weight_cols % 8 == 0, "Compressed weight columns must be divisible by 8"
     assert input.stride(-1) == 1, "Expected input in row-major layout"
-    expected_stride = input.stride(-2)
-    for i in range(input.dim() - 3, -1, -1):
-        expected_stride *= input.size(i + 1)
-        assert input.stride(i) == expected_stride, "Expected input in row-major layout"
+    # An empty input has no meaningful batch strides: torch gives a contiguous
+    # (2, 0, k) tensor stride(0) == k, not 0.
+    if input.numel() > 0:
+        expected_stride = input.stride(-2)
+        for i in range(input.dim() - 3, -1, -1):
+            expected_stride *= input.size(i + 1)
+            assert input.stride(i) == expected_stride, (
+                "Expected input in row-major layout"
+            )
     assert weight.stride(1) == 1, "Expected weight in row-major layout"
     assert weight_meta.dtype == torch.uint8, "Expected uint8 weight metadata"
     assert weight_meta.dim() == 2, "Expected weight metadata to be 2D"
     assert weight_meta.stride(1) == 1, "Expected metadata in row-major layout"
-    expected_meta_rows = max(((n + 63) // 64) * 64, 64)
-    expected_meta_cols = max(((weight_cols // 4 + 15) // 16) * 16, 16)
+    expected_meta_rows = max(round_up(n, 64), 64)
+    expected_meta_cols = max(round_up(weight_cols // 4, 16), 16)
     assert weight_meta.shape == (expected_meta_rows, expected_meta_cols), (
         "Unexpected weight metadata shape"
     )
@@ -1611,28 +1845,30 @@ def _rowwise_scaled_linear_sparse_cutedsl(
     # any live allocation will do; `output` is reused to avoid a second one. Its
     # shape (m*n) deliberately does not match a real bias (n).
     bias_arg = bias if bias is not None else output.reshape(-1)
-    input_dtype_name = _float8_name(input.dtype)
-    weight_dtype_name = _float8_name(weight.dtype)
-    scale_dtype_name = _float_name(input_scale.dtype)
-    output_dtype_name = _float_name(output_dtype)
     m = input_2d.shape[0]
-    num_sms = torch.cuda.get_device_properties(input.device).multi_processor_count
-    mma_per_wg = _select_mma_per_wg(m, n, num_sms)
-    cta_weight_rows = _cta_weight_rows(mma_per_wg)
+    if m == 0 or n == 0:
+        # Nothing to compute, and a zero-sized grid would be rejected by the
+        # launch.
+        return output.reshape(*input.shape[:-1], n)
+    device_index = input.get_device()
+    config, mma_per_wg = _select_config(m, n, _num_sms(device_index))
+    cta_weight_rows = _cta_weight_rows(mma_per_wg, config)
     compiled = _compile_rowwise_scaled_linear_sparse_cutedsl(
-        input_dtype_name,
-        weight_dtype_name,
-        scale_dtype_name,
-        output_dtype_name,
+        input.dtype,
+        weight.dtype,
+        input_scale.dtype,
+        output_dtype,
         bias is not None,
-        m % _WGMMA_INPUT_ROWS == 0,
+        m % config.input_rows == 0,
         n % cta_weight_rows == 0,
-        m % (2 * _WGMMA_INPUT_ROWS) == 0,
+        # The decode configuration mirrors legacy's, which has no cluster.
+        config == _DEFAULT_CONFIG and m % (2 * config.input_rows) == 0,
         weight_meta.shape[0] >= cta_weight_rows,
         mma_per_wg,
+        config,
     )
-    num_n_blocks = (n + cta_weight_rows - 1) // cta_weight_rows
-    num_m_blocks = (m + _WGMMA_INPUT_ROWS - 1) // _WGMMA_INPUT_ROWS
+    num_n_blocks = ceil_div(n, cta_weight_rows)
+    num_m_blocks = ceil_div(m, config.input_rows)
     raster_group_n = _RASTER_GROUP_N if num_n_blocks > 32 else num_n_blocks
     # The --enable-tvm-ffi runtime is positional-only, so this must match
     # the kernel's __call__ parameter order exactly (not the order above).
@@ -1651,7 +1887,7 @@ def _rowwise_scaled_linear_sparse_cutedsl(
         num_n_blocks,
         num_m_blocks,
         raster_group_n,
-        torch.cuda.current_stream(),
+        _current_raw_stream(device_index),
     )
     return output.reshape(*input.shape[:-1], n)
 
