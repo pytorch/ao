@@ -142,6 +142,45 @@ class TestGroupCountCorrection(common_utils.TestCase):
         )
         self.assertEqual(plain, corrected)
 
+    def test_low_precision_scaling_preserves_finite_scores_and_selection(self):
+        for dtype in (torch.float16, torch.bfloat16):
+            for ref in (1, 16):
+                with self.subTest(dtype=dtype, reference=ref):
+                    params = [
+                        torch.tensor(values, dtype=dtype).reshape(-1, 1)
+                        for values in ([40000, 45000, 50000, 55000], [60000, 62000])
+                    ]
+                    reference = [p.float() for p in params]
+                    prox = GlobalMinSparsityConstraint(0.0, 1 / 3, "l2")
+                    apply_global_prox(
+                        reference,
+                        prox,
+                        Dim0Grouper,
+                        {},
+                        1 / 3,
+                        score_group_count_ref=ref,
+                    )
+                    with mock.patch("torch.topk", wraps=torch.topk) as topk:
+                        result = apply_global_prox(
+                            params,
+                            prox,
+                            Dim0Grouper,
+                            {},
+                            1 / 3,
+                            score_group_count_ref=ref,
+                        )
+                    scores = topk.call_args.args[0]
+                    self.assertTrue(scores.isfinite().all())
+                    self.assertEqual(scores.dtype, torch.float32)
+                    self.assertEqual(
+                        [p.eq(0) for p in params], [p.eq(0) for p in reference]
+                    )
+                    self.assertEqual(
+                        params[0].eq(0).flatten().tolist(), [True, False, False, False]
+                    )
+                    self.assertEqual(params[1].eq(0).flatten().tolist(), [True, False])
+                    self.assertEqual(result.zero_elts, 2)
+
     def test_invalid_reference_before_mutation(self):
         for ref in (0, -1, 1.5, True):
             with self.subTest(reference=ref):
