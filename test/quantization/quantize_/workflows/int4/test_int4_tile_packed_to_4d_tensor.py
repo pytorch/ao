@@ -191,6 +191,41 @@ class TestInt4TilePackedTo4dTensor(TorchAOIntegrationTestCase):
             param.data.scale_and_zero.data_ptr() == param_data.scale_and_zero.data_ptr()
         )
 
+    def test_block_size_validated_against_scale_and_zero(self):
+        # Regression test for #4572: a block_size whose group size is smaller than
+        # the one scale_and_zero was packed with claims more groups along K than the
+        # tensor holds, which makes the tinygemm kernel read it out of bounds.
+        device = "cuda"
+        linear = torch.nn.Linear(
+            1024, 256, bias=False, dtype=torch.bfloat16, device=device
+        )
+        quantize_(linear, INT4_CONFIG)
+        qw = linear.weight
+        # scale_and_zero holds 1024 // 128 == 8 groups along K; a pinned group size
+        # of 32 would have the kernel walk 32 groups.
+        with self.assertRaisesRegex(AssertionError, "inconsistent with scale_and_zero"):
+            Int4TilePackedTo4dTensor(
+                qw.qdata,
+                qw.scale_and_zero,
+                [1, 32],
+                qw.shape,
+                act_pre_scale=qw.act_pre_scale,
+            )
+
+    def test_padded_in_features_accepted(self):
+        # from_hp pads K up to a multiple of 1024 before computing qparams but stores
+        # the unpadded shape, so scale_and_zero legitimately holds more groups than
+        # in_features // group_size. That must not trip the validation above.
+        device = "cuda"
+        linear = torch.nn.Linear(
+            1536, 256, bias=False, dtype=torch.bfloat16, device=device
+        )
+        quantize_(linear, INT4_CONFIG)
+        qw = linear.weight
+        # K padded 1536 -> 2048, so 2048 // 128 == 16 groups for in_features 1536.
+        self.assertEqual(qw.scale_and_zero.shape[-3], 16)
+        self.assertEqual(qw.shape[-1], 1536)
+
     def test_cant_initialize_in_cpu(self):
         config = INT4_CONFIG
         linear = torch.nn.Linear(128, 256, dtype=torch.bfloat16)
