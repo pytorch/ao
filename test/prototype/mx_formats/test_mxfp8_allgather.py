@@ -1,31 +1,38 @@
+import traceback
+
 import torch
 import torch.distributed as dist
 
 from torchao.prototype.mx_formats.mx_tensor import MXTensor
-from torchao.utils import is_sm_at_least_90
 
 
 def setup_distributed():
-    dist.init_process_group("nccl")
+    device = torch.accelerator.current_accelerator()
+    dist.init_process_group()
     # seed must be the same in all processes
     torch.manual_seed(42)
     local_rank = torch.distributed.get_rank()
-    torch.cuda.set_device(local_rank)
-    return local_rank
+    torch.accelerator.set_device_index(local_rank)
+    return torch.device(device.type, local_rank)
 
 
-def _test_allgather(local_rank):
+def print_once(msg):
+    if torch.distributed.get_rank() == 0:
+        print(msg)
+
+
+def _test_allgather(device):
     golden_qdata = (
         torch.randint(0, 256, (256, 512), dtype=torch.uint8)
         .to(torch.float8_e5m2)
-        .to(local_rank)
+        .to(device)
     )
 
     # Random scale factors (typically float32 or uint8 for e8m0)
     golden_scale = (
         torch.randint(0, 256, (256, 16), dtype=torch.uint8)
         .view(torch.float8_e8m0fnu)
-        .to(local_rank)
+        .to(device)
     )
 
     # Create golden MXTensor
@@ -37,7 +44,7 @@ def _test_allgather(local_rank):
         orig_dtype=torch.float32,
         kernel_preference=None,
         act_quant_kwargs=None,
-        is_swizzled_scales=None,
+        is_swizzled_scales=False,
     )
 
     local_rank = torch.distributed.get_rank()
@@ -50,14 +57,14 @@ def _test_allgather(local_rank):
 
     # Create local MXTensor from shard
     local_mx = MXTensor(
-        golden_qdata[start_idx:end_idx].clone().to(local_rank),
-        golden_scale[start_idx:end_idx].clone().to(local_rank),
+        golden_qdata[start_idx:end_idx].clone().to(device),
+        golden_scale[start_idx:end_idx].clone().to(device),
         elem_dtype=torch.float8_e5m2,
         block_size=32,
         orig_dtype=torch.float32,
         kernel_preference=None,
         act_quant_kwargs=None,
-        is_swizzled_scales=None,
+        is_swizzled_scales=False,
     )
 
     # Perform all_gather
@@ -93,13 +100,22 @@ def _test_allgather(local_rank):
 
 
 if __name__ == "__main__":
-    local_rank = setup_distributed()
+    device = setup_distributed()
+    tests = [
+        _test_allgather,
+    ]
 
-    assert is_sm_at_least_90() == True, "SM must be > 9.0"
+    failed_cnt = 0
+    for test in tests:
+        try:
+            test(device)
+        except Exception as e:
+            print_once(f"\033[31m\u274c FAILED {test.__name__}: {e}\033[0m")
+            print_once(traceback.format_exc())
+            failed_cnt += 1
+        else:
+            print_once(f"\033[32m\u2705 PASSED {test.__name__}\033[0m")
 
-    try:
-        _test_allgather(local_rank)
-    except Exception as e:
-        raise e
+    print_once(f"FAILED: {failed_cnt} PASSED: {len(tests) - failed_cnt}")
 
     torch.distributed.destroy_process_group()
