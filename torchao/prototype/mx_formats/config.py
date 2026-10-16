@@ -82,7 +82,7 @@ def _validate_elem_dtype(elem_dtype: torch.dtype) -> None:
 
 
 def _validate_kernel_preference(kernel_preference, block_size, elem_dtype):
-    if kernel_preference == KernelPreference.AUTO:
+    if kernel_preference in (KernelPreference.AUTO, KernelPreference.ASCEND):
         if elem_dtype in (torch.float8_e4m3fn, torch.float4_e2m1fn_x2):
             assert block_size == 32, f"block_size must be 32, got {block_size}"
         else:
