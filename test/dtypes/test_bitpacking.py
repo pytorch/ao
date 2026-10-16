@@ -88,3 +88,20 @@ def test_pack_example_CPU():
     assert torch.tensor([39, 146], dtype=torch.uint8).allclose(shard_2)
     unpacked = unpack([shard_4, shard_2], 6)
     assert unpacked.allclose(test_tensor)
+
+
+@pytest.mark.parametrize("bit_width", bit_widths)
+def test_default_dim_roundtrip(bit_width):
+    """Default pack/unpack must preserve shape for multidimensional tensors.
+
+    Regression for https://github.com/pytorch/ao/issues/4815: unpack used to
+    default to dim=0 while pack defaulted to dim=-1, so a default round trip
+    permuted the packed extent (e.g. (8, 16) -> (16, 8)).
+    """
+    test_tensor = torch.randint(0, 2**bit_width, (8, 16), dtype=torch.uint8)
+
+    packed = pack(test_tensor, bit_width)
+    unpacked = unpack(packed, bit_width)
+
+    assert unpacked.shape == test_tensor.shape
+    assert unpacked.allclose(test_tensor)
