@@ -252,6 +252,11 @@ def test_inductor_aot_autograd_cache_rowwise_with_gw_hp():
     config = Float8LinearConfig.from_recipe_name(
         Float8LinearRecipeName.ROWWISE_WITH_GW_HP
     )
+    # AOTAutograd caching requires the plain (undecorated) autograd Functions;
+    # the `allow_in_graph` trampolines are not cacheable. Opt out of
+    # `allow_in_graph` so the cache path under test is exercised.
+    # hack around config being frozen
+    object.__setattr__(config, "_autograd_fn_allow_in_graph", False)
     model = Float8Linear.from_float(
         nn.Linear(16, 32, bias=True, device=device, dtype=torch.bfloat16),
         config,
