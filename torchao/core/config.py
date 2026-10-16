@@ -27,7 +27,7 @@ _DEFAULT_VERSION = 1
 class AOBaseConfig(abc.ABC):
     """
     If a workflow config inherits from this then `quantize_` knows
-    how to a apply it to a model. For example::
+    how to apply it to a model. For example::
 
         # user facing code
         class WorkflowFooConfig(AOBaseConfig): ...
