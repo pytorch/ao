@@ -12,9 +12,10 @@ from torch.testing._internal import common_utils
 from torchao.quantization import (
     Int8DynamicActivationInt8WeightConfig,
     Int8StaticActivationInt8WeightConfig,
+    Int8WeightOnlyConfig,
     quantize_,
 )
-from torchao.quantization.granularity import PerRow, PerTensor
+from torchao.quantization.granularity import PerGroup, PerRow, PerTensor
 from torchao.quantization.quant_primitives import (
     _DTYPE_TO_QVALUE_BOUNDS,
     MappingType,
@@ -114,6 +115,33 @@ class TestInt8TensorCPU(TorchAOIntegrationTestCase):
         assert compute_error(output_fp, output_quantized) > 20, (
             f"Quantization error is too high got a SQNR of {compute_error(output_fp, output_quantized)}"
         )
+
+    @common_utils.parametrize(
+        "config",
+        [
+            Int8WeightOnlyConfig(version=2, granularity=PerRow()),
+            Int8WeightOnlyConfig(version=2, granularity=PerGroup(32)),
+            Int8DynamicActivationInt8WeightConfig(version=2, granularity=PerRow()),
+        ],
+    )
+    @common_utils.parametrize(
+        "start,end", [(None, -32), (-32, None), (-96, -32), (-1000, None)]
+    )
+    def test_slice_negative_indices(self, config, start, end):
+        """Negative slice indices must produce the same quantized tensor as the
+        equivalent non-negative indices, including on a blocked dimension."""
+        linear = torch.nn.Linear(128, 64, bias=False, dtype=torch.bfloat16)
+        quantize_(linear, config)
+        weight = linear.weight
+
+        for dim in (0, 1):
+            pos_start, pos_end, _ = slice(start, end).indices(weight.shape[dim])
+            sliced = torch.ops.aten.slice.Tensor(weight, dim, start, end)
+            expected = torch.ops.aten.slice.Tensor(weight, dim, pos_start, pos_end)
+
+            self.assertEqual(sliced.qdata, expected.qdata)
+            self.assertEqual(sliced.scale, expected.scale)
+            self.assertEqual(sliced.dequantize(), expected.dequantize())
 
 
 if __name__ == "__main__":
