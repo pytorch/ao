@@ -389,7 +389,8 @@ class TestGPTQFlow:
     @pytest.mark.skipif(not torch.cuda.is_available(), reason="Need CUDA available")
     @pytest.mark.parametrize("in_features", [480, 512])
     @pytest.mark.parametrize("block_size", [128, 256, 1024])
-    def test_int8_per_row_scales_cover_all_blocks(self, in_features, block_size):
+    @pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16, torch.float16])
+    def test_int8_per_row_scales_cover_all_blocks(self, in_features, block_size, dtype):
         weight = torch.cat(
             (
                 torch.linspace(-1, 1, 256, device="cuda"),
@@ -397,6 +398,7 @@ class TestGPTQFlow:
             )
         ).unsqueeze(0)
         weight = weight * torch.tensor([0.5, 1, 2, 4], device="cuda").unsqueeze(1)
+        weight = weight.to(dtype)
         expected = Int8Tensor.from_hp(weight, granularity=PerRow())
 
         # With no correlation between columns, GPTQ should match ordinary
