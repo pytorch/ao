@@ -1594,6 +1594,7 @@ class FqnToConfig(AOBaseConfig):
 
     Note:
         - The order of patterns in the OrderedDict may matter as only the first matching pattern is applied
+        - An exact parameter name takes precedence over parameter regexes regardless of their order.
         - "_default" is ignored for parameter replacement.
     """
 
@@ -1714,6 +1715,8 @@ def _fqn_to_config_handler(
 
     # Next try to match parameters on regex patterns
     for i, parameter_name, param, parameter_fqn in top_level_params:
+        if parameter_fqn in config.fqn_to_config:
+            continue
         for pattern in config.fqn_to_config:
             if pattern.startswith("re:") and re.fullmatch(pattern[3:], parameter_fqn):
                 parameter_config_found = True
