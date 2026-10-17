@@ -24,18 +24,21 @@ jobs:
       matrix:
         include:
           - name: CUDA Nightly
+            python-version: "3.10"
             runs-on: mt-l-x86aavx2-45-167-a10g-4
             torch-spec: '--pre torch torchvision --index-url https://download.pytorch.org/whl/nightly/cu126'
             gpu-arch-type: "cuda"
             gpu-arch-version: "12.6"
             compiler: ""
           - name: CPU Nightly
+            python-version: "3.11"
             runs-on: mt-l-x86iavx512-16-128
             torch-spec: '--pre torch torchvision --index-url https://download.pytorch.org/whl/nightly/cpu'
             gpu-arch-type: "cpu"
             gpu-arch-version: ""
             compiler: ""
           - name: CPU Nightly (Clang)
+            python-version: "3.11"
             runs-on: mt-l-x86iavx512-16-128
             torch-spec: '--pre torch torchvision --index-url https://download.pytorch.org/whl/nightly/cpu'
             gpu-arch-type: "cpu"
@@ -59,7 +62,7 @@ jobs:
           # so we cannot install clangxx via conda here.
           dnf install -y clang
           clang --version
-          conda create -n venv python=3.10 libgcc-ng=11.2.0 libstdcxx-ng=11.2.0 -y
+          conda create -n venv python=${{ matrix.python-version }} libgcc-ng=11.2.0 libstdcxx-ng=11.2.0 -y
           conda activate venv
           export CC=clang
           export CXX=clang++
@@ -71,13 +74,15 @@ jobs:
           # in setup.py and not otherwise exercised by any OSS CI job.
           export USE_CPU_KERNELS=1
         else
-          conda create -n venv python=3.10 libgcc-ng=11.2.0 libstdcxx-ng=11.2.0 -y
+          conda create -n venv python=${{ matrix.python-version }} libgcc-ng=11.2.0 libstdcxx-ng=11.2.0 -y
           conda activate venv
         fi
         python -m pip install --upgrade pip
         pip install ${{ matrix.torch-spec }}
+        python -c "import sys, torch, torchvision; print(sys.version, torch.__version__, torchvision.__version__)"
         pip install -r dev-requirements.txt
         pip install . --no-build-isolation
+        python -c "import sys, torch, torchvision; print(sys.version, torch.__version__, torchvision.__version__)"
         export CONDA=$(dirname $(dirname $(which conda)))
         export LD_LIBRARY_PATH=$CONDA/lib/:$LD_LIBRARY_PATH
         # PT2E tests (test/quantization/pt2e) are intentionally excluded here.
