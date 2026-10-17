@@ -39,11 +39,13 @@ jobs:
           # PyTorch nightly -- catches breakages from upstream PT2E/Inductor
           # changes early.
           - name: CPU Nightly
+            python-version: "3.11"
             runs-on: mt-l-x86iavx512-16-128
             torch-spec: '--pre torch torchvision --index-url https://download.pytorch.org/whl/nightly/cpu'
           # Pinned release -- validates PT2E against the currently supported
           # stable PyTorch.
           - name: CPU 2.13
+            python-version: "3.10"
             runs-on: mt-l-x86iavx512-16-128
             torch-spec: 'torch==2.13.0 torchvision==0.28.0 --index-url https://download.pytorch.org/whl/cpu'
 
@@ -58,12 +60,14 @@ jobs:
       gpu-arch-version: ""
       submodules: recursive
       script: |
-        conda create -n venv python=3.10 libgcc-ng=11.2.0 libstdcxx-ng=11.2.0 -y
+        conda create -n venv python=${{ matrix.python-version }} libgcc-ng=11.2.0 libstdcxx-ng=11.2.0 -y
         conda activate venv
         python -m pip install --upgrade pip
         pip install ${{ matrix.torch-spec }}
+        python -c "import sys, torch, torchvision; print(sys.version, torch.__version__, torchvision.__version__)"
         pip install -r dev-requirements.txt
         pip install . --no-build-isolation
+        python -c "import sys, torch, torchvision; print(sys.version, torch.__version__, torchvision.__version__)"
         export CONDA=$(dirname $(dirname $(which conda)))
         export LD_LIBRARY_PATH=$CONDA/lib/:$LD_LIBRARY_PATH
         # Bound the worker count: these tests launch Inductor/C++ compilers,
