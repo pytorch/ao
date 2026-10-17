@@ -266,12 +266,10 @@ implements_torch_function = Int8Tensor.implements_torch_function
 @implements(aten.linear.default)
 @implements_torch_function(torch.nn.functional.linear)
 def _(func, types, args, kwargs):
-    """INT8 quantization: dynamic activation or weight-only"""
-    activation_tensor, weight_tensor, bias = (
-        args[0],
-        args[1],
-        args[2] if len(args) > 2 else None,
-    )
+    """INT8 linear with positional or keyword input, weight, and bias arguments."""
+    activation_tensor = kwargs.get("input", args[0] if len(args) > 0 else None)
+    weight_tensor = kwargs.get("weight", args[1] if len(args) > 1 else None)
+    bias = kwargs.get("bias", args[2] if len(args) > 2 else None)
 
     assert isinstance(weight_tensor, Int8Tensor), (
         f"Expected weight to be Int8Tensor, got {type(weight_tensor)}"
