@@ -79,17 +79,21 @@ def _partitions_sequential(partitions: Sequence[SourcePartition]):
     return True
 
 
-def _get_matching_types(partition_type):
+def _get_matching_types(partition_type, include_functional_equivalent=True):
     matching_types = [partition_type]
-    if partition_type in _EQUIVALENT_TYPES_DICT:
+    if include_functional_equivalent and partition_type in _EQUIVALENT_TYPES_DICT:
         matching_types.extend(_EQUIVALENT_TYPES_DICT[partition_type])
     return matching_types
 
 
-def _valid_type_sequence(partition_types: list[Any]):
+def _valid_type_sequence(
+    partition_types: list[Any], include_functional_equivalent=True
+):
     partition_types_set = set()  # type: ignore[var-annotated]
     for partition_type in partition_types:
-        matching_types = _get_matching_types(partition_type)
+        matching_types = _get_matching_types(
+            partition_type, include_functional_equivalent
+        )
         matching_types_set = set(matching_types)
         if len(partition_types_set & matching_types_set) > 0:
             return False
@@ -103,14 +107,17 @@ def find_sequential_partitions(
     include_functional_equivalent=True,
     filter_fn: Optional[Callable[[Node], bool]] = None,
 ):
-    if not _valid_type_sequence(partition_types):
+    """Find connected source partitions, optionally matching functional equivalents."""
+    if not _valid_type_sequence(partition_types, include_functional_equivalent):
         raise ValueError(
             f"Invalid partition types: {partition_types}. Each type in the sequence must be unique"
         )
 
     typed_partitions: OrderedDict[Any, list[SourcePartition]] = OrderedDict()
     for partition_type in partition_types:
-        types_to_match = _get_matching_types(partition_type)
+        types_to_match = _get_matching_types(
+            partition_type, include_functional_equivalent
+        )
         partitions = get_source_partitions(gm.graph, types_to_match, filter_fn)
         typed_partitions[partition_type] = list(
             itertools.chain.from_iterable(partitions.values())
