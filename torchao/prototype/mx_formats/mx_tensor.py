@@ -746,9 +746,9 @@ def _addmm_mx_dispatch(
         a = MXTensor.to_mx(
             a,
             k.elem_dtype,
-            k.block_size,
-            k.scaling_mode,
-            k.kernel_preference,
+            block_size=k.block_size,
+            scaling_mode=k.scaling_mode,
+            kernel_preference=k.kernel_preference,
             is_swizzled_scales=k.is_swizzled_scales,
         )
 
