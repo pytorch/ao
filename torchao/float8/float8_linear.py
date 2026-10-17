@@ -104,12 +104,11 @@ class matmul_with_hp_or_float8_args(torch.autograd.Function):
         #
 
         if tensor_already_casted_to_fp8(grad_output_reshaped):
-            # TODO(future PR): this var name is axiswise-specific, fix it
-            grad_output_reshaped_maybe_fp8_dim0 = grad_output_reshaped
+            grad_output_maybe_fp8_for_grad_input = grad_output_reshaped
         elif c.cast_config_grad_output.scaling_type is ScalingType.DISABLED:
-            grad_output_reshaped_maybe_fp8_dim0 = grad_output_reshaped
+            grad_output_maybe_fp8_for_grad_input = grad_output_reshaped
         else:
-            grad_output_reshaped_maybe_fp8_dim0 = hp_tensor_to_float8_dynamic(
+            grad_output_maybe_fp8_for_grad_input = hp_tensor_to_float8_dynamic(
                 grad_output_reshaped,
                 c.cast_config_grad_output.target_dtype,
                 ctx.linear_mm_config,
@@ -122,12 +121,11 @@ class matmul_with_hp_or_float8_args(torch.autograd.Function):
             )
 
         if tensor_already_casted_to_fp8(weight_hp_t):
-            # TODO(future PR): var name is axiswise specific, fix it
-            weight_t_maybe_fp8_dim0 = weight_hp_t
+            weight_t_maybe_fp8_for_grad_input = weight_hp_t
         elif c.cast_config_weight_for_grad_input.scaling_type is ScalingType.DISABLED:
-            weight_t_maybe_fp8_dim0 = weight_hp_t
+            weight_t_maybe_fp8_for_grad_input = weight_hp_t
         else:
-            weight_t_maybe_fp8_dim0 = hp_tensor_to_float8_dynamic(
+            weight_t_maybe_fp8_for_grad_input = hp_tensor_to_float8_dynamic(
                 weight_hp_t,
                 c.cast_config_weight_for_grad_input.target_dtype,
                 ctx.linear_mm_config,
@@ -140,8 +138,8 @@ class matmul_with_hp_or_float8_args(torch.autograd.Function):
             )
 
         grad_input = torch.mm(
-            grad_output_reshaped_maybe_fp8_dim0,
-            weight_t_maybe_fp8_dim0.t(),
+            grad_output_maybe_fp8_for_grad_input,
+            weight_t_maybe_fp8_for_grad_input.t(),
         )
         grad_input = grad_input.reshape(
             *grad_output_orig_shape[:-1], grad_input.shape[-1]
@@ -155,15 +153,14 @@ class matmul_with_hp_or_float8_args(torch.autograd.Function):
         #
 
         if tensor_already_casted_to_fp8(grad_output_reshaped):
-            # TODO(future PR): var name is axiswise specific, fix it
-            grad_output_reshaped_maybe_fp8_dim1 = grad_output_reshaped
+            grad_output_maybe_fp8_for_grad_weight = grad_output_reshaped
         elif (
             c.cast_config_grad_output_for_grad_weight.scaling_type
             is ScalingType.DISABLED
         ):
-            grad_output_reshaped_maybe_fp8_dim1 = grad_output_reshaped
+            grad_output_maybe_fp8_for_grad_weight = grad_output_reshaped
         else:
-            grad_output_reshaped_maybe_fp8_dim1 = hp_tensor_to_float8_dynamic(
+            grad_output_maybe_fp8_for_grad_weight = hp_tensor_to_float8_dynamic(
                 grad_output_reshaped,
                 c.cast_config_grad_output_for_grad_weight.target_dtype,
                 ctx.linear_mm_config,
@@ -176,12 +173,11 @@ class matmul_with_hp_or_float8_args(torch.autograd.Function):
             )
 
         if tensor_already_casted_to_fp8(input_hp_reshaped):
-            # TODO(future PR): var name is axiswise specific, fix it
-            input_reshaped_maybe_fp8_dim1 = input_hp_reshaped
+            input_maybe_fp8_for_grad_weight = input_hp_reshaped
         elif c.cast_config_input_for_grad_weight.scaling_type is ScalingType.DISABLED:
-            input_reshaped_maybe_fp8_dim1 = input_hp_reshaped
+            input_maybe_fp8_for_grad_weight = input_hp_reshaped
         else:
-            input_reshaped_maybe_fp8_dim1 = hp_tensor_to_float8_dynamic(
+            input_maybe_fp8_for_grad_weight = hp_tensor_to_float8_dynamic(
                 input_hp_reshaped,
                 c.cast_config_input_for_grad_weight.target_dtype,
                 ctx.linear_mm_config,
@@ -194,8 +190,8 @@ class matmul_with_hp_or_float8_args(torch.autograd.Function):
             )
 
         grad_weight = torch.mm(
-            grad_output_reshaped_maybe_fp8_dim1.t(),
-            input_reshaped_maybe_fp8_dim1,
+            grad_output_maybe_fp8_for_grad_weight.t(),
+            input_maybe_fp8_for_grad_weight,
         )
 
         empty_grads = None, None
