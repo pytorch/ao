@@ -1435,6 +1435,7 @@ def test_cutedsl_kernels_work_with_valid_128_multiple_groups():
 # (`to_mx` with FLOOR mode), gated on `_mxfp8_flydsl_kernels_available`.
 # =============================================================================
 
+
 # Explicit shape tuples (not full M×K×N×E cross-products) so the suite runs
 # in O(seconds). Each list holds a full-tile shape, an edge shape, and a
 # K/N *tail* shape whose K is deliberately not a multiple of the kernel tile,
@@ -1446,6 +1447,20 @@ def test_cutedsl_kernels_work_with_valid_128_multiple_groups():
 #   1x32: tile K = 2048; tail K=2080 (2080 % 2048 != 0).
 #   32x1: tile K =  256; tail K=1408 (DSV3 hidden_dim, 1408 % 256 != 0).
 #   3D:   tile K =  256; tail K=1408 (DSV3 hidden_dim, 1408 % 256 != 0).
+def test_flydsl_runtime_requires_min_version(monkeypatch):
+    """A FlyDSL older than the stable-API floor reports as a missing package
+    instead of failing later at import or kernel-compile time."""
+    from torchao.prototype.moe_training.kernels.mxfp8 import flydsl_utils
+
+    monkeypatch.setattr(flydsl_utils.importlib.util, "find_spec", lambda _: object())
+    monkeypatch.setattr(flydsl_utils, "_flydsl_version", lambda: ((0, 3, 2), "0.3.2"))
+    assert flydsl_utils._missing_flydsl_runtime_packages() == [
+        "flydsl>=0.3.4 (found 0.3.2)"
+    ]
+    monkeypatch.setattr(flydsl_utils, "_flydsl_version", lambda: ((0, 3, 4), "0.3.4.1"))
+    assert flydsl_utils._missing_flydsl_runtime_packages() == []
+
+
 _FLYDSL_1X32_SHAPES = ((1, 2048), (128, 4096), (64, 2080))  # (M, K)
 _FLYDSL_32X1_SHAPES = ((32, 256), (128, 5120), (64, 1408))  # (M, K)
 _FLYDSL_3D_SHAPES = ((1, 32, 256), (4, 64, 1024), (2, 64, 1408))  # (E, N, K)
