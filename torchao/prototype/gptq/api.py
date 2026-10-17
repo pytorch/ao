@@ -469,11 +469,10 @@ def gptq_quantize(H: torch.Tensor, W_t: torch.Tensor, config: GPTQConfig):
                     )
                     group_qparams.append((scale, zero_point))
                 elif isinstance(base_config, Int8WeightOnlyConfig):
+                    # The scale is reused for the whole row, so include weights
+                    # beyond the current GPTQ processing block when choosing it.
                     quantized_tensor = Int8Tensor.from_hp(
-                        B_cur[
-                            :,
-                            G_k_start - B_cur_k_start : G_k_end - B_cur_k_start,
-                        ],
+                        W_t,
                         base_config.granularity,
                     )
                 elif isinstance(base_config, NVFP4DynamicActivationNVFP4WeightConfig):

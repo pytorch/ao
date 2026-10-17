@@ -26,7 +26,12 @@ from torchao.prototype.gptq.observer import GPTQObserverTensor
 from torchao.prototype.mx_formats.inference_workflow import (
     NVFP4DynamicActivationNVFP4WeightConfig,
 )
-from torchao.quantization import Int4WeightOnlyConfig, Int8WeightOnlyConfig, quantize_
+from torchao.quantization import (
+    Int4WeightOnlyConfig,
+    Int8Tensor,
+    Int8WeightOnlyConfig,
+    quantize_,
+)
 from torchao.quantization.granularity import PerRow
 from torchao.utils import (
     _is_mslk_available,
@@ -381,6 +386,34 @@ class TestGPTQObserverTensor:
 
 
 class TestGPTQFlow:
+    @pytest.mark.skipif(not torch.cuda.is_available(), reason="Need CUDA available")
+    @pytest.mark.parametrize("in_features", [480, 512])
+    @pytest.mark.parametrize("block_size", [128, 256, 1024])
+    def test_int8_per_row_scales_cover_all_blocks(self, in_features, block_size):
+        weight = torch.cat(
+            (
+                torch.linspace(-1, 1, 256, device="cuda"),
+                torch.linspace(-16, 16, in_features - 256, device="cuda"),
+            )
+        ).unsqueeze(0)
+        weight = weight * torch.tensor([0.5, 1, 2, 4], device="cuda").unsqueeze(1)
+        expected = Int8Tensor.from_hp(weight, granularity=PerRow())
+
+        # With no correlation between columns, GPTQ should match ordinary
+        # rounding even when the largest weights are past the first block.
+        actual = gptq_quantize(
+            torch.eye(in_features, device="cuda"),
+            weight.clone(),
+            GPTQConfig(
+                step="convert",
+                base_config=Int8WeightOnlyConfig(granularity=PerRow(), version=2),
+                gptq_quantize_block_size=block_size,
+            ),
+        )
+
+        torch.testing.assert_close(actual.scale, expected.scale, rtol=0, atol=0)
+        torch.testing.assert_close(actual.qdata, expected.qdata, rtol=0, atol=0)
+
     @pytest.mark.skipif(not torch.cuda.is_available(), reason="Need CUDA available")
     @pytest.mark.parametrize(
         "base_config",
