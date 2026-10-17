@@ -76,7 +76,7 @@ import torch
 from torchao.quantization import Int4WeightOnlyConfig, quantize_
 quantize_(model, Int4WeightOnlyConfig(group_size=32, int4_packing_format="tile_packed_to_4d", int4_choose_qparams_algorithm="hqq"))
 ```
-See our [quick start guide](https://docs.pytorch.org/ao/stable/quick_start.html) for more details.
+See our [quick start guide](https://docs.pytorch.org/ao/stable/eager_tutorials/first_quantization_example.html) for more details.
 
 ## 🛠 Installation
 
@@ -152,7 +152,7 @@ quantized_model = AutoModelForCausalLM.from_pretrained(
 )
 ```
 
-Alternative quantization API to use when the above doesn't work is `quantize_` API in [quick start guide](https://docs.pytorch.org/ao/main/quick_start.html).
+Alternative quantization API to use when the above doesn't work is `quantize_` API in [quick start guide](https://docs.pytorch.org/ao/main/eager_tutorials/first_quantization_example.html).
 
 Serving with vllm on 1xH100 machine:
 ```shell
