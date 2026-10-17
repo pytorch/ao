@@ -14,7 +14,7 @@ from torchao.quantization import (
     Int8StaticActivationInt8WeightConfig,
     quantize_,
 )
-from torchao.quantization.granularity import PerRow, PerTensor
+from torchao.quantization.granularity import PerBlock, PerGroup, PerRow, PerTensor
 from torchao.quantization.quant_primitives import (
     _DTYPE_TO_QVALUE_BOUNDS,
     MappingType,
@@ -32,6 +32,27 @@ from torchao.utils import (
 
 @common_utils.instantiate_parametrized_tests
 class TestInt8TensorCPU(TorchAOIntegrationTestCase):
+    @common_utils.parametrize("shape", [(4, 8), (4, 6, 8)])
+    @common_utils.parametrize(
+        "granularity", [PerTensor(), PerRow(), PerGroup(4), PerBlock((2, 4))]
+    )
+    @common_utils.parametrize(
+        "mapping_type", [MappingType.SYMMETRIC, MappingType.ASYMMETRIC]
+    )
+    def test_select_block_qparams(self, shape, granularity, mapping_type):
+        weight = Int8Tensor.from_hp(
+            torch.randn(shape), granularity, mapping_type=mapping_type
+        )
+        dequantized = weight.dequantize()
+        for index in (0, 1, 2, -1, -2, -4):
+            with self.subTest(index=index):
+                selected = weight[index]
+                self.assertEqual(selected.qdata, weight.qdata[index])
+                self.assertEqual(selected.block_size, weight.block_size[1:])
+                self.assertEqual(
+                    selected.dequantize(), dequantized[index], atol=0, rtol=0
+                )
+
     # Note: The reduce_range parameter can be manually set by users via the config.
     # This UT only tests automatic reduce_range to avoid CI failures on CPUs without VNNI support.
     @common_utils.parametrize("dtype", [torch.bfloat16, torch.float32])
