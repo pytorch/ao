@@ -73,7 +73,7 @@ def _assert_and_get_unique_device(module: torch.nn.Module) -> Any:
 
 
 def benchmark_model(model, num_runs, args=(), kwargs=None, device_type=None):
-    """Benchmark model runs with `args` and `kwargs` both are optional"""
+    """Return average model execution time in milliseconds; args and kwargs are optional."""
     if kwargs is None:
         kwargs = {}
 
@@ -124,7 +124,7 @@ def benchmark_model(model, num_runs, args=(), kwargs=None, device_type=None):
 
         end_time = time.time()
         torch.cpu.synchronize()
-        average_time_per_run = (end_time - start_time) / num_runs
+        average_time_per_run = (end_time - start_time) * 1000 / num_runs
         return average_time_per_run
 
     elif device_type == "xpu":
