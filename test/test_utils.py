@@ -4,12 +4,17 @@
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
 import unittest
+from enum import Enum
 from unittest.mock import patch
 
 import torch
 import torch.nn.functional as F
 
-from torchao.utils import TorchAOBaseTensor, torch_version_at_least
+from torchao.utils import (
+    TorchAOBaseTensor,
+    register_as_pytree_constant,
+    torch_version_at_least,
+)
 
 
 class TestTorchVersion(unittest.TestCase):
@@ -34,6 +39,58 @@ class TestTorchVersion(unittest.TestCase):
                     expected_result,
                     f"Failed for torch.__version__={torch_version}, comparing with {compare_version}",
                 )
+
+
+class TestRegisterAsPytreeConstant(unittest.TestCase):
+    """PyTorch handles Enum values as opaque pytree constants natively.
+
+    Calling ``register_constant()`` on an Enum subclass is deprecated there and is
+    documented to become an error, so the decorator has to skip that case while
+    still registering ordinary configuration classes.
+    """
+
+    def test_enum_is_not_registered(self):
+        with patch("torch.utils._pytree.register_constant") as register_constant:
+
+            @register_as_pytree_constant
+            class SomeMode(Enum):
+                A = "a"
+                B = "b"
+
+        register_constant.assert_not_called()
+        # the decorator still has to hand back the class it decorated
+        self.assertIs(SomeMode.A.value, "a")
+        self.assertTrue(issubclass(SomeMode, Enum))
+
+    def test_str_enum_is_not_registered(self):
+        # KernelPreference is a (str, Enum), which is the one seen in practice.
+        with patch("torch.utils._pytree.register_constant") as register_constant:
+
+            @register_as_pytree_constant
+            class SomeStrMode(str, Enum):
+                A = "a"
+
+        register_constant.assert_not_called()
+        self.assertEqual(SomeStrMode.A, "a")
+
+    def test_non_enum_is_still_registered(self):
+        with patch("torch.utils._pytree.register_constant") as register_constant:
+
+            @register_as_pytree_constant
+            class SomeConfig:
+                pass
+
+        register_constant.assert_called_once_with(SomeConfig)
+        self.assertTrue(isinstance(SomeConfig, type))
+
+    def test_real_torchao_classes(self):
+        # The decorator is applied to both shapes in the tree: Enum config modes and
+        # ordinary dataclass configs. Both must still import and keep their identity.
+        from torchao.quantization.quantize_.common.kernel_preference import (
+            KernelPreference,
+        )
+
+        self.assertTrue(issubclass(KernelPreference, Enum))
 
 
 class TestTorchAOBaseTensor(unittest.TestCase):
