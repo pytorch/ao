@@ -282,38 +282,39 @@ class RunningAbsMaxSmoothQuantObserver(torch.nn.Module):
         if weight_quant_kwargs is None:
             return smoothing_factor, None, None
 
-        # Compute activation scale from second pass statistics
+        # Determine quantization parameters from weight_quant_kwargs
+        if isinstance(weight_quant_kwargs, QuantizeTensorToInt8Kwargs):
+            reduce_range = getattr(weight_quant_kwargs, "reduce_range", False)
+            mapping_type = getattr(
+                weight_quant_kwargs, "mapping_type", MappingType.SYMMETRIC
+            )
+            qmin, qmax = _DTYPE_TO_QVALUE_BOUNDS[torch.int8]
+            if reduce_range:
+                qmin, qmax = qmin // 2, qmax // 2
+            is_symmetric = mapping_type in (
+                MappingType.SYMMETRIC,
+                MappingType.SYMMETRIC_NO_CLIPPING_ERR,
+            )
+        elif isinstance(weight_quant_kwargs, dict):
+            qmin = weight_quant_kwargs.get("quant_min", -128)
+            qmax = weight_quant_kwargs.get("quant_max", 127)
+            is_symmetric = weight_quant_kwargs.get(
+                "is_symmetric",
+                weight_quant_kwargs.get("qscheme", None)
+                in (torch.per_tensor_symmetric, torch.per_channel_symmetric),
+            )
+        else:
+            qmin, qmax = _DTYPE_TO_QVALUE_BOUNDS[torch.int8]
+            is_symmetric = True
+
+        # Compute activation scale from second pass statistics if completed,
+        # otherwise compute analytically from per-channel max in a single pass
         if self._in_second_pass and self._second_pass_count > 0:
             assert self._smooth_input_min is not None
             assert self._smooth_input_max is not None
 
             smooth_min = self._smooth_input_min.to(self.device)
             smooth_max = self._smooth_input_max.to(self.device)
-
-            # Determine quantization parameters from weight_quant_kwargs
-            if isinstance(weight_quant_kwargs, QuantizeTensorToInt8Kwargs):
-                reduce_range = getattr(weight_quant_kwargs, "reduce_range", False)
-                mapping_type = getattr(
-                    weight_quant_kwargs, "mapping_type", MappingType.SYMMETRIC
-                )
-                qmin, qmax = _DTYPE_TO_QVALUE_BOUNDS[torch.int8]
-                if reduce_range:
-                    qmin, qmax = qmin // 2, qmax // 2
-                is_symmetric = mapping_type in (
-                    MappingType.SYMMETRIC,
-                    MappingType.SYMMETRIC_NO_CLIPPING_ERR,
-                )
-            elif isinstance(weight_quant_kwargs, dict):
-                qmin = weight_quant_kwargs.get("quant_min", -128)
-                qmax = weight_quant_kwargs.get("quant_max", 127)
-                is_symmetric = weight_quant_kwargs.get(
-                    "is_symmetric",
-                    weight_quant_kwargs.get("qscheme", None)
-                    in (torch.per_tensor_symmetric, torch.per_channel_symmetric),
-                )
-            else:
-                qmin, qmax = _DTYPE_TO_QVALUE_BOUNDS[torch.int8]
-                is_symmetric = True
 
             if is_symmetric:
                 # Symmetric quantization: scale based on max abs value
@@ -326,16 +327,20 @@ class RunningAbsMaxSmoothQuantObserver(torch.nn.Module):
                 scale = (smooth_max - smooth_min) / (qmax - qmin)
                 scale = torch.clamp(scale, min=torch.finfo(torch.float32).eps)
                 zero_point = torch.round(qmin - smooth_min / scale).to(torch.int8)
-
-            ndim = self.input_ndim if self.input_ndim is not None else 2
-            scale = scale.reshape([1] * ndim)
-            if zero_point is not None:
-                zero_point = zero_point.reshape([1] * ndim)
-
-            return smoothing_factor, scale, zero_point
         else:
-            # Second pass not completed, return None for activation scale
-            return smoothing_factor, None, None
+            # Single pass analytical computation:
+            # Max absolute value across all tokens and channels: max_c (x_abs_max_c / s_c)
+            abs_max = torch.max(self.x_abs_max.to(self.device) / smoothing_factor)
+            scale = abs_max / ((qmax - qmin) / 2)
+            scale = torch.clamp(scale, min=torch.finfo(torch.float32).eps)
+            zero_point = torch.zeros(1, dtype=torch.int8, device=self.device)
+
+        ndim = self.input_ndim if self.input_ndim is not None else 2
+        scale = scale.reshape([1] * ndim)
+        if zero_point is not None:
+            zero_point = zero_point.reshape([1] * ndim)
+
+        return smoothing_factor, scale, zero_point
 
 
 class SmoothQuantObservedLinear(torch.nn.Linear):

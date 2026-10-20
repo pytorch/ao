@@ -127,17 +127,11 @@ class TestSmoothQuant(unittest.TestCase):
 
         # Step 2. SmoothQuant
         model = deepcopy(m)
-        use_running_absmax = not isinstance(
-            base_config, Int8StaticActivationInt8WeightConfig
+        config = SmoothQuantConfig(
+            base_config=base_config,
+            step=QuantizationStep.PREPARE,
+            alpha=alpha,
         )
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore", UserWarning)
-            config = SmoothQuantConfig(
-                base_config=base_config,
-                step=QuantizationStep.PREPARE,
-                alpha=alpha,
-                use_running_absmax=use_running_absmax,
-            )
         quantize_(model, config)
 
         # Perform calibration with test data
@@ -591,8 +585,9 @@ class SmoothQuantObserverTest(unittest.TestCase):
         self.assertGreater(running_scale.item(), 0)
         self.assertIsNotNone(running_zp)
 
-    def test_no_second_pass_returns_none_scale(self):
-        """Without second pass, calculate_qparams should return None for activation scale."""
+    def test_single_pass_computes_analytical_scale(self):
+        """In single-pass mode, calculate_qparams should compute analytical activation scale
+        matching the two-pass empirical scale."""
         torch.manual_seed(42)
         in_features = 64
         out_features = 32
@@ -600,23 +595,33 @@ class SmoothQuantObserverTest(unittest.TestCase):
         weight = torch.randn(out_features, in_features)
         batches = [torch.randn(8, in_features) for _ in range(5)]
 
-        running_obs = RunningAbsMaxSmoothQuantObserver(weight=weight, alpha=0.5)
-
-        # Only first pass
-        for batch in batches:
-            running_obs(batch)
-
         weight_quant_kwargs = {
             "quant_min": -128,
             "quant_max": 127,
             "qscheme": torch.per_tensor_symmetric,
         }
 
-        sf, scale, zp = running_obs.calculate_qparams(weight_quant_kwargs)
+        # 1-pass observer
+        obs_1pass = RunningAbsMaxSmoothQuantObserver(weight=weight, alpha=0.5)
+        for batch in batches:
+            obs_1pass(batch)
+        sf1, scale1, zp1 = obs_1pass.calculate_qparams(weight_quant_kwargs)
 
-        self.assertIsNotNone(sf)
-        self.assertIsNone(scale)
-        self.assertIsNone(zp)
+        # 2-pass observer
+        obs_2pass = RunningAbsMaxSmoothQuantObserver(weight=weight, alpha=0.5)
+        for batch in batches:
+            obs_2pass(batch)
+        obs_2pass.compute_smoothing_factor()
+        for batch in batches:
+            obs_2pass(batch)
+        sf2, scale2, zp2 = obs_2pass.calculate_qparams(weight_quant_kwargs)
+
+        self.assertIsNotNone(sf1)
+        self.assertIsNotNone(scale1)
+        self.assertIsNotNone(zp1)
+        torch.testing.assert_close(sf1, sf2)
+        torch.testing.assert_close(scale1, scale2)
+        torch.testing.assert_close(zp1, zp2)
 
     def test_compute_smoothing_factor_resets_state(self):
         """compute_smoothing_factor should reset second pass state."""
@@ -820,6 +825,52 @@ class SmoothQuantObserverTest(unittest.TestCase):
                 # 3D inference (e.g. sequence input [batch, seq, hidden])
                 out3d = model(torch.randn(2, 5, 32))
                 self.assertEqual(out3d.shape, (2, 5, 64))
+
+    def test_single_pass_static_smoothquant_convert_and_multidim_inference(self):
+        """Test single-pass static SmoothQuant without PREPARE_FOR_SMOOTHQUANT_SMOOTHING_FACTOR."""
+        from torchao.quantization.quant_primitives import MappingType
+
+        torch.manual_seed(42)
+        for mapping in [MappingType.SYMMETRIC, MappingType.ASYMMETRIC]:
+            for reduce_range in [False, True]:
+                model = torch.nn.Sequential(torch.nn.Linear(32, 64))
+                base_config = Int8StaticActivationInt8WeightConfig(
+                    granularity=PerTensor(),
+                    act_mapping_type=mapping,
+                    reduce_range=reduce_range,
+                )
+                # 1. PREPARE
+                quantize_(
+                    model,
+                    SmoothQuantConfig(
+                        base_config=base_config,
+                        step=QuantizationStep.PREPARE,
+                    ),
+                )
+                calib_data = torch.randn(8, 32)
+                # Single calibration pass only (no second pass!)
+                model(calib_data)
+
+                # 2. CONVERT directly
+                quantize_(
+                    model,
+                    SmoothQuantConfig(
+                        base_config=base_config,
+                        step=QuantizationStep.CONVERT,
+                    ),
+                )
+
+                # Check act_quant_scale shape
+                self.assertEqual(model[0].weight.act_quant_scale.shape, (1, 1))
+
+                # 2D inference with different batch size
+                out2d = model(torch.randn(4, 32))
+                self.assertEqual(out2d.shape, (4, 64))
+
+                # 3D inference (e.g. sequence input [batch, seq, hidden])
+                out3d = model(torch.randn(2, 5, 32))
+                self.assertEqual(out3d.shape, (2, 5, 64))
+
 
 
 
