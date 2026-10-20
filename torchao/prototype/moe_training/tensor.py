@@ -322,13 +322,18 @@ class MXFP8TrainingWeightWrapperTensor(TrainingWeightWrapperBaseTensor):
                 "expected MXFP8TrainingOpConfig"
             )
 
-            return _to_mxfp8_then_scaled_mm(
+            output = _to_mxfp8_then_scaled_mm(
                 A,
                 unwrap_weight(B),
                 kernel_preference=config.kernel_preference,
                 scale_calculation_mode=config.scale_calculation_mode,
                 wgrad_with_hp=config.wgrad_with_hp,
             )
+            if func.__name__ == "linear":
+                bias = args[2] if len(args) > 2 else kwargs.get("bias")
+                if bias is not None:
+                    output = output + bias
+            return output
 
         else:
             # Disable torch_function by hand because we don't want
