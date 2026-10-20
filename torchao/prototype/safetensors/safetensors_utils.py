@@ -38,6 +38,10 @@ ALLOWED_CLASSES = {
     "QuantizeTensorToInt8Kwargs": QuantizeTensorToInt8Kwargs,
     "PerRow": torchao.quantization.PerRow,
     "PerTensor": torchao.quantization.PerTensor,
+    "PerAxis": torchao.quantization.PerAxis,
+    "PerBlock": torchao.quantization.PerBlock,
+    "PerGroup": torchao.quantization.PerGroup,
+    "PerToken": torchao.quantization.PerToken,
     "KernelPreference": KernelPreference,
     "MappingType": MappingType,
     "Int4PlainInt32Tensor": Int4PlainInt32Tensor,
@@ -207,9 +211,11 @@ def object_from_dict(data: Dict[str, Any]):
                 for item in value
             ]
         elif isinstance(value, tuple):
-            raise NotImplementedError(
-                "Tuples will be serialized as List in JSON, so we recommend to use "
-                f"Lists instead to avoid surprises. got: {value}"
+            processed_data[key] = tuple(
+                object_from_dict(item)
+                if isinstance(item, dict) and "_type" in item and "_data" in item
+                else item
+                for item in value
             )
         elif isinstance(value, dict):
             # Handle dicts of possible configs

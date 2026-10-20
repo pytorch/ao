@@ -871,6 +871,67 @@ class SmoothQuantObserverTest(unittest.TestCase):
                 out3d = model(torch.randn(2, 5, 32))
                 self.assertEqual(out3d.shape, (2, 5, 64))
 
+    def test_static_smoothquant_safetensors_roundtrip(self):
+        """Test safetensors serialization and unflattening of static SmoothQuant model."""
+        import json
+        import struct
+        import tempfile
+
+        from safetensors.torch import load_file, save_file
+
+        from torchao.prototype.safetensors.safetensors_support import (
+            flatten_tensor_state_dict,
+            unflatten_tensor_state_dict,
+        )
+
+        def _load_data(file_path: str, device: str = "cpu"):
+            loaded = load_file(file_path, device)
+            with open(file_path, "rb") as f:
+                header_size = struct.unpack("<Q", f.read(8))[0]
+                header = json.loads(f.read(header_size))
+                meta = header.get("__metadata__", {})
+            return loaded, meta
+
+        torch.manual_seed(42)
+        model = torch.nn.Sequential(
+            torch.nn.Linear(32, 64),
+            torch.nn.ReLU(),
+            torch.nn.Linear(64, 32),
+        )
+        base_config = Int8StaticActivationInt8WeightConfig(granularity=PerTensor())
+        quantize_(
+            model,
+            SmoothQuantConfig(base_config=base_config, step=QuantizationStep.PREPARE),
+        )
+        calib_data = torch.randn(8, 32)
+        model(calib_data)
+        quantize_(
+            model,
+            SmoothQuantConfig(base_config=base_config, step=QuantizationStep.CONVERT),
+        )
+
+        x_test = torch.randn(4, 32)
+        ref_out = model(x_test)
+
+        with tempfile.NamedTemporaryFile() as f:
+            tensors_data, metadata = flatten_tensor_state_dict(model.state_dict())
+            save_file(tensors_data, f.name, metadata=metadata)
+            loaded_tensors, loaded_metadata = _load_data(f.name)
+            reconstructed, leftover = unflatten_tensor_state_dict(
+                loaded_tensors, loaded_metadata
+            )
+            self.assertEqual(len(leftover), 0)
+
+        new_model = torch.nn.Sequential(
+            torch.nn.Linear(32, 64),
+            torch.nn.ReLU(),
+            torch.nn.Linear(64, 32),
+        )
+        new_model.load_state_dict(reconstructed, assign=True)
+        new_out = new_model(x_test)
+        torch.testing.assert_close(new_out, ref_out)
+
+
 
 
 
