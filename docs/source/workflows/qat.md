@@ -135,6 +135,76 @@ train_loop(model)
 # convert: (not shown, same as before)
 ```
 
+MX fake quantization can also be applied experimentally to `torch.nn.Conv2d`
+modules by passing explicit MX fake-quantize configs:
+
+```python
+from torchao.prototype.qat import MXFakeQuantizeConfig
+from torchao.quantization import quantize_
+from torchao.quantization.qat import QATConfig
+
+
+def conv_filter(module, fqn):
+    return isinstance(module, torch.nn.Conv2d)
+
+
+mx_config = MXFakeQuantizeConfig()
+quantize_(
+    model,
+    QATConfig(
+        activation_config=mx_config,
+        weight_config=mx_config,
+        step="prepare",
+    ),
+    conv_filter,
+)
+
+train_loop(model)
+
+# This restores floating-point Conv2d modules. MX Conv2d inference conversion
+# is not currently supported.
+quantize_(model, QATConfig(step="convert"), conv_filter)
+```
+
+For a model containing both MX Linear and Conv2d layers, reuse the
+`mx_config` and `conv_filter` values above and apply the two workflows
+separately:
+
+```python
+from torchao.prototype.mx_formats import MXDynamicActivationMXWeightConfig
+
+linear_base_config = MXDynamicActivationMXWeightConfig()
+
+# Prepare each module type separately.
+quantize_(model, QATConfig(linear_base_config, step="prepare"))
+quantize_(
+    model,
+    QATConfig(
+        activation_config=mx_config,
+        weight_config=mx_config,
+        step="prepare",
+    ),
+    conv_filter,
+)
+
+train_loop(model)
+
+# Convert Linear layers, then restore floating-point Conv2d layers.
+quantize_(model, QATConfig(linear_base_config, step="convert"))
+quantize_(model, QATConfig(step="convert"), conv_filter)
+```
+
+The Linear base config cannot be reused for the Conv2d conversion because MX
+Conv2d inference conversion is not currently supported.
+
+This path accepts the dtypes, block sizes, and scaling modes supported by
+`MXFakeQuantizeConfig`. It fake quantizes activation and weight blocks along the
+input-channel dimension, then runs the convolution in the original
+high-precision dtype. The `kernel_preference` setting does not select a Conv2d
+compute kernel. Input channels per group must be divisible by both the
+activation and weight MX block sizes. The supported high-precision activation
+and weight dtypes are `torch.float32` and `torch.bfloat16`.
+
 To fake quantize embedding in addition to linear, you can additionally call
 the following with a filter function during the prepare step:
 
