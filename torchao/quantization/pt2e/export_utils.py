@@ -105,9 +105,7 @@ def _replace_dropout(m: torch.fx.GraphModule, train_to_eval: bool):
             target_training = not train_to_eval
 
             def dropout_replacement(x):
-                return F.dropout(
-                    x, p=p, training=target_training, inplace=inplace
-                )
+                return F.dropout(x, p=p, training=target_training, inplace=inplace)
 
             return _get_aten_graph_module_for_pattern(
                 WrapperModule(dropout_replacement),
