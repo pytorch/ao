@@ -71,9 +71,11 @@ def unflatten_tensor_state_dict(
     for tensor_name in tensor_names:
         processed_tensors = []
 
-        module_fqn, weight_name = tensor_name.rsplit(".", 1)
-
-        prefix = f"{module_fqn}._{weight_name}_"
+        if "." in tensor_name:
+            module_fqn, weight_name = tensor_name.rsplit(".", 1)
+            prefix = f"{module_fqn}._{weight_name}_"
+        else:
+            prefix = f"_{tensor_name}_"
         tensor_tensors = {}
 
         for key, value in combined_data.items():
@@ -180,9 +182,13 @@ def flatten_tensor_state_dict(
 
             tensor_metadata = json.dumps(tensor, cls=TensorSubclassAttributeJSONEncoder)
 
-            # Clone tensors to avoid memory sharing issues
+            prefix = (
+                f"{tensor_name.rsplit('.', 1)[0]}._{tensor_name.rsplit('.', 1)[1]}_"
+                if "." in tensor_name
+                else f"_{tensor_name}_"
+            )
             tensors_dict_to_save = {
-                f"{tensor_name.rsplit('.', 1)[0]}._{tensor_name.rsplit('.', 1)[1]}_{key}": (
+                f"{prefix}{key}": (
                     value.detach().clone() if isinstance(value, torch.Tensor) else value
                 )
                 for key, value in tensor_dict.items()
