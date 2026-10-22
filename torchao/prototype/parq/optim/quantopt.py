@@ -13,8 +13,7 @@ import torch
 from torch import Tensor, nn
 from torch.optim import Optimizer
 
-from torchao.quantization import quantize_
-from torchao.quantization.quant_api import _is_linear
+from torchao.quantization.quant_api import _is_linear, quantize_
 
 from ..quant import Quantizer, UnifTorchaoQuantizer
 from ..quant.config_torchao import (
