@@ -186,9 +186,7 @@ class TestStaticQuantizationDocExample(TestCase):
                     mod, copy.deepcopy(act_obs), copy.deepcopy(weight_obs)
                 )
 
-            _replace_with_custom_fn_if_matches_filter(
-                model, replacement_fn, _is_linear
-            )
+            _replace_with_custom_fn_if_matches_filter(model, replacement_fn, _is_linear)
 
         insert_observers_(m, act_obs, weight_obs)
 
