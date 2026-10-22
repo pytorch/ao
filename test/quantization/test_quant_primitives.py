@@ -654,12 +654,8 @@ class TestQuantPrimitives(unittest.TestCase):
 
         # end to end: quantizing with these qparams should actually work,
         # instead of raising the shape-mismatch RuntimeError from before
-        q = quantize_affine(
-            input, block_size, scale, zero_point, torch.int8
-        )
-        dq = dequantize_affine(
-            q, block_size, scale, zero_point, torch.int8
-        )
+        q = quantize_affine(input, block_size, scale, zero_point, torch.int8)
+        dq = dequantize_affine(q, block_size, scale, zero_point, torch.int8)
         # per-element quantization (no grouping) should be near-lossless
         self.assertTrue(torch.allclose(input, dq, atol=1e-1))
 
