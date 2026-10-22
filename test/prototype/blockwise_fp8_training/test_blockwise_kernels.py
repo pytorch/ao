@@ -4,6 +4,11 @@
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
 
+import os
+import shutil
+import subprocess
+import sys
+
 import pytest
 import torch
 
@@ -93,6 +98,46 @@ def test_triton_fp8_gemm_1x128_128x1(M, N, K, dtype):
     sqnr = compute_error(C, C_q)
     min_sqnr = 28.0
     assert sqnr >= min_sqnr, f"SQNR {sqnr:.2f} must be >= {min_sqnr}"
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+@pytest.mark.skipif(
+    shutil.which("compute-sanitizer") is None,
+    reason="compute-sanitizer required to detect out of bounds reads",
+)
+def test_gemm_scale_loads_stay_in_bounds():
+    # Tiles that overhang M or N must not read past the end of a_s / b_s. The
+    # stray reads are dropped by the store mask, so they are only visible under
+    # memcheck, with the caching allocator disabled so allocator slack does not
+    # absorb them. See https://github.com/pytorch/ao/issues/4634.
+    # Operands are e5m2 so this also runs on GPUs that cannot compile e4m3; the
+    # scale pointer arithmetic is the same either way.
+    script = """\
+import torch
+from torchao.prototype.blockwise_fp8_training.kernels import (
+    triton_fp8_gemm_1x128_128x1,
+    triton_fp8_gemm_1x128_128x128,
+)
+
+M, N, K = 2, 128, 128
+a = torch.randn(M, K, device="cuda").to(torch.float8_e5m2)
+b = torch.randn(N, K, device="cuda").to(torch.float8_e5m2).t()
+a_s = torch.randn(K // 128, M, device="cuda").t()
+b_s_128x128 = torch.randn(N // 128, K // 128, device="cuda").t()
+b_s_128x1 = torch.randn(K // 128, N, device="cuda")
+triton_fp8_gemm_1x128_128x128(a, b, a_s, b_s_128x128, out_dtype=torch.bfloat16)
+triton_fp8_gemm_1x128_128x1(a, b, a_s, b_s_128x1, out_dtype=torch.bfloat16)
+torch.cuda.synchronize()
+"""
+    env = {**os.environ, "PYTORCH_NO_CUDA_MEMORY_CACHING": "1"}
+    result = subprocess.run(
+        ["compute-sanitizer", "--tool", "memcheck", sys.executable, "-c", script],
+        capture_output=True,
+        text=True,
+        timeout=600,
+        env=env,
+    )
+    assert "ERROR SUMMARY: 0 errors" in result.stdout, result.stdout
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
