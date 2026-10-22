@@ -100,19 +100,13 @@ class TestInt4TilePackedTo4dTensorBoundsCheck(TestCase):
         was accepted silently and would have made `_weight_int4pack_mm` read
         past the end of `scale_and_zero`."""
         n, k = 64, 1024
-        qdata, scale_and_zero = _make_qdata_and_scale_and_zero(
-            n, k, group_size=128
-        )
+        qdata, scale_and_zero = _make_qdata_and_scale_and_zero(n, k, group_size=128)
         with self.assertRaisesRegex(RuntimeError, "is inconsistent with"):
-            Int4TilePackedTo4dTensor(
-                qdata, scale_and_zero, [1, 32], torch.Size((n, k))
-            )
+            Int4TilePackedTo4dTensor(qdata, scale_and_zero, [1, 32], torch.Size((n, k)))
 
     def test_tampered_larger_groupsize_is_rejected(self):
         n, k = 64, 1024
-        qdata, scale_and_zero = _make_qdata_and_scale_and_zero(
-            n, k, group_size=32
-        )
+        qdata, scale_and_zero = _make_qdata_and_scale_and_zero(n, k, group_size=32)
         with self.assertRaisesRegex(RuntimeError, "is inconsistent with"):
             Int4TilePackedTo4dTensor(
                 qdata, scale_and_zero, [1, 128], torch.Size((n, k))
