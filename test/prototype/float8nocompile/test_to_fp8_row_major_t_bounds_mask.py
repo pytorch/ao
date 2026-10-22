@@ -65,13 +65,9 @@ def _covered_output_positions(
                 out_row, out_col = c, r  # matches out_offs's axis assignment
                 if use_bug:
                     # buggy mask: axes swapped relative to out_offs
-                    in_bounds = (
-                        r < output_num_rows and c < output_num_cols
-                    )
+                    in_bounds = r < output_num_rows and c < output_num_cols
                 else:
-                    in_bounds = (
-                        out_row < output_num_rows and out_col < output_num_cols
-                    )
+                    in_bounds = out_row < output_num_rows and out_col < output_num_cols
                 if in_bounds:
                     written.add((out_row, out_col))
     return written, output_num_rows, output_num_cols
@@ -92,9 +88,7 @@ class TestToFp8RowMajorTBoundsMask(TestCase):
                 input_num_rows, input_num_cols, block_size, block_size, use_bug=False
             )
             expected = {
-                (r, c)
-                for r in range(output_num_rows)
-                for c in range(output_num_cols)
+                (r, c) for r in range(output_num_rows) for c in range(output_num_cols)
             }
             self.assertEqual(
                 written,
@@ -118,9 +112,7 @@ class TestToFp8RowMajorTBoundsMask(TestCase):
                 input_num_rows, input_num_cols, block_size, block_size, use_bug=True
             )
             expected = {
-                (r, c)
-                for r in range(output_num_rows)
-                for c in range(output_num_cols)
+                (r, c) for r in range(output_num_rows) for c in range(output_num_cols)
             }
             if written != expected:
                 any_gap = True
