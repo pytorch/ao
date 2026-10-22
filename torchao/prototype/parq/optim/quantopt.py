@@ -247,7 +247,26 @@ class QuantOptimizer(Optimizer):
 
     @torch._disable_dynamo
     def load_state_dict(self, state_dict: dict[str, Any]) -> None:
-        self.base_optimizer.load_state_dict(state_dict)
+        saved_quants: dict[Tensor, Tensor] = {}
+
+        def preserve_quants(optimizer: Optimizer, checkpoint: dict[str, Any]) -> None:
+            # Capture after user pre-hooks remap IDs, but before the base optimizer
+            # casts floating state to the parameter dtype and rounds FP32 caches.
+            saved_ids = [
+                key for group in checkpoint["param_groups"] for key in group["params"]
+            ]
+            parameters = [
+                p for group in optimizer.param_groups for p in group["params"]
+            ]
+            for key, p in zip(saved_ids, parameters):
+                state = checkpoint["state"].get(key)
+                if isinstance(state, dict) and "quants" in state:
+                    saved_quants[p] = state["quants"]
+
+        with self.base_optimizer.register_load_state_dict_pre_hook(preserve_quants):
+            self.base_optimizer.load_state_dict(state_dict)
+        for p, quants in saved_quants.items():
+            self.state[p]["quants"] = quants.to(device=p.device, copy=True)
 
     @torch.no_grad()
     def step(self, closure: Optional[Callable[[], float]] = None) -> Optional[float]:
@@ -365,6 +384,7 @@ class QuantOptimizer(Optimizer):
                     quants is None
                     or tuple(quants.shape) != quant_size
                     or quants.device != p.device
+                    or quants.dtype != torch.get_default_dtype()
                     or is_dtensor(quants) != is_dtensor(quant_owner)
                     or (
                         is_dtensor(quant_owner)

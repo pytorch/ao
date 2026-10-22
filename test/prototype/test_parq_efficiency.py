@@ -123,19 +123,23 @@ class TestQuantOptimizerCache(unittest.TestCase):
                         targets = current_targets
 
     def test_checkpoint_cache_policy_and_exact_resume(self):
-        for saved_period, period, expected_calls in [
-            (1, 1, [1, 2, 3]),
-            (3, 3, [0, 1, 1]),
-            (1, 3, [1, 2, 2]),
-        ]:
-            with self.subTest(saved_period=saved_period, period=period):
+        for dtype, (saved_period, period, expected_calls) in product(
+            [torch.float32, torch.bfloat16],
+            [(1, 1, [1, 2, 3]), (3, 3, [0, 1, 1]), (1, 3, [1, 2, 2])],
+        ):
+            with self.subTest(dtype=dtype, saved_period=saved_period, period=period):
                 torch.manual_seed(13)
-                parameter = torch.nn.Parameter(torch.randn(7, 64))
+                parameter = torch.nn.Parameter(torch.randn(7, 64, dtype=dtype))
                 optimizer = make_optimizer(parameter, period=saved_period)
                 for _ in range(3):
                     parameter.grad = torch.randn_like(parameter)
                     optimizer.step()
                 live_targets = optimizer.state[parameter]["quants"]
+                if dtype == torch.bfloat16 and saved_period != 1:
+                    live_targets.add_(0.001)
+                    self.assertFalse(
+                        torch.equal(live_targets, live_targets.bfloat16().float())
+                    )
                 checkpoint = copy.deepcopy(optimizer.state_dict())
                 saved_state = next(iter(checkpoint["state"].values()))
                 self.assertEqual("quants" in saved_state, saved_period != 1)
@@ -144,6 +148,17 @@ class TestQuantOptimizerCache(unittest.TestCase):
                 resumed = make_optimizer(restored, period=period)
                 resumed.load_state_dict(checkpoint)
                 self.assertEqual(resumed.num_steps, optimizer.num_steps)
+                restored_targets = resumed.state[restored].get("quants")
+                if saved_period == 1:
+                    self.assertIsNone(restored_targets)
+                else:
+                    self.assertEqual(restored_targets.dtype, torch.get_default_dtype())
+                    torch.testing.assert_close(
+                        restored_targets, saved_state["quants"], rtol=0, atol=0
+                    )
+                    self.assertNotEqual(
+                        restored_targets.data_ptr(), saved_state["quants"].data_ptr()
+                    )
                 if saved_period != period:
                     # Match off-cycle recovery in the live numerical reference.
                     optimizer.quant_period = period
@@ -168,8 +183,57 @@ class TestQuantOptimizerCache(unittest.TestCase):
                                 atol=0,
                             )
 
+    def test_checkpoint_cache_mapping_across_groups(self):
+        parameters = [
+            torch.nn.Parameter(torch.zeros(2, 16, dtype=torch.bfloat16))
+            for _ in range(3)
+        ]
+        base = torch.optim.SGD(
+            [{"params": parameters[:2]}, {"params": parameters[2:]}], lr=0.01
+        )
+        for group in base.param_groups:
+            group["quant_bits"] = 4
+        optimizer = QuantOptimizer(
+            base, UnifQuantizer(), ProxPARQ(0, 8, 5), quant_period=3
+        )
+        checkpoint = optimizer.state_dict()
+        for group, ids in zip(checkpoint["param_groups"], [[29, 7], [41]]):
+            group["params"] = ids
+        checkpoint["state"] = {
+            key: {"latent": torch.full((2, 16), float(key))} for key in [41, 7, 29]
+        }
+        for key in [29, 41]:
+            checkpoint["state"][key]["quants"] = torch.full((16,), key + 0.001)
+        for remap in ["none", "inplace", "replacement"]:
+            with self.subTest(remap=remap):
+
+                def remap_ids(base, state):
+                    if remap == "none":
+                        return None
+                    if remap == "replacement":
+                        state = copy.deepcopy(state)
+                    first, last = [group["params"] for group in state["param_groups"]]
+                    first[0], last[0] = last[0], first[0]
+                    return state if remap == "replacement" else None
+
+                with base.register_load_state_dict_pre_hook(remap_ids):
+                    optimizer.load_state_dict(copy.deepcopy(checkpoint))
+                order = [29, 7, 41] if remap == "none" else [41, 7, 29]
+                for parameter, key in zip(parameters, order):
+                    state = optimizer.state[parameter]
+                    saved = checkpoint["state"][key]
+                    self.assertEqual("quants" in state, "quants" in saved)
+                    for name, expected in saved.items():
+                        actual = state[name]
+                        expected = (
+                            expected.to(parameter) if name == "latent" else expected
+                        )
+                        torch.testing.assert_close(actual, expected, rtol=0, atol=0)
+                        if name == "quants":
+                            self.assertNotEqual(actual.data_ptr(), expected.data_ptr())
+
     def test_cache_recovery_is_per_parameter(self):
-        for mismatch in ["missing", "shape", "device"]:
+        for mismatch in ["missing", "shape", "device", "dtype"]:
             with self.subTest(mismatch=mismatch):
                 torch.manual_seed(17)
                 parameters = [
@@ -186,11 +250,12 @@ class TestQuantOptimizerCache(unittest.TestCase):
                 states = [optimizer.state[parameter] for parameter in parameters]
                 stale_targets = states[0].pop("quants")
                 if mismatch != "missing":
-                    stale_targets = (
-                        torch.empty(1, stale_targets.size(-1))
-                        if mismatch == "shape"
-                        else torch.empty_like(stale_targets, device="meta")
-                    )
+                    if mismatch == "shape":
+                        stale_targets = torch.empty(1, stale_targets.size(-1))
+                    elif mismatch == "device":
+                        stale_targets = torch.empty_like(stale_targets, device="meta")
+                    else:
+                        stale_targets = stale_targets.bfloat16()
                     states[0]["quants"] = stale_targets
                 other_targets = states[1]["quants"]
                 saved_targets = other_targets.clone()
@@ -216,6 +281,7 @@ class TestQuantOptimizerCache(unittest.TestCase):
                         p, q = projection.call_args_list[2].args[:2]
                         self.assertIs(q, p)
                     targets = states[0]["quants"]
+                    self.assertEqual(targets.dtype, torch.get_default_dtype())
                     self.assertIsNot(targets, stale_targets)
                     if updating[0]:
                         _, expected = optimizer.quantizer.quantize(
@@ -343,6 +409,29 @@ def distributed_worker(rank, store):
                             )
                     else:
                         assert "quants" not in sharded_optimizer.state[sharded]
+                if index == 0 and period == 3:
+                    targets = sharded_optimizer.state[sharded]["quants"]
+                    local_targets = targets.to_local().add_(0.001)
+                    assert not local_targets.equal(local_targets.bfloat16().float())
+                    checkpoint = copy.deepcopy(sharded_optimizer.state_dict())
+                    restored = torch.nn.Parameter(sharded.detach().bfloat16().clone())
+                    resumed = make_optimizer(restored, period, block_size)
+                    with mock.patch(
+                        "torch.distributed.tensor._collective_utils.mesh_scatter",
+                        side_effect=AssertionError("checkpoint load scattered targets"),
+                    ):
+                        resumed.load_state_dict(checkpoint)
+                    loaded = resumed.state[restored]["quants"]
+                    saved = next(iter(checkpoint["state"].values()))["quants"]
+                    assert isinstance(loaded, DTensor)
+                    assert loaded.dtype == torch.get_default_dtype()
+                    assert loaded.shape == saved.shape
+                    assert loaded.placements == saved.placements
+                    assert loaded.device_mesh == saved.device_mesh
+                    assert loaded.to_local().data_ptr() != saved.to_local().data_ptr()
+                    torch.testing.assert_close(
+                        loaded.to_local(), saved.to_local(), rtol=0, atol=0
+                    )
                 dist.barrier()
         # An ungrouped per-row calibration cannot span column shards.
         parameter = torch.nn.Parameter(
