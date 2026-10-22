@@ -57,7 +57,8 @@ class TestGemmScaleBounds(TestCase):
         # Shapes where M/N are not a whole number of block-size tiles -
         # exactly the case the issue calls out.
         cases = [
-            (M, N, block) for (M, N, block) in [(96, 96, 64), (100, 130, 32), (65, 65, 64)]
+            (M, N, block)
+            for (M, N, block) in [(96, 96, 64), (100, 130, 32), (65, 65, 64)]
         ]
         any_oob = False
         for M, N, block in cases:
