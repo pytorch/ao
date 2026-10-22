@@ -782,8 +782,10 @@ class TorchAOBaseTensor(torch.Tensor):
         ``@ChildClass.implements(...)``. If no override is provided, the parent's implementation
         is used automatically.
 
-        For multiple inheritance (e.g., ``class C(B, A)``), ops are inherited from all parents
-        following Python's MRO (Method Resolution Order), with later bases taking priority.
+        For multiple inheritance (e.g., ``class C(B, A)``), ops are inherited from all parents.
+        Each parent's table is merged in Python's MRO (Method Resolution Order), visiting ``B``
+        then ``A``; since each merge overwrites the previous, the later-listed base (``A``)
+        takes priority when both define the same op.
 
         Example::
 
