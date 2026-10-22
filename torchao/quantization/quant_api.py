@@ -167,7 +167,6 @@ def _replace_with_custom_fn_if_matches_filter(
 
 def _is_linear(mod, *args):
     # avoid circular dependencies
-    from torchao.prototype.gptq.observer import GPTQObserverTensor
     from torchao.quantization.qat.affine_fake_quantized_tensor import (
         _AffineFakeQuantizedTensor,
     )
@@ -186,12 +185,6 @@ def _is_linear(mod, *args):
         return False
 
     if isinstance(mod.weight, TorchAOBaseTensor):
-        # A GPTQ observer weight is an intermediate (non-final) tensor that the
-        # GPTQ convert step is meant to replace with a real quantized tensor, so
-        # let it through here rather than treating it as already quantized.
-        if isinstance(mod.weight, GPTQObserverTensor):
-            return True
-
         # Skip weights that are already a final quantized tensor so that a second
         # quantize_() call is a no-op instead of re-running from_hp() on an
         # already-quantized tensor, which hits unimplemented ops (see #4845).
