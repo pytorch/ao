@@ -13,6 +13,7 @@ import torch
 from torch import Tensor, nn
 from torch.optim import Optimizer
 
+# The package export can resolve to the quantize_ submodule instead of the callable.
 from torchao.quantization.quant_api import _is_linear, quantize_
 
 from ..quant import Quantizer, UnifTorchaoQuantizer
@@ -309,6 +310,8 @@ class QuantOptimizer(Optimizer):
                 if is_dtensor(p) and self.quant_per_channel and p.dim() == 2:
                     if p.device_mesh.get_coordinate() is None:
                         continue
+                    # Column shards are safe for complete blocks; the local modulo
+                    # assertion below validates their alignment.
                     if block_size is None and any(
                         placement.is_shard() and placement.dim == 1
                         for placement in p.placements
@@ -339,42 +342,51 @@ class QuantOptimizer(Optimizer):
                 # quantization by channel or by layer
                 # update quantization targets periodically
                 per_channel = self.quant_per_channel and p.dim() > 1
-                if quant_update:
-                    quant_levels = quantizer.get_quant_size(b)
+                quant_levels = quantizer.get_quant_size(b)
+                quant_size = (
+                    (p.size(0), quant_levels) if per_channel else (quant_levels,)
+                )
+                quant_owner = local_dtensor if local_dtensor is not None else p
+                if local_dtensor is not None:
+                    # Keep the original row/column-group axes in distributed
+                    # state. Flattening global uneven row shards would assign
+                    # different numbers of groups than the owning parameters.
                     quant_size = (
-                        (p.size(0), quant_levels) if per_channel else (quant_levels,)
+                        (
+                            local_dtensor.size(0),
+                            local_dtensor.size(1) // block_size,
+                            quant_levels,
+                        )
+                        if block_size is not None
+                        else (local_dtensor.size(0), quant_levels)
                     )
-                    quant_owner = local_dtensor if local_dtensor is not None else p
-                    if local_dtensor is not None:
-                        # Keep the original row/column-group axes in distributed
-                        # state. Flattening global uneven row shards would assign
-                        # different numbers of groups than the owning parameters.
-                        quant_size = (
-                            (
-                                local_dtensor.size(0),
-                                local_dtensor.size(1) // block_size,
-                                quant_levels,
-                            )
-                            if block_size is not None
-                            else (local_dtensor.size(0), quant_levels)
+                quants = state.get("quants")
+                rebuild_targets = (
+                    quants is None
+                    or tuple(quants.shape) != quant_size
+                    or quants.device != p.device
+                    or is_dtensor(quants) != is_dtensor(quant_owner)
+                    or (
+                        is_dtensor(quant_owner)
+                        and (
+                            quants.placements != quant_owner.placements
+                            or quants.device_mesh != quant_owner.device_mesh
                         )
-                    quants = state.get("quants")
-                    if (
-                        quants is None
-                        or tuple(quants.shape) != quant_size
-                        or quants.device != p.device
-                    ):
-                        # Allocate only owned state; there is no data to scatter.
-                        # The next quantize_ call overwrites every local target.
-                        state["quants"] = (
-                            dtensor_empty(
-                                quant_size,
-                                device_mesh=quant_owner.device_mesh,
-                                placements=quant_owner.placements,
-                            )
-                            if is_dtensor(quant_owner)
-                            else torch.empty(quant_size, device=p.device)
+                    )
+                )
+                parameter_quant_update = quant_update or rebuild_targets
+                if rebuild_targets:
+                    # Allocate only owned state; there is no data to scatter.
+                    # The next quantize_ call overwrites every local target.
+                    state["quants"] = (
+                        dtensor_empty(
+                            quant_size,
+                            device_mesh=quant_owner.device_mesh,
+                            placements=quant_owner.placements,
                         )
+                        if is_dtensor(quant_owner)
+                        else torch.empty(quant_size, device=p.device)
+                    )
 
                 quants = state["quants"]
                 if local_dtensor is not None:
@@ -385,11 +397,11 @@ class QuantOptimizer(Optimizer):
                     p = p.flatten(start_dim=1)
 
                 q = None
-                if p.numel() == 0:
+                if parameter_quant_update and p.numel() == 0:
                     # Empty owning shards still carry canonical distributed
                     # state, but affine primitives cannot infer their qparams.
                     q = p
-                elif quant_update:
+                elif parameter_quant_update:
                     qfunc = partial(self.quantize_, quantizer=quantizer, b=b, dim=dim)
                     if is_dtensor(p):
                         qfunc = local_map(

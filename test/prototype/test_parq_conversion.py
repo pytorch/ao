@@ -19,7 +19,7 @@ class TestPARQConversion(unittest.TestCase):
         torch.manual_seed(7)
         model = nn.Sequential(nn.Linear(32, 16, bias=False, device="cpu"))
         groups = [{"params": [model[0].weight], "quant_bits": 8}]
-        # Citrine C2: foreach=True enables multi-tensor optimizer updates.
+        # foreach=True enables multi-tensor optimizer updates.
         base_optimizer = torch.optim.AdamW(groups, lr=1e-3, foreach=True)
         optimizer = QuantOptimizer(
             base_optimizer,
