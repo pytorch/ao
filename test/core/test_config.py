@@ -30,6 +30,12 @@ from torchao.quantization import (
     PerRow,
     PerTensor,
 )
+from torchao.quantization.qat import (
+    Float8FakeQuantizeConfig,
+    IntxFakeQuantizeConfig,
+    QATConfig,
+    QATStep,
+)
 from torchao.quantization.quant_api import (
     Float8DynamicActivationFloat8WeightConfig,
     Float8DynamicActivationInt4WeightConfig,
@@ -269,6 +275,86 @@ def test_mxconfig_include_pybind11_enum_serialization():
         reconstructed = config_from_dict(reconstructable)
         assert isinstance(reconstructed, MXDynamicActivationMXWeightConfig)
         assert reconstructed.swizzled_type is swizzle
+
+
+def test_qat_config_with_nested_base_config_round_trip():
+    """QATConfig + nested PTQ base_config must round-trip (issue #5022)."""
+    base = Float8DynamicActivationFloat8WeightConfig()
+    config = QATConfig(base_config=base, step=QATStep.PREPARE)
+    reconstructed = config_from_dict(config_to_dict(config))
+
+    assert isinstance(reconstructed, QATConfig)
+    assert reconstructed.step == "prepare"
+    assert isinstance(
+        reconstructed.base_config, Float8DynamicActivationFloat8WeightConfig
+    )
+    assert reconstructed.activation_config is None
+    assert reconstructed.weight_config is None
+    # Nested base_config fields survive the round trip
+    assert config_to_dict(reconstructed.base_config) == config_to_dict(base)
+
+
+def test_qat_config_with_fake_quantize_configs_round_trip():
+    """Nested QAT fake-quant configs must resolve from the allowlist (#5022).
+
+    Uses Float8FakeQuantizeConfig (lives in fake_quantize_config, not re-exported
+    through qat.api) nested under QATConfig.weight_config / activation_config.
+    """
+    activation = Float8FakeQuantizeConfig()
+    weight = Float8FakeQuantizeConfig()
+    config = QATConfig(
+        activation_config=activation,
+        weight_config=weight,
+        step="prepare",
+    )
+    serialized = config_to_dict(config)
+    # Nested records must carry the fake-quant class name from that submodule
+    assert serialized["_data"]["weight_config"]["_type"] == "Float8FakeQuantizeConfig"
+    assert (
+        serialized["_data"]["activation_config"]["_type"] == "Float8FakeQuantizeConfig"
+    )
+
+    reconstructed = config_from_dict(serialized)
+
+    assert isinstance(reconstructed, QATConfig)
+    assert reconstructed.step == "prepare"
+    assert reconstructed.base_config is None
+    assert isinstance(reconstructed.activation_config, Float8FakeQuantizeConfig)
+    assert isinstance(reconstructed.weight_config, Float8FakeQuantizeConfig)
+    assert reconstructed.weight_config.dtype == weight.dtype
+    assert reconstructed.activation_config.dtype == activation.dtype
+    assert config_to_dict(reconstructed) == serialized
+
+
+def test_intx_fake_quantize_config_class_is_allowlisted():
+    """IntxFakeQuantizeConfig must be resolvable via the QAT allowlist entries.
+
+    Full QATConfig round-trip of IntxFakeQuantizeConfig currently fails because
+    config_to_dict emits quant_min/quant_max and IntxFakeQuantizeConfig.__init__
+    rejects those for non-int32 dtypes — that is outside #5022's allowlist fix.
+    """
+    # Class is exported from qat.api (imported there) and defined in
+    # fake_quantize_config; either allowlist entry must find it.
+    reconstructed = config_from_dict(
+        {
+            "_type": "IntxFakeQuantizeConfig",
+            "_version": 1,
+            "_data": {
+                "dtype": {"_type": "torch.dtype", "_data": "int8"},
+                "granularity": {"_type": "PerToken", "_version": 1, "_data": {}},
+                "mapping_type": {"_type": "MappingType", "_data": "ASYMMETRIC"},
+            },
+        }
+    )
+    assert isinstance(reconstructed, IntxFakeQuantizeConfig)
+    assert reconstructed.dtype == torch.int8
+
+
+def test_qat_step_enum_from_dict():
+    """QATStep must be reachable when encoded as a nested {_type,_data} record."""
+    step = config_from_dict({"_type": "QATStep", "_data": "CONVERT"})
+    assert step is QATStep.CONVERT
+    assert config_from_dict({"_type": "QATStep", "_data": "PREPARE"}) is QATStep.PREPARE
 
 
 if __name__ == "__main__":

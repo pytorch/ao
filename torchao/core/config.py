@@ -215,6 +215,9 @@ ALLOWED_AO_MODULES = {
     "torchao.prototype.parq.quant",
     "torchao.quantization.quantize_.common",
     "torchao.quantization.quantize_.workflows",
+    # QAT public configs live in submodules, not torchao.quantization
+    "torchao.quantization.qat.api",
+    "torchao.quantization.qat.fake_quantize_config",
 }
 
 
