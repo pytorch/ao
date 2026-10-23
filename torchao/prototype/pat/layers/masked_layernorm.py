@@ -42,6 +42,8 @@ class MaskedLayerNorm(nn.LayerNorm):
         out = _nz_normalize(input, reduction_dims, self.eps)
 
         if self.elementwise_affine:
-            out = out * self.weight + self.bias
+            out = out * self.weight
+            if self.bias is not None:
+                out = out + self.bias
         out = _maybe_convert_to_dtype(out, input.dtype)
         return out
