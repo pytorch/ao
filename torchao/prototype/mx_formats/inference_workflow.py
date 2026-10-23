@@ -225,6 +225,7 @@ class NVFP4DynamicActivationNVFP4WeightConfig(AOBaseConfig):
     use_triton_kernel: bool = True
     use_dynamic_per_tensor_scale: bool = True
     step: Optional["QuantizationStep"] = None
+    swizzled_type: SwizzleType = SwizzleType.SWIZZLE_32_4_4
 
     def __post_init__(self):
         if isinstance(self.step, str):
@@ -255,6 +256,7 @@ def _nvfp4_inference_linear_transform(
         )
 
     step = config.step
+    is_swizzled = config.swizzled_type == SwizzleType.SWIZZLE_32_4_4
     if step == QuantizationStep.PREPARE or step == "prepare":
         return NVFP4ObservedLinear.from_float(module)
 
@@ -274,14 +276,14 @@ def _nvfp4_inference_linear_transform(
         act_quant_kwargs = QuantizeTensorToNVFP4Kwargs(
             use_dynamic_per_tensor_scale=False,
             use_triton_kernel=config.use_triton_kernel,
-            is_swizzled_scales=True,
+            is_swizzled_scales=is_swizzled,
         )
 
         quantized_weight = NVFP4Tensor.to_nvfp4(
             weight,
             per_tensor_scale=weight_per_tensor_scale,
             act_per_tensor_scale=act_per_tensor_scale.detach(),
-            is_swizzled_scales=True,
+            is_swizzled_scales=is_swizzled,
             use_triton_kernel=False,  # Always use traditional construction for weights
             act_quant_kwargs=act_quant_kwargs,
         )
@@ -302,8 +304,8 @@ def _nvfp4_inference_linear_transform(
 
     elif step is None:
         # Dynamic quantization
-        assert is_sm_at_least_100(), (
-            "NVFP4 DYNAMIC mode is only supported on sm100+ machines"
+        assert is_sm_at_least_100() or torch.xpu.is_available(), (
+            "NVFP4 DYNAMIC mode is only supported on sm100+ machines or XPU"
         )
 
         weight = getattr(module, parameter_name)
@@ -325,13 +327,13 @@ def _nvfp4_inference_linear_transform(
         act_quant_kwargs = QuantizeTensorToNVFP4Kwargs(
             use_dynamic_per_tensor_scale=config.use_dynamic_per_tensor_scale,
             use_triton_kernel=config.use_triton_kernel,
-            is_swizzled_scales=True,
+            is_swizzled_scales=is_swizzled,
         )
 
         quantized_weight = NVFP4Tensor.to_nvfp4(
             weight,
             per_tensor_scale=per_tensor_scale,
-            is_swizzled_scales=True,
+            is_swizzled_scales=is_swizzled,
             use_triton_kernel=False,  # Always use traditional construction for weights
             act_quant_kwargs=act_quant_kwargs,
         )
@@ -372,6 +374,8 @@ class NVFP4WeightOnlyConfig(AOBaseConfig):
     """
 
     use_dynamic_per_tensor_scale: bool = True
+    # How to store block scales.
+    swizzled_type: SwizzleType = SwizzleType.SWIZZLE_32_4_4
 
 
 @register_quantize_module_handler(NVFP4WeightOnlyConfig)
@@ -387,6 +391,8 @@ def _nvfp4_weight_only_linear_transform(
             f"NVFP4 only supports weight shape with last 2 dims divisible by 16, got {weight.shape}"
         )
 
+    is_swizzled = config.swizzled_type == SwizzleType.SWIZZLE_32_4_4
+
     per_tensor_scale = None
     if config.use_dynamic_per_tensor_scale:
         tensor_amax = torch.max(torch.abs(weight))
@@ -395,7 +401,7 @@ def _nvfp4_weight_only_linear_transform(
     quantized_weight = NVFP4Tensor.to_nvfp4(
         weight,
         per_tensor_scale=per_tensor_scale,
-        is_swizzled_scales=True,
+        is_swizzled_scales=is_swizzled,
         act_quant_kwargs=None,
     )
     # Set triton preference after construction
