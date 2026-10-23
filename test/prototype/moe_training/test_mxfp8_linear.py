@@ -8,13 +8,18 @@ import pytest
 import torch
 import torch.nn.functional as F
 
+from torchao.prototype.mx_formats.config import (
+    MXFP8Dim0CastKernelChoice,
+    MXFP8Dim1CastKernelChoice,
+    ScaleCalculationMode,
+)
 from torchao.quantization.utils import compute_error
 from torchao.utils import is_sm_at_least_100
 
 if not torch.cuda.is_available():
     pytest.skip("CUDA required", allow_module_level=True)
 
-from torchao.prototype.moe_training.mxfp8_linear import MXFP8Linear
+from torchao.prototype.moe_training.mxfp8_linear import MXFP8Linear, mx_mm
 from torchao.quantization.quantize_.common.kernel_preference import KernelPreference
 
 
@@ -93,6 +98,64 @@ def test_mxfp8_linear_fwd_bwd_sqnr(bias, wgrad_with_hp, kernel_preference):
         # Bias grad is a simple sum over the batch dim and should match closely.
         sqnr_bias_grad = compute_error(ref.bias.grad, mxfp8.bias.grad)
         assert sqnr_bias_grad >= 40.0, f"Bias grad SQNR {sqnr_bias_grad} below 40.0"
+
+
+@pytest.mark.skipif(
+    not is_sm_at_least_100(), reason="Real MXFP8 kernels require SM100+"
+)
+@pytest.mark.parametrize("wgrad_with_hp", [False, True])
+@pytest.mark.parametrize(
+    "dim1_cast", [MXFP8Dim1CastKernelChoice.TRITON, MXFP8Dim1CastKernelChoice.TORCH]
+)
+def test_mxfp8_linear_auto_fwd_bwd_dim1_cast(wgrad_with_hp, dim1_cast):
+    # These dim1 choices exercise real MXFP8 GEMMs without the optional
+    # torchao CUDA extension.
+    x = torch.randn(256, 512, device="cuda", dtype=torch.bfloat16, requires_grad=True)
+    weight = torch.randn(
+        1024, 512, device="cuda", dtype=torch.bfloat16, requires_grad=True
+    )
+    x_ref = x.detach().clone().requires_grad_(True)
+    weight_ref = weight.detach().clone().requires_grad_(True)
+
+    output = mx_mm.apply(
+        x,
+        weight,
+        torch.float8_e4m3fn,
+        torch.float8_e4m3fn,
+        torch.float8_e4m3fn,
+        32,
+        KernelPreference.AUTO,
+        MXFP8Dim0CastKernelChoice.TRITON,
+        dim1_cast,
+        ScaleCalculationMode.RCEIL,
+        wgrad_with_hp,
+    )
+    reference = x_ref @ weight_ref.t()
+    assert compute_error(reference, output) >= 25.0
+
+    output.float().square().mean().backward()
+    reference.float().square().mean().backward()
+    assert compute_error(x_ref.grad, x.grad) >= 20.0
+    assert compute_error(weight_ref.grad, weight.grad) >= 20.0
+
+
+@pytest.mark.skipif(
+    not is_sm_at_least_100(), reason="Real MXFP8 kernels require SM100+"
+)
+def test_mxfp8_linear_auto_compile():
+    linear = MXFP8Linear(
+        512,
+        1024,
+        bias=False,
+        device="cuda",
+        dtype=torch.bfloat16,
+        kernel_preference=KernelPreference.AUTO,
+    )
+    x = torch.randn(256, 512, device="cuda", dtype=torch.bfloat16)
+    with torch.no_grad():
+        expected = linear(x)
+        actual = torch.compile(linear, fullgraph=True)(x)
+    assert compute_error(expected, actual) >= 30.0
 
 
 @pytest.mark.parametrize(

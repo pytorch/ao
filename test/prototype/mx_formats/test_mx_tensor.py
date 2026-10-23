@@ -15,6 +15,7 @@ from torch.fx.experimental.proxy_tensor import make_fx
 from torch.testing import FileCheck
 
 import torchao.prototype.mx_formats.mx_tensor as mx_tensor_module
+from torchao.prototype.mx_formats.config import MXFP8Dim0CastKernelChoice
 from torchao.prototype.mx_formats.constants import (
     DTYPE_FP6_E2M3,
     DTYPE_FP6_E3M2,
@@ -42,10 +43,60 @@ from torchao.utils import (
     is_ROCM,
     is_sm_at_least_89,
     is_sm_at_least_90,
+    is_sm_at_least_100,
     torch_version_at_least,
 )
 
 torch.manual_seed(2)
+
+
+@pytest.mark.skipif(
+    not is_sm_at_least_100() or is_ROCM(), reason="NVIDIA SM100+ required"
+)
+@pytest.mark.parametrize("shape", [(256, 512), (2, 128, 512)])
+def test_triton_cast_swizzled_scales(shape):
+    x = torch.randn(*shape, device="cuda", dtype=torch.bfloat16)
+    kwargs = dict(
+        block_size=32,
+        scaling_mode=ScaleCalculationMode.RCEIL,
+        kernel_preference=KernelPreference.AUTO,
+        is_swizzled_scales=True,
+    )
+    reference = MXTensor.to_mx(x, torch.float8_e4m3fn, **kwargs)
+    actual = MXTensor.to_mx(
+        x,
+        torch.float8_e4m3fn,
+        mxfp8_dim0_cast_kernel_choice=MXFP8Dim0CastKernelChoice.TRITON,
+        **kwargs,
+    )
+    assert actual.scale.shape == reference.scale.shape
+    torch.testing.assert_close(actual.qdata, reference.qdata, rtol=0, atol=0)
+    assert torch.equal(
+        actual.scale.view(torch.uint8), reference.scale.view(torch.uint8)
+    )
+
+
+@pytest.mark.skipif(
+    not is_sm_at_least_100() or is_ROCM(), reason="NVIDIA SM100+ required"
+)
+def test_auto_mm_unswizzled_scales():
+    x = torch.randn(256, 512, device="cuda", dtype=torch.bfloat16)
+    weight = torch.randn(1024, 512, device="cuda", dtype=torch.bfloat16)
+    kwargs = dict(
+        block_size=32,
+        scaling_mode=ScaleCalculationMode.RCEIL,
+        kernel_preference=KernelPreference.AUTO,
+        mxfp8_dim0_cast_kernel_choice=MXFP8Dim0CastKernelChoice.TRITON,
+    )
+    a = MXTensor.to_mx(x, torch.float8_e4m3fn, **kwargs)
+    b = MXTensor.to_mx(weight, torch.float8_e4m3fn, **kwargs)
+    assert not a.is_swizzled_scales and not b.is_swizzled_scales
+
+    expected = a.dequantize() @ b.dequantize().t()
+    actual = torch.mm(a, b.t())
+    assert compute_error(expected, actual) >= 30.0
+    compiled = torch.compile(lambda lhs, rhs: torch.mm(lhs, rhs.t()), fullgraph=True)
+    assert compute_error(expected, compiled(a, b)) >= 30.0
 
 
 @pytest.mark.skipif(
