@@ -292,17 +292,21 @@ def _(func, types, args, kwargs):
 
     if weight_tensor.act_quant_kwargs is not None:
         # for int8 dynamic + static quantization path
-        if getattr(weight_tensor, "act_quant_scale", None) is not None:
-            if weight_tensor.act_quant_scale.ndim == 0:
-                weight_tensor.act_quant_scale = weight_tensor.act_quant_scale.view(
-                    (1,) * activation_tensor.ndim
-                )
+        act_quant_scale = getattr(weight_tensor, "act_quant_scale", None)
+        if act_quant_scale is not None and act_quant_scale.numel() == 1:
+            act_quant_scale = act_quant_scale.view((1,) * activation_tensor.ndim)
+
+        act_quant_zero_point = getattr(weight_tensor, "act_quant_zero_point", None)
+        if act_quant_zero_point is not None and act_quant_zero_point.numel() == 1:
+            act_quant_zero_point = act_quant_zero_point.view(
+                (1,) * activation_tensor.ndim
+            )
 
         activation_tensor = _choose_quant_func_and_quantize_tensor(
             activation_tensor,
             weight_tensor.act_quant_kwargs,
-            scale=weight_tensor.act_quant_scale,
-            zero_point=weight_tensor.act_quant_zero_point,
+            scale=act_quant_scale,
+            zero_point=act_quant_zero_point,
         )
 
         # 1. do the matrix form of dot(X_i, W_j)
@@ -371,6 +375,8 @@ def _(func, types, args, kwargs):
     if getattr(weight_tensor, "output_quant_scale", None) is not None:
         block_size = list(y.shape)
         scale = weight_tensor.output_quant_scale
+        if scale.numel() == 1:
+            scale = scale.view((1,) * y.ndim)
         zp = torch.zeros_like(scale, dtype=torch.int8)
         y_quant = quantize_affine(
             y,

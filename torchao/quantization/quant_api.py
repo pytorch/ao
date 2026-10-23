@@ -975,11 +975,17 @@ class Int8StaticActivationInt8WeightConfig(AOBaseConfig):
         torch._C._log_api_usage_once(
             "torchao.quantization.Int8StaticActivationInt8WeightConfig"
         )
-        if isinstance(self.act_quant_scale, list):
+        if isinstance(self.act_quant_scale, (list, int, float)) and not isinstance(
+            self.act_quant_scale, bool
+        ):
             self.act_quant_scale = torch.tensor(self.act_quant_scale)
-        if isinstance(self.act_quant_zero_point, list):
+        if isinstance(self.act_quant_zero_point, (list, int, float)) and not isinstance(
+            self.act_quant_zero_point, bool
+        ):
             self.act_quant_zero_point = torch.tensor(self.act_quant_zero_point)
-        if isinstance(self.output_quant_scale, list):
+        if isinstance(self.output_quant_scale, (list, int, float)) and not isinstance(
+            self.output_quant_scale, bool
+        ):
             self.output_quant_scale = torch.tensor(self.output_quant_scale)
         act_granularity, weight_granularity = Int8Tensor._normalize_granularity(
             self.granularity
@@ -1030,25 +1036,30 @@ def _int8_static_activation_int8_weight_transform(
     if config.set_inductor_config:
         torchao.quantization.utils.recommended_inductor_config_setter()
 
+    weight = getattr(module, parameter_name)
+    act_quant_scale = None
+    if config.act_quant_scale is not None:
+        act_quant_scale = config.act_quant_scale.detach().to(device=weight.device)
+
     act_quant_zero_point = None
     if config.act_quant_zero_point is not None:
-        act_quant_zero_point = config.act_quant_zero_point.detach()
+        act_quant_zero_point = config.act_quant_zero_point.detach().to(
+            device=weight.device
+        )
 
     output_quant_scale = None
     if config.output_quant_scale is not None:
-        output_quant_scale = config.output_quant_scale.detach()
+        output_quant_scale = config.output_quant_scale.detach().to(device=weight.device)
 
     quantized_tensor = Int8Tensor.from_hp(
-        getattr(module, parameter_name),
+        weight,
         granularity=weight_granularity,
         act_quant_kwargs=QuantizeTensorToInt8Kwargs(
             granularity=activation_granularity,
             mapping_type=config.act_mapping_type,
             reduce_range=config.reduce_range,
         ),
-        act_quant_scale=config.act_quant_scale.detach()
-        if config.act_quant_scale is not None
-        else None,
+        act_quant_scale=act_quant_scale,
         act_quant_zero_point=act_quant_zero_point,
         output_quant_scale=output_quant_scale,
         reduce_range=config.reduce_range,
@@ -1096,15 +1107,25 @@ class Int8StaticActivationIntxWeightConfig(AOBaseConfig):
         torch._C._log_api_usage_once(
             "torchao.quantization.Int8StaticActivationIntxWeightConfig"
         )
-        if isinstance(self.act_quant_scale, list):
+        if isinstance(self.act_quant_scale, (list, int, float)) and not isinstance(
+            self.act_quant_scale, bool
+        ):
             self.act_quant_scale = torch.tensor(self.act_quant_scale)
-        if isinstance(self.act_quant_zero_point, list):
+        if isinstance(self.act_quant_zero_point, (list, int, float)) and not isinstance(
+            self.act_quant_zero_point, bool
+        ):
             self.act_quant_zero_point = torch.tensor(self.act_quant_zero_point)
-        if isinstance(self.output_quant_scale, list):
+        if isinstance(self.output_quant_scale, (list, int, float)) and not isinstance(
+            self.output_quant_scale, bool
+        ):
             self.output_quant_scale = torch.tensor(self.output_quant_scale)
-        if isinstance(self.custom_weight_scale, list):
+        if isinstance(self.custom_weight_scale, (list, int, float)) and not isinstance(
+            self.custom_weight_scale, bool
+        ):
             self.custom_weight_scale = torch.tensor(self.custom_weight_scale)
-        if isinstance(self.custom_weight_zero_point, list):
+        if isinstance(
+            self.custom_weight_zero_point, (list, int, float)
+        ) and not isinstance(self.custom_weight_zero_point, bool):
             self.custom_weight_zero_point = torch.tensor(self.custom_weight_zero_point)
         assert self.weight_dtype in [getattr(torch, f"int{b}") for b in range(1, 9)], (
             f"weight_dtype must be torch.intx, where 1 <= x <= 8, but got {self.weight_dtype}"
@@ -1147,20 +1168,30 @@ def _int8_static_activation_intx_weight_transform(
 
     block_size = get_block_size(weight.shape, config.weight_granularity)
 
+    act_quant_scale = None
+    if config.act_quant_scale is not None:
+        act_quant_scale = config.act_quant_scale.detach().to(device=weight.device)
+
     act_quant_zero_point = None
     if config.act_quant_zero_point is not None:
-        act_quant_zero_point = config.act_quant_zero_point.detach()
+        act_quant_zero_point = config.act_quant_zero_point.detach().to(
+            device=weight.device
+        )
 
     output_quant_scale = None
     if config.output_quant_scale is not None:
-        output_quant_scale = config.output_quant_scale.detach()
+        output_quant_scale = config.output_quant_scale.detach().to(device=weight.device)
 
     c_scale = custom_scale if custom_scale is not None else config.custom_weight_scale
+    if c_scale is not None:
+        c_scale = c_scale.detach().to(device=weight.device)
     c_zp = (
         custom_zero_point
         if custom_zero_point is not None
         else config.custom_weight_zero_point
     )
+    if c_zp is not None:
+        c_zp = c_zp.detach().to(device=weight.device)
 
     choose_qparams_algo = config.intx_choose_qparams_algorithm
     if c_scale is not None:
@@ -1176,9 +1207,7 @@ def _int8_static_activation_intx_weight_transform(
         intx_choose_qparams_algorithm=choose_qparams_algo,
         custom_scale=c_scale,
         custom_zero_point=c_zp,
-        act_quant_scale=config.act_quant_scale.detach()
-        if config.act_quant_scale is not None
-        else None,
+        act_quant_scale=act_quant_scale,
         act_quant_zero_point=act_quant_zero_point,
         output_quant_scale=output_quant_scale,
     )
@@ -1520,17 +1549,20 @@ def _float8_dynamic_activation_float8_weight_transform(
 
 
 def _adjust_scale_dtype_in_intx_unpacked_tensor(
-    intx_unpacked_tensor: IntxUnpackedToInt8Tensor,
+    intx_unpacked_tensor: Union[IntxUnpackedToInt8Tensor, IntxStaticActivationTensor],
     hp_tensor: torch.Tensor,
     scale_dtype: torch.dtype,
 ) -> None:
     """
-    Adjusts the scale_dtype on IntxUnpackedToInt8Tensor.
+    Adjusts the scale_dtype on IntxUnpackedToInt8Tensor or IntxStaticActivationTensor.
     Updating the scale dtype requires updating the qdata because qdata is calculated after the scale.
-    This is used in IntxWeightOnlyConfig and Int8DynamicActivationIntxWeightConfig to make
-    version=2 and version=1 numerically equivalent when the scale_dtype differs from the input dtype
+    This is used in IntxWeightOnlyConfig, Int8DynamicActivationIntxWeightConfig, and
+    Int8StaticActivationIntxWeightConfig to make version=2 and version=1 numerically equivalent
+    when the scale_dtype differs from the input dtype
     """
-    assert isinstance(intx_unpacked_tensor, IntxUnpackedToInt8Tensor)
+    assert isinstance(
+        intx_unpacked_tensor, (IntxUnpackedToInt8Tensor, IntxStaticActivationTensor)
+    )
     intx_unpacked_tensor.scale = intx_unpacked_tensor.scale.to(scale_dtype)
     qmin, qmax = _DTYPE_TO_QVALUE_BOUNDS[intx_unpacked_tensor.target_dtype]
     intx_unpacked_tensor.qdata = quantize_affine(

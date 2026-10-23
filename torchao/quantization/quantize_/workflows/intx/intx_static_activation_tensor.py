@@ -108,8 +108,12 @@ class IntxStaticActivationTensor(TorchAOBaseTensor):
         assert scale.dtype in _FLOAT_TYPES, (
             f"scale dtype must be one of {_FLOAT_TYPES}, but got {scale.dtype}"
         )
-        assert zero_point.dtype in _FLOAT_TYPES or zero_point.dtype == torch.int8, (
-            f"zero_point dtype must be {torch.int8} or one of {_FLOAT_TYPES}, but got {zero_point.dtype}"
+        assert zero_point.dtype in _FLOAT_TYPES or zero_point.dtype in (
+            torch.int8,
+            torch.int32,
+            torch.int64,
+        ), (
+            f"zero_point dtype must be int8/int32/int64 or one of {_FLOAT_TYPES}, but got {zero_point.dtype}"
         )
 
         assert target_dtype in [
@@ -180,10 +184,12 @@ class IntxStaticActivationTensor(TorchAOBaseTensor):
             else None
         )
 
+        scale_dtype = self.scale.dtype if dtype == self.dtype else dtype
+
         return IntxStaticActivationTensor(
             self.qdata.to(device),
-            self.scale.to(device=device, dtype=dtype),
-            self.zero_point.to(device=device, dtype=dtype)
+            self.scale.to(device=device, dtype=scale_dtype),
+            self.zero_point.to(device=device, dtype=scale_dtype)
             if self._has_float_zero_point()
             else self.zero_point.to(device),
             self.target_dtype,
@@ -225,8 +231,12 @@ class IntxStaticActivationTensor(TorchAOBaseTensor):
         if intx_choose_qparams_algorithm is None:
             assert custom_scale is not None, "custom_scale must be given"
             assert custom_zero_point is not None, "custom_zero_point must be given"
-            scale = custom_scale
-            zero_point = custom_zero_point
+            scale = custom_scale.to(device=hp_tensor.device)
+            if scale.dtype not in _FLOAT_TYPES:
+                scale = scale.to(dtype=hp_tensor.dtype)
+            zero_point = custom_zero_point.to(device=hp_tensor.device)
+            if zero_point.dtype in (torch.int32, torch.int64):
+                zero_point = zero_point.to(torch.int8)
             qdata = quantize_affine(
                 hp_tensor,
                 block_size,
@@ -266,6 +276,15 @@ class IntxStaticActivationTensor(TorchAOBaseTensor):
             raise ValueError(
                 f"Unsupported IntxChooseQParamsAlgorithm: {intx_choose_qparams_algorithm}"
             )
+
+        if act_quant_scale is not None:
+            act_quant_scale = act_quant_scale.to(device=hp_tensor.device)
+        if act_quant_zero_point is not None:
+            act_quant_zero_point = act_quant_zero_point.to(device=hp_tensor.device)
+            if act_quant_zero_point.dtype in (torch.int32, torch.int64):
+                act_quant_zero_point = act_quant_zero_point.to(torch.int8)
+        if output_quant_scale is not None:
+            output_quant_scale = output_quant_scale.to(device=hp_tensor.device)
 
         return IntxStaticActivationTensor(
             qdata=qdata,
@@ -310,63 +329,128 @@ def _(func, types, args, kwargs):
     output_quant_scale = getattr(weight_tensor, "output_quant_scale", None)
     output_dtype = input_tensor.dtype
 
+    act_quant_scale = weight_tensor.act_quant_scale
+    act_quant_zero_point = weight_tensor.act_quant_zero_point
+
     is_cuda = input_tensor.is_cuda
-    is_per_channel = weight_tensor.block_size[-1] == weight_tensor.shape[-1]
+    is_per_channel = (
+        weight_tensor.block_size[0] == 1
+        and weight_tensor.block_size[-1] == weight_tensor.shape[-1]
+    )
 
-    if is_cuda and is_per_channel:
-        act_quant_scale = weight_tensor.act_quant_scale
-        if act_quant_scale is not None and act_quant_scale.ndim == 0:
-            act_quant_scale = act_quant_scale.view((1,) * input_tensor.ndim)
-
-        if act_quant_scale is not None:
+    if act_quant_scale is not None:
+        act_scale = act_quant_scale.to(device=input_tensor.device)
+        if act_scale.numel() == 1:
+            act_scale = act_scale.view((1,) * input_tensor.ndim)
             input_block_size = list(input_tensor.shape)
-            input_q = quantize_affine(
-                input_tensor,
-                block_size=input_block_size,
-                scale=act_quant_scale,
-                zero_point=torch.zeros_like(act_quant_scale, dtype=torch.int8),
-                output_dtype=torch.int8,
-                quant_min=-128,
-                quant_max=127,
-            )
+        else:
+            while act_scale.ndim < input_tensor.ndim:
+                act_scale = act_scale.unsqueeze(0)
+            input_block_size = [
+                input_tensor.shape[i] // act_scale.shape[i]
+                for i in range(input_tensor.ndim)
+            ]
 
+        if act_quant_zero_point is not None:
+            act_zp = act_quant_zero_point.to(
+                device=input_tensor.device, dtype=torch.int8
+            )
+            if act_zp.numel() == 1:
+                act_zp = act_zp.view((1,) * input_tensor.ndim)
+            else:
+                while act_zp.ndim < input_tensor.ndim:
+                    act_zp = act_zp.unsqueeze(0)
+            act_zp = act_zp.expand_as(act_scale)
+        else:
+            act_zp = torch.zeros_like(act_scale, dtype=torch.int8)
+
+        input_q = quantize_affine(
+            input_tensor,
+            block_size=input_block_size,
+            scale=act_scale,
+            zero_point=act_zp,
+            output_dtype=torch.int8,
+            quant_min=-128,
+            quant_max=127,
+        )
+
+        if (
+            is_cuda
+            and is_per_channel
+            and input_block_size[-1] == input_tensor.shape[-1]
+        ):
             tmp = input_q.reshape(-1, input_q.shape[-1])
             w_vals_int8_t = weight_tensor.qdata.t()
 
             x_scales_expanded = (
-                act_quant_scale.view(-1, 1).expand(tmp.shape[0], 1).contiguous()
+                act_scale.reshape(-1, 1).expand(tmp.shape[0], 1).contiguous()
             )
             intermediate_dtype = (
-                torch.float
-                if act_quant_scale.dtype == torch.half
-                else act_quant_scale.dtype
+                torch.float if act_scale.dtype == torch.half else act_scale.dtype
             )
 
             y_dot_scaled = _int_scaled_matmul(
                 tmp, w_vals_int8_t, x_scales_expanded.to(intermediate_dtype)
-            ).to(output_dtype)
+            ).to(torch.float32)
 
-            w_scales = weight_tensor.scale
-            y = (y_dot_scaled * w_scales.flatten()).reshape(
-                *input_tensor.shape[:-1], y_dot_scaled.shape[-1]
+            if act_quant_zero_point is not None:
+                w_row_sums = weight_tensor.qdata.to(torch.float32).sum(dim=-1)
+                zp_x = act_zp.reshape(-1, 1).expand(tmp.shape[0], 1).to(torch.float32)
+                s_x = x_scales_expanded.to(torch.float32)
+                y_dot_scaled = y_dot_scaled - (zp_x * s_x) * w_row_sums
+
+            if weight_tensor.zero_point is not None:
+                x_row_sums = tmp.to(torch.float32).sum(dim=-1, keepdim=True)
+                if act_quant_zero_point is not None:
+                    K = tmp.shape[-1]
+                    zp_x = (
+                        act_zp.reshape(-1, 1).expand(tmp.shape[0], 1).to(torch.float32)
+                    )
+                    x_row_sums = x_row_sums - K * zp_x
+                s_x = x_scales_expanded.to(torch.float32)
+                zp_w = weight_tensor.zero_point.flatten().to(torch.float32)
+                y_dot_scaled = y_dot_scaled - (x_row_sums * s_x) * zp_w
+
+            w_scales = weight_tensor.scale.flatten().to(torch.float32)
+            y = (
+                (y_dot_scaled * w_scales)
+                .to(output_dtype)
+                .reshape(*input_tensor.shape[:-1], y_dot_scaled.shape[-1])
             )
 
             if bias is not None:
-                y += bias
+                y = y + bias
         else:
+            input_dequant = dequantize_affine(
+                input_q,
+                block_size=input_block_size,
+                scale=act_scale,
+                zero_point=act_zp,
+                input_dtype=torch.int8,
+                quant_min=-128,
+                quant_max=127,
+                output_dtype=output_dtype,
+            )
             w_dequant = weight_tensor.dequantize()
-            y = torch.nn.functional.linear(input_tensor, w_dequant, bias)
+            y = torch.nn.functional.linear(input_dequant, w_dequant, bias)
     else:
         w_dequant = weight_tensor.dequantize()
         y = torch.nn.functional.linear(input_tensor, w_dequant, bias)
 
     if output_quant_scale is not None:
-        block_size = list(y.shape)
-        zp = torch.zeros_like(output_quant_scale, dtype=torch.int8)
+        out_scale = output_quant_scale.to(device=y.device)
+        if out_scale.numel() == 1:
+            out_scale = out_scale.view((1,) * y.ndim)
+            out_block_size = list(y.shape)
+        else:
+            while out_scale.ndim < y.ndim:
+                out_scale = out_scale.unsqueeze(0)
+            out_block_size = [y.shape[i] // out_scale.shape[i] for i in range(y.ndim)]
+        zp = torch.zeros_like(out_scale, dtype=torch.int8)
         y_quant = quantize_affine(
             y,
-            block_size=block_size,
-            scale=output_quant_scale,
+            block_size=out_block_size,
+            scale=out_scale,
             zero_point=zp,
             output_dtype=torch.int8,
             quant_min=-128,
@@ -374,8 +458,8 @@ def _(func, types, args, kwargs):
         )
         y = dequantize_affine(
             input=y_quant,
-            block_size=block_size,
-            scale=output_quant_scale,
+            block_size=out_block_size,
+            scale=out_scale,
             zero_point=zp,
             input_dtype=torch.int8,
             quant_min=-128,
@@ -389,16 +473,19 @@ def _(func, types, args, kwargs):
 @implements(aten.embedding.default)
 @implements_torch_function(torch.nn.functional.embedding)
 def _(func, types, args, kwargs):
-    assert len(args) == 2
-    indices, weight_tensor = (
-        args[0],
-        args[1],
-    )
+    if func is aten.embedding.default:
+        weight_tensor, indices = args[0], args[1]
+        extra_args = args[2:]
+        max_norm = None
+    else:
+        assert len(args) >= 2
+        indices, weight_tensor = args[0], args[1]
+        extra_args = args[2:]
+        max_norm = kwargs.get("max_norm", args[3] if len(args) > 3 else None)
+
     assert isinstance(weight_tensor, IntxStaticActivationTensor)
 
-    padding_idx = kwargs.get("padding_idx", None)
-
-    if weight_tensor.block_size[0] == 1:
+    if weight_tensor.block_size[0] == 1 and max_norm is None:
         sliced_qdata = weight_tensor.qdata[indices]
         sliced_scale = weight_tensor.scale[indices]
         sliced_zero_point = weight_tensor.zero_point[indices]
@@ -406,7 +493,7 @@ def _(func, types, args, kwargs):
         new_block_size = [1] * indices.ndim + list(weight_tensor.block_size[1:])
         qmin, qmax = _DTYPE_TO_QVALUE_BOUNDS[weight_tensor.target_dtype]
 
-        weight_sliced_dequant = dequantize_affine(
+        return dequantize_affine(
             sliced_qdata,
             new_block_size,
             sliced_scale,
@@ -416,19 +503,13 @@ def _(func, types, args, kwargs):
             qmax,
             output_dtype=weight_tensor.dtype,
         )
-
-        if padding_idx is not None:
-            mask = indices == padding_idx
-            weight_sliced_dequant = torch.where(
-                mask.unsqueeze(-1),
-                torch.zeros_like(weight_sliced_dequant),
-                weight_sliced_dequant,
-            )
-
-        return weight_sliced_dequant
     else:
-        weight_tensor = weight_tensor.dequantize()
-        return torch.nn.functional.embedding(indices, weight_tensor, **kwargs)
+        dequantized = weight_tensor.dequantize()
+        if func is aten.embedding.default:
+            return aten.embedding.default(dequantized, indices, *extra_args, **kwargs)
+        return torch.nn.functional.embedding(
+            indices, dequantized, *extra_args, **kwargs
+        )
 
 
 @implements(aten.select.int)
