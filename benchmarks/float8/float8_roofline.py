@@ -93,14 +93,20 @@ def get_gpu_kernel_time(m, x, grad_output):
         y = m(x)
         y.backward(grad_output)
 
+    device = torch.accelerator.current_accelerator().type
+
     # capture a profiling run
-    activities = [ProfilerActivity.CPU, ProfilerActivity.CUDA]
+    if device == "xpu":
+        activities = [ProfilerActivity.CPU, ProfilerActivity.XPU]
+    else:
+        activities = [ProfilerActivity.CPU, ProfilerActivity.CUDA]
+
     n_iter = 5
     with profile(activities=activities) as prof:
         for _ in range(n_iter):
             y = m(x)
             y.backward(grad_output)
-            torch.cuda.synchronize()
+            torch.accelerator.synchronize()
     # get the gpu kernel time and aggregate it
     num_leaf_tensors = 1 + len(list(m.parameters()))
     ref_times = profiler_output_to_filtered_time_by_kernel_name(
@@ -145,7 +151,7 @@ def get_gemm_times(
     if key in cache:
         return cache[key]
 
-    device = torch.device("cuda")
+    device = torch.accelerator.current_accelerator()
 
     # bf16 time
     x_bf16 = torch.randn(M, K, dtype=torch.bfloat16, device=device)
@@ -239,6 +245,7 @@ def run(
     * `mx_recipe_name (optional)`: MX format recipe
     * `enable_fusion_modeling`: if False uses Linear, if True uses LNLinearSigmoid and models the fusion of float8 overhead
     """
+    device = torch.accelerator.current_accelerator().type
 
     assert not ((float8_recipe_name is not None) and (mx_recipe_name is not None)), (
         "unsupported"
@@ -246,7 +253,12 @@ def run(
     if float8_recipe_name is None and mx_recipe_name is None:
         float8_recipe_name = "tensorwise"
 
-    print(f"GPU: {torch.cuda.get_device_name(0)}")
+    if device == "xpu":
+        gpu_name = torch.xpu.get_device_name(0)
+    else:
+        gpu_name = torch.cuda.get_device_name(0)
+
+    print(f"GPU: {gpu_name}")
     print(f"torch version: {torch.__version__}")
     print(f"torchao version: {torchao.__version__}")
     print(f"do_benchmarks: {do_benchmarks}")
@@ -254,6 +266,9 @@ def run(
     print(f"float8_recipe_name: {float8_recipe_name}")
     print(f"mx_recipe_name: {mx_recipe_name}")
     print(f"enable_fusion_modeling: {enable_fusion_modeling}")
+
+    if device == "xpu" and mx_recipe_name is not None:
+        raise NotImplementedError("MXFP8TrainingRecipe is not supported on XPU yet")
 
     assert mx_recipe_name in (
         None,
@@ -402,17 +417,19 @@ def run(
         if do_benchmarks:
             # create the model
             if enable_fusion_modeling:
-                m_orig = LNLinearSigmoid(K_val, N_val).cuda().bfloat16()
+                m_orig = LNLinearSigmoid(K_val, N_val).to(device).bfloat16()
             else:
                 m_orig = (
-                    nn.Sequential(nn.Linear(K_val, N_val, bias=False)).cuda().bfloat16()
+                    nn.Sequential(nn.Linear(K_val, N_val, bias=False))
+                    .to(device)
+                    .bfloat16()
                 )
             x = torch.randn(
-                M_val, K_val, dtype=torch.bfloat16, device="cuda"
+                M_val, K_val, dtype=torch.bfloat16, device=device
             ).requires_grad_()
 
             # get the gradient of the right shape
-            grad_output = torch.randn(M_val, N_val, dtype=torch.bfloat16, device="cuda")
+            grad_output = torch.randn(M_val, N_val, dtype=torch.bfloat16, device=device)
 
             # get the bf16 gpu kernel time
             torch._dynamo.reset()
