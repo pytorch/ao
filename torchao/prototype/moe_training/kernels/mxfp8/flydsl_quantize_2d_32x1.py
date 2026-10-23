@@ -30,11 +30,9 @@ at flydsl_quantize_2d_1x32.py:152). Compile-time gated so full-tile
 shapes (e.g. K=5120) emit identical code to before.
 """
 
-from __future__ import annotations
-
+# No ``from __future__ import annotations``: ``@fx.struct`` reads its field
+# annotations as live types.
 import functools
-import os
-from contextlib import nullcontext
 from typing import Optional, Tuple
 
 import torch
@@ -49,7 +47,7 @@ from .flydsl_utils import (
 )
 
 if _flydsl_runtime_available():
-    from .flydsl_utils import current_stream_fast
+    from .flydsl_utils import current_stream_fast, waves_per_eu_hint
 
 
 # Each lane owns VEC contiguous K-cols so Phase-1 issues `buffer_load_dwordx2`
@@ -100,21 +98,18 @@ def _pick_layout(M: int, K: int, in_elem_bytes: int) -> Tuple[int, int]:
 if _flydsl_runtime_available():
     import flydsl.compiler as flyc
     import flydsl.expr as fx
-    from flydsl._mlir import ir
-    from flydsl.compiler.kernel_function import CompilationContext
-    from flydsl.expr import arith, buffer_ops, const_expr, gpu, range_constexpr, vector
-    from flydsl.expr.arith import ArithValue
-    from flydsl.expr.typing import T
-    from flydsl.runtime.device import get_rocm_arch
-    from flydsl.utils.smem_allocator import SmemAllocator, SmemPtr
+    from flydsl.expr import const_expr, gpu, range_constexpr
 
     from .flydsl_utils import (
-        abs_max_nan_as_inf,
+        abs_max,
+        buffer_load,
+        buffer_store,
+        buffer_view,
         floor_scale_and_inv_scale,
-        make_fp8_clamp_vectors,
         quantize_pack_chunk_to_i32_floor,
         quantize_pack_chunk_to_i32_rceil,
         rceil_scale_and_pos_scale,
+        store_scale,
     )
 
     @functools.cache
@@ -145,22 +140,17 @@ if _flydsl_runtime_available():
         # One wave per stacked MX block.
         waves_per_block = m_blocks_per_wg
         m_tile = BLOCK_SIZE * m_blocks_per_wg
-        in_elem_bytes = 2 if input_dtype_name == "torch.bfloat16" else 4
         block_threads = AMD_WAVE_SIZE * waves_per_block
-        wg_tile_bytes = m_tile * _K_TILE * in_elem_bytes
-        sym = (
-            f"flydsl_mxfp8_2d_32x1_{input_dtype_name.replace('.', '_')}"
-            f"_w{waves_per_block}_smem"
-        )
-        alloc = SmemAllocator(None, arch=str(get_rocm_arch()), global_sym_name=sym)
-        lds_off = alloc._align(alloc.ptr, 16)
-        alloc.ptr = lds_off + wg_tile_bytes
+
+        @fx.struct
+        class SharedStorage:
+            tile: fx.Array[in_dtype, m_tile * _K_TILE, 16]
 
         @flyc.kernel(known_block_size=[block_threads, 1, 1])
         def quantize_2d_32x1_kernel(
-            x: fx.Tensor,  # (M, K) bf16/f32 row-major
+            x: fx.Tensor,  # (M * K,) bf16/f32, row-major (M, K)
             q: fx.Tensor,  # 1D i32 view of (M, K) col-major fp8 (stride (1, M))
-            scales: fx.Tensor,  # (K, M // 32) uint8 E8M0
+            scales: fx.Tensor,  # (K * M // 32,) uint8 E8M0, (K, M // 32)
         ):
             m_block = fx.block_idx.x
             k_block = fx.block_idx.y
@@ -168,28 +158,22 @@ if _flydsl_runtime_available():
             wave_id = tid // fx.Int32(AMD_WAVE_SIZE)
             lane_id = tid % fx.Int32(AMD_WAVE_SIZE)
 
-            x_rsrc = buffer_ops.create_buffer_resource(x)
-            q_rsrc = buffer_ops.create_buffer_resource(q)
-            s_rsrc = buffer_ops.create_buffer_resource(scales)
+            x_v = buffer_view(x, VEC)
+            q_v = buffer_view(q, 1)
+            s_v = buffer_view(scales, 1)
 
             # 4 waves cooperate on one (M_TILE, K_TILE) = (128, 256) tile
             # sharing this 64 KB LDS region; each wave owns a 32-row strip.
-            lds_full = SmemPtr(
-                alloc.get_base(),
-                lds_off,
-                in_dtype.ir_type,
-                shape=(m_tile, _K_TILE),
+            lds = fx.SharedAllocator().allocate(SharedStorage).peek()
+            lds_full = fx.make_view(
+                lds.tile.ptr, fx.make_layout((m_tile, _K_TILE), (_K_TILE, 1))
             )
-            lds_full.get()
 
             row_base = m_block * fx.Int32(m_tile)
             wave_row_off = wave_id * fx.Int32(BLOCK_SIZE)
             k_lane_base = k_block * fx.Int32(_K_TILE) + lane_id * fx.Int32(VEC)
             m_block_global = m_block * fx.Int32(m_blocks_per_wg) + wave_id
             m_row_global_base = row_base + wave_row_off
-
-            if const_expr(not USE_RCEIL):
-                f8_min_v, f8_max_v = make_fp8_clamp_vectors()
 
             def _phase1():
                 # PHASE 1 — each wave loads its own 32-row strip into the
@@ -199,21 +183,11 @@ if _flydsl_runtime_available():
                     g_off = (row_base + wave_row_off + fx.Int32(i)) * fx.Int32(
                         K
                     ) + k_lane_base
-                    vec_in = buffer_ops.buffer_load(
-                        x_rsrc,
-                        g_off,
-                        vec_width=VEC,
-                        dtype=in_dtype,
-                    )
-                    lds_row_idx = ArithValue(wave_row_off + fx.Int32(i)).index_cast(
-                        T.index
-                    )
+                    vec_in = buffer_load(x_v, g_off // fx.Int32(VEC), VEC, in_dtype)
+                    lds_row_idx = wave_row_off + fx.Int32(i)
                     for j in range_constexpr(0, VEC):
-                        elem = vector.extract(vec_in, static_position=[j])
-                        lds_col_idx = ArithValue(
-                            lane_id * fx.Int32(VEC) + fx.Int32(j)
-                        ).index_cast(T.index)
-                        lds_full.store(elem, [lds_row_idx, lds_col_idx])
+                        lds_col_idx = lane_id * fx.Int32(VEC) + fx.Int32(j)
+                        lds_full[(lds_row_idx, lds_col_idx)] = vec_in[j]
 
             def _phase234():
                 # PHASES 2/3/4 — each wave processes its own 32-row strip
@@ -222,9 +196,7 @@ if _flydsl_runtime_available():
                 # let the L2 controller coalesce into a single line fill →
                 # no RMW.
                 for k_local in range_constexpr(0, VEC):
-                    lds_col_idx = ArithValue(
-                        lane_id * fx.Int32(VEC) + fx.Int32(k_local)
-                    ).index_cast(T.index)
+                    lds_col_idx = lane_id * fx.Int32(VEC) + fx.Int32(k_local)
                     k_col_global = k_lane_base + fx.Int32(k_local)
 
                     chunks = []
@@ -232,17 +204,13 @@ if _flydsl_runtime_available():
                     for c in range_constexpr(0, CHUNKS_PER_BLOCK):
                         elems = []
                         for j in range_constexpr(0, VEC):
-                            row_lds_idx = ArithValue(
-                                wave_row_off + fx.Int32(c * VEC + j)
-                            ).index_cast(T.index)
-                            elems.append(lds_full.load([row_lds_idx, lds_col_idx]))
-                        if const_expr(input_dtype_name == "torch.bfloat16"):
-                            vec_in = vector.from_elements(T.vec(VEC, T.bf16), elems)
-                            vec_f32 = arith.extf(T.vec(VEC, T.f32), vec_in)
-                        else:
-                            vec_f32 = vector.from_elements(T.vec(VEC, T.f32), elems)
+                            row_lds_idx = wave_row_off + fx.Int32(c * VEC + j)
+                            elems.append(lds_full[(row_lds_idx, lds_col_idx)])
+                        vec_f32 = fx.Vector.from_elements(elems, in_dtype).to(
+                            fx.Float32
+                        )
                         chunks.append(vec_f32)
-                        local_amax = local_amax.maximumf(abs_max_nan_as_inf(vec_f32))
+                        local_amax = local_amax.maximumf(abs_max(vec_f32))
 
                     if const_expr(USE_RCEIL):
                         scale_u8, scale_arg = rceil_scale_and_pos_scale(local_amax)
@@ -254,16 +222,18 @@ if _flydsl_runtime_available():
                     ) // fx.Int32(VEC)
                     for c in range_constexpr(0, CHUNKS_PER_BLOCK):
                         if const_expr(USE_RCEIL):
-                            out = quantize_pack_chunk_to_i32_rceil(chunks[c], scale_arg)
+                            out = quantize_pack_chunk_to_i32_rceil(
+                                chunks[c], scale_arg, scale_u8
+                            )
                         else:
                             out = quantize_pack_chunk_to_i32_floor(
-                                chunks[c], scale_arg, f8_min_v, f8_max_v
+                                chunks[c], scale_arg, scale_u8
                             )
-                        buffer_ops.buffer_store(out, q_rsrc, col_i32_base + fx.Int32(c))
+                        buffer_store([out], q_v, col_i32_base + fx.Int32(c), fx.Int32)
 
-                    buffer_ops.buffer_store(
+                    store_scale(
                         scale_u8,
-                        s_rsrc,
+                        s_v,
                         k_col_global * fx.Int32(M // BLOCK_SIZE) + m_block_global,
                     )
 
@@ -297,15 +267,6 @@ if _flydsl_runtime_available():
             grid_k: fx.Int32,
             stream: fx.Stream = fx.Stream(None),
         ):
-            # The outer ``_compile_quantize_2d_32x1`` is ``functools.cache``d,
-            # so the same ``SmemAllocator`` instance is reused across launches;
-            # ``finalize()`` flips ``finalized=True`` and rejects subsequent
-            # calls. Reset to allow re-finalization into the current MLIR
-            # InsertionPoint on every cached launch.
-            alloc.finalized = False
-            ctx = CompilationContext.get_current()
-            with ir.InsertionPoint(ctx.gpu_module_body):
-                alloc.finalize()
             quantize_2d_32x1_kernel(x, q, scales).launch(
                 grid=(grid_m, grid_k, 1),
                 block=(block_threads, 1, 1),
@@ -392,19 +353,14 @@ def mxfp8_quantize_flydsl_2d_32x1(
     # `waves_per_eu` codegen hint. The hint is read at MLIR-compile time,
     # which happens lazily on the first `launch(...)` call — so the
     # `with` block must wrap the call, not the `_compile_*` lookup.
-    _wpeu_env = os.environ.get("FLYDSL_32X1_WAVES_PER_EU")
-    _wpeu_ctx = (
-        CompilationContext.compile_hints({"waves_per_eu": int(_wpeu_env)})
-        if _wpeu_env is not None
-        else nullcontext()
-    )
+    _wpeu_ctx = waves_per_eu_hint("FLYDSL_32X1_WAVES_PER_EU")
     # Pass `x` raw (not via from_dlpack) so FlyDSL's bare-pointer fast path
     # avoids the per-call DLPack adapter overhead.
     with _wpeu_ctx:
         launch(
-            x,
+            x.view(-1),
             q_storage.view(torch.int32),
-            scales_u8,
+            scales_u8.view(-1),
             M // m_tile,
             (K + _K_TILE - 1) // _K_TILE,
             stream=current_stream_fast(x.device),
