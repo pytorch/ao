@@ -1062,6 +1062,12 @@ class X86InductorQuantizer(Quantizer):
             gm, [torch.nn.Conv2d, operator.add, torch.nn.ReLU]
         )
         for fused_partition in fused_partitions:
+            if any(len(p.output_nodes) > 1 for p in fused_partition):
+                # A reused conv module (e.g. called inside an unrolled loop)
+                # yields a partition with multiple output nodes. The fusion
+                # paths assume a single call site, so skip fusion and let
+                # `_annotate_conv2d` annotate each call site instead.
+                continue
             conv_partition, binary_partition, unary_partition = fused_partition
             conv_node, binary_node, unary_node = self._get_output_nodes_of_partitions(
                 [conv_partition, binary_partition, unary_partition]
@@ -1115,6 +1121,12 @@ class X86InductorQuantizer(Quantizer):
             gm, [torch.nn.Conv2d, operator.add]
         )
         for fused_partition in fused_partitions:
+            if any(len(p.output_nodes) > 1 for p in fused_partition):
+                # A reused conv module (e.g. called inside an unrolled loop)
+                # yields a partition with multiple output nodes. The fusion
+                # paths assume a single call site, so skip fusion and let
+                # `_annotate_conv2d` annotate each call site instead.
+                continue
             conv_partition, binary_partition = fused_partition
             conv_node, binary_node = self._get_output_nodes_of_partitions(
                 [conv_partition, binary_partition]
@@ -1177,6 +1189,12 @@ class X86InductorQuantizer(Quantizer):
                 fused_partitions.extend(partitions)
 
         for fused_partition in fused_partitions:
+            if any(len(p.output_nodes) > 1 for p in fused_partition):
+                # A reused conv module (e.g. called inside an unrolled loop)
+                # yields a partition with multiple output nodes. The fusion
+                # paths assume a single call site, so skip fusion and let
+                # `_annotate_conv2d` annotate each call site instead.
+                continue
             conv_partition, unary_partition = fused_partition
             conv_node, unary_node = self._get_output_nodes_of_partitions(
                 [conv_partition, unary_partition]
@@ -1210,18 +1228,21 @@ class X86InductorQuantizer(Quantizer):
         )
         conv_partitions = list(itertools.chain.from_iterable(conv_partitions.values()))
         for conv_partition in conv_partitions:
-            if len(conv_partition.output_nodes) > 1:
-                raise ValueError("conv partition has more than one output node")
-            conv_node = conv_partition.output_nodes[0]
-            if (
-                conv_node.op != "call_function"
-                or conv_node.target != torch.ops.aten.conv2d.default
-            ):
-                raise ValueError(f"{conv_node} is not an aten conv2d operator")
-            # skip annotation if it is already annotated
-            if _skip_annotate([conv_node], filter_fn):
-                continue
-            self._annotate_conv_node_helper(conv_node, True, quantization_config)
+            # A partition may have multiple output nodes when one nn.Conv2d
+            # module has multiple call sites in the exported graph (e.g. it is
+            # called inside an unrolled loop). Annotate each call site.
+            for conv_node in conv_partition.output_nodes:
+                if (
+                    conv_node.op != "call_function"
+                    or conv_node.target != torch.ops.aten.conv2d.default
+                ):
+                    raise ValueError(f"{conv_node} is not an aten conv2d operator")
+                # skip annotation if it is already annotated
+                if _skip_annotate([conv_node], filter_fn):
+                    continue
+                self._annotate_conv_node_helper(
+                    conv_node, True, quantization_config
+                )
 
     def _annotate_maxpool2d(
         self,
