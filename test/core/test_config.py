@@ -30,6 +30,10 @@ from torchao.quantization import (
     PerRow,
     PerTensor,
 )
+from torchao.quantization.qat import (
+    QATConfig,
+    QATStep,
+)
 from torchao.quantization.quant_api import (
     Float8DynamicActivationFloat8WeightConfig,
     Float8DynamicActivationInt4WeightConfig,
@@ -269,6 +273,24 @@ def test_mxconfig_include_pybind11_enum_serialization():
         reconstructed = config_from_dict(reconstructable)
         assert isinstance(reconstructed, MXDynamicActivationMXWeightConfig)
         assert reconstructed.swizzled_type is swizzle
+
+
+def test_qat_config_with_nested_base_config_round_trip():
+    """QATConfig + nested PTQ base_config must round-trip."""
+    base = Float8DynamicActivationFloat8WeightConfig()
+    config = QATConfig(base_config=base, step=QATStep.PREPARE)
+    reconstructed = config_from_dict(config_to_dict(config))
+
+    assert isinstance(reconstructed, QATConfig)
+    assert reconstructed.step == "prepare"
+    assert isinstance(
+        reconstructed.base_config, Float8DynamicActivationFloat8WeightConfig
+    )
+    assert reconstructed.activation_config is None
+    assert reconstructed.weight_config is None
+    # Nested base_config fields survive the round trip
+    assert config_to_dict(reconstructed.base_config) == config_to_dict(base)
+
 
 
 if __name__ == "__main__":
