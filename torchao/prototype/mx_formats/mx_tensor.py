@@ -69,6 +69,7 @@ from torchao.prototype.mx_formats.kernels import (
     f32_to_f6_e3m2_unpacked,
     pack_uint4,
     triton_to_mxfp8_dim0,
+    triton_mx_block_rearrange,
     unpack_uint4,
 )
 from torchao.prototype.mx_formats.utils import (
@@ -653,7 +654,7 @@ class MXTensor(TorchAOBaseTensor):
         )
 
         triton_kernel_supported = (
-            elem_dtype == torch.float8_e4m3fn and not is_swizzled_scales
+            elem_dtype == torch.float8_e4m3fn
         )
         if (
             mxfp8_dim0_cast_kernel_choice == MXFP8Dim0CastKernelChoice.TORCH
@@ -664,13 +665,15 @@ class MXTensor(TorchAOBaseTensor):
             )
         else:
             assert triton_kernel_supported, (
-                f"triton kernel unsupported for {data_hp.dtype=}, {elem_dtype=}, {scaling_mode=}, {is_swizzled_scales=}"
+                f"triton kernel unsupported for {data_hp.dtype=}, {elem_dtype=}, {scaling_mode=}"
             )
             data_lp, scale_e8m0_biased = triton_to_mxfp8_dim0(
                 data_hp,
                 inner_block_size=block_size,
                 scaling_mode=scaling_mode.value,
             )
+            if is_swizzled_scales:
+                scale_e8m0_biased = triton_mx_block_rearrange(scale_e8m0_biased)
         return MXTensor(
             data_lp,
             scale_e8m0_biased,
