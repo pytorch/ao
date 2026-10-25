@@ -292,6 +292,5 @@ def test_qat_config_with_nested_base_config_round_trip():
     assert config_to_dict(reconstructed.base_config) == config_to_dict(base)
 
 
-
 if __name__ == "__main__":
     pytest.main([__file__])
