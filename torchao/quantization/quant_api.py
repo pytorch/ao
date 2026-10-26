@@ -967,7 +967,6 @@ class Int8StaticActivationInt8WeightConfig(AOBaseConfig):
     granularity: Optional[Union[Granularity, list[Granularity]]] = PerRow()
     act_mapping_type: Optional[MappingType] = MappingType.SYMMETRIC
     set_inductor_config: bool = True
-    output_quant_scale: Optional[torch.Tensor] = None
     version: int = 1
     reduce_range: Optional[bool] = False
 
@@ -975,18 +974,6 @@ class Int8StaticActivationInt8WeightConfig(AOBaseConfig):
         torch._C._log_api_usage_once(
             "torchao.quantization.Int8StaticActivationInt8WeightConfig"
         )
-        if isinstance(self.act_quant_scale, (list, int, float)) and not isinstance(
-            self.act_quant_scale, bool
-        ):
-            self.act_quant_scale = torch.tensor(self.act_quant_scale)
-        if isinstance(self.act_quant_zero_point, (list, int, float)) and not isinstance(
-            self.act_quant_zero_point, bool
-        ):
-            self.act_quant_zero_point = torch.tensor(self.act_quant_zero_point)
-        if isinstance(self.output_quant_scale, (list, int, float)) and not isinstance(
-            self.output_quant_scale, bool
-        ):
-            self.output_quant_scale = torch.tensor(self.output_quant_scale)
         act_granularity, weight_granularity = Int8Tensor._normalize_granularity(
             self.granularity
         )
@@ -1036,32 +1023,20 @@ def _int8_static_activation_int8_weight_transform(
     if config.set_inductor_config:
         torchao.quantization.utils.recommended_inductor_config_setter()
 
-    weight = getattr(module, parameter_name)
-    act_quant_scale = None
-    if config.act_quant_scale is not None:
-        act_quant_scale = config.act_quant_scale.detach().to(device=weight.device)
-
     act_quant_zero_point = None
     if config.act_quant_zero_point is not None:
-        act_quant_zero_point = config.act_quant_zero_point.detach().to(
-            device=weight.device
-        )
-
-    output_quant_scale = None
-    if config.output_quant_scale is not None:
-        output_quant_scale = config.output_quant_scale.detach().to(device=weight.device)
+        act_quant_zero_point = config.act_quant_zero_point.detach()
 
     quantized_tensor = Int8Tensor.from_hp(
-        weight,
+        getattr(module, parameter_name),
         granularity=weight_granularity,
         act_quant_kwargs=QuantizeTensorToInt8Kwargs(
             granularity=activation_granularity,
             mapping_type=config.act_mapping_type,
             reduce_range=config.reduce_range,
         ),
-        act_quant_scale=act_quant_scale,
+        act_quant_scale=config.act_quant_scale.detach(),
         act_quant_zero_point=act_quant_zero_point,
-        output_quant_scale=output_quant_scale,
         reduce_range=config.reduce_range,
     )
 

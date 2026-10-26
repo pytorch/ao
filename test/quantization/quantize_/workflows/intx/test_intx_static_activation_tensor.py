@@ -16,14 +16,11 @@ from torch.testing._internal.common_utils import TestCase, run_tests
 
 from torchao.core.config import config_from_dict, config_to_dict
 from torchao.quantization import (
-    Int8StaticActivationInt8WeightConfig,
     Int8StaticActivationIntxWeightConfig,
     IntxStaticActivationTensor,
     MappingType,
     PerAxis,
     PerGroup,
-    PerRow,
-    PerTensor,
     quantize_,
 )
 from torchao.quantization.quant_primitives import (
@@ -245,12 +242,13 @@ class TestIntxStaticActivationTensor(TestCase):
         x = torch.randn(2, 32, dtype=torch.float32, device=device)
         torch.testing.assert_close(linear1(x), linear2(x))
 
-        # Test Int8StaticActivationInt8WeightConfig with 0D scalar tensors
-        int8_config = Int8StaticActivationInt8WeightConfig(
+        # Test Int8StaticActivationIntxWeightConfig with weight_dtype=torch.int8 (x=8)
+        int8_config = Int8StaticActivationIntxWeightConfig(
             act_quant_scale=torch.tensor(0.05),
             act_quant_zero_point=torch.tensor(0, dtype=torch.int8),
             output_quant_scale=torch.tensor(0.1),
-            granularity=[PerTensor(), PerRow()],
+            weight_dtype=torch.int8,
+            weight_granularity=PerAxis(0),
         )
         restored_int8_config = config_from_dict(config_to_dict(int8_config))
         self.assertIsInstance(restored_int8_config.act_quant_scale, torch.Tensor)
@@ -268,7 +266,6 @@ class TestIntxStaticActivationTensor(TestCase):
         x_2d = torch.randn(2, 32, dtype=torch.float32, device=device)
         x_3d = x_2d.unsqueeze(0)
 
-        # Int8StaticActivationIntxWeightConfig
         linear_intx = torch.nn.Linear(32, 16, dtype=torch.float32, device=device)
         quantize_(
             linear_intx,
@@ -287,24 +284,6 @@ class TestIntxStaticActivationTensor(TestCase):
         self.assertEqual(linear_intx.weight.act_quant_scale.ndim, 0)
         torch.testing.assert_close(out_2d, out_3d.squeeze(0))
         torch.testing.assert_close(out_2d, out_2d_again)
-
-        # Int8StaticActivationInt8WeightConfig
-        linear_int8 = torch.nn.Linear(32, 16, dtype=torch.float32, device=device)
-        quantize_(
-            linear_int8,
-            Int8StaticActivationInt8WeightConfig(
-                act_quant_scale=torch.tensor(0.05, device=device),
-                act_quant_zero_point=torch.tensor(0, dtype=torch.int8, device=device),
-                output_quant_scale=torch.tensor(0.1, device=device),
-                granularity=[PerTensor(), PerRow()],
-            ),
-        )
-        out8_2d = linear_int8(x_2d)
-        out8_3d = linear_int8(x_3d)
-        out8_2d_again = linear_int8(x_2d)
-        self.assertEqual(linear_int8.weight.act_quant_scale.ndim, 0)
-        torch.testing.assert_close(out8_2d, out8_3d.squeeze(0))
-        torch.testing.assert_close(out8_2d, out8_2d_again)
 
     def test_embedding_and_select_and_slice(self):
         dtype = torch.bfloat16
