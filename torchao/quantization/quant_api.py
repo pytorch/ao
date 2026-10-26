@@ -175,6 +175,7 @@ def _is_linear(mod, *args):
     if not (
         isinstance(mod, torch.nn.Linear)
         and hasattr(mod, "weight")
+        and not parametrize.is_parametrized(mod, "weight")
         and not isinstance(mod, nn.modules.linear.NonDynamicallyQuantizableLinear)
     ):
         return False

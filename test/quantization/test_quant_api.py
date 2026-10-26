@@ -47,6 +47,7 @@ from torchao.quantization.quant_api import (
     ModuleFqnToConfig,
     PerRow,
     PerTensor,
+    _is_linear,
     _replace_with_custom_fn_if_matches_filter,
 )
 from torchao.quantization.quant_primitives import MappingType
@@ -168,6 +169,14 @@ class TestQuantFlow(TestCase):
         torch.backends.cuda.matmul.fp32_precision = self._prev_cuda_matmul_fp32
         torch.backends.mkldnn.matmul.fp32_precision = self._prev_mkldnn_matmul_fp32
         super().tearDown()
+
+    def test_is_linear_skips_parametrized_weight(self):
+        from torch.nn.utils.parametrizations import weight_norm
+
+        linear = torch.nn.Linear(32, 64, bias=False)
+        parametrized = weight_norm(torch.nn.Linear(32, 64, bias=False), name="weight")
+        self.assertTrue(_is_linear(linear))
+        self.assertFalse(_is_linear(parametrized))
 
     def test_quantize_does_not_leak_fp32_precision(self):
         # quantize_() must not mutate the process wide fp32 precision flags, torch's
