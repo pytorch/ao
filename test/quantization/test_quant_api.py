@@ -626,7 +626,7 @@ m.load_state_dict(torch.load(sys.argv[1], weights_only=True), assign=True)
 config.freezing = True
 with torch.no_grad():
     _, (code,) = run_and_get_code(
-        torch.compile(m), torch.randn(1, 1, 64, dtype=torch.bfloat16)
+        torch.compile(m, fullgraph=True), torch.randn(1, 1, 64, dtype=torch.bfloat16)
     )
 if "qlinear_pointwise" not in code or "_int_mm" in code:
     print(code)
