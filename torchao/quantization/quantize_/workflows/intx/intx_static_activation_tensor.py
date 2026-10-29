@@ -18,7 +18,7 @@ from torchao.quantization.quant_primitives import (
     dequantize_affine,
     quantize_affine,
 )
-from torchao.quantization.quantize_.workflows.int8.kernels import _int_scaled_matmul
+from torchao.quantization.quantize_.workflows.int8.kernels import safe_int_mm
 from torchao.quantization.quantize_.workflows.intx.intx_choose_qparams_algorithm import (
     IntxChooseQParamsAlgorithm,
 )
@@ -36,21 +36,41 @@ aten = torch.ops.aten
 _FLOAT_TYPES: List[torch.dtype] = [torch.float16, torch.bfloat16, torch.float32]
 
 
+def _check_static_scale_shape(t: torch.Tensor, num_channels: int, name: str) -> None:
+    if t.numel() == 1:
+        return
+    assert t.numel() == num_channels and t.shape[-1] == num_channels, (
+        f"{name} must be per-tensor (numel() == 1) or per-channel with shape[-1] == "
+        f"{num_channels} and numel() == {num_channels}, but got shape {tuple(t.shape)}"
+    )
+
+
+def _broadcast_static_scale(
+    t: torch.Tensor, num_channels: int, target_ndim: int
+) -> Tuple[torch.Tensor, bool]:
+    if t.numel() == 1:
+        return t.reshape((1,) * target_ndim), True
+    return t.reshape((1,) * (target_ndim - 1) + (num_channels,)), False
+
+
 class IntxStaticActivationTensor(TorchAOBaseTensor):
     """Intx weight quantization with static int8 activation and output scaling.
 
     This tensor subclass is designed for models with pre-calibrated static
     activation scales (e.g., from static range quantization / SRQ). On CUDA
     with per-channel weights, the linear dispatch uses the optimized
-    `int_scaled_matmul` kernel.
+    `safe_int_mm` kernel.
 
     Tensor Data:
         qdata: int8 quantized weight data (range restricted by target_dtype)
         scale: block scales for weight quantization
         zero_point: block zero points for weight quantization
-        act_quant_scale: static activation quantization scale
-        act_quant_zero_point: static activation quantization zero point (optional)
-        output_quant_scale: output quantization scale for quant-dequant (optional)
+        act_quant_scale: static activation quantization scale (optional); per-tensor
+            (numel() == 1) or per-input-channel (shape[-1] == in_features)
+        act_quant_zero_point: static int8 activation zero point (optional); per-tensor or
+            matching act_quant_scale
+        output_quant_scale: output quantize-dequantize scale (optional); per-tensor or
+            per-output-channel (shape[-1] == out_features)
 
     Non-Tensor Attributes:
         target_dtype: determines qmin/qmax of qdata (torch.int1 .. torch.int8)
@@ -108,18 +128,15 @@ class IntxStaticActivationTensor(TorchAOBaseTensor):
         assert scale.dtype in _FLOAT_TYPES, (
             f"scale dtype must be one of {_FLOAT_TYPES}, but got {scale.dtype}"
         )
-        assert zero_point.dtype in _FLOAT_TYPES or zero_point.dtype in (
-            torch.int8,
-            torch.int32,
-            torch.int64,
-        ), (
-            f"zero_point dtype must be int8/int32/int64 or one of {_FLOAT_TYPES}, but got {zero_point.dtype}"
+        assert zero_point.dtype in _FLOAT_TYPES or zero_point.dtype == torch.int8, (
+            f"zero_point dtype must be int8 or one of {_FLOAT_TYPES}, but got {zero_point.dtype}"
         )
 
         assert target_dtype in [
             getattr(torch, f"int{bit_width}") for bit_width in range(1, 9)
         ]
 
+        block_size = tuple(block_size)
         assert len(block_size) == qdata.ndim
         n_blocks = []
         for i in range(len(block_size)):
@@ -136,6 +153,19 @@ class IntxStaticActivationTensor(TorchAOBaseTensor):
         assert dtype in _FLOAT_TYPES, (
             f"dtype must be one of {_FLOAT_TYPES}, but got {dtype}"
         )
+
+        if act_quant_scale is not None:
+            _check_static_scale_shape(
+                act_quant_scale, qdata.shape[-1], "act_quant_scale"
+            )
+        if act_quant_zero_point is not None:
+            _check_static_scale_shape(
+                act_quant_zero_point, qdata.shape[-1], "act_quant_zero_point"
+            )
+        if output_quant_scale is not None:
+            _check_static_scale_shape(
+                output_quant_scale, qdata.shape[0], "output_quant_scale"
+            )
 
         self.qdata = qdata
         self.scale = scale
@@ -163,28 +193,33 @@ class IntxStaticActivationTensor(TorchAOBaseTensor):
         dtype = kwargs.pop("dtype")
         assert dtype in _FLOAT_TYPES
 
+        scale_dtype = self.scale.dtype if dtype == self.dtype else dtype
+        act_scale_dtype = (
+            self.act_quant_scale.dtype
+            if (self.act_quant_scale is not None and dtype == self.dtype)
+            else dtype
+        )
+        out_scale_dtype = (
+            self.output_quant_scale.dtype
+            if (self.output_quant_scale is not None and dtype == self.dtype)
+            else dtype
+        )
+
         act_quant_scale = (
-            self.act_quant_scale.to(device=device, dtype=dtype)
+            self.act_quant_scale.to(device=device, dtype=act_scale_dtype)
             if self.act_quant_scale is not None
             else None
         )
-
-        act_quant_zero_point = None
-        if self.act_quant_zero_point is not None:
-            if self.act_quant_zero_point.dtype in _FLOAT_TYPES:
-                act_quant_zero_point = self.act_quant_zero_point.to(
-                    device=device, dtype=dtype
-                )
-            else:
-                act_quant_zero_point = self.act_quant_zero_point.to(device=device)
-
+        act_quant_zero_point = (
+            self.act_quant_zero_point.to(device=device)
+            if self.act_quant_zero_point is not None
+            else None
+        )
         output_quant_scale = (
-            self.output_quant_scale.to(device=device, dtype=dtype)
+            self.output_quant_scale.to(device=device, dtype=out_scale_dtype)
             if self.output_quant_scale is not None
             else None
         )
-
-        scale_dtype = self.scale.dtype if dtype == self.dtype else dtype
 
         return IntxStaticActivationTensor(
             self.qdata.to(device),
@@ -204,7 +239,7 @@ class IntxStaticActivationTensor(TorchAOBaseTensor):
     def from_hp(
         cls,
         hp_tensor: torch.Tensor,
-        block_size: Tuple[int],
+        block_size: Tuple[int, ...],
         target_dtype: torch.dtype,
         *,
         mapping_type: MappingType = MappingType.SYMMETRIC,
@@ -230,13 +265,18 @@ class IntxStaticActivationTensor(TorchAOBaseTensor):
 
         if intx_choose_qparams_algorithm is None:
             assert custom_scale is not None, "custom_scale must be given"
-            assert custom_zero_point is not None, "custom_zero_point must be given"
             scale = custom_scale.to(device=hp_tensor.device)
             if scale.dtype not in _FLOAT_TYPES:
                 scale = scale.to(dtype=hp_tensor.dtype)
-            zero_point = custom_zero_point.to(device=hp_tensor.device)
-            if zero_point.dtype in (torch.int32, torch.int64):
-                zero_point = zero_point.to(torch.int8)
+            if custom_zero_point is None:
+                zero_point = torch.zeros_like(scale, dtype=torch.int8)
+            else:
+                zero_point = custom_zero_point.to(device=hp_tensor.device)
+                if zero_point.dtype in (torch.int32, torch.int64):
+                    assert torch.all((zero_point >= -128) & (zero_point <= 127)), (
+                        "custom_zero_point values must be in int8 range [-128, 127]"
+                    )
+                    zero_point = zero_point.to(torch.int8)
             qdata = quantize_affine(
                 hp_tensor,
                 block_size,
@@ -279,12 +319,25 @@ class IntxStaticActivationTensor(TorchAOBaseTensor):
 
         if act_quant_scale is not None:
             act_quant_scale = act_quant_scale.to(device=hp_tensor.device)
+            if (
+                act_quant_scale.is_floating_point()
+                and act_quant_scale.dtype not in _FLOAT_TYPES
+            ):
+                act_quant_scale = act_quant_scale.to(dtype=torch.float32)
         if act_quant_zero_point is not None:
             act_quant_zero_point = act_quant_zero_point.to(device=hp_tensor.device)
             if act_quant_zero_point.dtype in (torch.int32, torch.int64):
+                assert torch.all(
+                    (act_quant_zero_point >= -128) & (act_quant_zero_point <= 127)
+                ), "act_quant_zero_point values must be in int8 range [-128, 127]"
                 act_quant_zero_point = act_quant_zero_point.to(torch.int8)
         if output_quant_scale is not None:
             output_quant_scale = output_quant_scale.to(device=hp_tensor.device)
+            if (
+                output_quant_scale.is_floating_point()
+                and output_quant_scale.dtype not in _FLOAT_TYPES
+            ):
+                output_quant_scale = output_quant_scale.to(dtype=torch.float32)
 
         return IntxStaticActivationTensor(
             qdata=qdata,
@@ -326,7 +379,7 @@ def _(func, types, args, kwargs):
     )
     assert isinstance(weight_tensor, IntxStaticActivationTensor)
 
-    output_quant_scale = getattr(weight_tensor, "output_quant_scale", None)
+    output_quant_scale = weight_tensor.output_quant_scale
     output_dtype = input_tensor.dtype
 
     act_quant_scale = weight_tensor.act_quant_scale
@@ -337,29 +390,24 @@ def _(func, types, args, kwargs):
         weight_tensor.block_size[0] == 1
         and weight_tensor.block_size[-1] == weight_tensor.shape[-1]
     )
+    K = input_tensor.shape[-1]
+    N = weight_tensor.shape[0]
 
     if act_quant_scale is not None:
-        act_scale = act_quant_scale.to(device=input_tensor.device)
-        if act_scale.numel() == 1:
-            act_scale = act_scale.view((1,) * input_tensor.ndim)
+        act_scale, act_scale_is_per_tensor = _broadcast_static_scale(
+            act_quant_scale.to(device=input_tensor.device), K, input_tensor.ndim
+        )
+        if act_scale_is_per_tensor:
             input_block_size = list(input_tensor.shape)
         else:
-            while act_scale.ndim < input_tensor.ndim:
-                act_scale = act_scale.unsqueeze(0)
-            input_block_size = [
-                input_tensor.shape[i] // act_scale.shape[i]
-                for i in range(input_tensor.ndim)
-            ]
+            input_block_size = list(input_tensor.shape[:-1]) + [1]
 
         if act_quant_zero_point is not None:
-            act_zp = act_quant_zero_point.to(
-                device=input_tensor.device, dtype=torch.int8
+            act_zp, _ = _broadcast_static_scale(
+                act_quant_zero_point.to(device=input_tensor.device),
+                K,
+                input_tensor.ndim,
             )
-            if act_zp.numel() == 1:
-                act_zp = act_zp.view((1,) * input_tensor.ndim)
-            else:
-                while act_zp.ndim < input_tensor.ndim:
-                    act_zp = act_zp.unsqueeze(0)
             act_zp = act_zp.expand_as(act_scale)
         else:
             act_zp = torch.zeros_like(act_scale, dtype=torch.int8)
@@ -374,48 +422,43 @@ def _(func, types, args, kwargs):
             quant_max=127,
         )
 
-        if (
+        # aten._int_mm requires M > 16 and K, N multiples of 8.
+        num_tokens = input_tensor.numel() // K if K > 0 else 0
+        use_int_mm = (
             is_cuda
             and is_per_channel
-            and input_block_size[-1] == input_tensor.shape[-1]
-        ):
-            tmp = input_q.reshape(-1, input_q.shape[-1])
-            w_vals_int8_t = weight_tensor.qdata.t()
-
-            x_scales_expanded = (
-                act_scale.reshape(-1, 1).expand(tmp.shape[0], 1).contiguous()
-            )
-            intermediate_dtype = (
-                torch.float if act_scale.dtype == torch.half else act_scale.dtype
-            )
-
-            y_dot_scaled = _int_scaled_matmul(
-                tmp, w_vals_int8_t, x_scales_expanded.to(intermediate_dtype)
-            ).to(torch.float32)
+            and act_scale_is_per_tensor
+            and num_tokens > 16
+            and K % 8 == 0
+            and N % 8 == 0
+        )
+        if use_int_mm:
+            tmp = input_q.reshape(-1, K)
+            w_vals_int8_t = weight_tensor.qdata.contiguous().t()
+            acc = safe_int_mm(tmp, w_vals_int8_t)
 
             if act_quant_zero_point is not None:
-                w_row_sums = weight_tensor.qdata.to(torch.float32).sum(dim=-1)
-                zp_x = act_zp.reshape(-1, 1).expand(tmp.shape[0], 1).to(torch.float32)
-                s_x = x_scales_expanded.to(torch.float32)
-                y_dot_scaled = y_dot_scaled - (zp_x * s_x) * w_row_sums
+                w_row_sums = weight_tensor.qdata.sum(dim=-1, dtype=torch.int32)
+                zp_x = act_zp.reshape(1, 1).to(torch.int32)
+                acc = acc - zp_x * w_row_sums
 
-            if weight_tensor.zero_point is not None:
-                x_row_sums = tmp.to(torch.float32).sum(dim=-1, keepdim=True)
-                if act_quant_zero_point is not None:
-                    K = tmp.shape[-1]
-                    zp_x = (
-                        act_zp.reshape(-1, 1).expand(tmp.shape[0], 1).to(torch.float32)
-                    )
-                    x_row_sums = x_row_sums - K * zp_x
-                s_x = x_scales_expanded.to(torch.float32)
+            x_row_sums = tmp.sum(dim=-1, keepdim=True, dtype=torch.int32)
+            if act_quant_zero_point is not None:
+                x_row_sums = x_row_sums - K * zp_x
+
+            if weight_tensor._has_float_zero_point():
                 zp_w = weight_tensor.zero_point.flatten().to(torch.float32)
-                y_dot_scaled = y_dot_scaled - (x_row_sums * s_x) * zp_w
+                acc_fp32 = acc.to(torch.float32) - x_row_sums.to(torch.float32) * zp_w
+            else:
+                zp_w = weight_tensor.zero_point.flatten().to(torch.int32)
+                acc_fp32 = (acc - x_row_sums * zp_w).to(torch.float32)
 
+            s_x = act_scale.reshape(1, 1).to(torch.float32)
             w_scales = weight_tensor.scale.flatten().to(torch.float32)
             y = (
-                (y_dot_scaled * w_scales)
+                (acc_fp32 * (s_x * w_scales))
                 .to(output_dtype)
-                .reshape(*input_tensor.shape[:-1], y_dot_scaled.shape[-1])
+                .reshape(*input_tensor.shape[:-1], acc_fp32.shape[-1])
             )
 
             if bias is not None:
@@ -438,14 +481,13 @@ def _(func, types, args, kwargs):
         y = torch.nn.functional.linear(input_tensor, w_dequant, bias)
 
     if output_quant_scale is not None:
-        out_scale = output_quant_scale.to(device=y.device)
-        if out_scale.numel() == 1:
-            out_scale = out_scale.view((1,) * y.ndim)
+        out_scale, out_scale_is_per_tensor = _broadcast_static_scale(
+            output_quant_scale.to(device=y.device), N, y.ndim
+        )
+        if out_scale_is_per_tensor:
             out_block_size = list(y.shape)
         else:
-            while out_scale.ndim < y.ndim:
-                out_scale = out_scale.unsqueeze(0)
-            out_block_size = [y.shape[i] // out_scale.shape[i] for i in range(y.ndim)]
+            out_block_size = list(y.shape[:-1]) + [1]
         zp = torch.zeros_like(out_scale, dtype=torch.int8)
         y_quant = quantize_affine(
             y,
@@ -516,6 +558,8 @@ def _(func, types, args, kwargs):
 def _(func, types, args, kwargs):
     self, dim, index = args[0], args[1], args[2]
     assert isinstance(self, IntxStaticActivationTensor)
+    if dim < 0:
+        dim += self.ndim
     if dim == 0 and self.block_size[0] == 1:
         sliced_qdata = self.qdata[index]
         sliced_scale = self.scale[index]
@@ -543,21 +587,38 @@ def _(func, types, args, kwargs):
 @implements(aten.slice.Tensor)
 def _(func, types, args, kwargs):
     self, dim, start, end, step = fill_defaults(args, 5, [0, None, None, 1])
-    assert step == 1
-
-    assert start % self.block_size[dim] == 0, (
-        f"slice args are incompatible with blocking: start={start} must be divisible by block_size[dim]={self.block_size[dim]}"
-    )
-    start_scale = start // self.block_size[dim]
-
-    assert end % self.block_size[dim] == 0, (
-        f"slice args are incompatible with blocking: end={end} must be divisible by block_size[dim]={self.block_size[dim]}"
-    )
-    end_scale = end // self.block_size[dim]
+    if step != 1:
+        raise NotImplementedError(
+            f"Slicing with step != 1 is not supported, got step={step}"
+        )
+    if dim < 0:
+        dim += self.ndim
+    if start is None or start < 0:
+        start = 0 if start is None else max(0, self.shape[dim] + start)
+    if end is None or end > self.shape[dim]:
+        end = self.shape[dim]
+    elif end < 0:
+        end = max(0, self.shape[dim] + end)
 
     qdata = aten.slice.Tensor(self.qdata, dim, start, end, step)
-    scale = aten.slice.Tensor(self.scale, dim, start_scale, end_scale, step)
-    zero_point = aten.slice.Tensor(self.zero_point, dim, start_scale, end_scale, step)
+    if self.scale.shape[dim] == 1:
+        scale = self.scale
+        zero_point = self.zero_point
+    else:
+        assert start % self.block_size[dim] == 0, (
+            f"slice args are incompatible with blocking: start={start} must be divisible by block_size[dim]={self.block_size[dim]}"
+        )
+        start_scale = start // self.block_size[dim]
+
+        assert end % self.block_size[dim] == 0, (
+            f"slice args are incompatible with blocking: end={end} must be divisible by block_size[dim]={self.block_size[dim]}"
+        )
+        end_scale = end // self.block_size[dim]
+
+        scale = aten.slice.Tensor(self.scale, dim, start_scale, end_scale, step)
+        zero_point = aten.slice.Tensor(
+            self.zero_point, dim, start_scale, end_scale, step
+        )
 
     new_block_size = []
     for i in range(qdata.ndim):
@@ -567,6 +628,28 @@ def _(func, types, args, kwargs):
         new_block_size.append(qdata.shape[i] // n_blocks)
     new_block_size = tuple(new_block_size)
 
+    act_quant_scale = self.act_quant_scale
+    if dim == 1 and act_quant_scale is not None and act_quant_scale.numel() > 1:
+        act_quant_scale = aten.slice.Tensor(
+            act_quant_scale, act_quant_scale.ndim - 1, start, end, step
+        )
+
+    act_quant_zero_point = self.act_quant_zero_point
+    if (
+        dim == 1
+        and act_quant_zero_point is not None
+        and act_quant_zero_point.numel() > 1
+    ):
+        act_quant_zero_point = aten.slice.Tensor(
+            act_quant_zero_point, act_quant_zero_point.ndim - 1, start, end, step
+        )
+
+    output_quant_scale = self.output_quant_scale
+    if dim == 0 and output_quant_scale is not None and output_quant_scale.numel() > 1:
+        output_quant_scale = aten.slice.Tensor(
+            output_quant_scale, output_quant_scale.ndim - 1, start, end, step
+        )
+
     new = IntxStaticActivationTensor(
         qdata,
         scale,
@@ -574,9 +657,9 @@ def _(func, types, args, kwargs):
         self.target_dtype,
         new_block_size,
         self.dtype,
-        self.act_quant_scale,
-        self.act_quant_zero_point,
-        self.output_quant_scale,
+        act_quant_scale,
+        act_quant_zero_point,
+        output_quant_scale,
     )
     return return_and_correct_aliasing(func, args, kwargs, new)
 
