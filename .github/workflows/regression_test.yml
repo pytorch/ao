@@ -97,7 +97,7 @@ jobs:
             runs-on: mt-l-x86aavx2-45-167-a10g-4
             torch-spec: 'torch==2.15.0 torchvision==0.29.2 --index-url https://download.pytorch.org/whl/cu132'
             gpu-arch-type: "cuda"
-            gpu-arch-version: "12.6"
+            gpu-arch-version: "13.2"
             dev-requirements-overrides: ""
 
           - name: CPU 2.15

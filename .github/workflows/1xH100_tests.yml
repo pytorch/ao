@@ -32,7 +32,7 @@ jobs:
             runs-on: mt-l-x86iamx-22-225-h100
             torch-spec: 'torch==2.15.0 torchvision==0.29.2 mslk==2026.9.9+cu132 --index-url https://download.pytorch.org/whl/cu132 --extra-index-url https://download.pytorch.org/whl/nightly/cu132'
             gpu-arch-type: "cuda"
-            gpu-arch-version: "13.0"
+            gpu-arch-version: "13.2"
     permissions:
       id-token: write
       contents: read
