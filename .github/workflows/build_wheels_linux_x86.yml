@@ -34,7 +34,9 @@ jobs:
       with-rocm: enable
       with-xpu: enable
       # Note: if free-threaded python is required add py3.13t here
-      python-versions: '["3.10"]'
+      # 3.11 is the floor: torch nightlies are not built for 3.10 anymore, and
+      # channels added after that cutoff (e.g. rocm10.1) have no 3.10 wheel at all
+      python-versions: '["3.11"]'
 
   build:
     needs: generate-matrix
