@@ -12,6 +12,8 @@ import tempfile
 import unittest
 
 import torch
+import torch.nn.utils.parametrize as parametrize
+from torch.nn.utils.parametrizations import weight_norm
 from torch.testing._internal import common_utils
 from torch.testing._internal.common_quantization import TestHelperModules
 from torch.testing._internal.common_utils import TestCase
@@ -58,6 +60,7 @@ from torchao.testing.pt2e._xnnpack_quantizer import (
 )
 from torchao.testing.utils import skip_if_rocm, skip_if_xpu
 from torchao.utils import (
+    TorchAOBaseTensor,
     get_current_accelerator_device,
     is_ROCM,
     is_sm_at_least_89,
@@ -171,12 +174,26 @@ class TestQuantFlow(TestCase):
         super().tearDown()
 
     def test_is_linear_skips_parametrized_weight(self):
-        from torch.nn.utils.parametrizations import weight_norm
-
         linear = torch.nn.Linear(32, 64, bias=False)
-        parametrized = weight_norm(torch.nn.Linear(32, 64, bias=False), name="weight")
+        wn_linear = weight_norm(torch.nn.Linear(32, 64, bias=False), name="weight")
         self.assertTrue(_is_linear(linear))
-        self.assertFalse(_is_linear(parametrized))
+        with self.assertLogs("torchao.quantization.quant_api", level="WARNING"):
+            self.assertFalse(_is_linear(wn_linear, "wn_linear"))
+
+    @common_utils.parametrize("use_fqn_config", [False, True])
+    def test_quantize_skips_parametrized_linear(self, use_fqn_config):
+        model = torch.nn.Sequential(
+            weight_norm(torch.nn.Linear(32, 64), name="weight"),
+            torch.nn.Linear(64, 32),
+        ).to(torch.bfloat16)
+        config = Int8WeightOnlyConfig()
+        if use_fqn_config:
+            quantize_(model, FqnToConfig({"_default": config}), filter_fn=None)
+        else:
+            quantize_(model, config)
+        self.assertTrue(parametrize.is_parametrized(model[0], "weight"))
+        self.assertIsInstance(model[1].weight, TorchAOBaseTensor)
+        model(torch.randn(2, 32, dtype=torch.bfloat16))
 
     def test_quantize_does_not_leak_fp32_precision(self):
         # quantize_() must not mutate the process wide fp32 precision flags, torch's
