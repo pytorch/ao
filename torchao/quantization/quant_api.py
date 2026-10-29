@@ -175,9 +175,16 @@ def _is_linear(mod, *args):
     if not (
         isinstance(mod, torch.nn.Linear)
         and hasattr(mod, "weight")
-        and not parametrize.is_parametrized(mod, "weight")
         and not isinstance(mod, nn.modules.linear.NonDynamicallyQuantizableLinear)
     ):
+        return False
+
+    if parametrize.is_parametrized(mod, "weight"):
+        fqn = args[0] if args and args[0] else "<root>"
+        logger.warning(
+            f"Skipping quantization of '{fqn}': weight is parametrized; "
+            "remove the parametrization first to quantize it."
+        )
         return False
 
     # Skip fake-quantized (QAT) weights. This is intended when a weight is shared
