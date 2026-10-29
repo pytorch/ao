@@ -5,11 +5,11 @@
 /torchao/quantization/ @jerryzh168 @andrewor14 @vkuzo
 
 # Float8 / Low-precision training
-/torchao/float8/ @vkuzo @jerryzh168 @andrewor14
+/torchao/float8/ @vkuzo @jerryzh168 @andrewor14 @jeffdaily
 
 # Prototype: MX formats and MoE training
-/torchao/prototype/mx_formats/ @drisspg @jerryzh168 @vkuzo @andrewor14
-/torchao/prototype/moe_training/ @jerryzh168 @vkuzo @andrewor14
+/torchao/prototype/mx_formats/ @drisspg @jerryzh168 @vkuzo @andrewor14 @jeffdaily
+/torchao/prototype/moe_training/ @jerryzh168 @vkuzo @andrewor14 @jeffdaily
 
 # Sparsity
 /torchao/sparsity/ @jerryzh168 @vkuzo @andrewor14
@@ -48,9 +48,6 @@ torchao/quantization/pt2e/quantizer/x86_inductor_quantizer.py @Xia-Weiwen @jerry
 .github/workflows/xpu_test.yml @liangan1 @vkuzo @jerryzh168 @andrewor14
 
 # ROCm
-/torchao/float8/ @jeffdaily @vkuzo @jerryzh168 @andrewor14
-/torchao/prototype/mx_formats/ @jeffdaily @drisspg @jerryzh168 @vkuzo @andrewor14
-/torchao/prototype/moe_training/ @jeffdaily @jerryzh168 @vkuzo @andrewor14
 /torchao/csrc/cuda/ @jeffdaily @jerryzh168 @vkuzo @andrewor14
 /test/float8/ @jeffdaily @vkuzo @jerryzh168 @andrewor14
 /test/prototype/mx_formats/ @jeffdaily @vkuzo @jerryzh168 @andrewor14
