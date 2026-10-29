@@ -43,7 +43,7 @@ jobs:
           # changes early.
           - name: CUDA Nightly
             runs-on: mt-l-x86aavx2-45-167-a10g-4
-            torch-spec: '--pre torch torchvision --index-url https://download.pytorch.org/whl/nightly/cu126'
+            torch-spec: '--pre torch torchvision --index-url https://download.pytorch.org/whl/nightly/cu132'
             gpu-arch-version: "13.2"
           # Pinned release -- validates PT2E against the currently supported
           # stable PyTorch.
