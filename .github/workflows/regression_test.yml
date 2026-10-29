@@ -59,7 +59,7 @@ jobs:
           # so we cannot install clangxx via conda here.
           dnf install -y clang
           clang --version
-          conda create -n venv python=3.10 libgcc-ng=11.2.0 libstdcxx-ng=11.2.0 -y
+          conda create -n venv python=3.11 libgcc-ng=11.2.0 libstdcxx-ng=11.2.0 -y
           conda activate venv
           export CC=clang
           export CXX=clang++
@@ -71,7 +71,7 @@ jobs:
           # in setup.py and not otherwise exercised by any OSS CI job.
           export USE_CPU_KERNELS=1
         else
-          conda create -n venv python=3.10 libgcc-ng=11.2.0 libstdcxx-ng=11.2.0 -y
+          conda create -n venv python=3.11 libgcc-ng=11.2.0 libstdcxx-ng=11.2.0 -y
           conda activate venv
         fi
         python -m pip install --upgrade pip
@@ -115,7 +115,7 @@ jobs:
       gpu-arch-version: ${{ matrix.gpu-arch-version }}
       submodules: recursive
       script: |
-        conda create -n venv python=3.10 libgcc-ng=11.2.0 libstdcxx-ng=11.2.0 -y
+        conda create -n venv python=3.11 libgcc-ng=11.2.0 libstdcxx-ng=11.2.0 -y
         conda activate venv
         python -m pip install --upgrade pip
         pip install ${{ matrix.torch-spec }}

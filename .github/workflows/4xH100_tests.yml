@@ -42,7 +42,7 @@ jobs:
       gpu-arch-version: ${{ matrix.gpu-arch-version }}
       submodules: recursive
       script: |
-        conda create -n venv python=3.10 -y
+        conda create -n venv python=3.11 -y
         conda activate venv
         export PATH=/opt/rh/devtoolset-10/root/usr/bin/:$PATH
         export NCCL_NVLS_ENABLE=0

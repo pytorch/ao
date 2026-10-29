@@ -61,7 +61,7 @@ jobs:
       gpu-arch-version: "12.6"
       submodules: recursive
       script: |
-        conda create -n venv python=3.10 libgcc-ng=11.2.0 libstdcxx-ng=11.2.0 -y
+        conda create -n venv python=3.11 libgcc-ng=11.2.0 libstdcxx-ng=11.2.0 -y
         conda activate venv
         python -m pip install --upgrade pip
         pip install ${{ matrix.torch-spec }}
@@ -105,7 +105,7 @@ jobs:
       docker-image: ${{ matrix.docker-image }}
       submodules: recursive
       script: |
-        conda create -n venv python=3.10 -y
+        conda create -n venv python=3.11 -y
         conda activate venv
         python -m pip install --upgrade pip
         pip install ${{ matrix.torch-spec }}
