@@ -1001,11 +1001,15 @@ def test_cast_to_float8_e4m3fn_saturation_behavior(input_dtype):
     ],
 )
 @pytest.mark.parametrize(
-    "use_triton_kernel", [False, True] if torch.cuda.is_available() else [False]
+    "use_triton_kernel", [False, True] if torch.accelerator.is_available() else [False]
 )
 def test_to_blocked_from_blocked_roundtrip(shape, use_triton_kernel: bool):
     rows, cols = shape
-    device = "cuda" if torch.cuda.is_available() else "cpu"
+    device = (
+        torch.accelerator.current_accelerator()
+        if torch.accelerator.is_available()
+        else "cpu"
+    )
 
     original = torch.randint(0, 255, (rows, cols), device=device, dtype=torch.uint8)
 
@@ -1078,7 +1082,9 @@ def test_scale_shape_matches_qdata(transpose, shape):
     )
 
 
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+@pytest.mark.skipif(
+    not torch.accelerator.is_available(), reason="No accelerator available"
+)
 @pytest.mark.parametrize("elem_dtype", (torch.float8_e4m3fn, torch.float4_e2m1fn_x2))
 @pytest.mark.parametrize("transpose", [False, True])
 @pytest.mark.parametrize(
@@ -1094,7 +1100,7 @@ def test_swizzle(elem_dtype, transpose, shape):
 
     block_size = 32
 
-    x_hp = torch.randn(*shape, device="cuda")
+    x_hp = torch.randn(*shape, device=torch.accelerator.current_accelerator())
     x = MXTensor.to_mx(
         x_hp,
         elem_dtype,
