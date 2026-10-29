@@ -26,9 +26,9 @@ jobs:
             torch-spec: '--pre torch torchvision --index-url https://download.pytorch.org/whl/nightly/cu126'
             gpu-arch-type: "cuda"
             gpu-arch-version: "12.4"
-          - name: H100 2.13
+          - name: H100 2.15
             runs-on: mt-l-x86iamx-88-900-h100-4
-            torch-spec: 'torch==2.13.0 torchvision==0.28.0 --index-url https://download.pytorch.org/whl/cu126'
+            torch-spec: 'torch==2.15.0 torchvision==0.29.2 --index-url https://download.pytorch.org/whl/cu132'
             gpu-arch-type: "cuda"
             gpu-arch-version: "12.4"
     permissions:
@@ -59,7 +59,7 @@ jobs:
         # mirrored on download.pytorch.org). Egress owned by PyTorch dev infra.
         pip install filelock typing-extensions "setuptools<82" sympy networkx jinja2 fsspec numpy pillow spmd-types
         # Clear PIP_EXTRA_INDEX_URL (the runner's default cpu /whl/cpu/) so it can't supply a
-        # +cpu torch; the torch-spec's --index-url makes the literal nightly cu126 index the only source.
+        # +cpu torch; the torch-spec's --index-url makes its literal wheel index the only source.
         PIP_EXTRA_INDEX_URL= pip install ${{ matrix.torch-spec }}
         uv pip install -r dev-requirements.txt
         pip install . --no-build-isolation

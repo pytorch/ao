@@ -28,9 +28,9 @@ jobs:
             torch-spec: '--pre torch torchvision mslk --index-url https://download.pytorch.org/whl/nightly/cu130'
             gpu-arch-type: "cuda"
             gpu-arch-version: "13.0"
-          - name: H100 2.13
+          - name: H100 2.15
             runs-on: mt-l-x86iamx-22-225-h100
-            torch-spec: 'torch==2.13.0 torchvision==0.28.0 mslk==1.3.0 --index-url https://download.pytorch.org/whl/cu130'
+            torch-spec: 'torch==2.15.0 torchvision==0.29.2 mslk==2026.9.9+cu132 --index-url https://download.pytorch.org/whl/cu132 --extra-index-url https://download.pytorch.org/whl/nightly/cu132'
             gpu-arch-type: "cuda"
             gpu-arch-version: "13.0"
     permissions:
@@ -60,7 +60,7 @@ jobs:
         # mirrored on download.pytorch.org). Egress owned by PyTorch dev infra.
         pip install filelock typing-extensions "setuptools<82" sympy networkx jinja2 fsspec numpy pillow spmd-types
         # Clear PIP_EXTRA_INDEX_URL (the runner's default cpu /whl/cpu/) so it can't supply a
-        # +cpu torch; the torch-spec's --index-url makes the literal nightly cu130 index the only source.
+        # +cpu torch; the torch-spec's explicit PyTorch indexes remain the only package sources.
         PIP_EXTRA_INDEX_URL= pip install ${{ matrix.torch-spec }}
         pip install -U --pre flashinfer-python --index-url https://flashinfer.ai/whl/nightly/ --no-deps
         pip install apache-tvm-ffi

@@ -43,9 +43,9 @@ jobs:
             torch-spec: '--pre torch torchvision --index-url https://download.pytorch.org/whl/nightly/cpu'
           # Pinned release -- validates PT2E against the currently supported
           # stable PyTorch.
-          - name: CPU 2.13
+          - name: CPU 2.15
             runs-on: mt-l-x86iavx512-16-128
-            torch-spec: 'torch==2.13.0 torchvision==0.28.0 --index-url https://download.pytorch.org/whl/cpu'
+            torch-spec: 'torch==2.15.0 torchvision==0.29.2 --index-url https://download.pytorch.org/whl/cpu'
 
     permissions:
       id-token: write

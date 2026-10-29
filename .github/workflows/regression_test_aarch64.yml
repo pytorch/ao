@@ -38,7 +38,7 @@ jobs:
           # of torch and torchao, which we do not want to use
           # Requires the public thread-count API added after ExecuTorch 1.5.
           pip install executorch==1.6.0.dev20260921 --index-url https://download.pytorch.org/whl/nightly/cpu --extra-index-url https://pypi.org/simple
-          pip install torch==2.13.0 --index-url https://download.pytorch.org/whl/cpu
+          pip install torch==2.15.0 --index-url https://download.pytorch.org/whl/cpu
           pip install -r dev-requirements.txt
           USE_CPP=1 TORCHAO_BUILD_KLEIDIAI=1 pip install . --no-build-isolation
       - name: Install requirements linux
@@ -46,7 +46,7 @@ jobs:
         run: |
           conda activate venv
           pip install coremltools
-          pip install torch==2.13.0 --index-url https://download.pytorch.org/whl/cpu
+          pip install torch==2.15.0 --index-url https://download.pytorch.org/whl/cpu
           pip install -r dev-requirements.txt
           BUILD_TORCHAO_EXPERIMENTAL=1 TORCHAO_BUILD_CPU_AARCH64=1 TORCHAO_BUILD_KLEIDIAI=1 TORCHAO_ENABLE_ARM_NEON_DOT=1 TORCHAO_PARALLEL_BACKEND=OPENMP pip install . --no-build-isolation
       - name: Run python tests
