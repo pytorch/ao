@@ -28,7 +28,10 @@ from torchao.core.config import AOBaseConfig
 from torchao.prototype.moe_training.nvfp4_training.hadamard_utils import (
     get_wgrad_sign_vector,
 )
-from torchao.prototype.moe_training.nvfp4_training.nvfp4_linear import nvfp4_linear
+from torchao.prototype.moe_training.nvfp4_training.nvfp4_linear import (
+    _resolve_use_cutedsl,
+    nvfp4_linear,
+)
 from torchao.quantization.quantize_.common.kernel_preference import KernelPreference
 from torchao.quantization.transform_module import register_quantize_module_handler
 
@@ -77,16 +80,34 @@ class NVFP4TrainingConfig(AOBaseConfig):
 
     Args:
         kernel_preference: Backend for quantization kernels.
+            AUTO: CuteDSL where its runtime allows, Triton otherwise. Both backends
+                accept the same shapes, on the tensor-parallel path as on the single-GPU
+                one, so the choice is availability alone and there is nothing for AUTO
+                to fall back on shape-wise.
             TRITON: Pure-Triton RHT + stochastic rounding path.
             CUTEDSL: CuteDSL kernels for the full quantize path (amax, forward
                 RTNE quantize, SR backward quantize, and 2D weight quantize).
                 Requires SM100; in_features divisible by 128 and out_features
-                by 256. Under tensor parallel the same constraints apply to each
-                per-rank shard, and the per-rank M shard must be divisible by 256.
-            Default: TRITON.
+                by 128. Under tensor parallel the same constraints apply to each
+                per-rank shard, and the per-rank M shard must be divisible by 128.
+                Unlike AUTO, an unmet requirement raises instead of falling back.
+            Default: AUTO.
+
+            Reproducibility note. AUTO resolves per call site from what the runtime
+            offers, so the backend can differ between two nodes running the same code.
+            Under stochastic rounding that changes results: the CuteDSL and Triton
+            kernels are byte-identical under RTNE but draw *different*
+            stochastic-rounding streams (CuteDSL takes one Philox counter per
+            16-element block and consumes all four words, rather than reproducing
+            Triton's per-packed-byte counter stride). This holds on the **linear and
+            grouped paths alike** -- both draw through ``philox4_all``. SR runs in the
+            backward pass, so the same seed on a node without the CuteDSL runtime
+            yields different gradients -- statistically equivalent, not bitwise equal.
+            Pin kernel_preference explicitly for runs that must reproduce bitwise
+            across machines.
         process_group: Optional ProcessGroup for tensor-parallel TP.
-            When set, forward dispatches to the selected NVFP4 tensor-parallel
-            path (TRITON or CUTEDSL).
+            When set, forward dispatches to the NVFP4 tensor-parallel path on the
+            backend kernel_preference resolves to, exactly as the single-GPU path does.
         world_size: TP world size.  Inferred from process_group if None.
         rht_sign_vector: Optional {-1, 1} sign vector of length 16 for the
             randomized Hadamard transform.  When None, each NVFP4Linear draws
@@ -96,12 +117,29 @@ class NVFP4TrainingConfig(AOBaseConfig):
             consistency should broadcast a single vector before calling
             quantize_() and pass it here.  The TP path always enforces
             consistency via _replicate_rht_sign_vector regardless of this field.
+        use_fast_math: Match TransformerEngine under ``NVTE_USE_FAST_MATH=1``: the RHT
+            quantize consumes the FP32 accumulator directly and takes an approximate
+            reciprocal. On by default; both backends implement it and remain bitwise
+            identical to TE and to each other. Set False to recover the exact-math
+            arithmetic.  Default: True.
+
+    Both defaults moved together, and both change what this config computes:
+    ``kernel_preference`` was TRITON and is now AUTO, and ``use_fast_math`` is new and
+    defaults on (fast-vs-exact measures 30-32 dB SQNR on the columnwise quantize output
+    -- above NVFP4's own ~20 dB quantization noise, but not identical; end to end at the
+    linear output the two are ~48 dB apart). A run that must reproduce earlier
+    numerics needs both pinned::
+
+        NVFP4TrainingConfig(
+            kernel_preference=KernelPreference.TRITON, use_fast_math=False
+        )
     """
 
-    kernel_preference: KernelPreference = KernelPreference.TRITON
+    kernel_preference: KernelPreference = KernelPreference.AUTO
     process_group: Optional[object] = field(default=None, compare=False)
     world_size: Optional[int] = None
     rht_sign_vector: Optional[object] = field(default=None, compare=False)
+    use_fast_math: bool = True
 
 
 class NVFP4Linear(nn.Linear):
@@ -119,15 +157,17 @@ class NVFP4Linear(nn.Linear):
         in_features: int,
         out_features: int,
         bias: bool = False,
-        kernel_preference: KernelPreference = KernelPreference.TRITON,
+        kernel_preference: KernelPreference = KernelPreference.AUTO,
         process_group=None,
         world_size: Optional[int] = None,
         device=None,
         dtype=None,
         rht_sign_vector: torch.Tensor | tuple[int, ...] | list[int] | None = None,
+        use_fast_math: bool = True,
     ):
         super().__init__(in_features, out_features, bias, device=device, dtype=dtype)
         self.kernel_preference = kernel_preference
+        self.use_fast_math = use_fast_math
         self.process_group = process_group
         self.world_size = world_size
         self.tensor_parallel_style = "colwise"
@@ -159,6 +199,7 @@ class NVFP4Linear(nn.Linear):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         if self.process_group is not None and self.kernel_preference in (
+            KernelPreference.AUTO,
             KernelPreference.TRITON,
             KernelPreference.CUTEDSL,
         ):
@@ -195,7 +236,8 @@ class NVFP4Linear(nn.Linear):
                 tp_group=self.process_group,
                 world_size=ws,
                 sign_vector=self.rht_sign_vector,
-                use_cutedsl=self.kernel_preference == KernelPreference.CUTEDSL,
+                use_cutedsl=_resolve_use_cutedsl(self.kernel_preference),
+                use_fast_math=self.use_fast_math,
             )
         return nvfp4_linear(
             x,
@@ -204,16 +246,18 @@ class NVFP4Linear(nn.Linear):
             kernel_preference=self.kernel_preference,
             sr_seed=self._sr_seed,
             sign_vector=self.rht_sign_vector,
+            use_fast_math=self.use_fast_math,
         )
 
     @classmethod
     def from_linear(
         cls,
         mod: nn.Linear,
-        kernel_preference: KernelPreference = KernelPreference.TRITON,
+        kernel_preference: KernelPreference = KernelPreference.AUTO,
         process_group=None,
         world_size: Optional[int] = None,
         rht_sign_vector: torch.Tensor | tuple[int, ...] | list[int] | None = None,
+        use_fast_math: bool = True,
     ) -> "NVFP4Linear":
         if rht_sign_vector is None:
             rht_sign_vector = getattr(mod, "_rht_sign_vector", None)
@@ -227,6 +271,7 @@ class NVFP4Linear(nn.Linear):
             device=mod.weight.device,
             dtype=mod.weight.dtype,
             rht_sign_vector=rht_sign_vector,
+            use_fast_math=use_fast_math,
         )
         # Copy weights (don't re-init)
         if mod.weight.device != torch.device("meta"):
@@ -252,5 +297,6 @@ def _nvfp4_training_transform(
             process_group=config.process_group,
             world_size=config.world_size,
             rht_sign_vector=config.rht_sign_vector,
+            use_fast_math=config.use_fast_math,
         )
     return module

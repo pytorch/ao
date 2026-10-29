@@ -19,6 +19,7 @@ from torchao.quantization.observer import (
     AffineQuantizedMinMaxObserver,
     AffineQuantizedMSEObserver,
 )
+from torchao.quantization.pt2e import observer as pt2e_observer
 from torchao.quantization.quant_primitives import MappingType
 
 
@@ -109,9 +110,9 @@ class TestQuantFlow(TestCase):
             torch.randn(10, 2048),
             torch.randn(9, 2048),
         ]
-        expected_error_msg = "Can't update existing min_val - shape mismatch, self.min_val:torch.Size([10]) != min_val:torch.Size([9])"
+        expected_error_msg = "Observer range shape changed between inputs"
         escaped_error_msg = re.escape(expected_error_msg)
-        with self.assertRaisesRegex(AssertionError, escaped_error_msg):
+        with self.assertRaisesRegex(ValueError, escaped_error_msg):
             for example_input in example_inputs:
                 obs(example_input)
 
@@ -127,9 +128,9 @@ class TestQuantFlow(TestCase):
             torch.randn(10, 2048),
             torch.randn(9, 2047),
         ]
-        expected_error_msg = "Can't update existing min_val - shape mismatch, self.min_val:torch.Size([2048]) != min_val:torch.Size([2047])"
+        expected_error_msg = "Observer range shape changed between inputs"
         escaped_error_msg = re.escape(expected_error_msg)
-        with self.assertRaisesRegex(AssertionError, escaped_error_msg):
+        with self.assertRaisesRegex(ValueError, escaped_error_msg):
             for example_input in example_inputs:
                 obs(example_input)
 
@@ -232,7 +233,10 @@ class TestQuantFlow(TestCase):
             torch.allclose(zp_no_keepdim.float(), zp_keepdim.squeeze().float())
         )
 
-    @common_utils.parametrize("input_shape", [(10, 2048), (4, 16, 256)])
+    @common_utils.parametrize(
+        "input_shape",
+        [(10, 2048), (1, 2048), (4, 16, 256), (2, 1, 256)],
+    )
     def test_keepdim_per_tensor(self, input_shape):
         """Test keepdim option for per-tensor quantization with various input shapes."""
         # Test with keepdim=False (default)
@@ -283,6 +287,26 @@ class TestQuantFlow(TestCase):
         self.assertTrue(torch.allclose(scale_no_keepdim, scale_keepdim.squeeze()))
         self.assertTrue(
             torch.allclose(zp_no_keepdim.float(), zp_keepdim.squeeze().float())
+        )
+
+
+class TestObserverStateDict(TestCase):
+    def test_load_restores_versioned_observer_state(self):
+        expected_epsilon = 2**-32
+        source = torch.nn.Module()
+        source.add_module(
+            "activation_post_process_0",
+            pt2e_observer.MinMaxObserver(eps=expected_epsilon),
+        )
+        observer_state = pt2e_observer.get_observer_state_dict(source)
+
+        restored = torch.nn.Module()
+        restored.add_module("activation_post_process_0", pt2e_observer.MinMaxObserver())
+        pt2e_observer.load_observer_state_dict(restored, observer_state)
+
+        self.assertEqual(
+            expected_epsilon,
+            restored.activation_post_process_0.eps.item(),
         )
 
 

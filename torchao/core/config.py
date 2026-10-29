@@ -136,6 +136,23 @@ class ConfigJSONEncoder(json.JSONEncoder):
             # Store the full path for enums to ensure uniqueness
             return {"_type": f"{o.__class__.__name__}", "_data": o.name}
 
+        # Handle pybind11-backed enums (e.g. torch.nn.functional.SwizzleType),
+        if (
+            hasattr(o, "name")
+            and hasattr(o, "value")
+            and isinstance(getattr(type(o), "__members__", None), dict)
+        ):
+            import torch.nn.functional as F
+
+            mod = getattr(type(o), "__module__", "")
+            name = type(o).__name__
+            if mod == "torch.nn.functional":
+                enum_begin_underscore_map = {"_SwizzleType": "SwizzleType"}
+                public = enum_begin_underscore_map.get(name, None)
+                if public and hasattr(F, public) and getattr(F, public) is type(o):
+                    name = public
+            return {"_type": f"{mod}.{name}", "_data": o.name}
+
         if isinstance(o, torch.dtype):
             return {"_type": "torch.dtype", "_data": str(o).split(".")[-1]}
 
@@ -229,6 +246,11 @@ def config_from_dict(data: Dict[str, Any]) -> AOBaseConfig:
         import torch
 
         return getattr(torch, obj_data)
+    elif type_path == "torch.nn.functional.SwizzleType":
+        import torch.nn.functional as F
+
+        return F.SwizzleType.__members__[obj_data]
+
     # Try to find the class in any of the allowed modules
     cls = None
     for module_path in ALLOWED_AO_MODULES:
@@ -257,6 +279,8 @@ def config_from_dict(data: Dict[str, Any]) -> AOBaseConfig:
         if issubclass(cls, enum.Enum):
             # For enums, convert string to enum value
             return getattr(cls, obj_data)
+        elif isinstance(getattr(cls, "__members__", None), dict):
+            return cls.__members__[obj_data]
         else:
             # For other primitive types, create an instance with the value
             try:

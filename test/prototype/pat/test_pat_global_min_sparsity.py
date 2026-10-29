@@ -95,6 +95,160 @@ class TestGlobalMinSparsityScore(common_utils.TestCase):
             apply_global_prox([param], prox, Grouper, {}, min_sparsity=0.5)
 
 
+class TestGroupCountCorrection(common_utils.TestCase):
+    @staticmethod
+    def _params():
+        return [torch.full((2, 4), 1.5), torch.ones(8, 4)]
+
+    def test_changes_selection_not_budget(self):
+        for score_type in ("rms", "l2", "param_cost"):
+            with self.subTest(score_type=score_type):
+                plain, corrected = self._params(), self._params()
+                prox = GlobalMinSparsityConstraint(0.0, 0.1, score_type)
+                a = apply_global_prox(plain, prox, Dim0Grouper, {}, 0.1)
+                b = apply_global_prox(
+                    corrected, prox, Dim0Grouper, {}, 0.1, score_group_count_ref=2
+                )
+                self.assertEqual([_count_zero_groups(p) for p in plain], [0, 1])
+                self.assertEqual([_count_zero_groups(p) for p in corrected], [1, 0])
+                self.assertEqual(a.zero_elts, b.zero_elts)
+                self.assertEqual(b.zero_elts, 4)
+                self.assertEqual([p.zero_elts for p in b.parameters], [4, 0])
+                self.assertEqual(b.numel, 40)
+
+    def test_reference_magnitude_preserves_selection(self):
+        results = []
+        for ref in (2, 16, 128):
+            params = self._params()
+            apply_global_prox(
+                params,
+                GlobalMinSparsityConstraint(0.0, 0.1),
+                Dim0Grouper,
+                {},
+                0.1,
+                score_group_count_ref=ref,
+            )
+            results.append([p.eq(0) for p in params])
+        self.assertEqual(results[0], results[1])
+        self.assertEqual(results[0], results[2])
+
+    def test_equal_group_counts_preserve_default(self):
+        plain = [torch.arange(1.0, 17.0).reshape(4, 4), torch.full((4, 4), 10.0)]
+        corrected = [p.clone() for p in plain]
+        prox = GlobalMinSparsityConstraint(0.0, 0.5)
+        apply_global_prox(plain, prox, Dim0Grouper, {}, 0.5)
+        apply_global_prox(
+            corrected, prox, Dim0Grouper, {}, 0.5, score_group_count_ref=16
+        )
+        self.assertEqual(plain, corrected)
+
+    def test_low_precision_scaling_preserves_finite_scores_and_selection(self):
+        for dtype in (torch.float16, torch.bfloat16):
+            for ref in (1, 16):
+                with self.subTest(dtype=dtype, reference=ref):
+                    params = [
+                        torch.tensor(values, dtype=dtype).reshape(-1, 1)
+                        for values in ([40000, 45000, 50000, 55000], [60000, 62000])
+                    ]
+                    reference = [p.float() for p in params]
+                    prox = GlobalMinSparsityConstraint(0.0, 1 / 3, "l2")
+                    apply_global_prox(
+                        reference,
+                        prox,
+                        Dim0Grouper,
+                        {},
+                        1 / 3,
+                        score_group_count_ref=ref,
+                    )
+                    with mock.patch("torch.topk", wraps=torch.topk) as topk:
+                        result = apply_global_prox(
+                            params,
+                            prox,
+                            Dim0Grouper,
+                            {},
+                            1 / 3,
+                            score_group_count_ref=ref,
+                        )
+                    scores = topk.call_args.args[0]
+                    self.assertTrue(scores.isfinite().all())
+                    self.assertEqual(scores.dtype, torch.float32)
+                    self.assertEqual(
+                        [p.eq(0) for p in params], [p.eq(0) for p in reference]
+                    )
+                    self.assertEqual(
+                        params[0].eq(0).flatten().tolist(), [True, False, False, False]
+                    )
+                    self.assertEqual(params[1].eq(0).flatten().tolist(), [True, False])
+                    self.assertEqual(result.zero_elts, 2)
+
+    def test_invalid_reference_before_mutation(self):
+        for ref in (0, -1, 1.5, True):
+            with self.subTest(reference=ref):
+                params = self._params()
+                originals = [p.clone() for p in params]
+                with self.assertRaisesRegex(ValueError, "positive integer"):
+                    apply_global_prox(
+                        params,
+                        GlobalMinSparsityConstraint(0.0, 0.1),
+                        Dim0Grouper,
+                        {},
+                        0.1,
+                        score_group_count_ref=ref,
+                    )
+                self.assertEqual(params, originals)
+
+    def test_optimizer_forwards_reference(self):
+        params = [torch.nn.Parameter(p) for p in self._params()]
+        group = {**_global_group(params, 0.1), "score_group_count_ref": 2}
+        optimizer = PruneOptimizer(torch.optim.SGD([group], lr=0.0))
+        for p in params:
+            p.grad = torch.zeros_like(p)
+        optimizer.step()
+        self.assertEqual([_count_zero_groups(p) for p in params], [1, 0])
+        self.assertEqual(optimizer.relative_sparsity, 0.1)
+
+    def test_optimizer_rejects_invalid_reference_before_warmup(self):
+        for ref in (0, -1, 1.5, True):
+            with self.subTest(reference=ref):
+                params = [torch.nn.Parameter(p) for p in self._params()]
+                group = {**_global_group(params, 0.1), "score_group_count_ref": ref}
+                with self.assertRaisesRegex(ValueError, "positive integer"):
+                    PruneOptimizer(torch.optim.SGD([group], lr=0.1), warmup_steps=10)
+
+    def test_optimizer_rejects_reference_on_non_global_groups(self):
+        for prox_type in ("MinSparsityConstraint", "ProxGroupLasso", None):
+            with self.subTest(prox_type=prox_type):
+                params = [torch.nn.Parameter(p) for p in self._params()]
+                group = {
+                    **_global_group(params, 0.1),
+                    "prox_type": prox_type,
+                    "score_group_count_ref": 2,
+                }
+                with self.assertRaisesRegex(
+                    ValueError,
+                    "score_group_count_ref requires GlobalMinSparsityConstraint",
+                ):
+                    PruneOptimizer(torch.optim.SGD([group], lr=0.1), warmup_steps=10)
+
+    def test_optimizer_disabled_reference_preserves_default(self):
+        for prox_type in ("GlobalMinSparsityConstraint", "MinSparsityConstraint"):
+            with self.subTest(prox_type=prox_type):
+                results = []
+                for kwargs in ({}, {"score_group_count_ref": None}):
+                    params = [torch.nn.Parameter(p) for p in self._params()]
+                    group = {
+                        **_global_group(params, 0.1),
+                        "prox_type": prox_type,
+                        **kwargs,
+                    }
+                    optimizer = PruneOptimizer(torch.optim.SGD([group], lr=0.1))
+                    for p in params:
+                        p.grad = torch.ones_like(p)
+                    optimizer.step()
+                    results.append([p.detach().clone() for p in params])
+                self.assertEqual(results[0], results[1])
+
+
 class TestGlobalMinSparsityOptimizer(common_utils.TestCase):
     def _run(self, params, min_sparsity, score_type="rms", steps=3, lr=0.1):
         base = torch.optim.SGD([_global_group(params, min_sparsity, score_type)], lr=lr)

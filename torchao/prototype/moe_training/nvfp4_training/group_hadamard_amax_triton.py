@@ -94,43 +94,42 @@ if torch_version_at_least("2.10.0") and has_triton():
         # count times N exceeds 2**31, silently wrapping the A load to a bad address.
         token_tile_idx = (tile_idx // num_tiles_hidden).to(tl.int64)
         hidden_tile_idx = tile_idx - token_tile_idx * num_tiles_hidden
-
-        if SHAPE_REP == VARYING_FIRST_DIM:
-            group_idx = _get_group_idx_binary(
-                token_tile_idx * BLOCK_M,
-                offsets_ptr,
-                num_tensors,
-            )
-        else:
-            group_idx = token_tile_idx // (num_tiles_token // num_tensors)
-
-        offsets_m = token_tile_idx * BLOCK_M + tl.arange(0, BLOCK_M)
-        offsets_n = hidden_tile_idx * BLOCK_N + tl.arange(0, BLOCK_N)
+        token_offset = token_tile_idx * BLOCK_M
         logical_packed_length = tl.load(logical_packed_length_ptr)
-        a = tl.load(
-            a_ptr + offsets_m[:, None] * N + offsets_n[None, :],
-            mask=offsets_m[:, None] < logical_packed_length,
-            other=0.0,
-        )
 
-        rht_offsets = (
-            tl.arange(0, RHT_SIZE)[:, None] * RHT_SIZE + tl.arange(0, RHT_SIZE)[None, :]
-        )
-        hadamard = tl.load(b_ptr + rht_offsets)
-        a_t = tl.trans(a)
-        a_t_reshape = tl.reshape(a_t, [BLOCK_N * BLOCK_M // RHT_SIZE, RHT_SIZE])
-        a_t_rht = tl.dot(a_t_reshape, hadamard).to(tl.bfloat16)
+        if token_offset < logical_packed_length:
+            if SHAPE_REP == VARYING_FIRST_DIM:
+                group_idx = _get_group_idx_binary(
+                    token_offset,
+                    offsets_ptr,
+                    num_tensors,
+                )
+            else:
+                group_idx = token_tile_idx // (num_tiles_token // num_tensors)
 
-        _atomic_max_2d(
-            tl.abs(a_t_rht),
-            global_amax_col_ptr,
-            group_idx,
-        )
-        _atomic_max_2d(
-            tl.abs(a.to(tl.float32)),
-            global_amax_row_ptr,
-            group_idx,
-        )
+            offsets_m = token_offset + tl.arange(0, BLOCK_M)
+            offsets_n = hidden_tile_idx * BLOCK_N + tl.arange(0, BLOCK_N)
+            a = tl.load(a_ptr + offsets_m[:, None] * N + offsets_n[None, :])
+
+            rht_offsets = (
+                tl.arange(0, RHT_SIZE)[:, None] * RHT_SIZE
+                + tl.arange(0, RHT_SIZE)[None, :]
+            )
+            hadamard = tl.load(b_ptr + rht_offsets)
+            a_t = tl.trans(a)
+            a_t_reshape = tl.reshape(a_t, [BLOCK_N * BLOCK_M // RHT_SIZE, RHT_SIZE])
+            a_t_rht = tl.dot(a_t_reshape, hadamard).to(tl.bfloat16)
+
+            _atomic_max_2d(
+                tl.abs(a_t_rht),
+                global_amax_col_ptr,
+                group_idx,
+            )
+            _atomic_max_2d(
+                tl.abs(a.to(tl.float32)),
+                global_amax_row_ptr,
+                group_idx,
+            )
 
     # The output buffers start at zero, and repeated atomic_max launches are
     # idempotent, so autotuning does not need reset_to_zero.
@@ -249,7 +248,9 @@ if torch_version_at_least("2.10.0") and has_triton():
             shape_rep: grouped shape representation.
             scaling_type: int encoding of F.ScalingType. Only TensorWise is supported.
             logical_packed_length: one-element int32 CUDA tensor containing the
-                valid padded row count. Rows beyond it are storage capacity only.
+                valid padded row count, equal to ``offsets[-1]``. Rows beyond it
+                are untouched allocation capacity and must not be consumed; zero-valued
+                per-group padding before it is processed normally.
 
         Returns:
             Tuple of (col_amax, row_amax), each (num_tensors,) float32:

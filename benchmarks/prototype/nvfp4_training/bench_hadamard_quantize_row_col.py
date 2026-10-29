@@ -15,7 +15,7 @@ over A, from the same precomputed global amaxes. Reports device kernel time (see
 
 import argparse
 import itertools
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Callable, Dict, List, Optional
 
 import torch
@@ -32,8 +32,13 @@ device = torch.device("cuda")
 
 BACKENDS = ("triton", "cutedsl")
 
-# Shared shape set (satisfies both backends: M % 256 == 0, N % 128 == 0).
-M_SHAPES = [256, 512, 1024, 8192]
+# Exact is TE's default arithmetic; fast matches TE under NVTE_USE_FAST_MATH=1 (fp32
+# accumulator consumed directly, approximate reciprocal). Both backends implement both.
+MATH_MODES = ("exact", "fast")
+MATH_CHOICES = (*MATH_MODES, "all")
+
+# Shared shape set (satisfies both backends: M % 128 == 0, N % 128 == 0).
+M_SHAPES = [256, 384, 512, 1024, 8192]
 N_SHAPES = [256, 512, 1024, 2048, 4096, 8192, 16384]
 
 LLAMA_BATCH_SIZE = 1
@@ -45,6 +50,7 @@ RHT_SIGN_VECTOR = (1, 1, 1, -1, 1, -1, -1, -1, -1, -1, -1, 1, -1, 1, -1, -1)
 class ExperimentConfig:
     m: int
     n: int
+    math: str = "exact"
     model: str = ""
     shape: str = ""
 
@@ -95,7 +101,7 @@ def _rowcol_bytes(m: int, n: int) -> int:
 
 
 def make_runner(
-    backend: str, x: torch.Tensor, col_amax, row_amax, sign_vector
+    backend: str, x: torch.Tensor, col_amax, row_amax, sign_vector, use_fast_math=False
 ) -> Optional[Callable[[], object]]:
     """No-arg callable running ``backend``'s RTNE row/col quantize on ``x``, or None."""
     sv = list(sign_vector)
@@ -112,6 +118,7 @@ def make_runner(
             row_global_amax=row_amax,
             sign_vector=sv,
             stochastic_rounding=False,
+            use_fast_math=use_fast_math,
         )
     if backend == "cutedsl":
         if not cutedsl_nvfp4_kernels_available():
@@ -120,7 +127,9 @@ def make_runner(
             cutedsl_rht_quantize_row_col,
         )
 
-        return lambda: cutedsl_rht_quantize_row_col(x, col_amax, row_amax, sv)
+        return lambda: cutedsl_rht_quantize_row_col(
+            x, col_amax, row_amax, sv, use_fast_math=use_fast_math
+        )
     raise ValueError(f"unknown backend {backend}")
 
 
@@ -137,7 +146,9 @@ def run_experiment(config: ExperimentConfig) -> Optional[ExperimentResult]:
 
     us: Dict[str, float] = {}
     for backend in BACKENDS:
-        runner = make_runner(backend, x, col_amax, row_amax, sign_vector)
+        runner = make_runner(
+            backend, x, col_amax, row_amax, sign_vector, config.math == "fast"
+        )
         if runner is not None:
             us[backend] = kernel_time_us(runner)
     if not us:
@@ -150,6 +161,7 @@ def print_results(experiments: List[Experiment], peak_mem_bw_gbps: Optional[floa
     headers = [
         "M",
         "N",
+        "math",
         "cutedsl_us",
         "triton_us",
         "speedup",
@@ -167,6 +179,7 @@ def print_results(experiments: List[Experiment], peak_mem_bw_gbps: Optional[floa
         row = [
             e.config.m,
             e.config.n,
+            e.config.math,
             round(c, 2) if c else "n/a",
             round(t, 2) if t else "n/a",
             speedup,
@@ -188,14 +201,24 @@ def main():
         choices=("sweep", "representative-models"),
         default="representative-models",
     )
+    parser.add_argument(
+        "--math",
+        choices=MATH_CHOICES,
+        default="all",
+        help="Quantize arithmetic to benchmark: TE-default exact, TE fast math, or both.",
+    )
     args = parser.parse_args()
+    math_modes = MATH_MODES if args.math == "all" else (args.math,)
 
     torch.random.manual_seed(123)
-    configs = (
+    base_configs = (
         get_representative_model_configs()
         if args.shape_set == "representative-models"
         else get_configs()
     )
+    configs = [
+        replace(config, math=mode) for config in base_configs for mode in math_modes
+    ]
     peak = get_peak_mem_bw_gbps()
     print(
         f"Peak memory bandwidth: {peak:.1f} GB/s"
