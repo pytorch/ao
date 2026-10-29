@@ -25,14 +25,14 @@ jobs:
         include:
           - name: SM-89
             runs-on: mt-l-x86aavx2-11-41-l4
-            torch-spec: '--pre torch --index-url https://download.pytorch.org/whl/nightly/cu126'
+            torch-spec: '--pre torch --index-url https://download.pytorch.org/whl/nightly/cu132'
             gpu-arch-type: "cuda"
-            gpu-arch-version: "12.6"
-          - name: SM-89 2.13
+            gpu-arch-version: "13.2"
+          - name: SM-89 2.15
             runs-on: mt-l-x86aavx2-11-41-l4
-            torch-spec: 'torch==2.13.0 --index-url https://download.pytorch.org/whl/cu126'
+            torch-spec: 'torch==2.15.0 --index-url https://download.pytorch.org/whl/cu132'
             gpu-arch-type: "cuda"
-            gpu-arch-version: "12.6"
+            gpu-arch-version: "13.2"
     permissions:
       id-token: write
       contents: read
@@ -44,7 +44,7 @@ jobs:
       gpu-arch-version: ${{ matrix.gpu-arch-version }}
       submodules: recursive
       script: |
-        conda create -n venv python=3.10 -y
+        conda create -n venv python=3.11 -y
         conda activate venv
         export PATH=/opt/rh/devtoolset-10/root/usr/bin/:$PATH
         python -m pip install --upgrade pip
