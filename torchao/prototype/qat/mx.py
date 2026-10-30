@@ -82,6 +82,11 @@ class _MXQuantizedForwardFakeQuantizedBackward(torch.autograd.Function):
     """
     Autograd function for MX quantization + addmm in low precision during forward,
     and fake quantization in high precision during backward.
+
+    When ``activation_config`` is None (weight-only QAT), the input stays in
+    high precision and the forward pass dequantizes the MX weight and runs a
+    plain high precision matmul; the backward pass keeps the STE semantics of
+    the dual-sided path.
     """
 
     @staticmethod
@@ -91,21 +96,12 @@ class _MXQuantizedForwardFakeQuantizedBackward(torch.autograd.Function):
         _input: torch.Tensor,
         weight: torch.Tensor,
         bias: Optional[torch.Tensor],
-        activation_config: MXFakeQuantizeConfig,
+        activation_config: Optional[MXFakeQuantizeConfig],
         weight_config: MXFakeQuantizeConfig,
     ) -> torch.Tensor:
         # Handle inputs of any rank by reshaping to 2D
         orig_shape = _input.shape
         _input_2d = _input.view(-1, orig_shape[-1])
-
-        # quantize input activations
-        _input_2d = MXTensor.to_mx(
-            _input_2d,
-            elem_dtype=activation_config.dtype,
-            block_size=activation_config.block_size,
-            scaling_mode=activation_config.scaling_mode,
-            kernel_preference=activation_config.kernel_preference,
-        )
 
         weight = MXTensor.to_mx(
             weight,
@@ -115,21 +111,44 @@ class _MXQuantizedForwardFakeQuantizedBackward(torch.autograd.Function):
             kernel_preference=weight_config.kernel_preference,
         )
 
-        ctx.save_for_backward(_input_2d, weight)
-        ctx.orig_shape = orig_shape
+        if activation_config is not None:
+            # quantize input activations
+            _input_2d = MXTensor.to_mx(
+                _input_2d,
+                elem_dtype=activation_config.dtype,
+                block_size=activation_config.block_size,
+                scaling_mode=activation_config.scaling_mode,
+                kernel_preference=activation_config.kernel_preference,
+            )
 
-        # Use addmm when bias is present, mm otherwise
-        if bias is not None:
-            aten_op = torch.ops.aten.addmm.default
+            ctx.save_for_backward(_input_2d, weight)
+            ctx.orig_shape = orig_shape
+
+            # Use addmm when bias is present, mm otherwise
+            if bias is not None:
+                aten_op = torch.ops.aten.addmm.default
+            else:
+                aten_op = torch.ops.aten.mm.default
+
+            out = _addmm_mx_dispatch(
+                _input_2d,
+                weight.t(),
+                aten_op,
+                bias,
+            )
         else:
-            aten_op = torch.ops.aten.mm.default
+            # weight-only: keep activations in high precision, dequantize the
+            # MX weight back to high precision and run a plain matmul, so the
+            # fake quantization numerics of the weight follow `MXTensor` exactly
+            weight_hp = weight.dequantize(weight.orig_dtype)
 
-        out = _addmm_mx_dispatch(
-            _input_2d,
-            weight.t(),
-            aten_op,
-            bias,
-        )
+            ctx.save_for_backward(_input_2d, weight)
+            ctx.orig_shape = orig_shape
+
+            if bias is not None:
+                out = torch.addmm(bias, _input_2d, weight_hp.t())
+            else:
+                out = torch.mm(_input_2d, weight_hp.t())
 
         # Reshape output back to original shape (with last dim changed)
         out_shape = (*orig_shape[:-1], out.shape[-1])
@@ -140,9 +159,11 @@ class _MXQuantizedForwardFakeQuantizedBackward(torch.autograd.Function):
     def backward(ctx, grad_output: torch.Tensor) -> torch.Tensor:
         _input_2d, weight = ctx.saved_tensors
         orig_shape = ctx.orig_shape
-        assert isinstance(_input_2d, MXTensor)
         assert isinstance(weight, MXTensor)
-        _input_2d = _input_2d.dequantize(_input_2d.orig_dtype)
+        # in the weight-only path the input is saved in high precision
+        # instead of as an MXTensor
+        if isinstance(_input_2d, MXTensor):
+            _input_2d = _input_2d.dequantize(_input_2d.orig_dtype)
         weight = weight.dequantize(weight.orig_dtype)
 
         grad_output_2d = grad_output.view(-1, grad_output.shape[-1])
@@ -201,8 +222,6 @@ class MXFakeQuantizedLinear(torch.nn.Linear):
         )
         if weight_config is None:
             raise ValueError("Must specify `weight_config`")
-        if activation_config is None:
-            raise ValueError("Weight only MX QAT not supported yet")
         self.activation_config = activation_config
         self.weight_config = weight_config
 
