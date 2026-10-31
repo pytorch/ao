@@ -193,7 +193,7 @@ if has_triton():
 
         # compute global scales using atomics with local scales - shape (1, K)
         scales_offs = (
-            expert_idx[:, None] * stride_scales_dim0
+            expert_idx * stride_scales_dim0
             + k_offs[None, :] * stride_scales_dim1
         )
         scales_mask = k_offs[None, :] < K
@@ -253,7 +253,7 @@ if has_triton():
 
         # load global scales for this block of the given expert - shape (1, K)
         scales_offs = (
-            expert_idx[:, None] * stride_scales_dim0
+            expert_idx * stride_scales_dim0
             + k_offs[None, :] * stride_scales_dim1
         )
         scales_mask = k_offs[None, :] < K
