@@ -4151,6 +4151,30 @@ class TestQuantizePT2E(PT2EQuantizationTestCase):
         sqnr = compute_error(output_ref, output)
         self.assertGreater(sqnr, 35, f"SQNR too low: {sqnr} dB")
 
+    def test_inplace_view_write_activation_input_observed(self):
+        class M(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.conv = torch.nn.Conv2d(3, 3, 3)
+
+            def forward(self, x):
+                buf = x.new_zeros(1, 3, 8, 8)
+                buf.select(0, 0).copy_(x)
+                return self.conv(buf)
+
+        m = M().eval()
+        x1 = torch.randn(3, 8, 8)
+        x2 = torch.randn(3, 8, 8)
+        traced = torch.export.export(m, (x1,), strict=True).module()
+        quantizer = XNNPACKQuantizer().set_global(get_symmetric_quantization_config())
+        prepared = prepare_pt2e(traced, quantizer)
+        prepared(x1)
+        converted = convert_pt2e(prepared)
+        out1 = converted(x1)
+        out2 = converted(x2)
+        # Observer must be placed before consumer (after in-place view write) so consumer receives mutated buffer
+        self.assertFalse(torch.allclose(out1, out2))
+
 
 @skipIfNoQNNPACK
 class TestQuantizePT2EAffineQuantization(PT2EQuantizationTestCase):

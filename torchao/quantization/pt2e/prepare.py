@@ -14,7 +14,12 @@ import torch
 from torch._subclasses import FakeTensor
 from torch.ao.quantization import QConfigMapping
 from torch.ao.quantization.fx.custom_config import PrepareCustomConfig
-from torch.ao.quantization.fx.prepare import _insert_obs_or_fq, _save_state
+from torch.ao.quantization.fx.prepare import (
+    _insert_obs_or_fq,
+    _save_state,
+    get_new_attr_name_with_prefix,
+    is_equalization_observer,
+)
 from torch.ao.quantization.qconfig import QConfigAny
 from torch.fx import Graph, GraphModule, Node
 from torch.fx.node import Argument
@@ -539,10 +544,50 @@ def _maybe_insert_input_observer_for_arg_or_kwarg(
 
     assert isinstance(model.graph, Graph)
     # TODO: pass in model_device here after https://github.com/pytorch/pytorch/pull/159901
-    new_arg = _insert_obs_or_fq(
-        arg, input_edge_obs_or_fq, model, named_modules, model.graph
+    new_arg = _insert_input_obs_or_fq(
+        arg,
+        node,
+        input_edge_obs_or_fq,
+        model,
+        named_modules,
+        model.graph,
+        model_device,
     )
     return new_arg
+
+
+def _insert_input_obs_or_fq(
+    arg: Node,
+    node: Node,
+    obs_or_fq: ObserverOrFakeQuantize,
+    model: torch.nn.Module,
+    named_modules: dict[str, torch.nn.Module],
+    graph: Graph,
+    model_device: Optional[torch.device] = None,
+) -> Node:
+    """Attaches `obs_or_fq` to `model`. For static parameters / weights (`get_attr`),
+    inserts the observer node after `arg` to preserve weight preparation order.
+    For activations, inserts before the consumer `node` so that any preceding
+    in-place mutations or view updates on `arg` have already completed."""
+    if arg.op == "get_attr":
+        return _insert_obs_or_fq(
+            arg, obs_or_fq, model, named_modules, graph, model_device
+        )
+    if model_device is None:
+        model_device = _assert_and_get_unique_device(model)
+    if model_device:
+        obs_or_fq.to(model_device)
+    if is_equalization_observer(obs_or_fq):
+        prefix = arg.name + "_equalization_process_"
+    else:
+        prefix = "activation_post_process_"
+    get_new_obs_or_fq_name = get_new_attr_name_with_prefix(prefix)
+    obs_or_fq_name = get_new_obs_or_fq_name(model)
+    setattr(model, obs_or_fq_name, obs_or_fq)
+    named_modules[obs_or_fq_name] = obs_or_fq
+    with graph.inserting_before(node):
+        new_obs = graph.create_node("call_module", obs_or_fq_name, (arg,), {})
+    return new_obs
 
 
 def _maybe_insert_input_observers_for_node(
