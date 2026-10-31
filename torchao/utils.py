@@ -9,6 +9,7 @@ import itertools
 import re
 import time
 import warnings
+from enum import Enum
 from functools import reduce
 from importlib.metadata import version
 from math import gcd
@@ -44,8 +45,15 @@ __all__ = [
 
 
 def register_as_pytree_constant(cls):
-    """Decorator to register a class as a pytree constant for dynamo non-strict trace mode."""
-    torch.utils._pytree.register_constant(cls)
+    """Decorator to register a class as a pytree constant for dynamo non-strict trace mode.
+
+    PyTorch treats ``Enum`` values as opaque pytree constants natively, and calling
+    ``register_constant()`` on an ``Enum`` subclass is deprecated there -- it warns on
+    every import and is documented to become an error. Non-Enum configuration classes
+    still need the explicit registration, so only the Enum case is skipped.
+    """
+    if not issubclass(cls, Enum):
+        torch.utils._pytree.register_constant(cls)
     return cls
 
 
