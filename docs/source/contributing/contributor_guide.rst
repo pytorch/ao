@@ -18,7 +18,7 @@ Adding New Tensor Subclasses
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 torchao Tensor subclasses are structured by ``derived dtype`` and ``packing format``, please check out the `quantization overview page <quantization_overview.html>`__ to understand these concepts. If a new tensor subclass is needed for your use case, i.e. a new dtype, or a new packing format that does not already exist, we could define a new Tensor.
 
-To understand how to use tensor subclass in the context of quantization, please also check `Writing Your Own Quantized Tensor <https://docs.pytorch.org/ao/main/subclass_basic.html>`__.
+To understand how to use tensor subclass in the context of quantization, please also check `Writing Your Own Quantized Tensor <https://docs.pytorch.org/ao/main/eager_tutorials/subclass_basic.html>`__.
 
 We have utility base class: ``torchao.utils.TorchAOBaseTensor`` that can help define common util functions and methods for you, if you specified the names of Tensor and non-Tensor attributes of the tensor subclass. for example::
 
@@ -27,7 +27,7 @@ We have utility base class: ``torchao.utils.TorchAOBaseTensor`` that can help de
       tensor_attribute_names = ["device", "dtype"]
 
 
-With the above, we'll have multiple methods and functions available to use for this Tensor, for more details please check the docs for `TorchAOBaseTensor <https://docs.pytorch.org/ao/main/generated/torchao.utils.TorchAOBaseTensor.html#torchao.utils.TorchAOBaseTensor>`__
+With the above, we'll have multiple methods and functions available to use for this Tensor, for more details please check the docs for `TorchAOBaseTensor <https://docs.pytorch.org/ao/main/api_reference/generated/torchao.utils.TorchAOBaseTensor.html#torchao.utils.TorchAOBaseTensor>`__
 
 Adding Efficient Kernels
 ~~~~~~~~~~~~~~~~~~~~~~~~
@@ -72,7 +72,7 @@ For some tensor subclasses, there could be multiple kernel choices for quantize 
 Flow
 ~~~~
 
-For model level API, people can reuse ``torchao.quantize_`` that allows people to apply a tensor subclass conversion to weight of linear, and allows `filtering function <https://docs.pytorch.org/ao/main/generated/torchao.quantization.quantize_.html#torchao.quantization.quantize_>`__ to choose which module the tensor subclass conversion should be applied to.
+For model level API, people can reuse ``torchao.quantize_`` that allows people to apply a tensor subclass conversion to weight of linear, and allows `filtering function <https://docs.pytorch.org/ao/main/api_reference/generated/torchao.quantization.quantize_.html#torchao.quantization.quantize_>`__ to choose which module the tensor subclass conversion should be applied to.
 
 See Quantization Algorithms/Flows section for examples of weight only/dynamic quant and other types of model level APIs.
 

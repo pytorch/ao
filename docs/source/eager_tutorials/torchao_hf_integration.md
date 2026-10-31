@@ -44,7 +44,7 @@ model = AutoModelForCausalLM.from_pretrained(
 ```{seealso}
 For inference examples and recommended quantization methods based on different hardwares (i.e. A100 GPU, H100 GPU, CPU), see [HF-Torchao Docs (Quantization Examples)](https://huggingface.co/docs/transformers/main/en/quantization/torchao#quantization-examples).
 
-For inference using vLLM, please see [(Part 3) Serving on vLLM, SGLang, ExecuTorch](https://docs.pytorch.org/ao/main/serving.html) for a full end-to-end tutorial.
+For inference using vLLM, please see [(Part 3) Serving on vLLM, SGLang, ExecuTorch](https://docs.pytorch.org/ao/main/eager_tutorials/serving.html) for a full end-to-end tutorial.
 ```
 
 (quantizing-models-diffusers)=
@@ -132,5 +132,5 @@ Weight-only quantization stores the model weights in a specific low-bit data typ
 Dynamic activation quantization stores the model weights in a low-bit dtype, while also quantizing the activations on-the-fly to save additional memory. This lowers the memory requirements from model weights, while also lowering the memory overhead from activation computations. However, this may come at a quality tradeoff at times, so it is recommended to test different models thoroughly.
 
 ```{note}
-Please refer to the [torchao docs](https://docs.pytorch.org/ao/main/api_ref_quantization.html) for supported quantization types.
+Please refer to the [torchao docs](https://docs.pytorch.org/ao/main/api_reference/api_ref_quantization.html) for supported quantization types.
 ```
