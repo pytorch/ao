@@ -368,6 +368,56 @@ def _(func, types, args, kwargs):
     return func(input_tensor, weight_tensor, bias, stride, padding, dilation, groups)
 
 
+@implements(aten.conv_transpose2d.input)
+@implements_torch_function(torch.nn.functional.conv_transpose2d)
+def _(func, types, args, kwargs):
+    (
+        input_tensor,
+        weight_tensor,
+        bias,
+        stride,
+        padding,
+        output_padding,
+        groups,
+        dilation,
+    ) = fill_defaults(args, 8, [None, [1, 1], [0, 0], [0, 0], 1, [1, 1]])
+    input_tensor = kwargs.get("input", input_tensor)
+    weight_tensor = kwargs.get("weight", weight_tensor)
+    bias = kwargs.get("bias", bias)
+    stride = kwargs.get("stride", stride)
+    padding = kwargs.get("padding", padding)
+    output_padding = kwargs.get("padding", output_padding)
+    dilation = kwargs.get("dilation", dilation)
+    groups = kwargs.get("groups", groups)
+    assert isinstance(weight_tensor, IntxUnpackedToInt8Tensor)
+
+    # Apply dynamic activation quant
+    if weight_tensor.activation_quantization is not None:
+        if (
+            weight_tensor.activation_quantization
+            == IntxUnpackedToInt8TensorActivationQuantization.INT8_ASYM_PER_TOKEN
+        ):
+            input_tensor = _apply_int8_act_asym_per_token_quant_dequant(
+                input_tensor
+            )
+        else:
+            raise NotImplementedError(
+                f"Unsupported activation quantization: {weight_tensor.activation_quantization}"
+            )
+
+    weight_tensor = weight_tensor.dequantize()
+    return func(
+        input_tensor,
+        weight_tensor,
+        bias,
+        stride,
+        padding,
+        output_padding,
+        groups,
+        dilation,
+    )
+
+
 @implements(aten.embedding.default)
 @implements_torch_function(torch.nn.functional.embedding)
 def _(func, types, args, kwargs):
