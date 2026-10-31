@@ -25,12 +25,16 @@ from torchao.float8.float8_training_tensor import (
 from torchao.float8.fsdp_utils import WeightWithDynamicFloat8CastTensor
 
 
-class matmul_with_hp_or_float8_args(torch.autograd.Function):
+class _matmul_with_hp_or_float8_args_impl(torch.autograd.Function):
     """
     Like torch.matmul, but with the arguments in either high precision or float8.
     * if the arguments are in high precision, they are cast to float8 according
       to the specified config
     * if the arguments are in float8, we assume the cast honored the config
+
+    This is the undecorated implementation. See `matmul_with_hp_or_float8_args`
+    for the `allow_in_graph`-decorated variant. Which one is used at runtime is
+    controlled by `Float8LinearConfig._autograd_fn_allow_in_graph`.
     """
 
     @staticmethod
@@ -62,6 +66,7 @@ class matmul_with_hp_or_float8_args(torch.autograd.Function):
                     -1, c.cast_config_input.scaling_granularity
                 ),
                 round_scales_to_power_of_2=c.round_scales_to_power_of_2,
+                allow_in_graph=c._autograd_fn_allow_in_graph,
             )
 
         if tensor_already_casted_to_fp8(weight_hp_t):
@@ -79,6 +84,7 @@ class matmul_with_hp_or_float8_args(torch.autograd.Function):
                     0, c.cast_config_weight.scaling_granularity
                 ),
                 round_scales_to_power_of_2=c.round_scales_to_power_of_2,
+                allow_in_graph=c._autograd_fn_allow_in_graph,
             )
 
         # the reshapes are needed in order to make the shapes compatible with
@@ -119,6 +125,7 @@ class matmul_with_hp_or_float8_args(torch.autograd.Function):
                     -1, c.cast_config_grad_output.scaling_granularity
                 ),
                 round_scales_to_power_of_2=c.round_scales_to_power_of_2,
+                allow_in_graph=c._autograd_fn_allow_in_graph,
             )
 
         if tensor_already_casted_to_fp8(weight_hp_t):
@@ -137,6 +144,7 @@ class matmul_with_hp_or_float8_args(torch.autograd.Function):
                     -1, c.cast_config_weight_for_grad_input.scaling_granularity
                 ),
                 round_scales_to_power_of_2=c.round_scales_to_power_of_2,
+                allow_in_graph=c._autograd_fn_allow_in_graph,
             )
 
         grad_input = torch.mm(
@@ -173,6 +181,7 @@ class matmul_with_hp_or_float8_args(torch.autograd.Function):
                     0, c.cast_config_grad_output_for_grad_weight.scaling_granularity
                 ),
                 round_scales_to_power_of_2=c.round_scales_to_power_of_2,
+                allow_in_graph=c._autograd_fn_allow_in_graph,
             )
 
         if tensor_already_casted_to_fp8(input_hp_reshaped):
@@ -191,6 +200,7 @@ class matmul_with_hp_or_float8_args(torch.autograd.Function):
                     0, c.cast_config_input_for_grad_weight.scaling_granularity
                 ),
                 round_scales_to_power_of_2=c.round_scales_to_power_of_2,
+                allow_in_graph=c._autograd_fn_allow_in_graph,
             )
 
         grad_weight = torch.mm(
@@ -201,6 +211,16 @@ class matmul_with_hp_or_float8_args(torch.autograd.Function):
         empty_grads = None, None
 
         return grad_input, grad_weight.t(), *empty_grads
+
+
+@torch._dynamo.allow_in_graph
+class matmul_with_hp_or_float8_args(_matmul_with_hp_or_float8_args_impl):
+    """
+    `allow_in_graph`-decorated variant of `_matmul_with_hp_or_float8_args_impl`.
+    See that class for the implementation.
+    """
+
+    pass
 
 
 class Float8Linear(torch.nn.Linear):
@@ -260,7 +280,12 @@ class Float8Linear(torch.nn.Linear):
             autocast_dtype = torch.get_autocast_gpu_dtype()
             input = input.to(autocast_dtype)
 
-        output = matmul_with_hp_or_float8_args.apply(
+        autograd_fn = (
+            matmul_with_hp_or_float8_args
+            if self.config._autograd_fn_allow_in_graph
+            else _matmul_with_hp_or_float8_args_impl
+        )
+        output = autograd_fn.apply(
             input,
             self.weight.t(),
             self.linear_mm_config,

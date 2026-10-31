@@ -245,6 +245,22 @@ class Float8LinearConfig:
     # same value in the forward pass as the backward passes.
     round_scales_to_power_of_2: bool = False
 
+    # If True (the default), the float8 `torch.autograd.Function`s used in the
+    # training path (matmul, casts, and the grad_output cast in tensor parallel)
+    # are decorated with `@torch._dynamo.allow_in_graph`. This keeps them opaque
+    # to Dynamo (Dynamo does not trace their Python bodies) while still letting
+    # AOTAutograd trace through them and Inductor fuse across the boundary.
+    #
+    # If False, the plain (undecorated) autograd Functions are used. Dynamo then
+    # routes them through the `AutogradFunctionApply` HOP, tracing forward and
+    # backward into static fx subgraphs. This is compatible with AOTAutograd
+    # caching, but the static subgraphs freeze any data-dependent Python branches
+    # (e.g. `tensor_already_casted_to_fp8`) at trace time, which can be incorrect
+    # when the runtime dtype differs from what was traced (see
+    # https://github.com/pytorch/ao/pull/4840). Set to False only if you
+    # understand this tradeoff.
+    _autograd_fn_allow_in_graph: bool = True
+
     def __post_init__(self):
         # Populate the additional cast overrides, if the user did not specify them
         # Note: this hacks around the frozen-ness of this dataclass
