@@ -5,7 +5,7 @@
 #   because it is slow and CPU/x86-centric. This is the GPU leg, which exists to
 #   cover the small number of PT2E tests that actually exercise the accelerator
 #   (e.g. the *_cuda QAT conv-bn fusion variants). It has two jobs: `test` for
-#   CUDA (nightly + pinned) and `test-rocm` for ROCm (nightly).
+#   CUDA (nightly + stable) and `test-rocm` for ROCm (nightly).
 #
 # Slow x86 tests are excluded here:
 #   test_x86inductor_fusion.py and test_x86inductor_quantizer.py hardcode
@@ -42,13 +42,15 @@ jobs:
           # PyTorch nightly -- catches breakages from upstream PT2E/Inductor
           # changes early.
           - name: CUDA Nightly
+            python-version: "3.11"
             runs-on: mt-l-x86aavx2-45-167-a10g-4
             torch-spec: '--pre torch torchvision --index-url https://download.pytorch.org/whl/nightly/cu126'
-          # Pinned release -- validates PT2E against the currently supported
-          # stable PyTorch.
-          - name: CUDA 2.13
+          # Stable release -- validates PT2E against the last PyTorch series
+          # supporting Python 3.10.
+          - name: CUDA Stable (<2.15)
+            python-version: "3.10"
             runs-on: mt-l-x86aavx2-45-167-a10g-4
-            torch-spec: 'torch==2.13.0 torchvision==0.28.0 --index-url https://download.pytorch.org/whl/cu126'
+            torch-spec: '"torch<2.15" torchvision --index-url https://download.pytorch.org/whl/cu126'
 
     permissions:
       id-token: write
@@ -61,7 +63,7 @@ jobs:
       gpu-arch-version: "12.6"
       submodules: recursive
       script: |
-        conda create -n venv python=3.10 libgcc-ng=11.2.0 libstdcxx-ng=11.2.0 -y
+        conda create -n venv python=${{ matrix.python-version }} libgcc-ng=11.2.0 libstdcxx-ng=11.2.0 -y
         conda activate venv
         python -m pip install --upgrade pip
         pip install ${{ matrix.torch-spec }}
@@ -105,7 +107,7 @@ jobs:
       docker-image: ${{ matrix.docker-image }}
       submodules: recursive
       script: |
-        conda create -n venv python=3.10 -y
+        conda create -n venv python=3.11 -y
         conda activate venv
         python -m pip install --upgrade pip
         pip install ${{ matrix.torch-spec }}

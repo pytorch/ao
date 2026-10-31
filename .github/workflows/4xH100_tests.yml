@@ -22,13 +22,15 @@ jobs:
       matrix:
         include:
           - name: H100
+            python-version: "3.11"
             runs-on: mt-l-x86iamx-88-900-h100-4
             torch-spec: '--pre torch torchvision --index-url https://download.pytorch.org/whl/nightly/cu126'
             gpu-arch-type: "cuda"
             gpu-arch-version: "12.4"
-          - name: H100 2.13
+          - name: H100 Stable (<2.15)
+            python-version: "3.10"
             runs-on: mt-l-x86iamx-88-900-h100-4
-            torch-spec: 'torch==2.13.0 torchvision==0.28.0 --index-url https://download.pytorch.org/whl/cu126'
+            torch-spec: '"torch<2.15" torchvision --index-url https://download.pytorch.org/whl/cu126'
             gpu-arch-type: "cuda"
             gpu-arch-version: "12.4"
     permissions:
@@ -42,7 +44,7 @@ jobs:
       gpu-arch-version: ${{ matrix.gpu-arch-version }}
       submodules: recursive
       script: |
-        conda create -n venv python=3.10 -y
+        conda create -n venv python=${{ matrix.python-version }} -y
         conda activate venv
         export PATH=/opt/rh/devtoolset-10/root/usr/bin/:$PATH
         export NCCL_NVLS_ENABLE=0
