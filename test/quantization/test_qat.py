@@ -78,7 +78,9 @@ from torchao.quantization.quant_api import (
     Float8DynamicActivationFloat8WeightConfig,
     Float8DynamicActivationInt4WeightConfig,
     Int4WeightOnlyConfig,
+    Int8DynamicActivationInt8WeightConfig,
     Int8DynamicActivationIntxWeightConfig,
+    Int8WeightOnlyConfig,
     IntxWeightOnlyConfig,
 )
 from torchao.quantization.quant_primitives import (
@@ -306,6 +308,45 @@ class TestQAT(TestCase):
             block_size,
             s,
             zp,
+            torch.int8,
+            qmin,
+            qmax,
+            output_dtype=torch.float32,
+        )
+        torch.testing.assert_close(out, out_ptq, atol=0, rtol=0)
+
+    def test_fake_quantize_per_token_symmetric(self):
+        """Test symmetric per-token fake quantization against PTQ ops."""
+        qmin, qmax = _get_qmin_qmax(8)
+        torch.manual_seed(self.SEED)
+        x = torch.randn(100, 256).requires_grad_()
+        x2 = copy.deepcopy(x)
+        fake_quantizer = IntxFakeQuantizer(
+            IntxFakeQuantizeConfig(torch.int8, PerToken(), is_symmetric=True)
+        )
+
+        out = fake_quantizer(x)
+        out.sum().backward()
+
+        block_size = _get_per_token_block_size(x2)
+        scale, zero_point = choose_qparams_affine(
+            x2,
+            mapping_type=MappingType.SYMMETRIC,
+            block_size=block_size,
+            target_dtype=torch.int8,
+            quant_min=qmin,
+            quant_max=qmax,
+            scale_dtype=torch.float32,
+            zero_point_dtype=torch.int32,
+        )
+        out_ptq = quantize_affine(
+            x2, block_size, scale, zero_point, torch.int8, qmin, qmax
+        )
+        out_ptq = dequantize_affine(
+            out_ptq,
+            block_size,
+            scale,
+            zero_point,
             torch.int8,
             qmin,
             qmax,
@@ -2772,6 +2813,47 @@ class TestQAT(TestCase):
     @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
     @skip_if_xpu("XPU enablement in progress")
     @parametrize(
+        "act_mapping_type, dtype",
+        [
+            (mapping_type, dtype)
+            for mapping_type in [MappingType.SYMMETRIC, MappingType.ASYMMETRIC]
+            for dtype in [torch.bfloat16, torch.float32]
+        ],
+    )
+    def test_quantize_api_int8_int8(self, act_mapping_type, dtype):
+        self._test_quantize_api_against_ptq(
+            Int8DynamicActivationInt8WeightConfig(
+                act_mapping_type=act_mapping_type
+            ),
+            target_prepare_sqnr=35,
+            target_convert_sqnr=float("inf"),
+            dtype=dtype,
+        )
+
+    @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
+    @skip_if_xpu("XPU enablement in progress")
+    @parametrize(
+        "granularity, dtype",
+        [
+            (granularity, dtype)
+            for granularity in [PerRow(), PerGroup(32), PerTensor()]
+            for dtype in [torch.bfloat16, torch.float32]
+        ],
+    )
+    def test_quantize_api_int8_weight_only(self, granularity, dtype):
+        target_prepare_sqnr = (
+            40 if isinstance(granularity, (PerRow, PerTensor)) else float("inf")
+        )
+        self._test_quantize_api_against_ptq(
+            Int8WeightOnlyConfig(granularity=granularity),
+            target_prepare_sqnr=target_prepare_sqnr,
+            target_convert_sqnr=float("inf"),
+            dtype=dtype,
+        )
+
+    @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
+    @skip_if_xpu("XPU enablement in progress")
+    @parametrize(
         "weight_dtype, granularity, dtype, module_type",
         [
             (weight_dtype, granularity, dtype, module_type)
@@ -2828,6 +2910,49 @@ class TestQAT(TestCase):
         self.assertIsInstance(weight_config, Int4WeightFakeQuantizeConfig)
         self.assertEqual(weight_config.group_size, group_size)
         self.assertEqual(weight_config.activation_dtype, torch.bfloat16)
+
+    def test_infer_int8_configs(self):
+        from torchao.quantization.qat.fake_quantize_config import (
+            _infer_fake_quantize_configs,
+        )
+
+        base_config = Int8DynamicActivationInt8WeightConfig()
+        act_config, weight_config = _infer_fake_quantize_configs(base_config)
+        self.assertIsInstance(act_config, IntxFakeQuantizeConfig)
+        self.assertEqual(act_config.dtype, torch.int8)
+        self.assertIsInstance(act_config.granularity, PerToken)
+        self.assertEqual(act_config.mapping_type, MappingType.SYMMETRIC)
+        self.assertIsInstance(weight_config, IntxFakeQuantizeConfig)
+        self.assertEqual(weight_config.dtype, torch.int8)
+        self.assertIsInstance(weight_config.granularity, PerAxis)
+        self.assertEqual(weight_config.granularity.axis, 0)
+        self.assertTrue(weight_config.is_symmetric)
+
+        base_config = Int8DynamicActivationInt8WeightConfig(
+            act_mapping_type=MappingType.ASYMMETRIC
+        )
+        act_config, weight_config = _infer_fake_quantize_configs(base_config)
+        self.assertEqual(act_config.mapping_type, MappingType.ASYMMETRIC)
+        self.assertTrue(weight_config.is_symmetric)
+
+        for granularity, expected_granularity in (
+            (PerRow(), PerAxis(0)),
+            (PerGroup(64), PerGroup(64)),
+            (PerTensor(), PerTensor()),
+        ):
+            base_config = Int8WeightOnlyConfig(granularity=granularity)
+            act_config, weight_config = _infer_fake_quantize_configs(base_config)
+            self.assertIsNone(act_config)
+            self.assertIsInstance(weight_config, IntxFakeQuantizeConfig)
+            self.assertEqual(weight_config.dtype, torch.int8)
+            self.assertEqual(weight_config.granularity, expected_granularity)
+            self.assertEqual(weight_config.mapping_type, MappingType.SYMMETRIC)
+            self.assertEqual(weight_config.eps, torch.finfo(torch.float32).eps)
+
+        with self.assertRaisesRegex(AssertionError, "Only PerRow"):
+            _infer_fake_quantize_configs(
+                Int8DynamicActivationInt8WeightConfig(granularity=PerTensor())
+            )
 
     @unittest.skipIf(not is_sm_at_least_89(), "Need sm89+")
     @parametrize("use_per_tensor_scale", [True, False])
