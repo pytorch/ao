@@ -3523,6 +3523,62 @@ class TestQuantizePT2E(PT2EQuantizationTestCase):
             ViewM(), example_inputs, {"select_scatter": "buf"}
         )
 
+    def test_quantize_buffer_filled_in_place_through_view(self):
+        class M(torch.nn.Module):
+            def __init__(self) -> None:
+                super().__init__()
+                self.conv = torch.nn.Conv2d(3, 3, 3)
+
+            def forward(self, x: torch.Tensor) -> torch.Tensor:
+                buf = x.new_zeros(1, 3, 8, 8)
+                buf.select(0, 0).copy_(x)
+                return self.conv(buf)
+
+        class ViewQuantizer(Quantizer):
+            # Also quantizes the view, so its observers sit on the written chain.
+            def annotate(self, model: torch.fx.GraphModule) -> torch.fx.GraphModule:
+                act_qspec = QuantizationSpec(
+                    dtype=torch.int8,
+                    quant_min=-128,
+                    quant_max=127,
+                    qscheme=torch.per_tensor_affine,
+                    is_dynamic=False,
+                    observer_or_fake_quant_ctr=observer.default_observer,
+                )
+                for node in model.graph.nodes:
+                    if node.target in (
+                        torch.ops.aten.select.int,
+                        torch.ops.aten.conv2d.default,
+                    ):
+                        node.meta["quantization_annotation"] = QuantizationAnnotation(
+                            input_qspec_map={node.args[0]: act_qspec},
+                            output_qspec=act_qspec,
+                            _annotated=True,
+                        )
+                return model
+
+            def validate(self, model: torch.fx.GraphModule) -> None:
+                pass
+
+        quantizers = {
+            "xnnpack": XNNPACKQuantizer().set_global(
+                get_symmetric_quantization_config()
+            ),
+            "view": ViewQuantizer(),
+        }
+        for name, quantizer in quantizers.items():
+            with self.subTest(quantizer=name):
+                torch.manual_seed(0)
+                eager = M().eval()
+                x = torch.randn(3, 8, 8)
+                m = torch.export.export(eager, (x,), strict=True).module()
+                m = prepare_pt2e(m, quantizer)
+                for _ in range(4):
+                    m(torch.randn(3, 8, 8))
+                m = convert_pt2e(m)
+                # Without the image in `buf`, the output would not depend on x.
+                self.assertGreater(compute_error(eager(x), m(x)).item(), 20)
+
     def _prepare_mutable_buffer_quantization(
         self,
         module: torch.nn.Module,
