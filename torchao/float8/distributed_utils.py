@@ -5,10 +5,17 @@
 # LICENSE file in the root directory of this source tree.
 
 import torch
-import torch.distributed._functional_collectives as funcol
-from torch.distributed._tensor import DTensor
 
 from torchao.float8.float8_training_tensor import Float8TrainingTensor
+
+if torch.distributed.is_available():
+    from torch.distributed._functional_collectives import AsyncCollectiveTensor
+    from torch.distributed.tensor import DTensor
+else:
+    # torch built with USE_DISTRIBUTED=0 has neither type, so the isinstance()
+    # checks below are always False.
+    AsyncCollectiveTensor = ()
+    DTensor = ()
 
 
 def tensor_already_casted_to_fp8(tensor: torch.Tensor) -> bool:
@@ -21,7 +28,7 @@ def tensor_already_casted_to_fp8(tensor: torch.Tensor) -> bool:
     elif isinstance(tensor, DTensor):
         # TODO: shall we stick to public API and directly use tensor.to_local() here?
         return tensor_already_casted_to_fp8(tensor._local_tensor)
-    elif isinstance(tensor, funcol.AsyncCollectiveTensor):
+    elif isinstance(tensor, AsyncCollectiveTensor):
         return tensor_already_casted_to_fp8(tensor.elem)
 
     return False
