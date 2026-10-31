@@ -299,16 +299,27 @@ def float8_cat(aten_op, args, kwargs=None):
     return Float8TrainingTensor(new_data, scale, orig_dtype, mm_config, gemm_input_role)
 
 
-@implements([aten.sum.dim_IntList])
+@implements(
+    [
+        aten.sum.dim_IntList,
+        aten.abs.default,
+        aten.max.default,
+        aten.max.dim,
+        aten.amax.default,
+    ]
+)
 def float8_cast_up_op(aten_op, args, kwargs=None):
     """Be careful with this function, this is a "fallback" op that
     casts the output of the op to the original precision. And performs the op.
 
-    We currently need this to support the backward for admmm bias.
-    "addmm" -> out
-    "hp_gradBias" <-"sum" <- "identity" <- gradOut <- "hp_gradOut"
+    We currently need this to support:
+    - the backward for addmm bias:
+      "addmm" -> out
+      "hp_gradBias" <-"sum" <- "identity" <- gradOut <- "hp_gradOut"
+    - amax-path ops (abs, max, amax) during backward retrace under HOP
     """
-    _assert_tensorwise_scale(aten_op, args[0]._scale)
+    if aten_op == aten.sum.dim_IntList:
+        _assert_tensorwise_scale(aten_op, args[0]._scale)
 
     def unwrap(x):
         if isinstance(x, Float8TrainingTensor):
@@ -316,7 +327,7 @@ def float8_cast_up_op(aten_op, args, kwargs=None):
         return x
 
     new_args = tree_map(unwrap, args)
-    new_kwargs = tree_map(unwrap, kwargs)
+    new_kwargs = tree_map(unwrap, kwargs) if kwargs else {}
     return aten_op(*new_args, **new_kwargs)
 
 

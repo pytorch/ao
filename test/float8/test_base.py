@@ -156,6 +156,50 @@ class TestFloat8TrainingTensor:
             assert fp8_a_transposed._axiswise_dim == expected_axiswise_dim
             assert fp8_b_t._axiswise_dim == expected_axiswise_dim
 
+    def test_abs_and_amax_dispatch(self):
+        # Tensorwise scaling
+        a = torch.randn((16, 16), dtype=torch.bfloat16)
+        scale_a = tensor_to_scale(a, e4m3_dtype)
+        fp8_a = hp_tensor_and_scale_to_float8(a, scale_a, e4m3_dtype)
+
+        abs_fp8 = torch.abs(fp8_a)
+        assert abs_fp8.dtype == torch.bfloat16
+        torch.testing.assert_close(abs_fp8, torch.abs(fp8_a.to_original_precision()))
+
+        max_fp8 = torch.max(abs_fp8)
+        torch.testing.assert_close(
+            max_fp8, torch.max(torch.abs(fp8_a.to_original_precision()))
+        )
+
+        amax_fp8 = torch.amax(abs_fp8, dim=-1, keepdim=True)
+        torch.testing.assert_close(
+            amax_fp8,
+            torch.amax(torch.abs(fp8_a.to_original_precision()), dim=-1, keepdim=True),
+        )
+
+        # Direct max and amax on Float8TrainingTensor
+        max_direct = torch.max(fp8_a)
+        torch.testing.assert_close(max_direct, torch.max(fp8_a.to_original_precision()))
+
+        # Axiswise scaling
+        for axiswise_dim in (0, -1):
+            fp8_axiswise = hp_tensor_and_scale_to_float8(
+                a, scale_a, e4m3_dtype, axiswise_dim=axiswise_dim
+            )
+            abs_axiswise = torch.abs(fp8_axiswise)
+            torch.testing.assert_close(
+                abs_axiswise, torch.abs(fp8_axiswise.to_original_precision())
+            )
+            amax_axiswise = torch.amax(abs_axiswise, dim=axiswise_dim, keepdim=True)
+            torch.testing.assert_close(
+                amax_axiswise,
+                torch.amax(
+                    torch.abs(fp8_axiswise.to_original_precision()),
+                    dim=axiswise_dim,
+                    keepdim=True,
+                ),
+            )
+
     @pytest.mark.parametrize("shape", [(8, 16), (4, 8, 16), (2, 4, 8, 16)])
     @pytest.mark.parametrize("axiswise_dim", [0, -1])
     @pytest.mark.parametrize("round_scales_to_power_of_2", [True, False])
