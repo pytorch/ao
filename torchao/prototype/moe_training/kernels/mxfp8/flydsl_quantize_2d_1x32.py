@@ -20,8 +20,6 @@ No cross-lane reduction needed because each block fits in one lane's registers.
 from __future__ import annotations
 
 import functools
-import os
-from contextlib import nullcontext
 from typing import Optional, Tuple
 
 import torch
@@ -36,7 +34,7 @@ from .flydsl_utils import (
 )
 
 if _flydsl_runtime_available():
-    from .flydsl_utils import current_stream_fast
+    from .flydsl_utils import current_stream_fast, waves_per_eu_hint
 
 
 # Each chunk-iteration of the K-loop processes one quant block per lane:
@@ -52,18 +50,20 @@ _K_MIN_ALIGN = BLOCK_SIZE
 if _flydsl_runtime_available():
     import flydsl.compiler as flyc
     import flydsl.expr as fx
-    from flydsl.compiler.kernel_function import CompilationContext
-    from flydsl.expr import buffer_ops, const_expr, range_constexpr
+    from flydsl.expr import const_expr, range_constexpr
 
     # Module-level imports of the in-kernel helpers — see flydsl_utils.py for
     # why this matters (cutedsl uses the same pattern with cute_utils).
     from .flydsl_utils import (
-        abs_max_nan_as_inf,
+        abs_max,
+        buffer_load,
+        buffer_store,
+        buffer_view,
         floor_scale_and_inv_scale,
-        make_fp8_clamp_vectors,
         quantize_pack_chunk_to_i32_floor,
         quantize_pack_chunk_to_i32_rceil,
         rceil_scale_and_pos_scale,
+        store_scale,
     )
 
     @functools.cache
@@ -91,19 +91,16 @@ if _flydsl_runtime_available():
 
         @flyc.kernel(known_block_size=[AMD_WAVE_SIZE, 1, 1])
         def quantize_2d_1x32_kernel(
-            x: fx.Tensor,  # (M, K) bf16/f32 row-major
-            q: fx.Tensor,  # (M, K) fp8_e4m3fn — addressed as i32 packed
-            scales: fx.Tensor,  # (M, K // 32) uint8 E8M0
+            x: fx.Tensor,  # (M * K,) bf16/f32, row-major (M, K)
+            q: fx.Tensor,  # (M * K // 4,) i32 view of the row-major fp8 output
+            scales: fx.Tensor,  # (M * K // 32,) uint8 E8M0
         ):
             row = fx.block_idx.x
             tid = fx.thread_idx.x
 
-            x_rsrc = buffer_ops.create_buffer_resource(x)
-            q_rsrc = buffer_ops.create_buffer_resource(q)
-            s_rsrc = buffer_ops.create_buffer_resource(scales)
-
-            if const_expr(not USE_RCEIL):
-                f8_min_v, f8_max_v = make_fp8_clamp_vectors()
+            x_v = buffer_view(x, VEC)
+            q_v = buffer_view(q, VEC)
+            s_v = buffer_view(scales, 1)
 
             def _emit_block(elem_base, block_in_row):
                 # Pass 1: load 8 vec4 chunks of input, accumulate per-block amax.
@@ -111,35 +108,41 @@ if _flydsl_runtime_available():
                 local_amax = fx.Float32(0.0)
                 for c in range_constexpr(0, CHUNKS_PER_BLOCK):
                     off = elem_base + fx.Int32(c * VEC)
-                    vec_in = buffer_ops.buffer_load(
-                        x_rsrc, off, vec_width=VEC, dtype=in_dtype
-                    )
+                    vec_in = buffer_load(x_v, off // fx.Int32(VEC), VEC, in_dtype)
                     vec_f32 = vec_in.to(fx.Float32)
                     chunks.append(vec_f32)
-                    local_amax = local_amax.maximumf(abs_max_nan_as_inf(vec_f32))
+                    local_amax = local_amax.maximumf(abs_max(vec_f32))
 
                 if const_expr(USE_RCEIL):
                     scale_u8, scale_arg = rceil_scale_and_pos_scale(local_amax)
                 else:
                     scale_u8, scale_arg = floor_scale_and_inv_scale(local_amax)
 
-                # Pass 2: quantize each retained chunk and write 32-bit packed FP8.
-                # Compiler typically fuses 8x i32 stores into 2x dwordx4.
+                # Pass 2: quantize each retained chunk to 32-bit packed FP8 and
+                # write the block's 8 i32 as two dwordx4 stores.
+                outs = []
                 for c in range_constexpr(0, CHUNKS_PER_BLOCK):
                     if const_expr(USE_RCEIL):
-                        out = quantize_pack_chunk_to_i32_rceil(chunks[c], scale_arg)
-                    else:
-                        out = quantize_pack_chunk_to_i32_floor(
-                            chunks[c], scale_arg, f8_min_v, f8_max_v
+                        outs.append(
+                            quantize_pack_chunk_to_i32_rceil(
+                                chunks[c], scale_arg, scale_u8
+                            )
                         )
-                    i32_off = (elem_base + fx.Int32(c * VEC)) // fx.Int32(VEC)
-                    buffer_ops.buffer_store(out, q_rsrc, i32_off)
+                    else:
+                        outs.append(
+                            quantize_pack_chunk_to_i32_floor(
+                                chunks[c], scale_arg, scale_u8
+                            )
+                        )
+                for g in range_constexpr(0, CHUNKS_PER_BLOCK // VEC):
+                    buffer_store(
+                        outs[g * VEC : (g + 1) * VEC],
+                        q_v,
+                        elem_base // fx.Int32(VEC * VEC) + fx.Int32(g),
+                        fx.Int32,
+                    )
 
-                buffer_ops.buffer_store(
-                    scale_u8,
-                    s_rsrc,
-                    row * fx.Int32(K_BLOCKS) + block_in_row,
-                )
+                store_scale(scale_u8, s_v, row * fx.Int32(K_BLOCKS) + block_in_row)
 
             # Full chunks: every lane owns a valid block — no per-lane guard.
             for chunk_idx in range_constexpr(0, FULL_CHUNKS):
@@ -234,19 +237,14 @@ def mxfp8_quantize_flydsl_2d_1x32(
     # `waves_per_eu` codegen hint. The hint is read at MLIR-compile time,
     # which happens lazily on the first `launch(...)` call — so the
     # `with` block must wrap the call, not the `_compile_*` lookup.
-    _wpeu_env = os.environ.get("FLYDSL_1X32_WAVES_PER_EU")
-    _wpeu_ctx = (
-        CompilationContext.compile_hints({"waves_per_eu": int(_wpeu_env)})
-        if _wpeu_env is not None
-        else nullcontext()
-    )
+    _wpeu_ctx = waves_per_eu_hint("FLYDSL_1X32_WAVES_PER_EU")
     # Pass `x` raw (not via from_dlpack) so FlyDSL's bare-pointer fast path
     # avoids the per-call DLPack adapter overhead.
     with _wpeu_ctx:
         launch(
-            x,
-            q_data.view(torch.int32),
-            scales_u8,
+            x.view(-1),
+            q_data.view(torch.int32).view(-1),
+            scales_u8.view(-1),
             M,
             stream=current_stream_fast(x.device),
         )

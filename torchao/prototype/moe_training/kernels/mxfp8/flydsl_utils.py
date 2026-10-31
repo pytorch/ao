@@ -9,13 +9,22 @@
 Counterpart of ``cute_utils.py``. Provides:
 
 * Runtime detection (``_flydsl_runtime_available``) so kernel modules import
-  cleanly even on hosts without FlyDSL installed.
+  cleanly even on hosts without a supported FlyDSL installed.
 * Centralized MXFP8 layout constants used by every kernel.
 * Kernel-side helpers callable from inside an ``@flyc.kernel`` body — for the
-  parts every quant kernel needs to do the same way: deriving the FLOOR- or
-  RCEIL-mode E8M0 scale, materializing the FP8 clamp limits, and quantize+pack
-  of one 4-element chunk into an i32 (FLOOR uses two ``v_cvt_pk_fp8_f32``;
-  RCEIL uses the gfx950 fused ``v_cvt_scalef32_pk_fp8_f32``).
+  parts every quant kernel needs to do the same way: buffer loads/stores,
+  the per-chunk amax, deriving the FLOOR- or RCEIL-mode E8M0 scale, and
+  quantize+pack of one 4-element chunk into an i32 (FLOOR uses two
+  ``v_cvt_pk_fp8_f32``; RCEIL uses the gfx950 fused
+  ``v_cvt_scalef32_pk_fp8_f32``).
+
+The helpers use FlyDSL's stable API (``docs/api_stability.md`` in the FlyDSL
+repo), available from FlyDSL 0.3.4: buffer access goes through
+``fx.rocdl.make_buffer_tensor`` views and ``fx.rocdl.BufferCopy*`` copy atoms,
+which replace the ``flydsl.expr.buffer_ops`` and ``flydsl.expr.vector``
+modules removed in FlyDSL 0.3.0, and arithmetic goes through ``fx.Int32`` /
+``fx.Float32`` / ``fx.Vector``. The one exception is the fused scale+convert,
+which FlyDSL does not wrap yet; it comes from the generated ROCDL dialect.
 
 Helpers must be imported at MODULE level in the kernel files (not inside the
 factory) so they look like Python globals to the AST rewriter rather than
@@ -23,7 +32,10 @@ free-variable closure cells. ``cutedsl_quantize_2d_1x32.py`` uses the same
 pattern with ``cute_utils``.
 """
 
+import importlib.metadata
 import importlib.util
+import os
+from contextlib import nullcontext
 
 import torch
 
@@ -37,6 +49,24 @@ _FLYDSL_RUNTIME_PACKAGES = {
     "flydsl.expr": "flydsl",
 }
 
+# Oldest FlyDSL whose stable API covers everything these kernels use.
+_MIN_FLYDSL_VERSION = (0, 3, 4)
+
+
+def _flydsl_version():
+    """``(version_tuple, version_string)`` of the installed FlyDSL, or None."""
+    try:
+        version = importlib.metadata.version("flydsl")
+    except importlib.metadata.PackageNotFoundError:
+        return None
+    parts = []
+    for piece in version.split(".")[:3]:
+        digits = "".join(ch for ch in piece if ch.isdigit())
+        if not digits:
+            break
+        parts.append(int(digits))
+    return tuple(parts), version
+
 
 def _missing_flydsl_runtime_packages() -> list[str]:
     missing = []
@@ -47,6 +77,11 @@ def _missing_flydsl_runtime_packages() -> list[str]:
             spec = None
         if spec is None and package_name not in missing:
             missing.append(package_name)
+    if not missing:
+        found = _flydsl_version()
+        if found is not None and found[0] < _MIN_FLYDSL_VERSION:
+            want = ".".join(map(str, _MIN_FLYDSL_VERSION))
+            missing.append(f"flydsl>={want} (found {found[1]})")
     return missing
 
 
@@ -80,6 +115,26 @@ CHUNKS_PER_BLOCK = BLOCK_SIZE // VEC  # 8 chunks of 4 per quant block
 # AMD wave size on the gfx9xx CDNA architectures we target.
 AMD_WAVE_SIZE = 64
 
+# E8M0 byte that encodes NaN, and four FP8 E4M3FN NaNs packed in an i32.
+_E8M0_NAN = 0xFF
+_FP8_NAN_X4 = 0x7F7F7F7F
+
+
+def waves_per_eu_hint(env_var: str):
+    """Context manager applying the AMDGPU ``waves_per_eu`` hint from ``env_var``.
+
+    A diagnostic tuning knob only. The hint is read at MLIR-compile time, which
+    happens lazily on the first launch, so the context must wrap the launch
+    call. ``CompilationContext`` is not part of FlyDSL's stable API, so it is
+    imported only when the knob is set.
+    """
+    value = os.environ.get(env_var)
+    if value is None:
+        return nullcontext()
+    from flydsl.compiler.kernel_function import CompilationContext
+
+    return CompilationContext.compile_hints({"waves_per_eu": int(value)})
+
 
 # -----------------------------------------------------------------------------
 # Kernel-side helpers
@@ -87,19 +142,12 @@ AMD_WAVE_SIZE = 64
 
 if _flydsl_runtime_available():
     import flydsl.expr as fx
-    from flydsl._mlir.dialects.arith import (
-        CmpFPredicate as _CmpFPredicate,
-    )
-    from flydsl._mlir.dialects.arith import (
-        CmpIPredicate as _CmpIPredicate,
-    )
 
-    # Fused scaled fp8 cvt is not re-exported through flydsl.expr.rocdl yet.
+    # Not re-exported through flydsl.expr.rocdl yet (FlyDSL 0.3.4.1).
     from flydsl._mlir.dialects.rocdl import (
         cvt_scalef32_pk_fp8_f32 as _scaled_cvt_pk_fp8_f32,
     )
-    from flydsl.expr import arith, rocdl, vector
-    from flydsl.expr.arith import ArithValue
+    from flydsl.expr import rocdl
     from flydsl.expr.typing import T
 
     def current_stream_fast(device: torch.device) -> "fx.Stream":
@@ -123,17 +171,52 @@ if _flydsl_runtime_available():
         except AttributeError:
             return fx.Stream(torch.cuda.current_stream(device).cuda_stream)
 
-    def abs_max_nan_as_inf(vec_f32):
-        """Return max(abs(vec)), replacing NaNs with +Inf for propagation."""
-        abs_vec = fx.math.absf(vec_f32)
-        ordered = arith.cmpf(
-            _CmpFPredicate.ORD, arith.unwrap(vec_f32), arith.unwrap(vec_f32)
+    def buffer_view(tensor, vec: int):
+        """Buffer-descriptor view of a 1-D tensor in units of ``vec`` elements.
+
+        Column ``i`` of the returned view is elements ``[i * vec, (i + 1) * vec)``.
+        """
+        return fx.logical_divide(
+            fx.rocdl.make_buffer_tensor(tensor), fx.make_layout(vec, 1)
         )
-        pos_inf = vector.broadcast(
-            T.vec(VEC, T.f32), arith.unwrap(fx.Float32(float("inf")))
+
+    def buffer_load(view, idx, vec: int, dtype):
+        """Load vector ``idx`` of a :func:`buffer_view` as an ``fx.Vector``."""
+        atom = fx.make_copy_atom(rocdl.BufferCopy(vec * dtype.width), dtype.width)
+        reg = fx.make_rmem_tensor(fx.make_layout(vec, 1), dtype)
+        fx.copy(atom, fx.slice(view, (None, idx)), reg)
+        return fx.memref_load_vec(reg)
+
+    def buffer_store(values, view, idx, dtype, cache_modifier: int = 0):
+        """Store a list of ``vec`` scalars to vector ``idx`` of a :func:`buffer_view`.
+
+        ``cache_modifier`` is the buffer-instruction cache policy (0 = cached,
+        2 = non-temporal).
+        """
+        vec = len(values)
+        atom = fx.make_copy_atom(
+            rocdl.BufferCopy(vec * dtype.width, cache_modifier), dtype.width
         )
-        sanitized = arith.select(ordered, arith.unwrap(abs_vec), pos_inf)
-        return ArithValue(sanitized).reduce(vector.ReductionOp.MAX)
+        reg = fx.make_rmem_tensor(fx.make_layout(vec, 1), dtype)
+        fx.memref_store_vec(fx.Vector.from_elements(values, dtype), reg)
+        fx.copy(atom, reg, fx.slice(view, (None, idx)))
+
+    def store_scale(e8m0, view, idx):
+        """Store one E8M0 byte (an ``fx.Int32``) to element ``idx`` of a
+        ``buffer_view(t, 1)``."""
+        buffer_store([e8m0.to(fx.Uint8)], view, idx, fx.Uint8)
+
+    def abs_max(vec_f32):
+        """``max(|v|)`` over a 4-element ``fx.Vector`` of f32, propagating NaN.
+
+        ``Float32.maximumf`` is IEEE ``maximum``: a NaN anywhere yields NaN and
+        an Inf yields Inf, both of which the scale helpers below turn into the
+        E8M0 NaN byte (NOSAT semantics, as in ``to_mx``). Combine per-chunk
+        results with ``maximumf`` too. ``Vector.reduce(ReductionOp.MAX)`` lowers
+        to ``maxnumf``, which drops NaN, so it is not used here.
+        """
+        a = fx.math.absf(vec_f32)
+        return a[0].maximumf(a[1]).maximumf(a[2].maximumf(a[3]))
 
     def rceil_scale_and_pos_scale(amax_f32):
         """Derive RCEIL-mode E8M0 byte and matching f32 scale magnitude.
@@ -162,46 +245,30 @@ if _flydsl_runtime_available():
         ``0xff`` denotes NaN.
 
         Returns:
-            Tuple ``(scale_biased_u8, pos_scale_f32)``.
+            Tuple ``(e8m0, pos_scale)`` as ``(fx.Int32, fx.Float32)``.
         """
-        inv_f8_max = fx.Float32(1.0 / F8_MAX)
-        val = ArithValue(amax_f32) * inv_f8_max
-        bits = ArithValue(val).bitcast(T.i32)
-        biased_exp = (bits.shrui(fx.Int32(23))) & fx.Int32(0xFF)
+        bits = (amax_f32 * fx.Float32(1.0 / F8_MAX)).bitcast(fx.Int32)
+        biased_exp = bits.shrui(fx.Int32(23)) & fx.Int32(0xFF)
         mantissa = bits & fx.Int32(0x7FFFFF)
         # Normal FP32 values round up whenever any mantissa bit is set. FP32
         # subnormals all share biased exponent 0, but E8M0 byte 0 already
         # encodes 2^-127 (mantissa 0x400000), so among subnormals only values
         # strictly above 2^-127 round up to byte 1.
-        is_subnormal = arith.cmpi(
-            _CmpIPredicate.eq, arith.unwrap(biased_exp), arith.unwrap(fx.Int32(0))
+        needs_round_up = (biased_exp == fx.Int32(0)).select(
+            mantissa > fx.Int32(0x400000), mantissa != fx.Int32(0)
         )
-        has_mantissa = arith.cmpi(
-            _CmpIPredicate.ne, arith.unwrap(mantissa), arith.unwrap(fx.Int32(0))
-        )
-        above_min_subnormal = arith.cmpi(
-            _CmpIPredicate.ugt,
-            arith.unwrap(mantissa),
-            arith.unwrap(fx.Int32(0x400000)),
-        )
-        needs_round_up = arith.select(is_subnormal, above_min_subnormal, has_mantissa)
-        inc_i32 = arith.extui(T.i32, needs_round_up)
-        biased_exp_rceil = arith.unwrap(ArithValue(biased_exp) + ArithValue(inc_i32))
+        e8m0 = biased_exp + needs_round_up.select(fx.Int32(1), fx.Int32(0))
         # Saturating at 0xff yields E8M0 NaN for Inf and NaN amax (both have
-        # biased exponent 0xff after `abs_max_nan_as_inf`) and for finite
-        # overflow past 2^127 (0xfe + 1), matching the NOSAT hardware.
-        capped = arith.minui(biased_exp_rceil, arith.unwrap(fx.Int32(0xFF)))
-        scale_u8 = arith.trunci(T.i8, capped)
-
-        pos_scale_bits = arith.shli(capped, arith.unwrap(fx.Int32(23)))
-        is_zero = arith.cmpi(_CmpIPredicate.eq, capped, arith.unwrap(fx.Int32(0)))
-        is_nan = arith.cmpi(_CmpIPredicate.eq, capped, arith.unwrap(fx.Int32(0xFF)))
-        min_scale_bits = arith.unwrap(fx.Int32(0x00400000))
-        nan_bits = arith.unwrap(fx.Int32(0x7FC00000))
-        selected_bits = arith.select(is_zero, min_scale_bits, pos_scale_bits)
-        selected_bits = arith.select(is_nan, nan_bits, selected_bits)
-        pos_scale = ArithValue(selected_bits).bitcast(T.f32)
-        return scale_u8, pos_scale
+        # biased exponent 0xff) and for finite overflow past 2^127 (0xfe + 1),
+        # matching the NOSAT hardware.
+        e8m0 = (e8m0 > fx.Int32(_E8M0_NAN)).select(fx.Int32(_E8M0_NAN), e8m0)
+        pos_scale_bits = (e8m0 == fx.Int32(0)).select(
+            fx.Int32(0x00400000), e8m0 << fx.Int32(23)
+        )
+        pos_scale_bits = (e8m0 == fx.Int32(_E8M0_NAN)).select(
+            fx.Int32(0x7FC00000), pos_scale_bits
+        )
+        return e8m0, pos_scale_bits.bitcast(fx.Float32)
 
     def floor_scale_and_inv_scale(amax_f32):
         """Derive the FLOOR-mode E8M0 byte and the matching inverse scale.
@@ -227,70 +294,44 @@ if _flydsl_runtime_available():
         ``v_cvt_scalef32_pk_fp8_f32`` takes a divisor.
 
         Args:
-            amax_f32: per-block absolute maximum, as an f32 ArithValue.
+            amax_f32: per-block absolute maximum, as an ``fx.Float32``.
 
         Returns:
-            Tuple ``(scale_biased_u8, inv_scale_f32)``.
+            Tuple ``(e8m0, inv_scale)`` as ``(fx.Int32, fx.Float32)``.
         """
-        bits = ArithValue(amax_f32).bitcast(T.i32)
-        exp_biased = (bits.shrui(fx.Int32(23))) & fx.Int32(0xFF)
-        e_amax = exp_biased - fx.Int32(E8M0_EXPONENT_BIAS)
-        scale_unb = e_amax - fx.Int32(_FP8_MAX_LOG2_FLOOR)
-        scale_unb = arith.maxsi(
-            arith.unwrap(scale_unb), arith.unwrap(fx.Int32(-E8M0_EXPONENT_BIAS))
-        )
-        scale_unb = arith.minsi(
-            scale_unb, arith.unwrap(fx.Int32(E8M0_EXPONENT_BIAS + 1))
+        exp_biased = amax_f32.bitcast(fx.Int32).shrui(fx.Int32(23)) & fx.Int32(0xFF)
+        scale_unb = exp_biased - fx.Int32(E8M0_EXPONENT_BIAS + _FP8_MAX_LOG2_FLOOR)
+        lo = fx.Int32(-E8M0_EXPONENT_BIAS)
+        hi = fx.Int32(E8M0_EXPONENT_BIAS + 1)
+        scale_unb = (scale_unb < lo).select(lo, scale_unb)
+        scale_unb = (scale_unb > hi).select(hi, scale_unb)
+
+        is_special = exp_biased == fx.Int32(0xFF)
+        scale_biased = is_special.select(
+            fx.Int32(_E8M0_NAN), scale_unb + fx.Int32(E8M0_EXPONENT_BIAS)
         )
 
-        scale_biased = ArithValue(scale_unb) + fx.Int32(E8M0_EXPONENT_BIAS)
-        is_special = arith.cmpi(
-            _CmpIPredicate.eq,
-            arith.unwrap(exp_biased),
-            arith.unwrap(fx.Int32(0xFF)),
-        )
-        scale_biased = ArithValue(
-            arith.select(
-                is_special,
-                arith.unwrap(fx.Int32(0xFF)),
-                arith.unwrap(scale_biased),
-            )
-        )
-        scale_u8 = arith.trunci(T.i8, arith.unwrap(scale_biased))
-
-        reciprocal_biased = arith.unwrap(fx.Int32(254) - scale_biased)
-        reciprocal_bits = arith.shli(reciprocal_biased, arith.unwrap(fx.Int32(23)))
+        reciprocal_biased = fx.Int32(254) - scale_biased
         # E8M0 byte 0 encodes the FP32 subnormal 2^-127, which the exponent-only
         # shift above cannot build. Currently unreachable, since the clamp above
         # keeps scale_biased <= 246 for finite amax, but every other backend
         # special-cases it and the helper should be correct standalone.
-        is_min_reciprocal = arith.cmpi(
-            _CmpIPredicate.eq, reciprocal_biased, arith.unwrap(fx.Int32(0))
+        reciprocal_bits = (reciprocal_biased == fx.Int32(0)).select(
+            fx.Int32(0x00400000), reciprocal_biased << fx.Int32(23)
         )
-        reciprocal_bits = arith.select(
-            is_min_reciprocal, arith.unwrap(fx.Int32(0x00400000)), reciprocal_bits
-        )
-        reciprocal_bits = arith.select(
-            is_special, arith.unwrap(fx.Int32(0x7FC00000)), reciprocal_bits
-        )
-        inv_scale = ArithValue(reciprocal_bits).bitcast(T.f32)
-        return scale_u8, inv_scale
+        reciprocal_bits = is_special.select(fx.Int32(0x7FC00000), reciprocal_bits)
+        return scale_biased, reciprocal_bits.bitcast(fx.Float32)
 
-    def make_fp8_clamp_vectors():
-        """Build ``vec<4 x f32>`` constants for ``±F8_MAX`` clamping.
+    def _canonical_nan(packed_i32, e8m0):
+        """Write a NaN-scale block as the canonical FP8 NaN ``0x7f``.
 
-        Returns:
-            Tuple ``(f8_min_vec, f8_max_vec)`` of f32x4 vectors broadcasting
-            ``-F8_MAX`` and ``+F8_MAX`` respectively. Used as the lhs of
-            ``arith.maximumf`` / rhs of ``arith.minimumf`` in the post-scale
-            clamp before the FP8 conversion (FLOOR mode).
+        Every NaN a block can produce lives in a block whose scale is the E8M0
+        NaN byte (any NaN or Inf input). The gfx950 converters emit NaN as
+        ``0xff``; ``to_mx`` and the CUDA kernels emit ``0x7f``.
         """
-        f32x4 = T.vec(VEC, T.f32)
-        f8_min = vector.broadcast(f32x4, arith.unwrap(fx.Float32(-F8_MAX)))
-        f8_max = vector.broadcast(f32x4, arith.unwrap(fx.Float32(F8_MAX)))
-        return f8_min, f8_max
+        return (e8m0 == fx.Int32(_E8M0_NAN)).select(fx.Int32(_FP8_NAN_X4), packed_i32)
 
-    def quantize_pack_chunk_to_i32_rceil(chunk_f32, pos_scale):
+    def quantize_pack_chunk_to_i32_rceil(chunk_f32, pos_scale, e8m0):
         """RCEIL mode: quantize 4 f32 → 4 FP8 E4M3FN packed into one i32.
 
         Lowers to two ``v_cvt_scalef32_pk_fp8_f32`` instructions (gfx950 fused
@@ -298,63 +339,53 @@ if _flydsl_runtime_available():
         ``amax/scale ≤ F8_MAX`` so no NaN can fire; no explicit clamp needed.
 
         Args:
-            chunk_f32: vec<4 x f32> input chunk.
-            pos_scale: scalar f32 = ``2^scale_unb`` (the divisor; the
+            chunk_f32: 4-element ``fx.Vector`` of f32.
+            pos_scale: ``fx.Float32`` = ``2^scale_unb`` (the divisor; the
                 instruction computes ``input / pos_scale``).
+            e8m0: the block's E8M0 byte as ``fx.Int32``.
 
         Returns:
-            i32 ArithValue with bytes ``[qv0, qv1, qv2, qv3]`` (low to high).
+            ``fx.Int32`` with bytes ``[qv0, qv1, qv2, qv3]`` (low to high).
         """
-        qv0 = vector.extract(chunk_f32, static_position=[0], dynamic_position=[])
-        qv1 = vector.extract(chunk_f32, static_position=[1], dynamic_position=[])
-        qv2 = vector.extract(chunk_f32, static_position=[2], dynamic_position=[])
-        qv3 = vector.extract(chunk_f32, static_position=[3], dynamic_position=[])
         v2i16 = T.vec(2, T.i16)
-        zero_i16 = arith.unwrap(fx.Int16(0))
-        r = vector.from_elements(v2i16, [zero_i16, zero_i16])
+        scale = pos_scale.ir_value()
+        r = fx.Vector.from_elements([fx.Int16(0), fx.Int16(0)], fx.Int16)
         r = _scaled_cvt_pk_fp8_f32(
             res=v2i16,
-            old_vdst=r,
-            src0=qv0,
-            src1=qv1,
-            scale=arith.unwrap(pos_scale),
+            old_vdst=r.ir_value(),
+            src0=chunk_f32[0].ir_value(),
+            src1=chunk_f32[1].ir_value(),
+            scale=scale,
             dst_lo_hi_sel=False,
         )
         r = _scaled_cvt_pk_fp8_f32(
             res=v2i16,
             old_vdst=r,
-            src0=qv2,
-            src1=qv3,
-            scale=arith.unwrap(pos_scale),
+            src0=chunk_f32[2].ir_value(),
+            src1=chunk_f32[3].ir_value(),
+            scale=scale,
             dst_lo_hi_sel=True,
         )
-        r_v1i32 = vector.bitcast(T.vec(1, T.i32), r)
-        return vector.extract(r_v1i32, static_position=[0], dynamic_position=[])
+        return _canonical_nan(fx.Vector(r).bitcast(fx.Int32)[0], e8m0)
 
-    def quantize_pack_chunk_to_i32_floor(chunk_f32, inv_scale, f8_min_vec, f8_max_vec):
+    def quantize_pack_chunk_to_i32_floor(chunk_f32, inv_scale, e8m0):
         """FLOOR mode: quantize 4 f32 → 4 FP8 E4M3FN packed into one i32.
 
         FLOOR's ``amax/scale ∈ [256, 512)`` lets the (448, 512) tail overflow
         the FP8 range, so we clamp explicitly with ``±F8_MAX`` before two
         ``v_cvt_pk_fp8_f32`` cvts. ``inv_scale`` comes from
-        :func:`floor_scale_and_inv_scale`; ``f8_min_vec`` / ``f8_max_vec``
-        from :func:`make_fp8_clamp_vectors`.
+        :func:`floor_scale_and_inv_scale`.
 
         Returns:
-            i32 ArithValue with bytes ``[qv0, qv1, qv2, qv3]`` (low to high).
+            ``fx.Int32`` with bytes ``[qv0, qv1, qv2, qv3]`` (low to high).
         """
-        qv = chunk_f32 * inv_scale
-        qv = arith.maximumf(qv, f8_min_vec)
-        qv = arith.minimumf(qv, f8_max_vec)
-        qv0 = vector.extract(qv, static_position=[0], dynamic_position=[])
-        qv1 = vector.extract(qv, static_position=[1], dynamic_position=[])
-        qv2 = vector.extract(qv, static_position=[2], dynamic_position=[])
-        qv3 = vector.extract(qv, static_position=[3], dynamic_position=[])
-        out = arith.unwrap(fx.Int32(0))
+        lo = fx.Float32(-F8_MAX)
+        hi = fx.Float32(F8_MAX)
+        qv = [(chunk_f32[i] * inv_scale).maximumf(lo).minimumf(hi) for i in range(VEC)]
         out = rocdl.cvt_pk_fp8_f32(
-            res=T.i32, src_a=qv0, src_b=qv1, old=out, word_sel=False
+            res=T.i32, src_a=qv[0], src_b=qv[1], old=fx.Int32(0), word_sel=False
         )
         out = rocdl.cvt_pk_fp8_f32(
-            res=T.i32, src_a=qv2, src_b=qv3, old=out, word_sel=True
+            res=T.i32, src_a=qv[2], src_b=qv[3], old=out, word_sel=True
         )
-        return out
+        return _canonical_nan(fx.Int32(out), e8m0)
