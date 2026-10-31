@@ -1,3 +1,9 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+# All rights reserved.
+#
+# This source code is licensed under the BSD 3-Clause license found in the
+# LICENSE file in the root directory of this source tree.
+
 from typing import Optional, Tuple, Union
 
 import torch
@@ -322,14 +328,14 @@ class VectorQuantizerFunction(torch.autograd.Function):
         flat_inputs = inputs.view(-1, codebook.shape[1])
         distances = torch.cdist(flat_inputs, codebook)
         indices = torch.argmin(distances, dim=1)
-        sums = torch.zeros_like(codebook).float().cuda()
-        counts = torch.zeros(codebook.size(0), dtype=torch.float).cuda()
+        sums = torch.zeros_like(codebook, dtype=torch.float)
+        counts = torch.zeros(codebook.size(0), dtype=torch.float, device=inputs.device)
 
         # Accumulate sums using index_add_
         sums.index_add_(0, indices, flat_inputs.float())
 
         # Accumulate counts using index_add_
-        ones = torch.ones(flat_inputs.size(0), dtype=torch.float).cuda()
+        ones = torch.ones(flat_inputs.size(0), dtype=torch.float, device=inputs.device)
         counts.index_add_(0, indices, ones)
 
         # Avoid division by zero
