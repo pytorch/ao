@@ -192,6 +192,53 @@ class ToyLoRAModel(torch.nn.Module):
             assert qs.shape == (N // 128, K // 128)
 
 
+@common_utils.instantiate_parametrized_tests
+class TestFloat8TensorViewCPU(common_utils.TestCase):
+    @common_utils.parametrize("float8_dtype", [torch.float8_e4m3fn, torch.float8_e5m2])
+    @common_utils.parametrize("granularity", [PerRow(), PerTensor(), PerGroup(4)])
+    @common_utils.parametrize("size", [(6, 8), (-1, 8)])
+    def test_view_3d_to_2d(self, granularity, size, float8_dtype):
+        tensor = Float8Tensor.from_hp(
+            torch.randn(2, 3, 8),
+            float8_dtype=float8_dtype,
+            granularity=granularity,
+            kernel_preference=KernelPreference.TORCH,
+        )
+        result = tensor.view(size)
+
+        self.assertIsInstance(result, Float8Tensor)
+        self.assertEqual(result.shape, (6, 8))
+        self.assertEqual(
+            result.dequantize(), tensor.dequantize().view(6, 8), atol=0, rtol=0
+        )
+        self.assertEqual(
+            result.block_size,
+            [tensor.block_size[0] * tensor.block_size[1], tensor.block_size[2]],
+        )
+        self.assertEqual(
+            result.scale.shape,
+            tuple(result.shape[i] // result.block_size[i] for i in range(2)),
+        )
+        self.assertEqual(result.qdata.data_ptr(), tensor.qdata.data_ptr())
+        self.assertEqual(result.scale.data_ptr(), tensor.scale.data_ptr())
+        self.assertEqual(result.dtype, tensor.dtype)
+        self.assertEqual(result.qdata.dtype, tensor.qdata.dtype)
+        self.assertIs(result.mm_config, tensor.mm_config)
+        self.assertIs(result.act_quant_kwargs, tensor.act_quant_kwargs)
+        self.assertEqual(result.kernel_preference, tensor.kernel_preference)
+
+    def test_view_rejects_interleaved_blocks(self):
+        tensor = Float8Tensor.from_hp(
+            torch.randn(2, 3, 8),
+            granularity=PerRow(dim=0),
+            kernel_preference=KernelPreference.TORCH,
+        )
+        with self.assertRaisesRegex(
+            AssertionError, "non-contiguous quantization blocks"
+        ):
+            tensor.view(6, 8)
+
+
 # TODO: move tests in test_affine_quantized_float.py here after we migrated all implementations
 @unittest.skipIf(
     not torch.accelerator.is_available(), "skipping when gpu is not available"

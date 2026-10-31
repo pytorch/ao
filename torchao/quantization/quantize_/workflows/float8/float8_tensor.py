@@ -868,11 +868,15 @@ def _(func, types, args, kwargs):
         assert original_shape[-1] == size[-1], (
             f"Only support reshaping when last dimension matches, requested: reshaping from {original_shape} to {size}"
         )
-        # TODO: this seems wrong, we should merge the first two dimensions instead
+        # Merging leading dimensions preserves contiguous quantization blocks
+        # only when a block spans one batch or the entire row dimension.
+        if self.block_size[0] == 1 or self.block_size[1] == original_shape[1]:
+            raise RuntimeError("Cannot merge leading dimensions with non-contiguous quantization blocks")
+        )
         qdata = self.qdata.reshape(*size)
-        scale = self.scale.reshape(*size)
-        block_size = self.block_size.copy()
-        block_size = [block_size[0] * block_size[1], block_size[2]]
+        block_size = [self.block_size[0] * self.block_size[1], self.block_size[2]]
+        scale_shape = [qdata.shape[i] // block_size[i] for i in range(2)]
+        scale = self.scale.reshape(*scale_shape)
     elif len(original_shape) == 2 and len(size) == 3:
         assert original_shape[-1] == size[-1], (
             f"Only support reshaping when last dimension matches, requested: reshaping from {original_shape} to {size}"
