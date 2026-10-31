@@ -1126,7 +1126,10 @@ class TestFqnToConfig(TestCase):
             Int8WeightOnlyConfig(),
             Int8DynamicActivationInt8WeightConfig(),
             Int8DynamicActivationIntxWeightConfig(),
-            Int8StaticActivationInt8WeightConfig(),
+            Int8StaticActivationInt8WeightConfig(
+                act_quant_scale=torch.ones(1, 1, device="cuda"),
+                granularity=PerTensor(),
+            ),
             IntxWeightOnlyConfig(),
             Float8WeightOnlyConfig(),
             Float8DynamicActivationFloat8WeightConfig(granularity=PerTensor()),
