@@ -157,7 +157,15 @@ def _slice_scale_for_dimension(
         return aten.slice.Tensor(scale, dim, start, end, step)
     else:
         # There is blocking in this dimension
-        # Calculate which scale elements correspond to the sliced data
+        # Calculate which scale elements correspond to the sliced data.
+        # The block arithmetic below assumes non-negative offsets, so resolve
+        # negative indices against the data size first (otherwise e.g. a
+        # ceil-divided negative `end` rounds to 0 and empties the scale).
+        dim_size = data_shape[dim]
+        if start is not None and start < 0:
+            start = max(start + dim_size, 0)
+        if end is not None and end < 0:
+            end = max(end + dim_size, 0)
         scale_start = start // block_size_for_dim if start is not None else None
         scale_end = (
             (end + block_size_for_dim - 1) // block_size_for_dim
