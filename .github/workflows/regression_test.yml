@@ -25,9 +25,9 @@ jobs:
         include:
           - name: CUDA Nightly
             runs-on: mt-l-x86aavx2-45-167-a10g-4
-            torch-spec: '--pre torch torchvision --index-url https://download.pytorch.org/whl/nightly/cu126'
+            torch-spec: '--pre torch torchvision --index-url https://download.pytorch.org/whl/nightly/cu132'
             gpu-arch-type: "cuda"
-            gpu-arch-version: "12.6"
+            gpu-arch-version: "13.2"
             compiler: ""
           - name: CPU Nightly
             runs-on: mt-l-x86iavx512-16-128
@@ -59,7 +59,7 @@ jobs:
           # so we cannot install clangxx via conda here.
           dnf install -y clang
           clang --version
-          conda create -n venv python=3.10 libgcc-ng=11.2.0 libstdcxx-ng=11.2.0 -y
+          conda create -n venv python=3.11 libgcc-ng=11.2.0 libstdcxx-ng=11.2.0 -y
           conda activate venv
           export CC=clang
           export CXX=clang++
@@ -71,7 +71,7 @@ jobs:
           # in setup.py and not otherwise exercised by any OSS CI job.
           export USE_CPU_KERNELS=1
         else
-          conda create -n venv python=3.10 libgcc-ng=11.2.0 libstdcxx-ng=11.2.0 -y
+          conda create -n venv python=3.11 libgcc-ng=11.2.0 libstdcxx-ng=11.2.0 -y
           conda activate venv
         fi
         python -m pip install --upgrade pip
@@ -93,16 +93,16 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - name: CUDA 2.13
+          - name: CUDA 2.15
             runs-on: mt-l-x86aavx2-45-167-a10g-4
-            torch-spec: 'torch==2.13.0 torchvision==0.28.0 --index-url https://download.pytorch.org/whl/cu126'
+            torch-spec: 'torch==2.15.0 torchvision==0.29.2 --index-url https://download.pytorch.org/whl/cu132'
             gpu-arch-type: "cuda"
-            gpu-arch-version: "12.6"
+            gpu-arch-version: "13.2"
             dev-requirements-overrides: ""
 
-          - name: CPU 2.13
+          - name: CPU 2.15
             runs-on: mt-l-x86iavx512-16-128
-            torch-spec: 'torch==2.13.0 torchvision==0.28.0 --index-url https://download.pytorch.org/whl/cpu'
+            torch-spec: 'torch==2.15.0 torchvision==0.29.2 --index-url https://download.pytorch.org/whl/cpu'
             gpu-arch-type: "cpu"
             gpu-arch-version: ""
             dev-requirements-overrides: ""
@@ -115,7 +115,7 @@ jobs:
       gpu-arch-version: ${{ matrix.gpu-arch-version }}
       submodules: recursive
       script: |
-        conda create -n venv python=3.10 libgcc-ng=11.2.0 libstdcxx-ng=11.2.0 -y
+        conda create -n venv python=3.11 libgcc-ng=11.2.0 libstdcxx-ng=11.2.0 -y
         conda activate venv
         python -m pip install --upgrade pip
         pip install ${{ matrix.torch-spec }}
