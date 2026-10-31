@@ -115,7 +115,11 @@ class _MXQuantizedForwardFakeQuantizedBackward(torch.autograd.Function):
             kernel_preference=weight_config.kernel_preference,
         )
 
-        ctx.save_for_backward(_input_2d, weight)
+        # dW needs the quantized input; dX needs the quantized weight.
+        ctx.save_for_backward(
+            _input_2d if ctx.needs_input_grad[1] else None,
+            weight if ctx.needs_input_grad[0] else None,
+        )
         ctx.orig_shape = orig_shape
 
         # Use addmm when bias is present, mm otherwise
@@ -139,18 +143,18 @@ class _MXQuantizedForwardFakeQuantizedBackward(torch.autograd.Function):
     @torch.amp.custom_bwd(device_type="cuda")
     def backward(ctx, grad_output: torch.Tensor) -> torch.Tensor:
         _input_2d, weight = ctx.saved_tensors
-        orig_shape = ctx.orig_shape
-        assert isinstance(_input_2d, MXTensor)
-        assert isinstance(weight, MXTensor)
-        _input_2d = _input_2d.dequantize(_input_2d.orig_dtype)
-        weight = weight.dequantize(weight.orig_dtype)
-
         grad_output_2d = grad_output.view(-1, grad_output.shape[-1])
 
-        grad_input_2d = torch.mm(grad_output_2d, weight)
-        grad_weight = torch.mm(grad_output_2d.t(), _input_2d)
+        grad_input = grad_weight = None
+        if ctx.needs_input_grad[0]:
+            assert isinstance(weight, MXTensor)
+            weight = weight.dequantize(weight.orig_dtype)
+            grad_input = torch.mm(grad_output_2d, weight).view(*ctx.orig_shape)
+        if ctx.needs_input_grad[1]:
+            assert isinstance(_input_2d, MXTensor)
+            _input_2d = _input_2d.dequantize(_input_2d.orig_dtype)
+            grad_weight = torch.mm(grad_output_2d.t(), _input_2d)
 
-        grad_input = grad_input_2d.view(*orig_shape)
         grad_bias = grad_output_2d.sum(0) if ctx.needs_input_grad[2] else None
         return grad_input, grad_weight, grad_bias, None, None
 
