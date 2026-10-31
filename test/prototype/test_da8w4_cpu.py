@@ -20,25 +20,7 @@ from torchao.prototype.quantization.int4 import (
 )
 from torchao.quantization.quant_primitives import MappingType
 from torchao.quantization.utils import compute_error
-
-
-class ToyLinearModel(torch.nn.Module):
-    def __init__(self, m=64, n=32, k=64, bias=False):
-        super().__init__()
-        self.linear1 = torch.nn.Linear(m, n, bias=bias).to(torch.float)
-        self.linear2 = torch.nn.Linear(n, k, bias=bias).to(torch.float)
-
-    def example_inputs(self, batch_size=1, dtype=torch.float, device="cpu"):
-        return (
-            torch.randn(
-                batch_size, self.linear1.in_features, dtype=dtype, device=device
-            ),
-        )
-
-    def forward(self, x):
-        x = self.linear1(x)
-        x = self.linear2(x)
-        return x
+from torchao.testing.model_architectures import ToyTwoLinearModel
 
 
 class TestDa8w4Cpu(TestCase):
@@ -53,9 +35,16 @@ class TestDa8w4Cpu(TestCase):
     @common_utils.parametrize("sym_quant_a", [True, False])
     def test_8da4w_cpu(self, dtype, x_dim, bias, bs, sym_quant_a):
         device = "cpu"
-        m = ToyLinearModel(bias=bias).eval().to(dtype).to(device)
+        m = ToyTwoLinearModel(
+            64,
+            32,
+            64,
+            dtype=dtype,
+            device=device,
+            has_bias=bias,
+        ).eval()
         m_ref = copy.deepcopy(m)
-        example_inputs = m.example_inputs(batch_size=bs, dtype=dtype, device=device)
+        example_inputs = m.example_inputs(batch_size=bs)
         if x_dim == 3:
             example_inputs = (example_inputs[0].unsqueeze(0),)
 
