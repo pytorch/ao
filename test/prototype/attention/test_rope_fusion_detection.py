@@ -10,8 +10,8 @@ These tests verify that rope_sdpa_fusion_pass correctly identifies each
 RoPE pattern in the FX graph, independent of any GPU kernel or hardware.
 """
 
-import contextlib
 import io
+import logging
 import unittest
 
 import torch
@@ -117,17 +117,28 @@ class TestRoPEFusionDetection(unittest.TestCase):
         torch._dynamo.reset()
 
     def _run_fusion_pass(self, model, *args):
-        """Compile model with fusion pass, return captured stdout."""
+        """Compile model with fusion pass, return captured logger output."""
         inductor_config.pre_grad_custom_pass = RopeSDPAFusionPass(
             rope_sdpa_op=_ops.rope_sdpa_op,
             fp8_sdpa_op=_ops.fp8_sdpa_op,
             backend_name="TEST",
         )
         compiled = torch.compile(model)
-        buf = io.StringIO()
-        with torch.no_grad(), contextlib.redirect_stdout(buf):
-            compiled(*args)
-        return buf.getvalue()
+        fusion_logger = logging.getLogger(
+            "torchao.prototype.attention.shared_utils.fusion_utils"
+        )
+        old_level = fusion_logger.level
+        fusion_logger.setLevel(logging.DEBUG)
+        handler = logging.StreamHandler(io.StringIO())
+        handler.setLevel(logging.DEBUG)
+        fusion_logger.addHandler(handler)
+        try:
+            with torch.no_grad():
+                compiled(*args)
+            return handler.stream.getvalue()
+        finally:
+            fusion_logger.removeHandler(handler)
+            fusion_logger.setLevel(old_level)
 
     def _assert_fused(self, model, *extra_args):
         """Create BSHD inputs, run fusion pass, assert 1 node was fused."""

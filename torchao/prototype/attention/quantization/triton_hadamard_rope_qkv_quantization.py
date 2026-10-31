@@ -33,14 +33,6 @@ from torchao.prototype.attention.quantization.triton_rope_qkv_quantization impor
 )
 
 
-@triton.autotune(
-    configs=[
-        triton.Config({}, num_warps=2),
-        triton.Config({}, num_warps=4),
-        triton.Config({}, num_warps=8),
-    ],
-    key=["D"],
-)
 @triton.jit
 def hadamard_rope_single_phase1_kernel(
     # Input tensor [B, S, H, D]
@@ -160,14 +152,6 @@ def hadamard_rope_single_phase1_kernel(
     tl.store(partial_max_ptr + chunk_idx, x_max_scalar)
 
 
-@triton.autotune(
-    configs=[
-        triton.Config({}, num_warps=2),
-        triton.Config({}, num_warps=4),
-        triton.Config({}, num_warps=8),
-    ],
-    key=["D"],
-)
 @triton.jit
 def hadamard_v_phase1_kernel(
     # Input tensor [B, S, H, D]
