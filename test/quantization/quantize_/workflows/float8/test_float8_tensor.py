@@ -193,6 +193,19 @@ class ToyLoRAModel(torch.nn.Module):
 
 
 # TODO: move tests in test_affine_quantized_float.py here after we migrated all implementations
+class TestFloat8TensorCPU(common_utils.TestCase):
+    @common_utils.parametrize("granularity", [PerTensor(), PerRow()])
+    def test_zero_tensor_quantizes_to_finite_zero(self, granularity):
+        x = torch.zeros(2, 4, dtype=torch.float32)
+
+        x_fp8 = Float8Tensor.from_hp(x, torch.float8_e4m3fn, granularity)
+        x_dequantized = x_fp8.dequantize()
+
+        self.assertTrue(torch.isfinite(x_fp8.qdata.float()).all())
+        self.assertTrue(torch.isfinite(x_dequantized).all())
+        torch.testing.assert_close(x_dequantized, x, atol=0, rtol=0)
+
+
 @unittest.skipIf(
     not torch.accelerator.is_available(), "skipping when gpu is not available"
 )
@@ -1645,6 +1658,7 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
             model(x, offs)
 
 
+common_utils.instantiate_parametrized_tests(TestFloat8TensorCPU)
 common_utils.instantiate_parametrized_tests(TestFloat8Tensor)
 
 
