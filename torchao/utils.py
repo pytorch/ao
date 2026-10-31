@@ -1199,6 +1199,10 @@ def _cpu_is_vnni_supported() -> bool:
     return False
 
 
+def is_XPU():
+    return hasattr(torch, "xpu") and torch.xpu.is_available()
+
+
 def should_reduce_range(device: torch.device) -> bool:
     """
     Helper to determine if int8 tensor quantization range should be reduced
