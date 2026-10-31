@@ -12,6 +12,7 @@ from torch.testing._internal import common_utils
 from torchao.quantization import (
     Int8DynamicActivationInt8WeightConfig,
     Int8StaticActivationInt8WeightConfig,
+    Int8WeightOnlyConfig,
     quantize_,
 )
 from torchao.quantization.granularity import PerRow, PerTensor
@@ -32,6 +33,34 @@ from torchao.utils import (
 
 @common_utils.instantiate_parametrized_tests
 class TestInt8TensorCPU(TorchAOIntegrationTestCase):
+    @common_utils.parametrize(
+        "config",
+        [
+            Int8WeightOnlyConfig(set_inductor_config=False),
+            Int8DynamicActivationInt8WeightConfig(set_inductor_config=False),
+            Int8StaticActivationInt8WeightConfig(
+                act_quant_scale=torch.ones(1, 1),
+                granularity=PerTensor(),
+                set_inductor_config=False,
+            ),
+        ],
+    )
+    @common_utils.parametrize("num_positional_args", [0, 1, 2])
+    @common_utils.parametrize("has_bias", [False, True])
+    def test_linear_keyword_arguments(self, config, num_positional_args, has_bias):
+        model = torch.nn.Linear(8, 4, bias=False)
+        quantize_(model, config)
+        input_tensor = torch.randn(2, 8)
+        bias = torch.arange(1, 5, dtype=torch.float32) if has_bias else None
+        args = (input_tensor, model.weight, bias)
+        kwargs = dict(zip(("input", "weight", "bias"), args))
+        for name in ("input", "weight", "bias")[:num_positional_args]:
+            del kwargs[name]
+
+        expected = torch.nn.functional.linear(*args)
+        actual = torch.nn.functional.linear(*args[:num_positional_args], **kwargs)
+        self.assertEqual(actual, expected)
+
     # Note: The reduce_range parameter can be manually set by users via the config.
     # This UT only tests automatic reduce_range to avoid CI failures on CPUs without VNNI support.
     @common_utils.parametrize("dtype", [torch.bfloat16, torch.float32])
