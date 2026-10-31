@@ -275,7 +275,7 @@ def _(func, types, args, kwargs):
     orig_dtype = input_tensor.dtype
 
     # Folds batch dimension into the first dimension
-    act_mat = input_tensor.reshape(-1, input_tensor.shape[-1]).to(torch.bfloat16)
+    act_mat = input_tensor.reshape(-1, input_tensor.shape[-1]).to(torch.bfloat16).contiguous()
     pad_size = find_multiple(act_mat.shape[-1], 1024)
     act_mat = torch.nn.functional.pad(act_mat, (0, pad_size - act_mat.shape[-1]))
 
