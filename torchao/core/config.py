@@ -27,7 +27,7 @@ _DEFAULT_VERSION = 1
 class AOBaseConfig(abc.ABC):
     """
     If a workflow config inherits from this then `quantize_` knows
-    how to a apply it to a model. For example::
+    how to apply it to a model. For example::
 
         # user facing code
         class WorkflowFooConfig(AOBaseConfig): ...
@@ -40,16 +40,13 @@ class AOBaseConfig(abc.ABC):
             mod: torch.nn.Module,
             config: WorkflowFooConfig,
         ) -> torch.nn.Module:
-            # the transform is implemented here, usually a tensor sublass
+            # the transform is implemented here, usually a tensor subclass
             # weight swap or a module swap
             ...
 
         # then, the user calls `quantize_` with a config, and `_transform` is called
-        # under the hood by `quantize_.
+        # under the hood by `quantize_`.
 
-    """
-
-    """
     Note: this is not the version of AOBaseConfig, but the default version for instances of
     all child configs inheriting from AOBaseConfig, and it should be `_DEFAULT_VERSION` and never change
     this is making sure all config instances has a version defined, when they need to bump the default
@@ -64,6 +61,7 @@ class AOBaseConfig(abc.ABC):
 
     default Version of a config, should never change
     """
+
     version: int = _DEFAULT_VERSION
 
 
