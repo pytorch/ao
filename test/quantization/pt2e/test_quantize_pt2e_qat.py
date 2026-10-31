@@ -19,7 +19,6 @@ from torch.ao.quantization.qconfig import (
     default_symmetric_qnnpack_qat_qconfig,
 )
 from torch.ao.quantization.quantize_fx import prepare_qat_fx
-from torch.testing._internal.common_cuda import TEST_CUDA
 from torch.testing._internal.common_quantization import (
     NodeSpec as ns,
 )
@@ -29,7 +28,7 @@ from torch.testing._internal.common_quantization import (
     skipIfNoQNNPACK,
 )
 from torch.testing._internal.common_quantized import override_quantized_engine
-from torch.testing._internal.common_utils import TEST_XPU, run_tests
+from torch.testing._internal.common_utils import run_tests
 
 import torchao
 from torchao.quantization.pt2e import (
@@ -54,7 +53,6 @@ from torchao.testing.pt2e._xnnpack_quantizer import (
     XNNPACKQuantizer,
     get_symmetric_quantization_config,
 )
-from torchao.utils import get_current_accelerator_device
 
 
 class PT2EQATTestCase(QuantizationTestCase):
@@ -119,6 +117,17 @@ class PT2EQATTestCase(QuantizationTestCase):
             has_relu,
             **conv_kwargs,
         )
+
+    def _test_qat_conv_bn_fusion(self, device: torch.device, has_relu: bool) -> None:
+        m = self._get_conv_bn_model(has_relu=has_relu).to(device)
+        example_inputs = (self.example_inputs[0].to(device),)
+        self._verify_symmetric_xnnpack_qat_graph(
+            m,
+            example_inputs,
+            has_relu=has_relu,
+            is_cuda=device.type != "cpu",
+        )
+        self._verify_symmetric_xnnpack_qat_numerics(m, example_inputs)
 
     def _verify_symmetric_xnnpack_qat_numerics(
         self,
@@ -460,22 +469,7 @@ class TestQuantizePT2EQAT_ConvBn_Base(PT2EQATTestCase):
         self._verify_symmetric_xnnpack_qat_numerics(m2, self.example_inputs)
 
     def test_qat_conv_bn_fusion(self):
-        m = self._get_conv_bn_model()
-        self._verify_symmetric_xnnpack_qat_graph(m, self.example_inputs, has_relu=False)
-        self._verify_symmetric_xnnpack_qat_numerics(m, self.example_inputs)
-
-    @unittest.skipIf(not TEST_CUDA and not TEST_XPU, "GPU unavailable")
-    def test_qat_conv_bn_fusion_cuda(self):
-        device = get_current_accelerator_device()
-        m = self._get_conv_bn_model().to(device)
-        example_inputs = (self.example_inputs[0].to(device),)
-        self._verify_symmetric_xnnpack_qat_graph(
-            m,
-            example_inputs,
-            has_relu=False,
-            is_cuda=True,
-        )
-        self._verify_symmetric_xnnpack_qat_numerics(m, example_inputs)
+        self._test_qat_conv_bn_fusion(torch.device("cpu"), has_relu=False)
 
     def test_qat_conv_bn_fusion_literal_args(self):
         class M(torch.nn.Module):
@@ -548,22 +542,7 @@ class TestQuantizePT2EQAT_ConvBn_Base(PT2EQATTestCase):
         self._verify_symmetric_xnnpack_qat_numerics(m2, example_inputs)
 
     def test_qat_conv_bn_relu_fusion(self):
-        m = self._get_conv_bn_model(has_relu=True)
-        self._verify_symmetric_xnnpack_qat_graph(m, self.example_inputs, has_relu=True)
-        self._verify_symmetric_xnnpack_qat_numerics(m, self.example_inputs)
-
-    @unittest.skipIf(not TEST_CUDA and not TEST_XPU, "GPU unavailable")
-    def test_qat_conv_bn_relu_fusion_cuda(self):
-        device = get_current_accelerator_device()
-        m = self._get_conv_bn_model(has_relu=True).to(device)
-        example_inputs = (self.example_inputs[0].to(device),)
-        self._verify_symmetric_xnnpack_qat_graph(
-            m,
-            example_inputs,
-            has_relu=True,
-            is_cuda=True,
-        )
-        self._verify_symmetric_xnnpack_qat_numerics(m, example_inputs)
+        self._test_qat_conv_bn_fusion(torch.device("cpu"), has_relu=True)
 
     def test_qat_conv_bn_relu_fusion_no_conv_bias(self):
         m = self._get_conv_bn_model(has_conv_bias=False, has_relu=True)
