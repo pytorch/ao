@@ -164,6 +164,23 @@ def _with_callable_args(cls_or_self, **kwargs):
 ABC: Any = ABCMeta("ABC", (object,), {})  # compatible with Python 2 *and* 3:
 
 
+def _assert_not_complex(x: torch.Tensor, observer_name: str) -> None:
+    """Reject complex input instead of silently observing only its real part.
+
+    These observers derive qparams from a real-valued min/max, so casting a
+    complex tensor to the buffer dtype drops the imaginary part and returns
+    qparams that look ordinary. The quantize kernels reject the input a step
+    later anyway: ``PerTensorAffineQuantizer::quantize`` and
+    ``PerChannelAffineFloatQParamsQuantizer::quantize`` in ATen's
+    ``Quantizer.cpp`` both require a float tensor. ``HistogramObserver``
+    already fails on complex input, by way of ``torch.aminmax``.
+    """
+    if x.is_complex():
+        raise NotImplementedError(
+            f"{observer_name} does not support complex input, got {x.dtype}"
+        )
+
+
 class ObserverBase(ABC, nn.Module):
     r"""Base observer Module.
     Any observer implementation should derive from this class.
@@ -571,6 +588,7 @@ class MinMaxObserver(UniformQuantizationObserverBase):
         r"""Records the running minimum and maximum of ``x``."""
         if x_orig.numel() == 0:
             return x_orig
+        _assert_not_complex(x_orig, "MinMaxObserver")
         x = x_orig.detach()  # avoid keeping autograd tape
         x = x.to(self.min_val.dtype)
         min_val_cur, max_val_cur = torch.aminmax(x)
@@ -680,6 +698,7 @@ class MovingAverageMinMaxObserver(MinMaxObserver):
     def forward(self, x_orig):
         if x_orig.numel() == 0:
             return x_orig
+        _assert_not_complex(x_orig, "MovingAverageMinMaxObserver")
         x = x_orig.detach()  # avoid keeping autograd tape
         x = x.to(self.min_val.dtype)
         min_val = self.min_val
@@ -778,6 +797,7 @@ class PerChannelMinMaxObserver(UniformQuantizationObserverBase):
     def _forward(self, x_orig):
         if x_orig.numel() == 0:
             return x_orig
+        _assert_not_complex(x_orig, "PerChannelMinMaxObserver")
         x = x_orig.detach()  # avoid keeping autograd tape
         min_val = self.min_val
         max_val = self.max_val
@@ -970,6 +990,7 @@ class MovingAveragePerChannelMinMaxObserver(PerChannelMinMaxObserver):
     def forward(self, x_orig):
         if x_orig.numel() == 0:
             return x_orig
+        _assert_not_complex(x_orig, "MovingAveragePerChannelMinMaxObserver")
         x = x_orig.detach()  # avoid keeping autograd tape
         x = x.to(self.min_val.dtype)
         min_val = self.min_val
