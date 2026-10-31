@@ -9,7 +9,15 @@ from unittest.mock import patch
 import torch
 import torch.nn.functional as F
 
-from torchao.utils import TorchAOBaseTensor, torch_version_at_least
+from torchao.utils import TorchAOBaseTensor, benchmark_model, torch_version_at_least
+
+
+class TestBenchmarkModel(unittest.TestCase):
+    def test_cpu_time_is_in_milliseconds(self):
+        model = torch.nn.Linear(1, 1)
+        with patch("torchao.utils.time.time", side_effect=[100.0, 100.5]):
+            result = benchmark_model(model, 2, args=(torch.ones(1, 1),))
+        self.assertEqual(result, 250.0)
 
 
 class TestTorchVersion(unittest.TestCase):
