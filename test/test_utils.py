@@ -53,8 +53,10 @@ class TestRegisterAsPytreeConstant(unittest.TestCase):
         "on torch with native support Enums stay pytree leaves without registration",
     )
     def test_enum_flattens_as_constant_without_native_support(self):
-        class Choice(Enum):
-            FIRST = 1
+        # register_constant() rejects classes with a default __eq__ on recent
+        # torch; a str mixin provides one, matching torchao's KernelPreference.
+        class Choice(str, Enum):
+            FIRST = "first"
 
         register_as_pytree_constant(Choice)
         self.assertTrue(torch.utils._pytree.is_constant_class(Choice))
