@@ -6,8 +6,9 @@ amax the weight stack is dense and uniform -- no ragged offsets, no RHT -- so th
 flat 1D reduction per expert rather than a tiled one.
 
 Replaces ``torch.linalg.vector_norm(W, ord=inf, dim=(1, 2))``, which computes the same
-values but keeps too few loads in flight to saturate HBM (~2.5 TB/s vs ~3.9 TB/s here).
-The unrolled ``U`` independent loads per program are what buy the difference.
+values but keeps too few loads in flight to saturate HBM: L2-flushed, 2.85 vs 4.40 TB/s
+at 671B E=4 (117 MB) and 3.7 vs 6.7 TB/s over 1 GB of weights. The unrolled ``U``
+independent loads per program are what buy the difference.
 
 Nothing here is expert-specific beyond the ``program_id(1)`` base, so ``nvfp4_linear``
 uses it at ``E=1`` on ``W.unsqueeze(0)`` for the same reason.

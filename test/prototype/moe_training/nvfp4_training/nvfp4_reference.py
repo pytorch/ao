@@ -39,9 +39,20 @@ down/up along the grid:
 
 ``pack_uint4`` puts the even element in the low nibble, which is the kernels' order.
 
-**What can be asserted.** Scales, amaxes, and RTNE FP4 codes are bitwise: the kernels use
-correctly rounded FP32 division, matching both this PyTorch transcription and
-TransformerEngine's default numeric path.
+**What can be asserted.** Scales, amaxes, and RTNE FP4 codes are bitwise *for the exact
+math path*: there the kernels use correctly rounded FP32 division, matching both this
+PyTorch transcription and TransformerEngine's default numeric path.
+
+**Fast math is deliberately out of scope.** Under ``use_fast_math=True`` (TE's
+``NVTE_USE_FAST_MATH=1``) the kernels take ``rcp.approx.ftz.f32`` for the per-vector
+encode scale and consume the RHT accumulator without rounding it through bfloat16. The
+second half is expressible here; the first is not. No ATen op lowers to that instruction
+-- ``torch.reciprocal``, ``1/x`` and ``x.pow(-1)`` are all correctly rounded, on CPU and
+GPU alike -- and NVIDIA does not document MUFU.RCP's result bit for bit, so a PyTorch
+transcription cannot be bitwise against it. The Triton kernels reach the instruction via
+``tl.inline_asm_elementwise`` and serve as the fast-path oracle instead; fast math is
+tied back to this reference transitively, by bounding fast against the exact path that
+this module does pin bitwise (see ``test_rht_quantize_fast_math_sqnr``).
 """
 
 from dataclasses import dataclass
@@ -298,8 +309,8 @@ def reference_group_rht_amax(
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     """Per-group ``(col_amax, row_amax)``, each ``(num_tensors,)`` float32.
 
-    Rows at or past ``logical_packed_length`` are capacity padding and must not reach the
-    reduction -- the kernels mask them out.
+    Rows at or past ``logical_packed_length == offsets[-1]`` are allocation tail and
+    must not reach the reduction. Zero-valued padding inside each group remains input.
     """
     valid = A.shape[0] if logical_packed_length is None else int(logical_packed_length)
     cols, rows = [], []
@@ -346,8 +357,8 @@ def reference_group_rht_quantize_row_col(
     start = 0
     for g, size in enumerate(sizes):
         end = min(start + size, valid)
-        # Capacity rows keep the zeros allocated above, matching the kernels' zero-fill
-        # of the codes and of the columnwise scale tiles.
+        # This block spans group-addressable rows only. Storage after the final offset
+        # has no output contract and must not be compared to this reference.
         block = A.new_zeros((hidden, size // 16), dtype=torch.float8_e4m3fn)
         if end > start:
             group = A[start:end]

@@ -33,6 +33,15 @@ jobs:
       PYTORCH_OVERRIDE_FLAKY_SIGNAL: 1
       XLA_CLANG_CACHE_S3_BUCKET_NAME: ossci-compiler-clang-cache-circleci-xla
     steps:
+      # The persistent runner may have files left by a previous container job.
+      - name: Reclaim workspace ownership
+        shell: bash
+        run: |
+          if sudo -n true 2>/dev/null; then
+            sudo chown -R "$(id -u):$(id -g)" "${GITHUB_WORKSPACE}" || true
+          fi
+          git config --global --add safe.directory "${GITHUB_WORKSPACE}"
+
       - name: Checkout PyTorch
         uses: actions/checkout@v4
         with:
@@ -128,8 +137,8 @@ jobs:
           )
           # save container name for later step
           echo "CONTAINER_NAME=${container_name}" >> "$GITHUB_ENV"
-          # jenkins user does not have write permission to mounted workspace; work-around by copying within container to jenkins home
-          docker exec -t "${container_name}" sh -c "bash ${TEST_COMMAND}"
+          # Build and test in a copy owned by jenkins, not the bind-mounted workspace.
+          docker exec -t "${container_name}" sh -c "cd .. && sudo cp -R workspace/torchao torchao && sudo chown -R jenkins:jenkins torchao && bash ${TEST_COMMAND}"
 
       - name: Collect backtraces from coredumps (if any)
         if: always()

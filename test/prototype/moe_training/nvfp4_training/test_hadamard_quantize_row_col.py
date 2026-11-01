@@ -32,11 +32,32 @@ parametrization (see ``_KERNELS``):
       [1.0, 1.5] midpoint (1.25) round to each neighbor ~50% of the time for both
       columnwise and rowwise paths. Columnwise input is constructed via inverse RHT so
       post-RHT values are exactly 1.25; rowwise input has 1.25 placed directly in A.
-    - test_triton_rht_quantize_rs_at_most_one_fp4_step_from_rtne (triton): RS code is at
+    - test_rht_quantize_rs_at_most_one_fp4_step_from_rtne (both backends): RS code is at
       most 1 FP4 magnitude index step from the RTNE code for every element, for both
-      columnwise and rowwise paths.
+      columnwise and rowwise paths, over one tile, several tiles and a short trailing
+      column group. This is the structural guard on SR: it pins every SR code against an
+      RTNE code that IS bitwise-checked against triton and TE.
     - test_cutedsl_rht_quantize_sr_unbiased (cutedsl): the HW ``cvt.rs`` path is unbiased
       at the same 1.25 midpoint.
+
+  Fast math (use_fast_math=True, the nvfp4_linear default), both backends:
+    - test_fast_math_matches_transformer_engine: byte-identical to real TE under
+      NVTE_USE_FAST_MATH=1, over the full shape sweep. This is why triton can act as the
+      fast-path oracle where the PyTorch reference cannot -- TE's fast encode scale is
+      ``rcp.approx.ftz.f32`` and no ATen op lowers to that instruction, so
+      ``nvfp4_reference`` models the exact path only.
+    - test_rht_quantize_fast_math_sqnr: fast reconstructs the exact path (which IS
+      bitwise-checked against nvfp4_reference) at 30+ dB, floored at 25 -- above NVFP4's
+      own 20 dB quantization noise. Nearly all of the cost is the columnwise bfloat16
+      round-through that fast math skips; the reciprocal swap alone leaves the rowwise
+      output bitwise identical on most shapes.
+    - the SR and interchangeability tests below run under both math modes.
+
+  The two backends are byte-for-byte interchangeable under RTNE, in both math modes
+  (test_cutedsl_vs_triton_interchangeable). Neither reproduces the other's Philox
+  stream: both CuteDSL kernels draw one counter per 16-element block and consume all
+  four output words, rather than triton's per-packed-byte stride. SR is therefore judged
+  on the structural and statistical properties above.
 
 Coverage:
   RS=F, RW=F  — TE bitwise scales + mx_formats scale compatibility + rtne_sqnr
@@ -52,7 +73,15 @@ from torch.utils._triton import has_triton
 
 from test.prototype.moe_training.nvfp4_training._assertions import (
     assert_codes_bitwise,
+    assert_scales_adjacent,
     assert_scales_bitwise,
+    assert_scales_finite,
+    assert_zero_quantized,
+    unpack_fp4_magnitudes,
+    unpack_fp4_nibbles,
+)
+from test.prototype.moe_training.nvfp4_training._assertions import (
+    dequantize as _dequantize,
 )
 from test.prototype.moe_training.nvfp4_training.nvfp4_reference import (
     reference_rht,
@@ -69,11 +98,11 @@ from torchao.prototype.moe_training.nvfp4_training.hadamard_quantize_row_col_cut
     cutedsl_rht_quantize_row_col,
 )
 from torchao.prototype.moe_training.nvfp4_training.hadamard_utils import (
+    DEFAULT_SIGN_VECTOR,
     get_rht_matrix,
     prepare_for_cuda_graph,
 )
 from torchao.prototype.mx_formats.nvfp4_tensor import (
-    NVFP4Tensor,
     nvfp4_quantize,
     per_tensor_amax_to_scale,
 )
@@ -89,31 +118,14 @@ if has_triton() and is_sm_at_least_100() and torch_version_at_least("2.10.0"):
     )
 
 # Shapes swept by the kernel-parametrized tests. Both kernels need M % 128 == 0 and
-# N % 128 == 0 for the swizzled scale layout; the CuteDSL kernel additionally needs
-# M % 256 == 0, so M=128 runs triton-only (see _skip_if_unsupported_shape).
-_M_VALUES = [128, 256, 512, 1024]
+# N % 128 == 0 for the swizzled scale layout. M=128/384 exercise the CuteDSL 128-row
+# supertile (M % 128 but not % 256); the other M run its tuned 256-row supertile.
+_M_VALUES = [128, 256, 384, 512, 1024]
 _N_VALUES = [128, 256, 384, 512, 1024]
 # Shape both kernels accept, for the tests that do not sweep shapes.
 _M_BOTH, _N_BOTH = 256, 256
 _NEAR_ZERO = 1.0e-10
-_HARDCODED_SIGN_VECTOR = (
-    1,
-    1,
-    1,
-    -1,
-    1,
-    -1,
-    -1,
-    -1,
-    -1,
-    -1,
-    -1,
-    1,
-    -1,
-    1,
-    -1,
-    -1,
-)
+_HARDCODED_SIGN_VECTOR = DEFAULT_SIGN_VECTOR
 
 _skip_no_triton = pytest.mark.skipif(
     not (has_triton() and is_sm_at_least_100() and torch_version_at_least("2.10.0")),
@@ -135,104 +147,6 @@ _KERNELS = [
 # ---------------------------------------------------------------------------
 # Reference implementations (plain PyTorch, backend independent)
 # ---------------------------------------------------------------------------
-
-
-def _rht_reference(A: torch.Tensor) -> torch.Tensor:
-    """PyTorch reference RHT: returns (N, M) bfloat16."""
-    M_A, N_A = A.shape
-    B = get_rht_matrix(_HARDCODED_SIGN_VECTOR, A.device, torch.bfloat16, 16)
-    return (A.t().reshape(-1, 16) @ B).reshape(N_A, M_A).to(torch.bfloat16)
-
-
-def _rht_quantize_reference(
-    A: torch.Tensor,
-) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-    """RHT + NVFP4 E2M1 columnwise quantization via nvfp4_quantize (RTNE).
-
-    Returns:
-        codes:       (N, M//2) uint8 packed FP4 codes.
-        scale_inv:   (N, M//16) float8_e4m3fn per-vector decode scales.
-        global_amax: scalar float32.
-    """
-    # Pass bfloat16 output of _rht_reference directly: nvfp4_quantize converts bf16→f32
-    # losslessly, so block amax matches the kernel's tl.max(bf16) exactly.
-    x_t_rht = _rht_reference(A)  # (N, M) bfloat16
-    global_amax = x_t_rht.float().abs().max()
-    scale_inv, codes = nvfp4_quantize(
-        x_t_rht, per_tensor_scale=per_tensor_amax_to_scale(global_amax)
-    )
-    return codes, scale_inv, global_amax
-
-
-def _rht_quantize_rowwise_reference(
-    A: torch.Tensor,
-) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-    """NVFP4 E2M1 rowwise quantization via nvfp4_quantize (RTNE, no RHT applied).
-
-    Returns:
-        codes:       (M, N//2) uint8 packed FP4 codes.
-        scale_inv:   (M, N//16) float8_e4m3fn per-vector decode scales.
-        global_amax: scalar float32 (max(abs(A))).
-    """
-    global_amax = A.float().abs().max()
-    scale_inv, codes = nvfp4_quantize(
-        A, per_tensor_scale=per_tensor_amax_to_scale(global_amax)
-    )
-    return codes, scale_inv, global_amax
-
-
-def _transformer_engine_scale_reference(
-    x: torch.Tensor, global_amax: torch.Tensor
-) -> torch.Tensor:
-    """Per-1x16 E4M3 decode scales using TransformerEngine's FP32 arithmetic.
-
-    Derived from ``compute_global_encode_scaling_factor_FP4`` and
-    ``compute_decoding_scaling_factor`` in
-    ``transformer_engine/common/cast/nvfp4/core_nvfp4.cuh``, plus the E4M3
-    cast/store path in ``quantize_transpose_nvfp4.cuh``. Keep the operation order
-    here aligned with those CUDA sources; in particular, this has no lower clamp.
-    """
-    global_amax = global_amax.to(torch.float32)
-    global_encode_scale = (
-        torch.tensor(448.0 * 6.0, dtype=torch.float32, device=x.device) / global_amax
-    )
-    global_encode_scale = torch.clamp(
-        global_encode_scale, max=torch.finfo(torch.float32).max
-    )
-    global_encode_scale = torch.where(
-        (global_amax == 0.0) | (global_encode_scale == 0.0),
-        torch.ones_like(global_encode_scale),
-        global_encode_scale,
-    )
-
-    block_amax = x.float().abs().reshape(*x.shape[:-1], -1, 16).amax(dim=-1)
-    scale = block_amax * (
-        global_encode_scale
-        * torch.tensor(1.0 / 6.0, dtype=torch.float32, device=x.device)
-    )
-    return torch.clamp(scale, max=448.0).to(torch.float8_e4m3fn)
-
-
-def _dequantize(
-    codes: torch.Tensor,
-    scales: torch.Tensor,
-    global_amax: torch.Tensor,
-) -> torch.Tensor:
-    """Decode packed FP4 codes via NVFP4Tensor.dequantize()."""
-    # orig_dtype=bfloat16: all test inputs are bfloat16; affects only the default
-    # output dtype of dequantize(), overridden by the explicit .float() call below.
-    return (
-        NVFP4Tensor(
-            codes,
-            scales,
-            16,
-            torch.bfloat16,
-            per_tensor_scale=per_tensor_amax_to_scale(global_amax),
-            is_swizzled_scales=True,
-        )
-        .dequantize()
-        .float()
-    )
 
 
 def _input_from_rht_target(target: torch.Tensor) -> torch.Tensor:
@@ -261,8 +175,6 @@ def _skip_if_unsupported_shape(kernel: str, M: int, N: int) -> None:
     """Skip shapes the selected backend cannot handle."""
     if M % 128 != 0 or N % 128 != 0:
         pytest.skip("swizzled scales require M % 128 == 0 and N % 128 == 0")
-    if kernel == "cutedsl" and M % 256 != 0:
-        pytest.skip("cutedsl kernel requires M % 256 == 0")
 
 
 def _rht_amax(
@@ -287,43 +199,38 @@ def _quantize_row_col(
     stochastic_rounding: bool = False,
     seed: torch.Tensor | None = None,
     offset: torch.Tensor | None = None,
+    use_fast_math: bool = False,
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
     """Dispatch to the selected backend's fused RHT row/col quantize.
 
-    Returns (col_codes, col_sf, row_codes, row_sf). With ``stochastic_rounding=True``,
-    ``seed``/``offset`` default to fresh random int64 buffers.
+    Returns (col_codes, col_sf, row_codes, row_sf). The two ops take the same four
+    Philox bases and the same ``use_fast_math`` flag, so the only difference here is
+    which one is called. With ``stochastic_rounding=True``, ``seed``/``offset`` default
+    to fresh random int64 buffers.
     """
-    sign_vector = list(sign_vector)
-    if kernel == "triton":
-        sr_kwargs = {}
-        if stochastic_rounding:
-            sr_kwargs = {
-                "col_seed_base": _random_i64(x.device) if seed is None else seed,
-                "col_offset_base": _random_i64(x.device) if offset is None else offset,
-                "row_seed_base": _random_i64(x.device) if seed is None else seed,
-                "row_offset_base": _random_i64(x.device) if offset is None else offset,
-            }
-        return triton_rht_quantize_row_col(
-            x,
-            col_global_amax=col_amax,
-            row_global_amax=row_amax,
-            sign_vector=sign_vector,
-            stochastic_rounding=stochastic_rounding,
-            **sr_kwargs,
-        )
-
+    quantize = (
+        triton_rht_quantize_row_col
+        if kernel == "triton"
+        else cutedsl_rht_quantize_row_col
+    )
     sr_kwargs = {}
     if stochastic_rounding:
+        col_seed = _random_i64(x.device) if seed is None else seed
+        col_offset = _random_i64(x.device) if offset is None else offset
         sr_kwargs = {
-            "seed": _random_i64(x.device) if seed is None else seed,
-            "offset": _random_i64(x.device) if offset is None else offset,
+            "col_seed_base": col_seed,
+            "col_offset_base": col_offset,
+            # ^1 to decorrelate the row stream from the col one, as nvfp4_linear does.
+            "row_seed_base": col_seed ^ 1,
+            "row_offset_base": col_offset,
         }
-    return cutedsl_rht_quantize_row_col(
+    return quantize(
         x,
         col_amax,
         row_amax,
-        sign_vector,
+        list(sign_vector),
         stochastic_rounding=stochastic_rounding,
+        use_fast_math=use_fast_math,
         **sr_kwargs,
     )
 
@@ -333,98 +240,15 @@ def _quantize_row_col(
 # ---------------------------------------------------------------------------
 
 
-def _unpack_fp4_nibbles(codes: torch.Tensor) -> torch.Tensor:
-    """Unpack (R, C//2) uint8 → (R, C) nibbles (bit 3 = sign, bits 0-2 = magnitude)."""
-    lo = (codes & 0xF).long()
-    hi = (codes >> 4).long()
-    out = torch.empty(
-        codes.shape[0], codes.shape[1] * 2, dtype=torch.long, device=codes.device
-    )
-    out[:, ::2] = lo
-    out[:, 1::2] = hi
-    return out
-
-
-def _unpack_fp4_magnitudes(codes: torch.Tensor) -> torch.Tensor:
-    """Unpack (R, C//2) uint8 → (R, C) FP4 magnitude indices (0-7)."""
-    return _unpack_fp4_nibbles(codes) & 0x7
-
-
-def _assert_scales_adjacent(got: torch.Tensor, ref: torch.Tensor, label: str) -> None:
-    """Kernel scale vs the mx_formats nvfp4_quantize reference: equal or adjacent
-    fp8 bytes (positive e4m3 bytes are magnitude-monotonic).
-
-    The triton kernel uses TE-exact div_rn with no lower clamp, while the
-    reference multiplies by a reciprocal and applies an E4M3_EPS floor. The two
-    are mathematically identical, so they differ only by fp32 rounding order and
-    land on the same or an adjacent representable value. Bitwise equality with
-    the torch reference is unattainable for a kernel that is bitwise-exact with
-    TE, so 1 ULP is the correct assertion here.
-    """
-    got_b = got.flatten().contiguous().view(torch.uint8).to(torch.int16)
-    ref_b = ref.flatten().contiguous().view(torch.uint8).to(torch.int16)
-    assert got_b.shape == ref_b.shape, (
-        f"{label}: shape mismatch {tuple(got_b.shape)} vs {tuple(ref_b.shape)}"
-    )
-    diff = (got_b - ref_b).abs()
-    assert (diff <= 1).all(), (
-        f"{label}: {(diff > 1).sum().item()}/{diff.numel()} fp8 scale bytes "
-        f"differ by >1 ULP (max {diff.max().item()})"
-    )
-
-
-def _assert_scales_bitwise(got: torch.Tensor, ref: torch.Tensor, label: str) -> None:
-    """Compare E4M3 scales as raw bytes."""
-    got_b = got.flatten().contiguous().view(torch.uint8)
-    ref_b = ref.flatten().contiguous().view(torch.uint8)
-    assert got_b.shape == ref_b.shape, (
-        f"{label}: shape mismatch {tuple(got_b.shape)} vs {tuple(ref_b.shape)}"
-    )
-    assert torch.equal(got_b, ref_b), (
-        f"{label}: {(got_b != ref_b).sum().item()}/{got_b.numel()} fp8 scale "
-        "bytes differ"
-    )
-
-
-def _assert_scales_finite(scales: torch.Tensor) -> None:
-    # No lower-bound check: TE emits a zero per-vector scale for zero/near-zero
-    # vectors, so pinning small scales to a nonzero floor would contradict the
-    # ground truth the triton kernel is matched against.
-    scales_f32 = scales.to(torch.float32)
-    assert torch.isfinite(scales_f32).all(), "scale factors must be finite"
-
-
-def _assert_zero_quantized(
-    codes: torch.Tensor,
-    scales: torch.Tensor,
-    dequantized: torch.Tensor,
-) -> None:
-    """All-zero input packs to zero codes, stores a zero block scale, and
-    dequantizes to exactly zero.
-
-    Both backends emit 0 (not E4M3 eps) for a zero block, matching
-    TransformerEngine, which applies no lower clamp to the per-vector scale.
-    """
-    assert torch.count_nonzero(codes).item() == 0, "all-zero input must pack to zero"
-    scales_f32 = scales.to(torch.float32)
-    torch.testing.assert_close(
-        scales_f32,
-        torch.zeros_like(scales_f32),
-        atol=0,
-        rtol=0,
-    )
-    assert torch.isfinite(dequantized).all(), "dequantized zero input must be finite"
-    torch.testing.assert_close(
-        dequantized, torch.zeros_like(dequantized), atol=0, rtol=0
-    )
-
-
 # ---------------------------------------------------------------------------
 # Tests — both backends
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.parametrize("kernel", _KERNELS)
+@pytest.mark.parametrize(
+    "M,N", [(256, 256), (128, 512), (384, 256)], ids=["256x256", "128x512", "384x256"]
+)
 @pytest.mark.parametrize(
     "input_kind",
     [
@@ -434,9 +258,13 @@ def _assert_zero_quantized(
     ],
 )
 @torch.no_grad()
-def test_rht_quantize_rtne_scales_vs_transformer_engine_reference(kernel, input_kind):
-    """Both fused scale paths must match TransformerEngine's arithmetic bitwise."""
-    M, N = _M_BOTH, _N_BOTH
+def test_rht_quantize_rtne_vs_transformer_engine_reference(kernel, M, N, input_kind):
+    """Both backends must reproduce TransformerEngine's arithmetic.
+
+    Scales and codes are bitwise. ``bounded_integer`` is adversarial because integer data
+    under a power-of-two amax places scaled values exactly on E2M1 midpoints.
+    """
+    _skip_if_unsupported_shape(kernel, M, N)
     if input_kind == "bounded_integer":
         torch.manual_seed(42)
         A = torch.randint(-8, 9, (M, N), dtype=torch.int16, device="cuda").to(
@@ -448,21 +276,21 @@ def test_rht_quantize_rtne_scales_vs_transformer_engine_reference(kernel, input_
         A = torch.full((M, N), _NEAR_ZERO, dtype=torch.bfloat16, device="cuda")
         A[0, 0] = 1.0
 
-    col_values = _rht_reference(A)
-    col_amax = col_values.float().abs().max()
+    col_amax = reference_rht(A).float().abs().max()
     row_amax = A.float().abs().max()
-    ref_col_sf = to_blocked(_transformer_engine_scale_reference(col_values, col_amax))
-    ref_row_sf = to_blocked(_transformer_engine_scale_reference(A, row_amax))
+    ref_col, ref_row = reference_rht_quantize_row_col(A, col_amax, row_amax)
 
-    _, col_sf, _, row_sf = _quantize_row_col(
+    col_codes, col_sf, row_codes, row_sf = _quantize_row_col(
         kernel,
         A,
         col_amax=col_amax,
         row_amax=row_amax,
         sign_vector=_HARDCODED_SIGN_VECTOR,
     )
-    _assert_scales_bitwise(col_sf, ref_col_sf, "col sf")
-    _assert_scales_bitwise(row_sf, ref_row_sf, "row sf")
+    assert_scales_bitwise(col_sf, ref_col.scales, "col sf")
+    assert_scales_bitwise(row_sf, ref_row.scales, "row sf")
+    assert_codes_bitwise(col_codes, ref_col.codes, "col codes")
+    assert_codes_bitwise(row_codes, ref_row.codes, "row codes")
 
     if input_kind == "zeros":
         assert torch.count_nonzero(col_sf.float()).item() == 0
@@ -478,25 +306,55 @@ def test_rht_quantize_rtne_scales_vs_transformer_engine_reference(kernel, input_
             )
 
 
-@_skip_no_triton
+@pytest.mark.parametrize("kernel", _KERNELS)
+@pytest.mark.parametrize("N", _N_VALUES, ids=lambda n: f"N{n}")
+@pytest.mark.parametrize("M", _M_VALUES, ids=lambda m: f"M{m}")
 @torch.no_grad()
-def test_triton_rht_quantize_rtne_vs_transformer_engine_reference():
-    torch.manual_seed(42)
-    A = torch.randn(256, 256, dtype=torch.bfloat16, device="cuda")
-    col_amax = reference_rht(A).float().abs().max()
-    row_amax = A.float().abs().max()
-    ref_col, ref_row = reference_rht_quantize_row_col(A, col_amax, row_amax)
+def test_fast_math_matches_transformer_engine(kernel, M, N, monkeypatch):
+    """Both fast paths are byte-identical to actual TE fast math.
+
+    This is what lets Triton stand in as the fast-path oracle. The PyTorch reference
+    cannot: TE's fast encode scale is ``rcp.approx.ftz.f32`` and no ATen op lowers to
+    that instruction, so ``nvfp4_reference`` models the exact path only.
+    """
+    _skip_if_unsupported_shape(kernel, M, N)
+    monkeypatch.setenv("NVTE_USE_FAST_MATH", "1")
+    te = pytest.importorskip("transformer_engine.pytorch")
+
+    torch.manual_seed(123)
+    A = torch.randn((M, N), dtype=torch.bfloat16, device="cuda")
+    quantizer = te.NVFP4Quantizer(
+        fp4_dtype=te.DType.kFloat4E2M1,
+        rowwise=True,
+        columnwise=True,
+        with_amax_reduction=False,
+        amax_reduction_group=None,
+        with_rht=True,
+        with_post_rht_amax=True,
+        with_random_sign_mask=True,
+        stochastic_rounding=False,
+    )
+    quantizer.optimize_for_gemm = True
+    expected = quantizer(A)
+
+    col_amax, row_amax = _rht_amax(kernel, A, sign_vector=_HARDCODED_SIGN_VECTOR)
     col_codes, col_sf, row_codes, row_sf = _quantize_row_col(
-        "triton",
+        kernel,
         A,
         col_amax=col_amax,
         row_amax=row_amax,
         sign_vector=_HARDCODED_SIGN_VECTOR,
+        use_fast_math=True,
     )
-    assert_codes_bitwise(col_codes, ref_col.codes, "col codes")
-    assert_scales_bitwise(col_sf, ref_col.scales, "col sf")
-    assert_codes_bitwise(row_codes, ref_row.codes, "row codes")
-    assert_scales_bitwise(row_sf, ref_row.scales, "row sf")
+
+    assert_codes_bitwise(
+        row_codes, expected._rowwise_data.view(torch.uint8), "row codes"
+    )
+    assert_scales_bitwise(row_sf, expected._rowwise_scale_inv, "row sf")
+    assert_codes_bitwise(
+        col_codes, expected._columnwise_data.view(torch.uint8), "col codes"
+    )
+    assert_scales_bitwise(col_sf, expected._columnwise_scale_inv, "col sf")
 
 
 @pytest.mark.parametrize("kernel", _KERNELS)
@@ -517,9 +375,8 @@ def test_rht_quantize_rtne_scales_vs_mx_formats_reference(kernel, M, N):
     here, the two formulations are mathematically equivalent but can land on adjacent
     E4M3 values because of FP32 rounding order.
 
-    Note: packed FP4 codes are NOT checked at all here — the kernels use an
-    approximate reciprocal (rcp.approx.f32, <=2 ULP) causing ~0.2% nibble
-    differences at FP4 midpoints. Use the SQNR test for quantization quality.
+    Packed FP4 codes are not checked here because the TE-derived test above already
+    asserts them bitwise; this test isolates compatibility with mx_formats' scale recipe.
     """
     _skip_if_unsupported_shape(kernel, M, N)
 
@@ -536,12 +393,19 @@ def test_rht_quantize_rtne_scales_vs_mx_formats_reference(kernel, M, N):
     )
 
     # Rowwise compatibility check (plain mx_formats NVFP4 quantize of A).
-    _, ref_row_sf, _ = _rht_quantize_rowwise_reference(A)
-    _assert_scales_adjacent(row_sf.flatten(), to_blocked(ref_row_sf), "row sf")
+    ref_row_sf, _ = nvfp4_quantize(
+        A, per_tensor_scale=per_tensor_amax_to_scale(A.float().abs().max())
+    )
+    assert_scales_adjacent(row_sf.flatten(), to_blocked(ref_row_sf), "row sf")
 
     if kernel == "triton":
-        _, ref_col_sf, _ = _rht_quantize_reference(A)
-        _assert_scales_adjacent(col_sf.flatten(), to_blocked(ref_col_sf), "col sf")
+        # bf16 in: nvfp4_quantize widens to f32 losslessly, so the block amax matches
+        # the kernel's bf16 reduction exactly.
+        rht = reference_rht(A)
+        ref_col_sf, _ = nvfp4_quantize(
+            rht, per_tensor_scale=per_tensor_amax_to_scale(rht.float().abs().max())
+        )
+        assert_scales_adjacent(col_sf.flatten(), to_blocked(ref_col_sf), "col sf")
 
 
 @pytest.mark.parametrize("kernel", _KERNELS)
@@ -568,13 +432,72 @@ def test_rht_quantize_rtne_sqnr(kernel, M, N):
     )
 
     # Columnwise SQNR: dequantized should reconstruct RHT(A.T)
-    ref_rht = _rht_reference(A).float()
+    ref_rht = reference_rht(A).float()
     col_sqnr = compute_error(ref_rht, _dequantize(col_codes, col_sf, col_amax))
     assert col_sqnr >= 20.0, f"Col SQNR {col_sqnr:.2f} dB < 20.0 dB for M={M} N={N}"
 
     # Rowwise SQNR: dequantized should reconstruct raw A
     row_sqnr = compute_error(A.float(), _dequantize(row_codes, row_sf, row_amax))
     assert row_sqnr >= 20.0, f"Row SQNR {row_sqnr:.2f} dB < 20.0 dB for M={M} N={N}"
+
+
+@pytest.mark.parametrize("kernel", _KERNELS)
+@pytest.mark.parametrize("N", _N_VALUES, ids=lambda n: f"N{n}")
+@pytest.mark.parametrize("M", _M_VALUES, ids=lambda m: f"M{m}")
+@torch.no_grad()
+def test_rht_quantize_fast_math_sqnr(kernel, M, N):
+    """Fast math costs little against the exact path it replaces.
+
+    This is the bound that grounds fast math in the PyTorch oracle, which cannot host it
+    directly: the exact path is bitwise-checked against ``nvfp4_reference`` (and against
+    TE), and fast math is held to a tight SQNR of that exact path.
+
+    Columnwise carries essentially all of the cost and is stable: 30.2-32.6 dB across
+    this sweep, ~1.2% of packed code bytes differing. Skipping the bfloat16 round-through
+    perturbs the pre-quantization value by only ~2**-9, but an element sitting near an
+    E2M1 midpoint then flips a whole FP4 step, so the error is large-and-rare rather than
+    small-and-everywhere. Compare NVFP4's own quantization noise, floored at 20 dB by
+    test_rht_quantize_rtne_sqnr: fast math moves the result less than quantizing it did.
+
+    Rowwise has no accumulator to skip, so only the reciprocal changes -- but it shares
+    the same loose floor rather than a tighter one, deliberately. Block scales are
+    identical between the modes, so a rowwise flip requires ``rcp.approx`` and ``div_rn``
+    to disagree on ``pvscale_fp8 * global_decode_scale``, and that product takes only a
+    handful of distinct values per tensor. Either none of them disagrees and the output is
+    bitwise identical (SQNR inf, 24 of 25 shapes here), or one does and every element
+    sharing that scale becomes eligible at once. The result is lumpy and data-dependent
+    -- inf, inf, 49 dB, 41 dB across the grouped fixtures -- so a tight rowwise bound
+    would be flaky by construction rather than more sensitive.
+    """
+    _skip_if_unsupported_shape(kernel, M, N)
+
+    torch.manual_seed(42)
+    A = torch.randn(M, N, dtype=torch.bfloat16, device="cuda")
+
+    # The amax kernels have no fast-math variant (neither do TE's), so both modes are
+    # fed the identical global amaxes and only the quantize arithmetic differs.
+    col_amax, row_amax = _rht_amax(kernel, A, sign_vector=_HARDCODED_SIGN_VECTOR)
+    kwargs = dict(
+        col_amax=col_amax, row_amax=row_amax, sign_vector=_HARDCODED_SIGN_VECTOR
+    )
+    e_col_codes, e_col_sf, e_row_codes, e_row_sf = _quantize_row_col(
+        kernel, A, use_fast_math=False, **kwargs
+    )
+    f_col_codes, f_col_sf, f_row_codes, f_row_sf = _quantize_row_col(
+        kernel, A, use_fast_math=True, **kwargs
+    )
+
+    col_sqnr = compute_error(
+        _dequantize(e_col_codes, e_col_sf, col_amax),
+        _dequantize(f_col_codes, f_col_sf, col_amax),
+    )
+    assert col_sqnr >= 25.0, f"Col fast-vs-exact SQNR {col_sqnr:.2f} dB < 25.0 dB"
+
+    row_sqnr = compute_error(
+        _dequantize(e_row_codes, e_row_sf, row_amax),
+        _dequantize(f_row_codes, f_row_sf, row_amax),
+    )
+    assert row_sqnr >= 25.0, f"Row fast-vs-exact SQNR {row_sqnr:.2f} dB < 25.0 dB"
 
 
 @pytest.mark.parametrize("kernel", _KERNELS)
@@ -607,10 +530,10 @@ def test_rht_quantize_row_col_zero_and_near_zero_no_nan_or_saturation(
 
         # All-zero input packs to zero codes, stores a zero block scale, and
         # dequantizes to exactly zero on both backends (TE semantics).
-        _assert_zero_quantized(
+        assert_zero_quantized(
             col_codes, col_sf, _dequantize(col_codes, col_sf, col_amax)
         )
-        _assert_zero_quantized(
+        assert_zero_quantized(
             row_codes, row_sf, _dequantize(row_codes, row_sf, row_amax)
         )
         return
@@ -628,7 +551,7 @@ def test_rht_quantize_row_col_zero_and_near_zero_no_nan_or_saturation(
         sign_vector=_HARDCODED_SIGN_VECTOR,
         stochastic_rounding=stochastic_rounding,
     )
-    _assert_scales_finite(row_sf)
+    assert_scales_finite(row_sf)
     row_dequant = _dequantize(row_codes, row_sf, row_row_amax)
     assert torch.isfinite(row_dequant).all(), (
         "rowwise dequantized values must be finite"
@@ -649,7 +572,7 @@ def test_rht_quantize_row_col_zero_and_near_zero_no_nan_or_saturation(
         sign_vector=_HARDCODED_SIGN_VECTOR,
         stochastic_rounding=stochastic_rounding,
     )
-    _assert_scales_finite(col_sf)
+    assert_scales_finite(col_sf)
     col_dequant = _dequantize(col_codes, col_sf, col_col_amax)
     assert torch.isfinite(col_dequant).all(), (
         "colwise dequantized values must be finite"
@@ -665,39 +588,37 @@ def test_rht_quantize_row_col_zero_and_near_zero_no_nan_or_saturation(
 @_skip_no_triton
 @_skip_no_cutedsl
 @pytest.mark.parametrize("N", [256, 512], ids=lambda n: f"N{n}")
-@pytest.mark.parametrize("M", [256, 512], ids=lambda m: f"M{m}")
+@pytest.mark.parametrize("M", [256, 384, 512], ids=lambda m: f"M{m}")
+@pytest.mark.parametrize("use_fast_math", [False, True], ids=["exact", "fast"])
 @torch.no_grad()
-def test_cutedsl_vs_triton_interchangeable(M, N):
-    """Fed the SAME global amaxes, CuteDSL and Triton outputs reconstruct each other to
-    high SQNR (they implement the same RHT + NVFP4 quantize)."""
+def test_cutedsl_vs_triton_interchangeable(M, N, use_fast_math):
+    """Fed the same global amaxes, the two backends are byte-for-byte interchangeable.
+
+    Both the amaxes themselves and all four quantize outputs. The backends share the
+    RHT rounding (bf16 in exact mode, none in fast), the scale chain (the one-rounding
+    association, and div_rn or rcp.approx.ftz per mode) and the FP4 encode PTX, so
+    nothing is left to differ. Covering both modes is what keeps AUTO and TRITON
+    interchangeable now that fast math is the default.
+    """
     torch.manual_seed(0)
     A = torch.randn(M, N, dtype=torch.bfloat16, device="cuda")
 
-    # One set of amaxes, fed to both kernels.
-    col_amax, row_amax = _rht_amax("triton", A, sign_vector=_HARDCODED_SIGN_VECTOR)
-    c_col, c_col_sf, c_row, c_row_sf = _quantize_row_col(
-        "cutedsl",
-        A,
-        col_amax=col_amax,
-        row_amax=row_amax,
-        sign_vector=_HARDCODED_SIGN_VECTOR,
-    )
-    t_col, t_col_sf, t_row, t_row_sf = _quantize_row_col(
-        "triton",
-        A,
-        col_amax=col_amax,
-        row_amax=row_amax,
-        sign_vector=_HARDCODED_SIGN_VECTOR,
-    )
+    t_amax = _rht_amax("triton", A, sign_vector=_HARDCODED_SIGN_VECTOR)
+    c_amax = _rht_amax("cutedsl", A, sign_vector=_HARDCODED_SIGN_VECTOR)
+    for name, t, c in zip(("col_amax", "row_amax"), t_amax, c_amax):
+        assert torch.equal(t, c), f"{name} differs between backends"
 
-    col_sqnr = compute_error(
-        _dequantize(t_col, t_col_sf, col_amax), _dequantize(c_col, c_col_sf, col_amax)
+    col_amax, row_amax = t_amax
+    kwargs = dict(
+        col_amax=col_amax,
+        row_amax=row_amax,
+        sign_vector=_HARDCODED_SIGN_VECTOR,
+        use_fast_math=use_fast_math,
     )
-    row_sqnr = compute_error(
-        _dequantize(t_row, t_row_sf, row_amax), _dequantize(c_row, c_row_sf, row_amax)
-    )
-    assert col_sqnr >= 28.0, f"cutedsl-vs-triton col SQNR {col_sqnr:.1f} dB < 28"
-    assert row_sqnr >= 35.0, f"cutedsl-vs-triton row SQNR {row_sqnr:.1f} dB < 35"
+    cutedsl = _quantize_row_col("cutedsl", A, **kwargs)
+    triton_out = _quantize_row_col("triton", A, **kwargs)
+    for name, c, t in zip(("qd", "sfd", "qa", "sfa"), cutedsl, triton_out):
+        assert torch.equal(c, t), f"{name} differs between backends"
 
 
 # ---------------------------------------------------------------------------
@@ -752,7 +673,7 @@ def test_triton_rht_quantize_rs_midpoint_distribution():
             stochastic_rounding=True,
         )
         # Unpack col_codes (N_RHT, M_RHT//2) uint8 → (N_RHT, M_RHT) magnitudes
-        mag_codes = _unpack_fp4_magnitudes(col_codes)
+        mag_codes = unpack_fp4_magnitudes(col_codes)
 
         # Exclude anchor positions (m % 16 == 0 → scaled=6.0 → code 7)
         col_idx = torch.arange(M_RHT, device="cuda")
@@ -774,7 +695,7 @@ def test_triton_rht_quantize_rs_midpoint_distribution():
             stochastic_rounding=True,
         )
         # Unpack row_codes (128, 64) uint8 → (128, 128) magnitudes
-        r_mag = _unpack_fp4_magnitudes(row_codes)
+        r_mag = unpack_fp4_magnitudes(row_codes)
         # Exclude anchor positions (n % 16 == 0 → code 7)
         n_idx = torch.arange(128, device="cuda")
         r_target = r_mag[:, (n_idx % 16) != 0]
@@ -796,54 +717,71 @@ def test_triton_rht_quantize_rs_midpoint_distribution():
     )
 
 
-@_skip_no_triton
+@pytest.mark.parametrize("kernel", _KERNELS)
+@pytest.mark.parametrize(
+    "M,N",
+    [(128, 128), (256, 512), (1024, 2432)],
+    ids=["single-tile", "multi-tile", "short-group"],
+)
+@pytest.mark.parametrize("use_fast_math", [False, True], ids=["exact", "fast"])
 @torch.no_grad()
-def test_triton_rht_quantize_rs_at_most_one_fp4_step_from_rtne():
+def test_rht_quantize_rs_at_most_one_fp4_step_from_rtne(kernel, M, N, use_fast_math):
     """RS code must be at most 1 FP4 magnitude index step from the RTNE code.
 
     RS picks the floor or ceil of the scaled value on the FP4 magnitude grid.
     RTNE also picks floor or ceil (nearest). Therefore |rs_mag_idx - rtne_mag_idx| <= 1
     must hold for every element, and signs must agree.
 
-    Both columnwise and rowwise paths are tested.
+    Both columnwise and rowwise paths are tested, on both backends. This is the
+    structural guard on the SR path now that neither backend reproduces the other's
+    Philox stream: it pins every SR code against the RTNE code that IS bitwise-checked
+    against triton and TE, so a wrong nibble order, scale or block index fails here even
+    though no bitwise SR oracle exists. The shapes span one tile, several tiles, and a
+    short trailing column group, which is where a tile-derived counter is most likely to
+    collide or run off the end.
+
+    Each math mode is compared against its own RTNE codes: fast math shifts both, so
+    crossing the modes would measure the arithmetic change rather than the rounding.
     """
-    M, N = 128, 128
+    _skip_if_unsupported_shape(kernel, M, N)
     N_SAMPLES = 16
     torch.manual_seed(42)
     A = torch.randn(M, N, dtype=torch.bfloat16, device="cuda")
 
     col_amax_rtne, row_amax_rtne = _rht_amax(
-        "triton", A, sign_vector=_HARDCODED_SIGN_VECTOR
+        kernel, A, sign_vector=_HARDCODED_SIGN_VECTOR
     )
     col_rn, _, row_rn, _ = _quantize_row_col(
-        "triton",
+        kernel,
         A,
         col_amax=col_amax_rtne,
         row_amax=row_amax_rtne,
         sign_vector=_HARDCODED_SIGN_VECTOR,
+        use_fast_math=use_fast_math,
     )
-    col_rn_nibs = _unpack_fp4_nibbles(col_rn)
+    col_rn_nibs = unpack_fp4_nibbles(col_rn)
     col_rn_sign = col_rn_nibs >> 3
     col_rn_mag = col_rn_nibs & 0x7
 
-    row_rn_nibs = _unpack_fp4_nibbles(row_rn)
+    row_rn_nibs = unpack_fp4_nibbles(row_rn)
     row_rn_sign = row_rn_nibs >> 3
     row_rn_mag = row_rn_nibs & 0x7
 
     for _ in range(N_SAMPLES):
         col_amax_rs, row_amax_rs = _rht_amax(
-            "triton", A, sign_vector=_HARDCODED_SIGN_VECTOR
+            kernel, A, sign_vector=_HARDCODED_SIGN_VECTOR
         )
         col_rs, _, row_rs, _ = _quantize_row_col(
-            "triton",
+            kernel,
             A,
             col_amax=col_amax_rs,
             row_amax=row_amax_rs,
             sign_vector=_HARDCODED_SIGN_VECTOR,
             stochastic_rounding=True,
+            use_fast_math=use_fast_math,
         )
 
-        col_rs_nibs = _unpack_fp4_nibbles(col_rs)
+        col_rs_nibs = unpack_fp4_nibbles(col_rs)
         col_rs_sign = col_rs_nibs >> 3
         col_rs_mag = col_rs_nibs & 0x7
 
@@ -857,7 +795,7 @@ def test_triton_rht_quantize_rs_at_most_one_fp4_step_from_rtne():
             f"Col RS magnitude index differs by {col_mag_diff.max().item()} from RTNE (must be ≤1)"
         )
 
-        row_rs_nibs = _unpack_fp4_nibbles(row_rs)
+        row_rs_nibs = unpack_fp4_nibbles(row_rs)
         row_rs_sign = row_rs_nibs >> 3
         row_rs_mag = row_rs_nibs & 0x7
 
@@ -1029,8 +967,9 @@ def test_cutedsl_rht_quantize_sr_requires_seed_offset():
 
 
 @_skip_no_cutedsl
+@pytest.mark.parametrize("use_fast_math", [False, True], ids=["exact", "fast"])
 @torch.no_grad()
-def test_cutedsl_rht_quantize_sr_unbiased():
+def test_cutedsl_rht_quantize_sr_unbiased(use_fast_math):
     """Hardware stochastic rounding (cvt.rs) is unbiased. Feed the row path elements that land
     EXACTLY halfway between FP4 grid points (1.25, between 1.0 and 1.5) -- the maximal-bias case
     RTNE always pins to one side -- and confirm averaging many SR draws converges to 1.25 with a
@@ -1047,7 +986,12 @@ def test_cutedsl_rht_quantize_sr_unbiased():
 
     # RTNE pins every halfway element to a single side (no spread).
     _, _, rtne_codes, rtne_sf = _quantize_row_col(
-        "cutedsl", A, col_amax=amax, row_amax=amax, sign_vector=_HARDCODED_SIGN_VECTOR
+        "cutedsl",
+        A,
+        col_amax=amax,
+        row_amax=amax,
+        sign_vector=_HARDCODED_SIGN_VECTOR,
+        use_fast_math=use_fast_math,
     )
     assert _dequantize(rtne_codes, rtne_sf, amax)[:, halfway].unique().numel() == 1
 
@@ -1066,6 +1010,7 @@ def test_cutedsl_rht_quantize_sr_unbiased():
             stochastic_rounding=True,
             seed=seed,
             offset=offset,
+            use_fast_math=use_fast_math,
         )
         vals = _dequantize(codes, sf, amax)[:, halfway]
         acc[:, halfway] += vals
@@ -1083,8 +1028,8 @@ def test_cutedsl_rht_quantize_sr_unbiased():
 @_skip_no_cutedsl
 @pytest.mark.parametrize(
     "M,N",
-    [(128, 256), (256, 200), (384, 256)],
-    ids=["M_not_mult_256", "N_not_mult_128", "M_not_mult_256_b"],
+    [(64, 256), (256, 200), (192, 256)],
+    ids=["M_not_mult_128", "N_not_mult_128", "M_not_mult_128_b"],
 )
 @torch.no_grad()
 def test_cutedsl_rht_quantize_invalid_shape_raises(M, N):

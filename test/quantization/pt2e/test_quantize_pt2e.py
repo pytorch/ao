@@ -3889,6 +3889,36 @@ class TestQuantizePT2E(PT2EQuantizationTestCase):
                 fold_quantize_into_mutable_buffers=True,
             )
 
+    def test_prepare_pt2e_apis_reject_set_grad_enabled_subgraph(self):
+        class NoGradLinear(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.linear = torch.nn.Linear(5, 5)
+
+            @torch.no_grad()
+            def forward(self, x):
+                return self.linear(x)
+
+        model = NoGradLinear().eval()
+        example_inputs = (torch.randn(1, 5),)
+        quantizer = XNNPACKQuantizer().set_global(get_symmetric_quantization_config())
+
+        exported = torch.export.export(model, example_inputs).module()
+        with self.assertRaisesRegex(
+            ValueError,
+            "prepare_pt2e does not support wrap_with_set_grad_enabled subgraphs",
+        ):
+            prepare_pt2e(exported, quantizer)
+        with self.assertRaisesRegex(
+            ValueError,
+            "prepare_qat_pt2e.*quantization-aware training requires autograd",
+        ):
+            prepare_qat_pt2e(exported, quantizer)
+
+        with torch.no_grad():
+            exported = torch.export.export(model, example_inputs).module()
+        prepare_pt2e(exported, quantizer)
+
     def test_scan_op_quantization(self):
         """Test that prepare_pt2e and convert_pt2e correctly quantize ops
         inside the combine_fn subgraph of torch._higher_order_ops.scan.

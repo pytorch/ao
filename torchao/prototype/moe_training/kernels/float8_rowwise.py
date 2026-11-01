@@ -208,7 +208,7 @@ if has_triton():
         else:
             tl.atomic_min(scales_ptr + scales_offs, scales[None, :], mask=scales_mask)
 
-    @triton.autotune(configs=atomic_kernel_configs_2D, key=["num_elements"])
+    @triton.autotune(configs=atomic_kernel_configs_2D, key=["K", "N"])
     @triton.jit
     def _triton_fp8_rowwise_3d_transpose_cast_rhs_kernel(
         input_ptr,

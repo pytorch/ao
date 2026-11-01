@@ -24,19 +24,19 @@ jobs:
       matrix:
         include:
           - name: CUDA Nightly
-            runs-on: linux.g5.12xlarge.nvidia.gpu
+            runs-on: mt-l-x86aavx2-45-167-a10g-4
             torch-spec: '--pre torch torchvision --index-url https://download.pytorch.org/whl/nightly/cu126'
             gpu-arch-type: "cuda"
             gpu-arch-version: "12.6"
             compiler: ""
           - name: CPU Nightly
-            runs-on: linux.4xlarge
+            runs-on: mt-l-x86iavx512-16-128
             torch-spec: '--pre torch torchvision --index-url https://download.pytorch.org/whl/nightly/cpu'
             gpu-arch-type: "cpu"
             gpu-arch-version: ""
             compiler: ""
           - name: CPU Nightly (Clang)
-            runs-on: linux.4xlarge
+            runs-on: mt-l-x86iavx512-16-128
             torch-spec: '--pre torch torchvision --index-url https://download.pytorch.org/whl/nightly/cpu'
             gpu-arch-type: "cpu"
             gpu-arch-version: ""
@@ -45,7 +45,7 @@ jobs:
     permissions:
       id-token: write
       contents: read
-    uses: pytorch/test-infra/.github/workflows/linux_job_v2.yml@main
+    uses: pytorch/test-infra/.github/workflows/linux_job_v3.yml@main
     with:
       timeout: 180
       runner: ${{ matrix.runs-on }}
@@ -94,20 +94,20 @@ jobs:
       matrix:
         include:
           - name: CUDA 2.13
-            runs-on: linux.g5.12xlarge.nvidia.gpu
+            runs-on: mt-l-x86aavx2-45-167-a10g-4
             torch-spec: 'torch==2.13.0 torchvision==0.28.0 --index-url https://download.pytorch.org/whl/cu126'
             gpu-arch-type: "cuda"
             gpu-arch-version: "12.6"
             dev-requirements-overrides: ""
 
           - name: CPU 2.13
-            runs-on: linux.4xlarge
+            runs-on: mt-l-x86iavx512-16-128
             torch-spec: 'torch==2.13.0 torchvision==0.28.0 --index-url https://download.pytorch.org/whl/cpu'
             gpu-arch-type: "cpu"
             gpu-arch-version: ""
             dev-requirements-overrides: ""
 
-    uses: pytorch/test-infra/.github/workflows/linux_job_v2.yml@main
+    uses: pytorch/test-infra/.github/workflows/linux_job_v3.yml@main
     with:
       timeout: 180
       runner: ${{ matrix.runs-on }}
