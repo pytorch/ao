@@ -405,19 +405,20 @@ def _bf16hi_to_f32(w: cutlass.Uint32, *, loc=None, ip=None) -> cutlass.Float32:
 
 
 @dsl_user_op
-def _mulhi_u32(a: cutlass.Uint32, b: cutlass.Uint32, *, loc=None, ip=None):
-    """High 32 bits of a 32x32 unsigned multiply (triton's math.umulhi)."""
-    return cutlass.Uint32(
+def _mulhilo_u32(a: cutlass.Uint32, b: cutlass.Uint32, *, loc=None, ip=None):
+    """Low and high halves of one unsigned 32x32-to-64-bit multiply."""
+    product = cutlass.Uint64(
         llvm.inline_asm(
-            T.i32(),
+            T.i64(),
             [a.ir_value(loc=loc, ip=ip), b.ir_value(loc=loc, ip=ip)],
-            "mul.hi.u32 $0, $1, $2;",
-            "=r,r,r",
+            "mul.wide.u32 $0, $1, $2;",
+            "=l,r,r",
             has_side_effects=False,
             is_align_stack=False,
             asm_dialect=llvm.AsmDialect.AD_ATT,
         )
     )
+    return cutlass.Uint32(product), cutlass.Uint32(product >> 32)
 
 
 # Philox-4x32-10 (PHILOX_KEY_A/B, PHILOX_ROUND_A/B, 10 rounds).
@@ -455,21 +456,15 @@ def philox_prep(seed_lo, seed_hi, offset_base):
         for r in range(PHILOX_ROUNDS)
     ]
     A, B = cutlass.Uint32(_PHILOX_ROUND_A), cutlass.Uint32(_PHILOX_ROUND_B)
-    c2_r1 = _mulhi_u32(A, offset_base) ^ sched[0][1]
-    c3_r1 = A * offset_base
-    c0_r2 = _mulhi_u32(B, c2_r1) ^ sched[1][0]
-    c1_r2 = B * c2_r1
+    c3_r1, hi = _mulhilo_u32(A, offset_base)
+    c2_r1 = hi ^ sched[0][1]
+    c1_r2, hi = _mulhilo_u32(B, c2_r1)
+    c0_r2 = hi ^ sched[1][0]
     return sched, c0_r2, c1_r2, c3_r1
 
 
 def philox4_all(state, chunk_counter):
     """The four random words a 16-element chunk needs, from a single Philox draw.
-
-    These kernels once reproduced triton's counter stride, drawing one word per packed
-    byte at counters ``p0, p0+1, p0+4, p0+5`` because that is what triton's ``cvt.rs`` asm
-    consumes. That cost four full round schedules per chunk and discarded three of every
-    four output words -- 124 multiplies for 128 bits that one draw produces. Consuming a
-    single draw whole costs 34, and yields the same 128 bits.
 
     The counter must be derived from tile coordinates rather than from a running
     per-thread value: these kernels are persistent, and the grouped one schedules through
@@ -480,14 +475,14 @@ def philox4_all(state, chunk_counter):
     A, B = cutlass.Uint32(_PHILOX_ROUND_A), cutlass.Uint32(_PHILOX_ROUND_B)
     c0_r1 = chunk_counter ^ sched[0][0]
     c0, c1 = c0_r2, c1_r2
-    c2 = _mulhi_u32(A, c0_r1) ^ c3_r1 ^ sched[1][1]
-    c3 = A * c0_r1
+    c3, hi = _mulhilo_u32(A, c0_r1)
+    c2 = hi ^ c3_r1 ^ sched[1][1]
     for r in range(2, PHILOX_ROUNDS):
-        _c0, _c2 = c0, c2
-        c0 = _mulhi_u32(B, _c2) ^ c1 ^ sched[r][0]
-        c2 = _mulhi_u32(A, _c0) ^ c3 ^ sched[r][1]
-        c1 = B * _c2
-        c3 = A * _c0
+        lo_b, hi_b = _mulhilo_u32(B, c2)
+        lo_a, hi_a = _mulhilo_u32(A, c0)
+        c0 = hi_b ^ c1 ^ sched[r][0]
+        c2 = hi_a ^ c3 ^ sched[r][1]
+        c1, c3 = lo_b, lo_a
     return c0, c1, c2, c3
 
 
