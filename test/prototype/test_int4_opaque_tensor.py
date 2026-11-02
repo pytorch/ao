@@ -72,6 +72,28 @@ class TestInt4OpaqueTensor(TestCase):
                 "<class 'torchao.prototype.quantization.int4.Int4OpaqueTensor'>",
             )
 
+    @parametrize("weight_dtype", [torch.float32, torch.bfloat16, torch.float16])
+    @parametrize("act_dtype", [torch.float32, torch.bfloat16, torch.float16])
+    @parametrize("use_hqq", [True, False])
+    def test_linear_mismatched_activation_dtype(self, weight_dtype, act_dtype, use_hqq):
+        """A16W4 weight-only quantization documents support for float16,
+        bfloat16, and float32 activations regardless of the dtype the
+        linear layer happened to be in at quantization time (see the
+        Int4OpaqueTensor class docstring). The underlying
+        `_weight_int4pack_mm_for_cpu` op requires the activation dtype to
+        exactly match `scale_and_zero.dtype`, with no implicit promotion,
+        so the activation must be cast to match before the op is called.
+        Without that cast, any (weight_dtype, act_dtype) pair that differs
+        raises `RuntimeError: expected scalar type X but found Y`.
+        """
+        K, N = 128, 256
+        linear = torch.nn.Linear(K, N, dtype=weight_dtype)
+        quantize_(linear, get_config(group_size=128, use_hqq=use_hqq))
+
+        input = torch.randn(4, K, dtype=act_dtype)
+        out = linear(input)
+        self.assertEqual(out.dtype, act_dtype)
+
     @parametrize("use_hqq", [True, False])
     def test_activation_prescaling(self, use_hqq):
         dtype = torch.bfloat16
