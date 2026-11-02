@@ -6,6 +6,7 @@
 
 """Tests for FP8 low-precision attention (FA3 backend on Hopper)."""
 
+import inspect
 import unittest
 
 import torch
@@ -443,6 +444,38 @@ class TestHadamardAccuracy(TestCase):
                 f"had={err_had.item():.6f} vs none={err_none.item():.6f} "
                 f"for shape={shape}, dtype={dtype}",
             )
+
+
+class TestFP8FA3SetupRegression(TestCase):
+    """Regression coverage for the broken import + signature in
+    ``torchao/prototype/attention/fp8_fa3/setup.py`` (issue #4318).
+
+    ``setup_fp8_fa3`` previously imported a non-existent
+    ``torchao.prototype.attention.config`` module, so importing it raised
+    ``ModuleNotFoundError`` before any FA3 hardware path was reached, and its
+    signature did not match ``setup_fp8_backend``. Both checks are
+    hardware-independent and run on CPU.
+    """
+
+    @unittest.skipUnless(
+        torch_version_at_least("2.11.0"),
+        "fp8_fa3 setup imports torch.nn.attention helpers added in torch 2.11",
+    )
+    def test_setup_fp8_fa3_imports_without_error(self):
+        from torchao.prototype.attention.fp8_fa3.setup import setup_fp8_fa3
+
+        self.assertTrue(callable(setup_fp8_fa3))
+
+    @unittest.skipUnless(
+        torch_version_at_least("2.11.0"),
+        "fp8_fa3 setup imports torch.nn.attention helpers added in torch 2.11",
+    )
+    def test_setup_fp8_fa3_signature_matches_backend(self):
+        from torchao.prototype.attention.fp8_fa3.setup import setup_fp8_fa3
+
+        params = inspect.signature(setup_fp8_fa3).parameters
+        self.assertEqual(list(params), ["model", "hadamard"])
+        self.assertEqual(params["hadamard"].default, "NONE")
 
 
 if __name__ == "__main__":
