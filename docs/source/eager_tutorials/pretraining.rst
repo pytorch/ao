@@ -14,7 +14,7 @@ and up to `1.34-1.43x speedups <https://pytorch.org/blog/accelerating-large-scal
 
 In this tutorial, we will show 2 ways to use the **torchao.float8** recipes for pre-training:
 
-1. :ref:`Pre-training with torchtitan`, the offical PyTorch pre-training framework with native torchao integration.
+1. :ref:`Pre-training with torchtitan`, the official PyTorch pre-training framework with native torchao integration.
 2. :ref:`Pre-training with torchao directly`, to integrate torchao's float8 training recipes into your own pre-training code.
 
 
@@ -77,13 +77,13 @@ You should see the following output:
     [rank0]:[titan] 2025-06-04 11:03:01,988 - root - INFO - step: 20  loss:  8.9482  memory: 30.89GiB(32.51%)  tps: 6,321  tflops: 366.06  mfu: 37.01%
     [rank0]:[titan] 2025-06-04 11:03:14,991 - root - INFO - step: 30  loss:  8.1183  memory: 30.89GiB(32.51%)  tps: 6,300  tflops: 364.89  mfu: 36.89%
     [rank0]:[titan] 2025-06-04 11:03:28,013 - root - INFO - step: 40  loss:  7.4659  memory: 30.89GiB(32.51%)  tps: 6,291  tflops: 364.36  mfu: 36.84%
-    [rank0]:[titan] 2025-06-04 11:03:39,769 - root - INFO - [GC] Peforming periodical GC collection. 0.02 seconds.
+    [rank0]:[titan] 2025-06-04 11:03:39,769 - root - INFO - [GC] Performing periodical GC collection. 0.02 seconds.
 
 As you can see, the bfloat16 baseline achieves ~6.3k TPS using 30.89GB peak memory.
 
 This means our float8 rowwise scaling recipe achieves **1.11x higher throughput** compared to bfloat16 baseline, using nearly identical peak memory!
 
-Note that you can achieve even higher throughput improvement using the tensorwise scaling recipe, which exists at a different point on the performane vs accuracy curve.
+Note that you can achieve even higher throughput improvement using the tensorwise scaling recipe, which exists at a different point on the performance vs accuracy curve.
 
 Tensorwise scaling
 ==================

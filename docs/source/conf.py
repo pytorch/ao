@@ -86,7 +86,7 @@ print(f"torchao_version_docs: {torchao_version_docs}")
 # The code below will cut version displayed in the dropdown like this:
 # by default "main" is set.
 # tags like v0.1.0 or with the -rc suffix like v0.1.0-rc3 = > 0.1
-# the version varible is used in layout.html: https://github.com/pytorch/torchao/blob/main/docs/source/_templates/layout.html#L29
+# the version variable is used in layout.html: https://github.com/pytorch/torchao/blob/main/docs/source/_templates/layout.html#L29
 version = release = "main"
 if torchao_version_docs:
     if torchao_version_docs.startswith("refs/tags/v"):

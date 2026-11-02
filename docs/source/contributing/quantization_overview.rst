@@ -34,7 +34,7 @@ In terms of actual implementation, ``uint1`` to ``uint7`` and ``int1`` to ``int7
 For more details please check out the `official PyTorch dtype doc <https://docs.pytorch.org/docs/main/tensor_attributes.html>`__.
 
 .. note::
-   Dervied dtypes like mxfp8, mxfp4, nvfp4 are implemented with these basic dtypes, e.g. mxfp4 uses ``torch.float8_e8m0fnu`` for scale and ``torch.float4_e2m1fn_x2`` for 4 bit data.
+   Derived dtypes like mxfp8, mxfp4, nvfp4 are implemented with these basic dtypes, e.g. mxfp4 uses ``torch.float8_e8m0fnu`` for scale and ``torch.float4_e2m1fn_x2`` for 4 bit data.
 
 Quantization Primitive Ops
 ~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -65,7 +65,7 @@ On top of the basic dtypes, quantization primitive operators and efficient kerne
 
 Another dimension for quantized Tensor is packing format, meaning how the quantized raw data is laid out in memory. For example, for int4, we can pack two elements together side by side in a uint8 value, or people can do some preshuffling/swizzling to make the format more efficient for memory operations (loading from memory to register) and computation.
 
-So in general we structure Tensor subclasses by dervied dtpype and packing format:
+So in general we structure Tensor subclasses by derived dtype and packing format:
 
 .. list-table:: Tensor Subclasses in TorchAO
    :widths: 20 10 30 40
