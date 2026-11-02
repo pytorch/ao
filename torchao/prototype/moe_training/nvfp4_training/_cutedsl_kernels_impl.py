@@ -841,6 +841,41 @@ def _quant16(
     )
 
 
+def _global_scale(amax):
+    """NVFP4 global encode/decode scales."""
+    is_zero = amax == cutlass.Float32(0.0)
+    safe = cutlass.Float32(cutlass.select_(is_zero, cutlass.Float32(1.0), amax))
+    c = _min_f32(
+        _div_rn_f32(cutlass.Float32(FP8_E4M3_MAX * FP4_E2M1_MAX), safe),
+        cutlass.Float32(FP32_MAX),
+    )
+    c = cutlass.Float32(
+        cutlass.select_(c == cutlass.Float32(0.0), cutlass.Float32(1.0), c)
+    )
+    enc = cutlass.Float32(cutlass.select_(is_zero, cutlass.Float32(1.0), c))
+    dec = _div_rn_f32(cutlass.Float32(1.0), enc)
+    return enc, dec, enc * cutlass.Float32(1.0 / FP4_E2M1_MAX)
+
+
+def _rht_col_philox_counter(
+    token_tile_base, hidden_tile, tiles_in_hidden, hidden_row, block
+):
+    """Index a 16-value column block in logical 128x128 tiles.
+
+    Dense supertiles can span two token tiles; grouped tiles span one. Using
+    logical coordinates preserves the random stream across both tilings.
+    """
+    blocks_per_tile = 128 // HADAMARD_DIM
+    tile_id = (
+        token_tile_base + cutlass.Int32(block // blocks_per_tile)
+    ) * tiles_in_hidden + hidden_tile
+    return (
+        tile_id * cutlass.Int32(TILE_BLOCKS)
+        + hidden_row * cutlass.Int32(blocks_per_tile)
+        + cutlass.Int32(block % blocks_per_tile)
+    )
+
+
 class _Tcgen05RowColFused:
     def __init__(
         self,
@@ -1326,20 +1361,6 @@ class _Tcgen05RowColFused:
         tCrA = tiled_mma.make_fragment_A(sA)  # (MMA, M, col_groups, STAGE)
         tCrB = tiled_mma.make_fragment_B(sB)
 
-        def _global_scale(amax):
-            is_zero = amax == cutlass.Float32(0.0)
-            safe = cutlass.Float32(cutlass.select_(is_zero, cutlass.Float32(1.0), amax))
-            c = _min_f32(
-                _div_rn_f32(cutlass.Float32(FP8_E4M3_MAX * FP4_E2M1_MAX), safe),
-                cutlass.Float32(FP32_MAX),
-            )
-            c = cutlass.Float32(
-                cutlass.select_(c == cutlass.Float32(0.0), cutlass.Float32(1.0), c)
-            )
-            enc = cutlass.Float32(cutlass.select_(is_zero, cutlass.Float32(1.0), c))
-            dec = _div_rn_f32(cutlass.Float32(1.0), enc)
-            return enc, dec, enc * cutlass.Float32(1.0 / FP4_E2M1_MAX)
-
         # Ungrouped: one global scale pair for the whole launch. Grouped: the epilogues overwrite
         # these per work tile from that tile's expert; the hoisted pair still has to be computed
         # (and typed) before the loops, since the DSL rejects a name that enters a dynamic `for`
@@ -1615,19 +1636,15 @@ class _Tcgen05RowColFused:
                     vals = tTR_rAcc.load().reshape((16,))
                     col_rb = None
                     if cutlass.const_expr(self.sr):
-                        # This thread's 16 tokens start at supertile offset u*16, so they
-                        # sit in token tile pid_ns*(kw/128) + u//8 at local token
-                        # (u%8)*16. One draw per 16-element block, indexed by its position
-                        # in the columnwise (hidden, tokens) tile.
-                        tile_id = (
-                            pid_ns * cutlass.Int32(self.kw // M_TILE)
-                            + cutlass.Int32(u // (M_TILE // 16))
-                        ) * tri_tiles_hid + pid_m
                         col_rb = philox4_all(
                             col_state,
-                            tile_id * cutlass.Int32(TILE_BLOCKS)
-                            + tidx * cutlass.Int32(M_TILE // 16)
-                            + cutlass.Int32(u % (M_TILE // 16)),
+                            _rht_col_philox_counter(
+                                pid_ns * cutlass.Int32(self.kw // M_TILE),
+                                pid_m,
+                                tri_tiles_hid,
+                                tidx,
+                                u,
+                            ),
                         )
                     w0, w1, pvscale_fp8 = _quant16(
                         vals,
