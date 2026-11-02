@@ -452,59 +452,6 @@ def _is_mutable_buffer_arg(
     )
 
 
-def _arg0_alias_info(node: Node):
-    if (
-        node.op != "call_function"
-        or not isinstance(node.target, torch._ops.OpOverload)
-        or not node.args
-        or not node.target._schema.arguments
-    ):
-        return None
-    return node.target._schema.arguments[0].alias_info
-
-
-class _InPlaceWrites:
-    """Tensors written in place through a chain of views, e.g. `buf.select(0, 0).copy_(x)`.
-
-    An observer on an edge of such a chain becomes a quantize/dequantize copy after
-    convert, so the write would land on the copy instead of `buf`. And an observer
-    reading `buf` must run after the write, or it sees `buf` before it is filled.
-    """
-
-    def __init__(self, graph: Graph):
-        self.chain_edges: set[tuple[Node, Node]] = set()
-        self.base: dict[Node, Node] = {}
-        self.writes: dict[Node, list[Node]] = {}
-        for node in graph.nodes:
-            alias_info = _arg0_alias_info(node)
-            if alias_info is None or not alias_info.is_write:
-                continue
-            chain = [node]
-            dest = node.args[0]
-            while isinstance(dest, Node):
-                chain.append(dest)
-                dest_alias_info = _arg0_alias_info(dest)
-                if dest_alias_info is None or dest_alias_info.is_write:
-                    break
-                dest = dest.args[0]
-            # Only a write through a view needs its chain left unobserved: an
-            # in-place op on the tensor itself (e.g. relu_) writes the observer's
-            # output just as well.
-            if len(chain) > 2:
-                self.chain_edges.update(zip(chain[1:], chain[:-1]))
-            base = self.base.get(chain[-1], chain[-1])
-            for alias in chain:
-                self.base[alias] = base
-            self.writes.setdefault(base, []).append(node)
-
-    def last_write_before(self, arg: Node, user: Node) -> Optional[Node]:
-        last_write = None
-        for write in self.writes.get(self.base.get(arg, arg), ()):
-            if write < user:
-                last_write = write
-        return last_write
-
-
 def _maybe_insert_input_observer_for_arg_or_kwarg(
     node: Union[Node, Any],
     arg: Argument,
@@ -515,7 +462,6 @@ def _maybe_insert_input_observer_for_arg_or_kwarg(
     buffer_names: set[str],
     is_qat: bool,
     model_device: Optional[torch.device] = None,
-    in_place_writes: Optional[_InPlaceWrites] = None,
 ) -> Argument:
     """
     Given a `node` and an `arg`, inserts an input observer between
@@ -536,7 +482,6 @@ def _maybe_insert_input_observer_for_arg_or_kwarg(
                 buffer_names,
                 is_qat,
                 model_device,
-                in_place_writes,
             )
             new_arg_to_return.append(new_inner_arg)
         return type(arg)(new_arg_to_return)
@@ -561,14 +506,6 @@ def _maybe_insert_input_observer_for_arg_or_kwarg(
 
     if _is_mutable_buffer_arg(node, original_arg, buffer_names):
         return new_arg
-
-    if in_place_writes is not None and input_edge in in_place_writes.chain_edges:
-        return new_arg
-    last_write = (
-        in_place_writes.last_write_before(original_arg, node)
-        if in_place_writes is not None
-        else None
-    )
 
     # input_edge needs to be observed
     input_edge_obs_or_fq = obs_or_fq_map[input_edge]
@@ -596,8 +533,6 @@ def _maybe_insert_input_observer_for_arg_or_kwarg(
     for maybe_obs_node in arg.users.keys():
         if not _is_activation_post_process_node(maybe_obs_node, named_modules):
             continue
-        if last_write is not None and maybe_obs_node < last_write:
-            continue
         maybe_obs_mod = named_modules[maybe_obs_node.target]  # type: ignore[index]
         if id(maybe_obs_mod) == id(input_edge_obs_or_fq):
             return maybe_obs_node
@@ -607,8 +542,6 @@ def _maybe_insert_input_observer_for_arg_or_kwarg(
     new_arg = _insert_obs_or_fq(
         arg, input_edge_obs_or_fq, model, named_modules, model.graph
     )
-    if last_write is not None:
-        last_write.append(new_arg)
     return new_arg
 
 
@@ -621,7 +554,6 @@ def _maybe_insert_input_observers_for_node(
     buffer_names: set[str],
     is_qat: bool,
     model_device: Optional[torch.device] = None,
-    in_place_writes: Optional[_InPlaceWrites] = None,
 ) -> None:
     """
     If needed, inserts observers to the input args and kwargs of `node`.
@@ -650,7 +582,6 @@ def _maybe_insert_input_observers_for_node(
             buffer_names,
             is_qat,
             model_device,
-            in_place_writes,
         )
         new_args.append(new_arg)
 
@@ -710,7 +641,6 @@ def _maybe_insert_input_and_output_observers_for_node(
     buffer_names: set[str],
     is_qat: bool,
     model_device: Optional[torch.device] = None,
-    in_place_writes: Optional[_InPlaceWrites] = None,
 ):
     this_node_quantization_annotation = (
         node.meta[Q_ANNOTATION_KEY] if Q_ANNOTATION_KEY in node.meta else None
@@ -727,7 +657,6 @@ def _maybe_insert_input_and_output_observers_for_node(
         buffer_names,
         is_qat,
         model_device,
-        in_place_writes,
     )
 
     output_is_a_tensor = "val" in node.meta and isinstance(node.meta["val"], FakeTensor)
@@ -766,11 +695,6 @@ def _maybe_insert_input_and_output_observers_for_node(
     for user_node in orig_users:
         if user_node is maybe_output_obs_node:
             continue
-        if (
-            in_place_writes is not None
-            and (node, user_node) in in_place_writes.chain_edges
-        ):
-            continue
         user_node.replace_input_with(node, maybe_output_obs_node)
 
 
@@ -798,7 +722,6 @@ def prepare(
     model_device = _assert_and_get_unique_device(model)
     named_modules = dict(model.named_modules(remove_duplicate=False))
     buffer_names = {name for name, _ in model.named_buffers(remove_duplicate=False)}
-    in_place_writes = _InPlaceWrites(model.graph)
 
     for node in nodes_before_observation:
         # TODO: simplify logic for inserting observers
@@ -810,7 +733,6 @@ def prepare(
             buffer_names,
             is_qat,
             model_device,
-            in_place_writes,
         )
 
     model = GraphModule(model, model.graph)

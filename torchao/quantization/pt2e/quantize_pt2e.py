@@ -22,6 +22,7 @@ from torchao.quantization.pt2e.utils import (
     _fuse_conv_bn_,
     _fuse_linear_bn_,
     _get_node_name_to_scope,
+    _replace_in_place_ops,
     get_arg,
 )
 
@@ -122,6 +123,7 @@ def prepare_pt2e(
     _reject_set_grad_enabled_subgraph(model, "prepare_pt2e")
     original_graph_meta = model.meta
     node_name_to_scope = _get_node_name_to_scope(model)
+    _replace_in_place_ops(model)
     # TODO: check qconfig_mapping to make sure conv and bn are both configured
     # to be quantized before fusion
     # TODO: (maybe) rewrite this with subgraph_rewriter
@@ -227,6 +229,7 @@ def prepare_qat_pt2e(
     _reject_set_grad_enabled_subgraph(model, "prepare_qat_pt2e")
     original_graph_meta = model.meta
     node_name_to_scope = _get_node_name_to_scope(model)
+    _replace_in_place_ops(model)
     model = quantizer.transform_for_annotation(model)
     quantizer.annotate(model)
     quantizer.validate(model)
