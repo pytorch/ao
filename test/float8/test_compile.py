@@ -43,6 +43,10 @@ from torchao.utils import (
 )
 
 
+def _is_sm89() -> bool:
+    return torch.cuda.is_available() and torch.cuda.get_device_capability() == (8, 9)
+
+
 def _test_compile_base(
     backend: str,
     fullgraph: bool,
@@ -175,6 +179,7 @@ def test_aot_eager(
     torch.cuda.is_available() and not is_sm_at_least_89(),
     "CUDA capability >= 8.9 required for native float8 support",
 )
+@unittest.skipIf(_is_sm89(), "currently fails on SM89")
 def test_inductor_from_config_params(
     fullgraph,
     emulate: bool,

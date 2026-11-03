@@ -1339,6 +1339,22 @@ def _maybe_warn_rowwise_fp8_cuda_12_9(
     )
 
 
+def _maybe_warn_rowwise_fp8_mslk(
+    config: Float8DynamicActivationFloat8WeightConfig,
+) -> None:
+    if config.kernel_preference != KernelPreference.MSLK:
+        return
+    if not any(isinstance(g, PerRow) for g in config.granularity):
+        return
+    warnings.warn(
+        "Rowwise fp8 with kernel_preference=KernelPreference.MSLK "
+        "currently fails with `Arch conditional MMA instruction used without "
+        "targeting sm90a compute capability. Aborting.` If you want to keep the "
+        "MSLK activation quantization kernel while using the torch GEMM path, use "
+        "KernelPreference.AUTO instead.",
+    )
+
+
 @register_quantize_module_handler(Float8DynamicActivationFloat8WeightConfig)
 def _float8_dynamic_activation_float8_weight_transform(
     module: torch.nn.Module,
@@ -1347,6 +1363,7 @@ def _float8_dynamic_activation_float8_weight_transform(
     parameter_name: str = "weight",
 ):
     _maybe_warn_rowwise_fp8_cuda_12_9(config)
+    _maybe_warn_rowwise_fp8_mslk(config)
     if torch.cuda.is_available():
         assert is_sm_at_least_89() or is_MI300() or is_MI350(), (
             "Float8 dynamic activation quantization is only supported on CUDA>=8.9 and MI300+"
