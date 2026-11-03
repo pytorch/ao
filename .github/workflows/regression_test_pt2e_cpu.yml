@@ -42,12 +42,20 @@ jobs:
             python-version: "3.11"
             runs-on: mt-l-x86iavx512-16-128
             torch-spec: '--pre torch torchvision --index-url https://download.pytorch.org/whl/nightly/cpu'
-          # Stable release -- validates PT2E against the last PyTorch series
-          # supporting Python 3.10.
-          - name: CPU Stable (<2.15)
+          # Pinned releases -- validate PT2E against the supported stable
+          # PyTorch versions. 2.14 is the last release with Python 3.10 wheels.
+          - name: CPU 2.13
             python-version: "3.10"
             runs-on: mt-l-x86iavx512-16-128
-            torch-spec: '"torch<2.15" torchvision --index-url https://download.pytorch.org/whl/cpu'
+            torch-spec: 'torch==2.13.0 torchvision==0.28.0 --index-url https://download.pytorch.org/whl/cpu'
+          - name: CPU 2.14
+            python-version: "3.10"
+            runs-on: mt-l-x86iavx512-16-128
+            torch-spec: 'torch==2.14.1 torchvision==0.29.1 --index-url https://download.pytorch.org/whl/cpu'
+          - name: CPU 2.15
+            python-version: "3.11"
+            runs-on: mt-l-x86iavx512-16-128
+            torch-spec: 'torch==2.15.0 torchvision==0.29.2 --index-url https://download.pytorch.org/whl/cpu'
 
     permissions:
       id-token: write
@@ -64,10 +72,8 @@ jobs:
         conda activate venv
         python -m pip install --upgrade pip
         pip install ${{ matrix.torch-spec }}
-        python -c "import sys, torch, torchvision; print(sys.version, torch.__version__, torchvision.__version__)"
         pip install -r dev-requirements.txt
         pip install . --no-build-isolation
-        python -c "import sys, torch, torchvision; print(sys.version, torch.__version__, torchvision.__version__)"
         export CONDA=$(dirname $(dirname $(which conda)))
         export LD_LIBRARY_PATH=$CONDA/lib/:$LD_LIBRARY_PATH
         # Bound the worker count: these tests launch Inductor/C++ compilers,

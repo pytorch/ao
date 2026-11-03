@@ -26,15 +26,27 @@ jobs:
           - name: SM-89
             python-version: "3.11"
             runs-on: mt-l-x86aavx2-11-41-l4
-            torch-spec: '--pre torch --index-url https://download.pytorch.org/whl/nightly/cu126'
+            torch-spec: '--pre torch --index-url https://download.pytorch.org/whl/nightly/cu130'
             gpu-arch-type: "cuda"
-            gpu-arch-version: "12.6"
-          - name: SM-89 Stable (<2.15)
+            gpu-arch-version: "13.0"
+          - name: SM-89 2.13
             python-version: "3.10"
             runs-on: mt-l-x86aavx2-11-41-l4
-            torch-spec: '"torch<2.15" --index-url https://download.pytorch.org/whl/cu126'
+            torch-spec: 'torch==2.13.0 --index-url https://download.pytorch.org/whl/cu126'
             gpu-arch-type: "cuda"
             gpu-arch-version: "12.6"
+          - name: SM-89 2.14
+            python-version: "3.10"
+            runs-on: mt-l-x86aavx2-11-41-l4
+            torch-spec: 'torch==2.14.1 --index-url https://download.pytorch.org/whl/cu126'
+            gpu-arch-type: "cuda"
+            gpu-arch-version: "12.6"
+          - name: SM-89 2.15
+            python-version: "3.11"
+            runs-on: mt-l-x86aavx2-11-41-l4
+            torch-spec: 'torch==2.15.0 --index-url https://download.pytorch.org/whl/cu132'
+            gpu-arch-type: "cuda"
+            gpu-arch-version: "13.2"
     permissions:
       id-token: write
       contents: read
