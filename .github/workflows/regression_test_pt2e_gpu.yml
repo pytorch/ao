@@ -43,12 +43,14 @@ jobs:
           # changes early.
           - name: CUDA Nightly
             runs-on: mt-l-x86aavx2-45-167-a10g-4
-            torch-spec: '--pre torch torchvision --index-url https://download.pytorch.org/whl/nightly/cu126'
+            torch-spec: '--pre torch torchvision --index-url https://download.pytorch.org/whl/nightly/cu132'
+            gpu-arch-version: "13.2"
           # Pinned release -- validates PT2E against the currently supported
           # stable PyTorch.
-          - name: CUDA 2.13
+          - name: CUDA 2.15
             runs-on: mt-l-x86aavx2-45-167-a10g-4
-            torch-spec: 'torch==2.13.0 torchvision==0.28.0 --index-url https://download.pytorch.org/whl/cu126'
+            torch-spec: 'torch==2.15.0 torchvision==0.29.2 --index-url https://download.pytorch.org/whl/cu132'
+            gpu-arch-version: "13.2"
 
     permissions:
       id-token: write
@@ -58,10 +60,10 @@ jobs:
       timeout: 120
       runner: ${{ matrix.runs-on }}
       gpu-arch-type: "cuda"
-      gpu-arch-version: "12.6"
+      gpu-arch-version: ${{ matrix.gpu-arch-version }}
       submodules: recursive
       script: |
-        conda create -n venv python=3.10 libgcc-ng=11.2.0 libstdcxx-ng=11.2.0 -y
+        conda create -n venv python=3.11 libgcc-ng=11.2.0 libstdcxx-ng=11.2.0 -y
         conda activate venv
         python -m pip install --upgrade pip
         pip install ${{ matrix.torch-spec }}
@@ -105,7 +107,7 @@ jobs:
       docker-image: ${{ matrix.docker-image }}
       submodules: recursive
       script: |
-        conda create -n venv python=3.10 -y
+        conda create -n venv python=3.11 -y
         conda activate venv
         python -m pip install --upgrade pip
         pip install ${{ matrix.torch-spec }}

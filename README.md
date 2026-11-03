@@ -78,8 +78,8 @@ Check out our [docs](https://docs.pytorch.org/ao/main/) for more details!
 First, install TorchAO. We recommend installing the latest stable version:
 ```bash
 pip install torchao
-# optional - install MSLK for float8 and nvfp4 inference kernels
-pip install mslk --index-url https://download.pytorch.org/whl/cu130
+# optional - install the pinned MSLK build for float8 and nvfp4 inference kernels
+pip install mslk==2026.9.9+cu132 --index-url https://download.pytorch.org/whl/nightly/cu132
 # optional - install apache-tvm-ffi and cutedsl for mxfp8 MoE training kernels
 pip install apache-tvm-ffi
 pip install nvidia-cutlass-dsl==4.5.2 nvidia-cutlass-dsl-libs-base==4.5.2 nvidia-cutlass-dsl-libs-cu13==4.5.2
@@ -126,13 +126,9 @@ Please see the [torchao compability table](https://github.com/pytorch/ao/issues/
 
 ### Optional Dependencies
 
-[MSLK](https://github.com/meta-pytorch/mslk) is an optional runtime dependency that provides accelerated kernels for some of the workflows in torchao. Stable MSLK should be used with stable torchao, and nightly MSLK with nightly torchao.
+[MSLK](https://github.com/meta-pytorch/mslk) is an optional runtime dependency that provides accelerated kernels for some of the workflows in torchao. For the current torch 2.15 release line, use the pinned MSLK nightly below.
 ```bash
-# Stable
-pip install mslk --index-url https://download.pytorch.org/whl/cu130
-
-# Nightly
-pip install --pre mslk --index-url https://download.pytorch.org/whl/nightly/cu130
+pip install mslk==2026.9.9+cu132 --index-url https://download.pytorch.org/whl/nightly/cu132
 ```
 
 `apache-tvm-ffi` and `nvidia-cutlass-dsl` are used for MoE mxfp8 training kernels.

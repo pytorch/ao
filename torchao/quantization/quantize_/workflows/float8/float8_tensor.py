@@ -364,13 +364,6 @@ def _float8_addmm_impl(
 
         if weight_tensor.kernel_preference == KernelPreference.AUTO:
             kernel_choice = "torch"
-            if (
-                _is_mslk_available()
-                and is_sm_at_least_90()
-                and (not _is_128_128_scaled(weight_tensor))
-                and not _is_tensorwise_scaled(weight_tensor)
-            ):
-                kernel_choice = "mslk"
         elif weight_tensor.kernel_preference == KernelPreference.MSLK:
             kernel_choice = "mslk"
         else:

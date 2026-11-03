@@ -265,6 +265,9 @@ class PythonQuantUtilOpUnitTest(unittest.TestCase):
         torch.testing.assert_close(y_ref, y_opt, atol=0, rtol=0)
 
     @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
+    @unittest.skip(
+        "_int_mm is not actively maintained, and this test fails on cuda 13.2"
+    )
     def test__int_mm_eager_and_torch_compile_numerics(self):
         def __int_mm_ref(x, w):
             x = x.cpu().to(torch.int32)
