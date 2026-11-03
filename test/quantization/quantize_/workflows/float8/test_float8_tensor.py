@@ -47,6 +47,12 @@ _MSLK_HOPPER_SKIP_REASON = (
     'capability. Aborting."'
 )
 
+_MSLK_BMM_SKIP_REASON = (
+    "Rowwise fp8 bmm currently fails with MSLK: "
+    '"Arch conditional MMA instruction used without targeting sm90a compute '
+    'capability. Aborting."'
+)
+
 
 def _is_hopper() -> bool:
     return (
@@ -940,6 +946,7 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
         torch.cuda.is_available() and not is_sm_at_least_90(), "Need sm90+"
     )
     @unittest.skipIf(not _is_mslk_available(), "Need mslk")
+    @unittest.skip(_MSLK_BMM_SKIP_REASON)
     def test_bmm(self):
         # only support per row quantization
         config = Float8DynamicActivationFloat8WeightConfig(granularity=PerRow())
@@ -970,6 +977,7 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
         torch.cuda.is_available() and not is_sm_at_least_90(), "Need sm90+"
     )
     @unittest.skipIf(not _is_mslk_available(), "Need mslk")
+    @unittest.skip(_MSLK_BMM_SKIP_REASON)
     def test_bmm_weight_in_bkn_layout(self):
         # Tests rowwise quantization of a 3d weight stored with shape (B, K, N)
         # and contigous with that shape. Since the `K` dimension is not last, we

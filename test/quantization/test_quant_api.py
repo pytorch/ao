@@ -51,8 +51,8 @@ from torchao.quantization.quant_api import (
     _maybe_warn_rowwise_fp8_mslk,
     _replace_with_custom_fn_if_matches_filter,
 )
-from torchao.quantization.quantize_.common import KernelPreference
 from torchao.quantization.quant_primitives import MappingType
+from torchao.quantization.quantize_.common import KernelPreference
 from torchao.quantization.utils import compute_error
 from torchao.testing.pt2e._xnnpack_quantizer import (
     XNNPACKQuantizer,
