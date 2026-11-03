@@ -293,7 +293,7 @@ def _linear_xpu(
     orig_dtype = act_mat.dtype
 
     # reshape to 2D
-    act_mat = act_mat.reshape(-1, act_mat.shape[-1])
+    act_mat = act_mat.reshape(-1, act_mat.shape[-1]).contiguous()
 
     # groupwise int4 quantization
     groupsize = weight_tensor.block_size[1]
