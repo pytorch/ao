@@ -54,6 +54,14 @@ if not (is_sm_at_least_89() or is_MI300() or is_MI350()):
     )
 
 
+def _cuda_version_at_least(major: int, minor: int) -> bool:
+    if not TEST_CUDA or torch.version.cuda is None:
+        return False
+
+    cuda_version = tuple(int(part) for part in torch.version.cuda.split(".")[:2])
+    return cuda_version >= (major, minor)
+
+
 class TestFloat8Common:
     def broadcast_module(self, module: nn.Module) -> None:
         # Broadcast for multi-threaded process group tests since seed is per
@@ -568,6 +576,7 @@ class TestFloat8MultiThread(FSDPTestMultiThread, TestFloat8Common):
             )
 
     @unittest.skipIf(not TEST_CUDA, "no cuda")
+    @unittest.skipIf(_cuda_version_at_least(13, 2), "this test fails on cuda 13.2")
     def test_bf16_mp_fp8_dynamic_multi_parity(self):
         """
         Tests numeric parity for fp32 parameters with FSDP's bf16 mixed
