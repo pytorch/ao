@@ -41,6 +41,20 @@ from torchao.utils import (
 # Needed since changing args to function causes recompiles
 torch._dynamo.config.cache_size_limit = 128
 
+_MSLK_HOPPER_SKIP_REASON = (
+    "KernelPreference.MSLK rowwise fp8 GEMM currently fails on Hopper with "
+    '"Arch conditional MMA instruction used without targeting sm90a compute '
+    'capability. Aborting."'
+)
+
+
+def _is_hopper() -> bool:
+    return (
+        torch.cuda.is_available()
+        and is_sm_at_least_90()
+        and not is_sm_at_least_100()
+    )
+
 
 class ToyLinearModel(torch.nn.Module):
     def __init__(self, in_features, out_features, bias):
@@ -360,10 +374,18 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
         if kernel_preference == KernelPreference.MSLK and isinstance(
             granularity, PerTensor
         ):
-            return unittest.skip(
+            self.skipTest(
                 "tensorwise-scaled MSLK gemm (torch.ops.mslk.f8f8bf16) is no longer "
                 "supported, use KernelPreference.TORCH instead"
             )
+
+        if (
+            kernel_preference == KernelPreference.MSLK
+            and _is_hopper()
+            and isinstance(granularity, PerRow)
+            and mode == "dynamic"
+        ):
+            self.skipTest(_MSLK_HOPPER_SKIP_REASON)
 
         error_context = (
             self.assertRaisesRegex(AssertionError, error_message)
@@ -868,6 +890,7 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
             _is_mslk_available()
             and torch.cuda.is_available()
             and is_sm_at_least_90()
+            and not _is_hopper()
             and not isinstance(granularity, PerTensor)
         ):
             other_kernel_preferences.append(KernelPreference.MSLK)
@@ -1095,6 +1118,9 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
         """Making sure KernelPreference.MSLK calls correct quantize and gemm kernels
         and the bias add happens in the gemm kernel for per row quantization
         """
+        if _is_hopper():
+            self.skipTest(_MSLK_HOPPER_SKIP_REASON)
+
         torch.compiler.reset()
 
         M, K, N = 128, 256, 512

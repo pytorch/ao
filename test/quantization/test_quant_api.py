@@ -10,6 +10,7 @@ import copy
 import gc
 import tempfile
 import unittest
+import warnings
 
 import torch
 from torch.testing._internal import common_utils
@@ -47,8 +48,10 @@ from torchao.quantization.quant_api import (
     ModuleFqnToConfig,
     PerRow,
     PerTensor,
+    _maybe_warn_rowwise_fp8_mslk,
     _replace_with_custom_fn_if_matches_filter,
 )
+from torchao.quantization.quantize_.common import KernelPreference
 from torchao.quantization.quant_primitives import MappingType
 from torchao.quantization.utils import compute_error
 from torchao.testing.pt2e._xnnpack_quantizer import (
@@ -157,6 +160,24 @@ class TestQuantFlow(TestCase):
     GPU_DEVICES = (["cuda"] if torch.cuda.is_available() else []) + (
         ["xpu"] if torch.xpu.is_available() else []
     )
+
+    def test_warn_rowwise_fp8_mslk(self):
+        config = Float8DynamicActivationFloat8WeightConfig(
+            granularity=PerRow(),
+            kernel_preference=KernelPreference.MSLK,
+        )
+
+        with warnings.catch_warnings(record=True) as caught_warnings:
+            warnings.simplefilter("always")
+            _maybe_warn_rowwise_fp8_mslk(config)
+
+        self.assertTrue(
+            any(
+                "Arch conditional MMA instruction used without targeting sm90a compute capability. Aborting."
+                in str(w.message)
+                for w in caught_warnings
+            )
+        )
 
     def setUp(self):
         super().setUp()
