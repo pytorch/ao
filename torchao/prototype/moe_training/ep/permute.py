@@ -303,15 +303,16 @@ def _triton_permute_bwd_kernel(
     row_offsets = row_pid * BLOCK_ROWS + tl.arange(0, BLOCK_ROWS)
     col_offsets = col_pid * BLOCK_COLS + tl.arange(0, BLOCK_COLS)
 
+    # int64 so `row * cols` does not overflow once rows * cols >= 2**31.
     dest_rows = tl.load(
         permuted_indices_ptr + row_offsets,
         mask=row_offsets < grad_rows,
         other=PADDING_VALUE,
-    )
+    ).to(tl.int64)
 
     read_mask = (row_offsets[:, None] < grad_rows) & (col_offsets[None, :] < grad_cols)
     grad_values = tl.load(
-        grad_ptr + row_offsets[:, None] * grad_cols + col_offsets[None, :],
+        grad_ptr + row_offsets[:, None].to(tl.int64) * grad_cols + col_offsets[None, :],
         mask=read_mask,
         other=PADDING_VALUE,
     )
