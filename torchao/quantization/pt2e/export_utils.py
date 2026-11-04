@@ -4,8 +4,8 @@
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
 
-# mypy: allow-untyped-defs
 import types
+from typing import Any, Callable
 
 import torch
 import torch.nn.functional as F
@@ -24,18 +24,17 @@ class WrapperModule(torch.nn.Module):
     are trying to export a callable.
     """
 
-    def __init__(self, fn):
+    def __init__(self, fn: Callable[..., Any]) -> None:
         super().__init__()
         self.fn = fn
 
-    def forward(self, *args, **kwargs):
+    def forward(self, *args: Any, **kwargs: Any) -> Any:
         """Simple forward that just calls the ``fn`` provided to :meth:`WrapperModule.__init__`."""
         return self.fn(*args, **kwargs)
 
 
 def model_is_exported(m: torch.nn.Module) -> bool:
-    """
-    Return True if the `torch.nn.Module` was exported, False otherwise
+    """Return True if the `torch.nn.Module` was exported, False otherwise
     (e.g. if the model was FX symbolically traced or not traced at all).
     """
     return isinstance(m, torch.fx.GraphModule) and any(
@@ -43,9 +42,8 @@ def model_is_exported(m: torch.nn.Module) -> bool:
     )
 
 
-def _replace_dropout(m: torch.fx.GraphModule, train_to_eval: bool):
-    """
-    Switch dropout patterns in the model between train and eval modes.
+def _replace_dropout(m: torch.fx.GraphModule, train_to_eval: bool) -> None:
+    """Switch dropout patterns in the model between train and eval modes.
 
     Dropout has different behavior in train vs eval mode. For exported models,
     however, calling `model.train()` or `model.eval()` does not automatically switch
@@ -63,10 +61,10 @@ def _replace_dropout(m: torch.fx.GraphModule, train_to_eval: bool):
 
     for inplace in [False, True]:
 
-        def dropout_train(x):
+        def dropout_train(x: torch.Tensor) -> torch.Tensor:
             return F.dropout(x, p=0.5, training=True, inplace=inplace)
 
-        def dropout_eval(x):
+        def dropout_eval(x: torch.Tensor) -> torch.Tensor:
             return F.dropout(x, p=0.5, training=False, inplace=inplace)
 
         example_inputs = (torch.randn(1),)
@@ -101,9 +99,8 @@ def _replace_dropout(m: torch.fx.GraphModule, train_to_eval: bool):
         m.recompile()
 
 
-def _replace_batchnorm(m: torch.fx.GraphModule, train_to_eval: bool):
-    """
-    Switch batchnorm patterns in the model between train and eval modes.
+def _replace_batchnorm(m: torch.fx.GraphModule, train_to_eval: bool) -> None:
+    """Switch batchnorm patterns in the model between train and eval modes.
 
     Batchnorm has different behavior in train vs eval mode. For exported models,
     however, calling `model.train()` or `model.eval()` does not automatically switch
@@ -126,7 +123,7 @@ def _replace_batchnorm(m: torch.fx.GraphModule, train_to_eval: bool):
         bn_bias: torch.Tensor,
         bn_running_mean: torch.Tensor,
         bn_running_var: torch.Tensor,
-    ):
+    ) -> torch.Tensor:
         return F.batch_norm(
             x, bn_running_mean, bn_running_var, bn_weight, bn_bias, training=True
         )
@@ -137,7 +134,7 @@ def _replace_batchnorm(m: torch.fx.GraphModule, train_to_eval: bool):
         bn_bias: torch.Tensor,
         bn_running_mean: torch.Tensor,
         bn_running_var: torch.Tensor,
-    ):
+    ) -> torch.Tensor:
         return F.batch_norm(
             x, bn_running_mean, bn_running_var, bn_weight, bn_bias, training=False
         )
@@ -183,9 +180,8 @@ def _replace_batchnorm(m: torch.fx.GraphModule, train_to_eval: bool):
 
 
 # TODO: expose these under this namespace?
-def _move_exported_model_to_eval(model: torch.fx.GraphModule):
-    """
-    Move an exported GraphModule to eval mode.
+def _move_exported_model_to_eval(model: torch.fx.GraphModule) -> torch.fx.GraphModule:
+    """Move an exported GraphModule to eval mode.
 
     This is equivalent to model.eval() but only for certain special ops like dropout, batchnorm.
     QAT users should call this before performing inference on the model.
@@ -201,9 +197,10 @@ def _move_exported_model_to_eval(model: torch.fx.GraphModule):
     return model
 
 
-def _move_exported_model_to_train(model: torch.fx.GraphModule):
-    """
-    Move an exported GraphModule to train mode.
+def _move_exported_model_to_train(
+    model: torch.fx.GraphModule,
+) -> torch.fx.GraphModule:
+    """Move an exported GraphModule to train mode.
 
     This is equivalent to model.train() but only for certain special ops like dropout, batchnorm.
     QAT users should call this before performing training on the model.
@@ -219,9 +216,10 @@ def _move_exported_model_to_train(model: torch.fx.GraphModule):
     return model
 
 
-def _allow_exported_model_train_eval(model: torch.fx.GraphModule):
-    """
-    Allow users to call `model.train()` and `model.eval()` on an exported model,
+def _allow_exported_model_train_eval(
+    model: torch.fx.GraphModule,
+) -> torch.fx.GraphModule:
+    """Allow users to call `model.train()` and `model.eval()` on an exported model,
     but with the effect of changing behavior between the two modes limited to special
     ops only, which are currently dropout and batchnorm.
 
@@ -232,15 +230,16 @@ def _allow_exported_model_train_eval(model: torch.fx.GraphModule):
     that have different train/eval behavior will also not be converted properly.
     """
 
-    def _train(self, mode: bool = True):
+    def _train(self: torch.fx.GraphModule, mode: bool = True) -> None:
         if mode:
             _move_exported_model_to_train(self)
         else:
             _move_exported_model_to_eval(self)
 
-    def _eval(self):
+    def _eval(self: torch.fx.GraphModule) -> None:
         _move_exported_model_to_eval(self)
 
     model.train = types.MethodType(_train, model)  # type: ignore[method-assign]
     model.eval = types.MethodType(_eval, model)  # type: ignore[method-assign]
     return model
+
