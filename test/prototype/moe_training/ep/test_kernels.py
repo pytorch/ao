@@ -6,6 +6,7 @@
 
 import pytest
 import torch
+import triton
 
 from torchao.utils import is_cuda_version_at_least, is_sm_at_least_100
 
@@ -17,7 +18,10 @@ if not (
     pytest.skip("Test requires CUDA 12.8+ with SM >= 100", allow_module_level=True)
 
 from torchao.prototype.moe_training.ep.kernels import generate_permute_indices
-from torchao.prototype.moe_training.ep.permute import _triton_permute_bwd
+from torchao.prototype.moe_training.ep.permute import (
+    _triton_permute_bwd,
+    _triton_permute_bwd_kernel,
+)
 
 
 @pytest.mark.parametrize(
@@ -102,3 +106,63 @@ def test_triton_permute_bwd(
         atol=0,
         msg="Triton permute backward kernel output does not match PyTorch reference",
     )
+
+
+def test_triton_permute_bwd_non_contiguous_inputs():
+    """The backward op must handle a non-contiguous gradient and index tensor."""
+    device = "cuda"
+    rows, cols = 300, 384
+    idx = torch.randperm(rows, device=device, dtype=torch.int32)
+    idx = torch.cat([idx, torch.full((20,), -1, device=device, dtype=torch.int32)])
+    grad = torch.randn(cols, idx.numel(), device=device, dtype=torch.bfloat16).t()
+    # Every other element of a twice-as-long tensor: same values, stride 2.
+    idx_strided = torch.stack([idx, torch.zeros_like(idx)], dim=1)[:, 0]
+    assert not grad.is_contiguous() and not idx_strided.is_contiguous()
+
+    ref = _triton_permute_bwd(grad.contiguous(), idx, rows, cols)
+    assert torch.equal(_triton_permute_bwd(grad, idx, rows, cols), ref)
+    assert torch.equal(
+        _triton_permute_bwd(grad.contiguous(), idx_strided, rows, cols), ref
+    )
+
+
+def test_triton_permute_bwd_kernel_out_of_range_indices():
+    """Indices outside [0, rows) are skipped like the -1 padding value.
+
+    generate_permute_indices never emits them, but a bad index must not write
+    outside the output. The kernel writes into rows [guard, guard + rows) of a
+    larger buffer, so a stray write lands in the guard rows and is detected.
+    """
+    device = "cuda"
+    rows, cols, guard = 64, 256, 8
+    idx = [0, 5, rows, rows + 3, -1, -2, -7, 63]
+    idx = torch.tensor(idx, device=device, dtype=torch.int32)
+    grad = torch.randn(idx.numel(), cols, device=device, dtype=torch.bfloat16)
+
+    sentinel = 7.0
+    buf = torch.full(
+        (guard + rows + guard, cols), sentinel, device=device, dtype=torch.bfloat16
+    )
+    out = buf[guard : guard + rows]
+    out.zero_()
+    block_rows, block_cols = 256, 256
+    grid = (triton.cdiv(idx.numel(), block_rows), triton.cdiv(cols, block_cols))
+    _triton_permute_bwd_kernel[grid](
+        grad,
+        idx,
+        out,
+        idx.numel(),
+        cols,
+        rows,
+        cols,
+        BLOCK_ROWS=block_rows,
+        BLOCK_COLS=block_cols,
+        PADDING_VALUE=-1,
+    )
+
+    assert (buf[:guard] == sentinel).all(), "wrote before the output"
+    assert (buf[guard + rows :] == sentinel).all(), "wrote past the output"
+    valid = (idx >= 0) & (idx < rows)
+    expected = torch.zeros_like(out)
+    expected[idx[valid].long()] = grad[valid]
+    assert torch.equal(out, expected)
