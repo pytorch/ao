@@ -15,17 +15,59 @@ env:
   HF_TOKEN: ${{ secrets.HF_TOKEN }}
 
 jobs:
+  # Drive ROCm/Python from pytorch/test-infra's nightly binary matrix so version
+  # bumps do not require hardcoding here.
+  generate-matrix:
+    uses: pytorch/test-infra/.github/workflows/generate_binary_build_matrix.yml@main
+    with:
+      package-type: wheel
+      channel: nightly
+      os: linux
+      test-infra-repository: pytorch/test-infra
+      test-infra-ref: main
+      with-cpu: disable
+      with-xpu: disable
+      with-cuda: disable
+      with-rocm: enable
+      build-python-only: "disable"
+
+  filter-matrix:
+    needs: generate-matrix
+    runs-on: ubuntu-latest
+    outputs:
+      test-matrix: ${{ steps.filter.outputs.test-matrix }}
+    steps:
+      - id: filter
+        run: |
+          set -euo pipefail
+          # One Python (first in matrix) x each unique ROCm version.
+          test_matrix=$(echo '${{ needs.generate-matrix.outputs.matrix }}' | jq -c '
+            (.include | map(.python_version) | unique | .[0]) as $py
+            | {include: [
+                .include[]
+                | select(.python_version == $py)
+                | {
+                    "name": ("ROCM " + .gpu_arch_version),
+                    "python-version": .python_version,
+                    "rocm-version": .gpu_arch_version,
+                    "runs-on": "linux.rocm.gpu.ecosystem.mi350.1",
+                    "gpu-arch-type": "rocm",
+                    "gpu-arch-version": .gpu_arch_version,
+                    "docker-image": ("pytorch/manylinux2_28-builder:rocm" + .gpu_arch_version),
+                    "torch-spec": ("--pre torchvision torch --index-url https://download.pytorch.org/whl/nightly/rocm" + .gpu_arch_version)
+                  }
+              ] | unique_by(."rocm-version")}
+          ')
+          echo "test-matrix=$test_matrix" >> "$GITHUB_OUTPUT"
+          echo "::group::ROCm test matrix"
+          echo "$test_matrix" | jq .
+          echo "::endgroup::"
+
   test-nightly:
+    needs: filter-matrix
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - name: ROCM Nightly
-            runs-on: linux.rocm.gpu.ecosystem.mi350.1
-            torch-spec: '--pre torchvision torch --index-url https://download.pytorch.org/whl/nightly/rocm10.0'
-            gpu-arch-type: "rocm"
-            gpu-arch-version: "10.0"
-            docker-image: pytorch/manylinux2_28-builder:rocm10.0
+      matrix: ${{ fromJson(needs.filter-matrix.outputs.test-matrix) }}
 
     permissions:
       id-token: write
@@ -40,7 +82,7 @@ jobs:
       docker-image: ${{ matrix.docker-image }}
       submodules: recursive
       script: |
-        conda create -n venv python=3.10 -y
+        conda create -n venv python=${{ matrix.python-version }} -y
         conda activate venv
         python -m pip install --upgrade pip
         pip install ${{ matrix.torch-spec }}
