@@ -21,9 +21,9 @@ jobs:
         include:
           - name: CUDA Nightly
             runs-on: mt-l-x86aavx2-45-167-a10g-4
-            torch-spec: '--pre torch --index-url https://download.pytorch.org/whl/nightly/cu126'
+            torch-spec: '--pre torch --index-url https://download.pytorch.org/whl/nightly/cu132'
             gpu-arch-type: "cuda"
-            gpu-arch-version: "12.6"
+            gpu-arch-version: "13.2"
 
     permissions:
       id-token: write
