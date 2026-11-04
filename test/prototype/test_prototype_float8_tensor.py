@@ -29,32 +29,15 @@ from torchao.quantization import (
 from torchao.quantization.granularity import PerRow, PerTensor
 from torchao.quantization.quantize_.common import IsStaticQuantizationConfig
 from torchao.quantization.utils import compute_error
-from torchao.testing.model_architectures import ToySingleLinearModel, ToyTwoLinearModel
+from torchao.testing.model_architectures import (
+    ToyConvModel,
+    ToySingleLinearModel,
+    ToyTwoLinearModel,
+)
 from torchao.testing.utils import TorchAOIntegrationTestCase
 from torchao.utils import (
     is_sm_at_least_90,
 )
-
-
-# copied from test/quantization/quantize_/workflows/float8/test_float8_tensor.py
-class ToyConvModel(torch.nn.Module):
-    def __init__(
-        self, dim, in_channels, out_channels, kernel_size, bias, padding, dtype, device
-    ):
-        super().__init__()
-        convs = {1: torch.nn.Conv1d, 2: torch.nn.Conv2d, 3: torch.nn.Conv3d}
-        self.conv = convs[dim](
-            in_channels,
-            out_channels,
-            kernel_size,
-            bias=bias,
-            padding=padding,
-            dtype=dtype,
-            device=device,
-        )
-
-    def forward(self, x):
-        return self.conv(x)
 
 
 class ToyLinearSoftmaxModel(torch.nn.Module):
