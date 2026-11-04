@@ -14,17 +14,17 @@ import triton.language as tl
 from torch.library import wrap_triton
 
 from torchao.float8.config import e4m3_dtype
-from torchao.prototype.blockwise_fp8_training.deepgemm_metadata import (
-    DeepGemmKGroupedQuantMetadata,
-    build_deepgemm_k_grouped_quant_metadata,
-)
-from torchao.prototype.blockwise_fp8_training.deepgemm_metadata import (
-    group_sizes_from_offsets as _group_sizes_from_offsets,
-)
 from torchao.prototype.blockwise_fp8_training.kernels import (
     EPS,
     FP8_E4M3_DTYPES,
     quant_kernel_configs_with_groups,
+)
+from torchao.prototype.moe_training.kernels.fp8_blockwise.deepgemm_metadata import (
+    DeepGemmKGroupedQuantMetadata,
+    build_deepgemm_k_grouped_quant_metadata,
+)
+from torchao.prototype.moe_training.kernels.fp8_blockwise.deepgemm_metadata import (
+    group_sizes_from_offsets as _group_sizes_from_offsets,
 )
 
 
