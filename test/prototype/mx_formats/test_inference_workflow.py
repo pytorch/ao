@@ -59,10 +59,7 @@ def cuda_kernel_profiler(kernel_pattern):
     result["found"] = any(kernel_pattern in name for name in kernel_names)
 
 
-@pytest.mark.skipif(
-    not torch.accelerator.is_available(),
-    reason="CUDA or XPU not available",
-)
+@pytest.mark.parametrize("device", ["cpu", "cuda", "xpu"])
 @pytest.mark.parametrize("elem_dtype", [torch.float8_e4m3fn, torch.float4_e2m1fn_x2])
 @pytest.mark.parametrize("bias", [True, False])
 @pytest.mark.parametrize("compile", [True, False])
@@ -71,10 +68,8 @@ def cuda_kernel_profiler(kernel_pattern):
 @pytest.mark.parametrize("x_rank", [2, 3])
 @pytest.mark.parametrize("k", [64, 128, 256])
 @torch.no_grad()
-@skip_if_rocm(
-    "ROCm float4 gemm require gfx950"
-)  # TODO(future): deploy gfx950 in ROCM CI
 def test_inference_workflow_mx(
+    device,
     elem_dtype,
     bias: bool,
     compile: bool,
@@ -86,7 +81,10 @@ def test_inference_workflow_mx(
     """
     Smoke test for inference compile
     """
-    device = torch.accelerator.current_accelerator().type
+    if device != "cpu" and not getattr(torch, device).is_available():
+        pytest.skip(f"{device} not available")
+    if device == "cuda" and is_ROCM():
+        pytest.skip("ROCm float4 gemm require gfx950")
     # TODO(future): figure out why these CUDA capability conditions are not properly
     # applied when inside `pytest.mark.skipif` for this test
     if elem_dtype in (torch.float8_e4m3fn, torch.float8_e5m2) and device == "cuda":
@@ -108,15 +106,21 @@ def test_inference_workflow_mx(
         kernel_choice = KernelPreference.EMULATED
     else:
         kernel_choice = KernelPreference.AUTO
+    swizzle = SwizzleType.NO_SWIZZLE if device == "xpu" else None
     config = MXDynamicActivationMXWeightConfig(
         activation_dtype=elem_dtype,
         weight_dtype=elem_dtype,
         kernel_preference=kernel_choice,
-        swizzled_type=SwizzleType.SWIZZLE_32_4_4
-        if device == "cuda" and not is_ROCM()
-        else SwizzleType.NO_SWIZZLE,
+        swizzled_type=swizzle,
     )
     quantize_(m_mx, config=config)
+    expected_swizzle = device == "cuda"
+    if (
+        m_mx.weight.is_swizzled_scales != expected_swizzle
+        or m_mx.weight.act_quant_kwargs.is_swizzled_scales != expected_swizzle
+        or config.swizzled_type != swizzle
+    ):
+        raise AssertionError("Unexpected swizzle layout or modified configuration")
     if compile:
         m_mx = torch.compile(m_mx, fullgraph=True)
 
