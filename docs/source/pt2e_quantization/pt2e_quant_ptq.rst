@@ -468,7 +468,7 @@ we offer in the long term might change based on feedback from PyTorch users.
       return out_int8
 
 
-See `here <https://github.com/pytorch/pytorch/blob/main/torch/ao/quantization/pt2e/representation/rewrite.py>`_ for the most up-to-date reference representations.
+See `here <https://github.com/pytorch/ao/blob/main/torchao/quantization/pt2e/reference_representation_rewrite.py>`_ for the most up-to-date reference representations.
 
 
 Checking Model Size and Accuracy Evaluation
@@ -564,7 +564,7 @@ Output:
 Debugging the Quantized Model
 ------------------------------
 
-You can use `Numeric Suite <https://pytorch.org/docs/stable/quantization-accuracy-debugging.html#numerical-debugging-tooling-prototype>`_
+You can use `Numeric Suite <https://docs.pytorch.org/docs/2.8/quantization-accuracy-debugging.html#numerical-debugging-tooling-prototype>`_
 that can help with debugging in eager mode and FX graph mode. The new version of
 Numeric Suite working with PyTorch 2 Export models is still in development.
 
