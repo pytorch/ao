@@ -151,17 +151,22 @@ def _(func, types, args, kwargs):
 
 # Build the list of c10d operations to implement
 _optim_state_fp8_c10d_ops = [
-    # required by DTensor.full_tensor()
-    c10d_functional.all_gather_into_tensor.default,
-    _c10d_functional.all_gather_into_tensor.default,
-    c10d_functional.wait_tensor.default,
-    _c10d_functional.wait_tensor.default,
     # required by torch.distributed.checkpoint.save
     aten.detach.default,
 ]
-# _wrap_tensor_autograd was added in PyTorch 2.11.0.dev
-if torch_version_at_least("2.11.0.dev"):
-    _optim_state_fp8_c10d_ops.append(_c10d_functional._wrap_tensor_autograd.default)
+# the c10d collectives below do not exist when torch is built with
+# USE_DISTRIBUTED=0, and nothing can call them in that case
+if torch.distributed.is_available():
+    _optim_state_fp8_c10d_ops += [
+        # required by DTensor.full_tensor()
+        c10d_functional.all_gather_into_tensor.default,
+        _c10d_functional.all_gather_into_tensor.default,
+        c10d_functional.wait_tensor.default,
+        _c10d_functional.wait_tensor.default,
+    ]
+    # _wrap_tensor_autograd was added in PyTorch 2.11.0.dev
+    if torch_version_at_least("2.11.0.dev"):
+        _optim_state_fp8_c10d_ops.append(_c10d_functional._wrap_tensor_autograd.default)
 
 
 @OptimStateFp8.implements(_optim_state_fp8_c10d_ops)
