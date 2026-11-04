@@ -45,6 +45,9 @@ jobs:
         python -m pip install --upgrade pip
         pip install ${{ matrix.torch-spec }}
         pip install -r dev-requirements.txt
+        # FlyDSL backs the MXFP8 quantize kernels in prototype/moe_training; without
+        # it every FlyDSL test skips. Same pin as PyTorch's own ROCm CI.
+        pip install --only-binary=:all: flydsl==0.3.4.1
         # Editable install so build_ext --inplace drops the compiled extensions
         # (e.g. the hipified torchao/_C*.so providing torchao::swizzle_mm) into the
         # in-tree torchao/ dir. pytest is run from the repo root and, because test/ is

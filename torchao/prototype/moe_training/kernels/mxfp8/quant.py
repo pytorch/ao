@@ -1753,7 +1753,7 @@ def _raise_if_flydsl_unavailable(opname: str) -> None:
     if missing:
         raise NotImplementedError(
             f"{opname} requires FlyDSL — missing package(s): {', '.join(missing)}. "
-            "Build FlyDSL and add its python_packages dir to PYTHONPATH."
+            "Install it with `pip install 'flydsl>=0.3.4'`."
         )
     raise NotImplementedError(
         f"{opname} requires an AMD GPU (MI300 or MI350) with the FlyDSL runtime."
