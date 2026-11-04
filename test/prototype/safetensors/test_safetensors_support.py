@@ -163,6 +163,64 @@ class TestSafeTensors(TestCase):
                     assert key in leftover_tensor_data_dict
 
 
+class TestSafeTensorsRootParameters(TestCase):
+    @parametrize("depth", [0, 1, 2])
+    @parametrize("quantized", [False, True])
+    def test_root_and_nested_parameters_round_trip(self, depth, quantized):
+        model = torch.nn.Linear(32, 16)
+        for _ in range(depth):
+            model = torch.nn.Sequential(model)
+        if quantized:
+            quantize_(model, Int8WeightOnlyConfig(version=2))
+        inputs = torch.randn(2, 32)
+        expected = model(inputs)
+        state_dict = model.state_dict()
+        tensors_data, metadata = flatten_tensor_state_dict(state_dict)
+        prefix = "0." * depth
+        if quantized:
+            self.assertIn(f"{prefix}_weight_qdata", tensors_data)
+        self.assertIn(f"{prefix}bias", tensors_data)
+
+        with tempfile.TemporaryDirectory() as directory:
+            path = f"{directory}/model.safetensors"
+            save_file(tensors_data, path, metadata=metadata)
+            loaded_tensors, loaded_metadata = load_data(path, "cpu")
+            restored, leftover = unflatten_tensor_state_dict(
+                loaded_tensors, loaded_metadata
+            )
+
+        self.assertFalse(leftover)
+        self.assertEqual(set(restored), set(state_dict))
+        restored_model = torch.nn.Linear(32, 16)
+        for _ in range(depth):
+            restored_model = torch.nn.Sequential(restored_model)
+        restored_model.load_state_dict(restored, assign=True)
+        self.assertEqual(restored_model(inputs), expected)
+        self.assertEqual(
+            type(restored[f"{prefix}weight"]), type(state_dict[f"{prefix}weight"])
+        )
+
+    @parametrize("depth", [0, 1])
+    def test_partial_quantized_state_waits_for_remaining_data(self, depth):
+        model = torch.nn.Linear(32, 16)
+        for _ in range(depth):
+            model = torch.nn.Sequential(model)
+        quantize_(model, Int8WeightOnlyConfig(version=2))
+        tensors_data, metadata = flatten_tensor_state_dict(model.state_dict())
+        prefix = "0." * depth
+        qdata = tensors_data.pop(f"{prefix}_weight_qdata")
+
+        restored, leftover = unflatten_tensor_state_dict(tensors_data, metadata)
+        self.assertEqual(set(restored), {f"{prefix}bias"})
+        self.assertEqual(set(leftover), set(tensors_data) - {f"{prefix}bias"})
+        remaining = {**leftover, f"{prefix}_weight_qdata": qdata}
+        restored_weight, leftover = unflatten_tensor_state_dict(remaining, metadata)
+        self.assertEqual(set(restored_weight), {f"{prefix}weight"})
+        self.assertFalse(leftover)
+        self.assertEqual(restored_weight[f"{prefix}weight"].qdata, qdata)
+
+
+instantiate_parametrized_tests(TestSafeTensorsRootParameters)
 instantiate_parametrized_tests(TestSafeTensors)
 
 if __name__ == "__main__":
