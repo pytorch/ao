@@ -211,6 +211,10 @@ class Int8Tensor(TorchAOBaseTensor):
             )
         else:
             # Scale can be provided in the case of static quant
+            if scale.ndim != hp_tensor.ndim and scale.numel() == 1:
+                scale = scale.reshape([1] * hp_tensor.ndim)
+                if zero_point is not None and zero_point.numel() == 1:
+                    zero_point = zero_point.reshape([1] * hp_tensor.ndim)
             assert scale.ndim == hp_tensor.ndim
             assert all(
                 (hp_tensor.shape[i] // block_size[i]) == scale.shape[i]
