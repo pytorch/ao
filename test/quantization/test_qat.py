@@ -3368,21 +3368,33 @@ class TestQAT(TestCase):
                 weight_config=None,
             )
 
-        # activation_config=None is allowed (weight-only QAT); its behavior is
-        # covered by the test_mx_weight_only_* tests below
+        # activation_config=None is allowed (weight-only QAT)
+        mx_linear = MXFakeQuantizedLinear(
+            256,
+            128,
+            bias=True,
+            activation_config=None,
+            weight_config=MXFakeQuantizeConfig(),
+        )
+        self.assertIsNone(mx_linear.activation_config)
 
     @unittest.skipIf(not _CUDA_IS_AVAILABLE, "skipping when cuda is not available")
     @parametrize("bias", [True, False])
-    def test_mx_weight_only_linear_forward(self, bias):
+    @parametrize("input_shape", [(128, 256), (2, 64, 256)])
+    @parametrize(
+        "dtype",
+        [torch.float4_e2m1fn_x2, torch.float8_e4m3fn],
+    )
+    def test_mx_weight_only_linear_forward(self, bias, input_shape, dtype):
         """Weight-only MX QAT: activation_config=None keeps the activations in
         high precision, forward is a high precision matmul over the weight fake
-        quantized to the MX grid."""
+        quantized to the MX grid (covers W4A16 and W8A16 shapes)."""
         from torchao.prototype.mx_formats.mx_tensor import MXTensor
         from torchao.prototype.qat import MXFakeQuantizeConfig, MXFakeQuantizedLinear
 
         K, N = 256, 128
         weight_config = MXFakeQuantizeConfig(
-            dtype=torch.float8_e4m3fn,
+            dtype=dtype,
             block_size=32,
         )
 
@@ -3394,7 +3406,7 @@ class TestQAT(TestCase):
         )
         self.assertIsNone(mx_linear.activation_config)
 
-        x = torch.randn(128, K, device="cuda", dtype=torch.bfloat16)
+        x = torch.randn(*input_shape, device="cuda", dtype=torch.bfloat16)
         y = mx_linear(x)
 
         # reference: weight on the same MX grid then dequantized, activations
