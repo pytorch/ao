@@ -34,7 +34,8 @@ jobs:
       with-rocm: enable
       with-xpu: enable
       # Note: if free-threaded python is required add py3.13t here
-      python-versions: '["3.10"]'
+      # ROCm 10.1+ nightly torch wheels are not published for cp310; use 3.11+.
+      python-versions: '["3.11"]'
 
   build:
     needs: generate-matrix
