@@ -54,7 +54,7 @@ void check_linear_mps_args(
       group_size == 32 || group_size == 64 || group_size == 128 ||
           group_size == 256,
       __func__,
-      ": expect group_size to be 32, 64, 128 or 256, got ",
+      ": expect group_size to be 32, 64, 128, or 256, got ",
       group_size);
 
   TORCH_CHECK(
@@ -174,6 +174,7 @@ TORCH_LIBRARY_FRAGMENT(torchao, m) {
   m.def("_pack_weight_5bit(Tensor W) -> Tensor");
   m.def("_pack_weight_6bit(Tensor W) -> Tensor");
   m.def("_pack_weight_7bit(Tensor W) -> Tensor");
+  m.def("_pack_weight_8bit(Tensor W) -> Tensor");
   m.def(
       "_linear_fp_act_1bit_weight(Tensor A, Tensor B, int group_size, Tensor S, Tensor Z) -> Tensor");
   m.def(
@@ -189,6 +190,8 @@ TORCH_LIBRARY_FRAGMENT(torchao, m) {
   m.def(
       "_linear_fp_act_7bit_weight(Tensor A, Tensor B, int group_size, Tensor S, Tensor Z) -> Tensor");
   m.def(
+      "_linear_fp_act_8bit_weight(Tensor A, Tensor B, int group_size, Tensor S, Tensor Z) -> Tensor");
+  m.def(
       "_linear_fp_act_1bit_weight.out(Tensor A, Tensor B, int group_size, Tensor S, Tensor Z, *, Tensor(a!) out) -> Tensor(a!)");
   m.def(
       "_linear_fp_act_2bit_weight.out(Tensor A, Tensor B, int group_size, Tensor S, Tensor Z, *, Tensor(a!) out) -> Tensor(a!)");
@@ -202,6 +205,8 @@ TORCH_LIBRARY_FRAGMENT(torchao, m) {
       "_linear_fp_act_6bit_weight.out(Tensor A, Tensor B, int group_size, Tensor S, Tensor Z, *, Tensor(a!) out) -> Tensor(a!)");
   m.def(
       "_linear_fp_act_7bit_weight.out(Tensor A, Tensor B, int group_size, Tensor S, Tensor Z, *, Tensor(a!) out) -> Tensor(a!)");
+  m.def(
+      "_linear_fp_act_8bit_weight.out(Tensor A, Tensor B, int group_size, Tensor S, Tensor Z, *, Tensor(a!) out) -> Tensor(a!)");
 }
 
 TORCH_LIBRARY_IMPL(torchao, CPU, m) {
@@ -212,6 +217,7 @@ TORCH_LIBRARY_IMPL(torchao, CPU, m) {
   m.impl("_pack_weight_5bit", &pack_weights_cpu_kernel<5>);
   m.impl("_pack_weight_6bit", &pack_weights_cpu_kernel<6>);
   m.impl("_pack_weight_7bit", &pack_weights_cpu_kernel<7>);
+  m.impl("_pack_weight_8bit", &pack_weights_cpu_kernel<8>);
 }
 
 TORCH_LIBRARY_IMPL(torchao, MPS, m) {
@@ -222,6 +228,7 @@ TORCH_LIBRARY_IMPL(torchao, MPS, m) {
   m.impl("_linear_fp_act_5bit_weight", &linear_mps_kernel<5>);
   m.impl("_linear_fp_act_6bit_weight", &linear_mps_kernel<6>);
   m.impl("_linear_fp_act_7bit_weight", &linear_mps_kernel<7>);
+  m.impl("_linear_fp_act_8bit_weight", &linear_mps_kernel<8>);
   m.impl("_linear_fp_act_1bit_weight.out", &linear_mps_kernel_out<1>);
   m.impl("_linear_fp_act_2bit_weight.out", &linear_mps_kernel_out<2>);
   m.impl("_linear_fp_act_3bit_weight.out", &linear_mps_kernel_out<3>);
@@ -229,6 +236,7 @@ TORCH_LIBRARY_IMPL(torchao, MPS, m) {
   m.impl("_linear_fp_act_5bit_weight.out", &linear_mps_kernel_out<5>);
   m.impl("_linear_fp_act_6bit_weight.out", &linear_mps_kernel_out<6>);
   m.impl("_linear_fp_act_7bit_weight.out", &linear_mps_kernel_out<7>);
+  m.impl("_linear_fp_act_8bit_weight.out", &linear_mps_kernel_out<8>);
 }
 
 TORCH_LIBRARY_IMPL(torchao, Meta, m) {
@@ -239,6 +247,7 @@ TORCH_LIBRARY_IMPL(torchao, Meta, m) {
   m.impl("_linear_fp_act_5bit_weight", &linear_mps_kernel_meta<5>);
   m.impl("_linear_fp_act_6bit_weight", &linear_mps_kernel_meta<6>);
   m.impl("_linear_fp_act_7bit_weight", &linear_mps_kernel_meta<7>);
+  m.impl("_linear_fp_act_8bit_weight", &linear_mps_kernel_meta<8>);
 }
 
 } // namespace torchao::kernels::mps::lowbit::aten
@@ -283,3 +292,4 @@ DECLARE_LINEAR_FP_ACT_WEIGHT_FUNCTION(4)
 DECLARE_LINEAR_FP_ACT_WEIGHT_FUNCTION(5)
 DECLARE_LINEAR_FP_ACT_WEIGHT_FUNCTION(6)
 DECLARE_LINEAR_FP_ACT_WEIGHT_FUNCTION(7)
+DECLARE_LINEAR_FP_ACT_WEIGHT_FUNCTION(8)

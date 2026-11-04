@@ -19,8 +19,8 @@ static constant constexpr const int SIMD_SIZE = 32;
 template <typename T, typename U, int values_per_thread, int bits>
 inline U load_vector(constant T* x, thread U* x_thread) {
   static_assert(
-      1 <= bits && bits <= 7,
-      "Template undefined for bits not in {1, 2, 3, 4, 5, 6, 7}");
+      1 <= bits && bits <= 8,
+      "Template undefined for bits not in {1, 2, 3, 4, 5, 6, 7, 8}");
 
   U sum = 0;
 
@@ -111,6 +111,15 @@ inline U load_vector(constant T* x, thread U* x_thread) {
       x_thread[i + 5] = x[i + 5] / 8.0f;
       x_thread[i + 6] = x[i + 6] / 4.0f;
       x_thread[i + 7] = x[i + 7] / 2.0f;
+    }
+  }
+
+  // 8-bit: no bit extraction needed, each byte is a full weight value.
+  // No pre-division of activations is needed since there's no bit shifting.
+  else if (bits == 8) {
+    for (int i = 0; i < values_per_thread; i++) {
+      sum += x[i];
+      x_thread[i] = x[i];
     }
   }
 
@@ -120,8 +129,8 @@ inline U load_vector(constant T* x, thread U* x_thread) {
 template <typename T, typename U, int values_per_thread, int bits>
 inline U load_vector_safe(constant T* x, thread U* x_thread, int N) {
   static_assert(
-      1 <= bits && bits <= 7,
-      "Template undefined for bits not in {1, 2, 3, 4, 5, 6, 7}");
+      1 <= bits && bits <= 8,
+      "Template undefined for bits not in {1, 2, 3, 4, 5, 6, 7, 8}");
 
   U sum = 0;
 
@@ -213,6 +222,14 @@ inline U load_vector_safe(constant T* x, thread U* x_thread, int N) {
       x_thread[i + 5] = x[i + 5] / 8.0f;
       x_thread[i + 6] = x[i + 6] / 4.0f;
       x_thread[i + 7] = x[i + 7] / 2.0f;
+    }
+  }
+
+  // 8-bit: no bit extraction, each byte is a full weight value.
+  else if (bits == 8) {
+    for (int i = 0; i < N; i++) {
+      sum += x[i];
+      x_thread[i] = x[i];
     }
   }
 
@@ -231,8 +248,8 @@ inline U qdot(
     U bias,
     U sum) {
   static_assert(
-      1 <= bits && bits <= 7,
-      "Template undefined for bits not in {1, 2, 3, 4, 5, 6, 7}");
+      1 <= bits && bits <= 8,
+      "Template undefined for bits not in {1, 2, 3, 4, 5, 6, 7, 8}");
 
   U accum = 0;
 
@@ -362,6 +379,13 @@ inline U qdot(
     }
   }
 
+  // 8-bit: each byte is a full weight value, no masking or shifting needed.
+  else if (bits == 8) {
+    for (int i = 0; i < values_per_thread; i++) {
+      accum += x_thread[i] * w[i];
+    }
+  }
+
   return scale * accum + sum * bias;
 }
 
@@ -374,8 +398,8 @@ inline U qdot_safe(
     U sum,
     int N) {
   static_assert(
-      1 <= bits && bits <= 7,
-      "Template undefined for bits not in {1, 2, 3, 4, 5, 6, 7}");
+      1 <= bits && bits <= 8,
+      "Template undefined for bits not in {1, 2, 3, 4, 5, 6, 7, 8}");
 
   U accum = 0;
 
@@ -505,10 +529,17 @@ inline U qdot_safe(
     }
   }
 
+  // 8-bit: each byte is a full weight value, no masking or shifting needed.
+  else if (bits == 8) {
+    for (int i = 0; i < N; i++) {
+      accum += x_thread[i] * w[i];
+    }
+  }
+
   return scale * accum + sum * bias;
 }
 
-template <typename T, int group_size, int bits>
+template <typename T, int group_size_template, int bits>
 [[kernel]] void qmv_fast(
     constant T* x [[buffer(0)]],
     constant uchar* w [[buffer(1)]],
@@ -519,6 +550,8 @@ template <typename T, int group_size, int bits>
     uint3 tid [[threadgroup_position_in_grid]],
     uint simd_gid [[simdgroup_index_in_threadgroup]],
     uint simd_lid [[thread_index_in_simdgroup]]) {
+  // group_size is a compile-time constant (template parameter).
+  const int group_size = group_size_template;
   const int in_vec_size = static_cast<int>(sizes.y); // K
   const int out_vec_size = static_cast<int>(sizes.z); // N
 
@@ -530,7 +563,7 @@ template <typename T, int group_size, int bits>
   constexpr int bytes_per_pack = bits == 1 ? 2 : power_of_2_bits ? 4 : bits == 6 ? 3 : bits;
   constexpr int values_per_thread = pack_factor * packs_per_thread;
   constexpr int block_size = values_per_thread * SIMD_SIZE;
-  constexpr int scale_step_per_thread = group_size / values_per_thread;
+  const int scale_step_per_thread = group_size / values_per_thread;
 
   constant uint8_t* ws = (constant uint8_t*)w;
 
@@ -578,7 +611,7 @@ template <typename T, int group_size, int bits>
   }
 }
 
-template <typename T, int group_size, int bits>
+template <typename T, int group_size_template, int bits>
 [[kernel]] void qmv_impl(
     constant T* x [[buffer(0)]],
     constant uchar* w [[buffer(1)]],
@@ -589,6 +622,7 @@ template <typename T, int group_size, int bits>
     uint3 tid [[threadgroup_position_in_grid]],
     uint simd_gid [[simdgroup_index_in_threadgroup]],
     uint simd_lid [[thread_index_in_simdgroup]]) {
+  const int group_size = group_size_template;
   const int in_vec_size = static_cast<int>(sizes.y); // K
   const int out_vec_size = static_cast<int>(sizes.z); // N
 
@@ -601,7 +635,7 @@ template <typename T, int group_size, int bits>
 
   constexpr int values_per_thread = pack_factor * packs_per_thread;
   constexpr int block_size = values_per_thread * SIMD_SIZE;
-  constexpr int scale_step_per_thread = group_size / values_per_thread;
+  const int scale_step_per_thread = group_size / values_per_thread;
 
   constant uint8_t* ws = (constant uint8_t*)w;
 
@@ -756,7 +790,8 @@ template <typename T, int group_size, int bits>
   INSTANTIATE_QMV_FAST(DTYPE, GSIZE, 4);               \
   INSTANTIATE_QMV_FAST(DTYPE, GSIZE, 5);               \
   INSTANTIATE_QMV_FAST(DTYPE, GSIZE, 6);               \
-  INSTANTIATE_QMV_FAST(DTYPE, GSIZE, 7);
+  INSTANTIATE_QMV_FAST(DTYPE, GSIZE, 7);               \
+  INSTANTIATE_QMV_FAST(DTYPE, GSIZE, 8);
 
 #define INSTANTIATE_QMV_FAST_DTYPE(DTYPE)       \
   INSTANTIATE_QMV_FAST_DTYPE_GSIZE(DTYPE, 32);  \
@@ -790,7 +825,8 @@ INSTANTIATE_QMV_FAST_DTYPE(bfloat);
   INSTANTIATE_QMV_IMPL(DTYPE, GSIZE, 4);               \
   INSTANTIATE_QMV_IMPL(DTYPE, GSIZE, 5);               \
   INSTANTIATE_QMV_IMPL(DTYPE, GSIZE, 6);               \
-  INSTANTIATE_QMV_IMPL(DTYPE, GSIZE, 7);
+  INSTANTIATE_QMV_IMPL(DTYPE, GSIZE, 7);               \
+  INSTANTIATE_QMV_IMPL(DTYPE, GSIZE, 8);
 
 #define INSTANTIATE_QMV_IMPL_DTYPE(DTYPE)       \
   INSTANTIATE_QMV_IMPL_DTYPE_GSIZE(DTYPE, 32);  \
