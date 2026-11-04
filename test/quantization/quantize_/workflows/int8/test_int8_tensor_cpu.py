@@ -116,5 +116,31 @@ class TestInt8TensorCPU(TorchAOIntegrationTestCase):
         )
 
 
+    @common_utils.parametrize("dtype", [torch.bfloat16, torch.float16])
+    def test_asymmetric_onesided_activations_finite(self, dtype):
+        """Regression test for #5026: ASYMMETRIC zero-point correction must not
+        overflow to NaN/inf with one-sided activations (large |zero_point|)."""
+        K, N, M = 4096, 256, 32
+        torch.manual_seed(0)
+        model = torch.nn.Sequential(
+            torch.nn.Linear(K, N, bias=False, dtype=dtype)
+        ).eval()
+        model_q = copy.deepcopy(model)
+        config = Int8DynamicActivationInt8WeightConfig(
+            version=2,
+            granularity=PerRow(),
+            act_mapping_type=MappingType.ASYMMETRIC,
+        )
+        quantize_(model_q, config)
+
+        x = torch.randn(M, K).relu().to(dtype)
+        with torch.no_grad():
+            y = model_q(x)
+        self.assertTrue(
+            torch.isfinite(y).all(),
+            f"Non-finite outputs: {(~torch.isfinite(y)).sum()} of {y.numel()}",
+        )
+
+
 if __name__ == "__main__":
     common_utils.run_tests()
