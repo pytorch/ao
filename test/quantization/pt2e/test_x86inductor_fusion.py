@@ -340,6 +340,8 @@ class TestPatternMatcherBase(TestCase):
                     actual = compiled_mod(*inputs)
                 else:
                     actual = torch.compile(mod, **compile_options)(*inputs)
+                if check_output_dtype:
+                    self.assertEqual(actual.dtype, expected.dtype)
                 torch.testing.assert_close(
                     actual.float(), expected.float(), atol=atol, rtol=rtol
                 )
@@ -2772,8 +2774,9 @@ class TestPatternMatcher(TestPatternMatcherBase):
                 )
                 # Matched nodes:
                 # (1) w to fp16, (2) w to fp32, (3) permute w, (4) mm/addmm/bmm
-                # If x.ndim == 3 and x is contiguous, two view nodes are added.
-                # If x.ndim == 3 and x is not contiguous, two expand nodes and one add node are added.
+                # A folded 3D input adds two view nodes; otherwise it adds
+                # two expand nodes. Non-contiguous inputs with bias also add
+                # a separate add node in either case.
                 nodes_count = 4
                 if input_ndim > 2:
                     if x_contig:
@@ -2815,6 +2818,159 @@ class TestPatternMatcher(TestPatternMatcherBase):
     @skipIfNoONEDNN
     def test_linear_relu_dynamic_fp16(self):
         self._test_linear_dynamic_fp16_helper(use_relu=True)
+
+    @skipIfNoDynamoSupport
+    @skipIfNoONEDNN
+    @parametrize("use_relu", [False, True])
+    @parametrize("use_bmm", [False, True])
+    @parametrize(
+        "bias_shape,alpha,bias_dtype",
+        [
+            # Both forms represent one bias value per output channel.
+            ((256,), 1, torch.float32),
+            ((1, 256), 1, torch.float32),
+            # Keep general broadcasts outside the fused Linear.
+            ((2, 1, 256), 1, torch.float32),
+            ((1,), 1, torch.float32),
+            # Fusion must preserve the add's scale and dtype promotion.
+            ((256,), 2, torch.float32),
+            ((256,), 1, torch.float64),
+        ],
+    )
+    def test_linear_dynamic_fp16_add_fusion(
+        self, use_relu, use_bmm, bias_shape, alpha, bias_dtype
+    ):
+        """Check bias fusion and rejected adds on both mm and bmm paths.
+
+        Use an explicit add so its shape, scale, and dtype can vary beyond
+        nn.Linear's built-in vector bias. If the add cannot fuse, a following
+        ReLU must also stay outside Linear to preserve the operation order.
+        """
+
+        class M(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.linear = torch.nn.Linear(256, 256, bias=False)
+                self.bias = torch.nn.Parameter(
+                    torch.randn(bias_shape, dtype=bias_dtype)
+                )
+
+            def forward(self, x):
+                if use_bmm:
+                    out = self.linear(x)
+                else:
+                    # Build the folded graph on both old and new should_fold.
+                    out = self.linear(x.reshape(-1, 256)).reshape(2, 1, 256)
+                out = torch.add(out, self.bias, alpha=alpha)
+                return torch.relu(out) if use_relu else out
+
+        # With a non-singleton middle dimension, the sliced rows cannot fold
+        # into a view. This keeps the bmm case on that path with either
+        # should_fold implementation.
+        x = torch.randn(4, 2 if use_bmm else 1, 256)[0::2]
+        quantizer = X86InductorQuantizer().set_global(
+            xiq.get_default_x86_inductor_quantization_config()
+        )
+        quantizer.set_module_type_qconfig(
+            torch.nn.Linear, xiq.get_x86_inductor_linear_dynamic_fp16_config()
+        )
+        bias_fused = (
+            bias_shape in ((256,), (1, 256))
+            and alpha == 1
+            and bias_dtype == torch.float32
+        )
+        relu_fused = bias_fused and use_relu
+
+        def matcher_check_fn():
+            self.assertEqual(
+                counters["inductor"]["qlinear_weight_prepack_matcher_count"], 1
+            )
+            # Two casts, permute, and either two reshapes + mm or two
+            # expands + bmm, plus the bias and ReLU when they can be fused.
+            self.assertEqual(
+                counters["inductor"]["qlinear_weight_prepack_matcher_nodes"],
+                6 + int(bias_fused) + int(relu_fused),
+            )
+
+        mod = _generate_ref_quantized_model(M().eval(), (x,), quantizer=quantizer)
+        self._test_common(
+            mod,
+            (x,),
+            matcher_check_fn,
+            atol=1e-2,
+            rtol=1e-2,
+            check_output_dtype=True,
+            include_ops=[
+                "torch.ops.onednn.linear_relu_dynamic_fp16.default"
+                if relu_fused
+                else "torch.ops.onednn.linear_dynamic_fp16.default"
+            ],
+            exclude_ops=[
+                "torch.ops.aten.addmm.default",
+                "torch.ops.aten.mm.default",
+            ],
+        )
+
+    @skipIfNoDynamoSupport
+    @skipIfNoONEDNN
+    @parametrize("use_relu", [False, True])
+    @parametrize("bias_shape", [(8,), (1, 8)])
+    def test_linear_dynamic_fp16_add_rank1(self, use_relu, bias_shape):
+        """Preserve output-rank promotion when adding a row bias to a vector.
+
+        A vector bias keeps the output shape (8,) and can fuse. A row bias
+        produces (1, 8), while oneDNN Linear on the original input returns
+        (8,), so that add and any following ReLU must remain outside Linear.
+        """
+
+        class M(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.linear = torch.nn.Linear(16, 8, bias=False)
+                self.bias = torch.nn.Parameter(torch.randn(bias_shape))
+
+            def forward(self, x):
+                # Build the reshape -> mm -> reshape -> add pattern with
+                # a one-dimensional original input.
+                out = self.linear(x.reshape(1, 16)).reshape(8)
+                out = out + self.bias
+                return torch.relu(out) if use_relu else out
+
+        x = torch.randn(16)
+        quantizer = X86InductorQuantizer().set_global(
+            xiq.get_default_x86_inductor_quantization_config()
+        )
+        quantizer.set_module_type_qconfig(
+            torch.nn.Linear, xiq.get_x86_inductor_linear_dynamic_fp16_config()
+        )
+        # Vector bias is the positive control: the shape check must not
+        # disable all bias fusion for one-dimensional inputs.
+        bias_fused = bias_shape == (8,)
+        relu_fused = bias_fused and use_relu
+
+        def matcher_check_fn():
+            self.assertEqual(
+                counters["inductor"]["qlinear_weight_prepack_matcher_count"], 1
+            )
+            self.assertEqual(
+                counters["inductor"]["qlinear_weight_prepack_matcher_nodes"],
+                6 + int(bias_fused) + int(relu_fused),
+            )
+
+        mod = _generate_ref_quantized_model(M().eval(), (x,), quantizer=quantizer)
+        self._test_common(
+            mod,
+            (x,),
+            matcher_check_fn,
+            atol=1e-2,
+            rtol=1e-2,
+            check_output_dtype=True,
+            include_ops=[
+                "torch.ops.onednn.linear_relu_dynamic_fp16.default"
+                if relu_fused
+                else "torch.ops.onednn.linear_dynamic_fp16.default"
+            ],
+        )
 
     @skipIfNoDynamoSupport
     @skipIfNoONEDNN
