@@ -36,6 +36,8 @@ jobs:
       contents: read
     uses: pytorch/test-infra/.github/workflows/linux_job_v3.yml@main
     with:
+      # These distributed tests use local/synthetic models.
+      hf-cache: false
       timeout: 60
       runner: ${{ matrix.runs-on }}
       gpu-arch-type: ${{ matrix.gpu-arch-type }}
