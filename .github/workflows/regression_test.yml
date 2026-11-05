@@ -76,7 +76,7 @@ jobs:
         fi
         python -m pip install --upgrade pip
         pip install ${{ matrix.torch-spec }}
-        pip install uv
+        pip install uv==0.13.7
         uv pip install -r dev-requirements.txt
         pip install . --no-build-isolation
         export CONDA=$(dirname $(dirname $(which conda)))
@@ -121,7 +121,7 @@ jobs:
         python -m pip install --upgrade pip
         pip install ${{ matrix.torch-spec }}
         sed -i '${{ matrix.dev-requirements-overrides }}' dev-requirements.txt
-        pip install uv
+        pip install uv==0.13.7
         uv pip install -r dev-requirements.txt
         pip install . --no-build-isolation
         export CONDA=$(dirname $(dirname $(which conda)))
