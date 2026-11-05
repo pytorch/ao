@@ -15,6 +15,7 @@ import torch
 import torch.nn.functional as F
 from torch.ao.quantization.fx._decomposed import quantized_decomposed_lib  # noqa: F401
 from torch.fx import Graph, GraphModule, Node
+from torch.fx.passes.utils.matcher_utils import SubgraphMatcher
 from torch.fx.subgraph_rewriter import ReplacedPatterns, replace_pattern_with_filters
 
 from torchao.quantization.pt2e.export_utils import WrapperModule
@@ -64,6 +65,31 @@ def _get_quantized_conv_bn_example_inputs_kwargs(
             if isinstance(v, torch.Tensor):
                 kwargs[k] = v.cuda()
     return kwargs
+
+
+def _get_conv_pattern(conv_fn: Callable) -> Callable:
+    def _conv_pattern(
+        x: torch.Tensor,
+        conv_weight: torch.Tensor,
+        conv_bias: torch.Tensor,
+    ) -> torch.Tensor:
+        return conv_fn(x, conv_weight, conv_bias)
+
+    return WrapperModule(_conv_pattern)
+
+
+def _has_pattern(m: GraphModule, pattern: GraphModule) -> bool:
+    # Keep the same matching options as replace_pattern_with_filters. A miss
+    # can skip replacement-pattern export; a hit is matched again there.
+    return bool(
+        SubgraphMatcher(
+            pattern.graph,
+            match_output=False,
+            match_placeholder=False,
+            remove_overlapping_matches=True,
+            ignore_literals=True,
+        ).match(m.graph)
+    )
 
 
 def _get_conv_bn_pattern(conv_fn: Callable) -> Callable:
@@ -910,19 +936,24 @@ def _fold_conv_bn_qat(m: GraphModule) -> GraphModule:
     if not has_bn:
         return m
     is_cuda_options = [True, False] if torch.cuda.is_available() else [False]
+    conv_options = (
+        (F.conv1d, _quantized_conv1d_bn_example_inputs),
+        (F.conv2d, _quantized_conv2d_bn_example_inputs),
+        (F.conv_transpose1d, _quantized_conv1d_bn_example_inputs),
+        (F.conv_transpose2d, _quantized_conv2d_bn_example_inputs),
+    )
     for is_cuda in is_cuda_options:
-        m = _fold_conv_bn_qat_helper(
-            m, F.conv1d, _quantized_conv1d_bn_example_inputs, is_cuda=is_cuda
-        )
-        m = _fold_conv_bn_qat_helper(
-            m, F.conv2d, _quantized_conv2d_bn_example_inputs, is_cuda=is_cuda
-        )
-        m = _fold_conv_bn_qat_helper(
-            m, F.conv_transpose1d, _quantized_conv1d_bn_example_inputs, is_cuda=is_cuda
-        )
-        m = _fold_conv_bn_qat_helper(
-            m, F.conv_transpose2d, _quantized_conv2d_bn_example_inputs, is_cuda=is_cuda
-        )
+        for conv_fn, example_inputs in conv_options:
+            # Export through the same capture path as the folding patterns
+            # instead of hard-coding convolution targets for a particular IR.
+            # The first three example tensors can serve as input, weight and
+            # bias for this convolution-only probe.
+            conv_pattern = _get_aten_graph_module_for_pattern(
+                _get_conv_pattern(conv_fn), example_inputs[:3], is_cuda
+            )
+            if not _has_pattern(m, conv_pattern):
+                continue
+            m = _fold_conv_bn_qat_helper(m, conv_fn, example_inputs, is_cuda)
 
     # remove in place add from batchnorm tracking traning stats
     for node in m.graph.nodes:
@@ -987,6 +1018,8 @@ def _fold_conv_bn_qat_helper(
             is_cuda,
             **kwargs,
         )
+        if not _has_pattern(m, match_pattern):
+            continue
         replacement_pattern = _get_folded_quantized_qat_conv_bn_pattern(
             is_per_channel, has_bias, bias_is_quantized, conv_fn, bn_is_training
         )
