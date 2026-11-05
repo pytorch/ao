@@ -8,7 +8,7 @@
 import copy
 import itertools
 import logging
-import os
+import tempfile
 import unittest
 from functools import partial
 
@@ -593,10 +593,15 @@ class TestSaveLoadMeta(unittest.TestCase):
         # make sure the model is still runnable
         model(x)
 
-        torch.save(model.state_dict(), "test.pth")
+        # Each parametrization needs its own file when pytest workers overlap.
+        checkpoint_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(checkpoint_dir.cleanup)
+        checkpoint_path = f"{checkpoint_dir.name}/test.pth"
+        torch.save(model.state_dict(), checkpoint_path)
         # get quantized reference
         model_qc = torch.compile(model, mode="max-autotune")
-        ref_q = model_qc(x).detach()
+        # Keep the reference independent of reused CUDA-graph output buffers.
+        ref_q = model_qc(x).detach().clone()
 
         assert SQNR(ref_f, ref_q) > min_sqnr, (
             f"got sqnr: {SQNR(ref_f, ref_q)}, expected: {min_sqnr}"
@@ -608,8 +613,7 @@ class TestSaveLoadMeta(unittest.TestCase):
         api(model)
 
         # load quantized state_dict
-        state_dict = torch.load("test.pth", mmap=True)
-        os.remove("test.pth")
+        state_dict = torch.load(checkpoint_path, mmap=True)
 
         model.load_state_dict(state_dict, assign=True)
         model = model.to(device=test_device, dtype=test_dtype).eval()
