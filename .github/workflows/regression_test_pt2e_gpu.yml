@@ -55,6 +55,8 @@ jobs:
       contents: read
     uses: pytorch/test-infra/.github/workflows/linux_job_v3.yml@main
     with:
+      # PT2E tests construct models locally and do not use HF datasets.
+      hf-cache: false
       timeout: 120
       runner: ${{ matrix.runs-on }}
       gpu-arch-type: "cuda"

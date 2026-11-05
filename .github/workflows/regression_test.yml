@@ -47,6 +47,8 @@ jobs:
       contents: read
     uses: pytorch/test-infra/.github/workflows/linux_job_v3.yml@main
     with:
+      # HF readers are skipped here; PARQ reloads only local test files.
+      hf-cache: false
       timeout: 180
       runner: ${{ matrix.runs-on }}
       gpu-arch-type: ${{ matrix.gpu-arch-type }}
@@ -109,6 +111,8 @@ jobs:
 
     uses: pytorch/test-infra/.github/workflows/linux_job_v3.yml@main
     with:
+      # HF readers are skipped here; PARQ reloads only local test files.
+      hf-cache: false
       timeout: 180
       runner: ${{ matrix.runs-on }}
       gpu-arch-type: ${{ matrix.gpu-arch-type }}

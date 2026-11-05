@@ -38,6 +38,8 @@ jobs:
       contents: read
     uses: pytorch/test-infra/.github/workflows/linux_job_v3.yml@main
     with:
+      # These integration tests do not need shared HF assets in this matrix.
+      hf-cache: false
       timeout: 60
       runner: ${{ matrix.runs-on }}
       gpu-arch-type: ${{ matrix.gpu-arch-type }}
