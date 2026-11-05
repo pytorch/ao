@@ -274,7 +274,8 @@ void register_ukernel_config_lut(
     }
     constexpr bool has_weight_zeros = false;
     if (format.nr == 8 && format.kr == 16 && format.sr == 2) {
-      log_registration(format, "lut: kernel_1x8x16_f32_neondot");
+      log_registration(
+          format, "lut: kernel_1x8x16_f32_neondot, kernel_8x8x16_f32_neondot");
       constexpr int n_step = 8;
       constexpr int nr = 8;
       constexpr int kr = 16;
@@ -294,13 +295,29 @@ void register_ukernel_config_lut(
           &kernel::packed_weights_with_lut_offset,
           &kernel::pack_weights_with_lut<weight_nbit, nr, kr, sr>,
           /*linear_configs*/ {});
+       // Activation qvals sums let the decode kernel skip the table lookup
+       // when the LUT is affine.
+       constexpr bool has_activation_qvals_sum = true;
        uk.linear_configs[0] = UKernelConfig::linear_config_type(
             {m_step,
              mr,
+             &kernel::packed_activations_with_qvals_sum_size,
+             &kernel::packed_activations_with_qvals_sum_offset,
+             &kernel::pack_activations_with_qvals_sum<mr, kr, sr>,
+             &kernel::kernel_1x8x16_f32_neondot<
+                 weight_nbit,
+                 has_weight_zeros,
+                 has_lut,
+                 has_activation_qvals_sum>});
+        constexpr int large_prefill_mr = 8;
+        constexpr int large_prefill_m_step = 8;
+        uk.linear_configs[1] = UKernelConfig::linear_config_type(
+            {large_prefill_m_step,
+             large_prefill_mr,
              &kernel::packed_activations_size,
              &kernel::packed_activations_offset,
-             &kernel::pack_activations<mr, kr, sr>,
-             &kernel::kernel_1x8x16_f32_neondot<
+             &kernel::pack_activations_interleaved<large_prefill_mr, kr, sr>,
+             &kernel::kernel_8x8x16_f32_neondot<
                  weight_nbit,
                  has_weight_zeros,
                  has_lut>});
