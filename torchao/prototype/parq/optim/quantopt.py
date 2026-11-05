@@ -13,8 +13,8 @@ import torch
 from torch import Tensor, nn
 from torch.optim import Optimizer
 
-from torchao.quantization import quantize_
-from torchao.quantization.quant_api import _is_linear
+# The package export can resolve to the quantize_ submodule instead of the callable.
+from torchao.quantization.quant_api import _is_linear, quantize_
 
 from ..quant import Quantizer, UnifTorchaoQuantizer
 from ..quant.config_torchao import (
@@ -26,9 +26,8 @@ from ..utils import HAS_DTENSOR, is_dtensor
 from .proxmap import ProxMap
 
 if HAS_DTENSOR:
-    from torch.distributed.tensor import distribute_tensor
+    from torch.distributed.tensor import empty as dtensor_empty
     from torch.distributed.tensor.experimental import local_map
-    from torch.distributed.tensor.placement_types import Shard
 
 
 class QuantOptimizer(Optimizer):
@@ -234,11 +233,40 @@ class QuantOptimizer(Optimizer):
 
     @torch._disable_dynamo
     def state_dict(self) -> dict[str, Any]:
-        return self.base_optimizer.state_dict()
+        state_dict = self.base_optimizer.state_dict()
+        if self.quant_period == 1:
+            # Targets are rebuilt on the very next update. Keep the transient
+            # local cache out of checkpoints and parameter-shaped optimizer IO.
+            state_dict["state"] = {
+                key: {name: value for name, value in state.items() if name != "quants"}
+                if isinstance(state, dict)
+                else state
+                for key, state in state_dict["state"].items()
+            }
+        return state_dict
 
     @torch._disable_dynamo
     def load_state_dict(self, state_dict: dict[str, Any]) -> None:
-        self.base_optimizer.load_state_dict(state_dict)
+        saved_quants: dict[Tensor, Tensor] = {}
+
+        def preserve_quants(optimizer: Optimizer, checkpoint: dict[str, Any]) -> None:
+            # Capture after user pre-hooks remap IDs, but before the base optimizer
+            # casts floating state to the parameter dtype and rounds FP32 caches.
+            saved_ids = [
+                key for group in checkpoint["param_groups"] for key in group["params"]
+            ]
+            parameters = [
+                p for group in optimizer.param_groups for p in group["params"]
+            ]
+            for key, p in zip(saved_ids, parameters):
+                state = checkpoint["state"].get(key)
+                if isinstance(state, dict) and "quants" in state:
+                    saved_quants[p] = state["quants"]
+
+        with self.base_optimizer.register_load_state_dict_pre_hook(preserve_quants):
+            self.base_optimizer.load_state_dict(state_dict)
+        for p, quants in saved_quants.items():
+            self.state[p]["quants"] = quants.to(device=p.device, copy=True)
 
     @torch.no_grad()
     def step(self, closure: Optional[Callable[[], float]] = None) -> Optional[float]:
@@ -293,6 +321,27 @@ class QuantOptimizer(Optimizer):
                 # save latent parameters, need detach()? or copy p)
                 state["latent"].copy_(p)
 
+                # Complete per-row/input-column groups are independent across
+                # shards. Mutate the original local storage directly, following
+                # PAT's rule that in-place prox updates must reach their owner.
+                local_dtensor = None
+                local_parameter = None
+                if is_dtensor(p) and self.quant_per_channel and p.dim() == 2:
+                    if p.device_mesh.get_coordinate() is None:
+                        continue
+                    # Column shards are safe for complete blocks; the local modulo
+                    # assertion below validates their alignment.
+                    if block_size is None and any(
+                        placement.is_shard() and placement.dim == 1
+                        for placement in p.placements
+                    ):
+                        raise ValueError(
+                            "A per-row quantization group crosses an input-column shard"
+                        )
+                    local_dtensor = p
+                    local_parameter = p.to_local()
+                    p = local_parameter.contiguous()
+
                 # in-place scaling of parameters by 1/gamma if specified
                 if self.quant_shrink:
                     p.div_(gamma)
@@ -312,33 +361,76 @@ class QuantOptimizer(Optimizer):
                 # quantization by channel or by layer
                 # update quantization targets periodically
                 per_channel = self.quant_per_channel and p.dim() > 1
-                if quant_update:
-                    quant_size = quantizer.get_quant_size(b)
-
-                    if per_channel:
-                        quant_size = (p.size(0), quant_size)
-                    state["quants"] = torch.empty(quant_size, device=p.device)
-                    if is_dtensor(p):
-                        state["quants"] = distribute_tensor(
-                            state["quants"],
-                            device_mesh=p.device_mesh,
-                            placements=p.placements,
+                quant_levels = quantizer.get_quant_size(b)
+                quant_size = (
+                    (p.size(0), quant_levels) if per_channel else (quant_levels,)
+                )
+                quant_owner = local_dtensor if local_dtensor is not None else p
+                if local_dtensor is not None:
+                    # Keep the original row/column-group axes in distributed
+                    # state. Flattening global uneven row shards would assign
+                    # different numbers of groups than the owning parameters.
+                    quant_size = (
+                        (
+                            local_dtensor.size(0),
+                            local_dtensor.size(1) // block_size,
+                            quant_levels,
                         )
+                        if block_size is not None
+                        else (local_dtensor.size(0), quant_levels)
+                    )
+                quants = state.get("quants")
+                rebuild_targets = (
+                    quants is None
+                    or tuple(quants.shape) != quant_size
+                    or quants.device != p.device
+                    or quants.dtype != torch.get_default_dtype()
+                    or is_dtensor(quants) != is_dtensor(quant_owner)
+                    or (
+                        is_dtensor(quant_owner)
+                        and (
+                            quants.placements != quant_owner.placements
+                            or quants.device_mesh != quant_owner.device_mesh
+                        )
+                    )
+                )
+                parameter_quant_update = quant_update or rebuild_targets
+                if rebuild_targets:
+                    # Allocate only owned state; there is no data to scatter.
+                    # The next quantize_ call overwrites every local target.
+                    state["quants"] = (
+                        dtensor_empty(
+                            quant_size,
+                            device_mesh=quant_owner.device_mesh,
+                            placements=quant_owner.placements,
+                        )
+                        if is_dtensor(quant_owner)
+                        else torch.empty(quant_size, device=p.device)
+                    )
+
+                quants = state["quants"]
+                if local_dtensor is not None:
+                    quants = quants.to_local().reshape(-1, quants.size(-1))
 
                 dim = -1 if per_channel else None
                 if per_channel and p.dim() > 2:
                     p = p.flatten(start_dim=1)
 
                 q = None
-                if quant_update:
+                if parameter_quant_update and p.numel() == 0:
+                    # Empty owning shards still carry canonical distributed
+                    # state, but affine primitives cannot infer their qparams.
+                    q = p
+                elif parameter_quant_update:
                     qfunc = partial(self.quantize_, quantizer=quantizer, b=b, dim=dim)
                     if is_dtensor(p):
                         qfunc = local_map(
                             qfunc,
                             out_placements=[*p.placements],
-                            in_placements=([Shard(0)], [Shard(0)]),
+                            in_placements=(p.placements, quants.placements),
+                            redistribute_inputs=False,
                         )
-                    q = qfunc(p, state["quants"])
+                    q = qfunc(p, quants)
 
                 # apply (step-dependent) proximal mapping in place
                 pfunc = partial(
@@ -349,12 +441,17 @@ class QuantOptimizer(Optimizer):
                         pfunc,
                         out_placements=None,
                         in_placements=(
-                            [Shard(0)],
-                            None if q is None else [Shard(0)],
-                            [Shard(0)],
+                            p.placements,
+                            None if q is None else q.placements,
+                            quants.placements,
                         ),
+                        redistribute_inputs=False,
                     )
-                inv_slope = pfunc(p, q, state["quants"])
+                inv_slope = pfunc(p, q, quants)
+                if local_parameter is not None and not local_parameter.is_contiguous():
+                    # Column-shard views may have gaps between rows. Group on
+                    # contiguous workspace, then copy the projection to its owner.
+                    local_parameter.copy_(p.reshape_as(local_parameter))
 
             # quantized parameters share the same PARQ inverse slope
             if inv_slope:
