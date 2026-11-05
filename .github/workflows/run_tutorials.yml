@@ -11,12 +11,12 @@ jobs:
     runs-on: mt-l-x86iavx512-11-125-a100
     # OSDC (ARC): run inside a CUDA container; --gpus all exposes the A100.
     container:
-      image: pytorch/almalinux-builder:cuda13.0
+      image: pytorch/almalinux-builder:cuda13.2
       options: --gpus all
     strategy:
       matrix:
         torch-spec:
-          - '--pre torch torchvision --index-url https://download.pytorch.org/whl/nightly/cu126'
+          - '--pre torch torchvision --index-url https://download.pytorch.org/whl/nightly/cu132'
     steps:
       - uses: actions/checkout@v4
 
@@ -33,7 +33,7 @@ jobs:
           # Pre-install torch's pure-python deps from the in-cluster pypi-cache for speed.
           ${CONDA_RUN} pip install filelock typing-extensions "setuptools<82" sympy networkx jinja2 fsspec numpy pillow
           # Clear PIP_EXTRA_INDEX_URL (the runner's default cpu /whl/cpu/) so it can't supply a
-          # +cpu torch; the torch-spec's --index-url makes the literal nightly cu126 index the only source.
+          # +cpu torch; the torch-spec's --index-url makes the literal nightly cu132 index the only source.
           PIP_EXTRA_INDEX_URL= ${CONDA_RUN} pip install ${{ matrix.torch-spec }}
           ${CONDA_RUN} pip install -r dev-requirements.txt
           ${CONDA_RUN} pip install . --no-build-isolation
