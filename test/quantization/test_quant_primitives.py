@@ -145,8 +145,8 @@ def _groupwise_affine_quantize_tensor_from_qparams(
     else:
         w_int4x8 = (
             to_quant.div(scales)
-            .add(zeros)
             .round()
+            .add(zeros)
             .clamp_(min_int, max_int)
             .to(torch.int32)
             .reshape_as(w)
