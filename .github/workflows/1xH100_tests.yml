@@ -85,6 +85,8 @@ jobs:
         pip install -e . --no-build-isolation -vv
         pytest test/integration --verbose -s
         pytest test/dtypes/test_affine_quantized_float.py --verbose -s
+        # Former L4 selection: these blockwise FP8 cases require SM90+.
+        pytest test/prototype/blockwise_fp8_inference/test_blockwise.py --verbose -s
         pytest test/quantization/quantize_/workflows/float8 --verbose -s
         python test/quantization/quantize_/workflows/int4/test_int4_tensor.py
         python test/quantization/quantize_/workflows/int4/test_int4_preshuffled_tensor.py
