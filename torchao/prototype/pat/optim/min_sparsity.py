@@ -133,6 +133,22 @@ class GlobalMinSparsityConstraint(MinSparsityConstraint):
         return torch.tensor(zeros, device=p.device, dtype=torch.long)
 
 
+class CoupledMinSparsityConstraint(GlobalMinSparsityConstraint):
+    """Select one shared channel index set across a caller-defined cluster.
+
+    Scores combine squared norms from every participating tensor before one
+    top-k selection. ``PruneOptimizer`` owns clustering and scheduling.
+    """
+
+    def combine_scores(self, sq_norm_sum: Tensor, group_size_sum: int) -> Tensor:
+        norm = sq_norm_sum.sqrt()
+        if self.score_type == "rms":
+            return norm / math.sqrt(group_size_sum)
+        if self.score_type == "param_cost":
+            return norm / group_size_sum
+        return norm
+
+
 class MinRankConstraint(ProxMap, _TopKZeroMixin):
     """Zeros the smallest ``ceil(min_sparsity * k)`` singular values of an
     SVD-grouped tensor. Here the shared ``min_sparsity`` key is the fraction of

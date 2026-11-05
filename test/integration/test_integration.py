@@ -124,6 +124,14 @@ def combine_parameters(a, b):
     return new_tuples
 
 
+def _cuda_version_at_least(major: int, minor: int) -> bool:
+    if not torch.cuda.is_available() or torch.version.cuda is None:
+        return False
+
+    cuda_version = tuple(int(part) for part in torch.version.cuda.split(".")[:2])
+    return cuda_version >= (major, minor)
+
+
 def run_supported_device_dtype(test_method):
     """Assumes that the 3rd arg (args[2]) of the decorated method is device and
     there is a `test_dtype` kwarg or the 4th arg (args[3]) that indicates the dtype for testing
@@ -265,6 +273,10 @@ class PythonQuantUtilOpUnitTest(unittest.TestCase):
         torch.testing.assert_close(y_ref, y_opt, atol=0, rtol=0)
 
     @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
+    @unittest.skipIf(
+        _cuda_version_at_least(13, 2),
+        "_int_mm is not actively maintained, and this test fails on cuda 13.2",
+    )
     def test__int_mm_eager_and_torch_compile_numerics(self):
         def __int_mm_ref(x, w):
             x = x.cpu().to(torch.int32)
