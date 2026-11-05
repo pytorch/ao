@@ -36,6 +36,7 @@ def hp_tensor_to_float8_dynamic(
     scaling_granularity: ScalingGranularity = ScalingGranularity.TENSORWISE,
     axiswise_dim: Optional[int] = None,
     round_scales_to_power_of_2: bool = False,
+    allow_in_graph: bool = True,
 ) -> Float8TrainingTensor:
     """
     Given a high precision tensor `hp_tensor`,
@@ -52,6 +53,8 @@ def hp_tensor_to_float8_dynamic(
         scaling_granularity: Defines the scaling granularity
         axiswise_dim: if axiswise granularity is used, defines the dim to scale across
         round_scales_to_power_of_2: if true, round scaling factor down to the nearest power of 2.
+        allow_in_graph: if True, use the `allow_in_graph`-decorated autograd Function
+          for the fp8 cast, otherwise use the plain implementation.
     """
     scale = tensor_to_scale(
         hp_tensor,
@@ -69,6 +72,7 @@ def hp_tensor_to_float8_dynamic(
         linear_mm_config,
         gemm_input_role,
         axiswise_dim,
+        allow_in_graph,
     )
 
 
@@ -87,10 +91,14 @@ def get_maybe_axiswise_dim(
     return None
 
 
-class NoopFwToFloat8BwDynamic(torch.autograd.Function):
+class _NoopFwToFloat8BwDynamic_impl(torch.autograd.Function):
     """
     Forward: no-op
     Backward: convert to float8_e5m2 with dynamic scaling
+
+    This is the undecorated implementation. See `NoopFwToFloat8BwDynamic` for the
+    `allow_in_graph`-decorated variant. Which one is used at runtime is
+    controlled by `Float8LinearConfig._autograd_fn_allow_in_graph`.
     """
 
     @staticmethod
@@ -99,15 +107,17 @@ class NoopFwToFloat8BwDynamic(torch.autograd.Function):
         tensor,
         linear_mm_config: LinearMMConfig,
         target_dtype: torch.dtype,
+        allow_in_graph: bool = True,
     ):
         ctx.linear_mm_config = linear_mm_config
         ctx.target_dtype = target_dtype
+        ctx.allow_in_graph = allow_in_graph
         return tensor
 
     @staticmethod
     def backward(ctx, gradY):
         if tensor_already_casted_to_fp8(gradY):
-            return gradY, None, None
+            return gradY, None, None, None
         gradY_scale = tensor_to_scale(gradY, ctx.target_dtype)
         fp8_tensor = hp_tensor_and_scale_to_float8(
             gradY,
@@ -115,5 +125,16 @@ class NoopFwToFloat8BwDynamic(torch.autograd.Function):
             ctx.target_dtype,
             ctx.linear_mm_config,
             GemmInputRole.GRAD_OUTPUT,
+            allow_in_graph=ctx.allow_in_graph,
         )
-        return fp8_tensor, None, None
+        return fp8_tensor, None, None, None
+
+
+@torch._dynamo.allow_in_graph
+class NoopFwToFloat8BwDynamic(_NoopFwToFloat8BwDynamic_impl):
+    """
+    `allow_in_graph`-decorated variant of `_NoopFwToFloat8BwDynamic_impl`. See
+    that class for the implementation.
+    """
+
+    pass

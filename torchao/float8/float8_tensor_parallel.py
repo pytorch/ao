@@ -17,6 +17,7 @@ from torchao.float8.config import ScalingType, e4m3_dtype
 from torchao.float8.distributed_utils import tensor_already_casted_to_fp8
 from torchao.float8.float8_scaling_utils import (
     NoopFwToFloat8BwDynamic,
+    _NoopFwToFloat8BwDynamic_impl,
     hp_tensor_to_float8_dynamic,
 )
 from torchao.float8.float8_training_tensor import GemmInputRole
@@ -62,6 +63,7 @@ class Float8ColwiseParallel(ColwiseParallel):
                 mod.config.cast_config_input.target_dtype,
                 mod.linear_mm_config,
                 gemm_input_role=GemmInputRole.INPUT,
+                allow_in_graph=mod.config._autograd_fn_allow_in_graph,
             )  # DTensor(Float8TrainingTensor)
 
         # transform the input layouts to the desired layouts of ColwiseParallel
@@ -80,10 +82,15 @@ class Float8ColwiseParallel(ColwiseParallel):
             )  # DTensor(torch.Tensor)
 
         # fwd noop bwd cast to DTensor(Float8TrainingTensor)
-        outputs = NoopFwToFloat8BwDynamic.apply(
+        allow_in_graph = mod.config._autograd_fn_allow_in_graph
+        autograd_fn = (
+            NoopFwToFloat8BwDynamic if allow_in_graph else _NoopFwToFloat8BwDynamic_impl
+        )
+        outputs = autograd_fn.apply(
             outputs,
             mod.linear_mm_config,
             mod.config.cast_config_grad_output.target_dtype,
+            allow_in_graph,
         )
 
         # back to local tensor
@@ -126,6 +133,7 @@ class Float8RowwiseParallel(RowwiseParallel):
                 mod.config.cast_config_input.target_dtype,
                 mod.linear_mm_config,
                 gemm_input_role=GemmInputRole.INPUT,
+                allow_in_graph=mod.config._autograd_fn_allow_in_graph,
             )  # DTensor(Float8TrainingTensor)
 
         if input_layouts != desired_input_layouts:
@@ -143,10 +151,15 @@ class Float8RowwiseParallel(RowwiseParallel):
             outputs = outputs.redistribute(placements=output_layouts, async_op=True)
 
         # fwd noop bwd cast to DTensor(Float8TrainingTensor)
-        outputs = NoopFwToFloat8BwDynamic.apply(
+        allow_in_graph = mod.config._autograd_fn_allow_in_graph
+        autograd_fn = (
+            NoopFwToFloat8BwDynamic if allow_in_graph else _NoopFwToFloat8BwDynamic_impl
+        )
+        outputs = autograd_fn.apply(
             outputs,
             mod.linear_mm_config,
             mod.config.cast_config_grad_output.target_dtype,
+            allow_in_graph,
         )
 
         # back to local tensor if use_local_output is True
