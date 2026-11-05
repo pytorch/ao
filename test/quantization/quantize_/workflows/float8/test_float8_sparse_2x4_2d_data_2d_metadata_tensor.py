@@ -10,7 +10,9 @@ import unittest
 
 import torch
 from torch import nn
+from torch._inductor.utils import run_and_get_code
 from torch.ao.pruning import WeightNormSparsifier
+from torch.testing import FileCheck
 from torch.testing._internal import common_utils
 
 from torchao.ops import (
@@ -304,7 +306,11 @@ class TestFloat8Sparse2x4_2DData2DMetadataTensor(common_utils.TestCase):
     @unittest.skipIf(not is_sm_at_least_90(), "Need H100 to run")
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     @common_utils.parametrize("compile", [True, False])
-    def test_fp8_cutlass_sparse(self, compile):
+    @common_utils.parametrize("backend", list(SparseKernelChoice))
+    def test_fp8_cutlass_sparse(self, backend, compile):
+        if backend is SparseKernelChoice.CUTEDSL and not _cutedsl_runtime_available():
+            self.skipTest("CuTeDSL runtime unavailable")
+
         with torch.inference_mode():
             input = torch.rand((256, 256), dtype=torch.bfloat16, device="cuda")
             model = (
@@ -333,11 +339,21 @@ class TestFloat8Sparse2x4_2DData2DMetadataTensor(common_utils.TestCase):
                     version=2,
                     packing_format=Float8PackingFormat.SPARSE_2D_DATA_2D_METADATA,
                     granularity=PerRow(),
+                    _sparse_kernel_choice=backend,
                 ),
             )
             if compile:
                 model = torch.compile(model)
-            sparse_result = model(input)
+                sparse_result, code = run_and_get_code(model, input)
+                if backend is SparseKernelChoice.CUTEDSL:
+                    # One CuTeDSL sparse GEMM per linear layer, and no fallback.
+                    FileCheck().check_count(
+                        "torch.ops.torchao.rowwise_scaled_linear_sparse_cutedsl.default(",
+                        2,
+                        exactly=True,
+                    ).run(code[0])
+            else:
+                sparse_result = model(input)
             sparse_sqnr = compute_error(baseline_result, sparse_result)
 
             self.assertEqual(dense_sqnr, sparse_sqnr)
