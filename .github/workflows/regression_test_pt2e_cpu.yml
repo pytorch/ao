@@ -70,4 +70,4 @@ jobs:
         export LD_LIBRARY_PATH=$CONDA/lib/:$LD_LIBRARY_PATH
         # Bound the worker count: these tests launch Inductor/C++ compilers,
         # so using every available CPU could oversubscribe the runner.
-        pytest test/quantization/pt2e --verbose -n 4 --dist=worksteal --durations=25
+        pytest test/quantization/pt2e --verbose -n 8 --dist=worksteal --durations=25

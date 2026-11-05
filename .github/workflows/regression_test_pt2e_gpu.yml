@@ -74,7 +74,7 @@ jobs:
         # Run PT2E tests, excluding the slow CPU-only x86 Inductor tests (they
         # are owned by regression_test_pt2e_cpu.yml). Everything else runs so the
         # CUDA-specific PT2E paths get coverage.
-        pytest test/quantization/pt2e --verbose -s \
+        pytest test/quantization/pt2e --verbose -n 8 --dist=worksteal --durations=25 \
           --ignore=test/quantization/pt2e/test_x86inductor_fusion.py \
           --ignore=test/quantization/pt2e/test_x86inductor_quantizer.py
 
@@ -117,6 +117,6 @@ jobs:
         export LD_LIBRARY_PATH=$CONDA/lib/:$LD_LIBRARY_PATH
         # Run PT2E tests, excluding the slow CPU-only x86 Inductor tests (they
         # are owned by regression_test_pt2e_cpu.yml).
-        pytest test/quantization/pt2e --verbose -s \
+        pytest test/quantization/pt2e --verbose -n 8 --dist=worksteal --durations=25 \
           --ignore=test/quantization/pt2e/test_x86inductor_fusion.py \
           --ignore=test/quantization/pt2e/test_x86inductor_quantizer.py
