@@ -119,11 +119,15 @@ def choose_scaled_mm_config(
         raise AssertionError(f"unexpected a_role {a_role} and b_role {b_role}")
 
 
-class _ToFloat8ConstrFunc(torch.autograd.Function):
+class _ToFloat8ConstrFunc_impl(torch.autograd.Function):
     """
     A differentiable conversion to fp8.
     * forward: convert from high precision to float8
     * backward: pass the gradient without changes
+
+    This is the undecorated implementation. See `_ToFloat8ConstrFunc` for the
+    `allow_in_graph`-decorated variant. Which one is used at runtime is
+    controlled by `Float8LinearConfig._autograd_fn_allow_in_graph`.
     """
 
     @staticmethod
@@ -191,11 +195,24 @@ class _ToFloat8ConstrFunc(torch.autograd.Function):
         return g, None, None, None, None, None
 
 
-class _FromFloat8ConstrFunc(torch.autograd.Function):
+@torch._dynamo.allow_in_graph
+class _ToFloat8ConstrFunc(_ToFloat8ConstrFunc_impl):
+    """
+    `allow_in_graph`-decorated variant of `_ToFloat8ConstrFunc_impl`. See that
+    class for the implementation.
+    """
+
+    pass
+
+
+class _FromFloat8ConstrFunc_impl(torch.autograd.Function):
     """
     A differentiable conversion from fp8.
     * forward: convert from float8 to high precision
     * backward: pass the gradient without changes
+
+    This is the undecorated implementation. See `_FromFloat8ConstrFunc` for the
+    `allow_in_graph`-decorated variant.
     """
 
     @staticmethod
@@ -207,6 +224,16 @@ class _FromFloat8ConstrFunc(torch.autograd.Function):
         return g, None, None
 
 
+@torch._dynamo.allow_in_graph
+class _FromFloat8ConstrFunc(_FromFloat8ConstrFunc_impl):
+    """
+    `allow_in_graph`-decorated variant of `_FromFloat8ConstrFunc_impl`. See that
+    class for the implementation.
+    """
+
+    pass
+
+
 def hp_tensor_and_scale_to_float8(
     hp_tensor: torch.Tensor,
     s: torch.Tensor,
@@ -214,6 +241,7 @@ def hp_tensor_and_scale_to_float8(
     linear_mm_config: Optional[LinearMMConfig] = None,
     gemm_input_role: Optional[GemmInputRole] = GemmInputRole.INPUT,
     axiswise_dim: Optional[int] = None,
+    allow_in_graph: bool = True,
 ):
     """
     Given a high precision tensor `hp_tensor` and a precalculated scale `s`,
@@ -231,8 +259,11 @@ def hp_tensor_and_scale_to_float8(
         gemm_input_role: Defines the role of this tensor (input, weight or grad_output) in
           the 3 fwd/bwd gemms of linear
         axiswise_dim: for rowwise scaling, contains the axis scaled across
+        allow_in_graph: if True, use the `allow_in_graph`-decorated autograd
+          Function, otherwise use the plain implementation
     """
-    return _ToFloat8ConstrFunc.apply(
+    autograd_fn = _ToFloat8ConstrFunc if allow_in_graph else _ToFloat8ConstrFunc_impl
+    return autograd_fn.apply(
         hp_tensor, s, float8_dtype, linear_mm_config, gemm_input_role, axiswise_dim
     )
 
@@ -340,8 +371,11 @@ class Float8TrainingTensor(torch.Tensor):
             metadata["_axiswise_dim"],
         )
 
-    def to_original_precision(self):
-        return _FromFloat8ConstrFunc.apply(self)
+    def to_original_precision(self, allow_in_graph: bool = True):
+        autograd_fn = (
+            _FromFloat8ConstrFunc if allow_in_graph else _FromFloat8ConstrFunc_impl
+        )
+        return autograd_fn.apply(self)
 
     @classmethod
     def __torch_dispatch__(cls, func, types, args, kwargs=None):
