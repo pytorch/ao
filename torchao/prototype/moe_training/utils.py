@@ -1,3 +1,9 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+# All rights reserved.
+#
+# This source code is licensed under the BSD 3-Clause license found in the
+# LICENSE file in the root directory of this source tree.
+
 """Shared utilities for MoE training: FP8/MXFP8 quantization, group padding/unpadding, and scaled grouped matmul."""
 
 import random
@@ -396,6 +402,8 @@ def _quantize_then_scaled_grouped_mm(
             "wgrad_with_hp": config.wgrad_with_hp,
             "scale_calculation_mode": config.scale_calculation_mode,
             "pad_token_groups_for_grouped_mm": config.pad_token_groups_for_grouped_mm,
+            "mxfp8_dim0_cast_kernel_choice": config.mxfp8_dim0_cast_kernel_choice,
+            "mxfp8_dim1_cast_kernel_choice": config.mxfp8_dim1_cast_kernel_choice,
         }
         if bias is not None:
             kwargs["bias"] = bias
