@@ -509,10 +509,10 @@ def _quantize_affine_no_dtype_cast(
         # with numel=0 which we handle by unifying the two
         zero_point = None
 
-    quant = _Round.apply(input * (1.0 / scale))
+    quant = input * (1.0 / scale)
     if zero_point is not None:
         quant = quant + zero_point
-    quant = _ClampSTE.apply(quant, quant_min, quant_max)
+    quant = _ClampSTE.apply(_Round.apply(quant), quant_min, quant_max)
     quant = quant.view(original_shape)
 
     return quant
