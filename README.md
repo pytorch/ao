@@ -4,6 +4,21 @@
 
 </div>
 
+> [!NOTE]
+> ### An update on next steps for torchao
+> We are minimizing new feature development in torchao, and consolidating quantization development in other repositories as follows:
+> * low level quantization primitives (dtypes, casts and gemms) will be added directly to `torch`, as long as they are stable and foundational.  Examples are `torch.nn.functional.scaled_mm` and the upcoming `torch.nn.functional.quantize_tensor`.
+> * higher level quantization building blocks and e2e workflows will be inlined directly into the repositories that need them (for example, `torchtitan`), for maximum flexibility and control.
+> 
+> TorchAO's e2e quantization workflows will receive the necessary updates to keep working with future torch versions, and we will land bug fixes / improvements on a case-by-case basis.
+> 
+> For context, TorchAO was originally created in 2024 to provide unified no-model-changes-required quantization workflows for PyTorch models, and it was quickly adopted by key ecosystem libraries such as `transformers`, `diffusers` and `torchtitan`, leading to speedups of up to 1.5x-2x across a range of various quantized training ([example](https://pytorch.org/blog/accelerating-large-scale-training-and-convergence-with-pytorch-float8-rowwise-on-crusoe-2k-h200s/)) and inference ([example](https://pytorch.org/blog/accelerating-llm-inference/)) workloads.  Since then, two industry trends have changed how developers prefer to consume quantization offerings:
+> * The rise of agentic software development decreased the cost of authoring use-case-specific quantization workflow code.
+> * The Mixture-of-Experts (MoE) architecture gained prominence.  Implementing quantization for MoE (vs dense) is more complex because of additional decisions such as (i) whether to quantize before or after dispatch and (ii) choosing kernel fusion boundaries across dispatch, local expert computation and combine and aligning the chosen boundaries with quantization formats.  This makes it simpler to inline MoE quantization into the training/inference framework versus encoding these choices in a config + op swap abstraction, especially with agent-assisted development.
+>
+> We believe that offering a small set of highly optimized primitives in torch and authoring quantization workflows directly in training and inference frameworks is the right tradeoff to support quantization research and productization going forward.
+
+
 ### PyTorch-Native Training-to-Serving Model Optimization
 - Pre-train Llama-3.1-70B **1.5x faster** with float8 training
 - Recover **67% of quantized accuracy degradation** on Gemma3-4B with QAT
