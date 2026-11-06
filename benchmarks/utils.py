@@ -76,8 +76,10 @@ def profile_fwd_bwd(
     print(f"Saved: {profile_name}.json")
 
 
-def profile_fn(fn, *args, profile_name="profile", distributed=False, **kwargs):
-    wait, warmup, active = 1, 1, 1
+def profile_fn(
+    fn, *args, profile_name="profile", distributed=False, active_steps=1, **kwargs
+):
+    wait, warmup, active = 1, 1, active_steps
     total_steps = wait + warmup + active
     with torch.profiler.profile(
         activities=[
