@@ -5,20 +5,6 @@
 # LICENSE file in the root directory of this source tree.
 
 
-def pytest_sessionstart(session):
-    # Spread single-device tests across GPUs without hiding devices from
-    # existing multi-GPU tests or changing parametrization during collection.
-    worker_input = getattr(session.config, "workerinput", None)
-    if worker_input is None:
-        return
-
-    import torch
-
-    if torch.cuda.is_available():
-        worker_index = int(worker_input["workerid"].removeprefix("gw"))
-        torch.cuda.set_device(worker_index % torch.cuda.device_count())
-
-
 def pytest_sessionfinish(session, exitstatus):
     # Workaround for https://github.com/pytorch/pytorch/pull/180283, which made
     # the cuBLAS/cuBLASLt workspace maps thread_local (previously an intentionally
