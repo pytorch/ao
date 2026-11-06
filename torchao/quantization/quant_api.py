@@ -1720,6 +1720,8 @@ def _fqn_to_config_handler(
                         raise NotImplementedError(
                             f"{type(c)} does not yet support parameter quantization! Please see https://github.com/pytorch/ao/issues/3252 for more details"
                         )
+                # First matching regex pattern wins (including None = skip param).
+                break
 
     # try to match regex on module fqn
     if not parameter_config_found:
