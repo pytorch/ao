@@ -46,21 +46,18 @@ from cutlass.utils.gemm.sm100 import transform_partitioned_tensor_layout
 
 from ._cutedsl_kernels_impl import (
     DEFAULT_SIGN_VECTOR,
-    FP4_E2M1_MAX,
-    FP8_E4M3_MAX,
-    FP32_MAX,
     HADAMARD_DIM,
     TILE_BLOCKS,
     _abs_f32,
     _atom_max_f32_nonneg,
     _bf16hi_to_f32,
     _bf16lo_to_f32,
-    _div_rn_f32,
     _get_rht_buffer,
     _get_sr_rng_buffer,
+    _global_scale,
     _max_f32,
-    _min_f32,
     _quant16,
+    _rht_col_philox_counter,
     _round_rht_amax,
     philox4_all,
     philox_prep,
@@ -194,26 +191,6 @@ def _group_at_work_item(tile_n_base, offsets_t, num_groups):
     """
     g = _group_idx(tile_n_base * cutlass.Int32(TOKEN_TILE), offsets_t, num_groups)
     return g, offsets_t[g]
-
-
-def _global_scale(amax):
-    """NVFP4 two-level scale scalars from a global amax (TE :779-785).
-
-    Returns ``(encode, decode, encode / fp4_max)``; a zero amax yields identity
-    scales so the block scales stay finite.
-    """
-    is_zero = amax == cutlass.Float32(0.0)
-    safe = cutlass.Float32(cutlass.select_(is_zero, cutlass.Float32(1.0), amax))
-    c = _min_f32(
-        _div_rn_f32(cutlass.Float32(FP8_E4M3_MAX * FP4_E2M1_MAX), safe),
-        cutlass.Float32(FP32_MAX),
-    )
-    c = cutlass.Float32(
-        cutlass.select_(c == cutlass.Float32(0.0), cutlass.Float32(1.0), c)
-    )
-    enc = cutlass.Float32(cutlass.select_(is_zero, cutlass.Float32(1.0), c))
-    dec = _div_rn_f32(cutlass.Float32(1.0), enc)
-    return enc, dec, enc * cutlass.Float32(1.0 / FP4_E2M1_MAX)
 
 
 class _GroupRhtMainloop:
@@ -779,7 +756,6 @@ class _Tcgen05GroupRowColFused(_GroupRhtMainloop):
                             g_end = offsets_t[g]
                             _, dec, enc_over_fp4max = _global_scale(col_amax_t[g])
                         h_global = tile_m * cutlass.Int32(M_TILE) + h_local
-                        tile_id = tile_n * tiles_in_h + tile_m
 
                         acc_pipeline.consumer_wait(acc_consumer_state)
                         cute.copy(
@@ -797,13 +773,11 @@ class _Tcgen05GroupRowColFused(_GroupRhtMainloop):
                             vals = bulk_vals[(None, u)]
                             col_rb = None
                             if cutlass.const_expr(self.sr):
-                                # One draw per 16-element block, indexed by its position in
-                                # the columnwise (hidden, tokens) tile.
                                 col_rb = philox4_all(
                                     col_state,
-                                    tile_id * cutlass.Int32(TILE_BLOCKS)
-                                    + h_local * cutlass.Int32(TOKEN_TILE // 16)
-                                    + cutlass.Int32(u),
+                                    _rht_col_philox_counter(
+                                        tile_n, tile_m, tiles_in_h, h_local, u
+                                    ),
                                 )
                             w0, w1, sf = _quant16(
                                 vals,
