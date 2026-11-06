@@ -4,7 +4,7 @@
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
 from dataclasses import dataclass
-from typing import List, Optional, Tuple, Union
+from typing import Any, List, Optional, Tuple, Union
 
 import torch
 from torch.utils._python_dispatch import return_and_correct_aliasing
@@ -258,6 +258,90 @@ class Int8Tensor(TorchAOBaseTensor):
             output_dtype=output_dtype if output_dtype is not None else self.dtype,
         )
 
+    def fsdp_pre_all_gather(
+        self,
+        mesh,
+        outer_size=None,
+        outer_stride=None,
+        module=None,
+        mp_policy=None,
+    ):
+        """Return the row-sharded representation for FSDP2 all-gather."""
+        if self.ndim != 2 or self.block_size[0] != 1:
+            raise NotImplementedError(
+                "Int8Tensor FSDP2 only supports 2D weights with per-row "
+                f"quantization, got shape={self.shape}, block_size={self.block_size}"
+            )
+
+        if outer_size is not None and outer_size[0] % mesh.size() != 0:
+            raise NotImplementedError(
+                "Int8Tensor FSDP2 requires the number of rows to be evenly "
+                f"divisible by the FSDP world size, got rows={outer_size[0]}, "
+                f"world_size={mesh.size()}"
+            )
+
+        all_gather_inputs = [self.qdata, self.scale]
+        has_zero_point = self.zero_point is not None
+        if has_zero_point:
+            all_gather_inputs.append(self.zero_point)
+        metadata = (
+            self.block_size,
+            self.act_quant_scale,
+            self.act_quant_zero_point,
+            self.act_pre_scale,
+            self.act_quant_kwargs,
+            self.reduce_range,
+            has_zero_point,
+        )
+        return tuple(all_gather_inputs), metadata
+
+    def fsdp_post_all_gather(
+        self,
+        all_gather_outputs: Tuple[torch.Tensor, ...],
+        metadata: Any,
+        param_dtype: torch.dtype,
+        *,
+        out: Optional[torch.Tensor] = None,
+    ):
+        """Rebuild an Int8Tensor after FSDP2 gathers its inner tensors."""
+        (
+            block_size,
+            act_quant_scale,
+            act_quant_zero_point,
+            act_pre_scale,
+            act_quant_kwargs,
+            reduce_range,
+            has_zero_point,
+        ) = metadata
+        qdata, scale, *optional_outputs = all_gather_outputs
+        zero_point = optional_outputs[0] if has_zero_point else None
+        gathered = Int8Tensor(
+            qdata,
+            scale,
+            block_size,
+            param_dtype,
+            zero_point=zero_point,
+            act_quant_scale=act_quant_scale,
+            act_quant_zero_point=act_quant_zero_point,
+            act_pre_scale=act_pre_scale,
+            act_quant_kwargs=act_quant_kwargs,
+            reduce_range=reduce_range,
+        )
+
+        if out is not None:
+            from torch.distributed.tensor import DTensor
+
+            local_out = out.to_local() if isinstance(out, DTensor) else out
+            if not isinstance(local_out, Int8Tensor):
+                raise RuntimeError(
+                    "out must be an Int8Tensor or DTensor with an Int8Tensor "
+                    f"local tensor, got {type(out)}"
+                )
+            local_out.copy_(gathered)
+            return None
+
+        return gathered, all_gather_outputs
+
 
 implements = Int8Tensor.implements
 implements_torch_function = Int8Tensor.implements_torch_function
@@ -420,6 +504,89 @@ def _(func, types, args, kwargs):
             reduce_range=self.reduce_range,
         ),
     )
+
+
+@implements(aten.split.Tensor)
+def _(func, types, args, kwargs):
+    """Split a per-row Int8Tensor along rows for FSDP2 sharding."""
+    self, split_size, dim = fill_defaults(args, 3, [0])
+    dim = dim % self.ndim
+    if self.ndim != 2 or dim != 0 or self.block_size[0] != 1:
+        raise NotImplementedError(
+            "Int8Tensor split only supports dim=0 for 2D per-row weights, "
+            f"got shape={self.shape}, block_size={self.block_size}, dim={dim}"
+        )
+    if split_size <= 0:
+        raise ValueError(f"split_size must be greater than 0, got {split_size}")
+
+    return [
+        aten.slice.Tensor(self, dim, start, min(start + split_size, self.shape[dim]))
+        for start in range(0, self.shape[dim], split_size)
+    ]
+
+
+@implements(aten.new_zeros.default)
+def _(func, types, args, kwargs):
+    """Allocate a zeroed per-row shard with matching Int8Tensor metadata."""
+    self, size = args[:2]
+    size = tuple(size)
+    if (
+        self.ndim != 2
+        or len(size) != 2
+        or size[1] != self.shape[1]
+        or self.block_size[0] != 1
+    ):
+        raise NotImplementedError(
+            "Int8Tensor new_zeros only supports row-resized 2D per-row weights, "
+            f"got old_size={tuple(self.shape)}, new_size={size}, "
+            f"block_size={self.block_size}"
+        )
+
+    device = kwargs.get("device", self.device)
+    pin_memory = kwargs.get("pin_memory", False)
+
+    def resize_rows(tensor):
+        tensor_size = tensor.shape
+        if tensor.ndim > 0 and tensor.shape[0] == self.shape[0]:
+            tensor_size = (size[0], *tensor.shape[1:])
+        return torch.zeros(
+            tensor_size,
+            dtype=tensor.dtype,
+            device=device,
+            pin_memory=pin_memory,
+        )
+
+    return self._apply_fn_to_data(resize_rows)
+
+
+@implements(aten.view.default)
+def _(func, types, args, kwargs):
+    """Flatten an Int8Tensor shard for FSDP2 storage management."""
+    self, size = args[:2]
+    if tuple(size) not in [(-1,), (self.numel(),)]:
+        raise NotImplementedError(
+            f"Int8Tensor view only supports flattening, got size={tuple(size)}"
+        )
+    viewed = self._apply_fn_to_data(lambda tensor: tensor.reshape(-1))
+    return return_and_correct_aliasing(func, args, kwargs, viewed)
+
+
+@implements(aten.as_strided.default)
+def _(func, types, args, kwargs):
+    """Restore the original contiguous view after an FSDP2 all-gather."""
+    self, size, stride, storage_offset = args[:4]
+    if (
+        tuple(size) != tuple(self.shape)
+        or tuple(stride) != tuple(self.stride())
+        or storage_offset != self.storage_offset()
+    ):
+        raise NotImplementedError(
+            "Int8Tensor as_strided only supports its existing contiguous view, "
+            f"got size={tuple(size)}, stride={tuple(stride)}, "
+            f"storage_offset={storage_offset}"
+        )
+    viewed = self._apply_fn_to_data(lambda tensor: tensor)
+    return return_and_correct_aliasing(func, args, kwargs, viewed)
 
 
 @implements(aten.index.Tensor)
