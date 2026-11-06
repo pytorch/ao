@@ -115,6 +115,10 @@ _CUDA_IS_AVAILABLE = torch.cuda.is_available()
 _DEVICE = (
     get_current_accelerator_device() if torch.accelerator.is_available() else "cpu"
 )
+# devices the weight-only MX QAT tests run on: the dual-sided path goes
+# through _addmm_mx_dispatch, while the weight-only path is pure torch and
+# also runs on CPU (mirrors the _DEVICES idiom in test_low_bit_optim.py)
+_DEVICES = ["cpu"] + (["cuda"] if _CUDA_IS_AVAILABLE else [])
 
 
 class Sub(torch.nn.Module):
@@ -3368,14 +3372,119 @@ class TestQAT(TestCase):
                 weight_config=None,
             )
 
-        with self.assertRaisesRegex(ValueError, "Weight only MX QAT not supported yet"):
-            MXFakeQuantizedLinear(
-                256,
-                128,
-                bias=True,
-                activation_config=None,
-                weight_config=MXFakeQuantizeConfig(),
+    @parametrize("device", _DEVICES)
+    @parametrize("bias", [True, False])
+    @parametrize("input_shape", [(128, 256), (2, 64, 256)])
+    @parametrize(
+        "dtype",
+        [torch.float4_e2m1fn_x2, torch.float8_e4m3fn],
+    )
+    def test_mx_weight_only_linear(self, device, bias, input_shape, dtype):
+        """Weight-only MX QAT: activation_config=None keeps the activations
+        in high precision; forward is a high precision linear over the
+        weight fake quantized to the MX grid (covers W4A16 and W8A16
+        shapes), and backward keeps the STE semantics of the dual-sided
+        path.
+
+        The weight-only path only uses pure torch ops (to_mx, dequantize,
+        F.linear) and does not go through _addmm_mx_dispatch, so it runs on
+        CPU as well - the device parametrization covers both."""
+        from torchao.prototype.mx_formats.mx_tensor import MXTensor
+        from torchao.prototype.qat import MXFakeQuantizeConfig, MXFakeQuantizedLinear
+
+        K, N = 256, 128
+        weight_config = MXFakeQuantizeConfig(
+            dtype=dtype,
+            block_size=32,
+        )
+
+        linear = torch.nn.Linear(K, N, bias=bias, device=device, dtype=torch.bfloat16)
+        mx_linear = MXFakeQuantizedLinear.from_linear(
+            linear,
+            activation_config=None,
+            weight_config=weight_config,
+        )
+        self.assertIsNone(mx_linear.activation_config)
+
+        # forward: the implementation runs the same ops on the same inputs
+        # as the reference below, so the outputs are bitwise identical
+        x = torch.randn(
+            *input_shape, device=device, dtype=torch.bfloat16, requires_grad=True
+        )
+        y = mx_linear(x)
+
+        # reference: weight on the same MX grid then dequantized, activations
+        # untouched, high precision linear
+        w_ref = MXTensor.to_mx(
+            linear.weight,
+            weight_config.dtype,
+            block_size=weight_config.block_size,
+            scaling_mode=weight_config.scaling_mode,
+            kernel_preference=weight_config.kernel_preference,
+        ).dequantize(torch.bfloat16)
+        y_ref = torch.nn.functional.linear(x, w_ref, linear.bias)
+
+        self.assertEqual(y.shape, y_ref.shape)
+        self.assertEqual(y.dtype, y_ref.dtype)
+        torch.testing.assert_close(y, y_ref, rtol=0, atol=0)
+
+        # backward: STE semantics - grad_weight flows through the high
+        # precision input unchanged, grad_input is computed with the fake
+        # quantized weight
+        grad_output = torch.randn(*y.shape, device=device, dtype=torch.bfloat16)
+        y.backward(grad_output)
+
+        self.assertIsNotNone(x.grad)
+        self.assertIsNotNone(mx_linear.weight.grad)
+        if bias:
+            self.assertIsNotNone(mx_linear.bias.grad)
+
+        grad_output_2d = grad_output.view(-1, grad_output.shape[-1])
+        grad_input_ref = torch.mm(grad_output_2d, w_ref).view(*x.shape)
+        grad_weight_ref = torch.mm(
+            grad_output_2d.t(), x.detach().view(-1, K)
+        )
+        torch.testing.assert_close(x.grad, grad_input_ref, rtol=0, atol=0)
+        torch.testing.assert_close(
+            mx_linear.weight.grad, grad_weight_ref, rtol=0, atol=0
+        )
+        if bias:
+            torch.testing.assert_close(
+                mx_linear.bias.grad, grad_output_2d.sum(0), rtol=0, atol=0
             )
+
+    @unittest.skipIf(not _CUDA_IS_AVAILABLE, "skipping when cuda is not available")
+    @parametrize("weight_only", [False, True])
+    def test_mx_qat_end_to_end(self, weight_only):
+        """MX QAT end to end: prepare swaps in MXFakeQuantizedLinear
+        (weight-only when requested, dual-sided otherwise), a training step
+        runs, convert swaps the module back to nn.Linear."""
+        from torchao.prototype.qat import MXFakeQuantizeConfig, MXFakeQuantizedLinear
+
+        M, K, N = 32, 256, 128
+        model = torch.nn.Sequential(
+            torch.nn.Linear(K, N, bias=True, device="cuda", dtype=torch.bfloat16),
+        )
+
+        activation_config = None if weight_only else MXFakeQuantizeConfig()
+        quantize_(
+            model,
+            QATConfig(
+                activation_config=activation_config,
+                weight_config=MXFakeQuantizeConfig(),
+                step="prepare",
+            ),
+        )
+        self.assertIsInstance(model[0], MXFakeQuantizedLinear)
+        if weight_only:
+            self.assertIsNone(model[0].activation_config)
+
+        x = torch.randn(M, K, device="cuda", dtype=torch.bfloat16)
+        model(x).sum().backward()
+        self.assertIsNotNone(model[0].weight.grad)
+
+        quantize_(model, QATConfig(step="convert"))
+        self.assertIsInstance(model[0], torch.nn.Linear)
 
     @unittest.skipIf(not _CUDA_IS_AVAILABLE, "skipping when cuda is not available")
     @parametrize(
