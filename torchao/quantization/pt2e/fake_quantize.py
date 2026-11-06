@@ -25,8 +25,10 @@ from torchao.quantization.pt2e.observer import (
     FixedQParamsObserver,
     HistogramObserver,
     MappingType,
+    MinMaxObserver,
     MovingAverageMinMaxObserver,
     MovingAveragePerChannelMinMaxObserver,
+    PerChannelMinMaxObserver,
     ZeroPointDomain,
     _with_args,
     default_fixed_qparams_range_0to1_observer,
@@ -148,6 +150,55 @@ class FakeQuantizeBase(ABC, Module):
         return fake_quant_constructor
 
 
+# Observers whose update and qparam math FakeQuantize can run with its enable
+# flags evaluated on the device (exact types only; subclasses keep the host path).
+_DEVICE_FLAG_OBSERVERS = (
+    MinMaxObserver,
+    MovingAverageMinMaxObserver,
+    PerChannelMinMaxObserver,
+    MovingAveragePerChannelMinMaxObserver,
+)
+_DEVICE_FLAG_QSCHEMES = (
+    torch.per_tensor_affine,
+    torch.per_tensor_symmetric,
+    torch.per_channel_affine,
+    torch.per_channel_symmetric,
+)
+
+
+class _GatedFakeQuantizePerChannel(torch.autograd.Function):
+    """``fake_quantize_per_channel_affine`` applied where the 0-dim bool tensor
+    ``enabled`` is True and the identity elsewhere, chosen on the device.
+
+    The gradient is ``grad * mask`` (identity when disabled), the same expression
+    as the stock op's backward, so gradients match it bit for bit.
+    """
+
+    @staticmethod
+    def forward(ctx, X, scale, zero_point, enabled, ch_axis, quant_min, quant_max):
+        Y, mask = torch.ops.aten.fake_quantize_per_channel_affine_cachemask(
+            X, scale, zero_point, ch_axis, quant_min, quant_max
+        )
+        mask = mask | ~enabled
+        ctx.save_for_backward(mask)
+        return torch.where(enabled, Y, X)
+
+    @staticmethod
+    def backward(ctx, dY):
+        (mask,) = ctx.saved_tensors
+        return (
+            torch.ops.aten.fake_quantize_per_channel_affine_cachemask_backward(
+                dY, mask
+            ),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+
+
 class FakeQuantize(FakeQuantizeBase):
     r"""Simulate the quantize and dequantize operations in training time.
 
@@ -186,6 +237,10 @@ class FakeQuantize(FakeQuantizeBase):
 
     scale: torch.Tensor
     zero_point: torch.Tensor
+    # Evaluate observer_enabled / fake_quant_enabled on the device for CUDA inputs
+    # (no CPU-GPU sync per forward). Set to False on an instance to use the
+    # original host-side checks.
+    _device_flags: bool = True
 
     def __init__(
         self,
@@ -243,6 +298,10 @@ class FakeQuantize(FakeQuantizeBase):
         return self.activation_post_process.calculate_qparams()
 
     def forward(self, X):
+        if not torch.jit.is_scripting():
+            if self._device_flags and self._can_use_device_flags(X):
+                return self._forward_device_flags(X)
+        # Keep in sync with _forward_device_flags.
         if self.observer_enabled[0] == 1:
             self.activation_post_process(X.detach())
             _scale, _zero_point = self.calculate_qparams()
@@ -275,6 +334,62 @@ class FakeQuantize(FakeQuantizeBase):
                     self.activation_post_process.quant_max,
                 )
         return X
+
+    def _can_use_device_flags(self, X: torch.Tensor) -> bool:
+        obs = self.activation_post_process
+        if type(self) is not FakeQuantize or type(obs) not in _DEVICE_FLAG_OBSERVERS:
+            return False
+        if not X.is_cuda or X.numel() == 0 or obs.qscheme not in _DEVICE_FLAG_QSCHEMES:
+            return False
+        if obs.min_val.numel() == 0:
+            # per-channel observer before its first call: the host path sizes the buffers
+            return False
+        if obs.min_val.device != X.device or self.scale.device != X.device:
+            return False
+        expected = (1,) if obs.min_val.dim() == 0 else tuple(obs.min_val.shape)
+        return (
+            tuple(self.scale.shape) == expected
+            and tuple(self.zero_point.shape) == expected
+        )
+
+    def _forward_device_flags(self, X: torch.Tensor) -> torch.Tensor:
+        """The same tensor operations as the host path, with both enable flags and
+        the observer's first-call check evaluated on the device."""
+        obs = self.activation_post_process
+        observer_on = self.observer_enabled.reshape(()) == 1
+        obs._forward_masked(X.detach(), observer_on)
+        _scale, _zero_point, ok = obs._calculate_qparams_device(
+            obs.min_val, obs.max_val
+        )
+        # The host path's min <= max check (check_min_max_valid): per-channel it is
+        # torch.all over the channels, so one bad channel fails both paths. On
+        # failure (e.g. NaN inputs) the host path raises AssertionError; here it is
+        # a device-side assert, per-tensor and per-channel alike, which cannot be
+        # caught and leaves the CUDA context unusable.
+        torch._assert_async(ok | ~observer_on)
+        self.scale.copy_(torch.where(observer_on, _scale, self.scale))
+        self.zero_point.copy_(torch.where(observer_on, _zero_point, self.zero_point))
+        quant_min, quant_max = obs.quant_min, obs.quant_max
+        if self.is_per_channel:
+            return _GatedFakeQuantizePerChannel.apply(
+                X,
+                self.scale,
+                self.zero_point,
+                self.fake_quant_enabled.reshape(()) == 1,
+                self.ch_axis,
+                quant_min,
+                quant_max,
+            )
+        # torch.fake_quantize_per_tensor_affine(X, scale, zero_point, ...) is this op
+        # with fake_quant_enabled = ones(1); the kernel reads the flag on the device.
+        return torch._fake_quantize_per_tensor_affine_cachemask_tensor_qparams(
+            X,
+            self.scale,
+            self.zero_point,
+            self.fake_quant_enabled.to(torch.long),
+            quant_min,
+            quant_max,
+        )[0]
 
     @torch.jit.export
     def extra_repr(self):
