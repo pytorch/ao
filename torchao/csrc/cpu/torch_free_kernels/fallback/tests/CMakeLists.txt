@@ -17,5 +17,13 @@ target_link_libraries(
     GTest::gtest_main
 )
 
+add_executable(${TEST_TARGET_PREFIX}test_linear test_linear.cpp)
+target_link_libraries(
+    ${TEST_TARGET_PREFIX}test_linear
+    PRIVATE
+    GTest::gtest_main
+)
+
 include(GoogleTest)
 gtest_discover_tests(${TEST_TARGET_PREFIX}test_bitpacking)
+gtest_discover_tests(${TEST_TARGET_PREFIX}test_linear)
