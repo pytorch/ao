@@ -29,7 +29,8 @@ jobs:
       with-xpu: disable
       with-cuda: disable
       with-rocm: enable
-      build-python-only: "disable"
+      # Single oldest Python from test-infra's channel list (auto-bumps).
+      build-python-only: "enable"
 
   filter-matrix:
     needs: generate-matrix
@@ -40,24 +41,23 @@ jobs:
       - id: filter
         run: |
           set -euo pipefail
-          # One Python (first in matrix) x each unique ROCm version.
-          test_matrix=$(echo '${{ needs.generate-matrix.outputs.matrix }}' | jq -c '
-            (.include | map(.python_version) | unique | .[0]) as $py
-            | {include: [
-                .include[]
-                | select(.python_version == $py)
-                | {
-                    "name": ("ROCM " + .gpu_arch_version),
-                    "python-version": .python_version,
-                    "rocm-version": .gpu_arch_version,
-                    "runs-on": "linux.rocm.gpu.ecosystem.mi350.1",
-                    "gpu-arch-type": "rocm",
-                    "gpu-arch-version": .gpu_arch_version,
-                    "docker-image": ("pytorch/manylinux2_28-builder:rocm" + .gpu_arch_version),
-                    "torch-spec": ("--pre torchvision torch --index-url https://download.pytorch.org/whl/nightly/rocm" + .gpu_arch_version)
-                  }
-              ] | unique_by(."rocm-version")}
-          ')
+          # Remap to workflow keys; one entry per ROCm version.
+          # build-python-only already left a single Python in the matrix.
+          test_matrix=$(echo '${{ needs.generate-matrix.outputs.matrix }}' | jq -c '{
+            include: [
+              .include[]
+              | {
+                  "name": ("ROCM " + .gpu_arch_version),
+                  "python-version": .python_version,
+                  "rocm-version": .gpu_arch_version,
+                  "runs-on": "linux.rocm.gpu.ecosystem.mi350.1",
+                  "gpu-arch-type": "rocm",
+                  "gpu-arch-version": .gpu_arch_version,
+                  "docker-image": ("pytorch/manylinux2_28-builder:rocm" + .gpu_arch_version),
+                  "torch-spec": ("--pre torchvision torch --index-url https://download.pytorch.org/whl/nightly/rocm" + .gpu_arch_version)
+                }
+            ] | unique_by(."rocm-version")
+          }')
           echo "test-matrix=$test_matrix" >> "$GITHUB_OUTPUT"
           echo "::group::ROCm test matrix"
           echo "$test_matrix" | jq .
