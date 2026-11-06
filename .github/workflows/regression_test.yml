@@ -90,7 +90,14 @@ jobs:
         # redundant. They now run in dedicated workflows instead:
         #   - regression_test_pt2e_cpu.yml (full PT2E suite on CPU)
         #   - regression_test_pt2e_gpu.yml (GPU-relevant PT2E, slow x86 tests excluded)
-        pytest test --verbose -s --ignore=test/quantization/pt2e
+        # Four workers bound GPU-memory and compiler concurrency on CUDA legs.
+        # CPU legs keep their existing serial command.
+        if [ "${{ matrix.gpu-arch-type }}" = "cuda" ]; then
+          OMP_NUM_THREADS=4 MKL_NUM_THREADS=4 TORCHINDUCTOR_COMPILE_THREADS=1 \
+            pytest test --verbose -n 4 --dist=worksteal --ignore=test/quantization/pt2e
+        else
+          pytest test --verbose -s --ignore=test/quantization/pt2e
+        fi
   test:
     strategy:
       fail-fast: false
@@ -137,4 +144,11 @@ jobs:
         # redundant. They now run in dedicated workflows instead:
         #   - regression_test_pt2e_cpu.yml (full PT2E suite on CPU)
         #   - regression_test_pt2e_gpu.yml (GPU-relevant PT2E, slow x86 tests excluded)
-        pytest test --verbose -s --ignore=test/quantization/pt2e
+        # Four workers bound GPU-memory and compiler concurrency on CUDA legs.
+        # CPU legs keep their existing serial command.
+        if [ "${{ matrix.gpu-arch-type }}" = "cuda" ]; then
+          OMP_NUM_THREADS=4 MKL_NUM_THREADS=4 TORCHINDUCTOR_COMPILE_THREADS=1 \
+            pytest test --verbose -n 4 --dist=worksteal --ignore=test/quantization/pt2e
+        else
+          pytest test --verbose -s --ignore=test/quantization/pt2e
+        fi

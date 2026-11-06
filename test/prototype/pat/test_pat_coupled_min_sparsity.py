@@ -178,7 +178,7 @@ class TestCoupledExecutor(_CoupledAssertions, common_utils.TestCase):
     def test_float64_scoring_and_noncontiguous_flatten_writeback(self):
         for dtype in (torch.float32, torch.float64):
             for cls, target in ((ElemGrouper, 0.25), (LayerGrouper, 1.0)):
-                with self.subTest(dtype=dtype, grouper=cls.__name__):
+                with self.subTest(dtype=str(dtype), grouper=cls.__name__):
                     p = torch.arange(1, 13, dtype=dtype).reshape(3, 4).t()
                     self.assertFalse(p.is_contiguous())
                     expected = p.clone()
