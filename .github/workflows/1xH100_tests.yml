@@ -83,6 +83,10 @@ jobs:
         # sparse cutlass op) never register and their tests fail/skip. Editable keeps
         # the extensions available in the shadowing source tree.
         pip install -e . --no-build-isolation -vv
+        # Bound pytest concurrency; workers share the default CUDA device.
+        # PYTEST_ADDOPTS also reaches pytest calls in the single-GPU wrapper.
+        export PYTEST_ADDOPTS="-n 4 --dist=worksteal"
+        export OMP_NUM_THREADS=4 MKL_NUM_THREADS=4 TORCHINDUCTOR_COMPILE_THREADS=1
         pytest test/integration --verbose -s
         pytest test/dtypes/test_affine_quantized_float.py --verbose -s
         # Former L4 selection: these blockwise FP8 cases require SM90+.
