@@ -377,6 +377,7 @@ class UniformQuantizationObserverBase(ObserverBase):
         # to use this utility a massive pain and very gross. For now Im opting just to duplicate as this code
         # seems unlikey to change (last update over 1 year ago) and when torchscript is fully deprecated we can refactor.
         # TODO(jakeszwe, jerryzh168)
+        # Keep in sync with _calculate_qparams_device (FakeQuantize's CUDA path).
         if not check_min_max_valid(min_val, max_val):
             return torch.tensor([1.0], device=min_val.device.type), torch.tensor(
                 [0], device=min_val.device.type
@@ -437,6 +438,70 @@ class UniformQuantizationObserverBase(ObserverBase):
                 )
 
         return scale, zero_point
+
+    def _calculate_qparams_device(
+        self, min_val: torch.Tensor, max_val: torch.Tensor
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        r"""Same as ``_calculate_qparams`` for observed (non-empty) ``min_val`` /
+        ``max_val``, without reading any value on the host.
+
+        Used by ``FakeQuantize`` when it evaluates its enable flags on the device.
+        The uninitialized-observer default becomes ``torch.where``, and the
+        ``min_val <= max_val`` check is returned as a bool tensor ``ok`` for the
+        caller to assert asynchronously, so a CUDA forward never synchronizes.
+        Returns ``(scale, zero_point, ok)``.
+        """
+        if min_val.dim() == 0:
+            uninitialized = (min_val == float("inf")) & (max_val == float("-inf"))
+            ok = (min_val <= max_val) | uninitialized
+        else:
+            # Same as check_min_max_valid for sized per-channel buffers: no default,
+            # just the min <= max check (FakeQuantize applies it after this call's
+            # observer update, and only while the observer is enabled).
+            uninitialized = None
+            ok = torch.all(min_val <= max_val)
+
+        quant_min, quant_max = self.quant_min, self.quant_max
+        min_val_neg = torch.min(min_val, torch.zeros_like(min_val))
+        max_val_pos = torch.max(max_val, torch.zeros_like(max_val))
+
+        device = min_val_neg.device
+        scale = torch.ones(min_val_neg.size(), dtype=torch.float32, device=device)
+        zero_point = torch.zeros(min_val_neg.size(), dtype=torch.int64, device=device)
+
+        if (
+            self.qscheme == torch.per_tensor_symmetric
+            or self.qscheme == torch.per_channel_symmetric
+        ):
+            max_val_pos = torch.max(-min_val_neg, max_val_pos)
+            scale = max_val_pos / (float(quant_max - quant_min) / 2)
+            scale = torch.max(scale, self.eps)
+            if self.dtype in [torch.quint8, torch.uint8]:
+                if self.has_customized_qrange:
+                    zero_point = zero_point.new_full(
+                        zero_point.size(), (quant_min + quant_max) // 2
+                    )
+                else:
+                    zero_point = zero_point.new_full(zero_point.size(), 128)
+            elif self.dtype in [torch.uint16]:
+                zero_point = zero_point.new_full(zero_point.size(), 2**15)
+        else:
+            scale = (max_val_pos - min_val_neg) / float(quant_max - quant_min)
+            scale = torch.max(scale, self.eps)
+            zero_point = quant_min - torch.round(min_val_neg / scale).to(torch.int)
+            zero_point = torch.clamp(zero_point, quant_min, quant_max)
+
+        if len(scale.shape) == 0:
+            scale = scale.reshape(1)
+        if len(zero_point.shape) == 0:
+            zero_point = zero_point.reshape(1)
+        if uninitialized is not None:
+            # _calculate_qparams returns tensor([1.0]) / tensor([0]) before any data
+            scale = torch.where(uninitialized, torch.ones_like(scale), scale)
+            zero_point = torch.where(
+                uninitialized, torch.zeros_like(zero_point), zero_point
+            )
+        return scale, zero_point, ok
 
     @torch.jit.export
     def reset_min_max_vals(self):
@@ -569,6 +634,7 @@ class MinMaxObserver(UniformQuantizationObserverBase):
 
     def forward(self, x_orig):
         r"""Records the running minimum and maximum of ``x``."""
+        # Keep in sync with _forward_masked below (FakeQuantize's CUDA path).
         if x_orig.numel() == 0:
             return x_orig
         x = x_orig.detach()  # avoid keeping autograd tape
@@ -579,6 +645,17 @@ class MinMaxObserver(UniformQuantizationObserverBase):
         self.min_val.copy_(min_val)
         self.max_val.copy_(max_val)
         return x_orig
+
+    def _forward_masked(self, x_orig: torch.Tensor, enabled: torch.Tensor) -> None:
+        r"""``forward`` with the buffer update applied only where the 0-dim bool
+        tensor ``enabled`` is True. Evaluated on the device; no host reads."""
+        x = x_orig.detach()  # avoid keeping autograd tape
+        x = x.to(self.min_val.dtype)
+        min_val_cur, max_val_cur = torch.aminmax(x)
+        min_val = torch.min(min_val_cur, self.min_val)
+        max_val = torch.max(max_val_cur, self.max_val)
+        self.min_val.copy_(torch.where(enabled, min_val, self.min_val))
+        self.max_val.copy_(torch.where(enabled, max_val, self.max_val))
 
     @torch.jit.export
     def calculate_qparams(self):
@@ -678,6 +755,7 @@ class MovingAverageMinMaxObserver(MinMaxObserver):
         )
 
     def forward(self, x_orig):
+        # Keep in sync with _forward_masked below (FakeQuantize's CUDA path).
         if x_orig.numel() == 0:
             return x_orig
         x = x_orig.detach()  # avoid keeping autograd tape
@@ -693,6 +771,29 @@ class MovingAverageMinMaxObserver(MinMaxObserver):
         self.min_val.copy_(min_val)
         self.max_val.copy_(max_val)
         return x_orig
+
+    def _forward_masked(self, x_orig: torch.Tensor, enabled: torch.Tensor) -> None:
+        r"""``forward`` with the buffer update applied only where the 0-dim bool
+        tensor ``enabled`` is True; the first-call branch is a ``torch.where``.
+        Evaluated on the device; no host reads."""
+        x = x_orig.detach()  # avoid keeping autograd tape
+        x = x.to(self.min_val.dtype)
+        min_val = self.min_val
+        max_val = self.max_val
+        min_val_cur, max_val_cur = torch.aminmax(x)
+        first = (min_val == float("inf")) & (max_val == float("-inf"))
+        new_min = torch.where(
+            first,
+            min_val_cur,
+            min_val + self.averaging_constant * (min_val_cur - min_val),
+        )
+        new_max = torch.where(
+            first,
+            max_val_cur,
+            max_val + self.averaging_constant * (max_val_cur - max_val),
+        )
+        self.min_val.copy_(torch.where(enabled, new_min, min_val))
+        self.max_val.copy_(torch.where(enabled, new_max, max_val))
 
 
 class PerChannelMinMaxObserver(UniformQuantizationObserverBase):
@@ -776,6 +877,7 @@ class PerChannelMinMaxObserver(UniformQuantizationObserverBase):
         return self._forward(x_orig)
 
     def _forward(self, x_orig):
+        # Keep in sync with _forward_masked below (FakeQuantize's CUDA path).
         if x_orig.numel() == 0:
             return x_orig
         x = x_orig.detach()  # avoid keeping autograd tape
@@ -802,6 +904,23 @@ class PerChannelMinMaxObserver(UniformQuantizationObserverBase):
         self.min_val.copy_(min_val)
         self.max_val.copy_(max_val)
         return x_orig
+
+    def _forward_masked(self, x_orig: torch.Tensor, enabled: torch.Tensor) -> None:
+        r"""``_forward`` for already-initialized buffers, with the update applied
+        only where the 0-dim bool tensor ``enabled`` is True. No host reads."""
+        x = x_orig.detach()  # avoid keeping autograd tape
+        x_dim = x.size()
+        new_axis_list = [i for i in range(len(x_dim))]  # noqa: C416
+        new_axis_list[self.ch_axis] = 0
+        new_axis_list[0] = self.ch_axis
+        y = x.permute(new_axis_list)
+        y = y.to(self.min_val.dtype)
+        y = torch.flatten(y, start_dim=1)
+        min_val_cur, max_val_cur = torch.aminmax(y, dim=1)
+        min_val = torch.min(min_val_cur, self.min_val)
+        max_val = torch.max(max_val_cur, self.max_val)
+        self.min_val.copy_(torch.where(enabled, min_val, self.min_val))
+        self.max_val.copy_(torch.where(enabled, max_val, self.max_val))
 
     @torch.jit.export
     def calculate_qparams(self):
@@ -968,6 +1087,7 @@ class MovingAveragePerChannelMinMaxObserver(PerChannelMinMaxObserver):
         self.averaging_constant = averaging_constant
 
     def forward(self, x_orig):
+        # Keep in sync with _forward_masked below (FakeQuantize's CUDA path).
         if x_orig.numel() == 0:
             return x_orig
         x = x_orig.detach()  # avoid keeping autograd tape
@@ -992,6 +1112,23 @@ class MovingAveragePerChannelMinMaxObserver(PerChannelMinMaxObserver):
         self.min_val.copy_(min_val)
         self.max_val.copy_(max_val)
         return x_orig
+
+    def _forward_masked(self, x_orig: torch.Tensor, enabled: torch.Tensor) -> None:
+        r"""``forward`` for already-initialized buffers, with the update applied
+        only where the 0-dim bool tensor ``enabled`` is True. No host reads."""
+        x = x_orig.detach()  # avoid keeping autograd tape
+        x = x.to(self.min_val.dtype)
+        x_dim = x.size()
+        new_axis_list = [i for i in range(len(x_dim))]  # noqa: C416
+        new_axis_list[self.ch_axis] = 0
+        new_axis_list[0] = self.ch_axis
+        y = x.permute(new_axis_list)
+        y = torch.flatten(y, start_dim=1)
+        min_val_cur, max_val_cur = torch.aminmax(y, dim=1)
+        min_val = self.min_val + self.averaging_constant * (min_val_cur - self.min_val)
+        max_val = self.max_val + self.averaging_constant * (max_val_cur - self.max_val)
+        self.min_val.copy_(torch.where(enabled, min_val, self.min_val))
+        self.max_val.copy_(torch.where(enabled, max_val, self.max_val))
 
 
 class HistogramObserver(UniformQuantizationObserverBase):
