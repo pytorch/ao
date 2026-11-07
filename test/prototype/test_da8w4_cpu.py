@@ -149,6 +149,45 @@ class TestDa8w4Cpu(TestCase):
                 )
             assert torch.allclose(y, y_ref)
 
+    @unittest.skipIf(
+        "CPU" not in torch._C._dispatch_dump("torchao::da8w4_linear_cpu"),
+        reason="cpp kernels not built",
+    )
+    @common_utils.parametrize("sym_quant_a", [True, False])
+    @common_utils.parametrize("group_size", [32, 128, 256])
+    def test_da8w4_linear_op_matches_reference(self, sym_quant_a, group_size):
+        # Call the op directly and compare against a float64 reference.
+        # The int8 x int4 products are exact in int32, so only the float
+        # epilogue rounds. Odd M values cover all row-tail paths.
+        torch.manual_seed(0)
+        N, K = 64, 512
+        G = K // group_size
+        w = torch.randint(0, 16, (N, K), dtype=torch.uint8)
+        w_scales = torch.rand(N, G) * 0.02 + 0.001
+        w_qzeros = torch.randint(0, 16, (N, G), dtype=torch.int8)
+        bias = torch.randn(N)
+        packed = torch.ops.torchao.da8w4_linear_prepack_cpu(w, w_scales, w_qzeros)
+        w_ref = (w.double() - w_qzeros.double().repeat_interleave(group_size, 1)) * (
+            w_scales.double().repeat_interleave(group_size, 1)
+        )
+        for M in (1, 2, 3, 4, 5, 7, 8, 9, 13, 17, 49, 65, 130):
+            if sym_quant_a:
+                a = torch.randint(-128, 128, (M, K), dtype=torch.int8)
+                a_qzeros = torch.zeros(M, dtype=torch.int32)
+            else:
+                a = torch.randint(0, 256, (M, K), dtype=torch.uint8)
+                a_qzeros = torch.randint(0, 256, (M,), dtype=torch.int32)
+            a_scales = torch.rand(M) * 0.05 + 0.001
+            y = torch.ops.torchao.da8w4_linear_cpu(
+                a, a_scales, a_qzeros, *packed, bias, torch.float
+            )
+            a_ref = (a.double() - a_qzeros.double()[:, None]) * a_scales.double()[
+                :, None
+            ]
+            y_ref = a_ref @ w_ref.T + bias.double()
+            err = (y.double() - y_ref).abs().max() / y_ref.abs().max()
+            assert err < 1e-5, f"M={M}: error {err}"
+
 
 common_utils.instantiate_parametrized_tests(TestDa8w4Cpu)
 
