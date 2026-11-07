@@ -375,7 +375,8 @@ def test_resolve_backends_is_per_op():
 @pytest.mark.skipif(
     not torch_version_at_least("2.10.0"), reason="requires PyTorch 2.10+"
 )
-def test_nvfp4_grouped_gemm_unaligned_padding():
+@pytest.mark.parametrize("kernel_preference", _KERNEL_PREFERENCES)
+def test_nvfp4_grouped_gemm_unaligned_padding(kernel_preference):
     # K=N=256, not 128: this is the only coverage of the padded/unaligned group
     # path, and that path depends on the padding restoring the 128-aligned group
     # boundaries the columnwise scale store requires. At 128 the scale layout is
@@ -411,6 +412,7 @@ def test_nvfp4_grouped_gemm_unaligned_padding():
         sr_seed,
         offs=offs,
         pad_token_groups_for_grouped_mm=True,
+        kernel_preference=kernel_preference,
     )
     labels = torch.ones_like(out)
     F.mse_loss(out_ref, labels).backward()
