@@ -317,7 +317,7 @@ void kernel_1x8x16_f32_neondot(
       has_clamp);
 }
 
-template <int weight_nbit, bool has_weight_zeros>
+template <int weight_nbit, bool has_weight_zeros, bool has_lut = false>
 void kernel_8x8x16_f32_neondot(
     float32_t* output,
     int output_m_stride,
@@ -333,7 +333,7 @@ void kernel_8x8x16_f32_neondot(
     bool has_bias,
   bool has_clamp) {
   (void)has_weight_zeros_;
-  kernel::kernel_8x8x16_f32_neondot<weight_nbit, has_weight_zeros>(
+  kernel::kernel_8x8x16_f32_neondot<weight_nbit, has_weight_zeros, has_lut>(
       output,
       output_m_stride,
       m,
