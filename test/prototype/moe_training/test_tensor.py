@@ -79,10 +79,13 @@ def test_mxfp8_training_tensor_ops_fwd_bwd(
 
     A = torch.randn(*A_shape, dtype=torch.bfloat16, device="cuda", requires_grad=True)
     B = torch.randn(N, K, dtype=torch.bfloat16, device="cuda", requires_grad=True)
-    bias = (
-        torch.randn(N, dtype=torch.bfloat16, device="cuda")
+    bias_ref = (
+        torch.randn(N, dtype=torch.bfloat16, device="cuda", requires_grad=True)
         if op_name == "linear"
         else None
+    )
+    bias_mxfp8 = (
+        bias_ref.detach().clone().requires_grad_(True) if bias_ref is not None else None
     )
 
     # Reference computation with bf16
@@ -94,7 +97,7 @@ def test_mxfp8_training_tensor_ops_fwd_bwd(
     elif op_name == "matmul":
         result_ref = torch.matmul(A_ref, B_ref.t())
     elif op_name == "linear":
-        result_ref = F.linear(A_ref, B_ref, bias)
+        result_ref = F.linear(A_ref, B_ref, bias_ref)
 
     # MXFP8 computation
     B_mxfp8 = MXFP8TrainingWeightWrapperTensor(B, config)
@@ -104,7 +107,7 @@ def test_mxfp8_training_tensor_ops_fwd_bwd(
     elif op_name == "matmul":
         result_mxfp8 = torch.matmul(A, B_mxfp8)
     elif op_name == "linear":
-        result_mxfp8 = F.linear(A, B_mxfp8, bias)
+        result_mxfp8 = F.linear(A, B_mxfp8, bias_mxfp8)
 
     # Validate forward pass
     assert result_mxfp8.shape == result_ref.shape, "Shape mismatch"
@@ -134,6 +137,11 @@ def test_mxfp8_training_tensor_ops_fwd_bwd(
     assert A_ref.grad is not None, "A_ref.grad should be computed"
     assert B_mxfp8.grad is not None, "B_mxfp8.grad should be computed"
     assert B_ref.grad is not None, "B_ref.grad should be computed"
+    if op_name == "linear":
+        assert bias_ref.grad is not None, "bias_ref.grad should be computed"
+        assert bias_mxfp8.grad is not None, "bias_mxfp8.grad should be computed"
+        sqnr_bias_grad = compute_error(bias_ref.grad, bias_mxfp8.grad)
+        assert sqnr_bias_grad >= 40.0, f"Bias grad SQNR {sqnr_bias_grad} below 40.0"
 
     # Check input gradient SQNR
     sqnr_input_grad = compute_error(A_ref.grad, A.grad)
