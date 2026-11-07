@@ -63,7 +63,14 @@ def _to_mxfp8_then_scaled_mm(
     grad_elem_dtype = torch.float8_e4m3fn
     block_size = 32
     mxfp8_dim0_cast_kernel_choice = MXFP8Dim0CastKernelChoice.TRITON
-    mxfp8_dim1_cast_kernel_choice = MXFP8Dim1CastKernelChoice.CUDA
+    # On Ascend NPU there is no dim1 CUDA/Triton cast kernel; route dim1 casts
+    # through the torch (emulated) path, which in turn dispatches quantization
+    # to torch_npu via KernelPreference.ASCEND (see MXTensor.to_mx).
+    mxfp8_dim1_cast_kernel_choice = (
+        MXFP8Dim1CastKernelChoice.TORCH
+        if kernel_preference == KernelPreference.ASCEND
+        else MXFP8Dim1CastKernelChoice.CUDA
+    )
 
     return mx_mm.apply(
         input_hp,
