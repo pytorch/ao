@@ -9,7 +9,44 @@ from unittest.mock import patch
 import torch
 import torch.nn.functional as F
 
-from torchao.utils import TorchAOBaseTensor, torch_version_at_least
+from torchao.utils import (
+    TorchAOBaseTensor,
+    get_available_devices,
+    torch_version_at_least,
+)
+
+
+class TestGetAvailableDevices(unittest.TestCase):
+    """`get_available_devices` must not drop an accelerator it has no branch for."""
+
+    def _devices(self, cuda=False, xpu=False, mps=False, accelerator=None):
+        class _Accelerator:
+            # get_available_devices only reads `.type`; a real torch.device would
+            # require the backend to be registered on the machine running the test.
+            type = accelerator
+
+        with (
+            patch("torch.cuda.is_available", return_value=cuda),
+            patch("torch.xpu.is_available", return_value=xpu),
+            patch("torch.mps.is_available", return_value=mps),
+            patch(
+                "torch.accelerator.is_available", return_value=accelerator is not None
+            ),
+            patch("torch.accelerator.current_accelerator", return_value=_Accelerator()),
+        ):
+            return get_available_devices()
+
+    def test_cpu_only(self):
+        self.assertEqual(self._devices(), ["cpu"])
+
+    def test_accelerator_without_a_dedicated_branch(self):
+        # Ascend NPU registers as the current accelerator but is neither cuda,
+        # xpu nor mps, so the list used to stay ["cpu"] on a machine that has one.
+        self.assertEqual(self._devices(accelerator="npu"), ["cpu", "npu"])
+
+    def test_dedicated_branches_are_not_duplicated(self):
+        self.assertEqual(self._devices(cuda=True, accelerator="cuda"), ["cpu", "cuda"])
+        self.assertEqual(self._devices(xpu=True, accelerator="xpu"), ["cpu", "xpu"])
 
 
 class TestTorchVersion(unittest.TestCase):
