@@ -84,9 +84,64 @@ def _pad_to_mx_blocksize_x2(
     return torch.nn.functional.pad(tensor, tuple(pad), mode="constant", value=0)
 
 
+def _pad_qdata_and_scale_for_npu_gemm(
+    qdata: torch.Tensor,
+    scale: torch.Tensor,
+    k_logical: int,
+    elem_dtype: Any,
+    block_size: int,
+    k_transposed: bool,
+):
+    """Pad ``qdata``/``scale`` along their K axis to a multiple of ``2 * block_size``.
+
+    The NPU MX gemm ops consume consecutive ``block_size`` pairs along K, so
+    they require ``K % (2 * block_size) == 0``. Zero-padding is numerically
+    exact: padded data elements are zero and zero times any E8M0 scale is
+    zero. This is the inverse of the trim applied by ``to_mx_npu``, which
+    keeps the logical (unpadded) shape on the ``MXTensor``.
+
+    For transposed views (e.g. ``weight.t()``, where ``qdata`` and ``scale``
+    are ``[K, N]``-shaped views over ``[N, K]`` storage), the padding is
+    applied in the ``[.., K]`` orientation and the transposed view is
+    restored, so the result keeps the exact K-major layout the aligned
+    (no-pad) path produces.
+    """
+    mx_blocksize_x2 = 2 * block_size
+    remainder = k_logical % mx_blocksize_x2
+    if remainder == 0:
+        return qdata, scale
+    pad_amount = mx_blocksize_x2 - remainder
+
+    if k_transposed:
+        qdata = qdata.transpose(-2, -1)
+        scale = scale.transpose(-2, -1)
+    if elem_dtype == torch.float4_e2m1fn_x2:
+        # qdata is uint8 holding two packed fp4 values per byte
+        qdata = torch.nn.functional.pad(
+            qdata.contiguous(), (0, pad_amount // 2), mode="constant", value=0
+        )
+    else:
+        qdata = torch.nn.functional.pad(
+            qdata.contiguous().view(torch.uint8), (0, pad_amount), mode="constant", value=0
+        ).view(qdata.dtype)
+    scale = torch.nn.functional.pad(
+        scale.view(torch.uint8).contiguous(),
+        (0, pad_amount // block_size),
+        mode="constant",
+        value=0,
+    ).view(torch.float8_e8m0fnu)
+    if k_transposed:
+        qdata = qdata.transpose(-2, -1)
+        scale = scale.transpose(-2, -1)
+    return qdata, scale
+
+
 def _swizzle_mx_scale_as_e8m0(scale_2d_e8m0: torch.Tensor) -> torch.Tensor:
     """Swizzle E8M0 scales through uint8 because NPU lacks E8M0 tensor ops."""
-    blocked_u8 = to_blocked(scale_2d_e8m0.contiguous().view(torch.uint8))
+    # view(torch.uint8) BEFORE contiguous(): contiguous() on a non-contiguous
+    # E8M0 tensor would launch a Transpose kernel, and torch_npu has no E8M0
+    # tensor-op support for it (AICPU Transpose crashes on E8M0).
+    blocked_u8 = to_blocked(scale_2d_e8m0.view(torch.uint8).contiguous())
     return blocked_u8.view(torch.float8_e8m0fnu)
 
 
@@ -96,7 +151,7 @@ def _unswizzle_mx_scale_as_e8m0(
     original_cols: int,
 ) -> torch.Tensor:
     unblocked_u8 = from_blocked(
-        blocked_scale_e8m0.contiguous().view(torch.uint8),
+        blocked_scale_e8m0.view(torch.uint8).contiguous(),
         original_rows,
         original_cols,
     )
@@ -143,11 +198,20 @@ def to_mx_npu(
     """Quantize a high-precision tensor to MX via ``torch_npu.npu_dynamic_mx_quant``.
 
     Returns ``(scale_e8m0_biased, data_lp)``, mirroring
-    ``torchao.prototype.mx_formats.mx_tensor.to_mx``.
+    ``torchao.prototype.mx_formats.mx_tensor.to_mx``: the returned tensors
+    keep the logical (unpadded) shape of ``data_hp``.
     """
     torch_npu = _require_torch_npu()
 
     data_hp = data_hp.contiguous()
+    k_logical = data_hp.shape[-1]
+    # Same contract as the reference ``to_mx``.
+    assert k_logical % block_size == 0, (
+        f"the last dimension of shape {data_hp.shape} must be divisible by block_size {block_size}"
+    )
+    # torch_npu's MX ops consume consecutive block pairs along the quantized
+    # axis, so the op is called on a copy padded up to a multiple of
+    # 2 * block_size; the padding is trimmed from the returned tensors below.
     data_hp = _pad_to_mx_blocksize_x2(data_hp, -1)
 
     dst_type = _NPU_MX_DST_TYPE[elem_dtype]
@@ -161,15 +225,24 @@ def to_mx_npu(
         scale_alg=scale_alg,
     )
 
-    block_count = data_hp.shape[-1] // block_size
+    block_count = k_logical // block_size
     scale = packed_scale.contiguous().reshape(*data_hp.shape[:-1], -1)[..., :block_count]
     scale = scale.contiguous().view(torch.float8_e8m0fnu)
+
+    # Trim the zero-padded tail so qdata keeps the logical shape; the gemm
+    # path re-pads on the fly via _pad_qdata_and_scale_for_npu_gemm.
+    if elem_dtype == torch.float4_e2m1fn_x2:
+        # qdata is uint8 holding two packed fp4 values per byte
+        qdata = qdata[..., : k_logical // 2]
+    else:
+        qdata = qdata[..., :k_logical]
+    qdata = qdata.contiguous()
 
     if is_swizzled_scales:
         leading_dims, m_dim, k_dim = (
             data_hp.shape[:-2],
             data_hp.shape[-2],
-            data_hp.shape[-1],
+            k_logical,
         )
         scale_shape = (math.prod(leading_dims) * m_dim, k_dim // block_size)
         scale = _swizzle_mx_scale_as_e8m0(scale.view(scale_shape)).flatten()
@@ -340,22 +413,46 @@ def mx_gemm_npu(a: Any, b: Any, bias: Optional[torch.Tensor] = None) -> torch.Te
     a_scale = _get_mx_scale(a)
     b_scale = _get_mx_scale(b)
 
+    # to_mx_npu returns logical-shape qdata/scales; the NPU gemm ops require
+    # the K dim to be a multiple of 2 * block_size, so re-pad on the fly
+    # (a no-op when K is already aligned). b may be a transposed view
+    # (e.g. weight.t()), whose qdata/scale keep K on dim -2.
+    k_logical = a.shape[-1]
+    needs_padding = k_logical % (2 * a.block_size) != 0
+    a_qdata, a_scale = _pad_qdata_and_scale_for_npu_gemm(
+        a.qdata, a_scale, k_logical, a.elem_dtype, a.block_size, k_transposed=False
+    )
+    b_transposed = b.qdata.stride(-2) < b.qdata.stride(-1)
+    b_qdata, b_scale = _pad_qdata_and_scale_for_npu_gemm(
+        b.qdata, b_scale, k_logical, b.elem_dtype, b.block_size, k_transposed=b_transposed
+    )
+
     if a.elem_dtype == torch.float4_e2m1fn_x2 and b.elem_dtype == torch.float4_e2m1fn_x2:
-        return _mxfp4_npu_matmul(
-            a.qdata,
+        out = _mxfp4_npu_matmul(
+            a_qdata,
             a_scale,
-            b.qdata,
+            b_qdata,
             b_scale,
             output_dtype=torch.bfloat16,
             block_size=a.block_size,
             bias=bias,
         )
-    return _mxfp8_scaled_mm(
-        a.qdata,
-        a_scale,
-        b.qdata,
-        b_scale,
-        output_dtype=torch.bfloat16,
-        block_size=a.block_size,
-        bias=bias,
-    )
+    else:
+        out = _mxfp8_scaled_mm(
+            a_qdata,
+            a_scale,
+            b_qdata,
+            b_scale,
+            output_dtype=torch.bfloat16,
+            block_size=a.block_size,
+            bias=bias,
+        )
+    if needs_padding:
+        # The quant_matmul host-side adaptation runs internal copy/transpose
+        # kernels on a separate stream without record_stream() on the freshly
+        # padded tensors. A device-wide sync before these locals go out of
+        # scope prevents their memory from being reused while that work is
+        # still in flight (AICPU Transpose crash). This rare (K % 64 != 0)
+        # path only.
+        torch.npu.synchronize()
+    return out
