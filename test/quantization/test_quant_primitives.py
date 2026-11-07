@@ -520,6 +520,23 @@ class TestQuantPrimitives(unittest.TestCase):
         self.assertTrue(torch.equal(quantized, quantized_ref))
         self.assertTrue(torch.equal(dequantized, dequantized_ref))
 
+    def test_quantize_affine_zero_point_none(self):
+        # zero_point=None means a zero point of 0, as in dequantize_affine
+        input = torch.randn(4, 8)
+        block_size = (1, 8)
+        scale = input.abs().amax(dim=-1) / 127
+        zero_point = torch.zeros_like(scale, dtype=torch.int32)
+        quantized = quantize_affine(input, block_size, scale, None, torch.int8)
+        quantized_ref = quantize_affine(
+            input, block_size, scale, zero_point, torch.int8
+        )
+        self.assertTrue(torch.equal(quantized, quantized_ref))
+        dequantized = dequantize_affine(quantized, block_size, scale, None, torch.int8)
+        dequantized_ref = dequantize_affine(
+            quantized_ref, block_size, scale, zero_point, torch.int8
+        )
+        self.assertTrue(torch.equal(dequantized, dequantized_ref))
+
     @unittest.skipIf(is_fbcode(), "broken in fbcode")
     def test_quantize_dequantize_channel_asym_4d(self):
         input = torch.randn(3, 3, 10, 10)
