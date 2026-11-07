@@ -78,7 +78,11 @@ class _NVFP4QuantizedForwardFakeQuantizedBackward(torch.autograd.Function):
         # for weights and set `use_triton_kernel` afterwards
         weight.use_triton_kernel = weight_config.use_triton_kernel
 
-        ctx.save_for_backward(_input, weight)
+        # dW needs the quantized input; dX needs the quantized weight.
+        ctx.save_for_backward(
+            _input if ctx.needs_input_grad[1] else None,
+            weight if ctx.needs_input_grad[0] else None,
+        )
 
         return _addmm_nvfp4_dispatch(
             _input,
@@ -91,12 +95,15 @@ class _NVFP4QuantizedForwardFakeQuantizedBackward(torch.autograd.Function):
     @torch.amp.custom_bwd(device_type="cuda")
     def backward(ctx, grad_output: torch.Tensor) -> torch.Tensor:
         _input, weight = ctx.saved_tensors
-        assert isinstance(_input, NVFP4Tensor)
-        assert isinstance(weight, NVFP4Tensor)
-        _input = _input.dequantize(_input.orig_dtype)
-        weight = weight.dequantize(weight.orig_dtype)
-        grad_input = torch.mm(grad_output, weight)
-        grad_weight = torch.mm(grad_output.t(), _input)
+        grad_input = grad_weight = None
+        if ctx.needs_input_grad[0]:
+            assert isinstance(weight, NVFP4Tensor)
+            weight = weight.dequantize(weight.orig_dtype)
+            grad_input = torch.mm(grad_output, weight)
+        if ctx.needs_input_grad[1]:
+            assert isinstance(_input, NVFP4Tensor)
+            _input = _input.dequantize(_input.orig_dtype)
+            grad_weight = torch.mm(grad_output.t(), _input)
         grad_bias = grad_output.sum(0) if ctx.needs_input_grad[2] else None
         return grad_input, grad_weight, grad_bias, None, None
 
