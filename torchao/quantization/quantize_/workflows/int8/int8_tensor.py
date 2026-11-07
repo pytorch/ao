@@ -285,6 +285,12 @@ def _(func, types, args, kwargs):
 
     if weight_tensor.act_quant_kwargs is not None:
         # for int8 dynamic + static quantization path
+        if weight_tensor.qdata.device.type == "cpu":
+            from torchao.quantization.pt2e.inductor_passes.x86 import (
+                _register_quantization_weight_pack_pass,
+            )
+
+            _register_quantization_weight_pack_pass()
 
         activation_tensor = _choose_quant_func_and_quantize_tensor(
             activation_tensor,
