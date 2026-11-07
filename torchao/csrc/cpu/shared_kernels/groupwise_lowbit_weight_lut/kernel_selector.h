@@ -45,7 +45,7 @@ struct UKernelConfigRegistrationTable {
   }
 
  public:
-  // resgist a kernel config for a given format and uarch.
+  // Register a kernel config for a given format and uarch.
   void register_ukernel_config(
       PackedWeightsFormat format,
       cpuinfo_uarch uarch,
@@ -53,9 +53,11 @@ struct UKernelConfigRegistrationTable {
     auto header = format.to_packed_weights_header();
     auto key = make_key(header, uarch);
     std::lock_guard<std::mutex> guard(mu_);
+    // Idempotent: first registration wins. Concurrent callers may both
+    // observe a missing entry and attempt to register the same deterministic
+    // config.
     if (registration_table_.find(key) != registration_table_.end()) {
-      throw std::runtime_error(
-          "UKernelConfig is already registered for this format");
+      return;
     }
     config.validate();
     registration_table_[key] = config;
