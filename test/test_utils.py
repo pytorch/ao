@@ -4,12 +4,74 @@
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
 import unittest
+from enum import Enum
 from unittest.mock import patch
 
 import torch
 import torch.nn.functional as F
 
-from torchao.utils import TorchAOBaseTensor, torch_version_at_least
+from torchao.utils import (
+    TorchAOBaseTensor,
+    _is_native_opaque_type,
+    register_as_pytree_constant,
+    torch_version_at_least,
+)
+
+
+class TestRegisterAsPytreeConstant(unittest.TestCase):
+    @unittest.skipUnless(
+        _is_native_opaque_type(Enum),
+        "requires torch with native opaque Enum support (2.12+)",
+    )
+    def test_enum_uses_native_opaque_support(self):
+        class Choice(Enum):
+            FIRST = 1
+
+        with patch.object(torch.utils._pytree, "register_constant") as register:
+            result = register_as_pytree_constant(Choice)
+
+        self.assertIs(result, Choice)
+        register.assert_not_called()
+        self.assertFalse(torch.utils._pytree.is_constant_class(Choice))
+
+    @unittest.skipIf(
+        _is_native_opaque_type(Enum),
+        "torch natively treats Enums as opaque value types, registration is skipped",
+    )
+    def test_enum_registered_without_native_support(self):
+        class Choice(Enum):
+            FIRST = 1
+
+        with patch.object(torch.utils._pytree, "register_constant") as register:
+            result = register_as_pytree_constant(Choice)
+
+        self.assertIs(result, Choice)
+        register.assert_called_once_with(Choice)
+
+    @unittest.skipIf(
+        _is_native_opaque_type(Enum),
+        "on torch with native support Enums stay pytree leaves without registration",
+    )
+    def test_enum_flattens_as_constant_without_native_support(self):
+        # register_constant() rejects classes with a default __eq__ on recent
+        # torch; a str mixin provides one, matching torchao's KernelPreference.
+        class Choice(str, Enum):
+            FIRST = "first"
+
+        register_as_pytree_constant(Choice)
+        self.assertTrue(torch.utils._pytree.is_constant_class(Choice))
+        leaves, _spec = torch.utils._pytree.tree_flatten(Choice.FIRST)
+        self.assertEqual(leaves, [])
+
+    def test_non_enum_is_registered(self):
+        class Config:
+            pass
+
+        with patch.object(torch.utils._pytree, "register_constant") as register:
+            result = register_as_pytree_constant(Config)
+
+        self.assertIs(result, Config)
+        register.assert_called_once_with(Config)
 
 
 class TestTorchVersion(unittest.TestCase):

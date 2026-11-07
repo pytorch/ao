@@ -8,6 +8,7 @@ import importlib
 import itertools
 import re
 import time
+from enum import Enum
 import warnings
 from functools import reduce
 from importlib.metadata import version
@@ -43,8 +44,38 @@ __all__ = [
 ]
 
 
+def _is_native_opaque_type(cls) -> bool:
+    """Whether torch natively treats ``cls`` as an opaque value type (torch >= 2.12).
+
+    Probes ``torch._library.opaque_object`` (``is_custom_class`` on torch
+    main, ``is_opaque_type`` on released versions) and returns False when
+    the API is unavailable, i.e. on torch versions without native opaque
+    Enum support.
+    """
+    try:
+        from torch._library.opaque_object import is_custom_class
+    except ImportError:
+        try:
+            from torch._library.opaque_object import is_opaque_type
+        except ImportError:
+            return False
+        else:
+            return is_opaque_type(cls)
+    else:
+        return is_custom_class(cls)
+
+
 def register_as_pytree_constant(cls):
-    """Decorator to register a class as a pytree constant for dynamo non-strict trace mode."""
+    """Decorator to register a class as a pytree constant for dynamo non-strict trace mode.
+
+    Enum subclasses are skipped on torch versions that natively treat them as
+    opaque value types (torch >= 2.12, pytorch/pytorch#176541), where calling
+    ``torch.utils._pytree.register_constant`` on them is deprecated and will
+    become an error in a future release. On older versions the explicit
+    registration is still required for dynamo non-strict tracing and is kept.
+    """
+    if isinstance(cls, type) and issubclass(cls, Enum) and _is_native_opaque_type(cls):
+        return cls
     torch.utils._pytree.register_constant(cls)
     return cls
 
