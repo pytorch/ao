@@ -833,6 +833,14 @@ def nvfp4_quantize(
         if len(per_tensor_scale.shape) == 3:
             per_tensor_scale = per_tensor_scale.squeeze(-1)
 
+        # Zero scales cause NaNs for all-zero inputs; even a tiny floor can overflow.
+        # Using 1.0 for zero scales preserves zeros without changing nonzero scales.
+        per_tensor_scale = torch.where(
+            per_tensor_scale == 0,
+            torch.ones_like(per_tensor_scale),
+            per_tensor_scale,
+        )
+
         # Quantize the blockwise scales w/ the per_tensor_scale
         scaled_block_scales = block_scale_fp32 / per_tensor_scale
         scaled_block_scales_fp8 = torch.clamp(
