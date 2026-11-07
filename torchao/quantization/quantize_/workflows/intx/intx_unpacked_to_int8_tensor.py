@@ -216,13 +216,18 @@ class IntxUnpackedToInt8Tensor(TorchAOBaseTensor):
             )
         elif intx_choose_qparams_algorithm == IntxChooseQParamsAlgorithm.HQQ_SCALE_ONLY:
             qdata, scale = _choose_qparams_and_quantize_scale_only_hqq(
-                hp_tensor, block_size, qmin, qmax
+                hp_tensor.float(), block_size, qmin, qmax
             )
             qdata = qdata.to(torch.int8)
             zero_point = torch.zeros_like(scale, dtype=torch.int8)
         elif intx_choose_qparams_algorithm == IntxChooseQParamsAlgorithm.AFFINE:
+            # Cast to float32 for numerical precision: bf16 inputs with
+            # small magnitudes (e.g., abs_mean ~0.01) lose per-group scale
+            # granularity in bf16, collapsing all scales to a single value
+            # and wasting most of the int8 range.
+            hp_float = hp_tensor.float()
             scale, zero_point = choose_qparams_affine(
-                hp_tensor,
+                hp_float,
                 mapping_type,
                 block_size,
                 target_dtype=torch.int8,
@@ -232,7 +237,7 @@ class IntxUnpackedToInt8Tensor(TorchAOBaseTensor):
                 keepdim=True,  # Use keepdim=True to get reshaped output matching block structure
             )
             qdata = quantize_affine(
-                hp_tensor,
+                hp_float,
                 block_size,
                 scale,
                 zero_point,
