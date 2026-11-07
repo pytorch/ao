@@ -2455,6 +2455,57 @@ class TestQuantizePT2E(PT2EQuantizationTestCase):
         self.assertTrue(bn_node is not None)
         self.assertTrue(bn_node.args[5])
 
+    @parametrize("device", DEVICE_LIST)
+    def test_conv_output_shared_by_two_batchnorms_not_double_fused(self, device):
+        """
+        Regression test for https://github.com/pytorch/ao/issues/5048:
+
+        When the output of a conv is consumed by two batch norms, `prepare_pt2e`
+        must not fold both batch norms into the conv (which would silently drop
+        one batch norm and produce a wrong graph), but should keep both batch
+        norm computations intact.
+        """
+
+        class SharedConvTwoBN(torch.nn.Module):
+            def __init__(self) -> None:
+                super().__init__()
+                self.conv = torch.nn.Conv2d(3, 8, 3, padding=1)
+                self.bn_a = torch.nn.BatchNorm2d(8)
+                self.bn_b = torch.nn.BatchNorm2d(8)
+
+            def forward(self, x):
+                y = self.conv(x)
+                return self.bn_a(y) + self.bn_b(y)
+
+        torch.manual_seed(0)
+        m = SharedConvTwoBN().eval()
+        example_inputs = (torch.randn(1, 3, 8, 8),)
+        if TEST_CUDA or TEST_HPU or TEST_XPU:
+            m = m.to(device)
+            example_inputs = (example_inputs[0].to(device),)
+
+        with torch.no_grad():
+            ref = m(*example_inputs)
+
+        exported = torch.export.export(m, example_inputs, strict=True).module()
+        quantizer = XNNPACKQuantizer().set_global(get_symmetric_quantization_config())
+        qm = prepare_pt2e(exported, quantizer)
+        with torch.no_grad():
+            qm(*example_inputs)
+        qm = convert_pt2e(qm)
+        with torch.no_grad():
+            out = qm(*example_inputs)
+
+        self.assertTrue(torch.allclose(out, ref, atol=1e-2))
+        # Both batch norms must still be present in the final graph
+        bn_nodes = [
+            n
+            for n in qm.graph.nodes
+            if n.op == "call_function"
+            and n.target in (torch.ops.aten.batch_norm.default,)
+        ]
+        self.assertEqual(len(bn_nodes), 2)
+
     def test_disallow_eval_train(self):
         m = TestHelperModules.ConvWithBNRelu(relu=True)
         example_inputs = (torch.rand(3, 3, 5, 5),)
