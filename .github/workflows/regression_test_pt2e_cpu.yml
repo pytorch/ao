@@ -52,20 +52,23 @@ jobs:
       contents: read
     uses: pytorch/test-infra/.github/workflows/linux_job_v3.yml@main
     with:
+      # PT2E tests construct models locally and do not use HF datasets.
+      hf-cache: false
       timeout: 120
       runner: ${{ matrix.runs-on }}
       gpu-arch-type: "cpu"
       gpu-arch-version: ""
       submodules: recursive
       script: |
-        conda create -n venv python=3.10 libgcc-ng=11.2.0 libstdcxx-ng=11.2.0 -y
+        conda create -n venv python=3.11 libgcc-ng=11.2.0 libstdcxx-ng=11.2.0 -y
         conda activate venv
         python -m pip install --upgrade pip
         pip install ${{ matrix.torch-spec }}
-        pip install -r dev-requirements.txt
+        pip install uv==0.13.7
+        uv pip install -r dev-requirements.txt
         pip install . --no-build-isolation
         export CONDA=$(dirname $(dirname $(which conda)))
         export LD_LIBRARY_PATH=$CONDA/lib/:$LD_LIBRARY_PATH
         # Bound the worker count: these tests launch Inductor/C++ compilers,
         # so using every available CPU could oversubscribe the runner.
-        pytest test/quantization/pt2e --verbose -n 4 --dist=worksteal --durations=25
+        pytest test/quantization/pt2e --verbose -n 8 --dist=worksteal --durations=25

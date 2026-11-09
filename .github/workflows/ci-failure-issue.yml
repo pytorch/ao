@@ -27,7 +27,6 @@ on:
       - "Run Regression Tests (aarch64)"
       - "Run 1xH100 Tests"
       - "Run 4xH100 tests"
-      - "Run 1xL4 Tests"
       - "Run TorchAO Experimental MPS Tests"
       - "Code Analysis with Ruff"
       - "Build Docs"

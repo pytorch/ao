@@ -40,11 +40,12 @@ jobs:
       docker-image: ${{ matrix.docker-image }}
       submodules: recursive
       script: |
-        conda create -n venv python=3.10 -y
+        conda create -n venv python=3.11 -y
         conda activate venv
         python -m pip install --upgrade pip
         pip install ${{ matrix.torch-spec }}
-        pip install -r dev-requirements.txt
+        pip install uv==0.13.7
+        uv pip install -r dev-requirements.txt
         # Editable install so build_ext --inplace drops the compiled extensions
         # (e.g. the hipified torchao/_C*.so providing torchao::swizzle_mm) into the
         # in-tree torchao/ dir. pytest is run from the repo root and, because test/ is

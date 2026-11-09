@@ -66,7 +66,10 @@ class TestChannelBucketize(unittest.TestCase):
                     dim=1,
                 )
             for right in [False, True]:
-                with self.subTest(dtype=dtype, bounds_dtype=bounds_dtype, right=right):
+                # xdist transports subtest labels through execnet.
+                with self.subTest(
+                    dtype=str(dtype), bounds_dtype=str(bounds_dtype), right=right
+                ):
                     expected = torch.stack(
                         [
                             torch.bucketize(v, b, right=right)
@@ -106,7 +109,7 @@ class TestQuantOptimizerCache(unittest.TestCase):
         for dtype, period, block_size in product(
             [torch.float32, torch.bfloat16], [1, 3], [None, 16]
         ):
-            with self.subTest(dtype=dtype, period=period, block_size=block_size):
+            with self.subTest(dtype=str(dtype), period=period, block_size=block_size):
                 parameter = torch.nn.Parameter(torch.randn(7, 64, dtype=dtype))
                 optimizer = make_optimizer(parameter, period, block_size)
                 targets = None
@@ -127,7 +130,9 @@ class TestQuantOptimizerCache(unittest.TestCase):
             [torch.float32, torch.bfloat16],
             [(1, 1, [1, 2, 3]), (3, 3, [0, 1, 1]), (1, 3, [1, 2, 2])],
         ):
-            with self.subTest(dtype=dtype, saved_period=saved_period, period=period):
+            with self.subTest(
+                dtype=str(dtype), saved_period=saved_period, period=period
+            ):
                 torch.manual_seed(13)
                 parameter = torch.nn.Parameter(torch.randn(7, 64, dtype=dtype))
                 optimizer = make_optimizer(parameter, period=saved_period)

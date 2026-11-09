@@ -8,7 +8,7 @@
 import copy
 import itertools
 import logging
-import os
+import tempfile
 import unittest
 from functools import partial
 
@@ -122,6 +122,14 @@ def combine_parameters(a, b):
     for tuple1, tuple2 in itertools.product(a, b):
         new_tuples.append(tuple1 + tuple2)
     return new_tuples
+
+
+def _cuda_version_at_least(major: int, minor: int) -> bool:
+    if not torch.cuda.is_available() or torch.version.cuda is None:
+        return False
+
+    cuda_version = tuple(int(part) for part in torch.version.cuda.split(".")[:2])
+    return cuda_version >= (major, minor)
 
 
 def run_supported_device_dtype(test_method):
@@ -265,6 +273,10 @@ class PythonQuantUtilOpUnitTest(unittest.TestCase):
         torch.testing.assert_close(y_ref, y_opt, atol=0, rtol=0)
 
     @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
+    @unittest.skipIf(
+        _cuda_version_at_least(13, 2),
+        "_int_mm is not actively maintained, and this test fails on cuda 13.2",
+    )
     def test__int_mm_eager_and_torch_compile_numerics(self):
         def __int_mm_ref(x, w):
             x = x.cpu().to(torch.int32)
@@ -581,10 +593,15 @@ class TestSaveLoadMeta(unittest.TestCase):
         # make sure the model is still runnable
         model(x)
 
-        torch.save(model.state_dict(), "test.pth")
+        # Each parametrization needs its own file when pytest workers overlap.
+        checkpoint_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(checkpoint_dir.cleanup)
+        checkpoint_path = f"{checkpoint_dir.name}/test.pth"
+        torch.save(model.state_dict(), checkpoint_path)
         # get quantized reference
         model_qc = torch.compile(model, mode="max-autotune")
-        ref_q = model_qc(x).detach()
+        # Keep the reference independent of reused CUDA-graph output buffers.
+        ref_q = model_qc(x).detach().clone()
 
         assert SQNR(ref_f, ref_q) > min_sqnr, (
             f"got sqnr: {SQNR(ref_f, ref_q)}, expected: {min_sqnr}"
@@ -596,8 +613,7 @@ class TestSaveLoadMeta(unittest.TestCase):
         api(model)
 
         # load quantized state_dict
-        state_dict = torch.load("test.pth", mmap=True)
-        os.remove("test.pth")
+        state_dict = torch.load(checkpoint_path, mmap=True)
 
         model.load_state_dict(state_dict, assign=True)
         model = model.to(device=test_device, dtype=test_dtype).eval()

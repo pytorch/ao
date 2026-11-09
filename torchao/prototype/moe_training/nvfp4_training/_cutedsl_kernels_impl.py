@@ -405,19 +405,20 @@ def _bf16hi_to_f32(w: cutlass.Uint32, *, loc=None, ip=None) -> cutlass.Float32:
 
 
 @dsl_user_op
-def _mulhi_u32(a: cutlass.Uint32, b: cutlass.Uint32, *, loc=None, ip=None):
-    """High 32 bits of a 32x32 unsigned multiply (triton's math.umulhi)."""
-    return cutlass.Uint32(
+def _mulhilo_u32(a: cutlass.Uint32, b: cutlass.Uint32, *, loc=None, ip=None):
+    """Low and high halves of one unsigned 32x32-to-64-bit multiply."""
+    product = cutlass.Uint64(
         llvm.inline_asm(
-            T.i32(),
+            T.i64(),
             [a.ir_value(loc=loc, ip=ip), b.ir_value(loc=loc, ip=ip)],
-            "mul.hi.u32 $0, $1, $2;",
-            "=r,r,r",
+            "mul.wide.u32 $0, $1, $2;",
+            "=l,r,r",
             has_side_effects=False,
             is_align_stack=False,
             asm_dialect=llvm.AsmDialect.AD_ATT,
         )
     )
+    return cutlass.Uint32(product), cutlass.Uint32(product >> 32)
 
 
 # Philox-4x32-10 (PHILOX_KEY_A/B, PHILOX_ROUND_A/B, 10 rounds).
@@ -455,21 +456,15 @@ def philox_prep(seed_lo, seed_hi, offset_base):
         for r in range(PHILOX_ROUNDS)
     ]
     A, B = cutlass.Uint32(_PHILOX_ROUND_A), cutlass.Uint32(_PHILOX_ROUND_B)
-    c2_r1 = _mulhi_u32(A, offset_base) ^ sched[0][1]
-    c3_r1 = A * offset_base
-    c0_r2 = _mulhi_u32(B, c2_r1) ^ sched[1][0]
-    c1_r2 = B * c2_r1
+    c3_r1, hi = _mulhilo_u32(A, offset_base)
+    c2_r1 = hi ^ sched[0][1]
+    c1_r2, hi = _mulhilo_u32(B, c2_r1)
+    c0_r2 = hi ^ sched[1][0]
     return sched, c0_r2, c1_r2, c3_r1
 
 
 def philox4_all(state, chunk_counter):
     """The four random words a 16-element chunk needs, from a single Philox draw.
-
-    These kernels once reproduced triton's counter stride, drawing one word per packed
-    byte at counters ``p0, p0+1, p0+4, p0+5`` because that is what triton's ``cvt.rs`` asm
-    consumes. That cost four full round schedules per chunk and discarded three of every
-    four output words -- 124 multiplies for 128 bits that one draw produces. Consuming a
-    single draw whole costs 34, and yields the same 128 bits.
 
     The counter must be derived from tile coordinates rather than from a running
     per-thread value: these kernels are persistent, and the grouped one schedules through
@@ -480,14 +475,14 @@ def philox4_all(state, chunk_counter):
     A, B = cutlass.Uint32(_PHILOX_ROUND_A), cutlass.Uint32(_PHILOX_ROUND_B)
     c0_r1 = chunk_counter ^ sched[0][0]
     c0, c1 = c0_r2, c1_r2
-    c2 = _mulhi_u32(A, c0_r1) ^ c3_r1 ^ sched[1][1]
-    c3 = A * c0_r1
+    c3, hi = _mulhilo_u32(A, c0_r1)
+    c2 = hi ^ c3_r1 ^ sched[1][1]
     for r in range(2, PHILOX_ROUNDS):
-        _c0, _c2 = c0, c2
-        c0 = _mulhi_u32(B, _c2) ^ c1 ^ sched[r][0]
-        c2 = _mulhi_u32(A, _c0) ^ c3 ^ sched[r][1]
-        c1 = B * _c2
-        c3 = A * _c0
+        lo_b, hi_b = _mulhilo_u32(B, c2)
+        lo_a, hi_a = _mulhilo_u32(A, c0)
+        c0 = hi_b ^ c1 ^ sched[r][0]
+        c2 = hi_a ^ c3 ^ sched[r][1]
+        c1, c3 = lo_b, lo_a
     return c0, c1, c2, c3
 
 
@@ -838,6 +833,41 @@ def _quant16(
         amax = _round_rht_amax(amax)
     return _quant16_from_amax(
         vals, amax, enc_over_fp4max, dec, sr, rb, rht_acc, fast_math
+    )
+
+
+def _global_scale(amax):
+    """NVFP4 global encode/decode scales."""
+    is_zero = amax == cutlass.Float32(0.0)
+    safe = cutlass.Float32(cutlass.select_(is_zero, cutlass.Float32(1.0), amax))
+    c = _min_f32(
+        _div_rn_f32(cutlass.Float32(FP8_E4M3_MAX * FP4_E2M1_MAX), safe),
+        cutlass.Float32(FP32_MAX),
+    )
+    c = cutlass.Float32(
+        cutlass.select_(c == cutlass.Float32(0.0), cutlass.Float32(1.0), c)
+    )
+    enc = cutlass.Float32(cutlass.select_(is_zero, cutlass.Float32(1.0), c))
+    dec = _div_rn_f32(cutlass.Float32(1.0), enc)
+    return enc, dec, enc * cutlass.Float32(1.0 / FP4_E2M1_MAX)
+
+
+def _rht_col_philox_counter(
+    token_tile_base, hidden_tile, tiles_in_hidden, hidden_row, block
+):
+    """Index a 16-value column block in logical 128x128 tiles.
+
+    Dense supertiles can span two token tiles; grouped tiles span one. Using
+    logical coordinates preserves the random stream across both tilings.
+    """
+    blocks_per_tile = 128 // HADAMARD_DIM
+    tile_id = (
+        token_tile_base + cutlass.Int32(block // blocks_per_tile)
+    ) * tiles_in_hidden + hidden_tile
+    return (
+        tile_id * cutlass.Int32(TILE_BLOCKS)
+        + hidden_row * cutlass.Int32(blocks_per_tile)
+        + cutlass.Int32(block % blocks_per_tile)
     )
 
 
@@ -1326,20 +1356,6 @@ class _Tcgen05RowColFused:
         tCrA = tiled_mma.make_fragment_A(sA)  # (MMA, M, col_groups, STAGE)
         tCrB = tiled_mma.make_fragment_B(sB)
 
-        def _global_scale(amax):
-            is_zero = amax == cutlass.Float32(0.0)
-            safe = cutlass.Float32(cutlass.select_(is_zero, cutlass.Float32(1.0), amax))
-            c = _min_f32(
-                _div_rn_f32(cutlass.Float32(FP8_E4M3_MAX * FP4_E2M1_MAX), safe),
-                cutlass.Float32(FP32_MAX),
-            )
-            c = cutlass.Float32(
-                cutlass.select_(c == cutlass.Float32(0.0), cutlass.Float32(1.0), c)
-            )
-            enc = cutlass.Float32(cutlass.select_(is_zero, cutlass.Float32(1.0), c))
-            dec = _div_rn_f32(cutlass.Float32(1.0), enc)
-            return enc, dec, enc * cutlass.Float32(1.0 / FP4_E2M1_MAX)
-
         # Ungrouped: one global scale pair for the whole launch. Grouped: the epilogues overwrite
         # these per work tile from that tile's expert; the hoisted pair still has to be computed
         # (and typed) before the loops, since the DSL rejects a name that enters a dynamic `for`
@@ -1615,19 +1631,15 @@ class _Tcgen05RowColFused:
                     vals = tTR_rAcc.load().reshape((16,))
                     col_rb = None
                     if cutlass.const_expr(self.sr):
-                        # This thread's 16 tokens start at supertile offset u*16, so they
-                        # sit in token tile pid_ns*(kw/128) + u//8 at local token
-                        # (u%8)*16. One draw per 16-element block, indexed by its position
-                        # in the columnwise (hidden, tokens) tile.
-                        tile_id = (
-                            pid_ns * cutlass.Int32(self.kw // M_TILE)
-                            + cutlass.Int32(u // (M_TILE // 16))
-                        ) * tri_tiles_hid + pid_m
                         col_rb = philox4_all(
                             col_state,
-                            tile_id * cutlass.Int32(TILE_BLOCKS)
-                            + tidx * cutlass.Int32(M_TILE // 16)
-                            + cutlass.Int32(u % (M_TILE // 16)),
+                            _rht_col_philox_counter(
+                                pid_ns * cutlass.Int32(self.kw // M_TILE),
+                                pid_m,
+                                tri_tiles_hid,
+                                tidx,
+                                u,
+                            ),
                         )
                     w0, w1, pvscale_fp8 = _quant16(
                         vals,

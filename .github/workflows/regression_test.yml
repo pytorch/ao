@@ -25,9 +25,9 @@ jobs:
         include:
           - name: CUDA Nightly
             runs-on: mt-l-x86aavx2-45-167-a10g-4
-            torch-spec: '--pre torch torchvision --index-url https://download.pytorch.org/whl/nightly/cu126'
+            torch-spec: '--pre torch torchvision --index-url https://download.pytorch.org/whl/nightly/cu132'
             gpu-arch-type: "cuda"
-            gpu-arch-version: "12.6"
+            gpu-arch-version: "13.2"
             compiler: ""
           - name: CPU Nightly
             runs-on: mt-l-x86iavx512-16-128
@@ -47,6 +47,8 @@ jobs:
       contents: read
     uses: pytorch/test-infra/.github/workflows/linux_job_v3.yml@main
     with:
+      # HF readers are skipped here; PARQ reloads only local test files.
+      hf-cache: false
       timeout: 180
       runner: ${{ matrix.runs-on }}
       gpu-arch-type: ${{ matrix.gpu-arch-type }}
@@ -59,7 +61,7 @@ jobs:
           # so we cannot install clangxx via conda here.
           dnf install -y clang
           clang --version
-          conda create -n venv python=3.10 libgcc-ng=11.2.0 libstdcxx-ng=11.2.0 -y
+          conda create -n venv python=3.11 libgcc-ng=11.2.0 libstdcxx-ng=11.2.0 -y
           conda activate venv
           export CC=clang
           export CXX=clang++
@@ -71,12 +73,13 @@ jobs:
           # in setup.py and not otherwise exercised by any OSS CI job.
           export USE_CPU_KERNELS=1
         else
-          conda create -n venv python=3.10 libgcc-ng=11.2.0 libstdcxx-ng=11.2.0 -y
+          conda create -n venv python=3.11 libgcc-ng=11.2.0 libstdcxx-ng=11.2.0 -y
           conda activate venv
         fi
         python -m pip install --upgrade pip
         pip install ${{ matrix.torch-spec }}
-        pip install -r dev-requirements.txt
+        pip install uv==0.13.7
+        uv pip install -r dev-requirements.txt
         pip install . --no-build-isolation
         export CONDA=$(dirname $(dirname $(which conda)))
         export LD_LIBRARY_PATH=$CONDA/lib/:$LD_LIBRARY_PATH
@@ -87,7 +90,14 @@ jobs:
         # redundant. They now run in dedicated workflows instead:
         #   - regression_test_pt2e_cpu.yml (full PT2E suite on CPU)
         #   - regression_test_pt2e_gpu.yml (GPU-relevant PT2E, slow x86 tests excluded)
-        pytest test --verbose -s --ignore=test/quantization/pt2e
+        # Four workers bound GPU-memory and compiler concurrency on CUDA legs.
+        # CPU legs keep their existing serial command.
+        if [ "${{ matrix.gpu-arch-type }}" = "cuda" ]; then
+          OMP_NUM_THREADS=4 MKL_NUM_THREADS=4 TORCHINDUCTOR_COMPILE_THREADS=1 \
+            pytest test --verbose -n 4 --dist=worksteal --ignore=test/quantization/pt2e
+        else
+          pytest test --verbose -s --ignore=test/quantization/pt2e
+        fi
   test:
     strategy:
       fail-fast: false
@@ -95,9 +105,9 @@ jobs:
         include:
           - name: CUDA 2.13
             runs-on: mt-l-x86aavx2-45-167-a10g-4
-            torch-spec: 'torch==2.13.0 torchvision==0.28.0 --index-url https://download.pytorch.org/whl/cu126'
+            torch-spec: 'torch==2.13.0 torchvision==0.28.0 --index-url https://download.pytorch.org/whl/cu132'
             gpu-arch-type: "cuda"
-            gpu-arch-version: "12.6"
+            gpu-arch-version: "13.2"
             dev-requirements-overrides: ""
 
           - name: CPU 2.13
@@ -109,18 +119,21 @@ jobs:
 
     uses: pytorch/test-infra/.github/workflows/linux_job_v3.yml@main
     with:
+      # HF readers are skipped here; PARQ reloads only local test files.
+      hf-cache: false
       timeout: 180
       runner: ${{ matrix.runs-on }}
       gpu-arch-type: ${{ matrix.gpu-arch-type }}
       gpu-arch-version: ${{ matrix.gpu-arch-version }}
       submodules: recursive
       script: |
-        conda create -n venv python=3.10 libgcc-ng=11.2.0 libstdcxx-ng=11.2.0 -y
+        conda create -n venv python=3.11 libgcc-ng=11.2.0 libstdcxx-ng=11.2.0 -y
         conda activate venv
         python -m pip install --upgrade pip
         pip install ${{ matrix.torch-spec }}
         sed -i '${{ matrix.dev-requirements-overrides }}' dev-requirements.txt
-        pip install -r dev-requirements.txt
+        pip install uv==0.13.7
+        uv pip install -r dev-requirements.txt
         pip install . --no-build-isolation
         export CONDA=$(dirname $(dirname $(which conda)))
         export LD_LIBRARY_PATH=$CONDA/lib/:$LD_LIBRARY_PATH
@@ -131,4 +144,11 @@ jobs:
         # redundant. They now run in dedicated workflows instead:
         #   - regression_test_pt2e_cpu.yml (full PT2E suite on CPU)
         #   - regression_test_pt2e_gpu.yml (GPU-relevant PT2E, slow x86 tests excluded)
-        pytest test --verbose -s --ignore=test/quantization/pt2e
+        # Four workers bound GPU-memory and compiler concurrency on CUDA legs.
+        # CPU legs keep their existing serial command.
+        if [ "${{ matrix.gpu-arch-type }}" = "cuda" ]; then
+          OMP_NUM_THREADS=4 MKL_NUM_THREADS=4 TORCHINDUCTOR_COMPILE_THREADS=1 \
+            pytest test --verbose -n 4 --dist=worksteal --ignore=test/quantization/pt2e
+        else
+          pytest test --verbose -s --ignore=test/quantization/pt2e
+        fi

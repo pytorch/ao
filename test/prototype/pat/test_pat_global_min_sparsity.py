@@ -145,7 +145,7 @@ class TestGroupCountCorrection(common_utils.TestCase):
     def test_low_precision_scaling_preserves_finite_scores_and_selection(self):
         for dtype in (torch.float16, torch.bfloat16):
             for ref in (1, 16):
-                with self.subTest(dtype=dtype, reference=ref):
+                with self.subTest(dtype=str(dtype), reference=ref):
                     params = [
                         torch.tensor(values, dtype=dtype).reshape(-1, 1)
                         for values in ([40000, 45000, 50000, 55000], [60000, 62000])
