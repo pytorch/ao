@@ -409,6 +409,17 @@ def _(func, types, args, kwargs):
     # reshape to 2D
     act_mat = act_mat.reshape(-1, act_mat.shape[-1])
 
+    # _weight_int4pack_mm_for_cpu requires the activation dtype to exactly
+    # match scale_and_zero.dtype (no implicit promotion at the aten op
+    # boundary). The weight is quantized once, at whatever dtype `weight`
+    # happened to be at quantization time, so a caller running inference in
+    # a different float dtype (e.g. quantizing a float32 model, then calling
+    # it with a bfloat16/float16 activation) would otherwise hit a confusing
+    # `RuntimeError: expected scalar type X but found Y` here, even though
+    # this class's docstring documents float16/bfloat16/float32 activation
+    # support regardless of the weight's quantization dtype.
+    act_mat = act_mat.to(scale_and_zero.dtype)
+
     # groupwise int4 quantization
     groupsize = weight_tensor.block_size[1]
     y = torch.ops.aten._weight_int4pack_mm_for_cpu(
