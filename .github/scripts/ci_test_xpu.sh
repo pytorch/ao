@@ -1,6 +1,6 @@
 #!/bin/bash
 
-conda create -yn xpu_ao_ci python=3.10 pip
+conda create -yn xpu_ao_ci python=3.11 pip
 source activate xpu_ao_ci
 
 export CC=/usr/bin/gcc
