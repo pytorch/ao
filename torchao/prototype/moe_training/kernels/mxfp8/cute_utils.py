@@ -9,6 +9,8 @@
 import importlib.util
 import inspect
 
+import torch
+
 # Runtime package detection
 _CUTEDSL_RUNTIME_PACKAGES = {
     "cuda.bindings.driver": "cuda-python",
@@ -45,6 +47,20 @@ def _cutedsl_runtime_available() -> bool:
         True if all required packages are installed
     """
     return len(_missing_cutedsl_runtime_packages()) == 0
+
+
+def current_cuda_stream():
+    """Return the current PyTorch CUDA stream, to pass to a kernel launch explicitly.
+
+    Read it on every launch, because callers can switch device or stream (for
+    example, during CUDA graph capture). The raw-stream query skips the Python
+    ``Stream`` object that ``torch.cuda.current_stream()`` builds.
+    """
+    import cuda.bindings.driver as cuda
+
+    return cuda.CUstream(
+        torch._C._cuda_getCurrentRawStream(torch.cuda.current_device())
+    )
 
 
 if _cutedsl_runtime_available():
