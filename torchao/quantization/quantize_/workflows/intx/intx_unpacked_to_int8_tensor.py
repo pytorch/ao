@@ -376,8 +376,36 @@ def _(func, types, args, kwargs):
         args[0],
         args[1],
     )
-    weight_tensor = weight_tensor.dequantize()
-    return torch.nn.functional.embedding(indices, weight_tensor, **kwargs)
+    if kwargs.get("max_norm") is not None:
+        return torch.nn.functional.embedding(
+            indices, weight_tensor.dequantize(), **kwargs
+        )
+
+    padding_idx = kwargs.get("padding_idx")
+    if padding_idx is not None:
+        assert padding_idx < weight_tensor.shape[0], (
+            "Padding_idx must be within num_embeddings"
+        )
+        assert padding_idx >= -weight_tensor.shape[0], (
+            "Padding_idx must be within num_embeddings"
+        )
+
+    flat_indices = indices.reshape(-1)
+    qdata = weight_tensor.qdata.index_select(0, flat_indices)
+    scale = weight_tensor.scale.index_select(0, flat_indices)
+    zero_point = weight_tensor.zero_point.index_select(0, flat_indices)
+    qmin, qmax = _DTYPE_TO_QVALUE_BOUNDS[weight_tensor.target_dtype]
+    dequantized = dequantize_affine(
+        qdata,
+        weight_tensor.block_size,
+        scale,
+        zero_point,
+        torch.int8,
+        qmin,
+        qmax,
+        output_dtype=weight_tensor.dtype,
+    )
+    return dequantized.reshape(*indices.shape, weight_tensor.shape[1])
 
 
 @implements(aten.slice.Tensor)
