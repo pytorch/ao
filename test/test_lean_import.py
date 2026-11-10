@@ -1,3 +1,12 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+# All rights reserved.
+#
+# This source code is licensed under the BSD 3-Clause license found in the
+# LICENSE file in the root directory of this source tree.
+
+import os
+import subprocess
+import sys
 import unittest
 
 import torch
@@ -18,6 +27,22 @@ class TestLeanImport(unittest.TestCase):
         import torchao  # noqa: F401
 
         torch.cuda.current_device = old_current_device
+
+    def test_torchao_import_is_fork_safe(self):
+        # without PYTORCH_NVML_BASED_CUDA_CHECK=1, torch.cuda.is_available()
+        # initializes the cuda driver, and forked children can't use cuda after
+        code = (
+            "import os, torch, torchao\n"
+            "pid = os.fork()\n"
+            "if pid == 0:\n"
+            "    torch.zeros(1, device='cuda')\n"
+            "    os._exit(0)\n"
+            "_, status = os.waitpid(pid, 0)\n"
+            "assert os.waitstatus_to_exitcode(status) == 0\n"
+        )
+        env = dict(os.environ)
+        env.pop("PYTORCH_NVML_BASED_CUDA_CHECK", None)
+        subprocess.run([sys.executable, "-c", code], check=True, env=env)
 
 
 if __name__ == "__main__":
