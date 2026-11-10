@@ -4,6 +4,7 @@
 # This source code is licensed under the license found in the
 # LICENSE file in the root directory of this source tree.
 
+import functools
 import importlib
 import logging
 from typing import Optional, Tuple
@@ -12,7 +13,7 @@ import numpy as np
 import torch
 from torch.distributed.tensor import Replicate, Shard
 from torch.distributed.tensor.experimental import register_sharding
-from torch.utils._triton import has_triton
+from torch.utils._triton import has_triton, has_triton_package
 
 from torchao.prototype.custom_fp_utils import (
     _f32_to_floatx_unpacked,
@@ -160,7 +161,7 @@ def pack_uint4(uint8_data: torch.Tensor) -> torch.Tensor:
     return (uint8_data[::2] | uint8_data[1::2] << 4).view(down_size(shape))
 
 
-if has_triton():
+if has_triton_package():
     import triton
     import triton.language as tl
     from torch.library import triton_op, wrap_triton
@@ -451,14 +452,13 @@ else:
         raise AssertionError("needs triton")
 
 
-_triton_kernels_available = (
-    has_triton()
-    and torch.cuda.is_available()
-    and (is_sm_at_least_100() and is_cuda_version_at_least(12, 8))
-    or (is_ROCM() and is_MI350())
-)
+# Defining the kernels needs no GPU. Whether this GPU can run them is
+# `_triton_kernels_available`, computed on first access (see `__getattr__`).
+_triton_kernels_defined = (
+    has_triton_package() and is_cuda_version_at_least(12, 8)
+) or is_ROCM()
 
-if _triton_kernels_available:
+if _triton_kernels_defined:
     import triton
     import triton.language as tl
     from torch.library import triton_op, wrap_triton
@@ -1013,13 +1013,10 @@ else:
         raise AssertionError("needs triton")
 
 
-_mxfp8_cuda_kernels_available = (
-    torch.cuda.is_available()
-    and is_sm_at_least_100()
-    and is_cuda_version_at_least(12, 8)
-)
+# Same split as `_triton_kernels_defined`: `_mxfp8_cuda_kernels_available` is lazy.
+_mxfp8_cuda_kernels_defined = is_cuda_version_at_least(12, 8)
 
-if _mxfp8_cuda_kernels_available:
+if _mxfp8_cuda_kernels_defined:
     lib = torch.library.Library("torchao", "FRAGMENT")
     lib.define(
         "mxfp8_quantize(Tensor input, bool rowwise, bool colwise, int scale_dim_x, int scale_dim_y, str fp8_format, str scaling_mode) -> (Tensor, Tensor, Tensor, Tensor)",
@@ -1362,13 +1359,12 @@ def _(m_sizes, x, global_scale):
 # power-of-two e8m0 exponent, and the cast multiplies the data by the fp32 reciprocal of that
 # e8m0 scale before casting to float8_e4m3fn.
 # ---------------------------------------------------------------------------
-if _triton_kernels_available:
+if _triton_kernels_defined:
     # Reuses the e8m0 RCEIL helper `_triton_calculate_scale_rceil` defined in the
-    # `_triton_kernels_available` block above (`USE_PTX` selects the hardware
+    # `_triton_kernels_defined` block above (`USE_PTX` selects the hardware
     # `cvt.rp.ue8m0x2.f32` path on Blackwell / NVIDIA and the bit-math path on ROCm). Sharing
     # that helper keeps this kernel byte-for-byte consistent with the other mxfp8 casts, so it
-    # is gated on the same `_triton_kernels_available` (SM100+ & CUDA>=12.8, or ROCm MI350) as
-    # they are.
+    # is defined under the same `_triton_kernels_defined` gate as they are.
 
     _MXFP8_32X32_DIM_KM_CONFIGS = [
         triton.Config({"BN": bn, "RB": rb}, num_warps=w)
@@ -1516,3 +1512,36 @@ else:
         x: torch.Tensor,
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         raise AssertionError("needs triton")
+
+
+@functools.cache
+def _triton_kernels_available_on_device() -> bool:
+    return (
+        has_triton()
+        and torch.cuda.is_available()
+        and (is_sm_at_least_100() and is_cuda_version_at_least(12, 8))
+        or (is_ROCM() and is_MI350())
+    )
+
+
+@functools.cache
+def _mxfp8_cuda_kernels_available_on_device() -> bool:
+    return (
+        torch.cuda.is_available()
+        and is_sm_at_least_100()
+        and is_cuda_version_at_least(12, 8)
+    )
+
+
+_LAZY_FLAGS = {
+    "_triton_kernels_available": _triton_kernels_available_on_device,
+    "_mxfp8_cuda_kernels_available": _mxfp8_cuda_kernels_available_on_device,
+}
+
+
+def __getattr__(name: str):
+    # Querying the GPU initializes CUDA, which breaks forking CUDA workers later,
+    # so these flags are computed on first access instead of at import.
+    if name in _LAZY_FLAGS:
+        return _LAZY_FLAGS[name]()
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
