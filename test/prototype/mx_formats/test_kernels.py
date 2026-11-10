@@ -4,6 +4,9 @@
 # This source code is licensed under the license found in the
 # LICENSE file in the root directory of this source tree.
 
+import subprocess
+import sys
+
 import pytest
 import torch
 from torch.utils._triton import has_triton
@@ -1176,3 +1179,18 @@ def test_triton_to_mxfp8_32x32_swizzle_dim0_qdata_dim01_scale(M, K):
         f"swizzle_dim0_qdata_dim01_scale (dim-m): "
         f"sqnr={sqnr_m.item():.2f} dB below 15 dB"
     )
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+@pytest.mark.parametrize(
+    "module",
+    [
+        "torchao.prototype.mx_formats",
+        # imported by transformers whenever torchao is installed
+        "torchao.prototype.safetensors.safetensors_support",
+    ],
+)
+def test_import_does_not_initialize_cuda(module):
+    # Initializing CUDA at import makes CUDA fail in processes forked afterwards.
+    code = f"import torch, {module}; assert not torch.cuda.is_initialized()"
+    subprocess.run([sys.executable, "-c", code], check=True)
