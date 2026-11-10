@@ -24,6 +24,7 @@ from torchao.prototype.awq import (
     AWQConfig,
 )
 from torchao.prototype.mx_formats import MXDynamicActivationMXWeightConfig
+from torchao.prototype.parq.quant import StretchedIntxWeightConfig
 from torchao.quantization import (
     MappingType,
     PerAxis,
@@ -276,9 +277,10 @@ def test_mxconfig_include_pybind11_enum_serialization():
         assert reconstructed.swizzled_type is swizzle
 
 
-# The first two are the quantization_config of pytorch/Qwen3-8B-INT4 and
-# pytorch/Phi-4-mini-instruct-INT8-INT4 on the Hugging Face Hub, the third is
-# Int8DynamicActivationInt8WeightConfig(version=2) serialized by torchao 0.17.0.
+# From the quantization_config of pytorch/Qwen3-8B-INT4,
+# pytorch/Phi-4-mini-instruct-INT8-INT4 and pytorch/Phi-4-mini-instruct-parq-3w-4e-shared
+# on the Hugging Face Hub, and Int8DynamicActivationInt8WeightConfig(version=2) as
+# serialized by torchao 0.17.0.
 _QDQ_LAYOUT = {"_data": {}, "_type": "QDQLayout", "_version": 1}
 _LEGACY_SERIALIZED_CONFIGS = [
     (
@@ -397,18 +399,55 @@ _LEGACY_SERIALIZED_CONFIGS = [
             act_mapping_type=MappingType.SYMMETRIC, granularity=PerRow(), version=2
         ),
     ),
+    (
+        {
+            "_data": {
+                "activation_quantization": "int8_asym_per_token",
+                "b": 3,
+                "granularity": {
+                    "_data": {"axis": 0},
+                    "_type": "PerAxis",
+                    "_version": 1,
+                },
+                "layout": _QDQ_LAYOUT,
+                "quant_max": 3.5,
+                "quant_min": -3.5,
+                "scale_dtype": None,
+            },
+            "_type": "StretchedIntxWeightConfig",
+            "_version": 2,
+        },
+        StretchedIntxWeightConfig(b=3, quant_min=-3.5, quant_max=3.5),
+    ),
 ]
 
 
 @pytest.mark.parametrize(
     "serialized, expected",
     _LEGACY_SERIALIZED_CONFIGS,
-    ids=["int4", "int8_intx", "int8_int8"],
+    ids=["int4", "int8_intx", "int8_int8", "stretched_intx"],
 )
 def test_config_from_dict_ignores_removed_fields(serialized, expected):
     """Configs saved before the layout system was deleted still load."""
-    with pytest.warns(UserWarning, match="Ignoring"):
+    with pytest.warns(UserWarning, match="Ignoring.*layout"):
         assert config_from_dict(serialized) == expected
+
+
+@pytest.mark.parametrize(
+    "serialized",
+    [
+        {"_type": "Int4WeightOnlyConfig", "_version": 2, "_data": {"bogus": 1}},
+        {
+            "_type": "IntxWeightOnlyConfig",
+            "_version": 1,
+            "_data": {"layout": _QDQ_LAYOUT},
+        },
+    ],
+    ids=["unknown_field", "version_1"],
+)
+def test_config_from_dict_drops_only_removed_v2_fields(serialized):
+    with pytest.raises(ValueError):
+        config_from_dict(serialized)
 
 
 if __name__ == "__main__":

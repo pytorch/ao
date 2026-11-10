@@ -9,7 +9,7 @@ import enum
 import importlib
 import json
 import warnings
-from typing import Any, Dict
+from typing import Any, ClassVar, Dict, Tuple
 
 import torch
 
@@ -65,6 +65,10 @@ class AOBaseConfig(abc.ABC):
     default Version of a config, should never change
     """
     version: int = _DEFAULT_VERSION
+
+    # Fields removed from this config whose values older serialized configs still
+    # carry; `config_from_dict` drops them (with a warning) for version >= 2.
+    _removed_serialized_fields: ClassVar[Tuple[str, ...]] = ()
 
 
 class ConfigJSONEncoder(json.JSONEncoder):
@@ -218,19 +222,6 @@ ALLOWED_AO_MODULES = {
 }
 
 
-# Fields that were removed from these configs together with the layout system.
-# Configs serialized by torchao <= 0.17 (for example most pytorch/* checkpoints
-# on the Hugging Face Hub) still contain them, but version 2 of these configs
-# never read them.
-_REMOVED_V2_CONFIG_FIELDS = {
-    "Int4WeightOnlyConfig": ("layout", "preserve_zero", "use_hqq", "zero_point_domain"),
-    "IntxWeightOnlyConfig": ("layout",),
-    "Int8DynamicActivationInt8WeightConfig": ("layout",),
-    "Int8DynamicActivationIntxWeightConfig": ("layout",),
-    "StretchedIntxWeightConfig": ("layout",),
-}
-
-
 def config_from_dict(data: Dict[str, Any]) -> AOBaseConfig:
     """
     Create an AOBaseConfig subclass instance from a dictionary.
@@ -301,20 +292,21 @@ def config_from_dict(data: Dict[str, Any]) -> AOBaseConfig:
             except:
                 return obj_data
 
-    if stored_version >= 2 and dataclasses.is_dataclass(cls):
-        field_names = {f.name for f in dataclasses.fields(cls)}
-        removed = [
-            key
-            for key in _REMOVED_V2_CONFIG_FIELDS.get(type_path, ())
-            if key in obj_data and key not in field_names
-        ]
-        if removed:
-            warnings.warn(
-                f"Ignoring {removed} in the serialized {type_path}: these fields "
-                f"were removed and version {stored_version} does not use them. "
-                "Re-save the config with the current torchao to silence this."
-            )
-            obj_data = {k: v for k, v in obj_data.items() if k not in removed}
+    # Drop removed fields before the recursion below: their values can name
+    # classes that no longer exist (e.g. TensorCoreTiledLayout).
+    removed = [
+        key
+        for key in getattr(cls, "_removed_serialized_fields", ())
+        if stored_version >= 2 and key in obj_data
+    ]
+    if removed:
+        warnings.warn(
+            f"Ignoring {removed} in the serialized {type_path}: these fields "
+            f"were removed and version {stored_version} does not use them. "
+            "Re-save the config with the current torchao to silence this.",
+            stacklevel=2,
+        )
+        obj_data = {k: v for k, v in obj_data.items() if k not in removed}
 
     # Process nested structures for dictionary obj_data
     if stored_version != current_default_version:
