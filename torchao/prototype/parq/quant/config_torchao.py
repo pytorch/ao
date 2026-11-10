@@ -6,7 +6,7 @@
 
 import types
 from dataclasses import dataclass
-from typing import Callable, Optional
+from typing import Callable, ClassVar, Optional, Tuple
 
 import torch
 from torch import nn
@@ -41,6 +41,7 @@ except ImportError:
 
 @dataclass
 class StretchedIntxWeightConfig(AOBaseConfig):
+    _removed_serialized_fields: ClassVar[Tuple[str, ...]] = ("layout",)
     granularity: Granularity = PerAxis(0)
     scale_dtype: Optional[torch.dtype] = None
     version: int = 2
