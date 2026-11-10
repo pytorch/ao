@@ -452,18 +452,29 @@ else:
         raise AssertionError("needs triton")
 
 
-# Defining the kernels needs no GPU. Whether this GPU can run them is
-# `_triton_kernels_available`, computed on first access (see `__getattr__`).
-_triton_kernels_defined = (
-    has_triton_package() and is_cuda_version_at_least(12, 8)
-) or is_ROCM()
+def _is_cuda_build_at_least(major: int, minor: int) -> bool:
+    # unlike is_cuda_version_at_least, never calls torch.cuda.is_available()
+    if torch.version.cuda is None:
+        return False
+    cuda_major, cuda_minor = map(int, torch.version.cuda.split(".")[:2])
+    return (cuda_major, cuda_minor) >= (major, minor)
+
+
+_IS_ROCM_BUILD = torch.version.hip is not None
+
+# Defining the kernels checks only the build, so import makes no torch.cuda call.
+# Whether this GPU can run them is `_triton_kernels_available`, computed on first
+# access (see `__getattr__`).
+_triton_kernels_defined = has_triton_package() and (
+    _is_cuda_build_at_least(12, 8) or _IS_ROCM_BUILD
+)
 
 if _triton_kernels_defined:
     import triton
     import triton.language as tl
     from torch.library import triton_op, wrap_triton
 
-    IS_ROCM = tl.constexpr(is_ROCM())
+    IS_ROCM = tl.constexpr(_IS_ROCM_BUILD)
 
     @triton.jit
     def _calculate_reciprocal_scale(scale_e8m0_biased):
@@ -859,6 +870,7 @@ if _triton_kernels_defined:
         * `output`: the `float8_e4m3fn` values of `x` cast to mxfp8 across dim0 (rowwise)
         * `scale`: the `e8m0` values of `x_scale` used to cast `x` to mxfp8 across dim0
         """
+        assert _triton_kernels_available_on_device(), "needs triton"
         assert x.is_contiguous(), "`x` must be contiguous"
         assert inner_block_size <= 32, "inner_block_size must be <= 32"
         assert x.dtype == torch.bfloat16, (
@@ -929,6 +941,7 @@ if _triton_kernels_defined:
         * `output_col_major`: the `float8_e4m3fn` values of `x` cast to mxfp8 across dim1
         * `col_scale`: the `e8m0` values of `x_scale` used to cast `x` to mxfp8 across dim1
         """
+        assert _triton_kernels_available_on_device(), "needs triton"
         assert x.is_contiguous(), "`x` must be contiguous"
         assert inner_block_size <= 32
 
@@ -1013,8 +1026,10 @@ else:
         raise AssertionError("needs triton")
 
 
+_MXFP8_CUDA_UNAVAILABLE_MSG = "`mxfp8_quantize_cuda` needs (1) torch 2.8+ and (2) torchao built from source on a machine with CUDA capability 10.0+. Please see https://github.com/pytorch/ao/issues/2932 for more details."
+
 # Same split as `_triton_kernels_defined`: `_mxfp8_cuda_kernels_available` is lazy.
-_mxfp8_cuda_kernels_defined = is_cuda_version_at_least(12, 8)
+_mxfp8_cuda_kernels_defined = _is_cuda_build_at_least(12, 8)
 
 if _mxfp8_cuda_kernels_defined:
     lib = torch.library.Library("torchao", "FRAGMENT")
@@ -1044,6 +1059,8 @@ if _mxfp8_cuda_kernels_defined:
         Returns:
             Tuple of (output_rowwise, output_colwise, scales_rowwise, scales_colwise)
         """
+        if not _mxfp8_cuda_kernels_available_on_device():
+            raise NotImplementedError(_MXFP8_CUDA_UNAVAILABLE_MSG)
         # Input shape must be 2D.
         assert x.ndim == 2
         rows, cols = x.shape
@@ -1185,9 +1202,7 @@ else:
         colwise: bool = True,
         scaling_mode: str = "rceil",
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
-        raise NotImplementedError(
-            "`mxfp8_quantize_cuda` needs (1) torch 2.8+ and (2) torchao built from source on a machine with CUDA capability 10.0+. Please see https://github.com/pytorch/ao/issues/2932 for more details."
-        )
+        raise NotImplementedError(_MXFP8_CUDA_UNAVAILABLE_MSG)
 
 
 _mslk_available = importlib.util.find_spec("mslk") is not None
@@ -1467,6 +1482,7 @@ if _triton_kernels_defined:
 
         Standalone custom op; not used by MXTensor.
         """
+        assert _triton_kernels_available_on_device(), "needs triton"
         assert x.is_contiguous() and x.dim() == 2
         M, N = x.shape
         assert M % 32 == 0 and N % 32 == 0, (
