@@ -24,7 +24,10 @@ from torchao.prototype.awq import (
     AWQConfig,
 )
 from torchao.prototype.mx_formats import MXDynamicActivationMXWeightConfig
+from torchao.prototype.parq.quant import StretchedIntxWeightConfig
 from torchao.quantization import (
+    MappingType,
+    PerAxis,
     PerBlock,
     PerGroup,
     PerRow,
@@ -36,11 +39,14 @@ from torchao.quantization.quant_api import (
     Float8WeightOnlyConfig,
     Int4WeightOnlyConfig,
     Int8DynamicActivationInt8WeightConfig,
+    Int8DynamicActivationIntxWeightConfig,
     Int8WeightOnlyConfig,
+    IntxWeightOnlyConfig,
     ModuleFqnToConfig,
     quantize_,
 )
 from torchao.quantization.quantize_.common.quantization_step import QuantizationStep
+from torchao.quantization.quantize_.workflows import IntxPackingFormat
 from torchao.utils import is_sm_at_least_89
 
 # Define test configurations as fixtures
@@ -269,6 +275,179 @@ def test_mxconfig_include_pybind11_enum_serialization():
         reconstructed = config_from_dict(reconstructable)
         assert isinstance(reconstructed, MXDynamicActivationMXWeightConfig)
         assert reconstructed.swizzled_type is swizzle
+
+
+# From the quantization_config of pytorch/Qwen3-8B-INT4,
+# pytorch/Phi-4-mini-instruct-INT8-INT4 and pytorch/Phi-4-mini-instruct-parq-3w-4e-shared
+# on the Hugging Face Hub, and Int8DynamicActivationInt8WeightConfig(version=2) as
+# serialized by torchao 0.17.0.
+_QDQ_LAYOUT = {"_data": {}, "_type": "QDQLayout", "_version": 1}
+_LEGACY_SERIALIZED_CONFIGS = [
+    (
+        {
+            "_data": {
+                "group_size": 128,
+                "int4_choose_qparams_algorithm": "hqq",
+                "int4_packing_format": "tile_packed_to_4d",
+                "layout": {
+                    "_data": {"inner_k_tiles": 8},
+                    "_type": "TensorCoreTiledLayout",
+                    "_version": 1,
+                },
+                "preserve_zero": None,
+                "set_inductor_config": True,
+                "use_hqq": False,
+                "zero_point_domain": {"_data": "NONE", "_type": "ZeroPointDomain"},
+            },
+            "_type": "Int4WeightOnlyConfig",
+            "_version": 2,
+        },
+        Int4WeightOnlyConfig(
+            group_size=128,
+            int4_packing_format="tile_packed_to_4d",
+            int4_choose_qparams_algorithm="hqq",
+        ),
+    ),
+    (
+        {
+            "_data": {
+                "module_fqn_to_config": {
+                    "_default": {
+                        "_data": {
+                            "act_mapping_type": {
+                                "_data": "ASYMMETRIC",
+                                "_type": "MappingType",
+                            },
+                            "intx_packing_format": {
+                                "_data": "UNPACKED_TO_INT8",
+                                "_type": "IntxPackingFormat",
+                            },
+                            "layout": _QDQ_LAYOUT,
+                            "weight_dtype": {"_data": "int4", "_type": "torch.dtype"},
+                            "weight_granularity": {
+                                "_data": {"group_size": 32},
+                                "_type": "PerGroup",
+                                "_version": 1,
+                            },
+                            "weight_mapping_type": {
+                                "_data": "SYMMETRIC",
+                                "_type": "MappingType",
+                            },
+                            "weight_scale_dtype": None,
+                        },
+                        "_type": "Int8DynamicActivationIntxWeightConfig",
+                        "_version": 2,
+                    },
+                    "model.embed_tokens": {
+                        "_data": {
+                            "granularity": {
+                                "_data": {"axis": 0},
+                                "_type": "PerAxis",
+                                "_version": 1,
+                            },
+                            "intx_packing_format": {
+                                "_data": "UNPACKED_TO_INT8",
+                                "_type": "IntxPackingFormat",
+                            },
+                            "layout": _QDQ_LAYOUT,
+                            "mapping_type": {
+                                "_data": "SYMMETRIC",
+                                "_type": "MappingType",
+                            },
+                            "scale_dtype": None,
+                            "weight_dtype": {"_data": "int8", "_type": "torch.dtype"},
+                        },
+                        "_type": "IntxWeightOnlyConfig",
+                        "_version": 2,
+                    },
+                }
+            },
+            "_type": "ModuleFqnToConfig",
+            "_version": 1,
+        },
+        ModuleFqnToConfig(
+            {
+                "_default": Int8DynamicActivationIntxWeightConfig(
+                    weight_dtype=torch.int4,
+                    weight_granularity=PerGroup(32),
+                    weight_mapping_type=MappingType.SYMMETRIC,
+                    act_mapping_type=MappingType.ASYMMETRIC,
+                    intx_packing_format=IntxPackingFormat.UNPACKED_TO_INT8,
+                ),
+                "model.embed_tokens": IntxWeightOnlyConfig(
+                    weight_dtype=torch.int8,
+                    granularity=PerAxis(0),
+                    mapping_type=MappingType.SYMMETRIC,
+                    intx_packing_format=IntxPackingFormat.UNPACKED_TO_INT8,
+                ),
+            }
+        ),
+    ),
+    (
+        {
+            "_type": "Int8DynamicActivationInt8WeightConfig",
+            "_version": 2,
+            "_data": {
+                "layout": {"_type": "PlainLayout", "_version": 1, "_data": {}},
+                "act_mapping_type": {"_type": "MappingType", "_data": "SYMMETRIC"},
+                "weight_only_decode": False,
+                "granularity": {"_type": "PerRow", "_version": 1, "_data": {"dim": -1}},
+                "set_inductor_config": True,
+            },
+        },
+        Int8DynamicActivationInt8WeightConfig(
+            act_mapping_type=MappingType.SYMMETRIC, granularity=PerRow(), version=2
+        ),
+    ),
+    (
+        {
+            "_data": {
+                "activation_quantization": "int8_asym_per_token",
+                "b": 3,
+                "granularity": {
+                    "_data": {"axis": 0},
+                    "_type": "PerAxis",
+                    "_version": 1,
+                },
+                "layout": _QDQ_LAYOUT,
+                "quant_max": 3.5,
+                "quant_min": -3.5,
+                "scale_dtype": None,
+            },
+            "_type": "StretchedIntxWeightConfig",
+            "_version": 2,
+        },
+        StretchedIntxWeightConfig(b=3, quant_min=-3.5, quant_max=3.5),
+    ),
+]
+
+
+@pytest.mark.parametrize(
+    "serialized, expected",
+    _LEGACY_SERIALIZED_CONFIGS,
+    ids=["int4", "int8_intx", "int8_int8", "stretched_intx"],
+)
+def test_config_from_dict_ignores_removed_fields(serialized, expected):
+    """Configs saved before the layout system was deleted still load."""
+    with pytest.warns(UserWarning, match="Ignoring.*layout"):
+        assert config_from_dict(serialized) == expected
+
+
+@pytest.mark.parametrize(
+    "serialized",
+    [
+        {"_type": "Int4WeightOnlyConfig", "_version": 2, "_data": {"bogus": 1}},
+        {
+            "_type": "IntxWeightOnlyConfig",
+            "_version": 1,
+            "_data": {"layout": _QDQ_LAYOUT},
+        },
+    ],
+    ids=["unknown_field", "version_1"],
+)
+def test_config_from_dict_drops_only_removed_v2_fields(serialized):
+    with pytest.raises(ValueError):
+        config_from_dict(serialized)
 
 
 if __name__ == "__main__":

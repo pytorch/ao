@@ -23,7 +23,7 @@ import warnings
 from collections import OrderedDict
 from dataclasses import dataclass, field
 from functools import partial
-from typing import Any, Callable, List, Optional, Tuple, Union
+from typing import Any, Callable, ClassVar, List, Optional, Tuple, Union
 from typing import OrderedDict as OrderedDictType
 
 import torch
@@ -393,6 +393,7 @@ class Int8DynamicActivationIntxWeightConfig(AOBaseConfig):
        :language: python
     """
 
+    _removed_serialized_fields: ClassVar[Tuple[str, ...]] = ("layout",)
     weight_dtype: torch.dtype = torch.int8
     weight_granularity: Granularity = PerGroup(32)
     weight_mapping_type: MappingType = MappingType.SYMMETRIC
@@ -562,6 +563,12 @@ class Int4WeightOnlyConfig(AOBaseConfig):
        :language: python
     """
 
+    _removed_serialized_fields: ClassVar[Tuple[str, ...]] = (
+        "layout",
+        "preserve_zero",
+        "use_hqq",
+        "zero_point_domain",
+    )
     group_size: int = 128
     set_inductor_config: bool = True
     int4_packing_format: Int4PackingFormat = Int4PackingFormat.PLAIN
@@ -873,6 +880,7 @@ class Int8DynamicActivationInt8WeightConfig(AOBaseConfig):
        :language: python
     """
 
+    _removed_serialized_fields: ClassVar[Tuple[str, ...]] = ("layout",)
     act_mapping_type: Optional[MappingType] = MappingType.SYMMETRIC
     weight_only_decode: bool = False
     granularity: Optional[Union[Granularity, list[Granularity]]] = PerRow()
@@ -1426,6 +1434,7 @@ class IntxWeightOnlyConfig(AOBaseConfig):
        :language: python
     """
 
+    _removed_serialized_fields: ClassVar[Tuple[str, ...]] = ("layout",)
     weight_dtype: torch.dtype = torch.int8
     granularity: Granularity = PerAxis(0)
     mapping_type: MappingType = MappingType.SYMMETRIC
