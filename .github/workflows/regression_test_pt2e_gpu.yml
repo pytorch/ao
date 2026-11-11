@@ -1,11 +1,12 @@
-# Dedicated CI for PT2E (PyTorch 2 Export) quantization tests on GPU.
+# Dedicated CI for PT2E (PyTorch 2 Export) quantization tests on GPU (CUDA).
 #
 # Why this workflow exists:
 #   PT2E is excluded from the main regression jobs (see regression_test.yml)
-#   because it is slow and CPU/x86-centric. This is the GPU leg, which exists to
-#   cover the small number of PT2E tests that actually exercise the accelerator
-#   (e.g. the *_cuda QAT conv-bn fusion variants). It has two jobs: `test` for
-#   CUDA (nightly + pinned) and `test-rocm` for ROCm (nightly).
+#   because it is slow and CPU/x86-centric. This is the CUDA GPU leg, which
+#   exists to cover the small number of PT2E tests that actually exercise the
+#   accelerator (e.g. the *_cuda QAT conv-bn fusion variants). ROCm PT2E lives
+#   in regression_test_pt2e_rocm.yml (ciflow/rocm), matching other ROCm
+#   workflows so forked PRs do not hit AWS/OIDC auth failures on pull_request.
 #
 # Slow x86 tests are excluded here:
 #   test_x86inductor_fusion.py and test_x86inductor_quantizer.py hardcode
@@ -14,7 +15,7 @@
 #   so they would either be redundant with the CPU leg or silently skip. They add
 #   ~45 min of Inductor codegen with zero GPU coverage, so we skip them here and
 #   let regression_test_pt2e_cpu.yml own them.
-name: Run PT2E GPU Tests
+name: Run PT2E CUDA Tests
 
 on:
   push:
@@ -75,50 +76,6 @@ jobs:
         # Run PT2E tests, excluding the slow CPU-only x86 Inductor tests (they
         # are owned by regression_test_pt2e_cpu.yml). Everything else runs so the
         # CUDA-specific PT2E paths get coverage.
-        pytest test/quantization/pt2e --verbose -n 8 --dist=worksteal --durations=25 \
-          --ignore=test/quantization/pt2e/test_x86inductor_fusion.py \
-          --ignore=test/quantization/pt2e/test_x86inductor_quantizer.py
-
-  # ROCm leg. Kept as a separate job (rather than a matrix row on `test`) because
-  # ROCm needs a custom docker image and no-sudo, which the CUDA rows do not set.
-  # The x86 Inductor tests are excluded here too -- they self-skip on ROCm anyway
-  # (they are guarded with skipIf(torch.version.hip is not None)).
-  test-rocm:
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - name: ROCM Nightly
-            runs-on: linux.rocm.gpu.ecosystem.mi350.1
-            torch-spec: '--pre torchvision torch --index-url https://download.pytorch.org/whl/nightly/rocm10.0'
-            gpu-arch-type: "rocm"
-            gpu-arch-version: "10.0"
-            docker-image: pytorch/manylinux2_28-builder:rocm10.0
-
-    permissions:
-      id-token: write
-      contents: read
-    uses: pytorch/test-infra/.github/workflows/linux_job_v2.yml@main
-    with:
-      timeout: 120
-      no-sudo: ${{ matrix.gpu-arch-type == 'rocm' }}
-      runner: ${{ matrix.runs-on }}
-      gpu-arch-type: ${{ matrix.gpu-arch-type }}
-      gpu-arch-version: ${{ matrix.gpu-arch-version }}
-      docker-image: ${{ matrix.docker-image }}
-      submodules: recursive
-      script: |
-        conda create -n venv python=3.11 -y
-        conda activate venv
-        python -m pip install --upgrade pip
-        pip install ${{ matrix.torch-spec }}
-        pip install uv==0.13.7
-        uv pip install -r dev-requirements.txt
-        pip install . --no-build-isolation
-        export CONDA=$(dirname $(dirname $(which conda)))
-        export LD_LIBRARY_PATH=$CONDA/lib/:$LD_LIBRARY_PATH
-        # Run PT2E tests, excluding the slow CPU-only x86 Inductor tests (they
-        # are owned by regression_test_pt2e_cpu.yml).
         pytest test/quantization/pt2e --verbose -n 8 --dist=worksteal --durations=25 \
           --ignore=test/quantization/pt2e/test_x86inductor_fusion.py \
           --ignore=test/quantization/pt2e/test_x86inductor_quantizer.py
