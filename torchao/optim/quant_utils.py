@@ -66,7 +66,7 @@ def scale_tensor(input: Tensor, block_size: int):
     shape = input.shape
 
     # section 2.1 from https://arxiv.org/abs/2110.02861
-    input = input.view(-1, block_size)
+    input = input.reshape(-1, block_size)
     scale = input.abs().amax(-1).clip(1e-12)
     input = input / scale.view(-1, 1)
     return input.view(shape), scale
