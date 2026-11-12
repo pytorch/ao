@@ -226,6 +226,89 @@ class ModelWithLinearBias(torch.nn.Module):
 class TestQAT(TestCase):
     SEED = 123
 
+    @parametrize("device", ["cpu", "meta"])
+    @parametrize("dtype", [torch.float32, torch.bfloat16])
+    @parametrize("requires_grad", [False, True])
+    @parametrize("prepare", [False, True])
+    def test_qat_module_swap_preserves_parameter_identity(
+        self, device, dtype, requires_grad, prepare
+    ):
+        linear_cls = torch.nn.Linear if prepare else FakeQuantizedLinear
+        embedding_cls = torch.nn.Embedding if prepare else FakeQuantizedEmbedding
+        linear = linear_cls(8, 8, bias=True, device=device, dtype=dtype)
+        embedding = embedding_cls(8, 8, device=device, dtype=dtype)
+        linear.weight.requires_grad_(requires_grad)
+        linear.bias.requires_grad_(not requires_grad)
+        embedding.weight = linear.weight
+        config = IntxFakeQuantizeConfig(torch.int8, PerGroup(4))
+        converted_linear = (
+            FakeQuantizedLinear.from_linear(linear, weight_config=config)
+            if prepare
+            else linear.to_linear()
+        )
+        converted_embedding = (
+            FakeQuantizedEmbedding.from_embedding(embedding, config)
+            if prepare
+            else embedding.to_embedding()
+        )
+        for converted in (converted_linear, converted_embedding):
+            self.assertIs(converted.weight, linear.weight)
+            self.assertEqual(converted.weight.requires_grad, requires_grad)
+        self.assertIs(converted_linear.bias, linear.bias)
+
+    @parametrize("convert_before_materialization", [False, True])
+    @parametrize("layer_type", ["linear", "embedding"])
+    def test_qat_meta_frozen_layer_stays_frozen_when_training(
+        self, convert_before_materialization, layer_type
+    ):
+        torch.manual_seed(self.SEED)
+        with torch.device("meta"):
+            first = (
+                torch.nn.Linear(8, 8)
+                if layer_type == "linear"
+                else torch.nn.Embedding(8, 8)
+            )
+            model = torch.nn.Sequential(first, torch.nn.ReLU(), torch.nn.Linear(8, 3))
+        first.requires_grad_(False)
+        quantize_(
+            model,
+            QATConfig(weight_config=IntxFakeQuantizeConfig(torch.int8, PerGroup(4))),
+            filter_fn=lambda mod, _: isinstance(
+                mod, (torch.nn.Linear, torch.nn.Embedding)
+            ),
+        )
+        if convert_before_materialization:
+            quantize_(
+                model,
+                QATConfig(step="convert"),
+                filter_fn=lambda mod, _: isinstance(
+                    mod, (torch.nn.Linear, torch.nn.Embedding)
+                ),
+            )
+        model.to_empty(device="cpu")
+        for layer in model.modules():
+            if isinstance(layer, (torch.nn.Linear, torch.nn.Embedding)):
+                layer.reset_parameters()
+        optimizer = torch.optim.SGD(model.parameters(), lr=0.1, momentum=0.9)
+        frozen_weights = {
+            name: p.detach().clone() for name, p in model[0].named_parameters()
+        }
+        trainable_weight = model[2].weight.detach().clone()
+        inputs = (
+            torch.randn(4, 8) if layer_type == "linear" else torch.tensor([0, 1, 3, 5])
+        )
+        targets = torch.tensor([0, 1, 2, 0])
+        for _ in range(3):
+            optimizer.zero_grad()
+            F.cross_entropy(model(inputs), targets).backward()
+            optimizer.step()
+            for name, parameter in model[0].named_parameters():
+                self.assertIsNone(parameter.grad)
+                torch.testing.assert_close(
+                    parameter, frozen_weights[name], rtol=0, atol=0
+                )
+        self.assertFalse(torch.equal(model[2].weight, trainable_weight))
+
     def test_fake_quantize_per_channel_group(self):
         n_bit = 4
         (qmin, qmax) = _get_qmin_qmax(n_bit)
