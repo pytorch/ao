@@ -304,6 +304,12 @@ class AffineQuantizedMSEObserver(AffineQuantizedObserverBase):
         self.run_once = run_once
 
     def mse(self, pred, expect, block_size):
+        if pred.dtype in (torch.float16, torch.bfloat16) and expect.dtype in (
+            torch.float16,
+            torch.bfloat16,
+        ):
+            pred = pred.float()
+            expect = expect.float()
         loss = (pred - expect).abs().pow(2)
         shape_for_reduction, reduction_dims = _get_reduction_params(
             block_size, loss.size()

@@ -24,7 +24,12 @@ from torchao.quantization.observer import (
     AffineQuantizedMSEObserver,
 )
 from torchao.quantization.pt2e import observer as pt2e_observer
-from torchao.quantization.quant_primitives import MappingType
+from torchao.quantization.quant_primitives import (
+    MappingType,
+    _fake_quantize_affine,
+    choose_qparams_affine_with_min_max,
+)
+from torchao.quantization.utils import get_block_size
 
 
 class TestQuantFlow(TestCase):
@@ -434,6 +439,108 @@ class TestPT2EHistogramObserver(TestCase):
             self.assertEqual(ranges[-1], o._non_linear_param_search())
         self.assertNotEqual(ranges[0], ranges[1])
 
+
+class TestMSEObserverPrecision(TestCase):
+    def _observer(self, granularity, run_once=False):
+        return AffineQuantizedMSEObserver(
+            MappingType.SYMMETRIC,
+            torch.int8,
+            granularity=granularity,
+            eps=torch.finfo(torch.float32).eps,
+            scale_dtype=torch.float32,
+            zero_point_dtype=torch.int32,
+            steps=64,
+            run_once=run_once,
+        )
+
+    @common_utils.parametrize("dtype", [torch.float16, torch.bfloat16])
+    @common_utils.parametrize("magnitude", [0.0001, 40000.0])
+    @common_utils.parametrize("per_channel", [False, True])
+    def test_low_precision_squared_error(self, dtype, magnitude, per_channel):
+        prediction = torch.full((2, 4), magnitude, dtype=dtype, requires_grad=True)
+        expected = torch.full_like(prediction, -magnitude)
+        reference_prediction = prediction.detach().float().requires_grad_()
+        dimensions = (1,) if per_channel else (0, 1)
+        reference = (reference_prediction - expected.float()).square().mean(
+            dim=dimensions
+        )
+        observer = self._observer(PerAxis(0) if per_channel else PerTensor())
+        actual = observer.mse(
+            prediction, expected, get_block_size(prediction.shape, observer.granularity)
+        )
+        self.assertTrue(torch.isfinite(actual).all())
+        self.assertGreater(actual.min().item(), 0)
+        self.assertEqual(actual, reference, atol=0, rtol=0)
+        actual.sum().backward()
+        reference.sum().backward()
+        self.assertEqual(
+            prediction.grad, reference_prediction.grad.to(dtype), atol=0, rtol=0
+        )
+
+    @common_utils.parametrize("dtype", [torch.float32, torch.float64])
+    @common_utils.parametrize("per_channel", [False, True])
+    def test_preserves_full_precision(self, dtype, per_channel):
+        prediction = torch.tensor([[0.1, 0.2], [0.3, 0.4]], dtype=dtype)
+        expected = prediction / 3
+        dimensions = (1,) if per_channel else (0, 1)
+        reference = (prediction - expected).abs().pow(2).mean(dim=dimensions)
+        observer = self._observer(PerAxis(0) if per_channel else PerTensor())
+        actual = observer.mse(
+            prediction, expected, get_block_size(prediction.shape, observer.granularity)
+        )
+        self.assertEqual(actual.dtype, dtype)
+        self.assertEqual(actual, reference, atol=0, rtol=0)
+
+    def _reconstruction_error(self, observer, sample, minimum, maximum):
+        scale, zero_point = choose_qparams_affine_with_min_max(
+            minimum,
+            maximum,
+            observer.mapping_type,
+            [],
+            observer.target_dtype,
+            eps=observer.eps,
+            scale_dtype=observer.scale_dtype,
+            zero_point_dtype=observer.zero_point_dtype,
+        )
+        reconstructed = _fake_quantize_affine(
+            sample,
+            get_block_size(sample.shape, observer.granularity),
+            scale,
+            zero_point,
+            observer.target_dtype,
+        )
+        dimensions = (0, 1) if isinstance(observer.granularity, PerTensor) else (1,)
+        return (reconstructed.float() - sample.float()).square().mean(dim=dimensions)
+
+    @common_utils.parametrize("granularity", [PerTensor(), PerAxis(0)])
+    @common_utils.parametrize("run_once", [False, True])
+    def test_half_calibration_selects_minimum_reconstruction_error(
+        self, granularity, run_once
+    ):
+        sample = torch.linspace(-0.004, 0.004, 1024).repeat(2, 1).half()
+        observer = self._observer(granularity, run_once)
+        self.assertIs(observer(sample), sample)
+        if isinstance(granularity, PerTensor):
+            bound = sample.abs().amax()
+        else:
+            bound = sample.abs().amax(dim=1)
+        candidates = [
+            self._reconstruction_error(
+                observer, sample, -bound / observer.steps * i, bound / observer.steps * i
+            )
+            for i in range(1, observer.steps + 1)
+        ]
+        best = torch.stack(candidates).amin(dim=0)
+        actual = self._reconstruction_error(
+            observer, sample, observer.min_val, observer.max_val
+        )
+        self.assertEqual(actual, best, atol=0, rtol=1e-6)
+        scale, zero_point = observer.calculate_qparams()
+        self.assertEqual(scale.dtype, torch.float32)
+        self.assertEqual(zero_point.dtype, torch.int32)
+
+
+common_utils.instantiate_parametrized_tests(TestMSEObserverPrecision)
 
 common_utils.instantiate_parametrized_tests(TestQuantFlow)
 
