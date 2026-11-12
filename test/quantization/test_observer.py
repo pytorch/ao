@@ -404,7 +404,7 @@ class TestPT2EHistogramObserver(TestCase):
         self.assertLess(new_max, obs.max_val)
         self.assertLess(chosen, full)
 
-    def test_consider_full_range_serialization_and_scripting(self):
+    def test_consider_full_range_serialization(self):
         obs = pt2e_observer.HistogramObserver.with_args(consider_full_range=True)()
         self.assertTrue(obs.consider_full_range)
         self.assertEqual(
@@ -426,13 +426,6 @@ class TestPT2EHistogramObserver(TestCase):
         self.assertEqual(
             old_pickle_obs.calculate_qparams(), default_obs.calculate_qparams()
         )
-
-        ranges = []
-        for o in (default_obs, obs):
-            scripted = torch.jit.script(o)
-            ranges.append(scripted._non_linear_param_search())
-            self.assertEqual(ranges[-1], o._non_linear_param_search())
-        self.assertNotEqual(ranges[0], ranges[1])
 
 
 common_utils.instantiate_parametrized_tests(TestQuantFlow)

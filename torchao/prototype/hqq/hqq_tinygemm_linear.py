@@ -237,7 +237,6 @@ class HQQLinearTorchWeightOnlyInt4(torch.nn.Module):
 
     ###################### Forward/matmul ######################
 
-    @torch.jit.ignore()
     def matmul(self, x):
         origin_x_size = x.size()
         x = x.reshape(-1, origin_x_size[-1])
