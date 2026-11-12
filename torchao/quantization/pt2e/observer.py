@@ -369,6 +369,7 @@ class UniformQuantizationObserverBase(ObserverBase):
             scales: Scales tensor of shape (#channels,)
             zero_points: Zero points tensor of shape (#channels,)
         """
+        # TODO: Deduplicate with determine_qparams in utils.py.
         if not check_min_max_valid(min_val, max_val):
             return torch.tensor([1.0], device=min_val.device.type), torch.tensor(
                 [0], device=min_val.device.type
@@ -415,6 +416,7 @@ class UniformQuantizationObserverBase(ObserverBase):
 
         # For scalar values, cast them to Tensors of size 1 to keep the shape
         # consistent with default values in FakeQuantize.
+        # TODO: Use scale.item() and zero_point.item() for scalar extraction.
         if len(scale.shape) == 0:
             scale = torch.tensor([float(scale)], dtype=scale.dtype, device=device)
         if len(zero_point.shape) == 0:
@@ -845,12 +847,8 @@ class PerChannelMinMaxObserver(UniformQuantizationObserverBase):
 
     def reset_min_max_vals(self):
         """Resets the min/max values."""
-        self.min_val = torch.rand(
-            0,
-        )
-        self.max_val = torch.rand(
-            0,
-        )
+        self.min_val = torch.empty(0)
+        self.max_val = torch.empty(0)
 
 
 class MovingAveragePerChannelMinMaxObserver(PerChannelMinMaxObserver):

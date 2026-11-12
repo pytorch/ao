@@ -200,7 +200,8 @@ def calculate_qmin_qmax(
     """
     # TODO(jerryzh): Figure out why custom quant_min/quant_max are still adjusted.
     if has_customized_qrange:
-        # Default bounds are used when a custom bound is unspecified.
+        # Default bounds only validate qrange_len when a custom bound is unspecified;
+        # they do not replace the quant_min/quant_max values returned below.
         if dtype in [torch.qint32, torch.int32]:
             initial_quant_min, initial_quant_max = 0, 2**32 - 1
         else:
@@ -376,6 +377,7 @@ def validate_qmin_qmax(quant_min: int, quant_max: int) -> None:
     )
 
 
+# TODO: Deduplicate with UniformQuantizationObserverBase._calculate_qparams.
 def determine_qparams(
     min_val: torch.Tensor,
     max_val: torch.Tensor,
@@ -438,6 +440,7 @@ def determine_qparams(
 
     # For scalar values, cast them to Tensors of size 1 to keep the shape
     # consistent with default values in FakeQuantize.
+    # TODO: Use scale.item() and zero_point.item() for scalar extraction.
     if len(scale.shape) == 0:
         scale = torch.tensor([float(scale)], dtype=scale.dtype, device=device)
     if len(zero_point.shape) == 0:
