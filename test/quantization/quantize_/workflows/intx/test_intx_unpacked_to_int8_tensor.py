@@ -22,7 +22,10 @@ from torchao.quantization import (
 )
 from torchao.quantization.granularity import PerAxis, PerGroup
 from torchao.quantization.qat import IntxFakeQuantizeConfig, QATConfig
-from torchao.quantization.quantize_.workflows import IntxPackingFormat
+from torchao.quantization.quantize_.workflows import (
+    IntxPackingFormat,
+    IntxUnpackedToInt8Tensor,
+)
 from torchao.quantization.utils import compute_error
 from torchao.utils import unwrap_tensor_subclass
 
@@ -38,13 +41,30 @@ class TestIntxUnpackedToInt8Tensor(TestCase):
     def test_embedding(self):
         dtype = torch.bfloat16
         device = "cpu"
-        input = torch.randint(low=0, high=128, size=(10,), device=device)
-        embedding = torch.nn.Embedding(128, 256, dtype=dtype, device=device)
-        original = embedding(input)
-        quantize_(embedding, self.config)
-        quantized = embedding(input)
-        error = compute_error(original, quantized)
-        self.assertTrue(error > 20)
+        input = torch.tensor([[1, 3, 3], [127, 0, 4]], device=device)
+        configs = [self.config, IntxWeightOnlyConfig()]
+        for config in configs:
+            with self.subTest(config=config):
+                embedding = torch.nn.Embedding(
+                    128, 256, padding_idx=3, dtype=dtype, device=device
+                )
+                quantize_(
+                    embedding,
+                    config,
+                    filter_fn=lambda module, fqn: isinstance(
+                        module, torch.nn.Embedding
+                    ),
+                )
+                self.assertIsInstance(embedding.weight, IntxUnpackedToInt8Tensor)
+                expected = torch.nn.functional.embedding(
+                    input, embedding.weight.dequantize(), padding_idx=3
+                )
+                actual = embedding(input)
+                self.assertEqual(actual, expected)
+                exported = torch.export.export(
+                    embedding, (input,), strict=True
+                ).module()
+                self.assertEqual(exported(input), expected)
 
     def test_linear(self):
         dtype = torch.bfloat16
