@@ -429,9 +429,11 @@ class TestPT2EHistogramObserver(TestCase):
 
         ranges = []
         for o in (default_obs, obs):
-            scripted = torch.jit.script(o)
-            ranges.append(scripted._non_linear_param_search())
-            self.assertEqual(ranges[-1], o._non_linear_param_search())
+            ranges.append(o._non_linear_param_search())
+            # torch.jit.script was removed in torch 2.16
+            if hasattr(torch.jit, "script"):
+                scripted = torch.jit.script(o)
+                self.assertEqual(scripted._non_linear_param_search(), ranges[-1])
         self.assertNotEqual(ranges[0], ranges[1])
 
 
