@@ -15,7 +15,6 @@ the values observed during calibration (PTQ) or training (QAT).
 """
 
 import operator
-import re
 import warnings
 from abc import ABCMeta, abstractmethod
 from collections import OrderedDict
@@ -333,7 +332,6 @@ class UniformQuantizationObserverBase(ObserverBase):
             error_msgs,
         )
 
-    @torch.jit.export
     def _validate_qmin_qmax(self, quant_min: int, quant_max: int) -> None:
         r"""Validates that the user-specified quantization range is properly initialized
         and within the given bound supported by the observer dtype.
@@ -357,7 +355,6 @@ class UniformQuantizationObserverBase(ObserverBase):
             "qmin must be strictly less than qmax for user-specified quantization range."
         )
 
-    @torch.jit.export
     def _calculate_qparams(
         self, min_val: torch.Tensor, max_val: torch.Tensor
     ) -> tuple[torch.Tensor, torch.Tensor]:
@@ -372,11 +369,6 @@ class UniformQuantizationObserverBase(ObserverBase):
             scales: Scales tensor of shape (#channels,)
             zero_points: Zero points tensor of shape (#channels,)
         """
-        # Functionally equivalent to 'determine_qparams' in utils.py. Observers must be torchscriptable however and qscheme
-        # as far as I can tell is not allowed to passed as a parameter in torchscript functions. This makes refactoring observer
-        # to use this utility a massive pain and very gross. For now Im opting just to duplicate as this code
-        # seems unlikey to change (last update over 1 year ago) and when torchscript is fully deprecated we can refactor.
-        # TODO(jakeszwe, jerryzh168)
         if not check_min_max_valid(min_val, max_val):
             return torch.tensor([1.0], device=min_val.device.type), torch.tensor(
                 [0], device=min_val.device.type
@@ -424,10 +416,8 @@ class UniformQuantizationObserverBase(ObserverBase):
         # For scalar values, cast them to Tensors of size 1 to keep the shape
         # consistent with default values in FakeQuantize.
         if len(scale.shape) == 0:
-            # TODO: switch to scale.item() after adding JIT support
             scale = torch.tensor([float(scale)], dtype=scale.dtype, device=device)
         if len(zero_point.shape) == 0:
-            # TODO: switch to zero_point.item() after adding JIT support
             zero_point = torch.tensor(
                 [int(zero_point)], dtype=zero_point.dtype, device=device
             )
@@ -438,7 +428,6 @@ class UniformQuantizationObserverBase(ObserverBase):
 
         return scale, zero_point
 
-    @torch.jit.export
     def reset_min_max_vals(self):
         raise NotImplementedError("Cannot reset min/max values in the given observer.")
 
@@ -580,16 +569,13 @@ class MinMaxObserver(UniformQuantizationObserverBase):
         self.max_val.copy_(max_val)
         return x_orig
 
-    @torch.jit.export
     def calculate_qparams(self):
         r"""Calculates the quantization parameters."""
         return self._calculate_qparams(self.min_val, self.max_val)
 
-    @torch.jit.export
     def extra_repr(self):
         return f"min_val={self.min_val}, max_val={self.max_val}"
 
-    @torch.jit.export
     def reset_min_max_vals(self):
         """Resets the min/max values."""
         self.min_val.copy_(torch.tensor(float("inf")))
@@ -803,7 +789,6 @@ class PerChannelMinMaxObserver(UniformQuantizationObserverBase):
         self.max_val.copy_(max_val)
         return x_orig
 
-    @torch.jit.export
     def calculate_qparams(self):
         return self._calculate_qparams(self.min_val, self.max_val)
 
@@ -845,57 +830,21 @@ class PerChannelMinMaxObserver(UniformQuantizationObserverBase):
                     warnings.warn(
                         f"Observer load_from_state_dict got unexpected name {name}"
                     )
-                # For torchscript module we need to update the attributes here since we do not
-                # call the `_load_from_state_dict` function defined module.py
-                if torch.jit.is_scripting():
-                    if name == expected_min_name:
-                        self.min_val.copy_(val)
-                    elif name == expected_max_name:
-                        self.max_val.copy_(val)
-                    else:
-                        warnings.warn(
-                            f"Observer load_from_state_dict got unexpected name {name}"
-                        )
             elif strict:
                 missing_keys.append(key)
 
-        if not torch.jit.is_scripting():
-            super()._load_from_state_dict(
-                state_dict,
-                prefix,
-                local_metadata,
-                False,
-                missing_keys,
-                unexpected_keys,
-                error_msgs,
-            )
-
-    def _load_from_state_dict_script(
-        self,
-        state_dict: dict[str, Any],
-        prefix: str,
-        local_metadata: dict[str, torch.Tensor],
-        strict: bool,
-        missing_keys: list[str],
-        unexpected_keys: list[str],
-        error_msgs: list[str],
-    ):
-        self._load_from_state_dict(
+        super()._load_from_state_dict(
             state_dict,
             prefix,
             local_metadata,
-            strict,
+            False,
             missing_keys,
             unexpected_keys,
             error_msgs,
         )
 
-    @torch.jit.export
     def reset_min_max_vals(self):
         """Resets the min/max values."""
-        # This used to be torch.ones but that does not work because
-        # JIT compiler can optimize it via common subexpression elimination
-        # in which case both min_val and max_val point to the same tensor.
         self.min_val = torch.rand(
             0,
         )
@@ -1337,8 +1286,6 @@ class HistogramObserver(UniformQuantizationObserverBase):
             new_min = torch.min(current_min, update_min)
             new_max = torch.max(current_max, update_max)
 
-            # TODO: For some reason, this is required for it to pass torchscript test
-            # new_min and new_max should already have requires_grad set to False
             new_min, new_max = new_min.detach(), new_max.detach()
             update_histogram = torch.histc(
                 x,
@@ -1368,7 +1315,6 @@ class HistogramObserver(UniformQuantizationObserverBase):
 
         return x_orig
 
-    @torch.jit.export
     def calculate_qparams(self):
         is_uninitialized = self.min_val == float("inf") and self.max_val == float(
             "-inf"
@@ -1487,7 +1433,6 @@ class FixedQParamsObserver(ObserverBase):
     def forward(self, X):
         return X
 
-    @torch.jit.export
     def calculate_qparams(self):
         return self.scale, self.zero_point
 
@@ -1552,11 +1497,9 @@ class PlaceholderObserver(ObserverBase):
     def forward(self, x):
         return x
 
-    @torch.jit.export
     def extra_repr(self):
         return f"dtype={self.dtype}, is_dynamic={self.is_dynamic}"
 
-    @torch.jit.export
     def calculate_qparams(self):
         raise Exception(  # noqa: TRY002
             "calculate_qparams should not be called for PlaceholderObserver"
@@ -1583,13 +1526,11 @@ class RecordingObserver(ObserverBase):
         self.tensor_val.append(x.clone())
         return x
 
-    @torch.jit.export
     def calculate_qparams(self):
         raise Exception(  # noqa: TRY002
             "calculate_qparams should not be called for RecordingObserver"
         )
 
-    @torch.jit.export
     def get_tensor_value(self):
         return self.tensor_val
 
@@ -1616,7 +1557,6 @@ class NoopObserver(ObserverBase):
     def forward(self, x):
         return x
 
-    @torch.jit.export
     def calculate_qparams(self):
         raise Exception(  # noqa: TRY002
             "calculate_qparams should not be called for NoopObserver"
@@ -1643,7 +1583,6 @@ class ReuseInputObserver(ObserverBase):
     def forward(self, x):
         return x
 
-    @torch.jit.export
     def calculate_qparams(self):
         raise Exception(  # noqa: TRY002
             "calculate_qparams should not be called for ReuseInputObserver"
@@ -1802,16 +1741,6 @@ class AffineQuantizedObserverBase(ABC, torch.nn.Module):
             model.graph.erase_node(observer_node)
 
 
-def _is_observer_script_module(mod, obs_type_name):
-    """Returns true if given mod is an instance of Observer script module."""
-    if isinstance(mod, torch.jit.RecursiveScriptModule):
-        # qualified name looks like '__torch__.torchao.quantization.pt2e.observer.___torch_mangle_2.MinMaxObserver'
-        suffix = mod._c.qualified_name.split(".", 1)[1]
-        name = re.sub(r"\.___torch_mangle_\d+", "", suffix)
-        return obs_type_name in name
-    return False
-
-
 # Experimental Affine Quantization Feature END
 
 
@@ -1823,17 +1752,7 @@ def _is_activation_post_process(module):
             torchao.quantization.pt2e.FakeQuantizeBase,
             AffineQuantizedObserverBase,
         ),
-    ) or _is_observer_script_module(module, "quantization.observer")
-
-
-def _is_per_channel_script_obs_instance(module):
-    if isinstance(module, torch.jit.RecursiveScriptModule):
-        return _is_observer_script_module(
-            module, "quantization.observer.PerChannelMinMaxObserver"
-        ) or _is_observer_script_module(
-            module, "quantization.observer.MovingAveragePerChannelMinMaxObserver"
-        )
-    return False
+    )
 
 
 def get_observer_state_dict(mod):
@@ -1842,15 +1761,9 @@ def get_observer_state_dict(mod):
     Traverse the model state_dict and extract out the stats.
     """
     od = OrderedDict()
-    if isinstance(mod, torch.jit.RecursiveScriptModule):
-        for k, v in mod.state_dict().items():
-            if "observer" in k:
-                od[k] = v
-    else:
-        # path for GraphModule and nn.Module (eager mode)
-        for k, v in mod.state_dict().items():
-            if "activation_post_process" in k:
-                od[k] = v
+    for k, v in mod.state_dict().items():
+        if "activation_post_process" in k:
+            od[k] = v
     od._metadata = mod.state_dict()._metadata  # type: ignore[attr-defined]
     return od
 
@@ -1868,28 +1781,15 @@ def load_observer_state_dict(mod, obs_dict):
         prefix = name + "."
         if _is_activation_post_process(module):
             local_metadata = metadata.get(name, {})
-            if _is_per_channel_script_obs_instance(module):
-                # For per-channel observers we need to call a custom load_from_state_dict to resize the tensor.
-                # However this is not called when the module is scripted and we end up calling the default one in module.py
-                module._load_from_state_dict_script(
-                    obs_dict,
-                    prefix,
-                    local_metadata,
-                    True,
-                    missing_keys,
-                    unexpected_keys,
-                    [],
-                )
-            else:
-                module._load_from_state_dict(
-                    obs_dict,
-                    prefix,
-                    local_metadata,
-                    False,
-                    missing_keys,
-                    unexpected_keys,
-                    [],
-                )
+            module._load_from_state_dict(
+                obs_dict,
+                prefix,
+                local_metadata,
+                False,
+                missing_keys,
+                unexpected_keys,
+                [],
+            )
     for k in missing_keys:
         if "observer" in k or "activation_post_process" in k:
             raise Exception(  # noqa: TRY002
