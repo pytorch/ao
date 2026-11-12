@@ -340,6 +340,7 @@ class AffineQuantizedMSEObserver(AffineQuantizedObserverBase):
         )
         return self.mse(x_q, x, block_size)
 
+    @torch.no_grad()
     def line_search(self, input):
         if input.numel() == 0:
             return input
