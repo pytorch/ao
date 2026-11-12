@@ -129,6 +129,7 @@ def _generate_dequant_pattern(
             Arg(),
             Arg(),
             Arg(),
+            out_dtype=Arg(),
         )
     else:
         assert zp is None, "Fp8 dequantization does not support zero point"
