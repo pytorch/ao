@@ -435,7 +435,6 @@ class TestPT2EHistogramObserver(TestCase):
         self.assertNotEqual(ranges[0], ranges[1])
 
 
-
 class TestMSEObserverEmptyBatches(TestCase):
     def _observer(self, granularity, run_once):
         return AffineQuantizedMSEObserver(
