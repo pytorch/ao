@@ -395,10 +395,13 @@ def _compile_mxfp8_quantize_2d_cutedsl(
             gOUT_tile: cute.Tensor,
             sOUT_tile: cute.Tensor,
             warp_idx: cutlass.Int32,
+            STAGE_COUNT: cutlass.Constexpr[int],
         ):
             """Issue TMA store from shared memory to global memory (producer warp only).
 
             Synchronizes threads before store. Only warp 0 executes the TMA store.
+            Warp 0 also commits the store as a bulk async-group and waits for its
+            shared memory read before the sOUT buffer it reads from is rewritten.
 
             Args:
                 tma_atom_out: TMA copy atom for S2G
@@ -410,6 +413,12 @@ def _compile_mxfp8_quantize_2d_cutedsl(
                 Source: sOUT_tile (shared memory)
                 Destination: gOUT_tile (global memory)
             """
+            if cutlass.const_expr(STAGE_COUNT > 1):
+                # The previous step's TMA store may still be reading its sOUT
+                # buffer, which the compute warps rewrite in the next step once
+                # they pass the barrier below. Wait for its read to complete.
+                if warp_idx == 0:
+                    cute.arch.cp_async_bulk_wait_group(0, read=True)
             cute.arch.fence_proxy(
                 "async.shared",
                 space="cta",
@@ -433,6 +442,12 @@ def _compile_mxfp8_quantize_2d_cutedsl(
                     tOUTs_stage0,
                     tOUTg_stage0,
                 )
+                cute.arch.cp_async_bulk_commit_group()
+                if cutlass.const_expr(STAGE_COUNT == 1):
+                    # Single buffer: the compute warps rewrite it as soon as the
+                    # next TMA load (issued by this warp right after this call)
+                    # lands, so the store's read must complete before that.
+                    cute.arch.cp_async_bulk_wait_group(0, read=True)
 
         @cute.kernel
         def kernel(
@@ -715,7 +730,12 @@ def _compile_mxfp8_quantize_2d_cutedsl(
                     gOUT_tile,
                     sOUT_tile,
                     warp_idx,
+                    STAGE_COUNT,
                 )
+
+            # Do not exit with the last TMA store still reading shared memory.
+            if warp_idx == 0:
+                cute.arch.cp_async_bulk_wait_group(0, read=True)
 
         @cute.jit
         def __call__(
