@@ -169,6 +169,61 @@ class TestQuantFlow(TestCase):
             <= obs.loss_fn(example_input, min_val, max_val) + 1e6
         )
 
+    @common_utils.parametrize("granularity", [PerTensor(), PerAxis(0)])
+    @common_utils.parametrize("dtype", [torch.float32, torch.bfloat16])
+    @common_utils.parametrize("run_once", [False, True])
+    def test_mse_observer_does_not_save_autograd_intermediates(
+        self, granularity, dtype, run_once
+    ):
+        torch.manual_seed(19)
+        observer = AffineQuantizedMSEObserver(
+            MappingType.SYMMETRIC,
+            torch.int8,
+            granularity,
+            steps=8,
+            run_once=run_once,
+        )
+        reference = AffineQuantizedMSEObserver(
+            MappingType.SYMMETRIC,
+            torch.int8,
+            granularity,
+            steps=8,
+            run_once=run_once,
+        )
+        for magnitude in (1.0, 3.0):
+            x = (torch.randn(8, 32, dtype=dtype) * magnitude).requires_grad_()
+            with torch.no_grad():
+                reference(x)
+
+            saved_bytes = []
+
+            def pack(tensor):
+                saved_bytes.append(tensor.numel() * tensor.element_size())
+                return tensor
+
+            with torch.autograd.graph.saved_tensors_hooks(pack, lambda tensor: tensor):
+                output = observer(x)
+
+            self.assertEqual(saved_bytes, [])
+            self.assertIs(output, x)
+            self.assertFalse(observer.min_val.requires_grad)
+            self.assertFalse(observer.max_val.requires_grad)
+            self.assertEqual(
+                observer.calculate_qparams(), reference.calculate_qparams()
+            )
+            output.square().mean().backward()
+            self.assertEqual(x.grad, 2 * x.detach() / x.numel())
+
+    def test_mse_observer_loss_function_remains_differentiable(self):
+        observer = AffineQuantizedMSEObserver(
+            MappingType.SYMMETRIC, torch.int8, PerTensor(), steps=8
+        )
+        x = torch.linspace(-1.0, 1.0, 128, requires_grad=True)
+        loss = observer.loss_fn(x, torch.tensor(-0.5), torch.tensor(0.5))
+        loss.backward()
+        self.assertTrue(torch.isfinite(x.grad).all())
+        self.assertGreater(torch.count_nonzero(x.grad), 0)
+
     def test_fixed_qparams_observer(self):
         obs = AffineQuantizedFixedQParamObserver(
             MappingType.SYMMETRIC,
