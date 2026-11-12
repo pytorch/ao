@@ -964,7 +964,7 @@ class Int8StaticActivationInt8WeightConfig(AOBaseConfig):
     Configuration for applying int8 static quantization to both activation and weight
 
     Args:
-        act_quant_scale (torch.Tensor): The scale tensor for activation quantization.
+        act_quant_scale (torch.Tensor): The scale tensor for activation quantization. Must be set before calling quantize_.
         act_quant_zero_point (torch.Tensor): The zero_point tensor for activation quantization (asymmetric only).
         granularity (Optional[Union[Granularity, List[Granularity]]] = PerRow()):
             The granularity for quantization. Can be either a single granularity (applied to both
@@ -1034,6 +1034,13 @@ def _int8_static_activation_int8_weight_transform(
     assert hasattr(module, parameter_name), (
         f"Expected module to have attribute `{parameter_name}` but not found"
     )
+    if config.act_quant_scale is None:
+        raise ValueError(
+            "Int8StaticActivationInt8WeightConfig requires `act_quant_scale` to be set "
+            "before calling quantize_, got None. Compute it from calibration data "
+            "(for example with SmoothQuantConfig), or use "
+            "Int8DynamicActivationInt8WeightConfig for dynamic activation quantization."
+        )
 
     if config.set_inductor_config:
         torchao.quantization.utils.recommended_inductor_config_setter()
