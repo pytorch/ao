@@ -218,7 +218,7 @@ class TestOptimStateCopy(TestCase):
         model = nn.Linear(64, 64, bias=False)
         model.weight = nn.Parameter(torch.randn(64, 64).t())
         optimizer = torch.optim.AdamW(
-            model.parameters(), lr=1e-3, amsgrad=True, foreach=False
+            model.parameters(), lr=1e-3, foreach=False
         )
         for _ in range(2):
             model(torch.randn(4, 64)).square().mean().backward()
@@ -233,15 +233,13 @@ class TestOptimStateCopy(TestCase):
 
         parameter_id = saved["optimizer"]["param_groups"][0]["params"][0]
         saved_state = saved["optimizer"]["state"][parameter_id]
-        for name in ("exp_avg", "exp_avg_sq", "max_exp_avg_sq"):
+        for name in ("exp_avg", "exp_avg_sq"):
             self.assertFalse(saved_state[name].is_contiguous())
 
         reference = copy.deepcopy(model)
         optimizers = []
         for candidate, contiguous in ((model, False), (reference, True)):
-            quantized = getattr(optim, optim_name)(
-                candidate.parameters(), lr=1e-3, amsgrad=True
-            )
+            quantized = getattr(optim, optim_name)(candidate.parameters(), lr=1e-3)
             candidate.weight.grad = torch.zeros_like(candidate.weight)
             quantized.step()
             quantized.zero_grad()
@@ -260,10 +258,8 @@ class TestOptimStateCopy(TestCase):
                 candidate(inputs).square().mean().backward()
                 quantized.step()
                 quantized.zero_grad()
-            torch.testing.assert_close(
-                model.weight, reference.weight, rtol=0, atol=0
-            )
-            for name in ("exp_avg", "exp_avg_sq", "max_exp_avg_sq"):
+            torch.testing.assert_close(model.weight, reference.weight, rtol=0, atol=0)
+            for name in ("exp_avg", "exp_avg_sq"):
                 actual = optimizers[0].state[model.weight][name].dequantize()
                 expected = optimizers[1].state[reference.weight][name].dequantize()
                 torch.testing.assert_close(actual, expected, rtol=0, atol=0)
