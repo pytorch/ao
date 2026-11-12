@@ -19,7 +19,7 @@ from torchao.float8.config import ScalingGranularity
 # TODO: align this value with NVIDIA's assumptions (current value is a guess)
 EPS = 1e-12
 
-IS_ROCM = torch.cuda.is_available() and torch.version.hip is not None
+IS_ROCM = torch.version.hip is not None and torch.cuda.is_available()
 FP8_TYPES = {
     torch.float8_e4m3fn,
     torch.float8_e5m2,

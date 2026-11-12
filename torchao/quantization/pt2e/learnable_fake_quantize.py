@@ -69,7 +69,6 @@ class LearnableFakeQuantize(FakeQuantizeBase):
 
         self._initialized = False
 
-    @torch.jit.export
     def enable_range_learning(self) -> None:
         r"""Enable quantization parameter learning.
 
@@ -83,7 +82,6 @@ class LearnableFakeQuantize(FakeQuantizeBase):
         if self.zero_point is not None:
             self.zero_point.requires_grad = True
 
-    @torch.jit.export
     def disable_range_learning(self) -> None:
         r"""Disable quantization parameter learning.
 
@@ -95,7 +93,6 @@ class LearnableFakeQuantize(FakeQuantizeBase):
         if self.zero_point is not None:
             self.zero_point.requires_grad = False
 
-    @torch.jit.export
     def enable_observer(self, enabled: bool = True) -> None:
         r"""Enable observer.
 
@@ -106,24 +103,19 @@ class LearnableFakeQuantize(FakeQuantizeBase):
         if enabled:
             self.disable_range_learning()
 
-    @torch.jit.export
     def disable_observer(self):
         self.enable_observer(False)
 
-    @torch.jit.export
     def enable_fake_quant(self, enabled: bool = True) -> None:
         self.fake_quant_enabled[0] = 1 if enabled else 0
 
-    @torch.jit.export
     def disable_fake_quant(self):
         self.enable_fake_quant(False)
 
-    @torch.jit.export
     def observe_quant_params(self):
         print(f"LearnableFakeQuantize Scale: {self.scale.detach()}")
         print(f"LearnableFakeQuantize Zero Point: {self.zero_point.detach()}")
 
-    @torch.jit.export
     def calculate_qparams(self):
         self.scale.data.clamp_(min=self.eps.item())
         scale = self.scale.detach()
@@ -135,7 +127,6 @@ class LearnableFakeQuantize(FakeQuantizeBase):
         )
         return scale, zero_point
 
-    @torch.jit.export
     def extra_repr(self):
         return (
             f"fake_quant_enabled={self.fake_quant_enabled}, observer_enabled={self.observer_enabled}, "

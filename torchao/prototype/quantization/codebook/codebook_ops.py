@@ -221,7 +221,6 @@ def choose_qparams_codebook(
     return codebook.view(codebook_size, *block_size), scales
 
 
-@torch.jit.script
 def _kmeans_greedy_init(data: torch.Tensor, k: int) -> torch.Tensor:
     # code modified from: https://github.com/Vahe1994/AQLM/blob/main/src/kmeans.py not sure if I should modify for
     clusters = torch.zeros(k, data.shape[1], device=data.device)
@@ -243,7 +242,6 @@ def _kmeans_greedy_init(data: torch.Tensor, k: int) -> torch.Tensor:
     return clusters
 
 
-@torch.jit.script
 def fit_kmeans(
     data: torch.Tensor,
     k: int,

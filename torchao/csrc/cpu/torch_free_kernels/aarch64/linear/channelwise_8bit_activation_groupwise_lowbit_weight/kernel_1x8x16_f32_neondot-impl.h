@@ -21,6 +21,23 @@ vec_clamp(float32x4_t x, float32x4_t vec_min, float32x4_t vec_max) {
   float32x4_t tmp = vmaxq_f32(x, vec_min);
   return vminq_f32(tmp, vec_max);
 }
+
+// Returns true if lut[i] == alpha * i + beta for every index i < 2^weight_nbit.
+// Affine LUTs (e.g. PARQ's stretched grid {-3, -1, 1, 3} = 2 * i - 3) can then be
+// decoded without a table lookup: dot(a, lut[idx]) = alpha * dot(a, idx) + beta * sum(a).
+template <int weight_nbit>
+inline bool get_affine_lut_params(const int8x16_t& lut, int& alpha, int& beta) {
+  int8_t lut_vals[16];
+  vst1q_s8(lut_vals, lut);
+  beta = lut_vals[0];
+  alpha = lut_vals[1] - beta;
+  for (int i = 2; i < (1 << weight_nbit); i++) {
+    if (lut_vals[i] != alpha * i + beta) {
+      return false;
+    }
+  }
+  return true;
+}
 } // namespace internal
 
 // Implements variants of
@@ -86,11 +103,15 @@ void kernel_1x8x16_f32_neondot(
   constexpr bool use_unsigned_weights =
       weight_nbit < 8 && !has_lut && has_activation_qvals_sum;
   constexpr int weight_qval_offset = 1 << (weight_nbit - 1);
+  constexpr bool can_use_affine_lut = has_lut && has_activation_qvals_sum;
 
   int8x16_t lut;
   if constexpr (!has_lut) {
     (void)lut; // unused
   }
+  bool use_affine_lut = false;
+  int lut_alpha = 1;
+  int lut_beta = 0;
 
   constexpr int bytes_per_128_weight_values = 16 * weight_nbit;
 
@@ -115,6 +136,10 @@ void kernel_1x8x16_f32_neondot(
       if constexpr (has_lut) {
         lut = vld1q_s8((int8_t*)weight_data_byte_ptr);
         weight_data_byte_ptr += 16;
+        if constexpr (can_use_affine_lut) {
+          use_affine_lut = internal::get_affine_lut_params<weight_nbit>(
+              lut, lut_alpha, lut_beta);
+        }
       }
 
       // Set activation_ptr to start of activation qvals for row m_idx
@@ -187,19 +212,22 @@ void kernel_1x8x16_f32_neondot(
           // bytes of bitpacked data
 
           if constexpr (has_lut) {
-            torchao::bitpacking::vec_unpack_128_lowbit_values_with_lut<
-                weight_nbit>(
-                weight_q_cols01_0,
-                weight_q_cols23_0,
-                weight_q_cols45_0,
-                weight_q_cols67_0,
-                weight_q_cols01_1,
-                weight_q_cols23_1,
-                weight_q_cols45_1,
-                weight_q_cols67_1,
-                (uint8_t*)weight_data_byte_ptr,
-                lut);
-          } else if constexpr (use_unsigned_weights) {
+            if (!use_affine_lut) {
+              torchao::bitpacking::vec_unpack_128_lowbit_values_with_lut<
+                  weight_nbit>(
+                  weight_q_cols01_0,
+                  weight_q_cols23_0,
+                  weight_q_cols45_0,
+                  weight_q_cols67_0,
+                  weight_q_cols01_1,
+                  weight_q_cols23_1,
+                  weight_q_cols45_1,
+                  weight_q_cols67_1,
+                  (uint8_t*)weight_data_byte_ptr,
+                  lut);
+            }
+          }
+          if (use_unsigned_weights || use_affine_lut) {
             uint8x16_t unsigned_weights[8];
             torchao::bitpacking::vec_unpack_128_uintx_values<weight_nbit>(
                 unsigned_weights[0],
@@ -219,7 +247,7 @@ void kernel_1x8x16_f32_neondot(
             weight_q_cols23_1 = vreinterpretq_s8_u8(unsigned_weights[5]);
             weight_q_cols45_1 = vreinterpretq_s8_u8(unsigned_weights[6]);
             weight_q_cols67_1 = vreinterpretq_s8_u8(unsigned_weights[7]);
-          } else {
+          } else if constexpr (!has_lut) {
             torchao::bitpacking::vec_unpack_128_lowbit_values<weight_nbit>(
                 weight_q_cols01_0,
                 weight_q_cols23_0,
@@ -299,6 +327,18 @@ void kernel_1x8x16_f32_neondot(
         if constexpr (has_activation_qvals_sum) {
           activation_qvals_sum = *((int32_t*)activation_ptr);
           activation_ptr += sizeof(int32_t);
+        }
+
+        if constexpr (can_use_affine_lut) {
+          if (use_affine_lut) {
+            // beta * sum(a) can exceed int32 for large groups. NEON integer
+            // ops wrap, so the sum alpha * dot(a, idx) + beta * sum(a) is
+            // still exact whenever dot(a, lut[idx]) fits in int32.
+            const int32x4_t lut_offset =
+                vmulq_n_s32(vdupq_n_s32(activation_qvals_sum), lut_beta);
+            qval_dot_0123 = vmlaq_n_s32(lut_offset, qval_dot_0123, lut_alpha);
+            qval_dot_4567 = vmlaq_n_s32(lut_offset, qval_dot_4567, lut_alpha);
+          }
         }
 
         if constexpr (has_weight_zeros) {

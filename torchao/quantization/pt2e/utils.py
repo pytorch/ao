@@ -200,15 +200,12 @@ def calculate_qmin_qmax(
     """
     # TODO(jerryzh): Figure out why custom quant_min/quant_max are still adjusted.
     if has_customized_qrange:
-        # This initialization here is to be resolve TorchScript compilation issues and allow
-        # using of refinement to decouple initial_qmin and initial_qmax from quantization range.
-        # The actual values of initial_qmin and initial_qmax will be reset below.
+        # Default bounds only validate qrange_len when a custom bound is unspecified;
+        # they do not replace the quant_min/quant_max values returned below.
         if dtype in [torch.qint32, torch.int32]:
             initial_quant_min, initial_quant_max = 0, 2**32 - 1
         else:
             initial_quant_min, initial_quant_max = 0, 255
-        # The following assignment of self.qmin and self.qmax to the local variables and the if check refine the
-        # attribute from Optional valid integers for use, based on TorchScript's requirements.
         custom_quant_min, custom_quant_max = quant_min, quant_max
         if custom_quant_min is not None and custom_quant_max is not None:
             initial_quant_min, initial_quant_max = (
@@ -380,10 +377,7 @@ def validate_qmin_qmax(quant_min: int, quant_max: int) -> None:
     )
 
 
-# Functionally equivalent to '_calculate_qparams' in observer.py. Observers must be torchscriptable however and qscheme
-# as far as I can tell is not allowed to passed as a parameter in torchscript functions. This makes refactoring observer
-# to use this utility a massive pain and very gross. For now Im opting just to duplicate as this code seems unlikey to change
-# (last update over 1 year ago) and when torchscript is fully deprecated we can refactor. TODO(jakeszwe, jerryzh168)
+# TODO: Deduplicate with UniformQuantizationObserverBase._calculate_qparams.
 def determine_qparams(
     min_val: torch.Tensor,
     max_val: torch.Tensor,
@@ -446,11 +440,10 @@ def determine_qparams(
 
     # For scalar values, cast them to Tensors of size 1 to keep the shape
     # consistent with default values in FakeQuantize.
+    # TODO: Use scale.item() and zero_point.item() for scalar extraction.
     if len(scale.shape) == 0:
-        # TODO: switch to scale.item() after adding JIT support
         scale = torch.tensor([float(scale)], dtype=scale.dtype, device=device)
     if len(zero_point.shape) == 0:
-        # TODO: switch to zero_point.item() after adding JIT support
         zero_point = torch.tensor(
             [int(zero_point)], dtype=zero_point.dtype, device=device
         )

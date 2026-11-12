@@ -8,7 +8,6 @@
 # mypy: allow-untyped-defs
 """Implements modules  used to perform fake quantization."""
 
-import re
 from abc import ABC, abstractmethod
 from typing import Any, Optional, Tuple
 
@@ -123,19 +122,15 @@ class FakeQuantizeBase(ABC, Module):
     def calculate_qparams(self, **kwargs):
         pass
 
-    @torch.jit.export
     def enable_fake_quant(self, enabled: bool = True) -> None:
         self.fake_quant_enabled[0] = 1 if enabled else 0
 
-    @torch.jit.export
     def disable_fake_quant(self):
         self.enable_fake_quant(False)
 
-    @torch.jit.export
     def enable_observer(self, enabled: bool = True) -> None:
         self.observer_enabled[0] = 1 if enabled else 0
 
-    @torch.jit.export
     def disable_observer(self):
         self.enable_observer(False)
 
@@ -238,7 +233,6 @@ class FakeQuantize(FakeQuantizeBase):
         )
         self.is_per_channel = _is_per_channel(self.qscheme)
 
-    @torch.jit.export
     def calculate_qparams(self):
         return self.activation_post_process.calculate_qparams()
 
@@ -276,7 +270,6 @@ class FakeQuantize(FakeQuantizeBase):
                 )
         return X
 
-    @torch.jit.export
     def extra_repr(self):
         return (
             f"fake_quant_enabled={self.fake_quant_enabled}, observer_enabled={self.observer_enabled}, "
@@ -318,14 +311,6 @@ class FakeQuantize(FakeQuantizeBase):
                 else:
                     assert name == "zero_point"
                     self.zero_point.resize_(val.shape)
-                # For torchscript module we need to update the attributes here since we do not
-                # call the `_load_from_state_dict` function defined module.py
-                if torch.jit.is_scripting():
-                    if name == "scale":
-                        self.scale.copy_(val)
-                    else:
-                        assert name == "zero_point"
-                        self.zero_point.copy_(val)
             elif strict:
                 missing_keys.append(key)
         super()._load_from_state_dict(
@@ -362,11 +347,9 @@ class FixedQParamsFakeQuantize(FakeQuantize):
             + str(self.qscheme)
         )
 
-    @torch.jit.export
     def calculate_qparams(self):
         return self.scale, self.zero_point
 
-    @torch.jit.export
     def extra_repr(self):
         """Define a string representation of the object's attributes."""
         return (
@@ -426,7 +409,6 @@ class FusedMovingAvgObsFakeQuantize(FakeQuantize):
             self.activation_post_process.qscheme
         )
 
-    @torch.jit.export
     def calculate_qparams(self) -> tuple[torch.Tensor, torch.Tensor]:
         """
         If `use_kernel_qparams` is True, return the last (scale, zero_point)
@@ -440,7 +422,6 @@ class FusedMovingAvgObsFakeQuantize(FakeQuantize):
         else:
             return self.activation_post_process.calculate_qparams()
 
-    @torch.jit.export
     def extra_repr(self) -> str:
         return (
             f"fake_quant_enabled={self.fake_quant_enabled}, observer_enabled={self.observer_enabled}, "
@@ -561,7 +542,6 @@ class AffineFakeQuantize(FakeQuantize):
         self.block_size: Optional[Tuple[int, ...]] = None
         self._initialized = False
 
-    @torch.jit.export
     def calculate_qparams(self) -> Tuple[torch.Tensor, torch.Tensor]:
         """Calculate the quantization parameters (scale and zero_point)."""
         return self.activation_post_process.calculate_qparams()
@@ -604,7 +584,6 @@ class AffineFakeQuantize(FakeQuantize):
             )
         return X
 
-    @torch.jit.export
     def extra_repr(self) -> str:
         return (
             f"fake_quant_enabled={self.fake_quant_enabled}, "
@@ -824,20 +803,6 @@ Default per-axis affine fake_quant for weights.
 """
 
 
-def _is_fake_quant_script_module(mod):
-    """Return true if given mod is an instance of FakeQuantize script module."""
-    if isinstance(mod, torch.jit.RecursiveScriptModule):
-        # qualified name looks like '__torch__.torchao.quantization.pt2e.fake_quantize.___torch_mangle_2.FakeQuantize'
-        suffix = mod._c.qualified_name.split(".", 1)[1]
-        name = re.sub(r"\.___torch_mangle_\d+", "", suffix)
-        return (
-            name == "torchao.quantization.pt2e.fake_quantize.FakeQuantize"
-            or name
-            == "torchao.quantization.pt2e.fake_quantize.FusedMovingAvgObsFakeQuantize"
-        )
-    return False
-
-
 def disable_fake_quant(mod):
     """Disable fake quantization for the module.
 
@@ -847,7 +812,7 @@ def disable_fake_quant(mod):
       model.apply(torchao.quantization.pt2e.disable_fake_quant)
 
     """
-    if isinstance(mod, FakeQuantizeBase) or _is_fake_quant_script_module(mod):
+    if isinstance(mod, FakeQuantizeBase):
         mod.disable_fake_quant()
 
 
@@ -860,7 +825,7 @@ def enable_fake_quant(mod):
       model.apply(torchao.quantization.pt2e.enable_fake_quant)
 
     """
-    if isinstance(mod, FakeQuantizeBase) or _is_fake_quant_script_module(mod):
+    if isinstance(mod, FakeQuantizeBase):
         mod.enable_fake_quant()
 
 
@@ -873,7 +838,7 @@ def disable_observer(mod):
       model.apply(torchao.quantization.pt2e.disable_observer)
 
     """
-    if isinstance(mod, FakeQuantizeBase) or _is_fake_quant_script_module(mod):
+    if isinstance(mod, FakeQuantizeBase):
         mod.disable_observer()
 
 
@@ -886,5 +851,5 @@ def enable_observer(mod):
       model.apply(torchao.quantization.pt2e.enable_observer)
 
     """
-    if isinstance(mod, FakeQuantizeBase) or _is_fake_quant_script_module(mod):
+    if isinstance(mod, FakeQuantizeBase):
         mod.enable_observer()

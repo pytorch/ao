@@ -90,16 +90,35 @@ inline void store_8_f32(
   }
 }
 
-template <int weight_nbit, int column_half, bool signed_weights>
+template <int weight_nbit, int column_half, bool signed_weights, bool has_lut>
 TORCHAO_ALWAYS_INLINE inline void decode_4_cols(
     int8x16_t& weights01_0,
     int8x16_t& weights01_1,
     int8x16_t& weights23_0,
     int8x16_t& weights23_1,
-    const uint8_t* packed_weights) {
+    const uint8_t* packed_weights,
+    const int8x16_t& lut) {
   static_assert(column_half == 0 || column_half == 1);
   constexpr int first = column_half * 2;
-  if constexpr (signed_weights) {
+  if constexpr (has_lut) {
+    // Weights are LUT indices; one lookup per decoded vector is shared by all
+    // rows of the tile.
+    uint8x16_t indices[8];
+    torchao::bitpacking::vec_unpack_128_uintx_values<weight_nbit>(
+        indices[0],
+        indices[1],
+        indices[2],
+        indices[3],
+        indices[4],
+        indices[5],
+        indices[6],
+        indices[7],
+        packed_weights);
+    weights01_0 = vqtbl1q_s8(lut, indices[first]);
+    weights01_1 = vqtbl1q_s8(lut, indices[first + 4]);
+    weights23_0 = vqtbl1q_s8(lut, indices[first + 1]);
+    weights23_1 = vqtbl1q_s8(lut, indices[first + 5]);
+  } else if constexpr (signed_weights) {
     int8x16_t unpacked[8];
     torchao::bitpacking::vec_unpack_128_lowbit_values<weight_nbit>(
         unpacked[0],
@@ -139,11 +158,13 @@ template <
     int row_blocks,
     int column_blocks,
     int first_column_half,
-    bool signed_weights>
+    bool signed_weights,
+    bool has_lut>
 TORCHAO_ALWAYS_INLINE inline void dot_rows_cols(
     int32x4_t (&accumulators)[row_blocks][column_blocks * 4],
     const uint8_t* packed_weights,
-    const char* const (&activation_ptrs)[(row_blocks + 1) / 2]) {
+    const char* const (&activation_ptrs)[(row_blocks + 1) / 2],
+    const int8x16_t& lut) {
   static_assert(row_blocks == 1 || row_blocks == 2 || row_blocks == 4);
   static_assert(column_blocks == 1 || column_blocks == 2);
   static_assert(first_column_half == 0 || first_column_half == 1);
@@ -154,12 +175,13 @@ TORCHAO_ALWAYS_INLINE inline void dot_rows_cols(
   int8x16_t weights23_0;
   int8x16_t weights23_1;
   if constexpr (column_blocks == 1) {
-    decode_4_cols<weight_nbit, first_column_half, signed_weights>(
+    decode_4_cols<weight_nbit, first_column_half, signed_weights, has_lut>(
         weights01_0,
         weights01_1,
         weights23_0,
         weights23_1,
-        packed_weights);
+        packed_weights,
+        lut);
     for (int block = 0; block < row_blocks; block++) {
       const int8_t* ptr = reinterpret_cast<const int8_t*>(
           activation_ptrs[block / 2] + (block % 2) * 64);
@@ -194,12 +216,13 @@ TORCHAO_ALWAYS_INLINE inline void dot_rows_cols(
       activations[block][3] = vld1q_s8(ptr + 48);
     }
 #define TORCHAO_DOT_COLUMN_BLOCK(COLUMN_BLOCK, COLUMN_HALF)          \
-  decode_4_cols<weight_nbit, COLUMN_HALF, signed_weights>(          \
+  decode_4_cols<weight_nbit, COLUMN_HALF, signed_weights, has_lut>( \
       weights01_0,                                                   \
       weights01_1,                                                   \
       weights23_0,                                                   \
       weights23_1,                                                   \
-      packed_weights);                                               \
+      packed_weights,                                                \
+      lut);                                                          \
   for (int block = 0; block < row_blocks; block++) {                 \
     dot_4_rows_2_cols(                                               \
         accumulators[block][COLUMN_BLOCK * 4],                       \
@@ -307,7 +330,8 @@ template <
     int weight_nbit,
     int column_blocks,
     int column_offset,
-    bool has_weight_zeros>
+    bool has_weight_zeros,
+    bool has_lut>
 TORCHAO_ALWAYS_INLINE inline WeightGroupMetadata<column_blocks>
 load_weight_group_metadata(const char*& weight_ptr, int group_size) {
   static_assert(column_blocks == 1 || column_blocks == 2);
@@ -337,7 +361,7 @@ load_weight_group_metadata(const char*& weight_ptr, int group_size) {
           vld1q_s32(zeros + column_offset + block * 4);
       metadata.qvals_sums[block] = vmlsq_n_s32(
           metadata.qvals_sums[block], metadata.zeros[block], group_size);
-      if constexpr (weight_nbit < 8) {
+      if constexpr (weight_nbit < 8 && !has_lut) {
         metadata.zeros[block] = vaddq_s32(
             metadata.zeros[block],
             vdupq_n_s32(1 << (weight_nbit - 1)));
@@ -418,12 +442,25 @@ TORCHAO_ALWAYS_INLINE inline void store_results(
   }
 }
 
+// LUT-packed weight panels start with the 16-byte int8 LUT shared by the
+// panel's eight columns.
+template <bool has_lut>
+TORCHAO_ALWAYS_INLINE inline int8x16_t load_tile_lut(const char*& weight_ptr) {
+  if constexpr (has_lut) {
+    const int8x16_t lut = vld1q_s8(reinterpret_cast<const int8_t*>(weight_ptr));
+    weight_ptr += 16;
+    return lut;
+  }
+  return vdupq_n_s8(0);
+}
+
 template <
     int weight_nbit,
     int row_blocks,
     int column_blocks,
     int column_offset,
-    bool has_weight_zeros>
+    bool has_weight_zeros,
+    bool has_lut>
 __attribute__((noinline)) void kernel_rows(
     float* output,
     int output_m_stride,
@@ -478,6 +515,7 @@ __attribute__((noinline)) void kernel_rows(
   }
 
   const char* weight_ptr = weight_panel;
+  const int8x16_t lut = load_tile_lut<has_lut>(weight_ptr);
   volatile float32x4_t results[column_blocks * 4][row_blocks];
   for (int col = 0; col < column_blocks * 4; col++) {
 #pragma unroll(4)
@@ -501,10 +539,12 @@ __attribute__((noinline)) void kernel_rows(
           row_blocks,
           column_blocks,
           column_offset / 4,
-          !has_weight_zeros || weight_nbit == 8>(
+          !has_weight_zeros || weight_nbit == 8,
+          has_lut>(
           accumulators,
           reinterpret_cast<const uint8_t*>(weight_ptr),
-          activation_ptrs);
+          activation_ptrs,
+          lut);
       weight_ptr += 16 * weight_nbit;
       for (int block = 0; block < activation_blocks; block++) {
         activation_ptrs[block] += kMr * 16;
@@ -516,7 +556,8 @@ __attribute__((noinline)) void kernel_rows(
             weight_nbit,
             column_blocks,
             column_offset,
-            has_weight_zeros>(
+            has_weight_zeros,
+            has_lut>(
             weight_ptr, group_size);
 
     int32x4_t activation_qvals_sum_vec[row_blocks];
@@ -569,7 +610,7 @@ __attribute__((noinline)) void kernel_rows(
       output, output_m_stride, remaining_n, valid_rows, results);
 }
 
-template <int weight_nbit, bool has_weight_zeros>
+template <int weight_nbit, bool has_weight_zeros, bool has_lut>
 __attribute__((noinline)) void kernel_1x8x16_interleaved(
     float* output,
     int remaining_n,
@@ -591,6 +632,7 @@ __attribute__((noinline)) void kernel_1x8x16_interleaved(
   const char* activation_ptr =
       activation_block + kMr * (sizeof(float) + sizeof(int8_t));
   const char* weight_ptr = weight_panel;
+  const int8x16_t lut = load_tile_lut<has_lut>(weight_ptr);
   float32x4_t result_0123 = vdupq_n_f32(0.0f);
   float32x4_t result_4567 = vdupq_n_f32(0.0f);
 
@@ -618,12 +660,14 @@ __attribute__((noinline)) void kernel_1x8x16_interleaved(
       decode_4_cols<
           weight_nbit,
           0,
-          !has_weight_zeros || weight_nbit == 8>(
+          !has_weight_zeros || weight_nbit == 8,
+          has_lut>(
           weights01_0,
           weights01_1,
           weights23_0,
           weights23_1,
-          reinterpret_cast<const uint8_t*>(weight_ptr));
+          reinterpret_cast<const uint8_t*>(weight_ptr),
+          lut);
       accumulators[0] =
           vdotq_s32(accumulators[0], weights01_0, activation_lo);
       accumulators[0] =
@@ -635,12 +679,14 @@ __attribute__((noinline)) void kernel_1x8x16_interleaved(
       decode_4_cols<
           weight_nbit,
           1,
-          !has_weight_zeros || weight_nbit == 8>(
+          !has_weight_zeros || weight_nbit == 8,
+          has_lut>(
           weights01_0,
           weights01_1,
           weights23_0,
           weights23_1,
-          reinterpret_cast<const uint8_t*>(weight_ptr));
+          reinterpret_cast<const uint8_t*>(weight_ptr),
+          lut);
       accumulators[2] =
           vdotq_s32(accumulators[2], weights01_0, activation_lo);
       accumulators[2] =
@@ -654,7 +700,7 @@ __attribute__((noinline)) void kernel_1x8x16_interleaved(
     }
 
     const auto weight_metadata =
-        load_weight_group_metadata<weight_nbit, 2, 0, has_weight_zeros>(
+        load_weight_group_metadata<weight_nbit, 2, 0, has_weight_zeros, has_lut>(
             weight_ptr, group_size);
 
     int32x4_t corrected_0123 = vsubq_s32(
@@ -704,7 +750,7 @@ __attribute__((noinline)) void kernel_1x8x16_interleaved(
   store_8_f32(output, remaining_n, result_0123, result_4567);
 }
 
-template <int weight_nbit, bool has_weight_zeros>
+template <int weight_nbit, bool has_weight_zeros, bool has_lut>
 TORCHAO_ALWAYS_INLINE inline void run_16_row_tile(
     float* output,
     int output_m_stride,
@@ -725,7 +771,7 @@ TORCHAO_ALWAYS_INLINE inline void run_16_row_tile(
   const char* weight_panel = weight_data;
   for (int n_idx = 0; n_idx < n; n_idx += kNr) {
     const int remaining_n = n - n_idx;
-    kernel_rows<weight_nbit, 4, 1, 0, has_weight_zeros>(
+    kernel_rows<weight_nbit, 4, 1, 0, has_weight_zeros, has_lut>(
         output + n_idx,
         output_m_stride,
         remaining_n,
@@ -740,7 +786,7 @@ TORCHAO_ALWAYS_INLINE inline void run_16_row_tile(
         has_bias,
         has_clamp);
     if (remaining_n > 4) {
-      kernel_rows<weight_nbit, 4, 1, 4, has_weight_zeros>(
+      kernel_rows<weight_nbit, 4, 1, 4, has_weight_zeros, has_lut>(
           output + n_idx,
           output_m_stride,
           remaining_n,
@@ -759,7 +805,7 @@ TORCHAO_ALWAYS_INLINE inline void run_16_row_tile(
   }
 }
 
-template <int weight_nbit, int row_blocks, bool has_weight_zeros>
+template <int weight_nbit, int row_blocks, bool has_weight_zeros, bool has_lut>
 TORCHAO_ALWAYS_INLINE inline void run_up_to_8_row_tile(
     float* output,
     int output_m_stride,
@@ -776,7 +822,7 @@ TORCHAO_ALWAYS_INLINE inline void run_up_to_8_row_tile(
     bool has_clamp) {
   const char* weight_panel = weight_data;
   for (int n_idx = 0; n_idx < n; n_idx += kNr) {
-    kernel_rows<weight_nbit, row_blocks, 2, 0, has_weight_zeros>(
+    kernel_rows<weight_nbit, row_blocks, 2, 0, has_weight_zeros, has_lut>(
         output + n_idx,
         output_m_stride,
         n - n_idx,
@@ -798,7 +844,7 @@ TORCHAO_ALWAYS_INLINE inline void run_up_to_8_row_tile(
 
 // Public eight-row-granularity entry point. It pairs packed activation blocks
 // for a 16-row fast path, then uses dedicated 8-, 4-, and 1-row tail paths.
-template <int weight_nbit, bool has_weight_zeros>
+template <int weight_nbit, bool has_weight_zeros, bool has_lut = false>
 void kernel_8x8x16_f32_neondot(
     float32_t* output,
     int output_m_stride,
@@ -819,7 +865,7 @@ void kernel_8x8x16_f32_neondot(
   const std::size_t activation_row_size = sizeof(float) + sizeof(int8_t) + k +
       (has_weight_zeros ? (k / group_size) * sizeof(int32_t) : 0);
   const std::size_t activation_block_size = mr * activation_row_size;
-  const std::size_t weight_panel_size = k * weight_nbit +
+  const std::size_t weight_panel_size = (has_lut ? 16 : 0) + k * weight_nbit +
       (k / group_size) * nr *
           (sizeof(float) + sizeof(int32_t) +
            (has_weight_zeros ? sizeof(int32_t) : 0)) +
@@ -832,7 +878,7 @@ void kernel_8x8x16_f32_neondot(
   for (; m_idx + 16 <= m; m_idx += 16) {
     const char* activation_block_0 =
         activation_data_bytes + m_idx * activation_row_size;
-    internal::run_16_row_tile<weight_nbit, has_weight_zeros>(
+    internal::run_16_row_tile<weight_nbit, has_weight_zeros, has_lut>(
         output + m_idx * output_m_stride,
         output_m_stride,
         n,
@@ -854,7 +900,7 @@ void kernel_8x8x16_f32_neondot(
     const int tail_rows = m - m_idx;
     const char* activation_block_0 =
         activation_data_bytes + m_idx * activation_row_size;
-    internal::run_16_row_tile<weight_nbit, has_weight_zeros>(
+    internal::run_16_row_tile<weight_nbit, has_weight_zeros, has_lut>(
         output + m_idx * output_m_stride,
         output_m_stride,
         n,
@@ -875,7 +921,7 @@ void kernel_8x8x16_f32_neondot(
     const int tail_rows = m - m_idx;
     const char* activation_block =
         activation_data_bytes + m_idx * activation_row_size;
-    internal::run_up_to_8_row_tile<weight_nbit, 2, has_weight_zeros>(
+    internal::run_up_to_8_row_tile<weight_nbit, 2, has_weight_zeros, has_lut>(
         output + m_idx * output_m_stride,
         output_m_stride,
         n,
@@ -898,7 +944,7 @@ void kernel_8x8x16_f32_neondot(
     const int activation_block_idx = m_idx / mr;
     const char* activation_block = activation_data_bytes +
         activation_block_idx * activation_block_size;
-    internal::run_up_to_8_row_tile<weight_nbit, 1, has_weight_zeros>(
+    internal::run_up_to_8_row_tile<weight_nbit, 1, has_weight_zeros, has_lut>(
         output + m_idx * output_m_stride,
         output_m_stride,
         n,
@@ -923,7 +969,7 @@ void kernel_8x8x16_f32_neondot(
         activation_block_idx * activation_block_size;
     const char* weight_panel = weight_data_bytes;
     for (int n_idx = 0; n_idx < n; n_idx += nr) {
-      internal::kernel_1x8x16_interleaved<weight_nbit, has_weight_zeros>(
+      internal::kernel_1x8x16_interleaved<weight_nbit, has_weight_zeros, has_lut>(
           output + m_idx * output_m_stride + n_idx,
           n - n_idx,
           k,
