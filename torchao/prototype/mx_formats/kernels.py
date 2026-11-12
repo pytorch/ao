@@ -4,6 +4,7 @@
 # This source code is licensed under the license found in the
 # LICENSE file in the root directory of this source tree.
 
+import functools
 import importlib
 import logging
 from typing import Optional, Tuple
@@ -12,7 +13,7 @@ import numpy as np
 import torch
 from torch.distributed.tensor import Replicate, Shard
 from torch.distributed.tensor.experimental import register_sharding
-from torch.utils._triton import has_triton
+from torch.utils._triton import has_triton, has_triton_package
 
 from torchao.prototype.custom_fp_utils import (
     _f32_to_floatx_unpacked,
@@ -160,7 +161,7 @@ def pack_uint4(uint8_data: torch.Tensor) -> torch.Tensor:
     return (uint8_data[::2] | uint8_data[1::2] << 4).view(down_size(shape))
 
 
-if has_triton():
+if has_triton_package():
     import triton
     import triton.language as tl
     from torch.library import triton_op, wrap_triton
@@ -451,19 +452,29 @@ else:
         raise AssertionError("needs triton")
 
 
-_triton_kernels_available = (
-    has_triton()
-    and torch.cuda.is_available()
-    and (is_sm_at_least_100() and is_cuda_version_at_least(12, 8))
-    or (is_ROCM() and is_MI350())
+def _is_cuda_build_at_least(major: int, minor: int) -> bool:
+    # unlike is_cuda_version_at_least, never calls torch.cuda.is_available()
+    if torch.version.cuda is None:
+        return False
+    cuda_major, cuda_minor = map(int, torch.version.cuda.split(".")[:2])
+    return (cuda_major, cuda_minor) >= (major, minor)
+
+
+_IS_ROCM_BUILD = torch.version.hip is not None
+
+# Defining the kernels checks only the build, so import makes no torch.cuda call.
+# Whether this GPU can run them is `_triton_kernels_available`, computed on first
+# access (see `__getattr__`).
+_triton_kernels_defined = has_triton_package() and (
+    _is_cuda_build_at_least(12, 8) or _IS_ROCM_BUILD
 )
 
-if _triton_kernels_available:
+if _triton_kernels_defined:
     import triton
     import triton.language as tl
     from torch.library import triton_op, wrap_triton
 
-    IS_ROCM = tl.constexpr(is_ROCM())
+    IS_ROCM = tl.constexpr(_IS_ROCM_BUILD)
 
     @triton.jit
     def _calculate_reciprocal_scale(scale_e8m0_biased):
@@ -859,6 +870,7 @@ if _triton_kernels_available:
         * `output`: the `float8_e4m3fn` values of `x` cast to mxfp8 across dim0 (rowwise)
         * `scale`: the `e8m0` values of `x_scale` used to cast `x` to mxfp8 across dim0
         """
+        assert _triton_kernels_available_on_device(), "needs triton"
         assert x.is_contiguous(), "`x` must be contiguous"
         assert inner_block_size <= 32, "inner_block_size must be <= 32"
         assert x.dtype == torch.bfloat16, (
@@ -929,6 +941,7 @@ if _triton_kernels_available:
         * `output_col_major`: the `float8_e4m3fn` values of `x` cast to mxfp8 across dim1
         * `col_scale`: the `e8m0` values of `x_scale` used to cast `x` to mxfp8 across dim1
         """
+        assert _triton_kernels_available_on_device(), "needs triton"
         assert x.is_contiguous(), "`x` must be contiguous"
         assert inner_block_size <= 32
 
@@ -1013,13 +1026,12 @@ else:
         raise AssertionError("needs triton")
 
 
-_mxfp8_cuda_kernels_available = (
-    torch.cuda.is_available()
-    and is_sm_at_least_100()
-    and is_cuda_version_at_least(12, 8)
-)
+_MXFP8_CUDA_UNAVAILABLE_MSG = "`mxfp8_quantize_cuda` needs (1) torch 2.8+ and (2) torchao built from source on a machine with CUDA capability 10.0+. Please see https://github.com/pytorch/ao/issues/2932 for more details."
 
-if _mxfp8_cuda_kernels_available:
+# Same split as `_triton_kernels_defined`: `_mxfp8_cuda_kernels_available` is lazy.
+_mxfp8_cuda_kernels_defined = _is_cuda_build_at_least(12, 8)
+
+if _mxfp8_cuda_kernels_defined:
     lib = torch.library.Library("torchao", "FRAGMENT")
     lib.define(
         "mxfp8_quantize(Tensor input, bool rowwise, bool colwise, int scale_dim_x, int scale_dim_y, str fp8_format, str scaling_mode) -> (Tensor, Tensor, Tensor, Tensor)",
@@ -1047,6 +1059,8 @@ if _mxfp8_cuda_kernels_available:
         Returns:
             Tuple of (output_rowwise, output_colwise, scales_rowwise, scales_colwise)
         """
+        if not _mxfp8_cuda_kernels_available_on_device():
+            raise NotImplementedError(_MXFP8_CUDA_UNAVAILABLE_MSG)
         # Input shape must be 2D.
         assert x.ndim == 2
         rows, cols = x.shape
@@ -1188,9 +1202,7 @@ else:
         colwise: bool = True,
         scaling_mode: str = "rceil",
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
-        raise NotImplementedError(
-            "`mxfp8_quantize_cuda` needs (1) torch 2.8+ and (2) torchao built from source on a machine with CUDA capability 10.0+. Please see https://github.com/pytorch/ao/issues/2932 for more details."
-        )
+        raise NotImplementedError(_MXFP8_CUDA_UNAVAILABLE_MSG)
 
 
 _mslk_available = importlib.util.find_spec("mslk") is not None
@@ -1362,13 +1374,12 @@ def _(m_sizes, x, global_scale):
 # power-of-two e8m0 exponent, and the cast multiplies the data by the fp32 reciprocal of that
 # e8m0 scale before casting to float8_e4m3fn.
 # ---------------------------------------------------------------------------
-if _triton_kernels_available:
+if _triton_kernels_defined:
     # Reuses the e8m0 RCEIL helper `_triton_calculate_scale_rceil` defined in the
-    # `_triton_kernels_available` block above (`USE_PTX` selects the hardware
+    # `_triton_kernels_defined` block above (`USE_PTX` selects the hardware
     # `cvt.rp.ue8m0x2.f32` path on Blackwell / NVIDIA and the bit-math path on ROCm). Sharing
     # that helper keeps this kernel byte-for-byte consistent with the other mxfp8 casts, so it
-    # is gated on the same `_triton_kernels_available` (SM100+ & CUDA>=12.8, or ROCm MI350) as
-    # they are.
+    # is defined under the same `_triton_kernels_defined` gate as they are.
 
     _MXFP8_32X32_DIM_KM_CONFIGS = [
         triton.Config({"BN": bn, "RB": rb}, num_warps=w)
@@ -1471,6 +1482,7 @@ if _triton_kernels_available:
 
         Standalone custom op; not used by MXTensor.
         """
+        assert _triton_kernels_available_on_device(), "needs triton"
         assert x.is_contiguous() and x.dim() == 2
         M, N = x.shape
         assert M % 32 == 0 and N % 32 == 0, (
@@ -1516,3 +1528,36 @@ else:
         x: torch.Tensor,
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         raise AssertionError("needs triton")
+
+
+@functools.cache
+def _triton_kernels_available_on_device() -> bool:
+    return (
+        has_triton()
+        and torch.cuda.is_available()
+        and (is_sm_at_least_100() and is_cuda_version_at_least(12, 8))
+        or (is_ROCM() and is_MI350())
+    )
+
+
+@functools.cache
+def _mxfp8_cuda_kernels_available_on_device() -> bool:
+    return (
+        torch.cuda.is_available()
+        and is_sm_at_least_100()
+        and is_cuda_version_at_least(12, 8)
+    )
+
+
+_LAZY_FLAGS = {
+    "_triton_kernels_available": _triton_kernels_available_on_device,
+    "_mxfp8_cuda_kernels_available": _mxfp8_cuda_kernels_available_on_device,
+}
+
+
+def __getattr__(name: str):
+    # Querying the GPU initializes CUDA, which breaks forking CUDA workers later,
+    # so these flags are computed on first access instead of at import.
+    if name in _LAZY_FLAGS:
+        return _LAZY_FLAGS[name]()
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
