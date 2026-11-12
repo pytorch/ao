@@ -461,8 +461,8 @@ class TestMSEObserverPrecision(TestCase):
         expected = torch.full_like(prediction, -magnitude)
         reference_prediction = prediction.detach().float().requires_grad_()
         dimensions = (1,) if per_channel else (0, 1)
-        reference = (reference_prediction - expected.float()).square().mean(
-            dim=dimensions
+        reference = (
+            (reference_prediction - expected.float()).square().mean(dim=dimensions)
         )
         observer = self._observer(PerAxis(0) if per_channel else PerTensor())
         actual = observer.mse(
@@ -526,7 +526,10 @@ class TestMSEObserverPrecision(TestCase):
             bound = sample.abs().amax(dim=1)
         candidates = [
             self._reconstruction_error(
-                observer, sample, -bound / observer.steps * i, bound / observer.steps * i
+                observer,
+                sample,
+                -bound / observer.steps * i,
+                bound / observer.steps * i,
             )
             for i in range(1, observer.steps + 1)
         ]
