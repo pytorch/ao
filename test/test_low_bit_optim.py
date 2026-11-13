@@ -159,6 +159,110 @@ class TestQuantize(TestCase):
                 dist.destroy_process_group()
 
 
+class TestOptimStateCopy(TestCase):
+    @parametrize("subclass", [OptimState4bit, OptimState8bit, OptimStateFp8])
+    @parametrize(
+        "layout",
+        [
+            "contiguous",
+            "transpose",
+            "stepped_rows",
+            "stepped_columns",
+            "offset_slice",
+            "expanded",
+            "row_broadcast",
+            "scalar_broadcast",
+        ],
+    )
+    def test_copy_float_source_layout(self, subclass, layout):
+        shape = (64, 64)
+        torch.manual_seed(42)
+        if layout == "contiguous":
+            source = torch.randn(shape)
+        elif layout == "transpose":
+            source = torch.randn(shape).t()
+        elif layout == "stepped_rows":
+            source = torch.randn(128, 64)[::2]
+        elif layout == "stepped_columns":
+            source = torch.randn(64, 128)[:, ::2]
+        elif layout == "offset_slice":
+            source = torch.randn(66, 66)[1:65, 1:65]
+        elif layout == "expanded":
+            source = torch.randn(1, 64).expand(shape)
+        elif layout == "row_broadcast":
+            source = torch.randn(1, 64)
+        else:
+            source = torch.tensor(0.25)
+
+        original = source.clone()
+        stride = source.stride()
+        dense = torch.empty(shape).copy_(source)
+        actual = subclass.zeros(shape)
+        expected = subclass.zeros(shape)
+        expected.copy_(dense)
+
+        self.assertIs(actual.copy_(source), actual)
+        torch.testing.assert_close(
+            actual.codes.view(torch.uint8), expected.codes.view(torch.uint8)
+        )
+        torch.testing.assert_close(actual.scale, expected.scale, rtol=0, atol=0)
+        torch.testing.assert_close(
+            actual.dequantize(), expected.dequantize(), rtol=0, atol=0
+        )
+        torch.testing.assert_close(source, original, rtol=0, atol=0)
+        self.assertEqual(source.stride(), stride)
+
+    @parametrize("optim_name", ["AdamW4bit", "AdamW8bit", "AdamWFp8"])
+    def test_copy_strided_adam_checkpoint_and_resume(self, optim_name):
+        torch.manual_seed(42)
+        model = nn.Linear(64, 64, bias=False)
+        model.weight = nn.Parameter(torch.randn(64, 64).t())
+        optimizer = torch.optim.AdamW(model.parameters(), lr=1e-3, foreach=False)
+        for _ in range(2):
+            model(torch.randn(4, 64)).square().mean().backward()
+            optimizer.step()
+            optimizer.zero_grad()
+        with tempfile.NamedTemporaryFile() as checkpoint:
+            torch.save(
+                {"model": model.state_dict(), "optimizer": optimizer.state_dict()},
+                checkpoint.name,
+            )
+            saved = torch.load(checkpoint.name)
+
+        parameter_id = saved["optimizer"]["param_groups"][0]["params"][0]
+        saved_state = saved["optimizer"]["state"][parameter_id]
+        for name in ("exp_avg", "exp_avg_sq"):
+            self.assertFalse(saved_state[name].is_contiguous())
+
+        reference = copy.deepcopy(model)
+        optimizers = []
+        for candidate, contiguous in ((model, False), (reference, True)):
+            quantized = getattr(optim, optim_name)(candidate.parameters(), lr=1e-3)
+            candidate.weight.grad = torch.zeros_like(candidate.weight)
+            quantized.step()
+            quantized.zero_grad()
+            candidate.load_state_dict(saved["model"])
+            state = quantized.state[candidate.weight]
+            for name, value in saved_state.items():
+                state[name].copy_(value.contiguous() if contiguous else value)
+            self.assertIsInstance(
+                state["exp_avg"], (OptimState4bit, OptimState8bit, OptimStateFp8)
+            )
+            optimizers.append(quantized)
+
+        for _ in range(3):
+            inputs = torch.randn(4, 64)
+            for candidate, quantized in zip((model, reference), optimizers):
+                candidate(inputs).square().mean().backward()
+                quantized.step()
+                quantized.zero_grad()
+            torch.testing.assert_close(model.weight, reference.weight, rtol=0, atol=0)
+            for name in ("exp_avg", "exp_avg_sq"):
+                actual = optimizers[0].state[model.weight][name].dequantize()
+                expected = optimizers[1].state[reference.weight][name].dequantize()
+                torch.testing.assert_close(actual, expected, rtol=0, atol=0)
+
+
 class TestOptim(TestCase):
     @parametrize(
         "optim_name",
@@ -671,6 +775,7 @@ class TestFSDP2(FSDPTest):
 
 
 instantiate_parametrized_tests(TestQuantize)
+instantiate_parametrized_tests(TestOptimStateCopy)
 instantiate_parametrized_tests(TestOptim)
 
 
