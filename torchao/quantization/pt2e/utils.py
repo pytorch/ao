@@ -1010,6 +1010,11 @@ def _fuse_conv_bn_(m: GraphModule) -> None:
         if fusion_nodes is None:
             continue
         conv_node, replacement_node = fusion_nodes
+        # Only fuse when the conv output is consumed solely by this BN;
+        # otherwise folding would silently drop the other consumers of the conv output.
+        if len(conv_node.users) != 1:
+            continue
+
         conv_weight_node = conv_node.args[1]
         conv_bias_node = conv_node.args[2] if len(conv_node.args) > 2 else None
         fold_bn_weights_into_conv_node(
