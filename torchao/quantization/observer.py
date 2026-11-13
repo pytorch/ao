@@ -369,6 +369,9 @@ class AffineQuantizedMSEObserver(AffineQuantizedObserverBase):
         return min_val, max_val
 
     def forward(self, input):
+        if input.numel() == 0:
+            return input
+
         if not (self.run_once and self.calibrated):
             self.min_val, self.max_val = self.line_search(input)
             self.calibrated = True
