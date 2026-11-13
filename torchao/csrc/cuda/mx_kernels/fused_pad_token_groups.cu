@@ -1,3 +1,9 @@
+// Copyright (c) Meta Platforms, Inc. and affiliates.
+// All rights reserved.
+//
+// This source code is licensed under the BSD 3-Clause license found in the
+// LICENSE file in the root directory of this source tree.
+
 #include <cuda_runtime.h>
 #include <cuda_bf16.h>
 #include <cstdint>
@@ -63,7 +69,10 @@ __global__ void fused_pad_token_groups_kernel(
     __nv_bfloat16* row_out = output + output_row * dim;
 
     // vectorized copy for all complete float4 chunks (8 bf16 elements each)
-    int num_vecs = dim / 8;
+    // Contiguous views can still have unaligned storage offsets.
+    bool aligned = (reinterpret_cast<uintptr_t>(row_in) % 16 == 0) &&
+                   (reinterpret_cast<uintptr_t>(row_out) % 16 == 0);
+    int num_vecs = aligned ? dim / 8 : 0;
     if (num_vecs > 0) {
         const float4* in_vec = reinterpret_cast<const float4*>(row_in);
         float4* out_vec = reinterpret_cast<float4*>(row_out);
@@ -113,7 +122,9 @@ __global__ void fused_unpad_token_groups_kernel(
     __nv_bfloat16* row_out = output + global_row_idx * dim;
 
     // vectorized copy for all complete float4 chunks (8 bf16 elements each)
-    int num_vecs = dim / 8;
+    bool aligned = (reinterpret_cast<uintptr_t>(row_in) % 16 == 0) &&
+                   (reinterpret_cast<uintptr_t>(row_out) % 16 == 0);
+    int num_vecs = aligned ? dim / 8 : 0;
     if (num_vecs > 0) {
         const float4* in_vec = reinterpret_cast<const float4*>(row_in);
         float4* out_vec = reinterpret_cast<float4*>(row_out);
@@ -193,6 +204,8 @@ void launch_fused_pad_token_groups_cuda(
     const int THREADS_PER_BLOCK = WARPS_PER_BLOCK * THREADS_PER_WARP;  // 256 threads
 
     const int num_blocks = ceil_div(num_tokens, WARPS_PER_BLOCK);
+    // Copy raw 16-bit chunks so fp32 values preserve both halves.
+    const int storage_dim = dim * (dtype_size / static_cast<int>(sizeof(__nv_bfloat16)));
 
     fused_pad_token_groups_kernel<<<num_blocks, THREADS_PER_BLOCK, 0, stream>>>(
         reinterpret_cast<const __nv_bfloat16*>(input_ptr),
@@ -200,7 +213,7 @@ void launch_fused_pad_token_groups_cuda(
         padded_group_start_offsets_ptr,
         reinterpret_cast<__nv_bfloat16*>(output_ptr),
         num_tokens,
-        dim,
+        storage_dim,
         num_groups
     );
 
@@ -224,6 +237,7 @@ void launch_fused_unpad_token_groups_cuda(
     const int THREADS_PER_BLOCK = WARPS_PER_BLOCK * THREADS_PER_WARP;  // 256 threads
 
     const int num_blocks = ceil_div(num_tokens, WARPS_PER_BLOCK);
+    const int storage_dim = dim * (dtype_size / static_cast<int>(sizeof(__nv_bfloat16)));
 
     fused_unpad_token_groups_kernel<<<num_blocks, THREADS_PER_BLOCK, 0, stream>>>(
         reinterpret_cast<const __nv_bfloat16*>(input_ptr),
@@ -231,7 +245,7 @@ void launch_fused_unpad_token_groups_cuda(
         padded_group_start_offsets_ptr,
         reinterpret_cast<__nv_bfloat16*>(output_ptr),
         num_tokens,
-        dim,
+        storage_dim,
         num_groups
     );
 
