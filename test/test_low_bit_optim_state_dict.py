@@ -3,8 +3,6 @@
 #
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
-import copy
-
 import pytest
 import torch
 from torch import nn
@@ -93,7 +91,7 @@ def test_restore_quantized_state_lr(optim_name, scalar_lr, tmp_path):
     inputs, target = torch.randn(4, 64), torch.randn(4, 8)
     for _ in range(2):
         _step(reference, original, inputs, target)
-    saved = copy.deepcopy(original.state_dict())
+    saved = original.state_dict()
     if scalar_lr:
         for group in saved["param_groups"]:
             group["lr"] = group["lr"].item()
