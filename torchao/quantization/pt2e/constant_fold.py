@@ -180,6 +180,8 @@ class ConstantFolder(torch.fx.Interpreter):
             torch.ops.quantized_decomposed.dequantize_per_tensor.default,
             torch.ops.quantized_decomposed.dequantize_per_tensor.tensor,
             torch.ops.quantized_decomposed.convert_element_type.no_fuse,
+            torch.ops.torchao.dequantize_affine.default,
+            # Observers that override convert() may still insert the OpOverloadPacket.
             torch.ops.torchao.dequantize_affine,
         ]
 

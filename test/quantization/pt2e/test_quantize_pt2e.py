@@ -4218,12 +4218,12 @@ class TestQuantizePT2EAffineQuantization(PT2EQuantizationTestCase):
                 return self.linear(x)
 
         node_occurrence = {
-            torch.ops.torchao.quantize_affine: 1,
-            torch.ops.torchao.dequantize_affine: 2,
+            torch.ops.torchao.quantize_affine.default: 1,
+            torch.ops.torchao.dequantize_affine.default: 2,
         }
         node_list = [
-            torch.ops.torchao.quantize_affine,
-            torch.ops.torchao.dequantize_affine,
+            torch.ops.torchao.quantize_affine.default,
+            torch.ops.torchao.dequantize_affine.default,
         ]
         example_inputs = (torch.randn(5, 128),)
         self._test_quantizer(
@@ -4304,18 +4304,18 @@ class TestQuantizePT2EAffineQuantization(PT2EQuantizationTestCase):
                 return self.linear(x)
 
         node_occurrence = {
-            torch.ops.torchao.choose_qparams_affine: 1,
+            torch.ops.torchao.choose_qparams_affine.default: 1,
             operator.getitem: 2,
-            torch.ops.torchao.quantize_affine: 1,
-            torch.ops.torchao.dequantize_affine: 1,
+            torch.ops.torchao.quantize_affine.default: 1,
+            torch.ops.torchao.dequantize_affine.default: 1,
             torch.ops.quantized_decomposed.dequantize_per_channel.default: 1,
         }
         node_list = [
             torch.ops.quantized_decomposed.dequantize_per_channel.default,
-            torch.ops.torchao.choose_qparams_affine,
+            torch.ops.torchao.choose_qparams_affine.default,
             operator.getitem,
-            torch.ops.torchao.quantize_affine,
-            torch.ops.torchao.dequantize_affine,
+            torch.ops.torchao.quantize_affine.default,
+            torch.ops.torchao.dequantize_affine.default,
         ]
         example_inputs = (torch.randn(5, 128),)
         self._test_quantizer(
@@ -4396,17 +4396,17 @@ class TestQuantizePT2EAffineQuantization(PT2EQuantizationTestCase):
                 return self.linear(x)
 
         node_occurrence = {
-            torch.ops.torchao.choose_qparams_affine: 1,
+            torch.ops.torchao.choose_qparams_affine.default: 1,
             operator.getitem: 2,
-            torch.ops.torchao.quantize_affine: 1,
-            torch.ops.torchao.dequantize_affine: 2,
+            torch.ops.torchao.quantize_affine.default: 1,
+            torch.ops.torchao.dequantize_affine.default: 2,
         }
         node_list = [
-            torch.ops.torchao.dequantize_affine,
-            torch.ops.torchao.choose_qparams_affine,
+            torch.ops.torchao.dequantize_affine.default,
+            torch.ops.torchao.choose_qparams_affine.default,
             operator.getitem,
-            torch.ops.torchao.quantize_affine,
-            torch.ops.torchao.dequantize_affine,
+            torch.ops.torchao.quantize_affine.default,
+            torch.ops.torchao.dequantize_affine.default,
         ]
         example_inputs = (torch.randn(5, 128),)
         self._test_quantizer(
