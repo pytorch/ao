@@ -280,6 +280,24 @@ class TestQuantPrimitives(unittest.TestCase):
         self.assertTrue(torch.equal(scale, scale_ref))
         self.assertTrue(torch.equal(zero_point, zp_ref))
 
+    def test_choose_qparams_sym_no_clipping_err_uint8(self):
+        """SYMMETRIC_NO_CLIPPING_ERR must cover the whole range for unsigned dtypes"""
+        input = torch.randn(10, 16) * 10
+        block_size = (1, 16)
+        scale, zero_point = choose_qparams_affine(
+            input,
+            MappingType.SYMMETRIC_NO_CLIPPING_ERR,
+            block_size,
+            torch.uint8,
+            eps=torch.finfo(torch.float32).eps,
+        )
+        q = quantize_affine(input, block_size, scale, zero_point, torch.uint8)
+        dq = dequantize_affine(
+            q, block_size, scale, zero_point, torch.uint8, output_dtype=torch.float32
+        )
+        # error is bounded by half a quantization step (no clipping)
+        self.assertTrue(((dq - input).abs() <= scale.reshape(-1, 1) * 0.5 + 1e-5).all())
+
     @unittest.skipIf(is_fbcode(), "broken in fbcode")
     def test_choose_qparams_token_asym(self):
         input = torch.randn(10, 10)
