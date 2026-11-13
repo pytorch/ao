@@ -62,6 +62,8 @@ class _AdamBase(Optimizer):
         super().__setstate__(state)
         for group in self.param_groups:
             group.setdefault("amsgrad", False)
+            if not isinstance(group["lr"], Tensor):
+                group["lr"] = torch.tensor(group["lr"], dtype=torch.float32)
 
     # bring your own function to create zero-filled subclass
     @staticmethod
