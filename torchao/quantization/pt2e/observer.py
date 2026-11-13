@@ -572,7 +572,14 @@ class MinMaxObserver(UniformQuantizationObserverBase):
         if x_orig.numel() == 0:
             return x_orig
         x = x_orig.detach()  # avoid keeping autograd tape
+        if x.is_complex():
+            raise TypeError(
+                f"{self.__class__.__name__} does not support complex input dtype "
+                f"{x.dtype}; there is no quantized complex dtype."
+            )
         x = x.to(self.min_val.dtype)
+
+
         min_val_cur, max_val_cur = torch.aminmax(x)
         min_val = torch.min(min_val_cur, self.min_val)
         max_val = torch.max(max_val_cur, self.max_val)
@@ -681,7 +688,14 @@ class MovingAverageMinMaxObserver(MinMaxObserver):
         if x_orig.numel() == 0:
             return x_orig
         x = x_orig.detach()  # avoid keeping autograd tape
+        if x.is_complex():
+            raise TypeError(
+                f"{self.__class__.__name__} does not support complex input dtype "
+                f"{x.dtype}; there is no quantized complex dtype."
+            )
         x = x.to(self.min_val.dtype)
+
+
         min_val = self.min_val
         max_val = self.max_val
         if min_val == float("inf") and max_val == float("-inf"):
@@ -779,6 +793,11 @@ class PerChannelMinMaxObserver(UniformQuantizationObserverBase):
         if x_orig.numel() == 0:
             return x_orig
         x = x_orig.detach()  # avoid keeping autograd tape
+        if x.is_complex():
+            raise TypeError(
+                f"{self.__class__.__name__} does not support complex input dtype "
+                f"{x.dtype}; there is no quantized complex dtype."
+            )
         min_val = self.min_val
         max_val = self.max_val
         x_dim = x.size()
@@ -791,12 +810,14 @@ class PerChannelMinMaxObserver(UniformQuantizationObserverBase):
         # are done in place and types need to match for comparisons
         y = y.to(self.min_val.dtype)
         y = torch.flatten(y, start_dim=1)
+
         if min_val.numel() == 0 or max_val.numel() == 0:
             min_val, max_val = torch.aminmax(y, dim=1)
         else:
             min_val_cur, max_val_cur = torch.aminmax(y, dim=1)
             min_val = torch.min(min_val_cur, min_val)
             max_val = torch.max(max_val_cur, max_val)
+
         self.min_val.resize_(min_val.shape)
         self.max_val.resize_(max_val.shape)
         self.min_val.copy_(min_val)
@@ -971,7 +992,14 @@ class MovingAveragePerChannelMinMaxObserver(PerChannelMinMaxObserver):
         if x_orig.numel() == 0:
             return x_orig
         x = x_orig.detach()  # avoid keeping autograd tape
+        if x.is_complex():
+            raise TypeError(
+                f"{self.__class__.__name__} does not support complex input dtype "
+                f"{x.dtype}; there is no quantized complex dtype."
+            )
         x = x.to(self.min_val.dtype)
+
+
         min_val = self.min_val
         max_val = self.max_val
         x_dim = x.size()
