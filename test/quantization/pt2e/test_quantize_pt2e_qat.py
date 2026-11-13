@@ -980,6 +980,36 @@ class TestQuantizePT2EQAT_ConvBn_Base(PT2EQATTestCase):
         self.assertTrue(conv_node is not None)
         self.assertTrue(bn_node is None)
 
+    def _get_decomposed_conv_bn_model(self, has_bn: bool):
+        m = self._get_conv_bn_model(has_bn=has_bn)
+        return (
+            torch.export.export(m, self.example_inputs, strict=True)
+            .run_decompositions()
+            .module()
+        )
+
+    def test_qat_conv_bn_after_decomposition_raises(self):
+        """
+        The QAT conv-bn fusion can't fuse a batch norm into the aten.convolution
+        of a model decomposed to core ATen, so it raises instead of leaving it.
+        """
+        m = self._get_decomposed_conv_bn_model(has_bn=True)
+        quantizer = XNNPACKQuantizer()
+        quantizer.set_global(
+            get_symmetric_quantization_config(is_per_channel=False, is_qat=True),
+        )
+        with self.assertRaisesRegex(ValueError, "aten.convolution"):
+            prepare_qat_pt2e(m, quantizer)
+
+    def test_qat_conv_after_decomposition(self):
+        """A decomposed conv without a batch norm has nothing to fuse."""
+        m = self._get_decomposed_conv_bn_model(has_bn=False)
+        quantizer = XNNPACKQuantizer()
+        quantizer.set_global(
+            get_symmetric_quantization_config(is_per_channel=False, is_qat=True),
+        )
+        prepare_qat_pt2e(m, quantizer)
+
 
 @skipIfNoQNNPACK
 class TestQuantizePT2EQAT_ConvBn1d(TestQuantizePT2EQAT_ConvBn_Base):

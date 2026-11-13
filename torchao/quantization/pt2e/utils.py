@@ -688,6 +688,25 @@ def _is_conv_or_conv_transpose_node(n: Node):
     return _is_conv_node(n) or _is_conv_transpose_node(n)
 
 
+def _is_aten_or_core_aten_bn_foldable_conv_node(n: Node) -> bool:
+    """
+    Return whether ``prepare_pt2e`` can fold a batch norm into the node:
+    conv{1,2,3}d, conv_transpose{1,2,3}d, or a non-transposed ``aten.convolution``
+    (what conv{1,2,3}d become when a model is decomposed to core ATen).
+    ``_is_conv_node`` doesn't match ``aten.convolution``: quantizers use it to pick
+    the convs they annotate, and the QAT conv-bn fusion uses it too, which doesn't
+    support core ATen.
+    """
+    if _is_conv_or_conv_transpose_node(n):
+        return True
+    return (
+        n.op == "call_function"
+        and n.target == torch.ops.aten.convolution.default
+        # fold_bn_weights_into_conv_node would take a transposed one for a regular conv.
+        and not get_arg(n, "transposed", bool)
+    )
+
+
 def _is_linear_node(n: Node):
     """
     Return whether the node refers to an aten linear op.
@@ -965,7 +984,7 @@ def _get_conv_bn_fusion_nodes(bn_node: Node) -> Optional[tuple[Node, Node]]:
     bn_input = bn_node.args[0]
     if not isinstance(bn_input, Node):
         return None
-    if _is_conv_or_conv_transpose_node(bn_input):
+    if _is_aten_or_core_aten_bn_foldable_conv_node(bn_input):
         return bn_input, bn_input
 
     replacement_node = bn_input
@@ -982,8 +1001,9 @@ def _get_conv_bn_fusion_nodes(bn_node: Node) -> Optional[tuple[Node, Node]]:
         return None
 
     conv_node = slice_node.args[0]
-    if not isinstance(conv_node, Node) or not _is_conv_or_conv_transpose_node(
-        conv_node
+    if not (
+        isinstance(conv_node, Node)
+        and _is_aten_or_core_aten_bn_foldable_conv_node(conv_node)
     ):
         return None
     if len(conv_node.users) != 1 or len(slice_node.users) != 1:

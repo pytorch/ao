@@ -652,6 +652,21 @@ def _fuse_conv_bn_qat(m: GraphModule) -> GraphModule:
         torch.randn(1),  # bn_running_var
     )
 
+    # The patterns below can't match a decomposed conv and would leave its BN unfused.
+    functional_bn = torch.ops.aten._native_batch_norm_legit_functional.default
+    for conv_node in m.graph.find_nodes(
+        op="call_function", target=torch.ops.aten.convolution.default
+    ):
+        for user in conv_node.users:
+            if _is_bn_node(user) or user.target == functional_bn:
+                raise ValueError(
+                    f"prepare_qat_pt2e can't fuse batch norm {user.name} into "
+                    f"{conv_node.name}: the QAT conv-bn fusion doesn't support "
+                    "aten.convolution, the op convs become when a model is decomposed "
+                    "to core ATen. Call prepare_qat_pt2e before decomposing the model, "
+                    "or keep its convs from being decomposed."
+                )
+
     has_bn = any(_is_bn_node(n) for n in m.graph.nodes)
     if not has_bn:
         return m
