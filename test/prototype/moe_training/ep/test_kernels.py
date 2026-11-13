@@ -16,8 +16,59 @@ if not (
 ):
     pytest.skip("Test requires CUDA 12.8+ with SM >= 100", allow_module_level=True)
 
-from torchao.prototype.moe_training.ep.kernels import generate_permute_indices
+from torchao.prototype.moe_training.ep.kernels import (
+    _fill_indices_kernel,
+    generate_permute_indices,
+)
 from torchao.prototype.moe_training.ep.permute import _triton_permute_bwd
+
+
+@pytest.mark.parametrize(
+    "experts_per_rank,num_ranks,counts,max_len,alignment",
+    [
+        (2, 2, [4, 4, 4, 4], 12, 4),
+        (4, 2, [3, 3, 3, 3, 3, 3, 3, 3], 20, 2),
+        (1, 4, [8, 8, 8, 8], 16, 8),
+    ],
+)
+def test_generate_permute_indices_respects_max_len(
+    experts_per_rank, num_ranks, counts, max_len, alignment
+):
+    token_counts = torch.tensor(counts, dtype=torch.int32, device="cuda")
+    start_indices = torch.cumsum(token_counts, 0) - token_counts
+    total = torch.clamp_min(token_counts.view(num_ranks, -1).sum(0), alignment)
+    m_sizes = ((total + alignment - 1) // alignment * alignment).to(torch.int32)
+    write_offsets = torch.cumsum(m_sizes, 0) - m_sizes
+
+    sentinel = -999
+    guarded_output = torch.full(
+        (max_len + 64,), sentinel, dtype=torch.int32, device="cuda"
+    )
+    _fill_indices_kernel[(min(experts_per_rank, 1024),)](
+        token_counts,
+        start_indices,
+        write_offsets,
+        guarded_output[:max_len],
+        experts_per_rank,
+        num_ranks,
+        max_len,
+        BLOCK_SIZE=128,
+    )
+    torch.cuda.synchronize()
+    assert torch.all(guarded_output[max_len:] == sentinel)
+
+    gpu_indices, _, _ = generate_permute_indices(
+        token_counts, experts_per_rank, num_ranks, max_len, alignment
+    )
+    cpu_indices, _, _ = generate_permute_indices(
+        token_counts.cpu(),
+        experts_per_rank,
+        num_ranks,
+        max_len,
+        alignment,
+        use_cpu=True,
+    )
+    torch.testing.assert_close(gpu_indices.cpu(), cpu_indices)
 
 
 @pytest.mark.parametrize(

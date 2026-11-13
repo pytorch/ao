@@ -23,6 +23,7 @@ def _fill_indices_kernel(
     output_ptr,
     experts_per_rank: tl.constexpr,
     num_ranks: tl.constexpr,
+    max_len,
     BLOCK_SIZE: tl.constexpr,  # Number of threads per block
 ):
     pid = tl.program_id(axis=0)
@@ -48,13 +49,11 @@ def _fill_indices_kernel(
             for chunk_start in range(0, length, BLOCK_SIZE):
                 chunk_offsets = chunk_start + offsets
 
-                # mask valid indices
-                mask = chunk_offsets < length
-
                 values = start_index + chunk_offsets
 
                 # destination
                 dest_indices = write_offset + chunk_offsets
+                mask = (chunk_offsets < length) & (dest_indices < max_len)
 
                 # store
                 tl.store(output_ptr + dest_indices, values, mask=mask)
@@ -97,6 +96,7 @@ def fill_indices_wrapper(
         permuted_indices,
         experts_per_rank,
         num_ranks,
+        max_len,
         BLOCK_SIZE=block_size,
     )
     return permuted_indices
@@ -127,7 +127,7 @@ def fill_indices_cpu(
             start_index = start_index_values[i].item()
             length = tokens_per_expert_group[i].item()
             # Fill in the indices
-            if length > 0:
+            if length > 0 and write_start < max_len:
                 end_idx = min(write_start + length, max_len)
                 permuted_indices[write_start:end_idx] = torch.arange(
                     start_index,
