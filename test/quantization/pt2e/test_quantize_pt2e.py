@@ -4419,6 +4419,40 @@ class TestQuantizePT2EAffineQuantization(PT2EQuantizationTestCase):
         )
 
 
+class TestObserverComplexInput(PT2EQuantizationTestCase):
+    @parametrize(
+        "observer_name",
+        [
+            "MinMaxObserver",
+            "MovingAverageMinMaxObserver",
+            "PerChannelMinMaxObserver",
+            "MovingAveragePerChannelMinMaxObserver",
+        ],
+    )
+    @parametrize(
+        "dtype", [torch.float32, torch.float64, torch.complex64, torch.complex128]
+    )
+    def test_observer_input_dtype(self, observer_name, dtype):
+        from torchao.quantization.pt2e import observer
+
+        obs = getattr(observer, observer_name)()
+        x = torch.randn(4, 4, dtype=dtype)
+        if dtype.is_complex:
+            with self.assertRaisesRegex(
+                TypeError,
+                f"{observer_name} does not support complex input dtype "
+                f"{dtype}; there is no quantized complex dtype",
+            ):
+                obs(x)
+        else:
+            self.assertIs(obs(x), x)
+            self.assertTrue(torch.isfinite(obs.min_val).all())
+            self.assertTrue(torch.isfinite(obs.max_val).all())
+
+
+instantiate_parametrized_tests(TestObserverComplexInput)
+
+
 instantiate_parametrized_tests(TestQuantizePT2E)
 
 if __name__ == "__main__":

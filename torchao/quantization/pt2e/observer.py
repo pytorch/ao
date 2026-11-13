@@ -579,7 +579,6 @@ class MinMaxObserver(UniformQuantizationObserverBase):
             )
         x = x.to(self.min_val.dtype)
 
-
         min_val_cur, max_val_cur = torch.aminmax(x)
         min_val = torch.min(min_val_cur, self.min_val)
         max_val = torch.max(max_val_cur, self.max_val)
@@ -694,7 +693,6 @@ class MovingAverageMinMaxObserver(MinMaxObserver):
                 f"{x.dtype}; there is no quantized complex dtype."
             )
         x = x.to(self.min_val.dtype)
-
 
         min_val = self.min_val
         max_val = self.max_val
@@ -998,7 +996,6 @@ class MovingAveragePerChannelMinMaxObserver(PerChannelMinMaxObserver):
                 f"{x.dtype}; there is no quantized complex dtype."
             )
         x = x.to(self.min_val.dtype)
-
 
         min_val = self.min_val
         max_val = self.max_val
