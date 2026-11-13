@@ -56,6 +56,43 @@ class TestHelperModules:
                 x = self.bn(x)
             return x
 
+    class SharedConvModule(torch.nn.Module):
+        """One Conv2d module with multiple call sites (e.g. an unrolled loop).
+
+        With non-strict export the reused conv collapses into a single source
+        partition with one output node per call site. ``post_op`` selects which
+        annotation path the reused (multi-output) conv exercises:
+
+        - ``"none"``: plain ``_annotate_conv2d``
+        - ``"relu"``: ``_annotate_conv2d_unary`` (an ``nn.ReLU`` *module* so a
+          ``[Conv2d, ReLU]`` sequential partition forms)
+        - ``"add"``: ``_annotate_conv2d_binary``
+        - ``"add_relu"``: ``_annotate_conv2d_binary_unary``
+        """
+
+        def __init__(self, post_op: str = "relu") -> None:
+            super().__init__()
+            # in_channels == out_channels and padding keeps the shape so the
+            # module can be applied repeatedly in the loop.
+            self.conv = torch.nn.Conv2d(
+                in_channels=3, out_channels=3, kernel_size=3, stride=1, padding=1
+            )
+            self.relu = torch.nn.ReLU()
+            self.post_op = post_op
+
+        def forward(self, x):
+            for _ in range(2):
+                y = self.conv(x)
+                if self.post_op == "relu":
+                    x = self.relu(y)
+                elif self.post_op == "add":
+                    x = x + y
+                elif self.post_op == "add_relu":
+                    x = self.relu(x + y)
+                else:  # "none"
+                    x = y
+            return x
+
     class Conv2dUnaryModule(torch.nn.Module):
         def __init__(self, post_op, use_bias: bool = False, with_bn=False) -> None:
             super().__init__()
@@ -760,6 +797,61 @@ class TestQuantizePT2EX86Inductor(X86InductorQuantTestCase):
                 node_occurrence,
                 node_list,
             )
+
+    @skipIfNoX86
+    def test_conv2d_reused_with_fusable_post_op(self):
+        """
+        One Conv2d module with multiple call sites (e.g. an unrolled loop),
+        optionally followed by a fusable post op. With non-strict export the
+        reused conv's source partition has one output node per call site, so
+        fusion is skipped and each call site falls back to plain conv
+        annotation instead of raising during prepare_pt2e. Same class of bug as
+        the reused nn.Linear fix, extended to conv. See
+        https://github.com/pytorch/ao/issues/4478
+        """
+        aten = torch.ops.aten
+        example_inputs = (torch.randn(2, 3, 16, 16),)
+        with override_quantized_engine("x86"), torch.no_grad():
+            # relu exercises _annotate_conv2d_unary, add exercises
+            # _annotate_conv2d_binary, add_relu exercises
+            # _annotate_conv2d_binary_unary; in every case fusion is skipped for
+            # the reused (multi-output) conv and each call site falls back to the
+            # plain _annotate_conv2d path.
+            for post_op in ["relu", "add", "add_relu"]:
+                m = TestHelperModules.SharedConvModule(post_op=post_op).eval()
+                quantizer = X86InductorQuantizer().set_global(
+                    xiq.get_default_x86_inductor_quantization_config()
+                )
+                # One q-dq pair for the input of each conv call site and one dq
+                # of the shared weight per call site; the post op is not fused.
+                node_occurrence = {
+                    torch.ops.quantized_decomposed.quantize_per_tensor.default: 2,
+                    torch.ops.quantized_decomposed.dequantize_per_tensor.default: 2,
+                    # quantize_per_channel for weights are const propagated
+                    torch.ops.quantized_decomposed.quantize_per_channel.default: 0,
+                    torch.ops.quantized_decomposed.dequantize_per_channel.default: 2,
+                }
+                node_list = [
+                    torch.ops.quantized_decomposed.quantize_per_tensor.default,
+                    torch.ops.quantized_decomposed.dequantize_per_tensor.default,
+                    torch.ops.aten.conv2d.default,
+                ]
+                fq_m = self._test_quantizer(
+                    m,
+                    example_inputs,
+                    quantizer,
+                    node_occurrence,
+                    node_list,
+                    strict=False,
+                )[-1]
+                # Both call sites are annotated as plain conv without fusion.
+                expected_annotation_stat = {
+                    aten.conv2d.default: {
+                        "annotated": 2,
+                        "is_quant_out": 2,
+                    },
+                }
+                self._check_annotation_stat(fq_m, expected_annotation_stat)
 
     @skipIfNoX86
     def test_conv2d_unary(self):
