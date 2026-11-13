@@ -930,6 +930,54 @@ def convert_weighted_module(
         setattr(modules[parent_name], name, ref_qmodule)
 
 
+def _referenced_submodule_paths(gm: GraphModule) -> set[str]:
+    """Return the fully-qualified paths of every submodule/attribute referenced
+    via ``get_attr`` or ``call_module``, scanning ``gm``'s own graph *and* the
+    graphs of its nested ``GraphModule`` children (recursively).
+
+    ``GraphModule.delete_all_unused_submodules`` only inspects the immediate
+    graph, so a submodule referenced solely from inside a nested control-flow
+    subgraph (the ``while_loop`` / ``scan`` / ``cond`` body subgraphs that
+    ``torch.export`` stores as child modules) is wrongly treated as unused.
+    """
+    used: set[str] = set()
+
+    def visit(module: torch.nn.Module, prefix: str) -> None:
+        if not isinstance(module, GraphModule):
+            return
+        for node in module.graph.nodes:
+            if node.op in ("call_module", "get_attr") and isinstance(node.target, str):
+                acc = ""
+                for part in node.target.split("."):
+                    acc = f"{acc}.{part}" if acc else part
+                    used.add(f"{prefix}{acc}")
+        for name, child in module.named_children():
+            visit(child, f"{prefix}{name}.")
+
+    visit(gm, "")
+    return used
+
+
+def _delete_all_unused_submodules(model: GraphModule) -> None:
+    """Recursion-aware replacement for ``model.delete_all_unused_submodules()``.
+
+    The stock method only looks at the top-level graph, so it can delete
+    submodules that are still referenced from nested control-flow subgraphs,
+    leaving dangling references that later fail graph linting (e.g. in
+    ``DuplicateDQPass``). We snapshot those references and restore any submodule
+    that the stock cleanup incorrectly removed.
+    """
+    referenced = _referenced_submodule_paths(model)
+    snapshot = {name: mod for name, mod in model.named_modules() if name in referenced}
+    model.delete_all_unused_submodules()
+    # Restore parents before children so intermediate paths exist on re-add.
+    for name in sorted(snapshot, key=lambda n: n.count(".")):
+        try:
+            model.get_submodule(name)
+        except AttributeError:
+            model.add_submodule(name, snapshot[name])
+
+
 def convert(
     model: GraphModule,
     is_reference: bool = False,
@@ -1190,7 +1238,7 @@ def convert(
     # removes qconfig and activation_post_process modules
     if _remove_qconfig_flag:
         _remove_qconfig(model)
-    model.delete_all_unused_submodules()
+    _delete_all_unused_submodules(model)
     model.meta.pop("_observed_graph_module_attrs", None)
     return model
 
