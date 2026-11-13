@@ -159,7 +159,6 @@ class TestQuantize(TestCase):
                 dist.destroy_process_group()
 
 
-
 class TestOptimStateMaximum(TestCase):
     @parametrize("subclass", [OptimState4bit, OptimState8bit, OptimStateFp8])
     @parametrize("dtype", [torch.float32, torch.bfloat16])
@@ -207,7 +206,9 @@ class TestOptimAMSGrad(TestCase):
         )
         optimizer = getattr(optim, optim_name)(model.parameters(), **options)
         reference = nn.Parameter(model.weight.detach().float().clone())
-        native_class = torch.optim.AdamW if optim_name.startswith("AdamW") else torch.optim.Adam
+        native_class = (
+            torch.optim.AdamW if optim_name.startswith("AdamW") else torch.optim.Adam
+        )
         native = native_class([reference], foreach=False, **options)
         resumed_model = resumed_optimizer = None
         previous_maximum = None
@@ -263,7 +264,9 @@ class TestOptimAMSGrad(TestCase):
                 )
                 for name in ("exp_avg", "exp_avg_sq", "max_exp_avg_sq"):
                     torch.testing.assert_close(
-                        resumed_optimizer.state[resumed_model.weight][name].dequantize(),
+                        resumed_optimizer.state[resumed_model.weight][
+                            name
+                        ].dequantize(),
                         state[name].dequantize(),
                         rtol=0,
                         atol=0,
@@ -272,7 +275,10 @@ class TestOptimAMSGrad(TestCase):
             if index == 1:
                 with tempfile.NamedTemporaryFile() as checkpoint:
                     torch.save(
-                        {"model": model.state_dict(), "optimizer": optimizer.state_dict()},
+                        {
+                            "model": model.state_dict(),
+                            "optimizer": optimizer.state_dict(),
+                        },
                         checkpoint.name,
                     )
                     saved = torch.load(checkpoint.name)
@@ -282,6 +288,7 @@ class TestOptimAMSGrad(TestCase):
                     resumed_model.parameters(), **options
                 )
                 resumed_optimizer.load_state_dict(saved["optimizer"])
+
 
 class TestOptim(TestCase):
     @parametrize(
