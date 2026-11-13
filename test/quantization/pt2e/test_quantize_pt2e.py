@@ -268,6 +268,101 @@ class TestQuantizePT2E(PT2EQuantizationTestCase):
             )
         )
 
+    def test_conv_bn_fusion_after_decomposition(self):
+        """A model decomposed to core ATen before prepare_pt2e has
+        aten.convolution where it had conv1d, conv2d or conv3d."""
+
+        class ConvSliceBatchNorm(torch.nn.Module):
+            def __init__(self) -> None:
+                super().__init__()
+                self.conv = torch.nn.Conv1d(3, 4, kernel_size=3, padding=4, dilation=2)
+                self.bn = torch.nn.BatchNorm1d(4)
+
+            def forward(self, x):
+                return self.bn(self.conv(x)[..., :-4].contiguous())
+
+        torch.manual_seed(0)
+        batch_norm_targets = {
+            torch.ops.aten._native_batch_norm_legit_no_training.default,
+            torch.ops.aten.batch_norm.default,
+        }
+        cases = [
+            (
+                "conv1d",
+                torch.nn.Sequential(torch.nn.Conv1d(3, 4, 3), torch.nn.BatchNorm1d(4)),
+                (2, 3, 16),
+            ),
+            (
+                "conv2d_without_bias",
+                torch.nn.Sequential(
+                    torch.nn.Conv2d(3, 4, 3, bias=False), torch.nn.BatchNorm2d(4)
+                ),
+                (2, 3, 8, 8),
+            ),
+            (
+                "conv3d",
+                torch.nn.Sequential(torch.nn.Conv3d(3, 4, 3), torch.nn.BatchNorm3d(4)),
+                (2, 3, 6, 6, 6),
+            ),
+            ("through_spatial_slice", ConvSliceBatchNorm(), (2, 3, 16)),
+        ]
+        for name, m, shape in cases:
+            with self.subTest(name):
+                for module in m.modules():
+                    if isinstance(module, torch.nn.modules.batchnorm._BatchNorm):
+                        module.running_mean = torch.rand(4) - 0.5
+                        module.running_var = torch.rand(4) + 0.5
+                m.eval()
+                example_inputs = (torch.randn(shape),)
+                ref_outputs = m(*example_inputs)
+                traced_model = (
+                    torch.export.export(m, example_inputs, strict=True)
+                    .run_decompositions()
+                    .module()
+                )
+                self.assertTrue(
+                    any(
+                        node.target == torch.ops.aten.convolution.default
+                        for node in traced_model.graph.nodes
+                    )
+                )
+                prepared_model = prepare_pt2e(traced_model, XNNPACKQuantizer())
+                prepared_outputs = prepared_model(*example_inputs)
+
+                torch.testing.assert_close(ref_outputs, prepared_outputs)
+                self.assertFalse(
+                    any(
+                        node.target in batch_norm_targets
+                        for node in prepared_model.graph.nodes
+                    ),
+                    str(prepared_model.graph),
+                )
+
+    def test_conv_transpose_bn_fusion_after_decomposition_is_skipped(self):
+        """conv_transpose2d decomposes to a transposed aten.convolution, which is
+        left alone."""
+        m = torch.nn.Sequential(
+            torch.nn.ConvTranspose2d(3, 4, 3), torch.nn.BatchNorm2d(4)
+        ).eval()
+        example_inputs = (torch.randn(2, 3, 8, 8),)
+        ref_outputs = m(*example_inputs)
+        traced_model = (
+            torch.export.export(m, example_inputs, strict=True)
+            .run_decompositions()
+            .module()
+        )
+        prepared_model = prepare_pt2e(traced_model, XNNPACKQuantizer())
+        prepared_outputs = prepared_model(*example_inputs)
+
+        torch.testing.assert_close(ref_outputs, prepared_outputs)
+        self.assertTrue(
+            any(
+                node.target
+                == torch.ops.aten._native_batch_norm_legit_no_training.default
+                for node in prepared_model.graph.nodes
+            )
+        )
+
     def test_linear_bn_fusion(self):
         N = 8
         for M in [16, 32]:
