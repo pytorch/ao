@@ -8,6 +8,7 @@
 #include <torchao/csrc/cpu/shared_kernels/internal/library.h>
 #include <array>
 #include <cassert>
+#include <cstdint>
 #include <vector>
 
 namespace torchao::ops::groupwise_lowbit_weight_lut {

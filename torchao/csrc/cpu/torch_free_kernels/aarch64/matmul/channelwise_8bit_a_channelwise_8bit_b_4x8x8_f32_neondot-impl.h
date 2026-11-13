@@ -19,7 +19,7 @@
 namespace torchao::kernels::cpu::aarch64::quantized_matmul {
 namespace channelwise_8bit_a_channelwise_8bit_b_4x8x8_f32_neondot::internal {
 
-TORCHAO_ALWAYS_INLINE static void block_mul_4x8x8(
+TORCHAO_ALWAYS_INLINE static inline void block_mul_4x8x8(
     const int8_t* a,
     const size_t lda,
     const int8_t* b,
@@ -89,7 +89,7 @@ TORCHAO_ALWAYS_INLINE static void block_mul_4x8x8(
       vdotq_lane_s32(partial_sums[3][1], b_vec[1], a_vec[3], 1);
 }
 
-TORCHAO_ALWAYS_INLINE static void dequantize_4x8_int32_t(
+TORCHAO_ALWAYS_INLINE static inline void dequantize_4x8_int32_t(
     int32x4_t (&sums)[4][8 / 4],
     int32_t (&row_sum_lhs)[4],
     int32x4_t (&row_sum_rhs)[2],

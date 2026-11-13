@@ -12,6 +12,7 @@
 #include <torchao/csrc/cpu/torch_free_kernels/aarch64/lut/lut.h>
 #include <torchao/csrc/cpu/torch_free_kernels/macro.h>
 #include <cassert>
+#include <cstring>
 #include <vector>
 
 namespace torchao::kernels::cpu::aarch64::embedding {
