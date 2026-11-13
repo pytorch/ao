@@ -123,6 +123,24 @@ def _(func, types, args, kwargs):
     return dst
 
 
+@OptimStateFp8.implements(aten.clone.default)
+def _(func, types, args, kwargs):
+    x = args[0]
+    if kwargs.get("memory_format") not in (
+        None,
+        torch.preserve_format,
+        torch.contiguous_format,
+    ):
+        raise ValueError(
+            "Optimizer states only support preserve or contiguous memory format"
+        )
+    return OptimStateFp8(
+        func(x.codes, **kwargs),
+        x.scale.clone(),
+        dtype=x.dtype,
+    )
+
+
 @OptimStateFp8.implements(aten._to_copy.default)
 def _(func, types, args, kwargs):
     # only change the appearance dtype

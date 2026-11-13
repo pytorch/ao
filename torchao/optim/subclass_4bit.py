@@ -4,6 +4,7 @@
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
 import math
+from functools import lru_cache
 
 import torch
 from torch import Tensor
@@ -28,7 +29,6 @@ _c10d_functional = torch.ops._c10d_functional
 # TODO: since QMAP_UNSIGNED is linear, perhaps doing affine quantize is faster?
 
 # Lazy initialization to avoid meta device issues during import
-from functools import lru_cache
 
 
 @lru_cache(maxsize=1)
@@ -162,6 +162,27 @@ def _(func, types, args, kwargs):
         dst.copy_(src.dequantize())
 
     return dst
+
+
+@OptimState4bit.implements(aten.clone.default)
+def _(func, types, args, kwargs):
+    x = args[0]
+    if kwargs.get("memory_format") not in (
+        None,
+        torch.preserve_format,
+        torch.contiguous_format,
+    ):
+        raise ValueError(
+            "Optimizer states only support preserve or contiguous memory format"
+        )
+    return OptimState4bit(
+        func(x.codes, **kwargs),
+        x.scale.clone(),
+        x.qmap.clone(),
+        x.signed,
+        x.shape,
+        dtype=x.dtype,
+    )
 
 
 @OptimState4bit.implements(aten._to_copy.default)
