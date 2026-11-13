@@ -217,9 +217,7 @@ class TestOptimStateCopy(TestCase):
         torch.manual_seed(42)
         model = nn.Linear(64, 64, bias=False)
         model.weight = nn.Parameter(torch.randn(64, 64).t())
-        optimizer = torch.optim.AdamW(
-            model.parameters(), lr=1e-3, foreach=False
-        )
+        optimizer = torch.optim.AdamW(model.parameters(), lr=1e-3, foreach=False)
         for _ in range(2):
             model(torch.randn(4, 64)).square().mean().backward()
             optimizer.step()
