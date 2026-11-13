@@ -6,6 +6,7 @@
 
 import os
 import subprocess
+import sys
 import tempfile
 
 import pytest
@@ -71,6 +72,6 @@ import torchao.prototype.mx_formats
 _ = torch.load('{fname}', weights_only=True)
     """
 
-    subprocess_out = subprocess.run(["python"], input=code, text=True)
+    subprocess_out = subprocess.run([sys.executable], input=code, text=True)
     os.remove(fname)
     assert subprocess_out.returncode == 0, "failed weights-only load"
