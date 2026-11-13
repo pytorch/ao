@@ -383,3 +383,6 @@ torchao/experimental/deps
 # local claude code files
 CLAUDE.local.md
 .claude
+
+# Local agent workspace
+/agent_space/
