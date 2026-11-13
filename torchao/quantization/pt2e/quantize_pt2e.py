@@ -249,6 +249,8 @@ _QUANT_OPS = [
     torch.ops.quantized_decomposed.quantize_per_tensor.default,
     torch.ops.quantized_decomposed.quantize_per_tensor.tensor,
     torch.ops.quantized_decomposed.quantize_per_channel.default,
+    torch.ops.torchao.quantize_affine.default,
+    # Observers that override convert() may still insert the OpOverloadPacket.
     torch.ops.torchao.quantize_affine,
 ]
 

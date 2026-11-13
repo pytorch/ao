@@ -33,6 +33,8 @@ _QUANTIZE_OPS = [
     torch.ops.quantized_decomposed.quantize_per_tensor.default,
     torch.ops.quantized_decomposed.quantize_per_tensor.tensor,
     torch.ops.quantized_decomposed.quantize_per_channel.default,
+    torch.ops.torchao.quantize_affine.default,
+    # Observers that override convert() may still insert the OpOverloadPackets.
     torch.ops.torchao.quantize_affine,
 ]
 
@@ -40,12 +42,14 @@ _DEQUANTIZE_OPS = [
     torch.ops.quantized_decomposed.dequantize_per_tensor.default,
     torch.ops.quantized_decomposed.dequantize_per_tensor.tensor,
     torch.ops.quantized_decomposed.dequantize_per_channel.default,
+    torch.ops.torchao.dequantize_affine.default,
     torch.ops.torchao.dequantize_affine,
 ]
 
 _CHOOSE_QPARAMS_OPS = [
     torch.ops.quantized_decomposed.choose_qparams.tensor,
     torch.ops.quantized_decomposed.choose_qparams_symmetric.tensor,
+    torch.ops.torchao.choose_qparams_affine.default,
     torch.ops.torchao.choose_qparams_affine,
 ]
 

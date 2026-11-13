@@ -360,7 +360,8 @@ def _reference_dqlinear_int4(
     out_shape[-1] = out_features
 
     if weight_scale.ndim == 1:
-        weight_scale = weight_scale.unsqueeze(0)
+        # A group that spans the whole row leaves one scale per output channel.
+        weight_scale = weight_scale.unsqueeze(1)
 
     for group_idx in range(num_groups):
         # Extract current group
