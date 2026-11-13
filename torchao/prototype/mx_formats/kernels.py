@@ -721,33 +721,25 @@ if _triton_kernels_available:
         # TODO(future): this mask is for row-major likely need to transpose it for col-major
         tl.store(output_col_major_ptr + col_major_offsets, col_normalized, mask=mask)
 
-        # reshape col_scale_e8m0_r to col_scale_e8m0
-        # shape: (COL_TILE_SIZE * BLOCKS_PER_ROW_TILE,) -> (COL_TILE_SIZE, BLOCKS_PER_ROW_TILE,)
-        col_scale_e8m0 = col_scale_e8m0_r.reshape(COL_TILE_SIZE * BLOCKS_PER_ROW_TILE)
+        # shape: (COL_TILE_SIZE * BLOCKS_PER_ROW_TILE,) -> (COL_TILE_SIZE, BLOCKS_PER_ROW_TILE)
+        # x_block_t_r is row-major, so flat index i = c * BLOCKS_PER_ROW_TILE + b.
+        col_scale_e8m0 = col_scale_e8m0_r.reshape(COL_TILE_SIZE, BLOCKS_PER_ROW_TILE)
 
-        col_scale_start_offsets = (
-            (pid_col * COL_TILE_SIZE * (n_rows // ROW_TILE_SIZE))
-            * BLOCKS_PER_ROW_TILE  # number of blocks seen so far
-            + pid_row * BLOCKS_PER_ROW_TILE  # increment BLOCKS_PER_ROW_TILE
+        # Scale tensor is (n_cols, n_rows // INNER_BLOCK_SIZE). The scale for
+        # column c and block b lives at c * scales_per_col + b. Index directly
+        # so this stays correct when ROW_TILE_SIZE does not divide n_rows.
+        scales_per_col = n_rows // INNER_BLOCK_SIZE
+        scale_col_indices = start_col + tl.arange(0, COL_TILE_SIZE)[:, None]
+        scale_block_indices = (
+            pid_row * BLOCKS_PER_ROW_TILE + tl.arange(0, BLOCKS_PER_ROW_TILE)[None, :]
         )
-
-        col_scale_start_ptr = col_scale_ptr + col_scale_start_offsets
-
-        # calculate col_scale_indices
-        col_scale_indices = tl.arange(0, COL_TILE_SIZE * BLOCKS_PER_ROW_TILE)
-
-        # How many values are in all the other columns for this row_pid, need to jump
-        # over them for every BLOCKS_PER_ROW_TILE values
-        jump_vals_per_col = (n_rows - ROW_TILE_SIZE) // INNER_BLOCK_SIZE
-
-        # example transformation (specifics depend on tile sizes):
-        # [0, 1, 2, 3, 4, 5, 6, 7] -> [0, 1, 4, 5, 8, 9, 12, 13]
-        col_scale_indices = col_scale_indices + (
-            (col_scale_indices // BLOCKS_PER_ROW_TILE) * jump_vals_per_col
+        scale_offsets = (
+            scale_col_indices.to(tl.int64) * scales_per_col + scale_block_indices
         )
-
-        # TODO(future): mask this store
-        tl.store(col_scale_start_ptr + col_scale_indices, col_scale_e8m0)
+        scale_mask = (scale_col_indices < n_cols) & (
+            scale_block_indices < scales_per_col
+        )
+        tl.store(col_scale_ptr + scale_offsets, col_scale_e8m0, mask=scale_mask)
 
     @triton.autotune(
         configs=_get_mxfp8_quant_autotune_configs(),

@@ -912,10 +912,8 @@ def triton_fp8_blockwise_weight_quant_transposed_rhs_kernel(
     # Write reciprocal scales
     scale_m = pid_m
     scale_k = pid_n
-    scale_offs = scale_k[:, None] * s_stride_dim_0 + scale_m[None, :] * s_stride_dim_1
-    scale_mask = (scale_k[:, None] < N // BLOCK_SIZE) & (
-        scale_m[None, :] < M // BLOCK_SIZE
-    )
+    scale_offs = scale_k * s_stride_dim_0 + scale_m * s_stride_dim_1
+    scale_mask = (scale_k < N // BLOCK_SIZE) & (scale_m < M // BLOCK_SIZE)
     tl.store(s_ptr + scale_offs, tl.div_rn(1.0, scale), mask=scale_mask)
 
 
