@@ -35,7 +35,7 @@ jobs:
       # it was built with, so today we run a job for each python version and
       # all but one of the resulting wheels is discarded at upload.
       # Note: if free-threaded python is required add py3.13t here
-      python-versions: '["3.10", "3.12"]'
+      python-versions: '["3.11", "3.12"]'
 
   build:
     needs: generate-matrix
