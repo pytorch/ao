@@ -13,7 +13,7 @@ from torch.nn.functional import ScalingType, SwizzleType
 from torchao.float8.float8_utils import compute_error
 from torchao.prototype.mx_formats.mx_tensor import MXTensor
 from torchao.prototype.mx_formats.utils import to_blocked
-from torchao.utils import is_ROCM, is_sm_at_least_100
+from torchao.utils import is_ROCM, is_sm_at_least_100, torch_version_at_least
 
 
 def _mxfp4_scaled_mm(
@@ -113,6 +113,10 @@ def run_matrix_test(M: int, K: int, N: int, format, device="cuda") -> float:
 @pytest.mark.skipif(
     torch.cuda.is_available() and not is_sm_at_least_100(),
     reason="CUDA capability >= 10.0 required for mxfloat8",
+)
+@pytest.mark.skipif(
+    torch.xpu.is_available() and not torch_version_at_least("2.13.0"),
+    reason="XPU blockwise scaled_mm requires PyTorch 2.13+ (pytorch/pytorch#173630, #176043, #176064)",
 )
 @pytest.mark.parametrize(
     "size",
