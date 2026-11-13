@@ -11,6 +11,7 @@ torchao.core
     :nosignatures:
 
     AOBaseConfig
+    are_configs_equivalent
 
 =============
 torchao.utils
