@@ -159,6 +159,130 @@ class TestQuantize(TestCase):
                 dist.destroy_process_group()
 
 
+
+class TestOptimStateMaximum(TestCase):
+    @parametrize("subclass", [OptimState4bit, OptimState8bit, OptimStateFp8])
+    @parametrize("dtype", [torch.float32, torch.bfloat16])
+    @parametrize("operands", ["both_quantized", "left_quantized", "right_quantized"])
+    def test_maximum_dequantizes_operands(self, subclass, dtype, operands):
+        torch.manual_seed(42)
+        left = subclass.zeros((64, 64), dtype=dtype)
+        right = subclass.zeros((64, 64), dtype=dtype)
+        left.copy_(torch.rand(64, 64))
+        right.copy_(torch.rand(64, 64))
+        left_value = left.dequantize()
+        right_value = right.dequantize()
+        left_codes = left.codes.view(torch.uint8).clone()
+        right_codes = right.codes.view(torch.uint8).clone()
+        if operands == "left_quantized":
+            right = right_value
+        elif operands == "right_quantized":
+            left = left_value
+
+        actual = torch.maximum(left, right)
+
+        self.assertIs(type(actual), torch.Tensor)
+        self.assertEqual(actual.dtype, torch.float32)
+        torch.testing.assert_close(
+            actual, torch.maximum(left_value, right_value), rtol=0, atol=0
+        )
+        if isinstance(left, subclass):
+            torch.testing.assert_close(left.codes.view(torch.uint8), left_codes)
+        if isinstance(right, subclass):
+            torch.testing.assert_close(right.codes.view(torch.uint8), right_codes)
+
+
+class TestOptimAMSGrad(TestCase):
+    @parametrize(
+        "optim_name",
+        ["Adam4bit", "AdamW4bit", "Adam8bit", "AdamW8bit", "AdamFp8", "AdamWFp8"],
+    )
+    @parametrize("dtype", [torch.float32, torch.bfloat16])
+    def test_native_amsgrad_training_and_checkpoint(self, optim_name, dtype):
+        model = nn.Linear(64, 64, bias=False, dtype=dtype)
+        with torch.no_grad():
+            model.weight.fill_(0.01)
+        options = dict(
+            lr=1e-3, betas=(0.7, 0.8), eps=1e-5, weight_decay=0.01, amsgrad=True
+        )
+        optimizer = getattr(optim, optim_name)(model.parameters(), **options)
+        reference = nn.Parameter(model.weight.detach().float().clone())
+        native_class = torch.optim.AdamW if optim_name.startswith("AdamW") else torch.optim.Adam
+        native = native_class([reference], foreach=False, **options)
+        resumed_model = resumed_optimizer = None
+        previous_maximum = None
+
+        # Uniform gradients are exactly representable by each block quantizer.
+        # The first large gradient makes the later AMSGrad maximum meaningful.
+        for index, magnitude in enumerate((4.0, 0.125, 0.5, 0.03125)):
+            inputs = torch.full((2, 64), magnitude, dtype=dtype)
+            optimizer.zero_grad()
+            output = model(inputs)
+            loss = output.float().square().mean()
+            loss.backward()
+            native.zero_grad()
+            reference.grad = model.weight.grad.float().clone()
+            native.step()
+            with torch.no_grad():
+                reference.copy_(reference.to(dtype))
+            optimizer.step()
+
+            torch.testing.assert_close(
+                model.weight.float(), reference.detach(), rtol=1e-5, atol=1e-6
+            )
+            state = optimizer.state[model.weight]
+            for name in ("exp_avg", "exp_avg_sq", "max_exp_avg_sq"):
+                self.assertIsInstance(
+                    state[name], (OptimState4bit, OptimState8bit, OptimStateFp8)
+                )
+                torch.testing.assert_close(
+                    state[name].dequantize(),
+                    native.state[reference][name],
+                    rtol=1e-5,
+                    atol=1e-7,
+                )
+            maximum = state["max_exp_avg_sq"].dequantize()
+            if previous_maximum is not None:
+                torch.testing.assert_close(
+                    maximum, previous_maximum, rtol=1e-5, atol=1e-7
+                )
+                self.assertTrue(torch.all(maximum > state["exp_avg_sq"].dequantize()))
+            previous_maximum = maximum.clone()
+
+            if resumed_model is not None:
+                resumed_optimizer.zero_grad()
+                resumed_output = resumed_model(inputs)
+                torch.testing.assert_close(resumed_output, output, rtol=0, atol=0)
+                resumed_output.float().square().mean().backward()
+                torch.testing.assert_close(
+                    resumed_model.weight.grad, model.weight.grad, rtol=0, atol=0
+                )
+                resumed_optimizer.step()
+                torch.testing.assert_close(
+                    resumed_model.weight, model.weight, rtol=0, atol=0
+                )
+                for name in ("exp_avg", "exp_avg_sq", "max_exp_avg_sq"):
+                    torch.testing.assert_close(
+                        resumed_optimizer.state[resumed_model.weight][name].dequantize(),
+                        state[name].dequantize(),
+                        rtol=0,
+                        atol=0,
+                    )
+
+            if index == 1:
+                with tempfile.NamedTemporaryFile() as checkpoint:
+                    torch.save(
+                        {"model": model.state_dict(), "optimizer": optimizer.state_dict()},
+                        checkpoint.name,
+                    )
+                    saved = torch.load(checkpoint.name)
+                resumed_model = copy.deepcopy(model)
+                resumed_model.load_state_dict(saved["model"])
+                resumed_optimizer = getattr(optim, optim_name)(
+                    resumed_model.parameters(), **options
+                )
+                resumed_optimizer.load_state_dict(saved["optimizer"])
+
 class TestOptim(TestCase):
     @parametrize(
         "optim_name",
@@ -672,6 +796,8 @@ class TestFSDP2(FSDPTest):
 
 instantiate_parametrized_tests(TestQuantize)
 instantiate_parametrized_tests(TestOptim)
+instantiate_parametrized_tests(TestOptimStateMaximum)
+instantiate_parametrized_tests(TestOptimAMSGrad)
 
 
 if __name__ == "__main__":

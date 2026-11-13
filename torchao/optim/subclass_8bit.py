@@ -161,6 +161,7 @@ def _(func, types, args, kwargs):
     return return_and_correct_aliasing(func, args, kwargs, out)
 
 
+@OptimState8bit.implements(aten.maximum.default)
 @OptimState8bit.implements(aten.lerp.Scalar)
 def _(func, types, args, kwargs):
     args = [x.dequantize() if isinstance(x, OptimState8bit) else x for x in args]
