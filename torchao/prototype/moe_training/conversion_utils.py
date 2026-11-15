@@ -36,9 +36,15 @@ def _get_tensor_cls_for_config(
             _ops, "scaled_mm_single_dim_strategy"
         ) and hasattr(_dispatch, "is_pinned_handler")
 
-        assert pytorch_version_supported, (
-            "Please install the latest torch nightly build to use MXFP8 training"
-        )
+        if not pytorch_version_supported:
+            # These private helpers are only needed for the DTensor-based
+            # scaled_mm dispatch paths; single-device MXFP8 training works
+            # without them, so don't hard-block non-nightly torch builds here.
+            logger.warning(
+                "torch.distributed.tensor private scaled_mm dispatch helpers are "
+                "not available in this torch build; DTensor-based MXFP8 training "
+                "paths may be limited"
+            )
 
         return MXFP8TrainingWeightWrapperTensor
     elif isinstance(config, Float8TrainingOpConfig):
