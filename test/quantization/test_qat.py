@@ -3872,5 +3872,32 @@ class TestQAT(TestCase):
 instantiate_parametrized_tests(TestQAT)
 
 
+class TestQATConfigStep(unittest.TestCase):
+    def test_step_enum_identity_preserved(self):
+        """`step` must keep its `QATStep` enum identity after construction.
+
+        `__post_init__` lower-cases the input for validation; it must not
+        replace the field with a plain string.
+        """
+        config = QATConfig(
+            weight_config=IntxFakeQuantizeConfig(torch.int8, PerTensor()),
+            step=QATStep.PREPARE,
+        )
+        self.assertIs(config.step, QATStep.PREPARE)
+
+        config = QATConfig(
+            weight_config=IntxFakeQuantizeConfig(torch.int8, PerTensor()),
+            step="prepare",
+        )
+        self.assertIs(config.step, QATStep.PREPARE)
+
+        config = QATConfig(step="convert")
+        self.assertIs(config.step, QATStep.CONVERT)
+
+    def test_step_invalid_value_still_raises(self):
+        with self.assertRaisesRegex(ValueError, "`step` must be one of"):
+            QATConfig(step="bogus")
+
+
 if __name__ == "__main__":
     unittest.main()
