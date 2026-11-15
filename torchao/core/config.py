@@ -215,6 +215,8 @@ ALLOWED_AO_MODULES = {
     "torchao.prototype.parq.quant",
     "torchao.quantization.quantize_.common",
     "torchao.quantization.quantize_.workflows",
+    "torchao.quantization.qat.api",
+    "torchao.prototype.moe_training",
 }
 
 

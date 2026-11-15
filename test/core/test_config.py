@@ -271,5 +271,37 @@ def test_mxconfig_include_pybind11_enum_serialization():
         assert reconstructed.swizzled_type is swizzle
 
 
+def test_qat_config_json_round_trip():
+    """QAT configs must survive `config_to_dict` / `config_from_dict`.
+
+    QATConfig and friends live in `torchao.quantization.qat.api`, which was
+    missing from `ALLOWED_AO_MODULES`, so the round trip failed with the
+    class path rejected as not allowed.
+    """
+    from torchao.quantization.qat.api import QATConfig, QATStep
+    from torchao.quantization.qat.fake_quantize_config import (
+        IntxFakeQuantizeConfig,
+    )
+
+    config = QATConfig(
+        weight_config=IntxFakeQuantizeConfig(
+            torch.int32, PerTensor(), quant_min=0, quant_max=65535
+        ),
+        step=QATStep.PREPARE,
+    )
+    reconstructable = config_to_dict(config)
+    reconstructed = config_from_dict(json.loads(json.dumps(reconstructable)))
+
+    assert isinstance(reconstructed, QATConfig)
+    assert reconstructed.step == QATStep.PREPARE
+    assert reconstructed.weight_config.dtype == torch.int32
+    assert reconstructed.weight_config.quant_min == 0
+    assert reconstructed.weight_config.quant_max == 65535
+
+    reconstructed = config_from_dict(reconstructable)
+    assert isinstance(reconstructed, QATConfig)
+    assert reconstructed.step == QATStep.PREPARE
+
+
 if __name__ == "__main__":
     pytest.main([__file__])
