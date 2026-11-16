@@ -1549,6 +1549,9 @@ def _mxfp8_cuda_kernels_available_on_device() -> bool:
     )
 
 
+# Don't `from ... import` these flags at module scope: that reads them through
+# `__getattr__` at import time and initializes CUDA. Call the `_on_device()`
+# functions where the value is needed instead.
 _LAZY_FLAGS = {
     "_triton_kernels_available": _triton_kernels_available_on_device,
     "_mxfp8_cuda_kernels_available": _mxfp8_cuda_kernels_available_on_device,
