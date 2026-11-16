@@ -4,10 +4,9 @@
 # This source code is licensed under the license found in the
 # LICENSE file in the root directory of this source tree.
 
-import functools
 import importlib
 import logging
-from typing import Callable, Optional, Tuple
+from typing import Optional, Tuple
 
 import numpy as np
 import torch
@@ -21,6 +20,8 @@ from torchao.prototype.custom_fp_utils import (
 )
 from torchao.prototype.mx_formats.config import ScaleCalculationMode
 from torchao.utils import (
+    _is_cuda_build_at_least,
+    _lazy_device_check,
     is_cuda_version_at_least,
     is_MI350,
     is_mslk_version_at_least,
@@ -452,26 +453,6 @@ else:
         raise AssertionError("needs triton")
 
 
-def _is_cuda_build_at_least(major: int, minor: int) -> bool:
-    # unlike is_cuda_version_at_least, never calls torch.cuda.is_available()
-    if torch.version.cuda is None:
-        return False
-    cuda_major, cuda_minor = map(int, torch.version.cuda.split(".")[:2])
-    return (cuda_major, cuda_minor) >= (major, minor)
-
-
-def _lazy_device_check(probe: Callable[[], bool]) -> Callable[[], bool]:
-    # Runs a GPU check on first use instead of at import, caches the result, and
-    # lets torch.compile treat it as a constant instead of tracing the query.
-    cached = functools.cache(probe)
-
-    @torch.compiler.assume_constant_result
-    def check() -> bool:
-        return cached()
-
-    return check
-
-
 _IS_ROCM_BUILD = torch.version.hip is not None
 
 # Defining the kernels checks only the build, so import makes no torch.cuda call.
@@ -882,7 +863,8 @@ if _triton_kernels_defined:
         * `output`: the `float8_e4m3fn` values of `x` cast to mxfp8 across dim0 (rowwise)
         * `scale`: the `e8m0` values of `x_scale` used to cast `x` to mxfp8 across dim0
         """
-        assert _triton_kernels_available_on_device(), "needs triton"
+        if not _triton_kernels_available_on_device():
+            raise AssertionError("needs triton")
         assert x.is_contiguous(), "`x` must be contiguous"
         assert inner_block_size <= 32, "inner_block_size must be <= 32"
         assert x.dtype == torch.bfloat16, (
@@ -953,7 +935,8 @@ if _triton_kernels_defined:
         * `output_col_major`: the `float8_e4m3fn` values of `x` cast to mxfp8 across dim1
         * `col_scale`: the `e8m0` values of `x_scale` used to cast `x` to mxfp8 across dim1
         """
-        assert _triton_kernels_available_on_device(), "needs triton"
+        if not _triton_kernels_available_on_device():
+            raise AssertionError("needs triton")
         assert x.is_contiguous(), "`x` must be contiguous"
         assert inner_block_size <= 32
 
@@ -1495,7 +1478,8 @@ if _triton_kernels_defined:
 
         Standalone custom op; not used by MXTensor.
         """
-        assert _triton_kernels_available_on_device(), "needs triton"
+        if not _triton_kernels_available_on_device():
+            raise AssertionError("needs triton")
         assert x.is_contiguous() and x.dim() == 2
         M, N = x.shape
         assert M % 32 == 0 and N % 32 == 0, (

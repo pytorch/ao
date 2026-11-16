@@ -21,13 +21,11 @@ from torchao.prototype.moe_training.kernels.mxfp8.flydsl_utils import (
     _missing_flydsl_runtime_packages,
 )
 from torchao.prototype.mx_formats.config import ScaleCalculationMode
-from torchao.prototype.mx_formats.kernels import (
-    _is_cuda_build_at_least,
-    _lazy_device_check,
-)
 from torchao.prototype.mx_formats.mx_tensor import to_mx
 from torchao.prototype.mx_formats.utils import to_blocked
 from torchao.utils import (
+    _is_cuda_build_at_least,
+    _lazy_device_check,
     ceil_div,
     is_MI300,
     is_MI350,
