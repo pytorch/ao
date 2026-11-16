@@ -205,6 +205,8 @@ class TestVLLMIntegration:
                 tensor_parallel_size=tp_size,
                 enforce_eager=not compile,
                 dtype="bfloat16",
+                # fits the 128-block override below, minus vllm's reserved null block
+                max_model_len=1024,
                 num_gpu_blocks_override=128,
             )
 
