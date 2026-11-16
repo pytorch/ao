@@ -7,7 +7,7 @@
 import functools
 import importlib
 import logging
-from typing import Optional, Tuple
+from typing import Callable, Optional, Tuple
 
 import numpy as np
 import torch
@@ -460,11 +460,23 @@ def _is_cuda_build_at_least(major: int, minor: int) -> bool:
     return (cuda_major, cuda_minor) >= (major, minor)
 
 
+def _lazy_device_check(probe: Callable[[], bool]) -> Callable[[], bool]:
+    # Runs a GPU check on first use instead of at import, caches the result, and
+    # lets torch.compile treat it as a constant instead of tracing the query.
+    cached = functools.cache(probe)
+
+    @torch.compiler.assume_constant_result
+    def check() -> bool:
+        return cached()
+
+    return check
+
+
 _IS_ROCM_BUILD = torch.version.hip is not None
 
 # Defining the kernels checks only the build, so import makes no torch.cuda call.
-# Whether this GPU can run them is `_triton_kernels_available`, computed on first
-# access (see `__getattr__`).
+# Whether this GPU can run them is checked on first use
+# (`_triton_kernels_available_on_device`).
 _triton_kernels_defined = has_triton_package() and (
     _is_cuda_build_at_least(12, 8) or _IS_ROCM_BUILD
 )
@@ -1028,7 +1040,8 @@ else:
 
 _MXFP8_CUDA_UNAVAILABLE_MSG = "`mxfp8_quantize_cuda` needs (1) torch 2.8+ and (2) torchao built from source on a machine with CUDA capability 10.0+. Please see https://github.com/pytorch/ao/issues/2932 for more details."
 
-# Same split as `_triton_kernels_defined`: `_mxfp8_cuda_kernels_available` is lazy.
+# Same split as `_triton_kernels_defined`: the device is checked on first use
+# (`_mxfp8_cuda_kernels_available_on_device`).
 _mxfp8_cuda_kernels_defined = _is_cuda_build_at_least(12, 8)
 
 if _mxfp8_cuda_kernels_defined:
@@ -1530,7 +1543,7 @@ else:
         raise AssertionError("needs triton")
 
 
-@functools.cache
+@_lazy_device_check
 def _triton_kernels_available_on_device() -> bool:
     return (
         has_triton()
@@ -1540,7 +1553,7 @@ def _triton_kernels_available_on_device() -> bool:
     )
 
 
-@functools.cache
+@_lazy_device_check
 def _mxfp8_cuda_kernels_available_on_device() -> bool:
     return (
         torch.cuda.is_available()

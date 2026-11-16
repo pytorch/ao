@@ -13,9 +13,9 @@ the offsets).
 from typing import Tuple
 
 import torch
-from torch.utils._triton import has_triton
+from torch.utils._triton import has_triton_package
 
-if has_triton():
+if has_triton_package():
     import triton
     import triton.language as tl
 

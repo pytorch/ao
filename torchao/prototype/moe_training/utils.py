@@ -1,3 +1,9 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+# All rights reserved.
+#
+# This source code is licensed under the BSD 3-Clause license found in the
+# LICENSE file in the root directory of this source tree.
+
 """Shared utilities for MoE training: FP8/MXFP8 quantization, group padding/unpadding, and scaled grouped matmul."""
 
 import random
@@ -428,14 +434,17 @@ def pad_token_groups(
         tuple: (padded_input_act, padded_group_start_offsets, padded_group_end_offsets)
     """
     from torchao.prototype.moe_training.kernels.mxfp8 import (
-        _mxfp8_cuda_kernels_available,
         fused_pad_token_groups_cuda,
         torch_pad_token_groups,
+    )
+    from torchao.prototype.moe_training.kernels.mxfp8.quant import (
+        _mxfp8_cuda_kernels_available_on_device,
     )
 
     # Determine whether to use CUDA kernel based on kernel_preference and availability
     use_cuda = (
-        kernel_preference != KernelPreference.EMULATED and _mxfp8_cuda_kernels_available
+        kernel_preference != KernelPreference.EMULATED
+        and _mxfp8_cuda_kernels_available_on_device()
     )
 
     pad_groups_fn = fused_pad_token_groups_cuda if use_cuda else torch_pad_token_groups
@@ -469,14 +478,17 @@ def unpad_token_groups(
         Unpadded output tensor of shape (M, N)
     """
     from torchao.prototype.moe_training.kernels.mxfp8 import (
-        _mxfp8_cuda_kernels_available,
         fused_unpad_token_groups_cuda,
         torch_unpad_token_groups,
+    )
+    from torchao.prototype.moe_training.kernels.mxfp8.quant import (
+        _mxfp8_cuda_kernels_available_on_device,
     )
 
     # Determine whether to use CUDA kernel based on kernel_preference and availability
     use_cuda = (
-        kernel_preference != KernelPreference.EMULATED and _mxfp8_cuda_kernels_available
+        kernel_preference != KernelPreference.EMULATED
+        and _mxfp8_cuda_kernels_available_on_device()
     )
 
     unpad_groups_fn = (
