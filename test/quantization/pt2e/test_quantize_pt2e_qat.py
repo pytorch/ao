@@ -9,6 +9,7 @@ import copy
 import dataclasses
 import operator
 import unittest
+import warnings
 from typing import Any, Optional, Tuple
 
 import torch
@@ -979,6 +980,47 @@ class TestQuantizePT2EQAT_ConvBn_Base(PT2EQATTestCase):
         (conv_node, bn_node, _) = _get_conv_bn_getitem_nodes(m)
         self.assertTrue(conv_node is not None)
         self.assertTrue(bn_node is None)
+
+    def _qat_warnings_after_decomposition(self, has_bn: bool, train: bool, **bn_kwargs):
+        m = self._get_conv_bn_model(has_bn=False)
+        if has_bn:
+            m.bn = self.bn_class(3, **bn_kwargs)
+        m.train(train)
+        m = (
+            torch.export.export(m, self.example_inputs, strict=True)
+            .run_decompositions()
+            .module()
+        )
+        quantizer = XNNPACKQuantizer()
+        quantizer.set_global(
+            get_symmetric_quantization_config(is_per_channel=False, is_qat=True),
+        )
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            prepare_qat_pt2e(m, quantizer)
+        return [w for w in caught if "aten.convolution" in str(w.message)]
+
+    def test_qat_conv_bn_after_decomposition_warns(self):
+        """
+        The QAT conv-bn fusion can't fuse a batch norm into the aten.convolution
+        of a model decomposed to core ATen, so it warns that it's left unfused.
+        Train mode, eval mode and track_running_stats=False each decompose the
+        batch norm to a different op.
+        """
+        for train, bn_kwargs in [
+            (True, {}),
+            (False, {}),
+            (True, {"track_running_stats": False}),
+        ]:
+            with self.subTest(train=train, **bn_kwargs):
+                caught = self._qat_warnings_after_decomposition(
+                    True, train, **bn_kwargs
+                )
+                self.assertEqual(len(caught), 1)
+
+    def test_qat_conv_after_decomposition(self):
+        """A decomposed conv without a batch norm has nothing to fuse."""
+        self.assertEqual(self._qat_warnings_after_decomposition(False, True), [])
 
 
 @skipIfNoQNNPACK
