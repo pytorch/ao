@@ -53,12 +53,6 @@ _VIEW_METHOD_OPS = [
     "reshape",
 ]
 
-_DEQUANTIZE_OPS_WITH_OUT_DTYPE = [
-    quantized_decomposed.dequantize_per_tensor.default,
-    quantized_decomposed.dequantize_per_tensor.tensor,
-    quantized_decomposed.dequantize_per_channel.default,
-]
-
 # Dynamo/FX sometimes carries ScalarType as an int enum (e.g. 24 for float8_e4m3fn).
 # For readability and comparisons, normalize back to torch.dtype when possible using _fallback_enum_to_dtype table,
 # which is from https://github.com/pytorch/pytorch/blob/main/torch/headeronly/core/ScalarType.h#L103-L149.
@@ -3494,19 +3488,20 @@ def _register_quantization_weight_pack_pass():
 def _decompose_bf16_dequant_out_dtype(graph: torch.fx.Graph) -> None:
     """
     convert_pt2e emits dequantize(..., out_dtype=torch.bfloat16) when the observed
-    tensor is bf16. The int8-mixed-bf16 patterns instead expect an fp32 dequantize
-    followed by convert_element_type(bf16), on the activation and the weight
-    together, which is what autocast produces for fp32 tensors. Rewrite into that
-    form so that bf16 activations and bf16 weights are lowered as well.
+    tensor is bf16, but the int8-mixed-bf16 patterns expect an fp32 dequantize
+    followed by convert_element_type(bf16) on both activation and weight.
+    Rewrite into the form so that bf16 activations and bf16 weights are lowered as well.
 
     This runs before AOT, so autocast and dequant promotion see the rewritten graph.
     """
     for node in list(graph.nodes):
-        if (
-            node.op != "call_function"
-            or node.target not in _DEQUANTIZE_OPS_WITH_OUT_DTYPE
-            or node.kwargs.get("out_dtype") != torch.bfloat16
-        ):
+        if node.op != "call_function" or node.target not in [
+            quantized_decomposed.dequantize_per_tensor.default,
+            quantized_decomposed.dequantize_per_tensor.tensor,
+            quantized_decomposed.dequantize_per_channel.default,
+        ]:
+            continue
+        if node.kwargs.get("out_dtype") != torch.bfloat16:
             continue
         with graph.inserting_before(node):
             dequant = graph.call_function(node.target, node.args)

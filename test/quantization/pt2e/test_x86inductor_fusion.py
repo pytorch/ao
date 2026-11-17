@@ -2466,8 +2466,7 @@ class TestPatternMatcher(TestPatternMatcherBase):
         r"""
         Activations that are already bf16 when they are quantized get
         dequantize(..., out_dtype=torch.bfloat16) from convert_pt2e. Test that the
-        linears are still lowered and return bf16, with fp32 weights cast by autocast
-        or bf16 weights, and with one input shared by two linears (dequant promotion).
+        linears are still lowered and return bf16, with fp32 autocast or bf16 weights
         """
 
         class M(torch.nn.Module):
