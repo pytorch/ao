@@ -11,6 +11,15 @@ import unittest
 
 import torch
 
+# modules whose import must not touch the gpu
+_MODULES = (
+    "torchao",
+    "torchao.prototype.mx_formats",
+    "torchao.prototype.moe_training",
+    # imported by transformers whenever torchao is installed
+    "torchao.prototype.safetensors.safetensors_support",
+)
+
 
 @unittest.skipIf(not torch.cuda.is_available(), "CUDA not available")
 class TestLeanImport(unittest.TestCase):
@@ -35,31 +44,33 @@ class TestLeanImport(unittest.TestCase):
     def test_torchao_import_is_fork_safe(self):
         # without PYTORCH_NVML_BASED_CUDA_CHECK=1, torch.cuda.is_available()
         # poisons fork: torch marks forked children as bad, and their first
-        # cuda call raises
-        code = (
-            "import os, torch, torchao\n"
-            "pid = os.fork()\n"
-            "if pid == 0:\n"
-            "    try:\n"
-            "        torch.zeros(1, device='cuda')\n"
-            "    except BaseException:\n"
-            "        import traceback\n"
-            "        traceback.print_exc()\n"
-            "        os._exit(1)\n"
-            "    os._exit(0)\n"
-            "_, status = os.waitpid(pid, 0)\n"
-            "assert os.waitstatus_to_exitcode(status) == 0\n"
-        )
+        # cuda call raises. importing cutlass (nvidia-cutlass-dsl 4.6.0) does too.
         env = dict(os.environ)
         env.pop("PYTORCH_NVML_BASED_CUDA_CHECK", None)
-        result = subprocess.run(
-            [sys.executable, "-c", code],
-            env=env,
-            capture_output=True,
-            text=True,
-            timeout=300,
-        )
-        self.assertEqual(result.returncode, 0, result.stderr)
+        for module in _MODULES:
+            with self.subTest(module=module):
+                code = (
+                    f"import os, torch, {module}\n"
+                    "pid = os.fork()\n"
+                    "if pid == 0:\n"
+                    "    try:\n"
+                    "        torch.zeros(1, device='cuda')\n"
+                    "    except BaseException:\n"
+                    "        import traceback\n"
+                    "        traceback.print_exc()\n"
+                    "        os._exit(1)\n"
+                    "    os._exit(0)\n"
+                    "_, status = os.waitpid(pid, 0)\n"
+                    "assert os.waitstatus_to_exitcode(status) == 0\n"
+                )
+                result = subprocess.run(
+                    [sys.executable, "-c", code],
+                    env=env,
+                    capture_output=True,
+                    text=True,
+                    timeout=300,
+                )
+                self.assertEqual(result.returncode, 0, result.stderr)
 
 
 @unittest.skipIf(
@@ -69,13 +80,7 @@ class TestLeanImport(unittest.TestCase):
 class TestLeanImportNoDeviceQuery(unittest.TestCase):
     def test_torchao_import_does_not_query_cuda(self):
         # runs without a gpu too: any device query during import raises
-        for module in (
-            "torchao",
-            "torchao.prototype.mx_formats",
-            "torchao.prototype.moe_training",
-            # imported by transformers whenever torchao is installed
-            "torchao.prototype.safetensors.safetensors_support",
-        ):
+        for module in _MODULES:
             with self.subTest(module=module):
                 code = (
                     "import torch\n"
@@ -84,7 +89,8 @@ class TestLeanImportNoDeviceQuery(unittest.TestCase):
                     "for name in ('is_available', 'device_count', 'get_device_capability',\n"
                     "             'get_device_properties', '_lazy_init'):\n"
                     "    setattr(torch.cuda, name, _fail)\n"
-                    f"import {module}\n"
+                    f"import sys, {module}\n"
+                    f"assert 'cutlass' not in sys.modules, 'import {module} imported cutlass'\n"
                 )
                 result = subprocess.run(
                     [sys.executable, "-c", code],

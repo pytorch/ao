@@ -12,12 +12,10 @@ from torch.distributed.tensor import Replicate, Shard
 from torch.distributed.tensor.experimental import register_sharding
 from torch.utils._triton import has_triton_package
 
-from torchao.prototype.moe_training.kernels.mxfp8.cute_utils import (
+from torchao.prototype.moe_training.kernels.mxfp8.dsl_runtime import (
     _cutedsl_runtime_available,
-    _missing_cutedsl_runtime_packages,
-)
-from torchao.prototype.moe_training.kernels.mxfp8.flydsl_utils import (
     _flydsl_runtime_available,
+    _missing_cutedsl_runtime_packages,
     _missing_flydsl_runtime_packages,
 )
 from torchao.prototype.mx_formats.config import ScaleCalculationMode
