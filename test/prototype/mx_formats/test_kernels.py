@@ -81,7 +81,8 @@ if hasattr(mx_kernels, "_triton_f32_to_e8m0_rceil"):
 
 
 @pytest.mark.skipif(
-    not hasattr(mx_kernels, "_triton_f32_to_e8m0_rceil"),
+    not torch.cuda.is_available()
+    or not hasattr(mx_kernels, "_triton_f32_to_e8m0_rceil"),
     reason="MXFP8 Triton kernels are unavailable",
 )
 def test_triton_f32_to_e8m0_rceil_fallback():
