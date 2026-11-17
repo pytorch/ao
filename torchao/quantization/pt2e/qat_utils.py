@@ -9,6 +9,7 @@ import copy
 import dataclasses
 import itertools
 import operator
+import warnings
 from typing import TYPE_CHECKING, Any, Callable, Optional
 
 import torch
@@ -651,6 +652,29 @@ def _fuse_conv_bn_qat(m: GraphModule) -> GraphModule:
         torch.randn(1),  # bn_running_mean
         torch.randn(1),  # bn_running_var
     )
+
+    # The patterns below can't match a decomposed conv and would leave its BN unfused.
+    decomposed_bns = (
+        torch.ops.aten._native_batch_norm_legit_functional.default,
+        torch.ops.aten._native_batch_norm_legit_no_training.default,
+        torch.ops.aten._native_batch_norm_legit.no_stats,
+    )
+    unfused = ", ".join(
+        user.name
+        for conv_node in m.graph.find_nodes(
+            op="call_function", target=torch.ops.aten.convolution.default
+        )
+        for user in conv_node.users
+        if _is_bn_node(user) or user.target in decomposed_bns
+    )
+    if unfused:
+        warnings.warn(
+            f"prepare_qat_pt2e leaves these batch norms unfused: {unfused}. The "
+            "QAT conv-bn fusion doesn't support aten.convolution, the op convs "
+            "become when a model is decomposed to core ATen. Call prepare_qat_pt2e "
+            "before decomposing the model, or keep its convs from being decomposed.",
+            stacklevel=2,
+        )
 
     has_bn = any(_is_bn_node(n) for n in m.graph.nodes)
     if not has_bn:

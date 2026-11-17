@@ -69,19 +69,30 @@ class TestLeanImport(unittest.TestCase):
 class TestLeanImportNoDeviceQuery(unittest.TestCase):
     def test_torchao_import_does_not_query_cuda(self):
         # runs without a gpu too: any device query during import raises
-        code = (
-            "import torch\n"
-            "def _fail(*args, **kwargs):\n"
-            "    raise AssertionError('import torchao queried the gpu')\n"
-            "for name in ('is_available', 'device_count', 'get_device_capability',\n"
-            "             'get_device_properties', '_lazy_init'):\n"
-            "    setattr(torch.cuda, name, _fail)\n"
-            "import torchao\n"
-        )
-        result = subprocess.run(
-            [sys.executable, "-c", code], capture_output=True, text=True, timeout=300
-        )
-        self.assertEqual(result.returncode, 0, result.stderr)
+        for module in (
+            "torchao",
+            "torchao.prototype.mx_formats",
+            "torchao.prototype.moe_training",
+            # imported by transformers whenever torchao is installed
+            "torchao.prototype.safetensors.safetensors_support",
+        ):
+            with self.subTest(module=module):
+                code = (
+                    "import torch\n"
+                    "def _fail(*args, **kwargs):\n"
+                    f"    raise AssertionError('import {module} queried the gpu')\n"
+                    "for name in ('is_available', 'device_count', 'get_device_capability',\n"
+                    "             'get_device_properties', '_lazy_init'):\n"
+                    "    setattr(torch.cuda, name, _fail)\n"
+                    f"import {module}\n"
+                )
+                result = subprocess.run(
+                    [sys.executable, "-c", code],
+                    capture_output=True,
+                    text=True,
+                    timeout=300,
+                )
+                self.assertEqual(result.returncode, 0, result.stderr)
 
 
 if __name__ == "__main__":

@@ -1,6 +1,5 @@
+from torchao.prototype.moe_training.kernels.mxfp8 import quant as _quant
 from torchao.prototype.moe_training.kernels.mxfp8.quant import (
-    _mxfp8_cuda_kernels_available,  # noqa: F401
-    _mxfp8_flydsl_kernels_available,  # noqa: F401
     fused_pad_token_groups_cuda,  # noqa: F401
     fused_unpad_token_groups_cuda,  # noqa: F401
     mx_block_rearrange_2d_M_groups_cuda,  # noqa: F401
@@ -20,3 +19,10 @@ from torchao.prototype.moe_training.kernels.mxfp8.quant import (
     triton_mx_block_rearrange_2d_M_groups,  # noqa: F401
     triton_mx_block_rearrange_per_group_3d,  # noqa: F401
 )
+
+
+def __getattr__(name: str):
+    # The device flags are computed on first access (see `quant._LAZY_FLAGS`).
+    if name in _quant._LAZY_FLAGS:
+        return getattr(_quant, name)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

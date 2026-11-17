@@ -1673,7 +1673,7 @@ class AffineQuantizedObserverBase(ABC, torch.nn.Module):
             )
             if hasattr(self, "is_dynamic") and self.is_dynamic:
                 choose_qparams_affine = model.graph.call_function(
-                    torch.ops.torchao.choose_qparams_affine,
+                    torch.ops.torchao.choose_qparams_affine.default,
                     (
                         observer_node.args[0],
                         self.mapping_type.name,
@@ -1710,7 +1710,7 @@ class AffineQuantizedObserverBase(ABC, torch.nn.Module):
                 )
 
             q_node = model.graph.call_function(
-                torch.ops.torchao.quantize_affine,
+                torch.ops.torchao.quantize_affine.default,
                 (
                     observer_node.args[0],
                     self.block_size,
@@ -1723,7 +1723,7 @@ class AffineQuantizedObserverBase(ABC, torch.nn.Module):
                 {},
             )
             dq_node = model.graph.call_function(
-                torch.ops.torchao.dequantize_affine,
+                torch.ops.torchao.dequantize_affine.default,
                 (
                     q_node,
                     self.block_size,

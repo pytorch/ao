@@ -10,14 +10,14 @@ from typing import Optional
 import torch
 
 from torchao.prototype.moe_training.kernels.mxfp8 import (
-    _mxfp8_cuda_kernels_available as _mxfp8_cuda_kernels_available_quant,
-)
-from torchao.prototype.moe_training.kernels.mxfp8 import (
     mx_block_rearrange_2d_M_groups_cuda,
     mxfp8_quantize_2d_1x32_cutedsl,
     mxfp8_quantize_cuda_3d,
     triton_mx_block_rearrange_2d_K_groups,
     triton_mx_block_rearrange_per_group_3d,
+)
+from torchao.prototype.moe_training.kernels.mxfp8.quant import (
+    _mxfp8_cuda_kernels_available_on_device as _mxfp8_cuda_kernels_available_quant,
 )
 from torchao.prototype.moe_training.utils import (
     conditional_nostrict_trace,
@@ -29,10 +29,10 @@ from torchao.prototype.mx_formats.config import (
     ScaleCalculationMode,
 )
 from torchao.prototype.mx_formats.kernels import (
-    _mxfp8_cuda_kernels_available as _mxfp8_cuda_kernels_available_mx,
+    _mxfp8_cuda_kernels_available_on_device as _mxfp8_cuda_kernels_available_mx,
 )
 from torchao.prototype.mx_formats.kernels import (
-    _triton_kernels_available,
+    _triton_kernels_available_on_device,
     triton_mxfp8_dequant_dim0,
     triton_to_mxfp8_dim0,
 )
@@ -42,13 +42,15 @@ from torchao.quantization.quantize_.common import KernelPreference
 
 logger: logging.Logger = logging.getLogger(__name__)
 
+
 # Check if SM100 kernels are available
 # All SM100-dependent kernels are guarded at their definition sites
-_SM100_KERNELS_AVAILABLE = (
-    _mxfp8_cuda_kernels_available_quant
-    and _mxfp8_cuda_kernels_available_mx
-    and _triton_kernels_available
-)
+def _sm100_kernels_available() -> bool:
+    return (
+        _mxfp8_cuda_kernels_available_quant()
+        and _mxfp8_cuda_kernels_available_mx()
+        and _triton_kernels_available_on_device()
+    )
 
 
 # Aliases for convenience/clarity
@@ -155,7 +157,7 @@ class _MXFP8GroupedMM(torch.autograd.Function):
 
         # Validate SM100 kernels are available if not using emulated mode
         if kernel_preference != KernelPreference.EMULATED:
-            assert _SM100_KERNELS_AVAILABLE, (
+            assert _sm100_kernels_available(), (
                 "SM100 kernels not available. Please use torchao CUDA 12.8+ build on SM100/100a device(s). "
                 "Otherwise, set kernel_preference=KernelPreference.EMULATED (emulated mode implements basic functionality without efficient kernels)."
             )

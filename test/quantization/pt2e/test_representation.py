@@ -20,8 +20,17 @@ from torch.testing._internal.common_quantization import (
 )
 from torch.testing._internal.common_utils import run_tests
 
+from torchao.quantization.pt2e._affine_quantization import (
+    AffineQuantizedMinMaxObserver,
+    AffineQuantizedPlaceholderObserver,
+)
+from torchao.quantization.pt2e.observer import MappingType, PerGroup, PerToken
 from torchao.quantization.pt2e.quantize_pt2e import convert_pt2e, prepare_pt2e
-from torchao.quantization.pt2e.quantizer import Quantizer
+from torchao.quantization.pt2e.quantizer import (
+    QuantizationAnnotation,
+    QuantizationSpec,
+    Quantizer,
+)
 from torchao.testing.pt2e._xnnpack_quantizer import (
     XNNPACKQuantizer,
     get_symmetric_quantization_config,
@@ -276,6 +285,91 @@ class TestPT2ERepresentation(QuantizationTestCase):
                 non_ref_node_occurrence,
                 output_scale_idx=2,
             )
+
+    def test_dynamic_linear_4bit_groupwise(self):
+        """Affine observers' q/dq nodes match the 4-bit groupwise linear rewrite."""
+        # The pattern is traced with groups of 8, and 32 spans the whole row.
+        for group_size in (8, 16, 32):
+            with self.subTest(group_size=group_size):
+                self._test_dynamic_linear_4bit_groupwise(group_size)
+
+    def _test_dynamic_linear_4bit_groupwise(self, group_size):
+        eps = torch.finfo(torch.float32).eps
+
+        class BackendAQuantizer(Quantizer):
+            def annotate(self, model: torch.fx.GraphModule) -> torch.fx.GraphModule:
+                for node in model.graph.find_nodes(
+                    op="call_function", target=torch.ops.aten.linear.default
+                ):
+                    act_qspec = QuantizationSpec(
+                        dtype=torch.int8,
+                        quant_min=-128,
+                        quant_max=127,
+                        qscheme=None,
+                        is_dynamic=True,
+                        observer_or_fake_quant_ctr=AffineQuantizedPlaceholderObserver.with_args(
+                            target_dtype=torch.int8,
+                            mapping_type=MappingType.ASYMMETRIC,
+                            granularity=PerToken(),
+                            quant_min=-128,
+                            quant_max=127,
+                            eps=eps,
+                            scale_dtype=torch.float32,
+                            zero_point_dtype=torch.int32,
+                        ),
+                    )
+                    weight_qspec = QuantizationSpec(
+                        dtype=torch.int8,
+                        quant_min=-8,
+                        quant_max=7,
+                        qscheme=None,
+                        is_dynamic=False,
+                        observer_or_fake_quant_ctr=AffineQuantizedMinMaxObserver.with_args(
+                            target_dtype=torch.int8,
+                            mapping_type=MappingType.SYMMETRIC,
+                            granularity=PerGroup(group_size=group_size),
+                            quant_min=-8,
+                            quant_max=7,
+                            eps=eps,
+                            scale_dtype=torch.float32,
+                            zero_point_dtype=torch.int8,
+                        ),
+                    )
+                    node.meta["quantization_annotation"] = QuantizationAnnotation(
+                        input_qspec_map={
+                            node.args[0]: act_qspec,
+                            node.args[1]: weight_qspec,
+                        },
+                        _annotated=True,
+                    )
+                return model
+
+            def validate(self, model: torch.fx.GraphModule) -> None:
+                pass
+
+        class M(torch.nn.Module):
+            def __init__(self) -> None:
+                super().__init__()
+                self.linear = torch.nn.Linear(32, 16)
+
+            def forward(self, x):
+                return self.linear(x)
+
+        self._test_representation(
+            M().eval(),
+            (torch.randn(4, 32),),
+            BackendAQuantizer(),
+            ref_node_occurrence={
+                ns.call_function(torch.ops.torchao.reference_dqlinear_int4.default): 1,
+                ns.call_function(torch.ops.torchao.dequantize_affine.default): 0,
+            },
+            non_ref_node_occurrence={
+                ns.call_function(torch.ops.torchao.choose_qparams_affine.default): 1,
+                ns.call_function(torch.ops.torchao.quantize_affine.default): 1,
+                ns.call_function(torch.ops.torchao.dequantize_affine.default): 2,
+            },
+            fixed_output_tol=1e-2,
+        )
 
     def test_qdq(self):
         """Test representation for quantize and dequantize op"""

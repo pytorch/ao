@@ -12,7 +12,7 @@ import warnings
 from functools import reduce
 from importlib.metadata import version
 from math import gcd
-from typing import Any, Optional, Union
+from typing import Any, Callable, Optional, Union
 
 import torch
 import torch.nn.utils.parametrize as parametrize
@@ -1171,6 +1171,26 @@ def is_cuda_version_at_least(major: int, minor: int) -> bool:
         return False
     cuda_major, cuda_minor = map(int, cuda_version.split(".")[:2])
     return (cuda_major, cuda_minor) >= (major, minor)
+
+
+def _is_cuda_build_at_least(major: int, minor: int) -> bool:
+    # unlike is_cuda_version_at_least, never calls torch.cuda.is_available()
+    if torch.version.cuda is None:
+        return False
+    cuda_major, cuda_minor = map(int, torch.version.cuda.split(".")[:2])
+    return (cuda_major, cuda_minor) >= (major, minor)
+
+
+def _lazy_device_check(probe: Callable[[], bool]) -> Callable[[], bool]:
+    # Runs a GPU check on first use instead of at import, caches the result, and
+    # lets torch.compile treat it as a constant instead of tracing the query.
+    cached = functools.cache(probe)
+
+    @torch.compiler.assume_constant_result
+    def check() -> bool:
+        return cached()
+
+    return check
 
 
 def _cpu_is_amx_tile_supported() -> bool:

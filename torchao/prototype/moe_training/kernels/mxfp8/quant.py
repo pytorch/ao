@@ -10,7 +10,7 @@ import torch
 from torch import Tensor
 from torch.distributed.tensor import Replicate, Shard
 from torch.distributed.tensor.experimental import register_sharding
-from torch.utils._triton import has_triton
+from torch.utils._triton import has_triton_package
 
 from torchao.prototype.moe_training.kernels.mxfp8.cute_utils import (
     _cutedsl_runtime_available,
@@ -24,8 +24,9 @@ from torchao.prototype.mx_formats.config import ScaleCalculationMode
 from torchao.prototype.mx_formats.mx_tensor import to_mx
 from torchao.prototype.mx_formats.utils import to_blocked
 from torchao.utils import (
+    _is_cuda_build_at_least,
+    _lazy_device_check,
     ceil_div,
-    is_cuda_version_at_least,
     is_MI300,
     is_MI350,
 )
@@ -478,7 +479,7 @@ def torch_unpad_token_groups(
     return unpadded_tokens
 
 
-if has_triton():
+if has_triton_package():
     import triton
     import triton.language as tl
     from torch.library import triton_op, wrap_triton
@@ -980,14 +981,24 @@ def _has_cuda_dispatch_kernel(opname: str) -> bool:
         return False
 
 
-_mxfp8_cuda_kernels_available = (
-    _is_sm_10x()
-    and is_cuda_version_at_least(12, 8)
-    and _has_cuda_dispatch_kernel("torchao::mx_block_rearrange_2d_M_groups")
+# Defining the ops checks only the build, so import makes no torch.cuda call; the
+# device is checked on first use.
+_mxfp8_cuda_kernels_defined = _is_cuda_build_at_least(
+    12, 8
+) and _has_cuda_dispatch_kernel("torchao::mx_block_rearrange_2d_M_groups")
+_mxfp8_cutedsl_kernels_defined = (
+    _is_cuda_build_at_least(12, 8) and _cutedsl_runtime_available()
 )
-_mxfp8_cutedsl_kernels_available = (
-    _is_sm_10x() and is_cuda_version_at_least(12, 8) and _cutedsl_runtime_available()
-)
+
+
+@_lazy_device_check
+def _mxfp8_cuda_kernels_available_on_device() -> bool:
+    return _mxfp8_cuda_kernels_defined and _is_sm_10x()
+
+
+@_lazy_device_check
+def _mxfp8_cutedsl_kernels_available_on_device() -> bool:
+    return _mxfp8_cutedsl_kernels_defined and _is_sm_10x()
 
 
 @torch.library.custom_op("torchao::mxfp8_quantize_3d_cutedsl", mutates_args=())
@@ -1246,7 +1257,7 @@ def _fake_mxfp8_quantize_2d_1x32_32x1_cutedsl_custom_op(
     return q_row, s_row, q_col, s_col
 
 
-if _mxfp8_cutedsl_kernels_available:
+if _mxfp8_cutedsl_kernels_defined:
 
     @register_sharding(torch.ops.torchao.mxfp8_quantize_2d_1x32_cutedsl.default)
     def custom_sharding_for_cutedsl_mxfp8_2d_1x32_kernel(
@@ -1264,7 +1275,7 @@ if _mxfp8_cutedsl_kernels_available:
         return acceptable_shardings
 
 
-if _mxfp8_cuda_kernels_available:
+if _mxfp8_cuda_kernels_defined:
     # CUDA kernel for per group blocked layout transform with groups along M
     def mx_block_rearrange_2d_M_groups_cuda(
         scales_tensor: torch.Tensor,
@@ -1290,6 +1301,10 @@ if _mxfp8_cuda_kernels_available:
         Returns:
             Rearranged tensor in block-scaled swizzle format with shape (padded_rows, padded_cols).
         """
+        if not _mxfp8_cuda_kernels_available_on_device():
+            raise NotImplementedError(
+                "mx_block_rearrange_2d_M_groups_cuda is not implemented on this device"
+            )
         assert scales_tensor.ndim == 2, "scales_tensor must be 2D"
         assert scales_tensor.dtype in (
             torch.uint8,
@@ -1355,6 +1370,10 @@ if _mxfp8_cuda_kernels_available:
             padded_group_start_offsets: Start offsets for each padded group
             padded_offsets: End offsets for each padded group
         """
+        if not _mxfp8_cuda_kernels_available_on_device():
+            raise NotImplementedError(
+                "fused_pad_token_groups_cuda is not implemented on this device"
+            )
         assert inputs.ndim == 2, "input activations must be 2d"
         assert inputs.dtype in (
             torch.float32,
@@ -1430,6 +1449,10 @@ if _mxfp8_cuda_kernels_available:
         Returns:
             unpadded_tokens: Unpadded tokens tensor of shape (num_tokens, dim)
         """
+        if not _mxfp8_cuda_kernels_available_on_device():
+            raise NotImplementedError(
+                "fused_unpad_token_groups_cuda is not implemented on this device"
+            )
         assert inputs.ndim == 2, "input activations must be 2d"
         assert inputs.dtype in (
             torch.float32,
@@ -1538,7 +1561,7 @@ def mxfp8_quantize_cuda_3d(
 
     # Keep the existing CuTeDSL kernel as the fast path for the current 3D mode,
     # and use the same kernel for 32x32 block scaling.
-    if _mxfp8_cutedsl_kernels_available:
+    if _mxfp8_cutedsl_kernels_available_on_device():
         return _mxfp8_quantize_3d_cutedsl_custom_op(
             x,
             block_size=block_size,
@@ -1549,7 +1572,7 @@ def mxfp8_quantize_cuda_3d(
             blocked_scale_output=blocked_scale_output,
         )
 
-    if not _mxfp8_cutedsl_kernels_available:
+    if not _mxfp8_cutedsl_kernels_available_on_device():
         missing_packages = _missing_cutedsl_runtime_packages()
         if missing_packages:
             missing = ", ".join(missing_packages)
@@ -1593,7 +1616,7 @@ def mxfp8_quantize_2d_1x32_cutedsl(
         Quantized data in row-major layout with shape (M, K) and scales in
         blocked tcgen05 layout with shape (M, K//32).
     """
-    if not _mxfp8_cutedsl_kernels_available:
+    if not _mxfp8_cutedsl_kernels_available_on_device():
         missing_packages = _missing_cutedsl_runtime_packages()
         if missing_packages:
             missing = ", ".join(missing_packages)
@@ -1639,7 +1662,7 @@ def mxfp8_quantize_2d_32x1_cutedsl(
         - Scales tensor in blocked tcgen05 layout suitable for 4x128 scale factor tiles
           where only the scales dimensions are padded, not the data tensor
     """
-    if not _mxfp8_cutedsl_kernels_available:
+    if not _mxfp8_cutedsl_kernels_available_on_device():
         missing_packages = _missing_cutedsl_runtime_packages()
         if missing_packages:
             missing = ", ".join(missing_packages)
@@ -1705,7 +1728,7 @@ def mxfp8_quantize_2d_1x32_32x1_cutedsl(
         q_col (N, total_M) row-major, s_col (N, total_M // 32 + 4*G)
         K-groups blocked; G=0 in dense mode. Scales use E8M0 dtype.
     """
-    if not _mxfp8_cutedsl_kernels_available:
+    if not _mxfp8_cutedsl_kernels_available_on_device():
         missing_packages = _missing_cutedsl_runtime_packages()
         if missing_packages:
             missing = ", ".join(missing_packages)
@@ -1739,15 +1762,17 @@ def mxfp8_quantize_2d_1x32_32x1_cutedsl(
 # Non-default values for params still flagged "not yet" raise
 # NotImplementedError rather than silently being ignored.
 # =============================================================================
-_mxfp8_flydsl_kernels_available = (
-    torch.cuda.is_available()
-    and (is_MI300() or is_MI350())
-    and _flydsl_runtime_available()
-)
+@_lazy_device_check
+def _mxfp8_flydsl_kernels_available_on_device() -> bool:
+    return (
+        torch.cuda.is_available()
+        and (is_MI300() or is_MI350())
+        and _flydsl_runtime_available()
+    )
 
 
 def _raise_if_flydsl_unavailable(opname: str) -> None:
-    if _mxfp8_flydsl_kernels_available:
+    if _mxfp8_flydsl_kernels_available_on_device():
         return
     missing = _missing_flydsl_runtime_packages()
     if missing:
@@ -2043,3 +2068,19 @@ def mxfp8_quantize_2d_32x1_flydsl(
         blocked_scale_output=blocked_scale_output,
         offs=offs,
     )
+
+
+# Don't `from ... import` these flags at module scope: that reads them through
+# `__getattr__` at import time and initializes CUDA. Call the `_on_device()`
+# functions where the value is needed instead.
+_LAZY_FLAGS = {
+    "_mxfp8_cuda_kernels_available": _mxfp8_cuda_kernels_available_on_device,
+    "_mxfp8_cutedsl_kernels_available": _mxfp8_cutedsl_kernels_available_on_device,
+    "_mxfp8_flydsl_kernels_available": _mxfp8_flydsl_kernels_available_on_device,
+}
+
+
+def __getattr__(name: str):
+    if name in _LAZY_FLAGS:
+        return _LAZY_FLAGS[name]()
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
