@@ -11,6 +11,7 @@ TODO(future): make this run in CI
 """
 
 import os
+import traceback
 
 import torch
 from torch.distributed._tensor import DTensor, Shard, distribute_tensor
@@ -31,12 +32,18 @@ torch.set_float32_matmul_precision("high")
 
 def setup_distributed():
     world_size = int(os.environ.get("WORLD_SIZE", -1))
-    device_mesh = init_device_mesh("cuda", (world_size,))
+    device = torch.accelerator.current_accelerator()
+    device_mesh = init_device_mesh(device.type, (world_size,))
     # seed must be the same in all processes
     torch.manual_seed(1)
     local_rank = torch.distributed.get_rank()
-    torch.cuda.set_device(local_rank)
+    torch.accelerator.set_device_index(local_rank)
     return device_mesh
+
+
+def print_once(msg):
+    if torch.distributed.get_rank() == 0:
+        print(msg)
 
 
 def _test_dtensor_cast_to_mxfp8(mesh: DeviceMesh, size=1024):
@@ -105,20 +112,27 @@ if __name__ == "__main__":
         _test_dtensor_cast_to_mxfp8,
         _test_mxfp8_mlp_tensor_parallelism_emulated,
     ]
+    
     from torchao.prototype.moe_training.kernels.mxfp8.quant import (
         _mxfp8_cuda_kernels_available,
     )
 
-    if _mxfp8_cuda_kernels_available:
+    if device_mesh.device_type == "cuda" and _mxfp8_cuda_kernels_available:
         tests.append(_test_mxfp8_mlp_tensor_parallelism_auto)
     else:
-        print("Skipping auto test: requires SM >= 100 and CUDA >= 12.8")
+        print_once("Skipping auto test: requires CUDA SM >= 100 and CUDA >= 12.8")
 
-    for test in tqdm(tests, desc="Running tests"):
+    failed_cnt = 0
+    for test in tqdm(tests, desc="Running tests", disable=torch.distributed.get_rank() != 0):
         try:
             test(device_mesh)
         except Exception as e:
-            print(f"Test {test.__name__} failed with error: {e}")
-            raise e
+            print_once(f"\033[31m❌ FAILED {test.__name__}: {e}\033[0m")
+            print_once(traceback.format_exc())
+            failed_cnt += 1
+        else:
+            print_once(f"\033[32m✅ PASSED {test.__name__}\033[0m")
+
+    print_once(f"FAILED: {failed_cnt} PASSED: {len(tests) - failed_cnt}")
 
     torch.distributed.destroy_process_group()
