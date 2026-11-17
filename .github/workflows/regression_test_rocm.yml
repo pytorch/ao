@@ -15,17 +15,29 @@ env:
   HF_TOKEN: ${{ secrets.HF_TOKEN }}
 
 jobs:
+  # Drive ROCm/Python from pytorch/test-infra's nightly binary matrix so version
+  # bumps do not require hardcoding here. Runner is hardcoded below; all other
+  # fields (python, arch, docker image, install cmd) come from the matrix.
+  generate-matrix:
+    uses: pytorch/test-infra/.github/workflows/generate_binary_build_matrix.yml@main
+    with:
+      package-type: wheel
+      channel: nightly
+      os: linux
+      test-infra-repository: pytorch/test-infra
+      test-infra-ref: main
+      with-cpu: disable
+      with-xpu: disable
+      with-cuda: disable
+      with-rocm: enable
+      # Single oldest Python from test-infra's channel list (auto-bumps).
+      build-python-only: "enable"
+
   test-nightly:
+    needs: generate-matrix
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - name: ROCM Nightly
-            runs-on: linux.rocm.gpu.ecosystem.mi350.1
-            torch-spec: '--pre torchvision torch --index-url https://download.pytorch.org/whl/nightly/rocm10.1'
-            gpu-arch-type: "rocm"
-            gpu-arch-version: "10.1"
-            docker-image: pytorch/manylinux2_28-builder:rocm10.1
+      matrix: ${{ fromJson(needs.generate-matrix.outputs.matrix) }}
 
     permissions:
       id-token: write
@@ -33,17 +45,18 @@ jobs:
     uses: pytorch/test-infra/.github/workflows/linux_job_v2.yml@main
     with:
       timeout: 210
-      no-sudo: ${{ matrix.gpu-arch-type == 'rocm' }}
-      runner: ${{ matrix.runs-on }}
-      gpu-arch-type: ${{ matrix.gpu-arch-type }}
-      gpu-arch-version: ${{ matrix.gpu-arch-version }}
-      docker-image: ${{ matrix.docker-image }}
+      no-sudo: true
+      # AO ROCm tests need a GPU runner; the matrix's validation_runner is CPU-only.
+      runner: linux.rocm.gpu.ecosystem.mi350.1
+      gpu-arch-type: ${{ matrix.gpu_arch_type }}
+      gpu-arch-version: ${{ matrix.gpu_arch_version }}
+      docker-image: ${{ matrix.container_image }}
       submodules: recursive
       script: |
-        conda create -n venv python=3.11 -y
+        conda create -n venv python=${{ matrix.python_version }} -y
         conda activate venv
         python -m pip install --upgrade pip
-        pip install ${{ matrix.torch-spec }}
+        ${{ matrix.installation }}
         pip install uv==0.13.7
         uv pip install -r dev-requirements.txt
         # Editable install so build_ext --inplace drops the compiled extensions
