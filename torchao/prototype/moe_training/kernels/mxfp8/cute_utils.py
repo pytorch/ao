@@ -6,46 +6,13 @@
 
 """Shared utilities for CuTeDSL quantization kernels."""
 
-import importlib.util
 import inspect
 
-# Runtime package detection
-_CUTEDSL_RUNTIME_PACKAGES = {
-    "cuda.bindings.driver": "cuda-python",
-    "cutlass": "nvidia-cutlass-dsl",
-    "cutlass.cute": "nvidia-cutlass-dsl",
-    "tvm_ffi": "apache-tvm-ffi",
-}
-
-
-def _missing_cutedsl_runtime_packages() -> list[str]:
-    """Check which CuTeDSL runtime packages are missing.
-
-    Returns:
-        List of missing package names
-    """
-    missing = []
-    for module_name, package_name in _CUTEDSL_RUNTIME_PACKAGES.items():
-        try:
-            spec = importlib.util.find_spec(module_name)
-        except (ModuleNotFoundError, ValueError):
-            # ModuleNotFoundError: parent module doesn't exist (e.g., 'cuda' on CPU)
-            # ValueError: can occur with malformed module names
-            spec = None
-
-        if spec is None and package_name not in missing:
-            missing.append(package_name)
-    return missing
-
-
-def _cutedsl_runtime_available() -> bool:
-    """Check if all CuTeDSL runtime packages are available.
-
-    Returns:
-        True if all required packages are installed
-    """
-    return len(_missing_cutedsl_runtime_packages()) == 0
-
+from torchao.prototype.moe_training.kernels.mxfp8.dsl_runtime import (  # noqa: F401
+    _CUTEDSL_RUNTIME_PACKAGES,
+    _cutedsl_runtime_available,
+    _missing_cutedsl_runtime_packages,
+)
 
 if _cutedsl_runtime_available():
     import cutlass

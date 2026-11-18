@@ -23,36 +23,16 @@ free-variable closure cells. ``cutedsl_quantize_2d_1x32.py`` uses the same
 pattern with ``cute_utils``.
 """
 
-import importlib.util
-
 import torch
 
 # -----------------------------------------------------------------------------
 # Runtime detection
 # -----------------------------------------------------------------------------
-
-_FLYDSL_RUNTIME_PACKAGES = {
-    "flydsl": "flydsl",
-    "flydsl.compiler": "flydsl",
-    "flydsl.expr": "flydsl",
-}
-
-
-def _missing_flydsl_runtime_packages() -> list[str]:
-    missing = []
-    for module_name, package_name in _FLYDSL_RUNTIME_PACKAGES.items():
-        try:
-            spec = importlib.util.find_spec(module_name)
-        except (ModuleNotFoundError, ValueError):
-            spec = None
-        if spec is None and package_name not in missing:
-            missing.append(package_name)
-    return missing
-
-
-def _flydsl_runtime_available() -> bool:
-    return len(_missing_flydsl_runtime_packages()) == 0
-
+from torchao.prototype.moe_training.kernels.mxfp8.dsl_runtime import (  # noqa: F401
+    _FLYDSL_RUNTIME_PACKAGES,
+    _flydsl_runtime_available,
+    _missing_flydsl_runtime_packages,
+)
 
 # -----------------------------------------------------------------------------
 # MXFP8 layout constants (all kernels)
