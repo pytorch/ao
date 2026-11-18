@@ -20,15 +20,19 @@ from torchao.prototype.safetensors.safetensors_support import (
     flatten_tensor_state_dict,
     unflatten_tensor_state_dict,
 )
-from torchao.quantization.granularity import PerRow
+from torchao.prototype.smoothquant import SmoothQuantConfig
+from torchao.quantization.granularity import PerRow, PerTensor
 from torchao.quantization.quant_api import (
     Float8DynamicActivationFloat8WeightConfig,
     Int4WeightOnlyConfig,
     Int8DynamicActivationInt8WeightConfig,
     Int8DynamicActivationIntxWeightConfig,
+    Int8StaticActivationInt8WeightConfig,
     Int8WeightOnlyConfig,
     IntxWeightOnlyConfig,
+    MappingType,
 )
+from torchao.quantization.quantize_.common.quantization_step import QuantizationStep
 from torchao.utils import (
     get_available_devices,
     is_sm_at_least_89,
@@ -164,6 +168,104 @@ class TestSafeTensors(TestCase):
 
 
 instantiate_parametrized_tests(TestSafeTensors)
+
+
+_SMOOTHQUANT_STATIC_CONFIGS = [
+    Int8StaticActivationInt8WeightConfig(granularity=PerTensor()),
+    Int8StaticActivationInt8WeightConfig(granularity=PerRow()),
+    Int8StaticActivationInt8WeightConfig(granularity=[PerRow(), PerTensor()]),
+    Int8StaticActivationInt8WeightConfig(granularity=[PerTensor(), PerRow()]),
+    Int8StaticActivationInt8WeightConfig(granularity=PerTensor(), reduce_range=True),
+    Int8StaticActivationInt8WeightConfig(
+        granularity=PerTensor(), act_mapping_type=MappingType.ASYMMETRIC
+    ),
+    Int8DynamicActivationInt8WeightConfig(),
+]
+
+
+class TestSafeTensorsSmoothQuant(TestCase):
+    @parametrize("base_config", _SMOOTHQUANT_STATIC_CONFIGS)
+    @parametrize("device", get_available_devices())
+    def test_smoothquant_safetensors_roundtrip(self, base_config, device):
+        torch.manual_seed(42)
+        model = torch.nn.Sequential(
+            torch.nn.Linear(64, 128, dtype=torch.bfloat16, device=device),
+            torch.nn.ReLU(),
+            torch.nn.Linear(128, 64, dtype=torch.bfloat16, device=device),
+        )
+        x_calib = torch.randn(8, 64, dtype=torch.bfloat16, device=device)
+
+        config = SmoothQuantConfig(
+            base_config=base_config,
+            step=QuantizationStep.PREPARE,
+        )
+        quantize_(model, config)
+        model(x_calib)
+
+        config.step = QuantizationStep.CONVERT
+        quantize_(model, config)
+
+        # Baseline outputs
+        x_test_2d = torch.randn(4, 64, dtype=torch.bfloat16, device=device)
+        x_test_3d = torch.randn(2, 5, 64, dtype=torch.bfloat16, device=device)
+        ref_2d = model(x_test_2d)
+        ref_3d = model(x_test_3d)
+
+        with tempfile.NamedTemporaryFile() as f:
+            tensors_data_dict, metadata = flatten_tensor_state_dict(model.state_dict())
+            save_file(tensors_data_dict, f.name, metadata=metadata)
+            loaded_tensors, loaded_metadata = load_data(file_path=f.name, device=device)
+            reconstructed_dict, leftover = unflatten_tensor_state_dict(
+                loaded_tensors, loaded_metadata
+            )
+            self.assertEqual(len(leftover), 0)
+
+        # Reconstructed model
+        new_model = torch.nn.Sequential(
+            torch.nn.Linear(64, 128, dtype=torch.bfloat16, device=device),
+            torch.nn.ReLU(),
+            torch.nn.Linear(128, 64, dtype=torch.bfloat16, device=device),
+        )
+        new_model.load_state_dict(reconstructed_dict, assign=True)
+
+        out_2d = new_model(x_test_2d)
+        out_3d = new_model(x_test_3d)
+
+        torch.testing.assert_close(out_2d, ref_2d)
+        torch.testing.assert_close(out_3d, ref_3d)
+
+    @parametrize("device", get_available_devices())
+    def test_smoothquant_safetensors_sharded(self, device):
+        torch.manual_seed(42)
+        model = torch.nn.Sequential(
+            torch.nn.Linear(64, 128, dtype=torch.bfloat16, device=device)
+        )
+        x_calib = torch.randn(8, 64, dtype=torch.bfloat16, device=device)
+        config = SmoothQuantConfig(
+            base_config=Int8StaticActivationInt8WeightConfig(granularity=PerTensor()),
+            step=QuantizationStep.PREPARE,
+        )
+        quantize_(model, config)
+        model(x_calib)
+        config.step = QuantizationStep.CONVERT
+        quantize_(model, config)
+
+        with tempfile.NamedTemporaryFile() as f:
+            tensors_data_dict, metadata = flatten_tensor_state_dict(model.state_dict())
+            save_file(tensors_data_dict, f.name, metadata=metadata)
+            loaded_tensors, loaded_metadata = load_data(file_path=f.name, device=device)
+
+            # Simulate missing required tensor (e.g. qdata)
+            del loaded_tensors["0._weight_qdata"]
+            _, leftover = unflatten_tensor_state_dict(loaded_tensors, loaded_metadata)
+
+            # Remaining layer 0 tensors should be preserved in leftover
+            for key in loaded_tensors.keys():
+                if key.startswith("0._weight_"):
+                    self.assertIn(key, leftover)
+
+
+instantiate_parametrized_tests(TestSafeTensorsSmoothQuant)
 
 if __name__ == "__main__":
     run_tests()

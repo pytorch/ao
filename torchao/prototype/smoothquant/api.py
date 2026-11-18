@@ -4,6 +4,7 @@
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
 import types
+import warnings
 from dataclasses import dataclass
 from typing import Optional
 
@@ -48,15 +49,24 @@ class SmoothQuantConfig(AOBaseConfig):
             PREPARE_FOR_SMOOTHQUANT_ACTIVATION_SCALES: reserved for future use
         alpha: The alpha value to determine smoothing factor. Factor = 1 if alpha is None, which means
             Fall back to conventional quantization if None
-        use_running_absmax: If True, use RunningAbsMaxSmoothQuantObserver for memory-efficient calibration
+        use_running_absmax: If True, use RunningAbsMaxSmoothQuantObserver for memory-efficient calibration.
+            Defaults to True to prevent OOM on large calibration datasets.
     """
 
     base_config: AOBaseConfig
     step: QuantizationStep
     alpha: Optional[float] = 0.5
-    use_running_absmax: bool = False
+    use_running_absmax: bool = True
 
     def __post_init__(self):
+        if not self.use_running_absmax:
+            warnings.warn(
+                "SmoothQuantConfig(use_running_absmax=False) uses SmoothQuantObserver which stores all "
+                "calibration activations in memory, which may cause high memory usage or OOM. "
+                "Consider using use_running_absmax=True (the default).",
+                UserWarning,
+                stacklevel=2,
+            )
         self.step = self.step.lower() if isinstance(self.step, str) else self.step.value
         all_step_values = [s.value for s in QuantizationStep]
         if self.step not in all_step_values:
