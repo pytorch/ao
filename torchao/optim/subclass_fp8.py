@@ -21,7 +21,7 @@ DTYPE = torch.float8_e4m3fn
 
 def quantize_fp8(input: Tensor, block_size: int):
     shape = input.shape
-    input = input.view(-1, block_size)
+    input = input.reshape(-1, block_size)
     scale = input.abs().amax(-1).clip(1e-12) / torch.finfo(DTYPE).max
     input = input / scale.view(-1, 1)
     codes = input.to(DTYPE).view(-1)
@@ -113,7 +113,7 @@ def _(func, types, args, kwargs):
         dst.scale.copy_(src.scale)
 
     elif isinstance(dst, OptimStateFp8):
-        codes, scale = quantize_fp8(src, dst.block_size)
+        codes, scale = quantize_fp8(src.expand(dst.shape), dst.block_size)
         dst.codes.copy_(codes)
         dst.scale.copy_(scale)
 
