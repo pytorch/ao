@@ -295,7 +295,7 @@ def _mixed_mm_kernel(
             pid_n * stride_scale_n * BLOCK_N + tl.arange(0, BLOCK_N) * stride_scale_n
         )
     else:
-        scale_offset_k = pid_n * BLOCK_N * stride_scale_k // QGROUP_SIZE
+        scale_offset_k = (pid_n * BLOCK_N // QGROUP_SIZE) * stride_scale_k
         offsets_scale_n = tl.arange(0, BLOCK_K) * stride_scale_n
 
     acc = tl.zeros((BLOCK_M, BLOCK_N), dtype=acc_dtype)
@@ -317,11 +317,13 @@ def _mixed_mm_kernel(
             qb = tl.load(B, mask=rbk[:, None] < k_remaining_b, other=_0)
 
         if not TRANSPOSED:
-            scale_offset_k = k * BLOCK_K * SPLIT_K * stride_scale_k // QGROUP_SIZE
+            scale_offset_k = (
+                (k * BLOCK_K * SPLIT_K + pid_z * BLOCK_K) // QGROUP_SIZE
+            ) * stride_scale_k
         else:
             offsets_scale_n = (
-                k * stride_scale_n * BLOCK_K + tl.arange(0, BLOCK_K) * stride_scale_n
-            )
+                (k * BLOCK_K * SPLIT_K + pid_z * BLOCK_K) + tl.arange(0, BLOCK_K)
+            ) * stride_scale_n
 
         scales = tl.load(scales_ptr + offsets_scale_n + scale_offset_k)
         zeros = tl.load(zeros_ptr + offsets_scale_n + scale_offset_k)
