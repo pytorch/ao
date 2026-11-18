@@ -586,7 +586,18 @@ class TestFloat8MultiThread(FSDPTestMultiThread, TestFloat8Common):
         )
         ref_module_fp32 = copy.deepcopy(module).cuda()
         module = convert_to_float8_training(module, config=float8_config)
-        mp_policy = MixedPrecisionPolicy(param_dtype=torch.bfloat16)
+        # pytorch/pytorch#194434 (merge cdfc25874c, 2026-10-01; PyTorch 2.15):
+        # MixedPrecisionPolicy(reduce_dtype=None) no longer reduces in param_dtype.
+        # It accumulates and reduce-scatters in the parameter grad_dtype, which
+        # is the original dtype when unset. These params are fp32 with
+        # param_dtype=bf16, so reduction moved from bf16 to fp32.
+        # check_parity_bf16_mp all-reduces the reference grads in bf16, so pin
+        # reduce_dtype=bf16 to keep that pre-2.15 comparison.
+        # https://github.com/pytorch/pytorch/pull/194434
+        mp_policy = MixedPrecisionPolicy(
+            param_dtype=torch.bfloat16,
+            reduce_dtype=torch.bfloat16,
+        )
         for mlp in module:
             fully_shard(mlp, mp_policy=mp_policy)
         fully_shard(module, mp_policy=mp_policy)
