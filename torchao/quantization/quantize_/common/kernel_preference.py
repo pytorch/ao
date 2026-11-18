@@ -53,5 +53,10 @@ class KernelPreference(str, Enum):
     nvidia-cutlass-dsl library
     """
 
+    ASCEND = "ascend"
+    """Use quantize and quantized mm kernels from torch_npu, requires torch_npu.
+    Intended for Ascend NPU hardware.
+    """
+
 
 torch.serialization.add_safe_globals([KernelPreference])
