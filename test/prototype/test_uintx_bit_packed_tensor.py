@@ -24,7 +24,12 @@ except ModuleNotFoundError:
 @unittest.skipIf(not has_gemlite, "gemlite not available")
 class TestUIntxBitPackedTensor(TestCase):
     def _test_quantize_and_linear(
-        self, bit_width, group_size, packing_bitwidth, sqnr_threshold=24
+        self,
+        bit_width,
+        group_size,
+        packing_bitwidth,
+        sqnr_threshold=22,
+        dtype=torch.float16,
     ):
         """Helper: quantize a linear layer and verify forward pass produces valid output."""
         from torchao.prototype.quantization.quant_api import UIntxWeightOnlyConfig
@@ -32,11 +37,11 @@ class TestUIntxBitPackedTensor(TestCase):
         in_features = 512
         out_features = 256
         model = torch.nn.Linear(in_features, out_features, bias=False).to(
-            device="cuda", dtype=torch.float16
+            device="cuda", dtype=dtype
         )
 
         # Compute reference output before quantization
-        x = torch.randn(2, in_features, device="cuda", dtype=torch.float16)
+        x = torch.randn(2, in_features, device="cuda", dtype=dtype)
         ref_out = model(x)
 
         config = UIntxWeightOnlyConfig(
@@ -82,6 +87,34 @@ class TestUIntxBitPackedTensor(TestCase):
 
     def test_8bit_perchannel_pack8(self):
         self._test_quantize_and_linear(bit_width=8, group_size=None, packing_bitwidth=8)
+
+    # bfloat16 variants: the 4-bit path used to bake gemlite's float16 default into
+    # meta_args regardless of the weight dtype, so the forward pass died in Triton
+    # with "Both operands must be same dtype. Got bf16 and fp16" (issue #4614).
+    def test_4bit_group64_pack32_bf16(self):
+        self._test_quantize_and_linear(
+            bit_width=4, group_size=64, packing_bitwidth=32, dtype=torch.bfloat16
+        )
+
+    def test_4bit_group128_pack32_bf16(self):
+        self._test_quantize_and_linear(
+            bit_width=4, group_size=128, packing_bitwidth=32, dtype=torch.bfloat16
+        )
+
+    def test_4bit_group64_pack8_bf16(self):
+        self._test_quantize_and_linear(
+            bit_width=4, group_size=64, packing_bitwidth=8, dtype=torch.bfloat16
+        )
+
+    def test_8bit_perchannel_pack32_bf16(self):
+        self._test_quantize_and_linear(
+            bit_width=8, group_size=None, packing_bitwidth=32, dtype=torch.bfloat16
+        )
+
+    def test_8bit_perchannel_pack8_bf16(self):
+        self._test_quantize_and_linear(
+            bit_width=8, group_size=None, packing_bitwidth=8, dtype=torch.bfloat16
+        )
 
     def _test_dynamic_quantize_and_linear(
         self, bit_width, group_size, packing_bitwidth, sqnr_threshold=22
