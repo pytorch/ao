@@ -13,6 +13,11 @@ better programmability, and a simplified UX.
 Exportable by `torch.export.export` is a prerequisite to use the flow, you can
 find what are the constructs that's supported in `Export DB <https://pytorch.org/docs/main/generated/exportdb/index.html>`_.
 
+The PT2E ``MinMaxObserver``, ``MovingAverageMinMaxObserver``,
+``PerChannelMinMaxObserver``, and ``MovingAveragePerChannelMinMaxObserver``
+require real-valued calibration inputs. They raise ``TypeError`` on complex
+tensors because no quantized complex dtype exists.
+
 The high level architecture of quantization 2 with quantizer could look like
 this:
 
