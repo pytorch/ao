@@ -428,6 +428,101 @@ class TestPT2EHistogramObserver(TestCase):
         )
 
 
+class TestMSEObserverEmptyBatches(TestCase):
+    def _observer(self, granularity, run_once):
+        return AffineQuantizedMSEObserver(
+            MappingType.SYMMETRIC,
+            torch.int8,
+            granularity=granularity,
+            steps=8,
+            run_once=run_once,
+        )
+
+    @common_utils.parametrize("shape", [(0, 8), (2, 0), (0, 4, 8)])
+    @common_utils.parametrize("granularity", [PerTensor(), PerAxis(0)])
+    @common_utils.parametrize("run_once", [False, True])
+    def test_empty_before_calibration(self, shape, granularity, run_once):
+        observer = self._observer(granularity, run_once)
+        empty = torch.empty(shape, requires_grad=True)
+        self.assertIs(observer(empty), empty)
+        self.assertFalse(observer.calibrated)
+        self.assertFalse(hasattr(observer, "min_val"))
+        self.assertFalse(hasattr(observer, "max_val"))
+        empty.sum().backward()
+        self.assertEqual(empty.grad, torch.empty_like(empty))
+
+        sample = torch.arange(-8, 8, dtype=torch.float32).reshape(2, 8)
+        reference = self._observer(granularity, run_once)
+        reference(sample)
+        self.assertIs(observer(sample), sample)
+        self.assertTrue(observer.calibrated)
+        self.assertEqual(observer.calculate_qparams(), reference.calculate_qparams())
+
+    @common_utils.parametrize("shape", [(0, 8), (2, 0), (0, 4, 8)])
+    @common_utils.parametrize("granularity", [PerTensor(), PerAxis(0)])
+    @common_utils.parametrize("run_once", [False, True])
+    def test_empty_after_calibration(self, shape, granularity, run_once):
+        observer = self._observer(granularity, run_once)
+        reference = self._observer(granularity, run_once)
+        sample = torch.arange(-8, 8, dtype=torch.float32).reshape(2, 8)
+        observer(sample)
+        reference(sample)
+        expected_min = observer.min_val.clone()
+        expected_max = observer.max_val.clone()
+        expected_qparams = observer.calculate_qparams()
+
+        empty = torch.empty(shape)
+        self.assertIs(observer(empty), empty)
+        self.assertTrue(observer.calibrated)
+        self.assertEqual(observer.min_val, expected_min)
+        self.assertEqual(observer.max_val, expected_max)
+        self.assertEqual(observer.calculate_qparams(), expected_qparams)
+
+        next_sample = sample * 3
+        observer(next_sample)
+        reference(next_sample)
+        self.assertEqual(observer.calculate_qparams(), reference.calculate_qparams())
+
+    @common_utils.parametrize("run_once", [False, True])
+    def test_empty_batch_preserves_training(self, run_once):
+        torch.manual_seed(0)
+        reference = torch.nn.Sequential(torch.nn.Linear(8, 8), torch.nn.Linear(8, 3))
+        model = torch.nn.Sequential(
+            torch.nn.Linear(8, 8),
+            self._observer(PerTensor(), run_once),
+            torch.nn.Linear(8, 3),
+        )
+        model[0].load_state_dict(reference[0].state_dict())
+        model[2].load_state_dict(reference[1].state_dict())
+        optimizer = torch.optim.SGD(model.parameters(), lr=0.01, momentum=0.9)
+        reference_optimizer = torch.optim.SGD(
+            reference.parameters(), lr=0.01, momentum=0.9
+        )
+        for sample in (torch.empty(0, 8), torch.randn(4, 8), torch.randn(3, 8)):
+            optimizer.zero_grad()
+            reference_optimizer.zero_grad()
+            actual = model(sample)
+            expected = reference(sample)
+            self.assertEqual(actual, expected, atol=0, rtol=0)
+            actual.square().sum().backward()
+            expected.square().sum().backward()
+            for parameter, reference_parameter in zip(
+                model.parameters(), reference.parameters()
+            ):
+                self.assertEqual(
+                    parameter.grad, reference_parameter.grad, atol=0, rtol=0
+                )
+            optimizer.step()
+            reference_optimizer.step()
+            for parameter, reference_parameter in zip(
+                model.parameters(), reference.parameters()
+            ):
+                self.assertEqual(parameter, reference_parameter, atol=0, rtol=0)
+        self.assertTrue(model[1].calibrated)
+
+
+common_utils.instantiate_parametrized_tests(TestMSEObserverEmptyBatches)
+
 common_utils.instantiate_parametrized_tests(TestQuantFlow)
 
 if __name__ == "__main__":
