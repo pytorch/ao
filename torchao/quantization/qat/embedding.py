@@ -98,11 +98,7 @@ class FakeQuantizedEmbedding(torch.nn.Embedding):
             device=self.weight.device,
             dtype=self.weight.dtype,
         )
-        # In distributed training, the model may be instantiated
-        # on the meta device, in which case there is no need to
-        # copy the weights, and doing so will result in an error
-        if self.weight.device != torch.device("meta"):
-            new_embedding.weight = self.weight
+        new_embedding.weight = self.weight
         return new_embedding
 
     @classmethod
@@ -123,11 +119,7 @@ class FakeQuantizedEmbedding(torch.nn.Embedding):
             device=mod.weight.device,
             dtype=mod.weight.dtype,
         )
-        # In distributed training, the model may be instantiated
-        # on the meta device, in which case there is no need to
-        # copy the weights, and doing so will result in an error
-        if mod.weight.device != torch.device("meta"):
-            new_embedding.weight = mod.weight
+        new_embedding.weight = mod.weight
         return new_embedding
 
 

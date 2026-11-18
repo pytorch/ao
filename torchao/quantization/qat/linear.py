@@ -122,12 +122,8 @@ class FakeQuantizedLinear(torch.nn.Linear):
             device=self.weight.device,
             dtype=self.weight.dtype,
         )
-        # In distributed training, the model may be instantiated
-        # on the meta device, in which case there is no need to
-        # copy the weights, and doing so will result in an error
-        if self.weight.device != torch.device("meta"):
-            new_linear.weight = self.weight
-            new_linear.bias = self.bias
+        new_linear.weight = self.weight
+        new_linear.bias = self.bias
         return new_linear
 
     @classmethod
@@ -146,12 +142,8 @@ class FakeQuantizedLinear(torch.nn.Linear):
             device=mod.weight.device,
             dtype=mod.weight.dtype,
         )
-        # In distributed training, the model may be instantiated
-        # on the meta device, in which case there is no need to
-        # copy the weights, and doing so will result in an error
-        if mod.weight.device != torch.device("meta"):
-            new_linear.weight = mod.weight
-            new_linear.bias = mod.bias
+        new_linear.weight = mod.weight
+        new_linear.bias = mod.bias
         return new_linear
 
 
