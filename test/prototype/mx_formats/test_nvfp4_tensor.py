@@ -772,3 +772,22 @@ def test_nvfp4_per_expert_scale():
 
     xc_dq_ref = torch.cat([x0_dq, x1_dq], dim=0).view(E, N, K)
     torch.testing.assert_close(xc_dq_ref, xc_dq, atol=0, rtol=0)
+
+
+@pytest.mark.parametrize("use_per_tensor_scale", [False, True])
+def test_nvfp4_all_zero_tensor(use_per_tensor_scale):
+    """All-zero inputs must have finite block scales and zero packed data.
+    Dequantized output must also be finite and exactly zero.
+    """
+    data = torch.zeros(32, 64, dtype=torch.bfloat16)
+    per_tensor_scale = (
+        per_tensor_amax_to_scale(torch.tensor(0.0)) if use_per_tensor_scale else None
+    )
+    q = NVFP4Tensor.to_nvfp4(data, per_tensor_scale=per_tensor_scale)
+
+    assert torch.isfinite(q.scale.float()).all(), f"non-finite block scales: {q.scale}"
+    assert (q.qdata == 0).all(), f"expected zero qdata, got {q.qdata.unique().tolist()}"
+
+    out = q.dequantize(torch.float32)
+    assert torch.isfinite(out).all(), f"non-finite dequantized output: {out}"
+    torch.testing.assert_close(out, torch.zeros_like(out), atol=0, rtol=0)
