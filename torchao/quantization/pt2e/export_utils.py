@@ -18,6 +18,11 @@ __all__ = [
 
 _EXPORTED_TRAINING_ATTR = "_exported_training"
 
+# Positions of `momentum` and `eps` in the args of `aten.batch_norm.default`:
+# (input, weight, bias, running_mean, running_var, training, momentum, eps, cudnn_enabled)
+_BN_MOMENTUM_ARG_INDEX = 6
+_BN_EPS_ARG_INDEX = 7
+
 
 class WrapperModule(torch.nn.Module):
     """Class to wrap a callable in an :class:`torch.nn.Module`. Use this if you
@@ -101,6 +106,46 @@ def _replace_dropout(m: torch.fx.GraphModule, train_to_eval: bool):
         m.recompile()
 
 
+def _is_batchnorm_node(n) -> bool:
+    return (
+        isinstance(n, torch.fx.Node)
+        and n.op == "call_function"
+        and n.target == torch.ops.aten.batch_norm.default
+    )
+
+
+def _get_batchnorm_node(nodes):
+    """
+    Return the first batchnorm node in `nodes`, or None if there isn't one.
+    `nodes` may also contain literals and None, which are skipped.
+    """
+    for n in nodes:
+        if _is_batchnorm_node(n):
+            return n
+    return None
+
+
+def _copy_over_literal_bn_args(original_node, new_node):
+    """
+    Copy over literal args in batchnorm, namely momentum and eps, from the matched
+    node in the original graph to its replacement in the new graph.
+
+    This is needed because the replacement pattern is traced from a call to
+    `F.batch_norm` that uses the default momentum and eps, so without this the
+    rewrite would silently reset both to their defaults.
+
+    Note: Unlike tensor args like the running stats, literal args are preserved in
+    the original nodes after replacement, so we can access them here.
+    """
+    assert _is_batchnorm_node(original_node)
+    assert _is_batchnorm_node(new_node)
+    # x, weight, bias, running_mean, running_var, training, [momentum, eps], cudnn_enabled
+    new_args = list(new_node.args)
+    new_args[_BN_MOMENTUM_ARG_INDEX] = original_node.args[_BN_MOMENTUM_ARG_INDEX]
+    new_args[_BN_EPS_ARG_INDEX] = original_node.args[_BN_EPS_ARG_INDEX]
+    new_node.args = tuple(new_args)
+
+
 def _replace_batchnorm(m: torch.fx.GraphModule, train_to_eval: bool):
     """
     Switch batchnorm patterns in the model between train and eval modes.
@@ -110,9 +155,6 @@ def _replace_batchnorm(m: torch.fx.GraphModule, train_to_eval: bool):
     the batchnorm behavior between the two modes, so here we need to rewrite the aten
     batchnorm patterns manually to achieve the same effect.
     """
-    # TODO(Leslie): This function still fails to support custom momentum and eps value.
-    # Enable this support in future updates.
-
     # Avoid circular dependencies
     from .utils import _get_aten_graph_module_for_pattern
 
@@ -172,13 +214,22 @@ def _replace_batchnorm(m: torch.fx.GraphModule, train_to_eval: bool):
 
     from torch.fx.subgraph_rewriter import replace_pattern_with_filters
 
-    replace_pattern_with_filters(
+    replaced_patterns = replace_pattern_with_filters(
         m,
         match_pattern,
         replacement_pattern,
         match_filters=[],
         ignore_literals=True,
     )
+
+    # Copy over literal args for batchnorm, so a custom momentum and eps survive
+    # the rewrite instead of being reset to the defaults of the replacement pattern.
+    for r in replaced_patterns:
+        original_node = _get_batchnorm_node(r.nodes_map.values())
+        new_node = _get_batchnorm_node(r.replacements)
+        if original_node is not None and new_node is not None:
+            _copy_over_literal_bn_args(original_node, new_node)
+
     m.recompile()
 
 
