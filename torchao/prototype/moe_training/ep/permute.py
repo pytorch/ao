@@ -164,6 +164,41 @@ class _PermuteMXFP8FwdHPBwd(torch.autograd.Function):
         return grad_input, None, None, None, None, None
 
 
+class _PermuteBF16FwdBF16Bwd(torch.autograd.Function):
+    """Permute+pad for BF16 tokens with a Triton backward kernel.
+
+    The forward is identical to the plain ``permute_and_pad``: append a
+    sentinel zero-row, gather with ``x[permuted_indices, :]``.  The default
+    PyTorch backward for that gather is ``indexing_backward_kernel`` which
+    uses atomic scatter.  Since ``permuted_indices`` is a bijection for
+    valid positions, we can replace the backward with the non-atomic
+    ``_triton_permute_bwd`` kernel for a significant speedup.
+    """
+
+    @staticmethod
+    def forward(
+        ctx,
+        x: torch.Tensor,
+        permuted_indices: torch.Tensor,
+    ) -> torch.Tensor:
+        x_padded = torch.vstack((x, x.new_zeros((1, x.shape[-1]))))
+        ctx.save_for_backward(permuted_indices)
+        ctx.padded_input_shape = x_padded.shape
+        return x_padded[permuted_indices, :]
+
+    @staticmethod
+    def backward(ctx, grad_output: torch.Tensor):
+        (permuted_indices,) = ctx.saved_tensors
+        input_rows, input_cols = ctx.padded_input_shape
+        grad_input = _triton_permute_bwd(
+            grad_output.contiguous(),
+            permuted_indices,
+            input_rows - 1,
+            input_cols,
+        )
+        return grad_input, None
+
+
 def permute_and_pad(
     x: torch.Tensor,
     num_tokens_per_expert: torch.Tensor,
@@ -201,11 +236,16 @@ def permute_and_pad(
             alignment,
         )
 
-    x = torch.vstack((x, x.new_zeros((1, x.shape[-1]))))
-    input_shape = x.shape
-    x = x[permuted_indices, :]
+    x_permuted = _PermuteBF16FwdBF16Bwd.apply(x, permuted_indices)
+    input_shape = (x.shape[0] + 1, x.shape[1])
 
-    return input_shape, x, permuted_indices, num_tokens_per_expert_padded, group_offsets
+    return (
+        input_shape,
+        x_permuted,
+        permuted_indices,
+        num_tokens_per_expert_padded,
+        group_offsets,
+    )
 
 
 @conditional_nostrict_trace
@@ -254,15 +294,15 @@ def _triton_permute_bwd(
     original_rows: int,
     original_cols: int,
 ) -> torch.Tensor:
-    """
-    Backward pass for BF16 permute operation.
+    """Scatter grad_output back to original token positions (permute backward).
 
     Args:
         grad_output: bf16 gradient tensor from upstream
-        permuted_indices: permutation indices used in the forward pass
-        original_shape: original shape of the input (with extra padding row)
+        permuted_indices: permutation indices from the forward pass (-1 for padding)
+        original_rows: number of rows in the output (sentinel row excluded)
+        original_cols: number of columns
     Returns:
-        grad_input: bf16 gradient tensor (unpermuted)
+        grad_input: bf16 gradient tensor of shape (original_rows, original_cols)
     """
     grad_rows, grad_cols = grad_output.shape
     output_buffer = grad_output.new_zeros((original_rows, original_cols))
@@ -313,7 +353,7 @@ def _triton_permute_bwd_kernel(
     grad_values = tl.load(
         grad_ptr + row_offsets[:, None] * grad_cols + col_offsets[None, :],
         mask=read_mask,
-        other=PADDING_VALUE,
+        other=0.0,
     )
 
     write_mask = (dest_rows[:, None] != PADDING_VALUE) & (
