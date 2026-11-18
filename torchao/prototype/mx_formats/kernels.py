@@ -199,6 +199,10 @@ if has_triton_package():
         scale_block_size: int = 32,
     ) -> torch.Tensor:
         assert scale_block_size == 32, "scale_block_size must be 32 for now"
+        assert e8m0_scales.dtype in (
+            torch.float8_e8m0fnu,
+            torch.uint8,
+        ), f"e8m0_scales must be float8_e8m0fnu or uint8, got {e8m0_scales.dtype}"
         assert out_dtype in (
             torch.bfloat16,
             torch.float32,
@@ -216,7 +220,7 @@ if has_triton_package():
         )
         wrap_triton(_dequant_mxfp8_kernel)[grid](
             e4m3_data,
-            e8m0_scales.to(torch.uint8),
+            e8m0_scales.view(torch.uint8),
             out_buffer,
             e4m3_data.size(0),
             e4m3_data.size(1),

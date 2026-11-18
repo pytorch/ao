@@ -59,7 +59,9 @@ from torchao.testing._mxfp8_test_utils import (
 )
 from torchao.utils import (
     is_cuda_version_at_least,
+    is_MI300,
     is_MI350,
+    is_sm_at_least_89,
     is_sm_at_least_100,
 )
 
@@ -562,25 +564,156 @@ def test_triton_mxfp8_dim0_zeros(scaling_mode):
 
 @pytest.mark.skipif(not has_triton(), reason="unsupported without triton")
 @pytest.mark.skipif(
-    not is_sm_at_least_100() and not is_MI350(),
-    reason="mxfp8 requires CUDA capability 10.0 or greater or ROCm gfx950 or greater.",
+    not is_sm_at_least_89() and not is_MI300() and not is_MI350(),
+    reason="float8 in triton requires CUDA capability 8.9+ or ROCm MI300+",
 )
 @pytest.mark.parametrize("M", (128, 256))
 @pytest.mark.parametrize("K", (128, 256))
 @pytest.mark.parametrize("orig_dtype", (torch.float32, torch.bfloat16))
-def test_triton_mxfp8_dequant_dim0(M, K, orig_dtype):
-    x = torch.zeros(M, K, dtype=orig_dtype, device="cuda")
+@pytest.mark.parametrize(
+    "scaling_mode", (ScaleCalculationMode.FLOOR, ScaleCalculationMode.RCEIL)
+)
+@pytest.mark.parametrize("scale_dtype", (torch.float8_e8m0fnu, torch.uint8))
+def test_triton_mxfp8_dequant_dim0(M, K, orig_dtype, scaling_mode, scale_dtype):
     block_size = 32
-    x_data, x_scales = triton_to_mxfp8_dim0_reference(x, block_size=32)
-    hp_ref = to_dtype(
-        x_data,
-        x_scales,
-        torch.float8_e4m3fn,
-        block_size,
-        orig_dtype,
+    for x in (
+        torch.zeros(M, K, dtype=orig_dtype, device="cuda"),
+        torch.randn(M, K, dtype=orig_dtype, device="cuda"),
+    ):
+        x_data, x_scales = triton_to_mxfp8_dim0_reference(
+            x, block_size=block_size, scaling_mode=scaling_mode
+        )
+        hp_ref = to_dtype(
+            x_data,
+            x_scales,
+            torch.float8_e4m3fn,
+            block_size,
+            orig_dtype,
+        )
+        scales_arg = (
+            x_scales
+            if scale_dtype == torch.float8_e8m0fnu
+            else x_scales.view(torch.uint8)
+        )
+        hp_t = triton_mxfp8_dequant_dim0(x_data, scales_arg, orig_dtype, block_size)
+        torch.testing.assert_close(hp_t, hp_ref, rtol=0, atol=0)
+
+
+@pytest.mark.skipif(not has_triton(), reason="unsupported without triton")
+@pytest.mark.skipif(
+    not is_sm_at_least_89() and not is_MI300() and not is_MI350(),
+    reason="float8 in triton requires CUDA capability 8.9+ or ROCm MI300+",
+)
+@pytest.mark.parametrize("out_dtype", (torch.bfloat16, torch.float32))
+@pytest.mark.parametrize(
+    "scaling_mode", (ScaleCalculationMode.FLOOR, ScaleCalculationMode.RCEIL)
+)
+def test_triton_mxfp8_dequant_dim0_e8m0_scale_ranges(out_dtype, scaling_mode):
+    block_size = 32
+    # Exact powers of two cover E8M0 scales < 1 (2^-5 = 0.03125, byte 122),
+    # == 1 (2^0 = 1.0, byte 127), > 1 (2^2 = 4.0, byte 129), and > 255 (byte 137).
+    for fill_val in (8.0, 448.0, 1792.0, 262144.0):
+        x = torch.full((128, 128), fill_val, dtype=torch.float32, device="cuda")
+        if fill_val <= 1792.0:
+            x = x.to(torch.bfloat16)
+        q, scales = triton_to_mxfp8_dim0_reference(
+            x, block_size=block_size, scaling_mode=scaling_mode
+        )
+        assert scales.dtype == torch.float8_e8m0fnu
+        expected = (q.float() * scales.float().repeat_interleave(32, dim=-1)).to(
+            out_dtype
+        )
+        actual_e8m0 = triton_mxfp8_dequant_dim0(q, scales, out_dtype, block_size)
+        actual_u8 = triton_mxfp8_dequant_dim0(
+            q, scales.view(torch.uint8), out_dtype, block_size
+        )
+        assert torch.equal(actual_e8m0, expected)
+        assert torch.equal(actual_u8, expected)
+
+    # Mixed tensor spanning < 1, == 1, and > 1 scales across blocks in one call
+    x_mixed = torch.randn(128, 128, dtype=torch.bfloat16, device="cuda")
+    block_multipliers = torch.tensor(
+        [0.01, 1.0, 448.0, 2048.0], dtype=torch.bfloat16, device="cuda"
+    ).repeat_interleave(block_size)
+    x_mixed = x_mixed * block_multipliers
+    q_mixed, scales_mixed = triton_to_mxfp8_dim0_reference(
+        x_mixed, block_size=block_size, scaling_mode=scaling_mode
     )
-    hp_t = triton_mxfp8_dequant_dim0(x_data, x_scales, orig_dtype, block_size)
-    torch.testing.assert_close(hp_t, hp_ref, rtol=0, atol=0)
+    expected_mixed = (
+        q_mixed.float() * scales_mixed.float().repeat_interleave(32, dim=-1)
+    ).to(out_dtype)
+    actual_mixed = triton_mxfp8_dequant_dim0(
+        q_mixed, scales_mixed, out_dtype, block_size
+    )
+    assert torch.equal(actual_mixed, expected_mixed)
+
+    with pytest.raises(AssertionError, match="float8_e8m0fnu or uint8"):
+        triton_mxfp8_dequant_dim0(q_mixed, scales_mixed.float(), out_dtype, block_size)
+
+
+@pytest.mark.skipif(not has_triton(), reason="unsupported without triton")
+@pytest.mark.skipif(
+    not is_sm_at_least_89() and not is_MI300() and not is_MI350(),
+    reason="float8 in triton requires CUDA capability 8.9+ or ROCm MI300+",
+)
+@pytest.mark.parametrize("out_dtype", (torch.bfloat16, torch.float32))
+@pytest.mark.parametrize("scale_dtype", (torch.float8_e8m0fnu, torch.uint8))
+def test_triton_mxfp8_dequant_dim0_compile(out_dtype, scale_dtype):
+    block_size = 32
+    x = torch.randn(128, 128, dtype=torch.bfloat16, device="cuda")
+    block_multipliers = torch.tensor(
+        [0.03125, 1.0, 16.0, 512.0], dtype=torch.bfloat16, device="cuda"
+    ).repeat_interleave(block_size)
+    x = x * block_multipliers
+    q, scales = triton_to_mxfp8_dim0_reference(
+        x, block_size=block_size, scaling_mode=ScaleCalculationMode.RCEIL
+    )
+    scales_arg = (
+        scales if scale_dtype == torch.float8_e8m0fnu else scales.view(torch.uint8)
+    )
+
+    def fn(data, s):
+        return triton_mxfp8_dequant_dim0(data, s, out_dtype, block_size)
+
+    compiled_fn = torch.compile(fn, fullgraph=True)
+    try:
+        actual = compiled_fn(q, scales_arg)
+    finally:
+        torch._dynamo.reset()
+    expected = (q.float() * scales.float().repeat_interleave(32, dim=-1)).to(out_dtype)
+    assert torch.equal(actual, expected)
+
+
+@pytest.mark.skipif(not has_triton(), reason="unsupported without triton")
+@pytest.mark.skipif(
+    not is_sm_at_least_100() and not is_MI350(),
+    reason="mxfp8 requires CUDA capability 10.0 or greater or ROCm gfx950 or greater.",
+)
+@pytest.mark.parametrize("out_dtype", (torch.bfloat16, torch.float32))
+@pytest.mark.parametrize(
+    "scaling_mode", (ScaleCalculationMode.FLOOR, ScaleCalculationMode.RCEIL)
+)
+def test_triton_to_mxfp8_dim0_dequant_roundtrip(out_dtype, scaling_mode):
+    block_size = 32
+    for x in (
+        torch.full((128, 128), 8.0, dtype=torch.bfloat16, device="cuda"),
+        torch.full((128, 128), 448.0, dtype=torch.bfloat16, device="cuda"),
+        torch.full((128, 128), 1792.0, dtype=torch.bfloat16, device="cuda"),
+        torch.randn(128, 256, dtype=torch.bfloat16, device="cuda"),
+    ):
+        q, scales = triton_to_mxfp8_dim0(
+            x, inner_block_size=block_size, scaling_mode=scaling_mode.value.lower()
+        )
+        assert scales.dtype == torch.float8_e8m0fnu
+        actual_e8m0 = triton_mxfp8_dequant_dim0(q, scales, out_dtype, block_size)
+        actual_u8 = triton_mxfp8_dequant_dim0(
+            q, scales.view(torch.uint8), out_dtype, block_size
+        )
+        expected = (q.float() * scales.float().repeat_interleave(32, dim=-1)).to(
+            out_dtype
+        )
+        assert torch.equal(actual_e8m0, expected)
+        assert torch.equal(actual_u8, expected)
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
