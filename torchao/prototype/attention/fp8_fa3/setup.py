@@ -8,20 +8,16 @@
 
 import torch.nn as nn
 
-from torchao.prototype.attention.config import LowPrecisionAttentionConfig
 from torchao.prototype.attention.shared_utils.setup import setup_fp8_backend
 
 
 def setup_fp8_fa3(
     model: nn.Module,
-    config: LowPrecisionAttentionConfig,
+    hadamard: str = "NONE",
 ) -> nn.Module:
     """Set up FP8 FA3 attention on *model* and wrap it."""
-    from torchao.prototype.attention.fp8_fa3.attention import fp8_fa3_sdpa
-
     return setup_fp8_backend(
         model,
-        config,
         flash_impl_name="FA3",
-        sdpa_fn=fp8_fa3_sdpa,
+        hadamard=hadamard,
     )
