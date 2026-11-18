@@ -8,9 +8,14 @@ from typing import Optional
 import torch
 import torch.nn.functional as F
 
+from torchao.quantization.quant_primitives import (
+    _DTYPE_TO_QVALUE_BOUNDS,
+    MappingType,
+)
 from torchao.quantization.quantize_.common import (
     _choose_quant_func_and_quantize_tensor,
 )
+from torchao.quantization.quantize_.workflows import QuantizeTensorToInt8Kwargs
 
 
 class SmoothQuantObserver(torch.nn.Module):
@@ -151,6 +156,7 @@ class RunningAbsMaxSmoothQuantObserver(torch.nn.Module):
         # Running min/max for first pass (fallback when no second pass)
         self._first_pass_min: Optional[torch.Tensor] = None
         self._first_pass_max: Optional[torch.Tensor] = None
+        self.input_ndim: Optional[int] = None
 
         # Second pass state: collect smoothed activation stats
         self._smoothing_factor: Optional[torch.Tensor] = None
@@ -161,6 +167,7 @@ class RunningAbsMaxSmoothQuantObserver(torch.nn.Module):
 
     @torch.no_grad()
     def forward(self, input: torch.Tensor):
+        self.input_ndim = input.ndim
         flat = input.view(-1, input.shape[-1]) if input.ndim > 2 else input
 
         if not self._in_second_pass:
@@ -284,25 +291,46 @@ class RunningAbsMaxSmoothQuantObserver(torch.nn.Module):
             smooth_max = self._smooth_input_max.to(self.device)
 
             # Determine quantization parameters from weight_quant_kwargs
-            qmin = weight_quant_kwargs.get("quant_min", -128)
-            qmax = weight_quant_kwargs.get("quant_max", 127)
-            is_symmetric = weight_quant_kwargs.get(
-                "is_symmetric",
-                weight_quant_kwargs.get("qscheme", None)
-                in (torch.per_tensor_symmetric, torch.per_channel_symmetric),
-            )
+            if isinstance(weight_quant_kwargs, QuantizeTensorToInt8Kwargs):
+                reduce_range = getattr(weight_quant_kwargs, "reduce_range", False)
+                mapping_type = getattr(
+                    weight_quant_kwargs, "mapping_type", MappingType.SYMMETRIC
+                )
+                qmin, qmax = _DTYPE_TO_QVALUE_BOUNDS[torch.int8]
+                if reduce_range:
+                    qmin, qmax = qmin // 2, qmax // 2
+                is_symmetric = mapping_type in (
+                    MappingType.SYMMETRIC,
+                    MappingType.SYMMETRIC_NO_CLIPPING_ERR,
+                )
+            elif isinstance(weight_quant_kwargs, dict):
+                qmin = weight_quant_kwargs.get("quant_min", -128)
+                qmax = weight_quant_kwargs.get("quant_max", 127)
+                is_symmetric = weight_quant_kwargs.get(
+                    "is_symmetric",
+                    weight_quant_kwargs.get("qscheme", None)
+                    in (torch.per_tensor_symmetric, torch.per_channel_symmetric),
+                )
+            else:
+                qmin, qmax = _DTYPE_TO_QVALUE_BOUNDS[torch.int8]
+                is_symmetric = True
 
             if is_symmetric:
                 # Symmetric quantization: scale based on max abs value
                 abs_max = torch.max(torch.abs(smooth_min), torch.abs(smooth_max))
                 scale = abs_max / ((qmax - qmin) / 2)
                 scale = torch.clamp(scale, min=torch.finfo(torch.float32).eps)
-                zero_point = torch.zeros(1, dtype=torch.int64, device=self.device)
+                zero_point = torch.zeros(1, dtype=torch.int8, device=self.device)
             else:
                 # Affine quantization: scale based on range
                 scale = (smooth_max - smooth_min) / (qmax - qmin)
                 scale = torch.clamp(scale, min=torch.finfo(torch.float32).eps)
-                zero_point = torch.round(qmin - smooth_min / scale).to(torch.int64)
+                zero_point = torch.round(qmin - smooth_min / scale).to(torch.int8)
+
+            ndim = self.input_ndim if self.input_ndim is not None else 2
+            scale = scale.reshape([1] * ndim)
+            if zero_point is not None:
+                zero_point = zero_point.reshape([1] * ndim)
 
             return smoothing_factor, scale, zero_point
         else:
