@@ -426,6 +426,14 @@ class TestQuantFlow(TestCase):
             assert param.device.type == device.type
         self.assertLess(memory_streaming, memory_baseline)
 
+    def test_int4_weight_only_raises_when_in_features_not_divisible_by_group_size(self):
+        linear = torch.nn.Linear(100, 64, bias=False)
+        with self.assertRaisesRegex(
+            ValueError,
+            r"in_features=100 must be divisible by group_size=128",
+        ):
+            quantize_(linear, Int4WeightOnlyConfig(group_size=128))
+
     # TODO(#1690): move to new config names
     @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
     @common_utils.parametrize(
