@@ -8,10 +8,10 @@ PyTorch 2 Export Quantization with X86 Backend through Inductor
 Prerequisites
 ---------------
 
-- `PyTorch 2 Export Post Training Quantization <https://docs.pytorch.org/ao/stable/tutorial_source/pt2e_quant_ptq.html>`_
+- `PyTorch 2 Export Post Training Quantization <https://docs.pytorch.org/ao/stable/pt2e_quantization/pt2e_quant_ptq.html>`_
 - `PyTorch 2 Export Quantization Aware Training <ttps://docs.pytorch.org/ao/stable/tutorial_source/pt2e_quant_qat.html>`_
 -  `TorchInductor and torch.compile concepts in PyTorch <https://pytorch.org/tutorials/intermediate/torch_compile_tutorial.html>`_
--  `Inductor C++ Wrapper concepts <https://pytorch.org/tutorials/prototype/inductor_cpp_wrapper_tutorial.html>`_
+-  `Inductor C++ Wrapper concepts <https://docs.pytorch.org/tutorials/unstable/inductor_cpp_wrapper_tutorial.html>`_
 
 Introduction
 --------------
@@ -176,7 +176,7 @@ generates Python code to invoke both generated kernels and external kernels. Add
 C++ wrapper that generates pure C++ code. This allows seamless integration of the generated and external kernels,
 effectively reducing Python overhead. In the future, leveraging the C++ wrapper, we can extend the capability
 to achieve pure C++ deployment. For more comprehensive details about C++ Wrapper in general, please refer to the
-dedicated tutorial on `Inductor C++ Wrapper Tutorial <https://pytorch.org/tutorials/prototype/inductor_cpp_wrapper_tutorial.html>`_.
+dedicated tutorial on `Inductor C++ Wrapper Tutorial <https://docs.pytorch.org/tutorials/unstable/inductor_cpp_wrapper_tutorial.html>`_.
 
 ::
 

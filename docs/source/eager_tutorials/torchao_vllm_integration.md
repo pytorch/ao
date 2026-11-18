@@ -154,7 +154,7 @@ def _apply_fn_to_data(self, fn: Callable):
 ### 1. Create Your Tensor Subclass
 
 ```{note}
-For more details on tensor subclasses and their design principles, please refer to the [What are Tensor Subclasses?](https://docs.pytorch.org/ao/stable/subclass_basic.html#what-are-tensor-subclasses) documentation.
+For more details on tensor subclasses and their design principles, please refer to the [What are Tensor Subclasses?](https://docs.pytorch.org/ao/stable/eager_tutorials/subclass_basic.html#what-are-tensor-subclasses) documentation.
 ```
 
 ```python
