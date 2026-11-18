@@ -164,6 +164,13 @@ def get_available_devices():
         devices.append("xpu")
     if torch.mps.is_available():
         devices.append("mps")
+    # Anything else registered as the current accelerator (NPU, MLU, ...) has no
+    # dedicated branch above, so without this the list stays ["cpu"] and callers
+    # that parametrize over it silently skip the accelerator entirely.
+    if torch.accelerator.is_available():
+        accelerator_type = torch.accelerator.current_accelerator().type
+        if accelerator_type not in devices:
+            devices.append(accelerator_type)
     return devices
 
 
