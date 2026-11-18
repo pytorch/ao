@@ -187,4 +187,18 @@ pack<7>(const uint8_t* w_ptr, uint8_t* b_ptr, int32_t N, int32_t K) {
   }
 }
 
+/**
+ * 8-bit packing. Each weight is a full byte, so packing is a direct copy.
+ */
+template <>
+inline void
+pack<8>(const uint8_t* w_ptr, uint8_t* b_ptr, int32_t N, int32_t K) {
+  for (int32_t n = 0; n < N; n++) {
+    int32_t row_base = n * K;
+    for (int32_t k = 0; k < K; k++) {
+      b_ptr[row_base + k] = w_ptr[n * K + k];
+    }
+  }
+}
+
 } // namespace torchao::kernels::mps::lowbit::packing
