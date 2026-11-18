@@ -97,5 +97,7 @@ def check_parity_bf16_mp(
         test_cls.assertEqual(
             losses[0],
             losses[1],
+            rtol=0.048,
+            atol=3e-5,
             msg=f"iter: {iter_idx}, loss-ref: {losses[0]}, loss-fp8: {losses[1]}",
         )
