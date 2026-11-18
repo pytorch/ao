@@ -4,6 +4,7 @@
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
 import unittest
+import warnings
 from copy import deepcopy
 
 import torch
@@ -126,11 +127,17 @@ class TestSmoothQuant(unittest.TestCase):
 
         # Step 2. SmoothQuant
         model = deepcopy(m)
-        config = SmoothQuantConfig(
-            base_config=base_config,
-            step=QuantizationStep.PREPARE,
-            alpha=alpha,
+        use_running_absmax = not isinstance(
+            base_config, Int8StaticActivationInt8WeightConfig
         )
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", UserWarning)
+            config = SmoothQuantConfig(
+                base_config=base_config,
+                step=QuantizationStep.PREPARE,
+                alpha=alpha,
+                use_running_absmax=use_running_absmax,
+            )
         quantize_(model, config)
 
         # Perform calibration with test data
@@ -731,5 +738,82 @@ class SmoothQuantObserverTest(unittest.TestCase):
         self.assertIsNotNone(running_zp)
 
 
+
+class SmoothQuantConfigTest(unittest.TestCase):
+    """Tests for SmoothQuantConfig options and defaults."""
+
+    def test_default_use_running_absmax(self):
+        """SmoothQuantConfig should default to use_running_absmax=True without warning."""
+        with warnings.catch_warnings(record=True) as recorded_warnings:
+            warnings.simplefilter("always")
+            config = SmoothQuantConfig(
+                base_config=Int8DynamicActivationInt8WeightConfig(),
+                step=QuantizationStep.PREPARE,
+            )
+            self.assertTrue(config.use_running_absmax)
+            user_warnings = [
+                w for w in recorded_warnings if issubclass(w.category, UserWarning)
+            ]
+            self.assertEqual(len(user_warnings), 0)
+
+    def test_warning_when_use_running_absmax_false(self):
+        """Setting use_running_absmax=False should emit a UserWarning."""
+        with warnings.catch_warnings(record=True) as recorded_warnings:
+            warnings.simplefilter("always")
+            config = SmoothQuantConfig(
+                base_config=Int8DynamicActivationInt8WeightConfig(),
+                step=QuantizationStep.PREPARE,
+                use_running_absmax=False,
+            )
+            self.assertFalse(config.use_running_absmax)
+            user_warnings = [
+                w for w in recorded_warnings if issubclass(w.category, UserWarning)
+            ]
+            self.assertTrue(
+                any("use_running_absmax=False" in str(w.message) for w in user_warnings)
+            )
+
+    def test_no_warning_when_use_running_absmax_true(self):
+        """Explicitly setting use_running_absmax=True should not emit a warning."""
+        with warnings.catch_warnings(record=True) as recorded_warnings:
+            warnings.simplefilter("always")
+            config = SmoothQuantConfig(
+                base_config=Int8DynamicActivationInt8WeightConfig(),
+                step=QuantizationStep.PREPARE,
+                use_running_absmax=True,
+            )
+            self.assertTrue(config.use_running_absmax)
+            user_warnings = [
+                w for w in recorded_warnings if issubclass(w.category, UserWarning)
+            ]
+            self.assertEqual(len(user_warnings), 0)
+
+    def test_default_config_uses_running_absmax_observer(self):
+        """Quantizing with default SmoothQuantConfig should insert RunningAbsMaxSmoothQuantObserver."""
+        m = torch.nn.Sequential(torch.nn.Linear(16, 16))
+        config = SmoothQuantConfig(
+            base_config=Int8DynamicActivationInt8WeightConfig(),
+            step=QuantizationStep.PREPARE,
+        )
+        quantize_(m, config)
+        self.assertIsInstance(m[0], SmoothQuantObservedLinear)
+        self.assertIsInstance(m[0].obs, RunningAbsMaxSmoothQuantObserver)
+
+    def test_config_use_running_absmax_false_uses_legacy_observer(self):
+        """Quantizing with use_running_absmax=False should insert legacy SmoothQuantObserver."""
+        m = torch.nn.Sequential(torch.nn.Linear(16, 16))
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", UserWarning)
+            config = SmoothQuantConfig(
+                base_config=Int8DynamicActivationInt8WeightConfig(),
+                step=QuantizationStep.PREPARE,
+                use_running_absmax=False,
+            )
+        quantize_(m, config)
+        self.assertIsInstance(m[0], SmoothQuantObservedLinear)
+        self.assertIsInstance(m[0].obs, SmoothQuantObserver)
+
+
 if __name__ == "__main__":
     unittest.main()
+
