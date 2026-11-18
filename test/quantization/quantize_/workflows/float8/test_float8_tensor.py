@@ -829,6 +829,33 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
         sqnr = compute_error(res, res_ref)
         self.assertTrue(sqnr > 15, f"sqnr: {sqnr}")
 
+    @common_utils.parametrize(
+        "start,end", [(None, -32), (-32, None), (-96, -32), (-1000, None)]
+    )
+    def test_slice_negative_indices(self, start, end):
+        """Negative slice indices must produce the same Float8Tensor as the
+        equivalent non-negative indices, including along the per-row blocked
+        dim (where a negative `end` used to empty the scale)."""
+        config = Float8DynamicActivationFloat8WeightConfig(granularity=PerRow())
+        device = get_current_accelerator_device()
+        linear = torch.nn.Linear(
+            128, 64, bias=False, dtype=torch.bfloat16, device=device
+        )
+        quantize_(linear, config)
+        weight = linear.weight
+
+        for dim in (0, 1):
+            pos_start, pos_end, _ = slice(start, end).indices(weight.shape[dim])
+            # Float8Tensor's slice handler expects an int `end` (Python slicing
+            # always passes one), so spell out the open end explicitly.
+            neg_end = end if end is not None else weight.shape[dim]
+            sliced = torch.ops.aten.slice.Tensor(weight, dim, start, neg_end)
+            expected = torch.ops.aten.slice.Tensor(weight, dim, pos_start, pos_end)
+
+            self.assertEqual(sliced.qdata, expected.qdata)
+            self.assertEqual(sliced.scale, expected.scale)
+            self.assertEqual(sliced.dequantize(), expected.dequantize())
+
     @common_utils.parametrize("granularity", [PerTensor(), PerRow()])
     # Inputs are (M,..), K, N
     @common_utils.parametrize(
