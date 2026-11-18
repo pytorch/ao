@@ -4,9 +4,15 @@
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
 
+import os
+import subprocess
+import sys
+import textwrap
+
 import pytest
 import torch
 
+import torchao
 from torchao.utils import is_cuda_version_at_least, is_sm_at_least_100
 
 if not (
@@ -102,3 +108,70 @@ def test_triton_permute_bwd(
         atol=0,
         msg="Triton permute backward kernel output does not match PyTorch reference",
     )
+
+
+def _run_in_child(code: str, timeout: int = 120) -> subprocess.CompletedProcess:
+    """Run `code` in a fresh Python process that imports this same torchao.
+
+    Kernels with bad addressing can fault or hang instead of returning wrong
+    values, and either would take down the pytest process.
+    """
+    torchao_root = os.path.dirname(os.path.dirname(torchao.__file__))
+    env = dict(os.environ)
+    env["PYTHONPATH"] = os.pathsep.join(
+        p for p in (torchao_root, env.get("PYTHONPATH")) if p
+    )
+    try:
+        return subprocess.run(
+            [sys.executable, "-c", code],
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            env=env,
+        )
+    except subprocess.TimeoutExpired:
+        pytest.fail(f"child process hung for more than {timeout} s")
+
+
+_ADDRESS_PAST_INT32_CHILD = textwrap.dedent(
+    """
+    import torch
+    from torchao.prototype.moe_training.ep.permute import _triton_permute_bwd
+
+    cols = 1024
+    big = 2**31 // cols + 1024  # big * cols > 2**31
+    n = 4096
+
+    # Store side: scatter a small gradient to the last n rows of a big output.
+    # These rows straddle the 2**31-element boundary; the last 1024 start past it.
+    idx = torch.arange(big - n, big, device="cuda", dtype=torch.int32)
+    grad = torch.randn(n, cols, device="cuda", dtype=torch.bfloat16)
+    out = _triton_permute_bwd(grad, idx, big, cols)
+    torch.cuda.synchronize()
+    assert torch.equal(out[big - n :], grad), "store past 2**31 elements is wrong"
+    assert not out[: big - n].any(), "store wrote into rows it should not touch"
+    del idx, grad, out
+    torch.cuda.empty_cache()
+
+    # Load side: a big gradient whose last n rows scatter into a small output.
+    idx = torch.full((big,), -1, device="cuda", dtype=torch.int32)
+    idx[big - n :] = torch.arange(n, device="cuda", dtype=torch.int32)
+    grad = torch.zeros(big, cols, device="cuda", dtype=torch.bfloat16)
+    grad[big - n :] = torch.randn(n, cols, device="cuda", dtype=torch.bfloat16)
+    out = _triton_permute_bwd(grad, idx, n, cols)
+    torch.cuda.synchronize()
+    assert torch.equal(out, grad[big - n :]), "load past 2**31 elements is wrong"
+    """
+)
+
+
+def test_triton_permute_bwd_addresses_past_int32():
+    """Kernel addresses must not overflow int32 once rows * cols >= 2**31.
+
+    Covers both the gradient load and the scatter store.
+    """
+    free, _ = torch.cuda.mem_get_info()
+    if free < 6 * 2**30:
+        pytest.skip("needs ~6 GiB of free GPU memory")
+    proc = _run_in_child(_ADDRESS_PAST_INT32_CHILD)
+    assert proc.returncode == 0, proc.stderr[-2000:]
