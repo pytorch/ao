@@ -223,9 +223,9 @@ def triton_fp8_gemm_1x128_128x128_kernel(
     pid_m = tl.program_id(axis=0)
     pid_n = tl.program_id(axis=1)
 
-    offs_m = pid_m * BLOCK_SIZE_M + tl.arange(0, BLOCK_SIZE_M)
-    offs_n = pid_n * BLOCK_SIZE_N + tl.arange(0, BLOCK_SIZE_N)
-    offs_k = tl.arange(0, BLOCK_SIZE_K)
+    offs_m = (pid_m * BLOCK_SIZE_M + tl.arange(0, BLOCK_SIZE_M)).to(tl.int64)
+    offs_n = (pid_n * BLOCK_SIZE_N + tl.arange(0, BLOCK_SIZE_N)).to(tl.int64)
+    offs_k = tl.arange(0, BLOCK_SIZE_K).to(tl.int64)
 
     a_ptrs = a_ptr + (
         offs_m[:, None] * a_stride_dim_0 + offs_k[None, :] * a_stride_dim_1
@@ -341,9 +341,9 @@ def triton_fp8_gemm_1x128_128x1_kernel(
     pid_m = tl.program_id(axis=0)
     pid_n = tl.program_id(axis=1)
 
-    offs_m = pid_m * BLOCK_SIZE_M + tl.arange(0, BLOCK_SIZE_M)
-    offs_n = pid_n * BLOCK_SIZE_N + tl.arange(0, BLOCK_SIZE_N)
-    offs_k = tl.arange(0, BLOCK_SIZE_K)
+    offs_m = (pid_m * BLOCK_SIZE_M + tl.arange(0, BLOCK_SIZE_M)).to(tl.int64)
+    offs_n = (pid_n * BLOCK_SIZE_N + tl.arange(0, BLOCK_SIZE_N)).to(tl.int64)
+    offs_k = tl.arange(0, BLOCK_SIZE_K).to(tl.int64)
 
     a_ptrs = a_ptr + (
         offs_m[:, None] * a_stride_dim_0 + offs_k[None, :] * a_stride_dim_1
@@ -499,8 +499,8 @@ def triton_fp8_blockwise_act_quant_lhs_kernel(
     pid_k = tl.program_id(axis=1)
 
     # Load (num_groups x block_size) tile of x, where input is row major
-    m_offs = pid_m * NUM_GROUPS + tl.arange(0, NUM_GROUPS)
-    k_offs = pid_k * BLOCK_SIZE + tl.arange(0, BLOCK_SIZE)
+    m_offs = (pid_m * NUM_GROUPS + tl.arange(0, NUM_GROUPS)).to(tl.int64)
+    k_offs = (pid_k * BLOCK_SIZE + tl.arange(0, BLOCK_SIZE)).to(tl.int64)
     x_offs = m_offs[:, None] * x_stride_dim_0 + k_offs[None, :] * x_stride_dim_1
     x_mask = (m_offs[:, None] < M) & (k_offs[None, :] < K)
     x = tl.load(x_ptr + x_offs, mask=x_mask, other=0.0)
@@ -517,7 +517,7 @@ def triton_fp8_blockwise_act_quant_lhs_kernel(
     tl.store(y_ptr + y_offs, y, mask=y_mask)
 
     # Write reciprocal scales
-    scale_offs = m_offs[:, None] * s_stride_dim_0 + pid_k * s_stride_dim_1
+    scale_offs = m_offs[:, None] * s_stride_dim_0 + pid_k.to(tl.int64) * s_stride_dim_1
     scale_mask = m_offs[:, None] < M
     tl.store(s_ptr + scale_offs, tl.div_rn(1.0, scale), mask=scale_mask)
 
@@ -594,8 +594,8 @@ def triton_fp8_blockwise_act_quant_rhs_kernel(
     # Load (block_size x block_size) tile of x, where input is row major.
     # Each scaling group is (block_size x 1), but we load (block_size x block_size)
     # to facilitate coalesced gmem accesses and improve efficiency.
-    m_offs = pid_m * BLOCK_SIZE + tl.arange(0, BLOCK_SIZE)
-    k_offs = pid_k * NUM_GROUPS + tl.arange(0, NUM_GROUPS)
+    m_offs = (pid_m * BLOCK_SIZE + tl.arange(0, BLOCK_SIZE)).to(tl.int64)
+    k_offs = (pid_k * NUM_GROUPS + tl.arange(0, NUM_GROUPS)).to(tl.int64)
     x_offs = m_offs[:, None] * x_stride_dim_0 + k_offs[None, :] * x_stride_dim_1
     x_mask = (m_offs[:, None] < M) & (k_offs[None, :] < K)
     x = tl.load(x_ptr + x_offs, mask=x_mask, other=0.0)
@@ -612,7 +612,7 @@ def triton_fp8_blockwise_act_quant_rhs_kernel(
     tl.store(y_ptr + y_offs, y, mask=y_mask)
 
     # Write scales
-    scale_offs = pid_m * s_stride_dim_0 + k_offs[None, :] * s_stride_dim_1
+    scale_offs = pid_m.to(tl.int64) * s_stride_dim_0 + k_offs[None, :] * s_stride_dim_1
     scale_mask = k_offs[None, :] < K
     tl.store(s_ptr + scale_offs, tl.div_rn(1.0, scale), mask=scale_mask)
 
@@ -692,8 +692,8 @@ def triton_fp8_blockwise_act_quant_transposed_lhs_kernel(
     # We will be computing (block_size x 1) scaling factors (columns), and computing
     # `num_groups` at a time, so we aren't parallelizing with 1 thread per column,
     # which will fail to launch for large tensors, due to max block number of 65535.
-    m_offs = pid_m * BLOCK_SIZE + tl.arange(0, BLOCK_SIZE)
-    k_offs = pid_k * NUM_GROUPS + tl.arange(0, NUM_GROUPS)
+    m_offs = (pid_m * BLOCK_SIZE + tl.arange(0, BLOCK_SIZE)).to(tl.int64)
+    k_offs = (pid_k * NUM_GROUPS + tl.arange(0, NUM_GROUPS)).to(tl.int64)
     x_offs = m_offs[:, None] * x_stride_dim_0 + k_offs[None, :] * x_stride_dim_1
     x_mask = (m_offs[:, None] < M) & (k_offs[None, :] < K)
     x = tl.load(x_ptr + x_offs, mask=x_mask)
@@ -710,7 +710,7 @@ def triton_fp8_blockwise_act_quant_transposed_lhs_kernel(
     tl.store(y_ptr + y_offs, y.trans(1, 0), mask=y_mask)
 
     # Scales are one per column (block_size x 1).
-    scale_m_off = pid_m
+    scale_m_off = pid_m.to(tl.int64)
     scale_k_offs = k_offs
 
     # Scale tensor size is (K, M // SCALE_BLOCK_SIZE)
@@ -789,8 +789,8 @@ def triton_fp8_blockwise_weight_quant_rhs_kernel(
     pid_m = tl.program_id(axis=0)
     pid_n = tl.program_id(axis=1)
 
-    offs_m = pid_m * BLOCK_SIZE + tl.arange(0, BLOCK_SIZE)
-    offs_n = pid_n * BLOCK_SIZE + tl.arange(0, BLOCK_SIZE)
+    offs_m = (pid_m * BLOCK_SIZE + tl.arange(0, BLOCK_SIZE)).to(tl.int64)
+    offs_n = (pid_n * BLOCK_SIZE + tl.arange(0, BLOCK_SIZE)).to(tl.int64)
 
     # Load (block_size x block_size) block of x, where input is row major
     x_offs = offs_m[:, None] * x_stride_dim_0 + offs_n[None, :] * x_stride_dim_1
@@ -808,8 +808,8 @@ def triton_fp8_blockwise_weight_quant_rhs_kernel(
     tl.store(y_ptr + y_offs, y, mask=y_mask)
 
     # Write reciprocal scale (scalar value)
-    scale_m_off = pid_m * s_stride_dim_0
-    scale_n_off = pid_n * s_stride_dim_1
+    scale_m_off = pid_m.to(tl.int64) * s_stride_dim_0
+    scale_n_off = pid_n.to(tl.int64) * s_stride_dim_1
     tl.store(s_ptr + scale_m_off + scale_n_off, tl.div_rn(1.0, scale))
 
 
@@ -893,8 +893,8 @@ def triton_fp8_blockwise_weight_quant_transposed_rhs_kernel(
     pid_n = tl.program_id(axis=1)
 
     # Load (block_size x block_size) block of input, where input is row major
-    m_offs = pid_m * BLOCK_SIZE + tl.arange(0, BLOCK_SIZE)
-    n_offs = pid_n * BLOCK_SIZE + tl.arange(0, BLOCK_SIZE)
+    m_offs = (pid_m * BLOCK_SIZE + tl.arange(0, BLOCK_SIZE)).to(tl.int64)
+    n_offs = (pid_n * BLOCK_SIZE + tl.arange(0, BLOCK_SIZE)).to(tl.int64)
     x_offs = m_offs[:, None] * x_stride_dim_0 + n_offs[None, :] * x_stride_dim_1
     x_mask = (m_offs[:, None] < M) & (n_offs[None, :] < N)
     x = tl.load(x_ptr + x_offs, mask=x_mask).to(tl.float32)
@@ -910,8 +910,8 @@ def triton_fp8_blockwise_weight_quant_transposed_rhs_kernel(
     tl.store(y_ptr + y_offs, y.trans(1, 0), mask=y_mask)
 
     # Write reciprocal scales
-    scale_m = pid_m
-    scale_k = pid_n
+    scale_m = pid_m.to(tl.int64)
+    scale_k = pid_n.to(tl.int64)
     scale_offs = scale_k * s_stride_dim_0 + scale_m * s_stride_dim_1
     scale_mask = (scale_k < N // BLOCK_SIZE) & (scale_m < M // BLOCK_SIZE)
     tl.store(s_ptr + scale_offs, tl.div_rn(1.0, scale), mask=scale_mask)
