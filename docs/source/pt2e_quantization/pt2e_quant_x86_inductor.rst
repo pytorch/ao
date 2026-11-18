@@ -199,6 +199,15 @@ subsequent pointwise operators, effectively minimizing memory usage and potentia
 The utilization of this feature mirrors that of regular BFloat16 Autocast, as simple as wrapping the
 script within the BFloat16 Autocast context.
 
+.. note::
+
+   Under autocast, activation dequantization may specify
+   ``out_dtype=torch.bfloat16`` instead of using a separate dtype conversion.
+   Inductor patterns must explicitly declare this keyword: newer PyTorch
+   matchers reject undeclared, non-default keyword arguments. Supporting only
+   the optional conversion node is not sufficient for quantized Linear or
+   the prototype quantized SDPA fusion to match this graph.
+
 ::
 
     with torch.autocast(device_type="cpu", dtype=torch.bfloat16, enabled=True), torch.no_grad():
