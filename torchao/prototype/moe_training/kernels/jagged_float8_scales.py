@@ -51,17 +51,18 @@ if has_triton_package():
     ]
     kernel_configs_2D_dual = kernel_configs_2D
 
+    _FUSED_GROUP_SIZES = (256, 512, 1024, 2048)
+
     # Fused single-pass kernel configs: MAX_GROUP_SIZE (passed as constexpr)
     # determines the tile height so all rows are loaded at once.
     # Only BLOCK_SIZE and num_warps are autotuned.
     kernel_configs_fused = [
         triton.Config(
-            {"BLOCK_SIZE": block_size, "MAX_GROUP_SIZE": max_gs},
+            {"BLOCK_SIZE": block_size},
             num_warps=warps,
             num_stages=1,
         )
         for block_size in [32, 64]
-        for max_gs in [256, 512, 1024, 2048]
         for warps in [8]
     ]
 
@@ -303,34 +304,45 @@ if has_triton_package():
             (n * n_groups), dtype=torch.float32, device=hp_tensor.device
         )
 
+        if n_groups == 0 or n == 0:
+            return output_buffer, scales_buffer
+
         # parallelize across columns and groups (offsets)
         grid = lambda meta: (
             triton.cdiv(n, meta["BLOCK_SIZE"]),
             offsets.numel(),
         )
 
-        # Compute max group size to decide which kernel to use.
-        # For uniform groups: max_group_size = k / n_groups.
-        # For jagged groups: need the max of consecutive offset diffs.
-        max_group_size = (k + n_groups - 1) // n_groups
+        # Compute max group size from consecutive offset differences to decide
+        # whether the fused single-pass kernel can cover every group.
+        # Avoid host synchronization during CUDA stream capture (e.g. CUDA graphs),
+        # where dynamic offset values may also vary across graph replays.
+        is_capturing = offsets.is_cuda and torch.cuda.is_current_stream_capturing()
+        if is_capturing:
+            bsi = None
+        else:
+            flat_offsets = offsets.reshape(-1)
+            if n_groups == 1:
+                max_group_size = int(flat_offsets[0].item())
+            else:
+                max_group_size = int(
+                    torch.maximum(
+                        flat_offsets[0],
+                        (flat_offsets[1:] - flat_offsets[:-1]).max(),
+                    ).item()
+                )
+            if 0 < max_group_size <= _FUSED_GROUP_SIZES[-1]:
+                bsi = 1 << (max_group_size - 1).bit_length()
+            else:
+                bsi = None
 
         # Use fused single-pass kernel when the max group size fits in
-        # the largest BLOCK_SIZE_ITER (2048). The fused kernel loads all
+        # the largest MAX_GROUP_SIZE (2048). The fused kernel loads all
         # rows for a group in one shot, keeping data in registers for
         # both amax and scaling, reducing HBM traffic from 5 to 3 B/elem.
         # Round up to next power of 2 for the constexpr tile size.
-        # Fused kernel config has MAX_GROUP_SIZE in [256, 512, 1024, 2048].
-        # Use fused only when rounded-up group size matches a config.
-        _FUSED_GROUP_SIZES = {c.kwargs["MAX_GROUP_SIZE"] for c in kernel_configs_fused}
-        bsi = 1
-        while bsi < max_group_size:
-            bsi *= 2
+        # Fused kernel config supports MAX_GROUP_SIZE in (256, 512, 1024, 2048).
         if bsi in _FUSED_GROUP_SIZES:
-            # Filter configs to only the matching MAX_GROUP_SIZE
-            valid_configs = [
-                c for c in kernel_configs_fused if c.kwargs["MAX_GROUP_SIZE"] == bsi
-            ]
-            _triton_fp8_per_group_colwise_scales_fused_kernel.configs = valid_configs
             _triton_fp8_per_group_colwise_scales_fused_kernel[grid](
                 hp_tensor,
                 offsets,
@@ -347,8 +359,33 @@ if has_triton_package():
                 tl_output_dtype,
                 round_scales_to_power_of_2,
                 EPS=EPS,
+                MAX_GROUP_SIZE=bsi,
                 STRIDE_OUTPUT_ROW=1,
                 STRIDE_INPUT_COL=hp_tensor.stride(1),
+            )
+        elif is_capturing:
+            # Triton's autotuner synchronizes the device on a cache miss, which is
+            # forbidden during CUDA stream capture. Launch with a fixed config.
+            default_cfg = kernel_configs_2D[0]
+            _triton_fp8_per_group_colwise_scales_kernel.fn[grid](
+                hp_tensor,
+                offsets,
+                output_buffer,
+                scales_buffer,
+                k,
+                n,
+                n_groups,
+                hp_tensor.stride(0),
+                output_buffer.stride(1),
+                fp8_dtype_min,
+                fp8_dtype_max,
+                tl_input_dtype,
+                tl_output_dtype,
+                round_scales_to_power_of_2,
+                EPS=EPS,
+                STRIDE_OUTPUT_ROW=1,
+                STRIDE_INPUT_COL=hp_tensor.stride(1),
+                **default_cfg.all_kwargs(),
             )
         else:
             _triton_fp8_per_group_colwise_scales_kernel[grid](
@@ -503,7 +540,7 @@ if has_triton_package():
     # keeping data in registers for both amax computation and fp8 scaling.
     # Reduces HBM traffic from 5 to 3 bytes/elem (eliminates second read).
     # Requires BLOCK_SIZE_ITER >= max group size (enforced by wrapper).
-    @triton.autotune(configs=kernel_configs_fused, key=["K"])
+    @triton.autotune(configs=kernel_configs_fused, key=["K", "N", "MAX_GROUP_SIZE"])
     @triton.jit
     def _triton_fp8_per_group_colwise_scales_fused_kernel(
         input_ptr,
