@@ -210,6 +210,14 @@ def _is_128_128_scaled(x: torch.Tensor) -> bool:
         x: quantized tensor (should have `block_size` attribute)
     """
     assert hasattr(x, "block_size"), "Expecting input to have `block_size` attribute"
+    # `block_size == (128, 128)` alone is ambiguous: a `PerTensor`-granularity
+    # tensor whose shape happens to be exactly 128x128 also has block_size
+    # (128, 128) (one block spanning the whole tensor), even though it wasn't
+    # created with 128x128 blockwise scaling. Exclude that case explicitly so
+    # a 128x128 PerTensor-scaled tensor isn't misidentified as blockwise-scaled
+    # (see https://github.com/pytorch/ao/issues/4089).
+    if _is_tensorwise_scaled(x):
+        return False
     b = x.block_size
     return len(b) == 2 and b[0] == 128 and b[1] == 128
 
