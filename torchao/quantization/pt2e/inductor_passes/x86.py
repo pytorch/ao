@@ -3485,6 +3485,38 @@ def _register_quantization_weight_pack_pass():
     _register_concat_dq_q_pattern()
 
 
+def _decompose_bf16_dequant_out_dtype(graph: torch.fx.Graph) -> None:
+    """
+    convert_pt2e emits dequantize(..., out_dtype=torch.bfloat16) when the observed
+    tensor is bf16, but the int8-mixed-bf16 patterns expect an fp32 dequantize
+    followed by convert_element_type(bf16) on both activation and weight.
+    Rewrite into the form so that bf16 activations and bf16 weights are lowered as well.
+
+    This runs before AOT, so autocast and dequant promotion see the rewritten graph.
+    """
+    for node in list(graph.nodes):
+        if node.op != "call_function" or node.target not in [
+            quantized_decomposed.dequantize_per_tensor.default,
+            quantized_decomposed.dequantize_per_tensor.tensor,
+            quantized_decomposed.dequantize_per_channel.default,
+        ]:
+            continue
+        if node.kwargs.get("out_dtype") != torch.bfloat16:
+            continue
+        with graph.inserting_before(node):
+            dequant = graph.call_function(node.target, node.args)
+            to_bf16 = graph.call_function(
+                prims.convert_element_type.default, (dequant, torch.bfloat16)
+            )
+        dequant.meta = copy.copy(node.meta)
+        for key in ("val", "example_value"):
+            if isinstance(dequant.meta.get(key), torch.Tensor):
+                dequant.meta[key] = dequant.meta[key].to(torch.float32)
+        to_bf16.meta = copy.copy(node.meta)
+        node.replace_all_uses_with(to_bf16)
+        graph.erase_node(node)
+
+
 class QuantLiftUp(CustomGraphPass):
     """
     Lift up the quant node before view like nodes. It can benefit performance
@@ -3518,9 +3550,14 @@ class QuantLiftUp(CustomGraphPass):
       SOFTMAX
 
     It produces a DQ->LINEAR->Q pattern which can be fused by backend.
+
+    Before lifting, it also rewrites bf16 dequantize ops, see
+    _decompose_bf16_dequant_out_dtype.
     """
 
     def __call__(self, module_graph: torch.fx.graph.Graph) -> None:
+        _decompose_bf16_dequant_out_dtype(module_graph)
+
         def is_view_op(node):
             return (
                 node.op == "call_function" and node.target in _VIEW_FUNCTION_OPS
