@@ -264,6 +264,9 @@ def _triton_permute_bwd(
     Returns:
         grad_input: bf16 gradient tensor (unpermuted)
     """
+    # The kernel addresses rows as `row * cols`, so it needs row-major inputs.
+    grad_output = grad_output.contiguous()
+    permuted_indices = permuted_indices.contiguous()
     grad_rows, grad_cols = grad_output.shape
     output_buffer = grad_output.new_zeros((original_rows, original_cols))
     grid = lambda meta: (
@@ -316,8 +319,12 @@ def _triton_permute_bwd_kernel(
         other=PADDING_VALUE,
     )
 
-    write_mask = (dest_rows[:, None] != PADDING_VALUE) & (
-        col_offsets[None, :] < original_cols
+    # Skip padding (-1) and any index outside [0, original_rows), so a bad index
+    # never writes outside output_buffer.
+    write_mask = (
+        (dest_rows[:, None] >= 0)
+        & (dest_rows[:, None] < original_rows)
+        & (col_offsets[None, :] < original_cols)
     )
     tl.store(
         output_buffer_ptr + dest_rows[:, None] * original_cols + col_offsets[None, :],
