@@ -38,14 +38,6 @@ from torchao.prototype.attention.quantization.triton_qkv_quantization import (
 )
 
 
-@triton.autotune(
-    configs=[
-        triton.Config({}, num_warps=2),
-        triton.Config({}, num_warps=4),
-        triton.Config({}, num_warps=8),
-    ],
-    key=["D"],
-)
 @triton.jit
 def hadamard_single_phase1_kernel(
     # Input tensor [B, H, S, D]
