@@ -153,10 +153,11 @@ class QATConfig(AOBaseConfig):
 
     def __post_init__(self):
         torch._C._log_api_usage_once("torchao.quantization.qat.QATConfig")
-        self.step = self.step.lower()
+        step_lower = self.step.lower()
         all_step_values = [s.value for s in QATStep]
-        if self.step not in all_step_values:
+        if step_lower not in all_step_values:
             raise ValueError(f"`step` must be one of {all_step_values}")
+        self.step = QATStep(step_lower)
         if self.base_config is not None and self.activation_config is not None:
             raise ValueError(
                 "Cannot specify both `base_config` and `activation_config`"
