@@ -136,6 +136,7 @@ def _(func, types, args, kwargs):
     return return_and_correct_aliasing(func, args, kwargs, out)
 
 
+@OptimStateFp8.implements(aten.maximum.default)
 @OptimStateFp8.implements(aten.lerp.Scalar)
 def _(func, types, args, kwargs):
     args = [x.dequantize() if isinstance(x, OptimStateFp8) else x for x in args]
