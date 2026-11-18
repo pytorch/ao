@@ -20,6 +20,17 @@ static inline bool cpublas_could_pack() {
   return cpublas_can_pack;
 }
 
+// Whether the weight is prepacked in VNNI4 layout. This is the case when
+// AMX is available (for brgemm), and also on AVX512-VNNI platforms
+// without AMX, where the VNNI micro-kernels below are used.
+static inline bool use_vnni_weight_layout() {
+#if defined(CPU_CAPABILITY_AVX512_VNNI)
+  return true;
+#else
+  return cpublas_could_pack();
+#endif
+}
+
 /*
 return: packed_weight, packed_scales, packed_qzeros, compensation
 */
@@ -70,8 +81,8 @@ da8w4_linear_prepack_impl(
   compensation = compensation.permute({0, 2, 1}).contiguous().to(at::kInt);
 
 #if defined(CPU_CAPABILITY_AVX512)
-  if (cpublas_could_pack()) {
-    blocked_weight = at::empty({Nc, Kc, block_k, block_n / 2}, weight.options());
+  if (use_vnni_weight_layout()) {
+    blocked_weight =at::empty({Nc, Kc, block_k, block_n / 2}, weight.options());
     auto weight_ptr = weight_reordered.data_ptr<uint8_t>();
     auto blocked_weight_ptr = blocked_weight.data_ptr<uint8_t>();
     int64_t num_blocks = Nc * Kc;
@@ -431,6 +442,74 @@ void _dequant_gemm_accum_small_M(
       K, \
       lda, \
       ldc);
+
+// GEMM micro-kernel for platforms with AVX512-VNNI but without AMX.
+// C[MT, N] += dequant(A[MT, K] * dqB[K, N])
+// dqB holds int8 weights with zero points subtracted, in VNNI4 layout
+// [K / 4, N, 4], as produced by _dequant_weight_zp_only.
+// compensation[n] = sum_k dqB[k][n].
+// vpdpbusd multiplies uint8 by int8, so
+// - asymmetric (uint8) A: sum_k (a - zp_a) * b = sum_k a * b - zp_a * comp
+// - symmetric (int8) A: a ^ 0x80 reinterpreted as uint8 equals a + 128, so
+//   sum_k a * b = sum_k (a ^ 0x80) * b - 128 * comp
+// Both identities are exact in int32: |b| <= 15 and K <= 128 per call.
+template <int64_t MT, int64_t N, bool sym_quant_a>
+void _dequant_gemm_accum_vnni(
+    float* __restrict__ C,
+    const uint8_t* __restrict__ A,
+    const float* __restrict__ scales_a,
+    const int32_t* __restrict__ qzeros_a,
+    const int8_t* __restrict__ dqB,
+    const float* __restrict__ scales_b,
+    const int32_t* __restrict__ compensation,
+    int64_t K,
+    int64_t lda,
+    int64_t ldc) {
+  constexpr int COLS = N / 16;
+  __m512i vc[MT * COLS];
+  __m512i vb[COLS];
+  const __m512i sign_flip = _mm512_set1_epi8(static_cast<char>(0x80));
+
+  c10::ForcedUnroll<MT * COLS>{}(
+      [&](auto i) { vc[i] = _mm512_setzero_epi32(); });
+
+  for (int64_t k = 0; k < K; k += 4) {
+    c10::ForcedUnroll<COLS>{}([&](auto col) {
+      vb[col] = _mm512_loadu_si512(dqB + N * k + col * 64);
+    });
+    c10::ForcedUnroll<MT>{}([&](auto row) {
+      __m512i va = _mm512_set1_epi32(*(const int32_t*)(A + row * lda + k));
+      if constexpr (sym_quant_a) {
+        va = _mm512_xor_si512(va, sign_flip);
+      }
+      c10::ForcedUnroll<COLS>{}([&](auto col) {
+        vc[row * COLS + col] =
+            _mm512_dpbusd_epi32(vc[row * COLS + col], va, vb[col]);
+      });
+    });
+  }
+
+  c10::ForcedUnroll<COLS>{}([&](auto col) {
+    __m512i vcomp = _mm512_loadu_si512(compensation + col * 16);
+    __m512 vscale_b = _mm512_loadu_ps(scales_b + col * 16);
+    c10::ForcedUnroll<MT>{}([&](auto row) {
+      int32_t zp;
+      if constexpr (sym_quant_a) {
+        zp = 128;
+      } else {
+        zp = qzeros_a[row];
+      }
+      __m512i vacc = _mm512_sub_epi32(
+          vc[row * COLS + col],
+          _mm512_mullo_epi32(vcomp, _mm512_set1_epi32(zp)));
+      __m512 vc_float = _mm512_cvtepi32_ps(vacc);
+      vc_float = _mm512_mul_ps(vc_float, _mm512_set1_ps(scales_a[row]));
+      vc_float = _mm512_mul_ps(vc_float, vscale_b);
+      float* c = C + row * ldc + col * 16;
+      _mm512_storeu_ps(c, _mm512_add_ps(_mm512_loadu_ps(c), vc_float));
+    });
+  });
+}
 #endif
 
 template <bool cpublas_can_pack, int64_t N, int64_t ldb, bool sym_quant_a>
@@ -450,6 +529,73 @@ void _dequant_gemm_accum(
   // Compute GEMM int8 * int8 -> int32
   // dequant result to float by applying scales/qzeros
 #if defined(CPU_CAPABILITY_AVX512_VNNI)
+  if constexpr (!cpublas_can_pack) {
+    // No AMX, but weight is prepacked in VNNI4 layout
+    // (see use_vnni_weight_layout): use VNNI micro-kernels.
+    auto qzeros_a_at = [&](int64_t m) {
+      if constexpr (sym_quant_a) {
+        return qzeros_a;
+      } else {
+        return qzeros_a + m;
+      }
+    };
+    if (M > 4 && compensation != nullptr) {
+      // Unpack weight once, then reuse it for all rows.
+      int8_t dqB[K * N];
+      _dequant_weight_zp_only<N, ldb, true>(B, dqB, qzeros_b, K);
+      auto tile = [&](auto mt, int64_t m) {
+        _dequant_gemm_accum_vnni<decltype(mt)::value, N, sym_quant_a>(
+            C + m * ldc,
+            A + m * lda,
+            scales_a + m,
+            qzeros_a_at(m),
+            dqB,
+            scales_b,
+            compensation,
+            K,
+            lda,
+            ldc);
+      };
+      constexpr int64_t block_m = 8;
+      int64_t m = 0;
+      for (; m + block_m <= M; m += block_m) {
+        tile(std::integral_constant<int64_t, block_m>{}, m);
+      }
+      switch (M - m) {
+        case 1: tile(std::integral_constant<int64_t, 1>{}, m); break;
+        case 2: tile(std::integral_constant<int64_t, 2>{}, m); break;
+        case 3: tile(std::integral_constant<int64_t, 3>{}, m); break;
+        case 4: tile(std::integral_constant<int64_t, 4>{}, m); break;
+        case 5: tile(std::integral_constant<int64_t, 5>{}, m); break;
+        case 6: tile(std::integral_constant<int64_t, 6>{}, m); break;
+        case 7: tile(std::integral_constant<int64_t, 7>{}, m); break;
+      }
+      return;
+    }
+    // Small M: unpack weight on the fly, 4 rows at a time.
+    for (int64_t m = 0; m < M; m += 4) {
+      auto small_M = [&](auto mt) {
+        _dequant_gemm_accum_small_M<decltype(mt)::value, N, ldb, sym_quant_a>(
+            C + m * ldc,
+            A + m * lda,
+            scales_a + m,
+            qzeros_a_at(m),
+            B,
+            scales_b,
+            qzeros_b,
+            K,
+            lda,
+            ldc);
+      };
+      switch (std::min<int64_t>(M - m, 4)) {
+        case 1: small_M(std::integral_constant<int64_t, 1>{}); break;
+        case 2: small_M(std::integral_constant<int64_t, 2>{}); break;
+        case 3: small_M(std::integral_constant<int64_t, 3>{}); break;
+        case 4: small_M(std::integral_constant<int64_t, 4>{}); break;
+      }
+    }
+    return;
+  }
   if (M <= 4 && cpublas_can_pack) {
     switch (M) {
       case 1:
@@ -655,7 +801,11 @@ void _da8w4_linear_impl(
   const uint8_t* b_ptr = weight.data_ptr<uint8_t>();
   const float* b_scales_ptr = weight_scales.data_ptr<float>();
   const int8_t* b_qzeros_ptr = weight_qzeros.data_ptr<int8_t>();
-  const int32_t* compensation_ptr = sym_quant_a ? nullptr : compensation.data_ptr<int32_t>();
+  // compensation is required for asymmetric activations; for symmetric ones it
+  // is only used by the VNNI kernels (non-AMX platforms) when available.
+  const bool has_compensation = compensation.defined() && compensation.numel() > 0;
+  const int32_t* compensation_ptr =
+      (sym_quant_a && !has_compensation) ? nullptr : compensation.data_ptr<int32_t>();
   out_dtype* c_ptr = output.data_ptr<out_dtype>();
   const float* bias_ptr = bias.has_value() ? bias.value().data_ptr<float>() : nullptr;
 
@@ -680,7 +830,8 @@ void _da8w4_linear_impl(
             b_ptr + (nc * Kc + kci) * block_n * block_k / 2 /*B*/,
             b_scales_ptr + nc * block_n * num_groups + kci / block_per_group * block_n /*scales_b*/,
             b_qzeros_ptr + nc * block_n * num_groups + kci / block_per_group * block_n /*qzeros_b*/,
-            compensation_ptr + nc * block_n * Kc + kci * block_n /*compensation*/,
+            compensation_ptr ? compensation_ptr + nc * block_n * Kc + kci * block_n
+                             : nullptr /*compensation*/,
             m_size /*M*/,
             block_k /*K*/,
             K /*lda*/,
