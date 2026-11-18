@@ -291,7 +291,7 @@ class IntxFakeQuantizer(FakeQuantizerBase):
         # get scales and zero points
         # TODO: refactor this to use `choose_qparams_affine`
         if self._should_compute_qparams():
-            if self.config.dtype == torch.int32:
+            if self.config.dtype in (torch.int16, torch.int32):
                 (self.scale, self.zero_point) = choose_qparams_affine(
                     x,
                     mapping_type=self.config.mapping_type,

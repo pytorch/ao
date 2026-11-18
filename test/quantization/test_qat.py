@@ -226,6 +226,90 @@ class ModelWithLinearBias(torch.nn.Module):
 class TestQAT(TestCase):
     SEED = 123
 
+    @parametrize("granularity", [PerGroup(4), PerAxis(0)])
+    @parametrize("mapping_type", list(MappingType))
+    @parametrize("is_dynamic", [True, False])
+    def test_int16_group_fake_quantization(self, granularity, mapping_type, is_dynamic):
+        x = torch.tensor(
+            [
+                [-8.0, -3.0, 1.0, 6.0, -4.0, -1.0, 0.0, 9.0],
+                [-2.0, 0.0, 2.0, 5.0, -7.0, -4.0, 1.0, 3.0],
+            ],
+            requires_grad=True,
+        )
+        reference_x = x.detach().clone().requires_grad_()
+        group_size = (
+            granularity.group_size if isinstance(granularity, PerGroup) else x.shape[-1]
+        )
+        groups = reference_x.detach().reshape(-1, group_size)
+        minimum = groups.amin(dim=-1).clamp(max=0)
+        maximum = groups.amax(dim=-1).clamp(min=0)
+        if mapping_type == MappingType.SYMMETRIC:
+            scale = torch.maximum(-minimum, maximum) / 32767.5
+            zero_point = torch.zeros_like(scale, dtype=torch.int32)
+        elif mapping_type == MappingType.SYMMETRIC_NO_CLIPPING_ERR:
+            scale = torch.maximum(minimum / -32768, maximum / 32767)
+            zero_point = torch.zeros_like(scale, dtype=torch.int32)
+        else:
+            scale = (maximum - minimum) / 65535
+            zero_point = (-32768 - torch.round(minimum / scale)).to(torch.int32)
+        quantizer = IntxFakeQuantizer(
+            IntxFakeQuantizeConfig(
+                torch.int16, granularity, mapping_type, is_dynamic=is_dynamic
+            )
+        )
+        grad_output = torch.arange(x.numel(), dtype=x.dtype).reshape_as(x) / 10
+        for multiplier in (1.0, 2.0):
+            x.grad = None
+            reference_x.grad = None
+            expected_scale = scale * (multiplier if is_dynamic else 1.0)
+            expected = torch.fake_quantize_per_channel_affine(
+                (reference_x * multiplier).reshape(-1, group_size),
+                expected_scale,
+                zero_point,
+                0,
+                -32768,
+                32767,
+            ).reshape_as(x)
+            actual = quantizer(x * multiplier)
+            torch.testing.assert_close(quantizer.scale.reshape(-1), expected_scale)
+            torch.testing.assert_close(quantizer.zero_point.reshape(-1), zero_point)
+            torch.testing.assert_close(actual, expected, atol=0, rtol=0)
+            actual.backward(grad_output)
+            expected.backward(grad_output)
+            self.assertEqual(x.grad == 0, reference_x.grad == 0)
+            torch.testing.assert_close(
+                x.grad, reference_x.grad, atol=0, rtol=2 * torch.finfo(x.dtype).eps
+            )
+
+    @parametrize("granularity", [PerGroup(4), PerAxis(0)])
+    def test_int16_group_qat_training_and_checkpoint(self, granularity):
+        torch.manual_seed(self.SEED)
+        model = torch.nn.Sequential(
+            torch.nn.Linear(8, 8), torch.nn.ReLU(), torch.nn.Linear(8, 3)
+        )
+        config = IntxFakeQuantizeConfig(torch.int16, granularity)
+        quantize_(model, QATConfig(weight_config=config))
+        optimizer = torch.optim.SGD(model.parameters(), lr=0.01, momentum=0.9)
+        inputs = torch.randn(4, 8)
+        targets = torch.tensor([0, 1, 2, 0])
+        before = model[0].weight.detach().clone()
+        for _ in range(3):
+            optimizer.zero_grad()
+            loss = F.cross_entropy(model(inputs), targets)
+            loss.backward()
+            self.assertTrue(torch.isfinite(loss))
+            for parameter in model.parameters():
+                self.assertTrue(torch.isfinite(parameter.grad).all())
+            optimizer.step()
+        self.assertFalse(torch.equal(model[0].weight, before))
+        restored = torch.nn.Sequential(
+            torch.nn.Linear(8, 8), torch.nn.ReLU(), torch.nn.Linear(8, 3)
+        )
+        quantize_(restored, QATConfig(weight_config=config))
+        restored.load_state_dict(copy.deepcopy(model.state_dict()))
+        torch.testing.assert_close(restored(inputs), model(inputs), atol=0, rtol=0)
+
     def test_fake_quantize_per_channel_group(self):
         n_bit = 4
         (qmin, qmax) = _get_qmin_qmax(n_bit)
