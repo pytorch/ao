@@ -18,7 +18,7 @@ HuggingFace Transformers provides seamless integration with torchao quantization
 Please check out our `HF Integration Docs <torchao_hf_integration.html>`_ for examples on how to use quantization and sparsity in Transformers and Diffusers and `TorchAOConfig Reference <api_ref_quantization.html#inference-apis-for-quantize>`_ for all available torchao configs to use.
 
 Serving and Inference
---------------------
+---------------------
 
 Serving and Inference with vLLM
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -62,7 +62,7 @@ Serving and Inference with SGLang
 (Coming soon!)
 
 Inference with Transformers
-^^^^^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 Install the required packages:
 
@@ -114,12 +114,12 @@ Install the required packages:
     print(output[0]['generated_text'])
 
 Mobile Deployment with ExecuTorch
---------------------------------
+---------------------------------
 
 ExecuTorch enables on-device inference using torchao's mobile-optimized quantization schemes. The 8da4w (8-bit dynamic activation, 4-bit weight) configuration is specifically designed for mobile deployment. Optionally, before lowering to ExecuTorch, we can finetune a model using QAT :doc:`finetuning`, which has demonstrated some improvements in the quality of quantized models.
 
 [Optional] Untie Embedding Weights
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 Optionally, we can quantize the embedding and lm_head differently, since those layers are tied, we first need to untie the model:
 
@@ -160,7 +160,7 @@ Optionally, we can quantize the embedding and lm_head differently, since those l
     tokenizer.save_pretrained(save_to)
 
 Step 1: Create Mobile-Optimized Quantization
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 Quantizing the model for mobile deployment using TorchAO's ``Int8DynamicActivationIntxWeightConfig`` configuration. If we've untied the embedding and lm_head following the previous step, we can quantize embedding using ``IntxWeightOnlyConfig`` configuration, and lm_head using ``Int8DynamicActivationIntxWeightConfig`` configuration.
 
@@ -213,7 +213,7 @@ Quantizing the model for mobile deployment using TorchAO's ``Int8DynamicActivati
 
 
 Step 2: Export to ExecuTorch
-^^^^^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 Convert the quantized model to .pte file, which can be run on mobile device.
 
@@ -244,7 +244,7 @@ Convert the quantized model to .pte file, which can be run on mobile device.
 The .pte file can be run with ExecuTorch on a mobile phone. Follow the `instructions <https://docs.pytorch.org/executorch/main/llm/llama-demo-ios.html>`_ for doing this on an iOS device.
 
 Mobile Performance Characteristics
-^^^^^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 The torchao-optimized 8da4w model provides:
 
@@ -256,10 +256,10 @@ The torchao-optimized 8da4w model provides:
     For detailed instructions on testing the ExecuTorch model and reproducing benchmarks please refer to the `HF Phi-4-mini-instruct-8da4w model <https://huggingface.co/pytorch/Phi-4-mini-instruct-8da4w>`_.
 
 Evaluation
----------
+----------
 
 Model Quality Assessment
-^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^^^
 
 Evaluate quantized models using lm-evaluation-harness:
 
@@ -275,7 +275,7 @@ Evaluate quantized models using lm-evaluation-harness:
     lm_eval --model hf --model_args pretrained=pytorch/Phi-4-mini-instruct-FP8 --tasks hellaswag --device cuda:0 --batch_size 8
 
 Memory Benchmarking
-^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^
 For Phi-4-mini-instruct, when quantized with float8 dynamic quant, we can reduce the peak memory usage by 36% compared to the baseline model.
 
 .. code-block:: python
@@ -334,10 +334,10 @@ Output:
 +-------------------+---------------------+------------------------------+
 
 Performance Benchmarking
-^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^^^
 
 Latency Benchmarking
-"""""""""""""""""""
+""""""""""""""""""""
 
 .. code-block:: bash
 
@@ -381,7 +381,7 @@ We benchmarked the throughput in a serving environment.
     vllm bench serve --backend vllm --dataset-name sharegpt --tokenizer microsoft/Phi-4-mini-instruct --dataset-path ./ShareGPT_V3_unfiltered_cleaned_split.json --model pytorch/Phi-4-mini-instruct-FP8 --num-prompts 1
 
 Results (H100 machine)
-"""""""""""""""""""""
+""""""""""""""""""""""
 
 +----------------------------+---------------------+------------------------------+
 | Benchmark                  | Phi-4-mini-instruct | Phi-4-mini-instruct-float8dq |
@@ -396,9 +396,9 @@ Results (H100 machine)
 +----------------------------+---------------------+------------------------------+
 
 .. _serving-conclusion:
-
+-
 Conclusion
----------
+----------
 
 This tutorial demonstrated how torchao's quantization and sparsity techniques integrate seamlessly across the entire ML deployment stack:
 
