@@ -153,14 +153,19 @@ def test_row_major_with_jagged_rowwise_scales_transpose_method(
     assert not _is_column_major(kernel_fp8_data), "fp8 data is not row major"
 
 
+@pytest.mark.parametrize("strided_offsets", [False, True])
 @pytest.mark.parametrize("round_scales_to_power_of_2", [True, False])
-def test_column_major_with_jagged_colwise_scales(round_scales_to_power_of_2: bool):
+def test_column_major_with_jagged_colwise_scales(
+    round_scales_to_power_of_2: bool, strided_offsets: bool
+):
     # tests case where colwise scales are computed for multiple distinct subtensors,
     # with end boundary of each group is determine by their end row indexes (offsets).
     device = "cuda"
     m, k, n_groups = 256, 256, 4
     x = torch.randn(m * n_groups, k, device=device).t().contiguous().t()
     rowwise_offs = torch.arange(m, m * n_groups + 1, m, device=device)
+    if strided_offsets:
+        rowwise_offs = torch.stack((rowwise_offs, 2 * rowwise_offs), dim=1)[:, 0]
 
     # compute reference with torch impl
     ref_fp8_data, ref_scales = torch_to_float8_per_group_colwise(

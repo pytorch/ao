@@ -98,6 +98,7 @@ if has_triton_package():
         fp8_dtype_max = torch.finfo(output_dtype).max
 
         m, k = hp_tensor.shape
+        offsets = offsets.contiguous()
         n_groups = offsets.numel()
 
         # allocate on-device buffers for output and scales
@@ -292,6 +293,7 @@ if has_triton_package():
         fp8_dtype_max = torch.finfo(output_dtype).max
 
         k, n = hp_tensor.shape
+        offsets = offsets.contiguous()
         n_groups = offsets.numel()
 
         # Output buffer in column major
@@ -799,6 +801,7 @@ if has_triton_package():
 
         k, n1 = hp_tensor_1.shape
         _, n2 = hp_tensor_2.shape
+        offsets = offsets.contiguous()
         n_groups = offsets.numel()
 
         # Column-major output buffers
