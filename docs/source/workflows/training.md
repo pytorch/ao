@@ -291,15 +291,13 @@ in native PyTorch.
 
 | workflow | emulation | performance | accuracy | API polish |
 | --- | --- | --- | --- | --- |
-| training for `torch.nn.Linear` | ✅ | 🔴 | 🟡 | 🟡 |
-| QAT for `torch.nn.Linear` | planned | n/a | planned | planned |
+| QAT for `torch.nn.Linear` | ✅ | n/a | 🟡 | 🟡 |
 | inference for `torch.nn.Linear` | ✅ | 🔴 | 🟢 | 🟡 |
 
 #### planned improvements
 
 * mxfp8 support for grouped_gemm and all2all for MoE training (see https://github.com/pytorch/ao/tree/main/torchao/prototype/moe_training ).
 * mxfp8, nvfp4, mxfp4 performance optimizations for inference
-* polish the nvpf4 QAT recipe, and enable mxfp4 QAT
 * blocked formats for faster training
 * stochastic rounding and hadamard transforms for improved fp4 training numerics
 
