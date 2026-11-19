@@ -49,6 +49,7 @@ benefits of using tensor subclasses compared to this approach:
    optimization passes can also stay exactly the same as before.
 
 |
+
 In the rest of the tutorial, we will walk through an example of how to
 express quantization using both approaches. For further reading on
 tensor subclasses, please refer to:

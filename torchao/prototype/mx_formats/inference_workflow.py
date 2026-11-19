@@ -181,6 +181,7 @@ class NVFP4DynamicActivationNVFP4WeightConfig(AOBaseConfig):
 
     This is a specialized configuration for NVIDIA's FP4 format.
     NVFP4 uses "double quantization" with two scale levels:
+
     - A global per_tensor_scale (float32)
     - Per-block scales (float8_e4m3fn, block_size=16), always dynamically calculated
 
@@ -205,6 +206,7 @@ class NVFP4DynamicActivationNVFP4WeightConfig(AOBaseConfig):
     set to False.
 
     Configuration parameters:
+
     - use_triton_kernel: bool, whether to use fused triton kernel for activation scaling (default: True).
       Requires `MSLK <https://github.com/pytorch/MSLK>`__ to be installed.
     - use_dynamic_per_tensor_scale: bool, whether to dynamically compute per tensor scale (default: True)

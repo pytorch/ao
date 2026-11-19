@@ -77,11 +77,6 @@ image = pipe(prompt, num_inference_steps=4, guidance_scale=0.0).images[0]
 image.save("output.png")
 ```
 
-```{note}
-Example Output:
-![alt text](output.png "Model Output")
-```
-
 ```{seealso}
 Please refer to [HF-TorchAO-Diffuser Docs](https://huggingface.co/docs/diffusers/en/quantization/torchao) for more examples and benchmarking results.
 ```
