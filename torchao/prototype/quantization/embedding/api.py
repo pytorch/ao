@@ -289,17 +289,45 @@ def get_parent_by_fqn(root: nn.Module, fqn: str):
 
 
 class TiedEmbeddingQuantizer:
+    """Quantizes tied embedding/unembedding pairs onto one shared low-bit table.
+
+    Args:
+        weight_dtype: Low-bit weight dtype of the shared table.
+        granularity: Per-group or per-axis weight granularity.
+        mapping_type: Symmetric or asymmetric weight mapping.
+        range_learning: Reuse range-learned scales from a QAT model instead of
+            re-deriving them.
+        weight_scale_dtype: Dtype the shared table's scales are rounded to before
+            the weights are quantized, as `Int8DynamicActivationIntxWeightConfig`
+            does with `weight_scale_dtype`: `None` (the input weight's dtype),
+            `torch.float32` or `torch.bfloat16`; the packed format does not take
+            other scale dtypes. Not supported with `range_learning`, whose learned
+            scales are kept.
+    """
+
     def __init__(
         self,
         weight_dtype: torch.dtype = torch.int4,
         granularity: Granularity = PerAxis(0),
         mapping_type: MappingType = MappingType.ASYMMETRIC,
         range_learning: bool = False,
+        weight_scale_dtype: Optional[torch.dtype] = None,
     ):
+        if weight_scale_dtype not in (None, torch.float32, torch.bfloat16):
+            raise ValueError(
+                "weight_scale_dtype must be None, torch.float32 or torch.bfloat16, "
+                f"got {weight_scale_dtype}"
+            )
+        if range_learning and weight_scale_dtype is not None:
+            raise ValueError(
+                "weight_scale_dtype is not supported with range_learning: the "
+                "learned scales are reused as they are"
+            )
         self.weight_dtype = weight_dtype
         self.granularity = granularity
         self.mapping_type = mapping_type
         self.range_learning = range_learning
+        self.weight_scale_dtype = weight_scale_dtype
 
     def quantize(
         self,
@@ -364,6 +392,7 @@ class TiedEmbeddingQuantizer:
             weight_dtype=self.weight_dtype,
             weight_granularity=self.granularity,
             weight_mapping_type=self.mapping_type,
+            weight_scale_dtype=self.weight_scale_dtype,
             # Only universal layout is supported for shared embedding
             intx_packing_format="opaque_torchao_lowbit",
         )

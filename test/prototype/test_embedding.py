@@ -191,6 +191,61 @@ class TestEmbeddingQuantizer(unittest.TestCase):
                 exported_program.graph_module.code
             )
 
+    def test_shared_embedding_weight_scale_dtype(self):
+        embedding_dim = 256
+        num_embeddings = 131
+        embedding = torch.nn.Embedding(num_embeddings, embedding_dim)
+        unembedding = torch.nn.Linear(embedding_dim, num_embeddings, bias=False)
+        unembedding.weight = copy.deepcopy(embedding.weight)
+        model = torch.nn.Sequential(embedding, unembedding)
+        indices = torch.arange(num_embeddings, dtype=torch.int32)
+        activations = torch.randn(7, embedding_dim)
+        weight_dtype = torch.int4
+        granularity = PerGroup(32)
+        mapping_type = MappingType.SYMMETRIC
+
+        # References: the untied configs with the same bfloat16 weight scales.
+        reference_embedding = copy.deepcopy(embedding)
+        quantize_(
+            reference_embedding,
+            IntxWeightOnlyConfig(
+                weight_dtype=weight_dtype,
+                granularity=granularity,
+                mapping_type=mapping_type,
+                scale_dtype=torch.bfloat16,
+            ),
+            lambda m, fqn: isinstance(m, torch.nn.Embedding),
+        )
+        reference_unembedding = copy.deepcopy(unembedding)
+        quantize_(
+            reference_unembedding,
+            Int8DynamicActivationIntxWeightConfig(
+                weight_dtype=weight_dtype,
+                weight_granularity=granularity,
+                weight_mapping_type=mapping_type,
+                weight_scale_dtype=torch.bfloat16,
+                intx_packing_format="opaque_torchao_lowbit",
+            ),
+        )
+
+        quantized_model = copy.deepcopy(model)
+        TiedEmbeddingQuantizer(
+            weight_dtype=weight_dtype,
+            granularity=granularity,
+            mapping_type=mapping_type,
+            weight_scale_dtype=torch.bfloat16,
+        ).quantize(quantized_model)
+
+        with torch.no_grad():
+            self.assertTrue(
+                torch.equal(quantized_model[0](indices), reference_embedding(indices))
+            )
+            self.assertTrue(
+                torch.equal(
+                    quantized_model[1](activations), reference_unembedding(activations)
+                )
+            )
+
     @parameterized.expand(
         [
             param(
@@ -375,6 +430,28 @@ class TestEmbeddingQuantizer(unittest.TestCase):
         converted_out2 = prepared_model_copy(indices)
         sqnr2 = compute_error(prepared_out, converted_out2).item()
         self.assertTrue(sqnr2 == float("inf"))
+
+
+class TestTiedEmbeddingQuantizerArgs(unittest.TestCase):
+    """Constructor validation; needs no lowbit kernels."""
+
+    def test_weight_scale_dtype_rejects_range_learning(self):
+        with self.assertRaises(ValueError):
+            TiedEmbeddingQuantizer(
+                range_learning=True, weight_scale_dtype=torch.bfloat16
+            )
+
+    @parameterized.expand([param(dtype=torch.float16), param(dtype=torch.int8)])
+    def test_weight_scale_dtype_rejects_unsupported(self, dtype):
+        with self.assertRaisesRegex(ValueError, "weight_scale_dtype"):
+            TiedEmbeddingQuantizer(weight_scale_dtype=dtype)
+
+    @parameterized.expand(
+        [param(dtype=None), param(dtype=torch.float32), param(dtype=torch.bfloat16)]
+    )
+    def test_weight_scale_dtype_accepts_supported(self, dtype):
+        quantizer = TiedEmbeddingQuantizer(weight_scale_dtype=dtype)
+        self.assertEqual(quantizer.weight_scale_dtype, dtype)
 
 
 if __name__ == "__main__":
