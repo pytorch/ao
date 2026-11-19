@@ -70,7 +70,7 @@ Now, we will walk you through a step-by-step tutorial for how to use it with `to
 for post training quantization.
 
 Prerequisite: OpenVINO and NNCF installation
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 OpenVINO and NNCF could be easily installed via `pip distribution <https://docs.openvino.ai/2024/get-started/install-openvino.html>`_:
 
 .. code-block:: bash
