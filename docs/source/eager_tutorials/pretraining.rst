@@ -19,7 +19,7 @@ In this tutorial, we will show 2 ways to use the **torchao.float8** recipes for 
 
 
 Pre-training with torchtitan
-###########################
+############################
 
 In this tutorial we'll pre-train Llama3-8B using torchtitan with torchao's float8 training recipes: rowwise scaling and tensorwise scaling.
 
@@ -128,7 +128,7 @@ Important notes
 
 
 Pre-training with torchao directly
-#################################
+##################################
 
 In this tutorial we'll pre-train a toy model using torchao APIs directly.
 
