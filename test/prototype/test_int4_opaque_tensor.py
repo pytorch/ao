@@ -98,6 +98,14 @@ class TestInt4OpaqueTensor(TestCase):
             compute_error(original_output * _ACT_PRE_SCALE, auto_scaled_quantized) > 20
         )
 
+    def test_raises_when_in_features_not_divisible_by_group_size(self):
+        linear = torch.nn.Linear(100, 64, bias=False)
+        with self.assertRaisesRegex(
+            ValueError,
+            r"in_features=100 must be divisible by group_size=128",
+        ):
+            quantize_(linear, PrototypeInt4WeightOnlyConfig(group_size=128))
+
 
 instantiate_parametrized_tests(TestInt4OpaqueTensor)
 
