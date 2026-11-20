@@ -575,6 +575,16 @@ def _implements_common_tensor_ops(cls):
             and _optional_attr_match
         )
 
+    @implements(aten.equal.default)
+    def _(func, types, args, kwargs):
+        self, other = args
+        if type(self) is not type(other) or not _same_metadata(self, other):
+            return False
+        return all(
+            torch.equal(getattr(self, tensor_name), getattr(other, tensor_name))
+            for tensor_name in self.__tensor_flatten__()[0]
+        )
+
     @implements(aten.copy_.default)
     def _(func, types, args, kwargs):
         self = args[0]

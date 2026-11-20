@@ -191,6 +191,12 @@ class TestTorchAOBaseTensor(unittest.TestCase):
                 getattr(lp_tensor, tensor_attribute_name),
             )
 
+        # op test: equal
+        self.assertTrue(torch.equal(lp_tensor, lp_tensor.clone()))
+        self.assertFalse(torch.equal(lp_tensor, lp_tensor_for_copy))
+        self.assertFalse(torch.equal(lp_tensor, lp_tensor.qdata))
+        self.assertFalse(torch.equal(lp_tensor.qdata, lp_tensor))
+
         # op test: copy_
         # making sure that initially tensor values are not the same so we can test copy_
         self.assertNotEqual(lp_tensor.qdata[0][0], lp_tensor_for_copy.qdata[0][0])
@@ -202,6 +208,7 @@ class TestTorchAOBaseTensor(unittest.TestCase):
             )
 
         lp_tensor.copy_(lp_tensor_for_copy)
+        self.assertTrue(torch.equal(lp_tensor, lp_tensor_for_copy))
         # after copy_, the tensor values should match
         for tensor_data_name in all_tensor_data_names:
             self.assertTrue(
