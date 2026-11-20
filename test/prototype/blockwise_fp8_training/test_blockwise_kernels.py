@@ -13,12 +13,14 @@ from packaging import version
 from torchao.float8.config import e4m3_dtype
 from torchao.float8.float8_utils import compute_error
 from torchao.prototype.blockwise_fp8_training.kernels import (
+    EPS,
     torch_blockwise_scale_act_quant_lhs,
     torch_blockwise_scale_act_quant_rhs,
     torch_blockwise_scale_weight_quant,
     triton_fp8_blockwise_act_quant_lhs,
     triton_fp8_blockwise_act_quant_rhs,
     triton_fp8_blockwise_act_quant_transposed_lhs,
+    triton_fp8_blockwise_act_quant_transposed_lhs_kernel,
     triton_fp8_blockwise_weight_quant_rhs,
     triton_fp8_blockwise_weight_quant_transposed_rhs,
     triton_fp8_gemm_1x128_128x1,
@@ -215,6 +217,84 @@ def test_triton_quantize_fp8_act_quant_transposed_lhs(M, K, block_size: int):
         atol=0,
         rtol=0,
         msg=f"Quantized tensors differ: max diff = {(triton_fp32 - ref_fp32).abs().max().item()}",
+    )
+
+    torch.testing.assert_close(
+        triton_scale,
+        ref_scale,
+        atol=0,
+        rtol=0,
+        msg=f"Scales differ: max diff = {(triton_scale - ref_scale).abs().max().item()}",
+    )
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+@pytest.mark.skipif(
+    not (is_sm_at_least_90() or is_MI300() or is_MI350()),
+    reason="Requires FP8-capable GPU (CUDA SM90+, MI300, or MI350)",
+)
+@pytest.mark.parametrize("num_groups", [2, 16, 128])
+def test_triton_quantize_fp8_act_quant_transposed_lhs_wide_k(num_groups: int):
+    """Regression test for the K axis being mapped onto gridY.
+
+    The activation-gradient of a 70B-class lm_head is an (M=128, K=152064)
+    tensor. With NUM_GROUPS=2 the K axis needs cdiv(152064, 2) = 76032 program
+    tiles; CUDA caps gridY at 65535, so this shape failed to launch with
+    "Triton Error [CUDA]: invalid argument" before K was moved to gridX.
+
+    The wrapper does not forward NUM_GROUPS (it comes from @triton.autotune), so
+    call the underlying jit function directly to pin the config.
+    """
+    device = "cuda"
+    block_size = 128
+    M, K = 128, 152064
+
+    x = torch.randn(M, K, device=device)
+
+    kern = triton_fp8_blockwise_act_quant_transposed_lhs_kernel
+    fn = getattr(kern, "fn", kern)  # unwrap the autotuned kernel
+
+    m_blocks = triton.cdiv(M, block_size)
+    # Same output layout the wrapper produces: y is (K, M) and the scales are
+    # (K, M // block_size) in column-major order.
+    triton_fp8 = torch.empty(K, M, dtype=e4m3_dtype, device=device)
+    triton_scale = torch.empty(
+        K, m_blocks, dtype=torch.float32, device=device
+    ).as_strided((K, m_blocks), (1, K))
+
+    # K -> gridX, M -> gridY (the fixed mapping).
+    grid = (triton.cdiv(K, num_groups), triton.cdiv(M, block_size))
+    fn[grid](
+        x,
+        x.stride(0),
+        x.stride(1),
+        triton_fp8,
+        triton_fp8.stride(0),
+        triton_fp8.stride(1),
+        triton_scale,
+        triton_scale.stride(0),
+        triton_scale.stride(1),
+        M,
+        K=K,
+        BLOCK_SIZE=block_size,
+        NUM_GROUPS=num_groups,
+        EPS=EPS,
+        FP8_MAX=torch.finfo(e4m3_dtype).max,
+    )
+    torch.cuda.synchronize()
+
+    ref_fp8, ref_scale = torch_blockwise_scale_act_quant_lhs(
+        x.t().contiguous(), tile_size=block_size
+    )
+
+    assert not triton_fp8.isnan().any(), "fp8 output must not contain NaNs"
+
+    torch.testing.assert_close(
+        triton_fp8.to(torch.float32),
+        ref_fp8.to(torch.float32),
+        atol=0,
+        rtol=0,
+        msg=f"Quantized tensors differ: max diff = {(triton_fp8.to(torch.float32) - ref_fp8.to(torch.float32)).abs().max().item()}",
     )
 
     torch.testing.assert_close(

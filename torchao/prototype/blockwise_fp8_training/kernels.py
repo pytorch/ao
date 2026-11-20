@@ -685,8 +685,12 @@ def triton_fp8_blockwise_act_quant_transposed_lhs_kernel(
     # transposed dims and in column major format. To facilitate this, given that for a
     # LHS operator the scales must be rowwise, we will be computing colwise scales on the
     # original data, then writing the scaled data rowwise.
-    pid_m = tl.program_id(axis=0)
-    pid_k = tl.program_id(axis=1)
+    #
+    # K is the wide axis, so it must map onto gridX: CUDA allows up to 2**31-1
+    # blocks in X but only 65535 in Y/Z. With NUM_GROUPS as small as 2 the K-axis
+    # tile count reaches cdiv(152064, 2) = 76032 and would exceed the gridY limit.
+    pid_k = tl.program_id(axis=0)
+    pid_m = tl.program_id(axis=1)
 
     # Load (block_size x num_groups) block of input, where input is row major.
     # We will be computing (block_size x 1) scaling factors (columns), and computing
@@ -744,9 +748,11 @@ def triton_fp8_blockwise_act_quant_transposed_lhs(
     )
 
     def grid(meta):
+        # K -> gridX (limit 2**31-1), M -> gridY (limit 65535). M here is the
+        # activation row block, cdiv(M, BLOCK_SIZE), which stays tiny.
         return (
-            triton.cdiv(M, meta["BLOCK_SIZE"]),
             triton.cdiv(K, meta["NUM_GROUPS"]),
+            triton.cdiv(M, meta["BLOCK_SIZE"]),
         )
 
     wrap_triton(triton_fp8_blockwise_act_quant_transposed_lhs_kernel)[grid](
