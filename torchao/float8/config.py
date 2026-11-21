@@ -6,7 +6,7 @@
 
 import enum
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Optional, Union
 
 import torch
@@ -310,19 +310,40 @@ class Float8LinearConfig:
                 f"incompatible operand precision for {gemm_name}"
             )
 
-        for cc1, cc2, operand_name, default_dtype in [
-            (cc_i, cc_i_gw, "input", e4m3_dtype),
-            (cc_w, cc_w_gi, "weight", e4m3_dtype),
-            (cc_go, cc_go_gw, "grad_output", e5m2_dtype),
+        for field1, field2, operand_name, default_dtype in [
+            (
+                "cast_config_input",
+                "cast_config_input_for_grad_weight",
+                "input",
+                e4m3_dtype,
+            ),
+            (
+                "cast_config_weight",
+                "cast_config_weight_for_grad_input",
+                "weight",
+                e4m3_dtype,
+            ),
+            (
+                "cast_config_grad_output",
+                "cast_config_grad_output_for_grad_weight",
+                "grad_output",
+                e5m2_dtype,
+            ),
         ]:
-            # Override the dataclass being frozen
+            # Resolve defaults on copies so a CastConfig can be reused safely.
+            cc1, cc2 = getattr(self, field1), getattr(self, field2)
+            original = cc1
             if cc1.target_dtype is None:
-                object.__setattr__(cc1, "target_dtype", default_dtype)
-            if cc2.target_dtype is None:
-                object.__setattr__(cc2, "target_dtype", default_dtype)
+                cc1 = replace(cc1, target_dtype=default_dtype)
+            if cc2 is original:
+                cc2 = cc1
+            elif cc2.target_dtype is None:
+                cc2 = replace(cc2, target_dtype=default_dtype)
             assert cc1.target_dtype == cc2.target_dtype, (
                 f"{operand_name} must be cast to the same dtype in both matmuls it's used in"
             )
+            object.__setattr__(self, field1, cc1)
+            object.__setattr__(self, field2, cc2)
 
         if self.force_recompute_fp8_weight_in_bwd:
             logger.warning(
