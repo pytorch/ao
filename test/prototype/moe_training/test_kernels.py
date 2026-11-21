@@ -2249,3 +2249,48 @@ def test_mxfp8_quantize_2d_1x32_32x1_cutedsl_offset_bounds(offsets, match):
             and f"Assertion Error: {match}" in error
             and "CUDA error:" in error
         ), error
+
+
+@pytest.mark.skipif(
+    not _mxfp8_cuda_kernels_available,
+    reason="CUDA kernel requires sm_10x and CUDA 12.8+",
+)
+@skip_if_rocm("ROCm enablement in progress")
+@pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float32])
+@pytest.mark.parametrize("dim", [128, 129])
+@pytest.mark.parametrize("misaligned", [False, True])
+def test_cuda_fused_pad_unpad_supported_dtypes(dtype, dim, misaligned):
+    if misaligned:
+        inputs = torch.randn(5 * dim + 1, dtype=dtype, device="cuda")[1:].view(5, dim)
+    else:
+        inputs = torch.randn(5, dim, dtype=dtype, device="cuda")
+    inputs[0, 0] = -0.0
+    inputs[1, 0] = float("inf")
+    inputs[2, 0] = float("-inf")
+    inputs[3, 0] = float("nan")
+    if dtype == torch.float32:
+        inputs.view(torch.int32)[4, 0] = 0x7FC01234
+    else:
+        inputs.view(torch.int16)[4, 0] = 0x7FC1
+    offsets = torch.tensor([2, 5], dtype=torch.int32, device="cuda")
+    expected, expected_starts, expected_ends = torch_pad_token_groups(
+        inputs, offsets, 32
+    )
+    padded, starts, ends = fused_pad_token_groups_cuda(inputs, offsets, 32)
+    torch.testing.assert_close(
+        padded.view(torch.uint8), expected.view(torch.uint8), rtol=0, atol=0
+    )
+    torch.testing.assert_close(starts, expected_starts, rtol=0, atol=0)
+    torch.testing.assert_close(ends, expected_ends, rtol=0, atol=0)
+
+    if misaligned:
+        backing = torch.empty(expected.numel() + 1, dtype=dtype, device="cuda")
+        unpad_input = backing[1:].view_as(expected).copy_(expected)
+    else:
+        unpad_input = expected
+    unpadded = fused_unpad_token_groups_cuda(
+        unpad_input, offsets, expected_starts, 5, 32
+    )
+    torch.testing.assert_close(
+        unpadded.view(torch.uint8), inputs.view(torch.uint8), rtol=0, atol=0
+    )
