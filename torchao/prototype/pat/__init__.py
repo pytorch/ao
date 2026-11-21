@@ -15,6 +15,7 @@ from .group import (  # noqa: F401
     PackedSVDGrouper,
     SVDGrouper,
 )
+from .m_by_n import make_m_by_n_mask  # noqa: F401
 from .optim import (  # noqa: F401
     CoupledMinSparsityConstraint,
     ProxGroupLasso,
