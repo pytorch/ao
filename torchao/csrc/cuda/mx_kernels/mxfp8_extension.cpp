@@ -297,7 +297,8 @@ std::tuple<Tensor, Tensor, Tensor> fused_pad_token_groups(
   const int num_groups = group_end_offsets.size(0);
 
   STD_TORCH_CHECK(num_groups <= 32, "num_groups must be <= 32, got: ", num_groups);
-  STD_TORCH_CHECK(alignment_size == 32, "alignment_size must be 32 for now");
+  STD_TORCH_CHECK(alignment_size == 32 || alignment_size == 128,
+              "alignment_size must be 32 or 128");
 
   // Allocate tensors for padded group offsets
   Tensor padded_group_start_offsets = torch::stable::new_empty(group_end_offsets, {num_groups}, group_end_offsets.scalar_type());
@@ -380,7 +381,8 @@ Tensor fused_unpad_token_groups(
   const int num_groups = group_end_offsets.size(0);
 
   STD_TORCH_CHECK(num_groups <= 32, "num_groups must be <= 32, got: ", num_groups);
-  STD_TORCH_CHECK(alignment_size == 32, "alignment_size must be 32 for now");
+  STD_TORCH_CHECK(alignment_size == 32 || alignment_size == 128,
+              "alignment_size must be 32 or 128");
   STD_TORCH_CHECK(padded_group_start_offsets.size(0) == num_groups,
               "padded_group_start_offsets must have same length as num_groups");
   STD_TORCH_CHECK(num_tokens > 0, "num_tokens must be positive, got: ", num_tokens);

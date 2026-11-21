@@ -5,6 +5,8 @@ from .mx import (
     MXFakeQuantizeConfig,
     MXFakeQuantizedConv2d,
     MXFakeQuantizedLinear,
+    mx_fake_quantize,
+    mx_fake_quantized_grouped_mm,
 )
 from .nvfp4 import (
     NVFP4FakeQuantizeConfig,
@@ -15,6 +17,8 @@ __all__ = [
     "MXFakeQuantizeConfig",
     "MXFakeQuantizedConv2d",
     "MXFakeQuantizedLinear",
+    "mx_fake_quantize",
+    "mx_fake_quantized_grouped_mm",
     "NVFP4FakeQuantizeConfig",
     "NVFP4FakeQuantizedLinear",
 ]
