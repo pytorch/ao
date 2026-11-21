@@ -821,13 +821,21 @@ void test_bitpacking_128_lowbit_values_with_lut() {
 
   int8x16_t lut;
   if constexpr (nbit == 1) {
-    lut = {-1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+    const int8_t lut_values[16] = {
+        -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+    lut = vld1q_s8(lut_values);
   } else if constexpr (nbit == 2) {
-    lut = {-2, -1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+    const int8_t lut_values[16] = {
+        -2, -1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+    lut = vld1q_s8(lut_values);
   } else if constexpr (nbit == 3) {
-    lut = {-4, -3, -2, -1, 0, 1, 2, 3, 0, 0, 0, 0, 0, 0, 0, 0};
+    const int8_t lut_values[16] = {
+        -4, -3, -2, -1, 0, 1, 2, 3, 0, 0, 0, 0, 0, 0, 0, 0};
+    lut = vld1q_s8(lut_values);
   } else {
-    lut = {-8, -7, -6, -5, -4, -3, -2, -1, 0, 1, 2, 3, 4, 5, 6, 7};
+    const int8_t lut_values[16] = {
+        -8, -7, -6, -5, -4, -3, -2, -1, 0, 1, 2, 3, 4, 5, 6, 7};
+    lut = vld1q_s8(lut_values);
   }
 
   torchao::bitpacking::vec_pack_128_uintx_values<nbit>(

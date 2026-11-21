@@ -6,6 +6,7 @@
 
 #pragma once
 #include <torchao/csrc/cpu/shared_kernels/groupwise_lowbit_weight_lut/kernel_config.h>
+#include <cstdint>
 #include <optional>
 #include <vector>
 

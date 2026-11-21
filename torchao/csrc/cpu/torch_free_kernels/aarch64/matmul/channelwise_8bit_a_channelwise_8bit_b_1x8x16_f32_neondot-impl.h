@@ -26,7 +26,7 @@ Furthermore the int8x16_t values from a are reduced via summing, resulting in
 int32_t row_sum_a. Similar int8x16_t values from b are reduced via summing,
 resulting in int32_t row_sum_b.
 */
-TORCHAO_ALWAYS_INLINE static void block_mul_1x8x16(
+TORCHAO_ALWAYS_INLINE static inline void block_mul_1x8x16(
     const int8_t* a,
     const int8_t* b,
     const size_t ldb,
@@ -50,7 +50,7 @@ TORCHAO_ALWAYS_INLINE static void block_mul_1x8x16(
   }
 }
 
-TORCHAO_ALWAYS_INLINE static void reduce_1x8_int32x4_t_sums(
+TORCHAO_ALWAYS_INLINE static inline void reduce_1x8_int32x4_t_sums(
     const int32x4_t (&partial_sums)[8],
     int32_t (&sums)[8]) {
 #pragma unroll(8)
@@ -59,7 +59,7 @@ TORCHAO_ALWAYS_INLINE static void reduce_1x8_int32x4_t_sums(
   }
 }
 
-TORCHAO_ALWAYS_INLINE static void dequantize_1x8_int32_t(
+TORCHAO_ALWAYS_INLINE static inline void dequantize_1x8_int32_t(
     const int32_t (&sums)[8],
     int32_t& row_sum_lhs,
     int32_t (&row_sum_rhs)[8],
