@@ -26,9 +26,9 @@ Tensor Subclass Utils
 
     TorchAOBaseTensor
 
-=====================================
-torchao.quantization.quantize_.common
-=====================================
+======================================
+torchao.quantization.quantize\_.common
+======================================
 
 .. currentmodule:: torchao.quantization.quantize_.common
 
