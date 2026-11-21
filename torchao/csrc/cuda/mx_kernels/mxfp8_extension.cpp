@@ -296,8 +296,9 @@ std::tuple<Tensor, Tensor, Tensor> fused_pad_token_groups(
   const int dim = inputs.size(1);
   const int num_groups = group_end_offsets.size(0);
 
-  STD_TORCH_CHECK(num_groups <= 32, "num_groups must be <= 32, got: ", num_groups);
-  STD_TORCH_CHECK(alignment_size == 32, "alignment_size must be 32 for now");
+  STD_TORCH_CHECK(num_groups > 0, "num_groups must be positive, got: ", num_groups);
+  STD_TORCH_CHECK(alignment_size == 32 || alignment_size == 128,
+              "alignment_size must be 32 or 128, got: ", alignment_size);
 
   // Allocate tensors for padded group offsets
   Tensor padded_group_start_offsets = torch::stable::new_empty(group_end_offsets, {num_groups}, group_end_offsets.scalar_type());
@@ -333,19 +334,21 @@ std::tuple<Tensor, Tensor, Tensor> fused_pad_token_groups(
     dtype_enum = 1;
   }
 
-  // Launch copy kernel (overwrites zeros with real data)
-  launch_fused_pad_token_groups_cuda(
-      inputs.data_ptr(),
-      reinterpret_cast<const int32_t*>(group_end_offsets.data_ptr()),
-      reinterpret_cast<const int32_t*>(padded_group_start_offsets.data_ptr()),
-      output.data_ptr(),
-      num_tokens,
-      dim,
-      num_groups,
-      dtype_size,
-      dtype_enum,
-      stream
-  );
+  // A zero-token batch needs no copy and cannot launch a zero-block grid.
+  if (num_tokens > 0) {
+    launch_fused_pad_token_groups_cuda(
+        inputs.data_ptr(),
+        reinterpret_cast<const int32_t*>(group_end_offsets.data_ptr()),
+        reinterpret_cast<const int32_t*>(padded_group_start_offsets.data_ptr()),
+        output.data_ptr(),
+        num_tokens,
+        dim,
+        num_groups,
+        dtype_size,
+        dtype_enum,
+        stream
+    );
+  }
 
   return std::make_tuple(output, padded_group_start_offsets, padded_group_end_offsets);
 }
@@ -379,11 +382,12 @@ Tensor fused_unpad_token_groups(
   const int dim = inputs.size(1);
   const int num_groups = group_end_offsets.size(0);
 
-  STD_TORCH_CHECK(num_groups <= 32, "num_groups must be <= 32, got: ", num_groups);
-  STD_TORCH_CHECK(alignment_size == 32, "alignment_size must be 32 for now");
+  STD_TORCH_CHECK(num_groups > 0, "num_groups must be positive, got: ", num_groups);
+  STD_TORCH_CHECK(alignment_size == 32 || alignment_size == 128,
+              "alignment_size must be 32 or 128, got: ", alignment_size);
   STD_TORCH_CHECK(padded_group_start_offsets.size(0) == num_groups,
               "padded_group_start_offsets must have same length as num_groups");
-  STD_TORCH_CHECK(num_tokens > 0, "num_tokens must be positive, got: ", num_tokens);
+  STD_TORCH_CHECK(num_tokens >= 0, "num_tokens must be nonnegative, got: ", num_tokens);
 
   // Allocate output tensor for unpadded data
   Tensor output = torch::stable::new_empty(inputs, {num_tokens, dim}, inputs.scalar_type());
@@ -400,19 +404,20 @@ Tensor fused_unpad_token_groups(
   TORCH_ERROR_CODE_CHECK(aoti_torch_get_current_cuda_stream(inputs.get_device_index(), &stream_ptr));
   cudaStream_t stream = static_cast<cudaStream_t>(stream_ptr);
 
-  // Launch unpad kernel
-  launch_fused_unpad_token_groups_cuda(
-      inputs.data_ptr(),
-      reinterpret_cast<const int32_t*>(group_end_offsets.data_ptr()),
-      reinterpret_cast<const int32_t*>(padded_group_start_offsets.data_ptr()),
-      output.data_ptr(),
-      num_tokens,
-      dim,
-      num_groups,
-      dtype_size,
-      dtype_enum,
-      stream
-  );
+  if (num_tokens > 0) {
+    launch_fused_unpad_token_groups_cuda(
+        inputs.data_ptr(),
+        reinterpret_cast<const int32_t*>(group_end_offsets.data_ptr()),
+        reinterpret_cast<const int32_t*>(padded_group_start_offsets.data_ptr()),
+        output.data_ptr(),
+        num_tokens,
+        dim,
+        num_groups,
+        dtype_size,
+        dtype_enum,
+        stream
+    );
+  }
 
   return output;
 }
