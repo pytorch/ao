@@ -115,6 +115,11 @@ class TestInt8TensorCPU(TorchAOIntegrationTestCase):
             f"Quantization error is too high got a SQNR of {compute_error(output_fp, output_quantized)}"
         )
 
+    def test_static_config_without_act_quant_scale_raises(self):
+        model = torch.nn.Sequential(torch.nn.Linear(32, 32))
+        with self.assertRaisesRegex(ValueError, "requires `act_quant_scale`"):
+            quantize_(model, Int8StaticActivationInt8WeightConfig())
+
 
 if __name__ == "__main__":
     common_utils.run_tests()
