@@ -24,7 +24,6 @@ from dataclasses import dataclass
 from typing import Optional
 
 import torch
-import torch.nn.functional as F
 
 from torchao.prototype.mx_formats.config import (
     ScaleCalculationMode,
@@ -142,7 +141,12 @@ class _MXQuantizedForwardFakeQuantizedBackward(torch.autograd.Function):
             # MX weight back to high precision and run a plain matmul, so the
             # fake quantization numerics of the weight follow `MXTensor` exactly
             weight_hp = weight.dequantize(weight.orig_dtype)
-            out = F.linear(_input_2d, weight_hp, bias)
+            # 2-d matmul mirroring the dispatch above, whose b operand is
+            # already in the right-operand orientation (weight.t())
+            if bias is not None:
+                out = torch.addmm(bias, _input_2d, weight_hp.t())
+            else:
+                out = torch.mm(_input_2d, weight_hp.t())
 
         ctx.save_for_backward(_input_2d, weight)
         ctx.orig_shape = orig_shape

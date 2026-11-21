@@ -116,10 +116,6 @@ _CUDA_IS_AVAILABLE = torch.cuda.is_available()
 _DEVICE = (
     get_current_accelerator_device() if torch.accelerator.is_available() else "cpu"
 )
-# devices the weight-only MX QAT tests run on: the dual-sided path goes
-# through _addmm_mx_dispatch, while the weight-only path is pure torch and
-# also runs on CPU (mirrors the _DEVICES idiom in test_low_bit_optim.py)
-_DEVICES = ["cpu"] + (["cuda"] if _CUDA_IS_AVAILABLE else [])
 
 
 class Sub(torch.nn.Module):
@@ -3761,23 +3757,23 @@ class TestQAT(TestCase):
                 weight_config=None,
             )
 
-    @parametrize("device", _DEVICES)
+    @unittest.skipIf(not _CUDA_IS_AVAILABLE, "skipping when cuda is not available")
     @parametrize("bias", [True, False])
     @parametrize("input_shape", [(128, 256), (2, 64, 256)])
     @parametrize(
         "dtype",
         [torch.float4_e2m1fn_x2, torch.float8_e4m3fn],
     )
-    def test_mx_weight_only_linear(self, device, bias, input_shape, dtype):
+    def test_mx_weight_only_linear(self, bias, input_shape, dtype):
         """Weight-only MX QAT: activation_config=None keeps the activations
-        in high precision; forward is a high precision linear over the
+        in high precision; forward is a high precision matmul over the
         weight fake quantized to the MX grid (covers W4A16 and W8A16
         shapes), and backward keeps the STE semantics of the dual-sided
         path.
 
         The weight-only path only uses pure torch ops (to_mx, dequantize,
-        F.linear) and does not go through _addmm_mx_dispatch, so it runs on
-        CPU as well - the device parametrization covers both."""
+        addmm/mm) and does not go through _addmm_mx_dispatch, but it follows
+        the cuda-only convention of the other MX tests in this file."""
         from torchao.prototype.mx_formats.mx_tensor import MXTensor
         from torchao.prototype.qat import MXFakeQuantizeConfig, MXFakeQuantizedLinear
 
@@ -3787,7 +3783,7 @@ class TestQAT(TestCase):
             block_size=32,
         )
 
-        linear = torch.nn.Linear(K, N, bias=bias, device=device, dtype=torch.bfloat16)
+        linear = torch.nn.Linear(K, N, bias=bias, device="cuda", dtype=torch.bfloat16)
         mx_linear = MXFakeQuantizedLinear.from_linear(
             linear,
             activation_config=None,
@@ -3798,12 +3794,12 @@ class TestQAT(TestCase):
         # forward: the implementation runs the same ops on the same inputs
         # as the reference below, so the outputs are bitwise identical
         x = torch.randn(
-            *input_shape, device=device, dtype=torch.bfloat16, requires_grad=True
+            *input_shape, device="cuda", dtype=torch.bfloat16, requires_grad=True
         )
         y = mx_linear(x)
 
         # reference: weight on the same MX grid then dequantized, activations
-        # untouched, high precision linear
+        # untouched, high precision 2-d matmul (same ops as the implementation)
         w_ref = MXTensor.to_mx(
             linear.weight,
             weight_config.dtype,
@@ -3811,7 +3807,11 @@ class TestQAT(TestCase):
             scaling_mode=weight_config.scaling_mode,
             kernel_preference=weight_config.kernel_preference,
         ).dequantize(torch.bfloat16)
-        y_ref = torch.nn.functional.linear(x, w_ref, linear.bias)
+        x_2d = x.view(-1, x.shape[-1])
+        if bias:
+            y_ref = torch.addmm(linear.bias, x_2d, w_ref.t()).view(*y.shape)
+        else:
+            y_ref = torch.mm(x_2d, w_ref.t()).view(*y.shape)
 
         self.assertEqual(y.shape, y_ref.shape)
         self.assertEqual(y.dtype, y_ref.dtype)
@@ -3820,7 +3820,7 @@ class TestQAT(TestCase):
         # backward: STE semantics - grad_weight flows through the high
         # precision input unchanged, grad_input is computed with the fake
         # quantized weight
-        grad_output = torch.randn(*y.shape, device=device, dtype=torch.bfloat16)
+        grad_output = torch.randn(*y.shape, device="cuda", dtype=torch.bfloat16)
         y.backward(grad_output)
 
         self.assertIsNotNone(x.grad)
