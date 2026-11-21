@@ -153,6 +153,7 @@ def _to_mxfp8_dim1_kernel_wrapper(
     kernel_preference,
     cast_kernel_choice,
     scale_calculation_mode: ScaleCalculationMode,
+    swizzle_scales: bool = False,
 ):
     # avoid circular import
     # TODO(future PR): split this utils file in two
@@ -228,6 +229,10 @@ def _to_mxfp8_dim1_kernel_wrapper(
         raise ValueError(
             f"must be one of [CUDA, TRITON, CUTEDSL, FLYDSL], got {cast_kernel_choice}"
         )
+
+    if swizzle_scales and not is_swizzled_scales:
+        a_scale = triton_mx_block_rearrange(a_scale)
+        is_swizzled_scales = True
 
     # MXTensor wraps DTensor inner tensors directly (MXTensor(DTensor) ordering).
     # DTensor's .t() handles placement transposition automatically.
