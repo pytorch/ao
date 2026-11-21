@@ -233,12 +233,12 @@ def build_deepgemm_k_grouped_quant_metadata(
         group_sizes=group_sizes,
         q_offset_by_block=torch.tensor(
             q_offset_by_block,
-            dtype=torch.int32,
+            dtype=torch.int64,
             device=device,
         ),
         group_size_by_block=torch.tensor(
             group_size_by_block,
-            dtype=torch.int32,
+            dtype=torch.int64,
             device=device,
         ),
     )
