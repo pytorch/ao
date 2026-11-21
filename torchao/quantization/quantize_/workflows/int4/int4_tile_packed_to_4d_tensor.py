@@ -93,6 +93,38 @@ class Int4TilePackedTo4dTensor(TorchAOBaseTensor):
             s += f", act_pre_scale.shape={self.act_pre_scale.shape}"
         return s
 
+    @property
+    def _tile_k(self):
+        # qdata.shape[-1] is inner_k_tiles / 2, and each inner tile spans 16 columns.
+        return self.qdata.shape[-1] * 2 * 16
+
+    def _slice_k(self, start, end):
+        tile_k = self._tile_k
+        group_size = self.block_size[-1]
+        alignment = math.lcm(tile_k, group_size)
+        if start != end and (
+            start % alignment or (end != self.shape[1] and end % alignment)
+        ):
+            raise NotImplementedError(
+                f"K slices must align to {alignment} columns or end at the logical K"
+            )
+        length = end - start
+        packed_k = find_multiple(length, alignment)
+        act_pre_scale = self.act_pre_scale
+        if (
+            isinstance(act_pre_scale, torch.Tensor)
+            and act_pre_scale.ndim > 0
+            and act_pre_scale.shape[-1] == self.shape[1]
+        ):
+            act_pre_scale = act_pre_scale[..., start:end]
+        return Int4TilePackedTo4dTensor(
+            self.qdata.narrow(1, start // tile_k, packed_k // tile_k),
+            self.scale_and_zero.narrow(0, start // group_size, packed_k // group_size),
+            self.block_size,
+            (self.shape[0], length),
+            act_pre_scale=act_pre_scale,
+        )
+
     @classmethod
     def from_hp(
         cls,
@@ -249,11 +281,6 @@ def _(func, types, args, kwargs):
         args[2] if len(args) > 2 else None,
     )
 
-    assert weight_tensor.qdata.is_contiguous(), "Expected qdata to be contiguous"
-    assert weight_tensor.scale_and_zero.is_contiguous(), (
-        "Expected scale_and_zero to be contiguous"
-    )
-
     assert weight_tensor.block_size[0] == 1, (
         f"Requires groupwise quantization, got block_size: {weight_tensor.block_size}"
     )
@@ -267,8 +294,8 @@ def _(func, types, args, kwargs):
 
     # weight is packed from padded (out_features, in_features) weight tensor
     # (same dimension requirement as F.linear weight)
-    qdata = weight_tensor.qdata
-    scale_and_zero = weight_tensor.scale_and_zero
+    qdata = weight_tensor.qdata.contiguous()
+    scale_and_zero = weight_tensor.scale_and_zero.contiguous()
     original_shape = weight_tensor.shape
 
     orig_act_size = input_tensor.size()
@@ -276,7 +303,7 @@ def _(func, types, args, kwargs):
 
     # Folds batch dimension into the first dimension
     act_mat = input_tensor.reshape(-1, input_tensor.shape[-1]).to(torch.bfloat16)
-    pad_size = find_multiple(act_mat.shape[-1], 1024)
+    pad_size = qdata.shape[1] * weight_tensor._tile_k
     act_mat = torch.nn.functional.pad(act_mat, (0, pad_size - act_mat.shape[-1]))
 
     # groupwise int4 quantization
@@ -308,9 +335,6 @@ def _(func, _types, args, _kwargs):
     assert len(cur_shape) == 2
     assert self.qdata.dim() == 4
     # qdata has shape [n/8, k/(inner_k_tiles*16), 32, inner_k_tiles/2]
-    n_by_8, k_by_inner_tiles, _, _ = self.qdata.shape
-    sz_dim1, sz_dim0, _ = self.scale_and_zero.shape
-
     data_len = cur_shape[dim]
     assert dim in [
         0,
@@ -319,12 +343,22 @@ def _(func, _types, args, _kwargs):
         f"Int4TilePackedTo4dTensor slice: attempting to run {func}, with dim={dim}, that is not supported"
     )
 
-    if dim == 0:
-        pw_len = n_by_8
-        sz_len = sz_dim0
-    else:
-        pw_len = k_by_inner_tiles
-        sz_len = sz_dim1
+    start, end, step = slice(start, end, step).indices(data_len)
+    if dim == 1:
+        if step != 1:
+            raise NotImplementedError("K slicing requires a unit step")
+        if start == 0 and end == data_len:
+            return Int4TilePackedTo4dTensor(
+                self.qdata,
+                self.scale_and_zero,
+                self.block_size,
+                self.shape,
+                self.act_pre_scale,
+            )
+        return self._slice_k(start, max(start, end))
+
+    pw_len = self.qdata.shape[0]
+    sz_len = self.scale_and_zero.shape[1]
 
     if pw_len == 0 or sz_len == 0:
         return Int4TilePackedTo4dTensor(
@@ -360,6 +394,35 @@ def _(func, _types, args, _kwargs):
         new_shape,
         act_pre_scale=self.act_pre_scale,
     )
+
+
+# Keep the common copier's metadata validation and optional-tensor handling.
+_copy_tensor_data = Int4TilePackedTo4dTensor._ATEN_OP_TABLE[Int4TilePackedTo4dTensor][
+    aten.copy_.default
+]
+
+
+@implements(aten.copy_.default)
+def _(func, types, args, kwargs):
+    dst, src = args[:2]
+    if (
+        type(src) is type(dst)
+        and dst.ndim == 2
+        and dst.shape == src.shape
+        and dst.block_size == src.block_size
+        and dst.qdata.shape[1] != src.qdata.shape[1]
+    ):
+        # Match the destination's trailing storage padding when loading a shard.
+        tile_pad = dst.qdata.shape[1] - src.qdata.shape[1]
+        group_pad = dst.scale_and_zero.shape[0] - src.scale_and_zero.shape[0]
+        src = Int4TilePackedTo4dTensor(
+            torch.nn.functional.pad(src.qdata, (0, 0, 0, 0, 0, tile_pad)),
+            torch.nn.functional.pad(src.scale_and_zero, (0, 0, 0, 0, 0, group_pad)),
+            src.block_size,
+            src.shape,
+            src.act_pre_scale,
+        )
+    return _copy_tensor_data(func, types, (dst, src, *args[2:]), kwargs)
 
 
 @implements(aten.select.int)
