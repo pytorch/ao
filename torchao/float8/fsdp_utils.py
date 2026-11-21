@@ -209,7 +209,7 @@ class WeightWithDynamicFloat8CastTensor(torch.Tensor):
 
     def __tensor_flatten__(self):
         tensors = ["_tensor"]
-        if self._precomputed_scale:
+        if self._precomputed_scale is not None:
             tensors.append("_precomputed_scale")
         return tensors, {"mm_config": self._linear_mm_config, "dtype": self._dtype}
 
@@ -219,7 +219,7 @@ class WeightWithDynamicFloat8CastTensor(torch.Tensor):
             inner_tensors["_tensor"],
             flatten_spec["mm_config"],
             flatten_spec["dtype"],
-            getattr(inner_tensors, "_precomputed_scale", None),
+            inner_tensors.get("_precomputed_scale"),
         )
 
     def __repr__(self):
