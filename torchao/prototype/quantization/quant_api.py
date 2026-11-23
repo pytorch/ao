@@ -375,7 +375,7 @@ class Float8ObservedSoftmax(torch.nn.Softmax):
     A softmax module placeholder for float8 static quantization.
 
     Softmax output is always in [0, 1], so we use a fixed scale of
-    ``finfo(float8_dtype).max`` instead of observing. This module simply
+    ``1 / finfo(float8_dtype).max`` instead of observing. This module simply
     marks the softmax for later conversion by the convert step.
 
     Unlike linear observers, the calibration loop does not collect statistics
@@ -543,11 +543,12 @@ def _float8_static_activation_float8_weight_transform(
                     "Defaulting scale device to CPU."
                 )
                 device = torch.device("cpu")
-            # Softmax output is in [0, 1], so use a fixed scale:
-            # scale = float8_max / 1.0 = float8_max
+            # Softmax output is in [0, 1], so use a fixed scale. Quantization
+            # computes x / scale with scale = amax / float8_max, so for
+            # amax = 1.0: scale = 1.0 / float8_max
             float8_max = torch.finfo(config.activation_dtype).max
             output_act_quant_scale = torch.tensor(
-                [float8_max], dtype=torch.float32, device=device
+                [1.0 / float8_max], dtype=torch.float32, device=device
             )
 
             output_act_quant_kwargs = QuantizeTensorToFloat8Kwargs(
