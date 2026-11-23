@@ -292,6 +292,40 @@ class TestTorchAOBaseTensor(unittest.TestCase):
         )
         self._test_default_impls_helper(lp_tensor, lp_tensor_for_copy)
 
+        # equal: same data with different metadata or optional tensors is not equal
+        w = torch.randn(3, 2)
+        zp = torch.zeros_like(w)
+        lp_tensor = MyTensorWithOptionalData(w, "attr", None, zp)
+        self.assertTrue(
+            torch.equal(
+                lp_tensor, MyTensorWithOptionalData(w.clone(), "attr", None, zp.clone())
+            )
+        )
+        self.assertFalse(
+            torch.equal(lp_tensor, MyTensorWithOptionalData(w, "other_attr", None, zp))
+        )
+        self.assertFalse(
+            torch.equal(lp_tensor, MyTensorWithOptionalData(w, "attr", None, zp + 1))
+        )
+        lp_tensor_no_zp = MyTensorWithOptionalData(w, "attr", None, None)
+        self.assertFalse(torch.equal(lp_tensor, lp_tensor_no_zp))
+        self.assertFalse(torch.equal(lp_tensor_no_zp, lp_tensor))
+
+    def test_equal_int8_tensor(self):
+        from torchao.quantization import PerRow
+        from torchao.quantization.quantize_.workflows.int8.int8_tensor import (
+            Int8Tensor,
+        )
+
+        w = torch.randn(16, 32)
+        q = Int8Tensor.from_hp(w, PerRow())
+        self.assertTrue(torch.equal(q, q.clone()))
+        self.assertTrue(torch.equal(q, Int8Tensor.from_hp(w.clone(), PerRow())))
+        self.assertFalse(torch.equal(q, Int8Tensor.from_hp(w + 1, PerRow())))
+        self.assertFalse(torch.equal(q, Int8Tensor.from_hp(w.bfloat16(), PerRow())))
+        self.assertFalse(torch.equal(q, w))
+        self.assertFalse(torch.equal(w, q))
+
     @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
     def test_default_impls_with_optional_attr(self):
         class MyTensorWithOptionalData(TorchAOBaseTensor):

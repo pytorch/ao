@@ -544,12 +544,12 @@ def _implements_common_tensor_ops(cls):
         )
         _optional_tensor_shape_match = True
         if hasattr(self, "optional_tensor_data_names"):
-            # either both are None or both are not Tensors and the shape match
+            # either both are None or both are Tensors and the shape match
             _optional_tensor_shape_match = all(
-                (
-                    getattr(self, t_name).shape == getattr(src, t_name).shape
-                    if getattr(self, t_name) is not None
-                    else getattr(src, t_name) is None
+                (getattr(self, t_name) is None) == (getattr(src, t_name) is None)
+                and (
+                    getattr(self, t_name) is None
+                    or getattr(self, t_name).shape == getattr(src, t_name).shape
                 )
                 for t_name in self.optional_tensor_data_names
             )
@@ -578,7 +578,11 @@ def _implements_common_tensor_ops(cls):
     @implements(aten.equal.default)
     def _(func, types, args, kwargs):
         self, other = args
-        if type(self) is not type(other) or not _same_metadata(self, other):
+        if (
+            type(self) is not type(other)
+            or self.dtype != other.dtype
+            or not _same_metadata(self, other)
+        ):
             return False
         return all(
             torch.equal(getattr(self, tensor_name), getattr(other, tensor_name))
