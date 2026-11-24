@@ -9,7 +9,7 @@ import copy
 import logging
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Optional, Tuple
+from typing import Any, Optional, Tuple, Union
 
 import torch
 
@@ -114,7 +114,7 @@ class QATConfig(AOBaseConfig):
             config for weights. Must be None if `base_config` is used.
 
     Keyword args:
-        step (str): One of "prepare" or "convert", determines the QAT phase
+        step (Union[QATStep, str]): One of "prepare" or "convert", determines the QAT phase
 
     Raises:
         ValueError: If `base_config` and `activation_config` are both specified
@@ -143,7 +143,7 @@ class QATConfig(AOBaseConfig):
         activation_config: Optional[FakeQuantizeConfigBase] = None,
         weight_config: Optional[FakeQuantizeConfigBase] = None,
         *,
-        step: QATStep = "prepare",
+        step: Union[QATStep, str] = QATStep.PREPARE,
     ):
         self.base_config = base_config
         self.activation_config = activation_config
@@ -153,10 +153,11 @@ class QATConfig(AOBaseConfig):
 
     def __post_init__(self):
         torch._C._log_api_usage_once("torchao.quantization.qat.QATConfig")
-        self.step = self.step.lower()
+        step_lower = self.step.lower()
         all_step_values = [s.value for s in QATStep]
-        if self.step not in all_step_values:
+        if step_lower not in all_step_values:
             raise ValueError(f"`step` must be one of {all_step_values}")
+        self.step = QATStep(step_lower)
         if self.base_config is not None and self.activation_config is not None:
             raise ValueError(
                 "Cannot specify both `base_config` and `activation_config`"
