@@ -60,6 +60,8 @@ class Int8Tensor(TorchAOBaseTensor):
     """
     int8 quantized tensor with plain layout.
 
+    Selecting along dimension 0 preserves the scale and zero point of the selected block.
+
     Tensor Attributes:
         qdata: (N, K) or (B, N, K) int8 quantized weight data (2D or 3D)
         scale: scale factors for dequantization
@@ -500,13 +502,14 @@ def _(func, types, args, kwargs):
     assert len(old_int8_tensor.qdata.shape) == len(old_int8_tensor.block_size), (
         "unsupported"
     )
+    scale_index = index // old_int8_tensor.block_size[0]
     selected_zero_point = None
     if old_int8_tensor.zero_point is not None:
-        selected_zero_point = old_int8_tensor.zero_point[index]
+        selected_zero_point = old_int8_tensor.zero_point[scale_index]
 
     new_int8_tensor = Int8Tensor(
         old_int8_tensor.qdata[index],
-        old_int8_tensor.scale[index],
+        old_int8_tensor.scale[scale_index],
         old_int8_tensor.block_size[1:],
         old_int8_tensor.dtype,
         zero_point=selected_zero_point,
