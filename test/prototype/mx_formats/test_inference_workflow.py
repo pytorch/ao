@@ -24,6 +24,7 @@ from torchao.quantization.quantize_.common import KernelPreference
 from torchao.quantization.utils import compute_error
 from torchao.testing.utils import TorchAOIntegrationTestCase, skip_if_rocm
 from torchao.utils import (
+    _is_sm_10x,
     is_ROCM,
     is_sm_at_least_89,
     is_sm_at_least_100,
@@ -95,8 +96,10 @@ def test_inference_workflow_mx(
         elif not is_sm_at_least_100() and not emulate:
             pytest.skip("CUDA capability >= 10.0 required for mxfp8 gemm")
     elif elem_dtype == torch.float4_e2m1fn_x2 and device == "cuda":
-        if not is_sm_at_least_100() and not emulate:
-            pytest.skip("CUDA capability >= 10.0 required for mxfp4 gemm")
+        # PyTorch only enables the MXFP4 gemm on CUDA capability 10.x
+        # (B200/B300), not on 11.x/12.x, see `_check_mxfp4_support`
+        if not _is_sm_10x() and not emulate:
+            pytest.skip("CUDA capability 10.x required for mxfp4 gemm")
         elif compile:
             # TODO(future PR): investigate and fix this
             pytest.skip("mxfp4 + compile currently does not work, low SQNR")

@@ -1187,6 +1187,18 @@ def is_cuda_version_at_least(major: int, minor: int) -> bool:
     return (cuda_major, cuda_minor) >= (major, minor)
 
 
+def _is_sm_10x() -> bool:
+    """CUDA capability 10.x (B200 = 10.0, B300 = 10.3). Some kernels and PyTorch
+    gemm paths (e.g. MXFP4 `torch._scaled_mm`) are only enabled for this family,
+    not for later archs such as 12.x (RTX 5090 / RTX PRO 6000), so
+    `is_sm_at_least_100()` is not the right check for them."""
+    return bool(
+        torch.cuda.is_available()
+        and torch.version.cuda
+        and torch.cuda.get_device_capability()[0] == 10
+    )
+
+
 def _is_cuda_build_at_least(major: int, minor: int) -> bool:
     # unlike is_cuda_version_at_least, never calls torch.cuda.is_available()
     if torch.version.cuda is None:

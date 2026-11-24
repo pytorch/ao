@@ -13,7 +13,7 @@ from torch.nn.functional import ScalingType, SwizzleType
 from torchao.float8.float8_utils import compute_error
 from torchao.prototype.mx_formats.mx_tensor import MXTensor
 from torchao.prototype.mx_formats.utils import to_blocked
-from torchao.utils import is_ROCM, is_sm_at_least_100
+from torchao.utils import _is_sm_10x, is_ROCM, is_sm_at_least_100
 
 
 def _mxfp4_scaled_mm(
@@ -134,6 +134,10 @@ def run_matrix_test(M: int, K: int, N: int, format, device="cuda") -> float:
 @pytest.mark.parametrize("format", ["fp8", "fp4"])
 def test_matrix_multiplication(size, format):
     device = torch.accelerator.current_accelerator().type
+    if format == "fp4" and device == "cuda" and not _is_sm_10x():
+        # PyTorch only enables the MXFP4 gemm on CUDA capability 10.x
+        # (B200/B300), not on 11.x/12.x, see `_check_mxfp4_support`
+        pytest.skip("CUDA capability 10.x required for mxfp4 gemm")
     M, K, N = size
     sqnr = run_matrix_test(M, K, N, format, device=device)
     threshold = 80.0
