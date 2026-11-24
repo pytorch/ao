@@ -329,5 +329,84 @@ class TestInt4TilePackedTo4dTensor(TorchAOIntegrationTestCase):
 instantiate_parametrized_tests(TestInt4TilePackedTo4dTensor)
 
 
+class TestPaddedKSlices(unittest.TestCase):
+    def test_packed_storage(self):
+        n, k, padded_k = 16, 9728, 10240
+        group_size = 64
+        qdata = torch.arange(n * padded_k // 8, dtype=torch.int32).view(
+            n // 8, padded_k // 128, 32, 4
+        )
+        scales = torch.arange(padded_k // group_size * n * 2).view(-1, n, 2).bfloat16()
+        weight = Int4TilePackedTo4dTensor(
+            qdata, scales, [1, group_size], (n, k), torch.arange(k)
+        )
+        shard_k = k // 2
+        dst = Int4TilePackedTo4dTensor(
+            torch.ones_like(qdata[:, :40]),
+            torch.ones_like(scales[:80]),
+            [1, group_size],
+            (n, shard_k),
+            torch.zeros(shard_k, dtype=torch.int64),
+        )
+        for start in (0, shard_k):
+            shard = weight.narrow(1, start, shard_k)
+            end = start + shard_k
+            expected_qdata = qdata[:, start // 128 : end // 128]
+            expected_scales = scales[start // group_size : end // group_size]
+            torch.testing.assert_close(shard.qdata, expected_qdata)
+            torch.testing.assert_close(shard.scale_and_zero, expected_scales)
+            self.assertEqual(shard.qdata.data_ptr(), expected_qdata.data_ptr())
+            self.assertEqual(
+                shard.scale_and_zero.data_ptr(), expected_scales.data_ptr()
+            )
+            dst.copy_(shard)
+            torch.testing.assert_close(dst.qdata[:, :38], expected_qdata)
+            torch.testing.assert_close(dst.scale_and_zero[:76], expected_scales)
+            self.assertEqual(dst.qdata[:, 38:].count_nonzero().item(), 0)
+            self.assertEqual(dst.scale_and_zero[76:].count_nonzero().item(), 0)
+            torch.testing.assert_close(
+                dst.act_pre_scale, weight.act_pre_scale[start:end]
+            )
+            dst.qdata[:, 0].fill_(-1)
+            shard.copy_(dst)
+            self.assertTrue((qdata[:, start // 128] == -1).all())
+
+    @unittest.skipUnless(
+        torch.cuda.is_available() and torch.cuda.get_device_capability()[0] >= 8,
+        "Requires the CUDA int4 tensor core kernel",
+    )
+    def test_tensor_parallel_shards(self):
+        torch.manual_seed(0)
+        for k in (3072, 9728):
+            with self.subTest(k=k):
+                n, shard_k = 128, k // 2
+                weight = torch.randn(n, k, device="cuda", dtype=torch.bfloat16)
+                packed = Int4TilePackedTo4dTensor.from_hp(weight, [1, 128])
+                packed.act_pre_scale = torch.linspace(
+                    0.5, 1.5, k, device="cuda", dtype=weight.dtype
+                )
+                x = torch.randn(4, k, device="cuda", dtype=weight.dtype)
+                dst = Int4TilePackedTo4dTensor.from_hp(weight[:, :shard_k], [1, 128])
+                dst.act_pre_scale = torch.empty_like(packed.act_pre_scale[:shard_k])
+                for start in (0, shard_k):
+                    shard = packed.narrow(1, start, shard_k)
+                    self.assertEqual(
+                        shard.qdata.untyped_storage().data_ptr(),
+                        packed.qdata.untyped_storage().data_ptr(),
+                    )
+                    masked = torch.zeros_like(x)
+                    masked[:, start : start + shard_k] = x[:, start : start + shard_k]
+                    expected = torch.nn.functional.linear(masked, packed)
+                    local_x = x[:, start : start + shard_k].contiguous()
+                    dst.copy_(shard)
+                    for local_weight in (shard, dst):
+                        torch.testing.assert_close(
+                            torch.nn.functional.linear(local_x, local_weight),
+                            expected,
+                            rtol=0.016,
+                            atol=0.016,
+                        )
+
+
 if __name__ == "__main__":
     run_tests()
