@@ -159,8 +159,8 @@ class _PermuteMXFP8FwdHPBwd(torch.autograd.Function):
             grad_input_padded = grad_output.new_zeros(ctx.padded_input_shape)
             grad_input_padded[permuted_indices, :] = grad_output
 
-            # Remove the padding row (last row)
-            grad_input = grad_input_padded[:input_rows]
+            # Remove the padding row (last row), matching the Triton branch above
+            grad_input = grad_input_padded[: input_rows - 1]
         return grad_input, None, None, None, None, None
 
 
