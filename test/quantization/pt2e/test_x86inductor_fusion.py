@@ -2460,6 +2460,52 @@ class TestPatternMatcher(TestPatternMatcherBase):
     @skipIfNoDynamoSupport
     @skipIfNoONEDNNBF16
     @skipIfNoONEDNN
+    @parametrize("bf16_weight", [False, True])
+    @parametrize("shared_input", [False, True])
+    def test_qlinear_bf16_activation(self, bf16_weight, shared_input):
+        r"""
+        Activations that are already bf16 when they are quantized get
+        dequantize(..., out_dtype=torch.bfloat16) from convert_pt2e. Test that the
+        linears are still lowered and return bf16, with fp32 autocast or bf16 weights
+        """
+
+        class M(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.linear = torch.nn.Linear(16, 16)
+                self.linear2 = torch.nn.Linear(16, 16)
+
+            def forward(self, x):
+                if shared_input:
+                    return self.linear(x) + self.linear2(x)
+                return self.linear2(self.linear(x))
+
+        mod = M().eval()
+        if bf16_weight:
+            mod = mod.to(torch.bfloat16)
+        inputs = (torch.randn((2, 3, 16)).to(torch.bfloat16),)
+        # bf16 activations with fp32 weights only trace under autocast, so quantize
+        # here rather than with _test_common(check_quantization=True)
+        with torch.amp.autocast(device_type="cpu", dtype=torch.bfloat16):
+            mod = _generate_ref_quantized_model(mod, inputs)
+
+        def matcher_check_fn():
+            self.assertEqual(
+                counters["inductor"]["qlinear_weight_prepack_matcher_count"], 2
+            )
+
+        self._test_common(
+            mod,
+            inputs,
+            matcher_check_fn,
+            check_autocast=torch.bfloat16,
+            check_output_dtype=True,
+            include_ops=["qlinear_pointwise"],
+        )
+
+    @skipIfNoDynamoSupport
+    @skipIfNoONEDNNBF16
+    @skipIfNoONEDNN
     @unittest.skipIf(
         torch_version_at_least("2.13.0.dev"), "Skip due to torch nightly issue"
     )
