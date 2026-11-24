@@ -356,3 +356,31 @@ def test_unsupported_dtype_observer_is_removed():
     ]
     assert not observers
     assert _qdq_signature(gm) == []
+
+
+def test_instance_patched_convert_still_called():
+    calls = []
+
+    def convert(model, observer_node):
+        calls.append(observer_node.name)
+        observer_node.replace_all_uses_with(observer_node.args[0])
+        model.graph.erase_node(observer_node)
+
+    class InstancePatchedObserver(observer.MinMaxObserver):
+        def __init__(self, **kwargs):
+            super().__init__(**kwargs)
+            self.convert = convert
+
+    gm = _convert_with(
+        _LinearInputQuantizer(
+            QuantizationSpec(
+                dtype=torch.int8,
+                quant_min=-128,
+                quant_max=127,
+                qscheme=torch.per_tensor_affine,
+                observer_or_fake_quant_ctr=InstancePatchedObserver,
+            )
+        )
+    )
+    assert calls
+    assert _qdq_signature(gm) == []

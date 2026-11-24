@@ -45,8 +45,9 @@ _QSCHEME_TO_CHOOSE_QPARAMS_OP = {
 
 
 def _uses_default_convert(observer: torch.nn.Module) -> bool:
-    """True when the observer's class does not override the base ``convert``."""
-    convert = getattr(type(observer), "convert", None)
+    """True when ``observer.convert`` is the base implementation, i.e. neither
+    the observer's class nor the instance replaced it."""
+    convert = getattr(getattr(observer, "convert", None), "__func__", None)
     return convert is ObserverBase.convert or convert is FakeQuantizeBase.convert
 
 

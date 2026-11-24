@@ -68,7 +68,6 @@ from torch.nn.utils.parametrize import type_before_parametrizations
 
 from torchao.quantization.pt2e._decomposed_qdq import (
     SUPPORTED_QDTYPES,
-    _insert_decomposed_qdq,
     _uses_default_convert,
 )
 from torchao.quantization.pt2e.graph_utils import collect_producer_nodes
@@ -132,8 +131,7 @@ def _replace_observer_with_quantize_dequantize_node_decomposed(
         node, node_name_to_scope, node_name_to_qconfig
     )
     activation_post_process = modules[node.target]
-    uses_default_convert = _uses_default_convert(activation_post_process)
-    if hasattr(activation_post_process, "convert") and not uses_default_convert:
+    if not _uses_default_convert(activation_post_process):
         activation_post_process.convert(model, node)
         return
     # skip replacing observers to quant/dequant nodes if the qconfigs of all
@@ -151,18 +149,9 @@ def _replace_observer_with_quantize_dequantize_node_decomposed(
         return
 
     # otherwise, the observer converts itself to quantize/dequantize nodes
-    if uses_default_convert:
-        activation_post_process.convert(
-            model, node, attr_prefix=module_path + prefix, model_device=model_device
-        )
-    else:
-        _insert_decomposed_qdq(
-            activation_post_process,
-            model,
-            node,
-            attr_prefix=module_path + prefix,
-            model_device=model_device,
-        )
+    activation_post_process.convert(
+        model, node, attr_prefix=module_path + prefix, model_device=model_device
+    )
 
 
 def _replace_observer_with_quantize_dequantize_node(
