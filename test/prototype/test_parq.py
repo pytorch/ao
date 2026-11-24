@@ -46,6 +46,7 @@ from torchao.quantization.quantize_.workflows import IntxUnpackedToInt8Tensor
 from torchao.utils import (
     _is_mslk_available,
     is_sm_at_least_90,
+    is_sm_at_least_100,
 )
 
 _DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -239,6 +240,8 @@ def compare_parq_convert(
     optimizer.torchao_convert(model, weight_only=weight_only, embed_weight_only=True)
 
     inputs = model.example_inputs(device=_DEVICE)
+    if inputs.is_floating_point():
+        inputs = inputs.to(next(orig_model.parameters()).dtype)
     torch.testing.assert_close(model(inputs), orig_model(inputs))
 
     for n, module in model.named_modules():
@@ -363,8 +366,11 @@ class TestUnifTorchaoQuantizer(common_utils.TestCase):
         compare_quantized_models(model, m_ref, quantizer, b, group_size)
 
     @unittest.skipIf(not is_sm_at_least_90(), "Need sm >= 90")
+    @unittest.skipIf(
+        is_sm_at_least_100(), "MSLK int4 kernel not compatible with sm100+"
+    )
     @unittest.skipIf(not _is_mslk_available(), "Requires mslk >= 1.0.0")
-    def test_int4_weight_only_e2e(self, group_size: int = 32):
+    def test_int4_weight_only_e2e(self, group_size: int = 128):
         model = M(m=512, n=512, embedding=False).to(torch.bfloat16).to(_DEVICE)
 
         m_ref = copy.deepcopy(model).eval().to(_DEVICE)

@@ -160,7 +160,10 @@ class StretchedUnifTorchaoQuantizer(UnifTorchaoQuantizer):
 
 
 class Int4UnifTorchaoQuantizer(UnifTorchaoQuantizer):
-    """Based on torchao.quantization.quant_api._int4_weight_only_transform"""
+    """Matches the numerics of ``Int4WeightOnlyConfig`` (``Int4Tensor``, plain
+    packing format), which ``QuantOptimizer.torchao_convert`` converts to.
+    ``Int4Tensor.from_hp`` uses mslk ``int4_row_quantize_zp``: fp32 asymmetric
+    qparams, scale and zero_point stored in the weight dtype."""
 
     def __init__(self) -> None:
         super().__init__(
@@ -172,3 +175,31 @@ class Int4UnifTorchaoQuantizer(UnifTorchaoQuantizer):
             preserve_zero=False,
             zero_point_domain=ZeroPointDomain.FLOAT,
         )
+
+    def quantize(
+        self, p: Tensor, b: int, dim: Optional[int] = None
+    ) -> tuple[Tensor, Tensor]:
+        # assume that p has already been grouped in QuantOptimizer.step
+        x = p.float() if dim is not None else p.float().view(1, -1)
+        min_val = x.amin(dim=-1, keepdim=True)
+        max_val = x.amax(dim=-1, keepdim=True)
+        mid_point = (self.quant_max + 1) // 2
+        scale = (max_val - min_val).clamp(min=self.eps) / self.quant_max
+        zero_point = min_val + scale * mid_point
+        q = x.sub(min_val).div(scale).round().clamp(self.quant_min, self.quant_max)
+
+        # Int4Tensor stores scale and zero_point in the weight dtype
+        scale = scale.to(p.dtype).float()
+        zero_point = zero_point.to(p.dtype).float()
+        q = ((q - mid_point) * scale + zero_point).to(p.dtype).view_as(p)
+
+        Q = torch.arange(
+            self.quant_min - mid_point,
+            self.quant_max - mid_point + 1,
+            device=p.device,
+            dtype=torch.float32,
+        )
+        Q = (Q * scale + zero_point).to(p.dtype)
+        if dim is None:
+            Q = Q.view(-1)
+        return q, Q
