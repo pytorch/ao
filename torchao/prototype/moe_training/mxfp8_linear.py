@@ -21,6 +21,7 @@ from torchao.prototype.mx_formats.config import (
 from torchao.prototype.mx_formats.mx_tensor import MXTensor
 from torchao.prototype.mx_formats.utils import _to_mxfp8_dim1_kernel_wrapper
 from torchao.quantization.quantize_.common.kernel_preference import KernelPreference
+from torchao.utils import is_ROCM
 
 
 # convenience wrapper
@@ -112,6 +113,8 @@ class mx_mm(torch.autograd.Function):
         ctx.block_size = block_size
         ctx.kernel_preference = kernel_preference
         ctx.wgrad_with_hp = wgrad_with_hp
+        swizzle_scales = kernel_preference == KernelPreference.AUTO and not is_ROCM()
+        ctx.swizzle_scales = swizzle_scales
         ctx.mxfp8_dim0_cast_kernel_choice = mxfp8_dim0_cast_kernel_choice
         ctx.mxfp8_dim1_cast_kernel_choice = mxfp8_dim1_cast_kernel_choice
         ctx.scale_calculation_mode = scale_calculation_mode
@@ -126,6 +129,7 @@ class mx_mm(torch.autograd.Function):
             block_size,
             scale_calculation_mode,
             kernel_preference,
+            is_swizzled_scales=swizzle_scales,
             mxfp8_dim0_cast_kernel_choice=mxfp8_dim0_cast_kernel_choice,
         )
         weight_mx_dim0 = MXTensor.to_mx(
@@ -134,6 +138,7 @@ class mx_mm(torch.autograd.Function):
             block_size,
             scale_calculation_mode,
             kernel_preference,
+            is_swizzled_scales=swizzle_scales,
             mxfp8_dim0_cast_kernel_choice=mxfp8_dim0_cast_kernel_choice,
         )
         output = torch.mm(input_mx_r_dim0, weight_mx_dim0.t())
@@ -153,6 +158,7 @@ class mx_mm(torch.autograd.Function):
         mxfp8_dim1_cast_kernel_choice = ctx.mxfp8_dim1_cast_kernel_choice
         scale_calculation_mode = ctx.scale_calculation_mode
         wgrad_with_hp = ctx.wgrad_with_hp
+        swizzle_scales = ctx.swizzle_scales
 
         # grad_output may be non-contiguous (e.g. produced by a transposed or
         # otherwise strided downstream op). Both the dim0 cast (MXTensor.to_mx /
@@ -173,6 +179,7 @@ class mx_mm(torch.autograd.Function):
             block_size,
             scale_calculation_mode,
             kernel_preference,
+            is_swizzled_scales=swizzle_scales,
             mxfp8_dim0_cast_kernel_choice=mxfp8_dim0_cast_kernel_choice,
         )
 
@@ -187,6 +194,7 @@ class mx_mm(torch.autograd.Function):
                 block_size,
                 kernel_preference=kernel_preference,
                 scaling_mode=scale_calculation_mode,
+                is_swizzled_scales=swizzle_scales,
                 mxfp8_dim0_cast_kernel_choice=mxfp8_dim0_cast_kernel_choice,
             )
         else:
@@ -198,6 +206,7 @@ class mx_mm(torch.autograd.Function):
                 kernel_preference,
                 mxfp8_dim1_cast_kernel_choice,
                 scale_calculation_mode,
+                swizzle_scales=swizzle_scales,
             )
 
         grad_input = torch.mm(grad_output_mx_dim0, weight_mx_dim1.t())
@@ -220,6 +229,7 @@ class mx_mm(torch.autograd.Function):
                     kernel_preference,
                     mxfp8_dim1_cast_kernel_choice,
                     scale_calculation_mode,
+                    swizzle_scales=swizzle_scales,
                 )
             else:
                 grad_output_mx_dim1 = MXTensor.to_mx(
@@ -228,6 +238,7 @@ class mx_mm(torch.autograd.Function):
                     block_size,
                     kernel_preference=kernel_preference,
                     scaling_mode=scale_calculation_mode,
+                    is_swizzled_scales=swizzle_scales,
                     mxfp8_dim0_cast_kernel_choice=mxfp8_dim0_cast_kernel_choice,
                 )
 
@@ -240,6 +251,7 @@ class mx_mm(torch.autograd.Function):
                     kernel_preference,
                     mxfp8_dim1_cast_kernel_choice,
                     scale_calculation_mode,
+                    swizzle_scales=swizzle_scales,
                 )
                 input_t_mx_dim0 = input_t_mx_dim0_tmp.t()
             else:
@@ -249,6 +261,7 @@ class mx_mm(torch.autograd.Function):
                     block_size,
                     kernel_preference=kernel_preference,
                     scaling_mode=scale_calculation_mode,
+                    is_swizzled_scales=swizzle_scales,
                     mxfp8_dim0_cast_kernel_choice=mxfp8_dim0_cast_kernel_choice,
                 )
                 input_t_mx_dim0 = input_t_mx_dim0_tmp.t()
