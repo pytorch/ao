@@ -4,21 +4,20 @@
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
 # Skip entire test if following module not available, otherwise CI failure
+import itertools
+
 import pytest
+import torch
 
 triton = pytest.importorskip(
     "triton", minversion="3.0.0", reason="Triton > 3.0.0 required to run this test"
 )
-hqq = pytest.importorskip("hqq", reason="hqq required to run this test")
-hqq_quantize = pytest.importorskip(
-    "hqq.core.quantize", reason="hqq required to run this test"
-)
-HQQLinear = hqq_quantize.HQQLinear
-BaseQuantizeConfig = hqq_quantize.BaseQuantizeConfig
 
-import itertools
-
-import torch
+try:
+    from hqq.core.quantize import BaseQuantizeConfig, HQQLinear
+except ImportError:
+    BaseQuantizeConfig = None
+    HQQLinear = None
 
 from torchao.prototype.hqq import pack_2xint4, triton_mixed_mm
 
@@ -86,6 +85,13 @@ def _arg_to_id(arg):
 def test_mixed_mm(
     shape, group_size, axis, dtype, transposed, kernel_type, quant_dtype=torch.uint8
 ):
+    pytest.importorskip("hqq", reason="hqq required to run this test")
+    hqq_quantize = pytest.importorskip(
+        "hqq.core.quantize", reason="hqq required to run this test"
+    )
+    HQQLinear = hqq_quantize.HQQLinear
+    BaseQuantizeConfig = hqq_quantize.BaseQuantizeConfig
+
     qcfg = {
         **BASE_QUANT_CONFIG,
         **dict(group_size=group_size, axis=axis),
@@ -94,10 +100,14 @@ def test_mixed_mm(
 
     linear = torch.nn.Linear(K, N, bias=False, dtype=dtype, device="cuda")
 
-    quant_config = BaseQuantizeConfig(
-        quant_zero=False, quant_scale=False, offload_meta=False, view_as_float=False
-    )
-    quant_config.update({"weight_quant_params": qcfg})
+    if BaseQuantizeConfig is not None:
+        quant_config = BaseQuantizeConfig(
+            quant_zero=False,
+            quant_scale=False,
+            offload_meta=False,
+            view_as_float=False,
+        )
+        quant_config.update({"weight_quant_params": qcfg})
     hqq_linear = HQQLinear(linear, quant_config, compute_dtype=dtype, del_orig=False)
     W_q, meta = hqq_linear.W_q, hqq_linear.meta
     W_q = W_q.to(dtype=quant_dtype)
@@ -114,41 +124,89 @@ def test_mixed_mm(
 
     packed_w = pack_2xint4(W_q.T)
 
-    if transposed:
-        x = torch.randn(M, N, dtype=dtype, device="cuda")
-        hqq_out = x @ W_dq
+    for contiguous_scales in [False, True]:
+        cur_scales = scales.T if not contiguous_scales else scales.T.contiguous()
+        cur_zeros = zeros.T if not contiguous_scales else zeros.T.contiguous()
 
-        tt_out = triton_mixed_mm(
-            x,
-            packed_w,
-            scales.T,
-            zeros.T,
-            transposed=True,
-            group_size=group_size,
-            fp8_fast_accum=False,
-            kernel_type=kernel_type,
+        if transposed:
+            x = torch.randn(M, N, dtype=dtype, device="cuda")
+            hqq_out = x @ W_dq
+
+            tt_out = triton_mixed_mm(
+                x,
+                packed_w,
+                cur_scales,
+                cur_zeros,
+                transposed=True,
+                group_size=group_size,
+                fp8_fast_accum=False,
+                kernel_type=kernel_type,
+            )
+
+        else:
+            x = torch.randn(M, K, dtype=dtype, device="cuda")
+            hqq_out = x @ W_dq.T
+
+            tt_out = triton_mixed_mm(
+                x,
+                packed_w,
+                cur_scales,
+                cur_zeros,
+                transposed=False,
+                group_size=group_size,
+                fp8_fast_accum=False,
+                kernel_type=kernel_type,
+            )
+        assert check(
+            hqq_out,
+            tt_out,
+            max_diff=1e-2 if dtype == torch.bfloat16 else 1e-3,
+            verbose=True,
         )
 
+
+@pytest.mark.parametrize("transposed", [False, True])
+def test_mixed_mm_contiguous_scales(transposed):
+    dev = "cuda" if torch.cuda.is_available() else "cpu"
+    if dev == "cpu":
+        pytest.skip("CUDA required for triton mixed mm")
+    torch.manual_seed(0)
+    m, n, k = 4, 256, 512
+    codes = torch.ones((n, k), dtype=torch.uint8, device=dev)
+    if not transposed:
+        group = 256
+        x = torch.ones((m, k), dtype=torch.float16, device=dev)
+        scale_storage = torch.zeros((3, n), dtype=x.dtype, device=dev)
+        scale_storage[0] = 1
+        scale_storage[1] = 2
+        scales = scale_storage[:2]
+        zero_storage = torch.zeros_like(scale_storage)
+        zeros = zero_storage[:2]
+        weights = codes.float() - zeros.t().repeat_interleave(group, dim=1)
+        weights *= scales.t().repeat_interleave(group, dim=1)
+        expected = (x.float() @ weights.t()).to(x.dtype)
+        packed = pack_2xint4(codes.t().contiguous())
+        actual = triton_mixed_mm(
+            x, packed, scales, zeros, group_size=group, transposed=False
+        )
+        assert torch.equal(actual, expected)
     else:
-        x = torch.randn(M, K, dtype=dtype, device="cuda")
-        hqq_out = x @ W_dq.T
-
-        tt_out = triton_mixed_mm(
-            x,
-            packed_w,
-            scales.T,
-            zeros.T,
-            transposed=False,
-            group_size=group_size,
-            fp8_fast_accum=False,
-            kernel_type=kernel_type,
+        group = 128
+        num_groups = n // group
+        x = torch.ones((m, k), dtype=torch.float16, device=dev)
+        scale_storage = torch.zeros((num_groups + 1, k), dtype=x.dtype, device=dev)
+        scale_storage[0] = 1
+        scale_storage[1] = 2
+        scales = scale_storage[:num_groups]
+        zeros = torch.zeros_like(scales)
+        weights = codes.float() - zeros.repeat_interleave(group, dim=0)
+        weights *= scales.repeat_interleave(group, dim=0)
+        expected = (x.float() @ weights.t()).to(x.dtype)
+        packed = pack_2xint4(codes)
+        actual = triton_mixed_mm(
+            x, packed, scales, zeros, group_size=group, transposed=True
         )
-    assert check(
-        hqq_out,
-        tt_out,
-        max_diff=1e-2 if dtype == torch.bfloat16 else 1e-3,
-        verbose=True,
-    )
+        assert torch.equal(actual, expected)
 
 
 # Only for debugging kernel without dependency on HQQ and with no autotuning
@@ -170,10 +228,14 @@ def _test_mixed_mm(
     }
     M, N, K = shape
 
-    quant_config = BaseQuantizeConfig(
-        quant_zero=False, quant_scale=False, offload_meta=False, view_as_float=False
-    )
-    quant_config.update({"weight_quant_params": qcfg})
+    if BaseQuantizeConfig is not None:
+        quant_config = BaseQuantizeConfig(
+            quant_zero=False,
+            quant_scale=False,
+            offload_meta=False,
+            view_as_float=False,
+        )
+        quant_config.update({"weight_quant_params": qcfg})
     W_q = torch.randint(0, int(2**4), size=(N, K), dtype=quant_dtype, device="cuda")
 
     scales = torch.arange((N * K) // group_size, dtype=dtype, device="cuda")[:, None]
