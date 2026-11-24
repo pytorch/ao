@@ -13,7 +13,6 @@ from torchao.utils import (
     is_MI300,
     is_MI350,
     is_sm_at_least_90,
-    is_sm_version,
 )
 
 if not (
@@ -50,10 +49,14 @@ from torchao.testing.utils import skip_if_rocm
 torch._dynamo.config.cache_size_limit = 1000
 
 
+def _is_sm_10x() -> bool:
+    return torch.cuda.is_available() and torch.cuda.get_device_capability()[0] == 10
+
+
 @skip_if_rocm("ROCm not supported")
 @pytest.mark.skipif(
-    not is_sm_version(10, 0),
-    reason="3D MXFP8 quantization requires SM100",
+    not _is_sm_10x(),
+    reason="3D MXFP8 quantization requires SM 10.x",
 )
 @pytest.mark.parametrize("M,K,N", [(1024, 1024, 1024), (1024, 2048, 4096)])
 @pytest.mark.parametrize("num_experts", (1, 8, 16))
@@ -124,8 +127,8 @@ def test_emulate_mxfp8_grouped_gemm_2d_3d(M, K, N, num_experts, variant, scale_m
 
 @skip_if_rocm("ROCm not supported")
 @pytest.mark.skipif(
-    not is_sm_version(10, 0),
-    reason="3D MXFP8 quantization and MXFP8 grouped GEMM require SM100",
+    not _is_sm_10x(),
+    reason="3D MXFP8 quantization and MXFP8 grouped GEMM require SM 10.x",
 )
 @pytest.mark.parametrize("M,K,N", [(1024, 1024, 1024), (1024, 2048, 4096)])
 @pytest.mark.parametrize("num_experts", (1, 8, 16))
@@ -273,9 +276,9 @@ def test_mxfp8_grouped_gemm_with_dq_fwd_bwd(
     scale_mode,
 ):
     # MXFP8 hardware path requires SM100
-    if kernel_preference != KernelPreference.EMULATED and not is_sm_version(10, 0):
+    if kernel_preference != KernelPreference.EMULATED and not _is_sm_10x():
         pytest.skip(
-            f"Skipping MXFP8 hardware mode tests, only supported on compute capability 10.0 and found {torch.cuda.get_device_capability()}"
+            f"Skipping MXFP8 hardware mode tests, only supported on compute capability 10.x and found {torch.cuda.get_device_capability()}"
         )
     if kernel_preference == KernelPreference.EMULATED and use_compile:
         pytest.skip(
@@ -517,8 +520,8 @@ def test_mxfp8_grouped_gemm_mxtensor_requires_wgrad_with_hp():
 @pytest.mark.parametrize("num_experts", (1, 8))
 def test_mxfp8_grouped_gemm_bias_forward(kernel_preference, M, K, N, num_experts):
     """Test that bias is correctly added to the forward output."""
-    if kernel_preference != KernelPreference.EMULATED and not is_sm_version(10, 0):
-        pytest.skip("MXFP8 hardware mode tests require SM100")
+    if kernel_preference != KernelPreference.EMULATED and not _is_sm_10x():
+        pytest.skip("MXFP8 hardware mode tests require SM 10.x")
 
     x = torch.randn(M, K, dtype=torch.bfloat16, device="cuda")
     w = torch.randn(num_experts, N, K, dtype=torch.bfloat16, device="cuda")
@@ -567,8 +570,8 @@ def test_mxfp8_grouped_gemm_bias_forward(kernel_preference, M, K, N, num_experts
 @pytest.mark.parametrize("num_experts", (1, 8))
 def test_mxfp8_grouped_gemm_bias_backward(kernel_preference, M, K, N, num_experts):
     """Test that bias gradient is correctly computed via autograd."""
-    if kernel_preference != KernelPreference.EMULATED and not is_sm_version(10, 0):
-        pytest.skip("MXFP8 hardware mode tests require SM100")
+    if kernel_preference != KernelPreference.EMULATED and not _is_sm_10x():
+        pytest.skip("MXFP8 hardware mode tests require SM 10.x")
 
     x = torch.randn(M, K, dtype=torch.bfloat16, device="cuda", requires_grad=True)
     w = torch.randn(num_experts, N, K, dtype=torch.bfloat16, device="cuda")
