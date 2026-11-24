@@ -2729,19 +2729,18 @@ class TestQAT(TestCase):
     @unittest.skipIf(not _CUDA_IS_AVAILABLE, "skipping when cuda is not available")
     @unittest.skipIf(not _is_mslk_available(), "Requires mslk >= 1.0.0")
     @unittest.skipIf(is_fbcode(), "cutlass cannot initialize")
-    @parametrize("version", [1, 2])
     @parametrize(
         "packing_format", [Int4PackingFormat.PLAIN, Int4PackingFormat.PRESHUFFLED]
     )
-    def test_quantize_api_int4(self, version: int, packing_format: Int4PackingFormat):
+    def test_quantize_api_int4(self, packing_format: Int4PackingFormat):
         """
         Test the following:
             quantize_(model, QATConfig(Int4WeightOnlyConfig(), step="prepare"))
             quantize_(model, QATConfig(Int4WeightOnlyConfig(), step="convert"))
         """
         self._test_quantize_api_against_ptq(
-            Int4WeightOnlyConfig(version=version, int4_packing_format=packing_format),
-            target_prepare_sqnr=45 if version == 2 else 12,
+            Int4WeightOnlyConfig(int4_packing_format=packing_format),
+            target_prepare_sqnr=45,
             target_convert_sqnr=float("inf"),
         )
 

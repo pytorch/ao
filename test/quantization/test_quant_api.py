@@ -485,7 +485,7 @@ class TestQuantFlow(TestCase):
         quantize_(model, config, filter_fn=None)
         model(*example_inputs)
         assert isinstance(model.linear1.weight, Float8Tensor)
-        assert isinstance(model.linear2.weight, IntxUnpackedToInt8Tensor)
+        assert isinstance(model.linear2.weight, Int8Tensor)
 
     @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
     @unittest.skipIf(not is_sm_at_least_89(), "Need SM 8.9+")
@@ -499,7 +499,7 @@ class TestQuantFlow(TestCase):
         quantize_(model, config, filter_fn=None)
         model(*example_inputs)
         assert isinstance(model.linear1.weight, Float8Tensor)
-        assert isinstance(model.linear2.weight, IntxUnpackedToInt8Tensor)
+        assert isinstance(model.linear2.weight, Int8Tensor)
 
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     def test_module_fqn_to_config_regex_basic(self):
