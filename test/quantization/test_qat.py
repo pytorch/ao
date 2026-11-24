@@ -104,6 +104,7 @@ from torchao.quantization.utils import (
 from torchao.testing.utils import skip_if_xpu
 from torchao.utils import (
     _is_mslk_available,
+    _is_sm_10x,
     get_current_accelerator_device,
     is_fbcode,
     is_MI300,
@@ -3858,6 +3859,11 @@ class TestQAT(TestCase):
         Compare QAT forward against PTQ forward to ensure they match.
         """
         from torchao.prototype.mx_formats import MXDynamicActivationMXWeightConfig
+
+        if dtype == torch.float4_e2m1fn_x2 and not _is_sm_10x():
+            # PyTorch only enables the MXFP4 gemm on CUDA capability 10.x
+            # (B200/B300), not on 11.x/12.x, see `_check_mxfp4_support`
+            self.skipTest("CUDA capability 10.x required for mxfp4 gemm")
 
         self._test_quantize_api_against_ptq(
             MXDynamicActivationMXWeightConfig(
