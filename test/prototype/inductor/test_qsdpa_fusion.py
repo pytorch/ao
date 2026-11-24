@@ -11,6 +11,7 @@ import torch
 import torch.utils.checkpoint
 from torch._dynamo.utils import counters
 from torch._inductor import config
+from torch._inductor.pattern_matcher import Arg
 from torch._inductor.test_case import TestCase, run_tests
 from torch._inductor.utils import run_and_get_code
 from torch.testing._internal.common_utils import IS_LINUX, skipIfRocm
@@ -18,6 +19,7 @@ from torch.testing._internal.inductor_utils import HAS_CPU
 
 import torchao
 from torchao.prototype.inductor.fx_passes.qsdpa_fusion import (
+    _generate_dequant_pattern,
     _qsdpa_init,
     custom_pass,
 )
@@ -243,6 +245,28 @@ class MHAModule(torch.nn.Module):
         v = self.v_proj(x)
         context_layer = self.attn_mod(q, k, v, mask)
         return self.dense(context_layer)
+
+
+class TestSDPADequantPattern(TestCase):
+    def test_out_dtype(self):
+        for out_dtype in [None, torch.float32, torch.bfloat16]:
+            with self.subTest(out_dtype=out_dtype):
+                graph = torch.fx.Graph()
+                x = graph.placeholder("x")
+                kwargs = {} if out_dtype is None else {"out_dtype": out_dtype}
+                node = graph.call_function(
+                    torch.ops.quantized_decomposed.dequantize_per_tensor.default,
+                    (x, 0.1, 0, 0, 255, torch.uint8),
+                    kwargs,
+                )
+                graph.output(node)
+
+                match = _generate_dequant_pattern(
+                    Arg(), torch.uint8, True, "scale", "zp"
+                ).match(node)
+                self.assertTrue(match, str(match))
+                self.assertEqual(match.kwargs["scale"], 0.1)
+                self.assertEqual(match.kwargs["zp"], 0)
 
 
 class TestSDPAPatternRewriterTemplate(TestCase):

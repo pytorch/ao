@@ -183,6 +183,48 @@ def cal_conv_generated_kernel_number(mod, input, dtype, dim=4, device="cpu"):
     return input_kernel + output_kernel
 
 
+class TestDequantActivationPattern(TestCase):
+    def test_out_dtype(self):
+        from torchao.quantization.pt2e.inductor_passes.x86 import (
+            get_dequantize_per_tensor_activation_pattern,
+        )
+
+        for is_tensor_overload, out_dtype in itertools.product(
+            [False, True], [None, torch.float32, torch.bfloat16]
+        ):
+            with self.subTest(
+                is_tensor_overload=is_tensor_overload, out_dtype=out_dtype
+            ):
+                graph = torch.fx.Graph()
+                x = graph.placeholder("x")
+                scale = graph.placeholder("scale") if is_tensor_overload else 0.1
+                zp = graph.placeholder("zp") if is_tensor_overload else 0
+                op = (
+                    torch.ops.quantized_decomposed.dequantize_per_tensor.tensor
+                    if is_tensor_overload
+                    else torch.ops.quantized_decomposed.dequantize_per_tensor.default
+                )
+                kwargs = {} if out_dtype is None else {"out_dtype": out_dtype}
+                node = graph.call_function(
+                    op, (x, scale, zp, 0, 255, torch.uint8), kwargs
+                )
+                graph.output(node)
+
+                match = get_dequantize_per_tensor_activation_pattern(
+                    is_tensor_overload=is_tensor_overload, out_dtype=out_dtype
+                ).match(node)
+                self.assertTrue(match, str(match))
+                self.assertIs(match.kwargs["x"], x)
+
+                # The matcher rejects an out_dtype kwarg the pattern does not declare.
+                if out_dtype is not None:
+                    self.assertFalse(
+                        get_dequantize_per_tensor_activation_pattern(
+                            is_tensor_overload=is_tensor_overload
+                        ).match(node)
+                    )
+
+
 @config.patch({"freezing": True})
 class TestPatternMatcherBase(TestCase):
     def _check_unary_is_decomposed(self, unary_fn):
@@ -442,6 +484,83 @@ class TestPatternMatcher(TestPatternMatcherBase):
         This testcase will quantize a single Conv2d module with int8_mixed_bf16 quantization.
         """
         self._qconv2d_test_helper(mixed_bf16=True, is_fp8=True)
+
+    def _int8_mixed_bf16_chained_test_helper(self, mod, inputs, matcher_check_fn):
+        r"""
+        Quantize under autocast(bf16), so that a quantized op whose activation is the bf16
+        output of a previous quantized op gets an activation dequant node with
+        out_dtype=bf16 and no following to_bf16 node.
+        """
+        counters.clear()
+        torch._dynamo.reset()
+        with (
+            torch.no_grad(),
+            torch.autocast(device_type="cpu", dtype=torch.bfloat16),
+            eu._disable_aten_to_metadata_assertions(),
+        ):
+            convert_model = _generate_ref_quantized_model(mod.eval(), inputs)
+            dequant_out_dtypes = [
+                n.kwargs.get("out_dtype")
+                for n in convert_model.graph.nodes
+                if n.target
+                is torch.ops.quantized_decomposed.dequantize_per_tensor.default
+            ]
+            self.assertIn(torch.bfloat16, dequant_out_dtypes)
+            expected = convert_model(*inputs)
+            actual = torch.compile(convert_model)(*inputs)
+        matcher_check_fn()
+        torch.testing.assert_close(
+            actual.float(), expected.float(), atol=5e-2, rtol=5e-2
+        )
+
+    @skipIfNoDynamoSupport
+    @skipIfNoONEDNNBF16
+    @skipIfNoONEDNN
+    def test_qconv2d_int8_mixed_bf16_chained(self):
+        r"""
+        This testcase will quantize two chained Conv2d modules with int8_mixed_bf16
+        quantization under autocast, where the activation dequant of the 2nd conv
+        outputs bf16 directly without a to_bf16 node.
+        """
+
+        class M(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.conv = torch.nn.Conv2d(3, 16, kernel_size=3)
+                self.conv2 = torch.nn.Conv2d(16, 16, kernel_size=3)
+
+            def forward(self, x):
+                return self.conv2(self.conv(x))
+
+        def matcher_check_fn():
+            self.assertEqual(
+                counters["inductor"]["qconv_weight_prepack_matcher_count"], 2
+            )
+
+        self._int8_mixed_bf16_chained_test_helper(
+            M(), (torch.randn(1, 3, 10, 10),), matcher_check_fn
+        )
+
+    def test_act_dequant_dtype_check(self):
+        r"""
+        Without the activation to_bf16 node, int8-mixed-bf16 weight prepack patterns
+        only accept an activation dequant node which outputs bf16.
+        """
+        from torchao.quantization.pt2e.inductor_passes.x86 import (
+            _is_valid_act_dequant_dtype,
+        )
+
+        dequant_node = torch.fx.Graph().placeholder("dequant")
+        dequant_node.meta["val"] = torch.empty(1, dtype=torch.float32)
+        self.assertFalse(
+            _is_valid_act_dequant_dtype(dequant_node, torch.bfloat16, False)
+        )
+        self.assertTrue(_is_valid_act_dequant_dtype(dequant_node, torch.bfloat16, True))
+        self.assertTrue(_is_valid_act_dequant_dtype(dequant_node, torch.float32, False))
+        dequant_node.meta["val"] = torch.empty(1, dtype=torch.bfloat16)
+        self.assertTrue(
+            _is_valid_act_dequant_dtype(dequant_node, torch.bfloat16, False)
+        )
 
     def _qconv2d_unary_test_helper(
         self,
@@ -1879,6 +1998,95 @@ class TestPatternMatcher(TestPatternMatcherBase):
                 bias=bias,
                 is_fp8=True,
             )
+
+    @skipIfNoDynamoSupport
+    @skipIfNoONEDNNBF16
+    @skipIfNoONEDNN
+    def test_qlinear_int8_mixed_bf16_chained(self):
+        r"""
+        This testcase will quantize two chained Linear modules with int8_mixed_bf16
+        quantization under autocast, where the activation dequant of the 2nd linear
+        outputs bf16 directly without a to_bf16 node.
+        * Input dim is 2, or exceeds 2 and contiguous
+        """
+
+        class M(torch.nn.Module):
+            def __init__(self, use_bias):
+                super().__init__()
+                self.linear = torch.nn.Linear(16, 32, use_bias)
+                self.linear2 = torch.nn.Linear(32, 16, use_bias)
+
+            def forward(self, x):
+                return self.linear2(self.linear(x))
+
+        def matcher_check_fn():
+            self.assertEqual(
+                counters["inductor"]["qlinear_weight_prepack_matcher_count"], 2
+            )
+
+        for bias, input_shape in itertools.product(
+            [True, False], [(4, 16), (2, 8, 16)]
+        ):
+            self._int8_mixed_bf16_chained_test_helper(
+                M(bias), (torch.randn(input_shape),), matcher_check_fn
+            )
+
+    @skipIfNoDynamoSupport
+    @skipIfNoONEDNNBF16
+    @skipIfNoONEDNN
+    def test_qlinear_int8_mixed_bf16_chained_not_contiguous(self):
+        r"""
+        Same as test_qlinear_int8_mixed_bf16_chained, but the activation of the
+        2nd linear is not contiguous, so it is decomposed into bmm.
+        """
+
+        class M(torch.nn.Module):
+            def __init__(self, use_bias):
+                super().__init__()
+                self.linear = torch.nn.Linear(4, 3, use_bias)
+                self.linear2 = torch.nn.Linear(3, 4, use_bias)
+
+            def forward(self, x):
+                return self.linear2(self.linear(x).permute(0, 2, 1))
+
+        def matcher_check_fn():
+            self.assertEqual(
+                counters["inductor"]["qlinear_weight_prepack_matcher_count"], 2
+            )
+
+        for bias in [True, False]:
+            self._int8_mixed_bf16_chained_test_helper(
+                M(bias), (torch.randn((2, 3, 4)),), matcher_check_fn
+            )
+
+    @skipIfNoDynamoSupport
+    @skipIfNoONEDNNBF16
+    @skipIfNoONEDNN
+    def test_qlinear_int8_mixed_bf16_chained_shared_input(self):
+        r"""
+        Same as test_qlinear_int8_mixed_bf16_chained, but the output of the 1st
+        linear is the activation of both the 2nd and 3rd linear.
+        """
+
+        class M(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.linear = torch.nn.Linear(16, 32)
+                self.linear2 = torch.nn.Linear(32, 16)
+                self.linear3 = torch.nn.Linear(32, 16)
+
+            def forward(self, x):
+                y = self.linear(x)
+                return self.linear2(y) + self.linear3(y)
+
+        def matcher_check_fn():
+            self.assertEqual(
+                counters["inductor"]["qlinear_weight_prepack_matcher_count"], 3
+            )
+
+        self._int8_mixed_bf16_chained_test_helper(
+            M(), (torch.randn((2, 8, 16)),), matcher_check_fn
+        )
 
     def _qlinear_unary_test_helper(
         self,
