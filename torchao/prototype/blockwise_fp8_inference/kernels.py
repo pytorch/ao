@@ -58,7 +58,10 @@ def _build_act_quant_kernel() -> Optional[Callable]:
         pid = tl.program_id(axis=0)
         offs = pid * BLOCK_SIZE + tl.arange(0, BLOCK_SIZE)
         x = tl.load(x_ptr + offs).to(tl.float32)
-        s = tl.max(tl.abs(x)) / 448.0
+        # A block of zeros makes this 0/0: the scale lands in the output tensor as 0
+        # and every code in the block becomes NaN. Floor the amax so the scale stays
+        # positive and the block quantizes to zeros.
+        s = tl.maximum(tl.max(tl.abs(x)), 1e-4) / 448.0
         y = x / s
         y = y.to(y_ptr.dtype.element_ty)
         tl.store(y_ptr + offs, y)
