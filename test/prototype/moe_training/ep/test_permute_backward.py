@@ -14,8 +14,14 @@ on CPU by invoking the backward directly with a lightweight context.
 
 from types import SimpleNamespace
 
+import pytest
 import torch
 import torch.testing
+
+# `permute.py` imports triton at module level, so importing the module under
+# test requires triton even though this test only exercises its non-Triton
+# branch. Skip (rather than error at collection time) on runners without it.
+pytest.importorskip("triton")
 
 from torchao.prototype.moe_training.ep.permute import _PermuteMXFP8FwdHPBwd
 
@@ -29,7 +35,8 @@ def test_backward_non_triton_drops_padding_row():
     backward branch.
     """
     M, K = 5, 4
-    # valid indices first, then -1 dummies; every -1 maps to the padding row (index M)
+    # valid indices first, then -1 dummies; every -1 maps to the padding row
+    # (index M) via Python's negative indexing on the scatter target
     permuted_indices = torch.tensor([2, -1, 0, -1, 4, -1], dtype=torch.int64)
     grad_output = torch.randn(permuted_indices.numel(), K)
 
