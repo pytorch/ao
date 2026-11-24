@@ -36,6 +36,54 @@ class TestTorchVersion(unittest.TestCase):
                 )
 
 
+class TestSm10x(unittest.TestCase):
+    def test_is_sm_10x(self):
+        from torchao.utils import _is_sm_10x
+
+        # Capability 10.0 (B200) -> True
+        with (
+            patch("torch.cuda.is_available", return_value=True),
+            patch("torch.version.cuda", "12.8"),
+            patch("torch.cuda.get_device_capability", return_value=(10, 0)),
+        ):
+            self.assertTrue(_is_sm_10x())
+
+        # Capability 10.3 (B300) -> True
+        with (
+            patch("torch.cuda.is_available", return_value=True),
+            patch("torch.version.cuda", "12.8"),
+            patch("torch.cuda.get_device_capability", return_value=(10, 3)),
+        ):
+            self.assertTrue(_is_sm_10x())
+
+        # Capability 12.0 (RTX 5090) -> False
+        with (
+            patch("torch.cuda.is_available", return_value=True),
+            patch("torch.version.cuda", "12.8"),
+            patch("torch.cuda.get_device_capability", return_value=(12, 0)),
+        ):
+            self.assertFalse(_is_sm_10x())
+
+        # Capability 9.0 (H100) -> False
+        with (
+            patch("torch.cuda.is_available", return_value=True),
+            patch("torch.version.cuda", "12.8"),
+            patch("torch.cuda.get_device_capability", return_value=(9, 0)),
+        ):
+            self.assertFalse(_is_sm_10x())
+
+        # CUDA not available -> False
+        with patch("torch.cuda.is_available", return_value=False):
+            self.assertFalse(_is_sm_10x())
+
+        # torch.version.cuda is None (CPU-only build) -> False
+        with (
+            patch("torch.cuda.is_available", return_value=True),
+            patch("torch.version.cuda", None),
+        ):
+            self.assertFalse(_is_sm_10x())
+
+
 class TestTorchAOBaseTensor(unittest.TestCase):
     def test_print_arg_types(self):
         class MyTensor(TorchAOBaseTensor):

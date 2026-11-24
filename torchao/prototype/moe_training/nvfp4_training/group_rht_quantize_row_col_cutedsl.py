@@ -22,6 +22,8 @@ from typing import List, Optional, Tuple
 
 import torch
 
+from torchao.utils import _is_sm_10x
+
 from .group_hadamard_utils import (
     _validate_graph_amax,
     _validate_grouped_hadamard_inputs,
@@ -101,6 +103,11 @@ def cutedsl_group_rht_quantize_row_col(
         d_global_amax, "d_global_amax", num_tensors, A.device
     )
     rng_state = _validate_rng_state(rng_state, A.device, enable_stochastic_rounding)
+    if enable_stochastic_rounding and not _is_sm_10x():
+        raise NotImplementedError(
+            "Stochastic rounding (.rs) requires SM10x (datacenter Blackwell); "
+            "not supported on SM12x or pre-SM100 hardware."
+        )
 
     col_fp4, col_sf, row_fp4, row_sf = _cutedsl_group_rht_quantize_row_col_impl(
         A,

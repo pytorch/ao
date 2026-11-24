@@ -60,7 +60,7 @@ from torchao.prototype.mx_formats.nvfp4_tensor import (
     per_tensor_amax_to_scale,
 )
 from torchao.prototype.mx_formats.utils import from_blocked, to_blocked
-from torchao.utils import is_sm_at_least_100, torch_version_at_least
+from torchao.utils import _is_sm_10x, is_sm_at_least_100, torch_version_at_least
 
 _TILE_ELEMS = 32 * 16  # elements in one swizzled scale tile
 
@@ -650,6 +650,7 @@ def test_group_rht_padded_capacity_masks_spare_rows(kernel):
 
 
 @_maybe_sm100
+@pytest.mark.skipif(not _is_sm_10x(), reason="Stochastic rounding requires SM10x")
 @pytest.mark.parametrize("kernel", _KERNELS)
 @torch.no_grad()
 def test_group_rht_stochastic_rounding_launches(graph_case, kernel):
@@ -740,6 +741,7 @@ def _run_sr(graph_case, rng_state, kernel="triton", use_fast_math=False):
 
 
 @_maybe_sm100
+@pytest.mark.skipif(not _is_sm_10x(), reason="Stochastic rounding requires SM10x")
 @pytest.mark.parametrize("kernel", _KERNELS)
 @torch.no_grad()
 def test_group_rht_sr_reconstructs(graph_case, kernel):
@@ -778,6 +780,7 @@ def test_group_rht_sr_reconstructs(graph_case, kernel):
 
 
 @_maybe_sm100
+@pytest.mark.skipif(not _is_sm_10x(), reason="Stochastic rounding requires SM10x")
 @pytest.mark.parametrize("kernel", _KERNELS)
 @pytest.mark.parametrize("use_fast_math", [False, True], ids=["exact", "fast"])
 @torch.no_grad()
@@ -852,6 +855,7 @@ def test_group_rht_sr_unbiased(kernel, use_fast_math):
 
 
 @_maybe_sm100
+@pytest.mark.skipif(not _is_sm_10x(), reason="Stochastic rounding requires SM10x")
 @pytest.mark.parametrize("kernel", _KERNELS)
 @pytest.mark.parametrize("use_fast_math", [False, True], ids=["exact", "fast"])
 @torch.no_grad()

@@ -46,7 +46,7 @@ from torchao.prototype.moe_training.nvfp4_training.nvfp4_tensor_parallel import 
 )
 from torchao.prototype.moe_training.nvfp4_training.nvfp4_training import NVFP4Linear
 from torchao.quantization.quantize_.common.kernel_preference import KernelPreference
-from torchao.utils import is_sm_at_least_100, torch_version_at_least
+from torchao.utils import _is_sm_10x, is_sm_at_least_100, torch_version_at_least
 
 if not torch.cuda.is_available():
     pytest.skip("Requires CUDA", allow_module_level=True)
@@ -54,8 +54,10 @@ if not torch.cuda.is_available():
 if torch.cuda.device_count() < 4:
     pytest.skip("Requires at least 4 CUDA devices", allow_module_level=True)
 
-if not is_sm_at_least_100():
-    pytest.skip("Requires SM100+ hardware", allow_module_level=True)
+if not _is_sm_10x():
+    pytest.skip(
+        "Requires SM10x (datacenter Blackwell) hardware", allow_module_level=True
+    )
 
 
 class NVFP4MLP(nn.Module):

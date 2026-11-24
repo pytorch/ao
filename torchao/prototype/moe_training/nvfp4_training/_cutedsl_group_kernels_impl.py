@@ -44,6 +44,8 @@ from cutlass.pipeline import pipeline_init_arrive, pipeline_init_wait
 from cutlass.utils import blackwell_helpers as sm100_utils
 from cutlass.utils.gemm.sm100 import transform_partitioned_tensor_layout
 
+from torchao.utils import _is_sm_10x
+
 from ._cutedsl_kernels_impl import (
     DEFAULT_SIGN_VECTOR,
     HADAMARD_DIM,
@@ -1027,6 +1029,11 @@ def _cutedsl_group_rht_quantize_row_col_impl(
     rht_nk = _get_rht_buffer(tuple(sign_vector), dev.index)
     sr_rng_t = _get_sr_rng_buffer(dev.index)
     if stochastic_rounding:
+        if not _is_sm_10x():
+            raise NotImplementedError(
+                "Stochastic rounding (.rs) requires SM10x (datacenter Blackwell); "
+                "not supported on SM12x or pre-SM100 hardware."
+            )
         # [col_seed, col_offset, row_seed, row_offset] int64 -> the eight little-endian
         # 32-bit halves Philox keys and counters are built from. One 32-byte D2D copy,
         # so it stays graph-capturable and does no host RNG.
