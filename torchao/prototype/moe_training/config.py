@@ -156,6 +156,7 @@ class MXFP8TrainingOpConfig(TrainingOpBaseConfig):
     # EMULATED = Hardware agnostic mode that can be used for debugging or development on non-SM100 machines.
     #            Uses PyTorch native quantization ops, then dequantizes and uses emulated MXFP8 grouped GEMMs implemented in PyTorch.
     #            Not recommended for performance.
+    # ASCEND = Use torch_npu native kernels for quantization ops and GEMMs on Ascend NPU. Requires torch_npu.
     kernel_preference: KernelPreference = KernelPreference.AUTO
 
     # Output dtype for the MXFP8 grouped GEMMs.
