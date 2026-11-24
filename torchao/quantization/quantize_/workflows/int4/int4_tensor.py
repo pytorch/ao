@@ -126,6 +126,26 @@ class Int4Tensor(TorchAOBaseTensor):
             s += f", act_pre_scale.shape={self.act_pre_scale.shape}"
         return s
 
+    def dequantize(self, output_dtype: Optional[torch.dtype] = None) -> torch.Tensor:
+        """Dequantize to floating point: ``q * scale + zero_point`` per group.
+
+        Inverse of ``from_hp``: ``qdata`` holds signed int4 values packed two
+        per byte by mslk ``pack_int4`` (even index in the low nibble), and
+        ``scale`` / ``zero_point`` are ``(..., K/group_size, N)``.
+        """
+        if output_dtype is None:
+            output_dtype = self.dtype
+        packed = self.qdata.view(torch.int8)
+        low = torch.bitwise_right_shift(torch.bitwise_left_shift(packed, 4), 4)
+        high = torch.bitwise_right_shift(packed, 4)
+        qdata = torch.stack([low, high], dim=-1).reshape(*packed.shape[:-1], -1)
+        group_size = self.block_size[-1]
+        scale = self.scale.transpose(-2, -1).to(torch.float32)
+        zero_point = self.zero_point.transpose(-2, -1).to(torch.float32)
+        scale = scale.repeat_interleave(group_size, dim=-1)
+        zero_point = zero_point.repeat_interleave(group_size, dim=-1)
+        return (qdata.to(torch.float32) * scale + zero_point).to(output_dtype)
+
     @classmethod
     def from_hp(
         cls,
