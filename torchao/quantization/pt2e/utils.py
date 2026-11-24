@@ -727,6 +727,42 @@ def _is_bn_node(n: Node):
     )
 
 
+def _assign_fused_conv_parameters(
+    conv_node: Node,
+    conv_weight_node: Node,
+    conv_bias_node: Optional[Node],
+    fused_weight: torch.nn.Parameter,
+    fused_bias: torch.nn.Parameter,
+    m: GraphModule,
+) -> None:
+    """Store a batch norm-folded weight and bias as ``conv_node``'s parameters,
+    adding a bias if it has none."""
+    conv_args = list(conv_node.args)
+    # filling in the default bias argument
+    if len(conv_args) == 2:
+        conv_args.append(None)
+
+    weight_attr_name = conv_weight_node.target
+    assert isinstance(weight_attr_name, str)
+    _assign_attr(fused_weight, m, weight_attr_name, _AttrKind.PARAMETER)
+    if conv_bias_node is not None:
+        bias_attr_name = conv_bias_node.target
+        _assign_attr(fused_bias, m, str(bias_attr_name), _AttrKind.PARAMETER)
+    else:
+        bias_attr_name = weight_attr_name + "_bias"
+        _assign_attr(fused_bias, m, bias_attr_name, _AttrKind.PARAMETER)
+        with m.graph.inserting_before(conv_node):
+            get_bias_node = m.graph.get_attr(bias_attr_name)
+        if "val" in conv_node.meta:
+            get_bias_node.meta["val"] = conv_node.meta["val"].fake_mode.from_tensor(
+                fused_bias,
+                static_shapes=True,
+            )
+        # NOTE: here we assume the bias of conv is not quantized!
+        conv_args[2] = get_bias_node
+    conv_node.args = tuple(conv_args)
+
+
 def fold_bn_weights_into_conv_node(
     conv_node: Node,
     conv_weight_node: Node,
@@ -761,12 +797,6 @@ def fold_bn_weights_into_conv_node(
         conv_w, conv_b, bn_rm, bn_rv, bn_eps, bn_w, bn_b, transpose=transpose
     )
 
-    # update the weight and bias for conv
-    conv_args = list(conv_node.args)
-    # filling in the default bias argument
-    if len(conv_args) == 2:
-        conv_args.append(None)
-
     if fake_fuse:
         fused_weight = torch.nn.Parameter(conv_w, conv_w.requires_grad)
         if conv_b is not None:
@@ -780,26 +810,9 @@ def fold_bn_weights_into_conv_node(
             conv_w, conv_b, bn_rm, bn_rv, bn_eps, bn_w, bn_b, transpose=transpose
         )
 
-    # calling data since the fused_weight and fused_bias are nn.Parameter
-    weight_attr_name = conv_weight_node.target
-    assert isinstance(weight_attr_name, str)
-    _assign_attr(fused_weight, m, weight_attr_name, _AttrKind.PARAMETER)
-    if conv_bias_node is not None:
-        bias_attr_name = conv_bias_node.target
-        _assign_attr(fused_bias, m, str(bias_attr_name), _AttrKind.PARAMETER)
-    else:
-        bias_attr_name = weight_attr_name + "_bias"
-        _assign_attr(fused_bias, m, bias_attr_name, _AttrKind.PARAMETER)
-        with m.graph.inserting_before(conv_node):
-            get_bias_node = m.graph.get_attr(bias_attr_name)
-        if "val" in conv_node.meta:
-            get_bias_node.meta["val"] = conv_node.meta["val"].fake_mode.from_tensor(
-                fused_bias,
-                static_shapes=True,
-            )
-        # NOTE: here we assume the bias of conv is not quantized!
-        conv_args[2] = get_bias_node
-    conv_node.args = tuple(conv_args)
+    _assign_fused_conv_parameters(
+        conv_node, conv_weight_node, conv_bias_node, fused_weight, fused_bias, m
+    )
 
     if replacement_node is None:
         replacement_node = conv_node
@@ -1012,6 +1025,134 @@ def _get_conv_bn_fusion_nodes(bn_node: Node) -> Optional[tuple[Node, Node]]:
 
 
 # fuse conv bn weights, inplace modification of the graph_module and graph
+def _batch_norm_output(bn_node: Node) -> Optional[Node]:
+    """The node reading an eval batch norm's normalized output, if nothing reads
+    its other outputs."""
+    if bn_node.target == torch.ops.aten.batch_norm.default:
+        # The training IR has no getitems: the batch_norm node is its output.
+        bn_args = _get_all_arguments(
+            bn_node.args,
+            bn_node.kwargs,
+            bn_node.target._schema.arguments,  # type: ignore[union-attr]
+        )
+        return None if bn_args[5] else bn_node
+    outputs = list(bn_node.users)
+    if any(user.target != operator.getitem for user in outputs):
+        return None
+    normalized = [user for user in outputs if user.args[1] == 0]
+    if len(normalized) != 1 or any(user.users for user in outputs if user.args[1]):
+        return None
+    return normalized[0]
+
+
+def _get_bn_conv_fusion_nodes(bn_node: Node) -> Optional[tuple[Node, Node]]:
+    """The conv a batch norm feeding it folds into, and the node the conv reads
+    the batch norm's output from.
+
+    ``conv(W, x * scale + shift) = conv(W * scale, x) + sum(W * shift)`` only
+    holds for a conv that pads nothing, since a padded one reads zeros the batch
+    norm would have shifted. So the batch norm's output has to feed nothing but
+    the input of a conv1d, conv2d, conv3d or non-transposed ``aten.convolution``
+    with no padding and one group. The conv's weight and bias are overwritten in
+    place, so nothing else may read them, and the batch norm's parameters have to
+    be constants.
+    """
+    bn_output = _batch_norm_output(bn_node)
+    if bn_output is None or len(bn_output.users) != 1:
+        return None
+    bn_args = _get_all_arguments(
+        bn_node.args,
+        bn_node.kwargs,
+        bn_node.target._schema.arguments,  # type: ignore[union-attr]
+    )
+    bn_weight, bn_bias, running_mean, running_var = bn_args[1:5]
+    for stat in (running_mean, running_var):
+        if not isinstance(stat, Node) or stat.op != "get_attr":
+            return None
+    for param in (bn_weight, bn_bias):
+        if param is not None and (
+            not isinstance(param, Node) or param.op != "get_attr"
+        ):
+            return None
+    conv_node = next(iter(bn_output.users))
+    if (
+        not _is_aten_or_core_aten_bn_foldable_conv_node(conv_node)
+        or _is_conv_transpose_node(conv_node)
+        or conv_node.args[0] is not bn_output
+    ):
+        return None
+    schema = conv_node.target._schema.arguments  # type: ignore[union-attr]
+    conv_args = dict(
+        zip(
+            (arg.name for arg in schema),
+            _get_all_arguments(conv_node.args, conv_node.kwargs, schema),
+        )
+    )
+    padding = conv_args["padding"]
+    no_padding = padding == "valid" if isinstance(padding, str) else not any(padding)
+    if not no_padding or conv_args["groups"] != 1:
+        return None
+    for param in (conv_args["weight"], conv_args["bias"]):
+        if param is None:
+            continue
+        if param.op != "get_attr" or len(param.users) != 1:
+            return None
+        if len(conv_node.graph.find_nodes(op="get_attr", target=param.target)) != 1:
+            return None
+    return conv_node, bn_output
+
+
+def _fold_bn_weights_into_consumer_conv_node(
+    bn_node: Node, conv_node: Node, bn_output: Node, m: GraphModule
+) -> None:
+    """Fold ``bn_node`` into the conv it feeds and bypass it."""
+    conv_weight_node = conv_node.args[1]
+    conv_bias_node = conv_node.args[2] if len(conv_node.args) > 2 else None
+    assert isinstance(conv_weight_node, Node)
+    assert conv_bias_node is None or isinstance(conv_bias_node, Node)
+    conv_w = _get_tensor_constant_from_node(conv_weight_node, m)
+    conv_b = _get_tensor_constant_from_node(conv_bias_node, m)
+
+    bn_args = _get_all_arguments(
+        bn_node.args,
+        bn_node.kwargs,
+        bn_node.target._schema.arguments,  # type: ignore[union-attr]
+    )
+    bn_w, bn_b, bn_rm, bn_rv = (
+        _get_tensor_constant_from_node(arg, m) for arg in bn_args[1:5]
+    )
+    bn_eps = bn_args[
+        6
+        if bn_node.target == torch.ops.aten._native_batch_norm_legit_no_training.default
+        else 7
+    ]
+
+    with torch.no_grad():
+        scale = torch.rsqrt(bn_rv + bn_eps)
+        if bn_w is not None:
+            scale = scale * bn_w
+        shift = -bn_rm * scale
+        if bn_b is not None:
+            shift = shift + bn_b
+        channels = (1, -1) + (1,) * (conv_w.ndim - 2)
+        fused_w = conv_w * scale.reshape(channels)
+        fused_b = (conv_w * shift.reshape(channels)).sum(
+            dim=tuple(range(1, conv_w.ndim))
+        )
+        if conv_b is not None:
+            fused_b = fused_b + conv_b
+
+    _assign_fused_conv_parameters(
+        conv_node,
+        conv_weight_node,
+        conv_bias_node,
+        torch.nn.Parameter(fused_w, conv_w.requires_grad),
+        torch.nn.Parameter(fused_b, conv_w.requires_grad),
+        m,
+    )
+    conv_node.replace_input_with(bn_output, bn_args[0])
+
+
 def _fuse_conv_bn_(m: GraphModule) -> None:
     has_bn = any(_is_bn_node(n) for n in m.graph.nodes)
     if not has_bn:
@@ -1028,6 +1169,10 @@ def _fuse_conv_bn_(m: GraphModule) -> None:
         bn_node = n
         fusion_nodes = _get_conv_bn_fusion_nodes(bn_node)
         if fusion_nodes is None:
+            # A batch norm with no conv before it may fold into the one after it.
+            consumer_nodes = _get_bn_conv_fusion_nodes(bn_node)
+            if consumer_nodes is not None:
+                _fold_bn_weights_into_consumer_conv_node(bn_node, *consumer_nodes, m)
             continue
         conv_node, replacement_node = fusion_nodes
         conv_weight_node = conv_node.args[1]
