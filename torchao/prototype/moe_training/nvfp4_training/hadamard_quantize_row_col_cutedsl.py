@@ -22,6 +22,8 @@ from typing import List, Optional, Tuple
 import torch
 import torch.nn.functional as F
 
+from torchao.utils import _is_sm_10x
+
 from .hadamard_cutedsl_utils import raise_if_cutedsl_nvfp4_unavailable
 
 _DEFAULT_SCALING_TYPE = (
@@ -91,6 +93,11 @@ def cutedsl_rht_quantize_row_col(
             raise ValueError(
                 "stochastic_rounding=True requires col_seed_base, col_offset_base, "
                 "row_seed_base and row_offset_base"
+            )
+        if not _is_sm_10x():
+            raise NotImplementedError(
+                "Stochastic rounding (.rs) requires SM10x (datacenter Blackwell); "
+                "not supported on SM12x or pre-SM100 hardware."
             )
         # [col_seed, col_offset, row_seed, row_offset], the layout the kernel splits
         # into Philox keys and counter bases.

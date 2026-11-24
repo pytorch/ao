@@ -26,6 +26,8 @@ from cutlass.pipeline import pipeline_init_arrive, pipeline_init_wait
 from cutlass.utils import blackwell_helpers as sm100_utils
 from cutlass.utils.gemm.sm100 import transform_partitioned_tensor_layout
 
+from torchao.utils import _is_sm_10x
+
 # DEFAULT_SIGN_VECTOR is re-exported: several modules import it from here, and
 # hadamard_utils is the runtime-free home so the reference and tests can reach it too.
 from .hadamard_utils import DEFAULT_SIGN_VECTOR, get_rht_matrix  # noqa: F401
@@ -2608,6 +2610,11 @@ def _cutedsl_rht_quantize_row_col_impl(
         if sr_rng is None:
             raise ValueError(
                 "stochastic_rounding=True requires sr_rng (Philox state tensor)"
+            )
+        if not _is_sm_10x():
+            raise NotImplementedError(
+                "Stochastic rounding (.rs) requires SM10x (datacenter Blackwell); "
+                "not supported on SM12x or pre-SM100 hardware."
             )
         # [col_seed, col_offset, row_seed, row_offset] int64 -> the eight little-endian
         # 32-bit halves Philox keys and counters are built from. Written in-place

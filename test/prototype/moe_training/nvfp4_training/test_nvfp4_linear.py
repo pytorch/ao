@@ -30,7 +30,7 @@ from torchao.prototype.moe_training.utils import generate_jagged_offs
 from torchao.quantization import quantize_
 from torchao.quantization.quantize_.common.kernel_preference import KernelPreference
 from torchao.quantization.utils import compute_error
-from torchao.utils import is_sm_at_least_100, torch_version_at_least
+from torchao.utils import _is_sm_10x, is_sm_at_least_100, torch_version_at_least
 
 _HARDCODED_SIGN_VECTOR = (1, 1, 1, -1, 1, -1, -1, -1, -1, -1, -1, 1, -1, 1, -1, -1)
 
@@ -143,6 +143,7 @@ def test_nvfp4_linear_rejects_unsupported_kernel_preference():
         )
 
 
+@pytest.mark.skipif(not _is_sm_10x(), reason="Stochastic rounding requires SM10x")
 @pytest.mark.parametrize("kernel_preference", _KERNEL_PREFS)
 def test_forward_sqnr_and_finite_grads(kernel_preference):
     """Forward reconstructs the bf16 result (SQNR >= 15 dB) and backward grads are finite."""
@@ -201,6 +202,7 @@ def test_config_swap_sets_preference(kernel_preference):
     assert m[0].kernel_preference == kernel_preference
 
 
+@pytest.mark.skipif(not _is_sm_10x(), reason="Stochastic rounding requires SM10x")
 @pytest.mark.parametrize("kernel_preference", _KERNEL_PREFS)
 @pytest.mark.skipif(
     not torch_version_at_least("2.10.0"), reason="torch.compile requires PyTorch 2.10+"
@@ -228,6 +230,7 @@ def test_torch_compile_default_mode(kernel_preference):
     assert (grads[-1] - grads[-2]).abs().max() > 0
 
 
+@pytest.mark.skipif(not _is_sm_10x(), reason="Stochastic rounding requires SM10x")
 @pytest.mark.parametrize("kernel_preference", _KERNEL_PREFS)
 @pytest.mark.skipif(
     not torch_version_at_least("2.10.0"), reason="torch.compile requires PyTorch 2.10+"
@@ -320,6 +323,7 @@ def test_cutedsl_forward_close_to_triton():
 
 
 @_requires_both_backends
+@pytest.mark.skipif(not _is_sm_10x(), reason="Stochastic rounding requires SM10x")
 def test_cutedsl_config_path_converges_like_triton():
     """quantize_(NVFP4TrainingConfig(CUTEDSL)) trains a learnable task; loss decreases and
     tracks the Triton path closely."""
@@ -416,6 +420,7 @@ def test_nvfp4_linear_auto_runs_on_triton_fallback(monkeypatch):
 @pytest.mark.skipif(
     not cutedsl_nvfp4_kernels_available(), reason="requires SM100 + the CuteDSL runtime"
 )
+@pytest.mark.skipif(not _is_sm_10x(), reason="Stochastic rounding requires SM10x")
 def test_cutedsl_prepare_for_cuda_graph_warms_every_kernel_the_path_uses():
     """After the pre-capture warm-up, no CuteDSL kernel compiles lazily.
 

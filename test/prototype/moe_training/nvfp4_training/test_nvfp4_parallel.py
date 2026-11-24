@@ -40,7 +40,7 @@ from torchao.prototype.moe_training.nvfp4_training.nvfp4_tensor_parallel import 
 from torchao.prototype.moe_training.nvfp4_training.nvfp4_training import NVFP4Linear
 from torchao.quantization.quantize_.common.kernel_preference import KernelPreference
 from torchao.quantization.utils import compute_error
-from torchao.utils import is_sm_at_least_100, torch_version_at_least
+from torchao.utils import _is_sm_10x, is_sm_at_least_100, torch_version_at_least
 
 if not torch.cuda.is_available():
     pytest.skip("Requires CUDA", allow_module_level=True)
@@ -266,7 +266,7 @@ def test_column_single_rank_equivalence(distributed_env: DeviceMesh):
 
 
 @pytest.mark.skipif(not has_triton(), reason="unsupported without triton")
-@pytest.mark.skipif(not is_sm_at_least_100(), reason="Requires SM100+")
+@pytest.mark.skipif(not _is_sm_10x(), reason="Stochastic rounding requires SM10x")
 @pytest.mark.skipif(
     not torch_version_at_least("2.10.0"), reason="torch.compile requires PyTorch 2.10+"
 )
@@ -371,7 +371,7 @@ def test_column_forward(distributed_env: DeviceMesh):
 
 
 @pytest.mark.skipif(not has_triton(), reason="unsupported without triton")
-@pytest.mark.skipif(not is_sm_at_least_100(), reason="Requires SM100+")
+@pytest.mark.skipif(not _is_sm_10x(), reason="Stochastic rounding requires SM10x")
 @pytest.mark.skipif(
     not torch_version_at_least("2.10.0"), reason="torch.compile requires PyTorch 2.10+"
 )
@@ -605,7 +605,7 @@ def test_row_single_rank_equivalence(distributed_env: DeviceMesh):
 
 
 @pytest.mark.skipif(not has_triton(), reason="unsupported without triton")
-@pytest.mark.skipif(not is_sm_at_least_100(), reason="Requires SM100+")
+@pytest.mark.skipif(not _is_sm_10x(), reason="Stochastic rounding requires SM10x")
 @pytest.mark.skipif(
     not torch_version_at_least("2.10.0"), reason="torch.compile requires PyTorch 2.10+"
 )
@@ -709,7 +709,7 @@ def test_row_forward(distributed_env: DeviceMesh):
 
 
 @pytest.mark.skipif(not has_triton(), reason="unsupported without triton")
-@pytest.mark.skipif(not is_sm_at_least_100(), reason="Requires SM100+")
+@pytest.mark.skipif(not _is_sm_10x(), reason="Stochastic rounding requires SM10x")
 @pytest.mark.skipif(
     not torch_version_at_least("2.10.0"), reason="torch.compile requires PyTorch 2.10+"
 )
@@ -976,7 +976,7 @@ def test_mlp_colwise_rowwise_parallelize_module(distributed_env: DeviceMesh):
 
 
 @pytest.mark.skipif(not has_triton(), reason="unsupported without triton")
-@pytest.mark.skipif(not is_sm_at_least_100(), reason="Requires SM100+")
+@pytest.mark.skipif(not _is_sm_10x(), reason="Stochastic rounding requires SM10x")
 @pytest.mark.skipif(
     not torch_version_at_least("2.10.0"), reason="torch.compile requires PyTorch 2.10+"
 )
@@ -1188,7 +1188,7 @@ def test_cutedsl_column_single_rank_equivalence(distributed_env: DeviceMesh):
 
 @_skip_no_cutedsl
 @pytest.mark.skipif(not has_triton(), reason="unsupported without triton")
-@pytest.mark.skipif(not is_sm_at_least_100(), reason="Requires SM100+")
+@pytest.mark.skipif(not _is_sm_10x(), reason="Stochastic rounding requires SM10x")
 def test_cutedsl_column_single_rank_backward_equivalence(distributed_env: DeviceMesh):
     """CuteDSL column-parallel backward matches the single-GPU CuteDSL path at world_size=1."""
     pg = dist.new_group([0])
@@ -1218,7 +1218,7 @@ def test_cutedsl_row_single_rank_equivalence(distributed_env: DeviceMesh):
 
 @_skip_no_cutedsl
 @pytest.mark.skipif(not has_triton(), reason="unsupported without triton")
-@pytest.mark.skipif(not is_sm_at_least_100(), reason="Requires SM100+")
+@pytest.mark.skipif(not _is_sm_10x(), reason="Stochastic rounding requires SM10x")
 def test_cutedsl_row_single_rank_backward_equivalence(distributed_env: DeviceMesh):
     """CuteDSL row-parallel backward matches the single-GPU CuteDSL path at world_size=1."""
     pg = dist.new_group([0])
@@ -1314,7 +1314,7 @@ def test_cutedsl_row_forward(distributed_env: DeviceMesh):
 
 @_skip_no_cutedsl
 @pytest.mark.skipif(not has_triton(), reason="unsupported without triton")
-@pytest.mark.skipif(not is_sm_at_least_100(), reason="Requires SM100+")
+@pytest.mark.skipif(not _is_sm_10x(), reason="Stochastic rounding requires SM10x")
 def test_cutedsl_column_parallelize_module(distributed_env: DeviceMesh):
     """End-to-end: NVFP4Linear(CUTEDSL) through parallelize_module exercises NVFP4Linear.forward's
     dispatch (kernel_preference=CUTEDSL -> use_cutedsl) plus the TP collectives, vs fp32."""

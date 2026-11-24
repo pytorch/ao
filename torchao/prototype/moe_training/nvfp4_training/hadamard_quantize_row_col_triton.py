@@ -25,7 +25,7 @@ if torch_version_at_least("2.10.0") and has_triton():
         get_rht_matrix,
         prepare_for_cuda_graph,
     )
-    from torchao.utils import is_sm_at_least_100
+    from torchao.utils import _is_sm_10x, is_sm_at_least_100
 
     # SM100+ autotune configs. BLOCK_M=256 enables col TMA sf store; BLOCK_N=256 enables row TMA.
     HADAMARD_QUANTIZE_CONFIGS: list[triton.Config] = [
@@ -367,6 +367,11 @@ if torch_version_at_least("2.10.0") and has_triton():
             if row_seed_base is None:
                 raise ValueError(
                     "stochastic_rounding=True requires row_seed_base tensor"
+                )
+            if not _is_sm_10x():
+                raise NotImplementedError(
+                    "Stochastic rounding (.rs) requires SM10x (datacenter Blackwell); "
+                    "not supported on SM12x or pre-SM100 hardware."
                 )
             _col_seed = col_seed_base
             _col_offset = col_offset_base

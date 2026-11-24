@@ -22,7 +22,7 @@ from typing import Optional
 import torch
 from torch.utils._triton import has_triton
 
-from torchao.utils import torch_version_at_least
+from torchao.utils import _is_sm_10x, torch_version_at_least
 
 from .group_hadamard_utils import _validate_graph_amax, _validate_rng_state
 
@@ -278,6 +278,11 @@ if torch_version_at_least("2.10.0") and has_triton():
         sfd_return = sfd_storage.view(hidden_size, packed_sequence_length // 16)
 
         if enable_stochastic_rounding:
+            if not _is_sm_10x():
+                raise NotImplementedError(
+                    "Stochastic rounding (.rs) requires SM10x (datacenter Blackwell); "
+                    "not supported on SM12x or pre-SM100 hardware."
+                )
             col_seed_base = rng_state[0:1]
             col_offset_base = rng_state[1:2]
             row_seed_base = rng_state[2:3]

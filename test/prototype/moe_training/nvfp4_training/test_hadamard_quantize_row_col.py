@@ -107,7 +107,7 @@ from torchao.prototype.mx_formats.nvfp4_tensor import (
     per_tensor_amax_to_scale,
 )
 from torchao.prototype.mx_formats.utils import to_blocked
-from torchao.utils import is_sm_at_least_100, torch_version_at_least
+from torchao.utils import _is_sm_10x, is_sm_at_least_100, torch_version_at_least
 
 if has_triton() and is_sm_at_least_100() and torch_version_at_least("2.10.0"):
     from torchao.prototype.moe_training.nvfp4_training.hadamard_amax_triton import (
@@ -513,6 +513,8 @@ def test_rht_quantize_fast_math_sqnr(kernel, M, N):
 def test_rht_quantize_row_col_zero_and_near_zero_no_nan_or_saturation(
     kernel, input_kind, stochastic_rounding
 ):
+    if stochastic_rounding and not _is_sm_10x():
+        pytest.skip("Stochastic rounding requires SM10x")
     M, N = _M_BOTH, _N_BOTH
 
     if input_kind == "zeros":
@@ -627,6 +629,7 @@ def test_cutedsl_vs_triton_interchangeable(M, N, use_fast_math):
 
 
 @_skip_no_triton
+@pytest.mark.skipif(not _is_sm_10x(), reason="Stochastic rounding requires SM10x")
 @torch.no_grad()
 def test_triton_rht_quantize_rs_midpoint_distribution():
     """RS of a value exactly at the FP4 midpoint (1.25) must round each direction ~50% of the time.
@@ -717,6 +720,7 @@ def test_triton_rht_quantize_rs_midpoint_distribution():
     )
 
 
+@pytest.mark.skipif(not _is_sm_10x(), reason="Stochastic rounding requires SM10x")
 @pytest.mark.parametrize("kernel", _KERNELS)
 @pytest.mark.parametrize(
     "M,N",
@@ -811,6 +815,7 @@ def test_rht_quantize_rs_at_most_one_fp4_step_from_rtne(kernel, M, N, use_fast_m
 
 
 @_skip_no_triton
+@pytest.mark.skipif(not _is_sm_10x(), reason="Stochastic rounding requires SM10x")
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 def test_triton_rht_quantize_row_col_cuda_graph_compile():
     """triton_rht_quantize_row_col (SR) under reduce-overhead CUDA graphs.
@@ -967,6 +972,7 @@ def test_cutedsl_rht_quantize_sr_requires_seed_offset():
 
 
 @_skip_no_cutedsl
+@pytest.mark.skipif(not _is_sm_10x(), reason="Stochastic rounding requires SM10x")
 @pytest.mark.parametrize("use_fast_math", [False, True], ids=["exact", "fast"])
 @torch.no_grad()
 def test_cutedsl_rht_quantize_sr_unbiased(use_fast_math):

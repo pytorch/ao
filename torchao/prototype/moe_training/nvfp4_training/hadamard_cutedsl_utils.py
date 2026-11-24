@@ -10,7 +10,7 @@ import importlib.util
 
 import torch
 
-from torchao.utils import is_cuda_version_at_least, is_sm_at_least_100
+from torchao.utils import _is_sm_10x, is_cuda_version_at_least, is_sm_at_least_100
 
 # Import name -> pip package name for the required runtime packages.
 _CUTEDSL_RUNTIME_PACKAGES = {
@@ -125,9 +125,10 @@ def cutedsl_prepare_for_cuda_graph(device, *, sign_vectors=None) -> None:
     # keyword against a runtime call that passes it positionally compiles a kernel under a key
     # no lookup will ever reach -- a warm-up that silently warms nothing.
     # (device, swizzle, sr, apply_rht, grouped, col_groups_per_supertile, fast_math)
+    sr_modes = (False, True) if _is_sm_10x() else (False,)
     for col_groups in (16, 8):
         _compile_amax_tc_kernel(idx, col_groups)
-        for sr in (False, True):
+        for sr in sr_modes:
             for fast_math in (False, True):
                 _compile_fused_kernel(idx, True, sr, True, False, col_groups, fast_math)
         for grouped in (False, True):
@@ -140,6 +141,6 @@ def cutedsl_prepare_for_cuda_graph(device, *, sign_vectors=None) -> None:
     )
 
     _compile_group_amax_kernel(idx)
-    for sr in (False, True):
+    for sr in sr_modes:
         for fast_math in (False, True):
             _compile_group_fused_kernel(idx, sr, fast_math)
