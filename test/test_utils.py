@@ -647,6 +647,37 @@ class TestTorchAOBaseTensor(unittest.TestCase):
         self.assertEqual(counters["B"], 1)
         self.assertEqual(counters["C"], 1)
 
+    def test_cutedsl_runtime_available_under_compile(self):
+        """Verify _cutedsl_runtime_available and _flydsl_runtime_available are safe under torch.compile."""
+        from torchao.prototype.moe_training.kernels.mxfp8.cute_utils import (
+            _cutedsl_runtime_available as _mxfp8_cutedsl_available,
+        )
+        from torchao.prototype.moe_training.kernels.mxfp8.flydsl_utils import (
+            _flydsl_runtime_available,
+        )
+        from torchao.prototype.moe_training.nvfp4_training.hadamard_cutedsl_utils import (
+            _cutedsl_runtime_available as _nvfp4_cutedsl_available,
+        )
+
+        def fn_nvfp4(x):
+            return x + 1 if _nvfp4_cutedsl_available() else x - 1
+
+        def fn_mxfp8(x):
+            return x + 1 if _mxfp8_cutedsl_available() else x - 1
+
+        def fn_flydsl(x):
+            return x + 1 if _flydsl_runtime_available() else x - 1
+
+        x = torch.ones(2)
+        for fn, check_fn in (
+            (fn_nvfp4, _nvfp4_cutedsl_available),
+            (fn_mxfp8, _mxfp8_cutedsl_available),
+            (fn_flydsl, _flydsl_runtime_available),
+        ):
+            opt_fn = torch.compile(fn, fullgraph=True)
+            expected = x + 1 if check_fn() else x - 1
+            torch.testing.assert_close(opt_fn(x), expected)
+
 
 if __name__ == "__main__":
     unittest.main()
