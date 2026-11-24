@@ -1241,6 +1241,59 @@ def test_cuda_fused_unpad_token_groups(
     )
 
 
+@pytest.mark.skipif(
+    not _mxfp8_cuda_kernels_available,
+    reason="CUDA kernel requires sm_10x and CUDA 12.8+",
+)
+@skip_if_rocm("ROCm enablement in progress")
+@pytest.mark.parametrize("alignment_size", [32, 128])
+@pytest.mark.parametrize(
+    "group_sizes",
+    [
+        pytest.param([64, 192], id="ragged"),
+        pytest.param([0, 3, 0, 5], id="empty-experts"),
+        pytest.param([1] * 64, id="64-experts"),
+        pytest.param([0, 0, 0], id="no-tokens"),
+    ],
+)
+def test_cuda_fused_pad_unpad_group_boundaries(group_sizes, alignment_size):
+    inputs = torch.randn(sum(group_sizes), 128, dtype=torch.bfloat16, device="cuda")
+    offsets = torch.tensor(group_sizes, dtype=torch.int32, device="cuda").cumsum(
+        0, dtype=torch.int32
+    )
+    expected = torch_pad_token_groups(inputs, offsets, alignment_size)
+    actual = fused_pad_token_groups_cuda(inputs, offsets, alignment_size)
+    for expected_tensor, actual_tensor in zip(expected, actual):
+        torch.testing.assert_close(actual_tensor, expected_tensor, rtol=0, atol=0)
+
+    unpadded = fused_unpad_token_groups_cuda(
+        actual[0], offsets, actual[1], inputs.shape[0], alignment_size
+    )
+    torch.testing.assert_close(unpadded, inputs, rtol=0, atol=0)
+
+
+@pytest.mark.skipif(
+    not _mxfp8_cuda_kernels_available,
+    reason="CUDA kernel requires sm_10x and CUDA 12.8+",
+)
+@skip_if_rocm("ROCm enablement in progress")
+@pytest.mark.parametrize("alignment_size", [32, 128])
+def test_cuda_fused_pad_unpad_fullgraph(alignment_size):
+    def pad_then_unpad(inputs, offsets):
+        padded, starts, _ = fused_pad_token_groups_cuda(inputs, offsets, alignment_size)
+        return fused_unpad_token_groups_cuda(
+            padded, offsets, starts, inputs.shape[0], alignment_size
+        )
+
+    compiled = torch.compile(pad_then_unpad, fullgraph=True)
+    inputs = torch.randn(256, 128, dtype=torch.bfloat16, device="cuda")
+    for group_sizes in ([64, 192], [128, 128]):
+        offsets = torch.tensor(group_sizes, dtype=torch.int32, device="cuda").cumsum(
+            0, dtype=torch.int32
+        )
+        torch.testing.assert_close(compiled(inputs, offsets), inputs, rtol=0, atol=0)
+
+
 @pytest.mark.parametrize("round_scales_to_power_of_2", [True, False])
 @pytest.mark.parametrize(
     "m,k",

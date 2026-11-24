@@ -1,3 +1,9 @@
+// Copyright (c) Meta Platforms, Inc. and affiliates.
+// All rights reserved.
+//
+// This source code is licensed under the BSD 3-Clause license found in the
+// LICENSE file in the root directory of this source tree.
+
 #include <cuda_runtime.h>
 #include <cuda_bf16.h>
 #include <cstdint>
@@ -22,7 +28,7 @@ __device__ __forceinline__ int find_group_id(
     const int32_t* __restrict__ group_end_offsets,
     int num_groups
 ) {
-    // linear prefix sum lookup (same or faster than binary search for small num groups, which ours are <= 32)
+    // Linear prefix sum lookup is efficient for a small number of groups.
     int group_id = 0;
     while (group_id < num_groups - 1 && row_idx >= group_end_offsets[group_id]) {
         ++group_id;
@@ -164,7 +170,7 @@ void launch_compute_padded_offsets_cuda(
     int alignment_size,
     cudaStream_t stream
 ) {
-    // Single warp is enough for num_groups <= 32
+    // Thread 0 loops over all groups; the group count is not limited by warp size.
     compute_padded_offsets_kernel<<<1, 32, 0, stream>>>(
         group_end_offsets_ptr,
         padded_group_start_offsets_ptr,
