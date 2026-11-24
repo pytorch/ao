@@ -626,6 +626,34 @@ class TestQuantFlow(TestCase):
         assert isinstance(model.emb.weight, IntxUnpackedToInt8Tensor)
         assert isinstance(model.linear.weight, IntxUnpackedToInt8Tensor)
 
+    @common_utils.parametrize("reverse_order", [False, True])
+    def test_fqn_to_config_exact_param_over_param_regex(self, reverse_order):
+        model = ToyLinearModel().eval()
+        reference = copy.deepcopy(model)
+        exact_config = Int8WeightOnlyConfig(
+            granularity=PerTensor(), set_inductor_config=False
+        )
+        regex_config = Int8WeightOnlyConfig(
+            granularity=PerRow(), set_inductor_config=False
+        )
+        configs = [
+            ("linear1.weight", exact_config),
+            (r"re:.*\.weight", regex_config),
+        ]
+        if reverse_order:
+            configs.reverse()
+
+        quantize_(model, FqnToConfig(dict(configs)), filter_fn=None)
+        quantize_(reference.linear1, exact_config)
+        quantize_(reference.linear2, regex_config)
+
+        self.assertIsInstance(model.linear1.weight, Int8Tensor)
+        self.assertIsInstance(model.linear2.weight, Int8Tensor)
+        self.assertEqual(model.linear1.weight.block_size, [32, 64])
+        self.assertEqual(model.linear2.weight.block_size, [1, 32])
+        example_inputs = model.example_inputs()
+        self.assertEqual(model(*example_inputs), reference(*example_inputs))
+
     @unittest.skipIf(not torch.accelerator.is_available(), "Need GPU available")
     @unittest.skipIf(not is_sm_at_least_89(), "Need SM 8.9+")
     def test_module_fqn_to_config_skip(self):
