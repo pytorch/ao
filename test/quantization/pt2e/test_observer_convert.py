@@ -287,3 +287,72 @@ def test_observer_convert_uses_attr_prefix():
         torch.ops.quantized_decomposed.dequantize_per_channel.default,
     ]
     assert not [n for n in gm.graph.nodes if n.op == "call_module"]
+
+
+def _convert_with(quantizer):
+    torch.manual_seed(0)
+    model = _ConvLinear()
+    example_inputs = (torch.randn(2, 3, 8, 8),)
+    exported = torch.export.export(model, example_inputs, strict=True).module()
+    prepared = prepare_pt2e(exported, quantizer)
+    prepared(*example_inputs)
+    return convert_pt2e(prepared)
+
+
+def test_convert_pt2e_goes_through_default_convert(monkeypatch):
+    import torchao.quantization.pt2e._decomposed_qdq as decomposed_qdq
+
+    observers = []
+    real = decomposed_qdq._insert_decomposed_qdq
+
+    def spy(observer, model, node, *, attr_prefix="", model_device=None):
+        observers.append(type(observer).__name__)
+        real(observer, model, node, attr_prefix=attr_prefix, model_device=model_device)
+
+    monkeypatch.setattr(decomposed_qdq, "_insert_decomposed_qdq", spy)
+    signature = _qdq_signature(_convert_case("static_per_channel"))
+    assert signature == EXPECTED["static_per_channel"]
+    assert "PerChannelMinMaxObserver" in observers, observers
+    assert "HistogramObserver" in observers, observers
+
+
+def test_custom_two_arg_convert_still_called():
+    calls = []
+
+    class TwoArgConvertObserver(observer.MinMaxObserver):
+        def convert(self, model, observer_node):
+            calls.append(observer_node.name)
+            observer_node.replace_all_uses_with(observer_node.args[0])
+            model.graph.erase_node(observer_node)
+
+    gm = _convert_with(
+        _LinearInputQuantizer(
+            QuantizationSpec(
+                dtype=torch.int8,
+                quant_min=-128,
+                quant_max=127,
+                qscheme=torch.per_tensor_affine,
+                observer_or_fake_quant_ctr=TwoArgConvertObserver,
+            )
+        )
+    )
+    assert calls
+    assert _qdq_signature(gm) == []
+
+
+def test_unsupported_dtype_observer_is_removed():
+    gm = _convert_with(
+        _LinearInputQuantizer(
+            QuantizationSpec(
+                dtype=torch.float32,
+                observer_or_fake_quant_ctr=observer.PlaceholderObserver,
+            )
+        )
+    )
+    observers = [
+        n
+        for n in gm.graph.nodes
+        if n.op == "call_module" and n.target.startswith("activation_post_process")
+    ]
+    assert not observers
+    assert _qdq_signature(gm) == []

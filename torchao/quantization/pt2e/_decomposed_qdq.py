@@ -13,6 +13,9 @@ import operator
 from typing import Callable, Optional
 
 import torch
+
+# importing the lib so that the quantized_decomposed ops are registered
+from torch.ao.quantization.fx._decomposed import quantized_decomposed_lib  # noqa: F401
 from torch.ao.quantization.utils import is_per_channel, to_underlying_dtype
 from torch.fx import Node
 from torch.fx.traceback import NodeSource, NodeSourceAction
