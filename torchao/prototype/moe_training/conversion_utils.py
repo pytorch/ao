@@ -4,6 +4,7 @@
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
 import logging
+import warnings
 from typing import Callable, Optional, Type
 
 import torch
@@ -36,9 +37,16 @@ def _get_tensor_cls_for_config(
             _ops, "scaled_mm_single_dim_strategy"
         ) and hasattr(_dispatch, "is_pinned_handler")
 
-        assert pytorch_version_supported, (
-            "Please install the latest torch nightly build to use MXFP8 training"
-        )
+        if not pytorch_version_supported:
+            # These private helpers are only needed for the DTensor-based
+            # scaled_mm dispatch paths; single-device MXFP8 training works
+            # without them, so don't hard-block non-nightly torch builds here.
+            warnings.warn(
+                "MXFP8 training with DTensor (FSDP2 / TP) requires a recent torch "
+                "nightly (missing torch.distributed.tensor._ops."
+                "scaled_mm_single_dim_strategy / _dispatch.is_pinned_handler). "
+                "Single-device MXFP8 training is unaffected."
+            )
 
         return MXFP8TrainingWeightWrapperTensor
     elif isinstance(config, Float8TrainingOpConfig):
