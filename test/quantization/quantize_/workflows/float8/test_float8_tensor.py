@@ -32,6 +32,7 @@ from torchao.quantization.utils import compute_error
 from torchao.testing.utils import TorchAOIntegrationTestCase
 from torchao.utils import (
     _is_mslk_available,
+    _is_mslk_cutlass_fp8_supported,
     get_current_accelerator_device,
     is_sm_at_least_89,
     is_sm_at_least_90,
@@ -354,6 +355,7 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
         if kernel_preference == KernelPreference.MSLK and (
             (not _is_mslk_available())
             or (not torch.cuda.is_available() and not is_sm_at_least_90())
+            or (torch.cuda.is_available() and not _is_mslk_cutlass_fp8_supported())
         ):
             return unittest.skip("Requires mslk to run mslk kernel preference test")
 
@@ -451,6 +453,10 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
     @unittest.skipIf(
         torch.cuda.is_available() and not is_sm_at_least_100(),
         "Requires GPU with compute capability >= 10.0",
+    )
+    @unittest.skipIf(
+        torch.cuda.is_available() and not _is_mslk_cutlass_fp8_supported(),
+        "MSLK fp8 conv kernels are not built for this GPU (e.g. SM12x)",
     )
     @unittest.skipIf(
         not _is_mslk_available(),
@@ -578,6 +584,10 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
         not is_sm_at_least_100(), "Requires GPU with compute capability >= 10.0"
     )
     @unittest.skipIf(
+        not _is_mslk_cutlass_fp8_supported(),
+        "MSLK fp8 conv kernels are not built for this GPU (e.g. SM12x)",
+    )
+    @unittest.skipIf(
         not _is_mslk_available(),
         "Requires mslk to be installed",
     )
@@ -689,6 +699,10 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
     @unittest.skipIf(
         torch.cuda.is_available() and not is_sm_at_least_100(),
         "Requires GPU with compute capability >= 10.0",
+    )
+    @unittest.skipIf(
+        torch.cuda.is_available() and not _is_mslk_cutlass_fp8_supported(),
+        "MSLK fp8 conv kernels are not built for this GPU (e.g. SM12x)",
     )
     @unittest.skipIf(
         not _is_mslk_available(),
@@ -867,7 +881,7 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
         if (
             _is_mslk_available()
             and torch.cuda.is_available()
-            and is_sm_at_least_90()
+            and _is_mslk_cutlass_fp8_supported()
             and not isinstance(granularity, PerTensor)
         ):
             other_kernel_preferences.append(KernelPreference.MSLK)
@@ -914,7 +928,8 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
         self._test_slice_and_copy_similar_to_vllm(config)
 
     @unittest.skipIf(
-        torch.cuda.is_available() and not is_sm_at_least_90(), "Need sm90+"
+        torch.cuda.is_available() and not _is_mslk_cutlass_fp8_supported(),
+        "Need sm90 or sm10x for mslk",
     )
     @unittest.skipIf(not _is_mslk_available(), "Need mslk")
     def test_bmm(self):
@@ -944,7 +959,8 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
         self.assertTrue(sqnr > 20)
 
     @unittest.skipIf(
-        torch.cuda.is_available() and not is_sm_at_least_90(), "Need sm90+"
+        torch.cuda.is_available() and not _is_mslk_cutlass_fp8_supported(),
+        "Need sm90 or sm10x for mslk",
     )
     @unittest.skipIf(not _is_mslk_available(), "Need mslk")
     def test_bmm_weight_in_bkn_layout(self):
@@ -1088,7 +1104,8 @@ class TestFloat8Tensor(TorchAOIntegrationTestCase):
     # that should be moved here after v1 config is deprecated:
     # https://github.com/pytorch/ao/issues/2649
     @unittest.skipIf(
-        torch.cuda.is_available() and not is_sm_at_least_90(), "Need sm90+"
+        torch.cuda.is_available() and not _is_mslk_cutlass_fp8_supported(),
+        "Need sm90 or sm10x for mslk",
     )
     @unittest.skipIf(not _is_mslk_available(), "Need mslk")
     def test_expected_gpu_kernel_mslk(self):

@@ -1177,6 +1177,18 @@ def is_sm_at_least_100():
     )
 
 
+def _is_mslk_cutlass_fp8_supported() -> bool:
+    """MSLK CUTLASS fp8 kernels (f8f8bf16_rowwise, f8f8bf16_rowwise_batched,
+    f8f8bf16_conv) are built for SM90 and SM10x only. Consumer Blackwell
+    (SM12x, e.g. RTX 5090 / RTX PRO 6000) passes is_sm_at_least_90/100 but
+    fails at runtime with cutlass cannot initialize."""
+    return bool(
+        torch.cuda.is_available()
+        and torch.version.cuda
+        and torch.cuda.get_device_capability()[0] in (9, 10)
+    )
+
+
 def is_cuda_version_at_least(major: int, minor: int) -> bool:
     if not torch.cuda.is_available():
         return False
