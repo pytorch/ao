@@ -70,7 +70,7 @@ Now, we will walk you through a step-by-step tutorial for how to use it with `to
 for post training quantization.
 
 Prerequisite: OpenVINO and NNCF installation
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 OpenVINO and NNCF could be easily installed via `pip distribution <https://docs.openvino.ai/2024/get-started/install-openvino.html>`_:
 
 .. code-block:: bash
@@ -173,7 +173,7 @@ Below is the list of essential parameters and their description:
 
         OpenVINOQuantizer(target_device=nncf.TargetDevice.CPU)
 
-For further details on `OpenVINOQuantizer` please see the `documentation <https://openvinotoolkit.github.io/nncf/autoapi/nncf/experimental/torch/fx/index.html#nncf.experimental.torch.fx.OpenVINOQuantizer>`_.
+For further details on `OpenVINOQuantizer` please see the `documentation <https://openvinotoolkit.github.io/nncf/autoapi/nncf/experimental/torch/fx/index.html#nncf.experimental.torch.fx.OpenVINOQuantizer>`__.
 
 After we import the backend-specific Quantizer, we will prepare the model for post-training quantization.
 ``prepare_pt2e`` folds BatchNorm operators into preceding Conv2d operators, and inserts observers in appropriate places in the model.
@@ -245,7 +245,7 @@ These advanced NNCF algorithms can be accessed via the NNCF `quantize_pt2e` API:
     )
 
 
-For further details, please see the `documentation <https://openvinotoolkit.github.io/nncf/autoapi/nncf/experimental/torch/fx/index.html#nncf.experimental.torch.fx.quantize_pt2e>`_
+For further details, please see the `documentation <https://openvinotoolkit.github.io/nncf/autoapi/nncf/experimental/torch/fx/index.html#nncf.experimental.torch.fx.quantize_pt2e>`__
 and a complete `example on Resnet18 quantization <https://github.com/openvinotoolkit/nncf/blob/develop/examples/post_training_quantization/torch_fx/resnet18/README.md>`_.
 
 .. _pt2e_quant_openvino_inductor-conclusion:

@@ -100,4 +100,4 @@ int4 weight configs (prototype)
     :toctree: generated/
     :nosignatures:
 
-    Int8DynamicActivationInt4WeightConfig
+    int4.Int8DynamicActivationInt4WeightConfig
