@@ -51,13 +51,13 @@ def triton_fp8_blockwise_act_quant_k_grouped_deepgemm_kernel(
     EPS: tl.constexpr,
     FP8_MAX: tl.constexpr,
 ):
-    pid_block = tl.program_id(axis=0)
-    pid_d = tl.program_id(axis=1)
+    pid_block = tl.program_id(axis=0).to(tl.int64)
+    pid_d = tl.program_id(axis=1).to(tl.int64)
 
-    q_offset = tl.load(q_offset_by_block_ptr + pid_block)
-    group_size = tl.load(group_size_by_block_ptr + pid_block)
-    offs_m = tl.arange(0, BLOCK_SIZE)
-    offs_d = pid_d * NUM_GROUPS + tl.arange(0, NUM_GROUPS)
+    q_offset = tl.load(q_offset_by_block_ptr + pid_block).to(tl.int64)
+    group_size = tl.load(group_size_by_block_ptr + pid_block).to(tl.int64)
+    offs_m = tl.arange(0, BLOCK_SIZE).to(tl.int64)
+    offs_d = pid_d * NUM_GROUPS + tl.arange(0, NUM_GROUPS).to(tl.int64)
 
     # Dense block metadata keeps the kernel shape independent of expert count
     # and routing skew: one program per valid token block, no empty expert
