@@ -24,7 +24,11 @@ from torch._inductor.pattern_matcher import (
     Match,
     filter_nodes,
 )
-from torch.fx.experimental.symbolic_shapes import has_free_symbols
+from torch.fx.experimental.symbolic_shapes import (
+    has_free_symbols,
+    statically_known_true,
+    sym_eq,
+)
 from torch.fx.node import map_arg
 
 aten = torch.ops.aten
@@ -1367,8 +1371,11 @@ def _generate_linear_dynamic_fp16_pattern(
     dtype = torch.float32
     t_pattern = _generate_linear_t_pattern(_dequant_weight_pattern, dtype)
 
+    # These flags select graph structures, not runtime contiguity checks.
+    # Viewable non-contiguous inputs can also match the mm/reshape family.
     if input_dim_exceeds_two and not input_contiguous:
-        # pattern is
+        # (2) Batched path: the decomposition did not fold the input to 2D.
+        # Bias, if present, is a separate add after bmm.
         #                   x -> expand -> bmm (-> add) (-> relu)
         # w -> dequant -> permute -> expand /
         pattern_no_bias = CallFunction(
@@ -1394,6 +1401,8 @@ def _generate_linear_dynamic_fp16_pattern(
             pattern_no_bias = CallFunction(aten.relu.default, pattern_no_bias)
         return pattern_with_bias, pattern_no_bias
 
+    # (1) Direct 2D mm/addmm, or a folded input with input/output reshapes.
+    # Bias is an addmm input; the mm subpattern does not include a bias add.
     x_pattern_with_reshape = _may_generate_pattern_with_reshape(
         KeywordArg("x"),
         KeywordArg("act_reshape_size"),
@@ -1412,19 +1421,42 @@ def _generate_linear_dynamic_fp16_pattern(
         ),
         aten.relu.default if relu_fused else None,
     )
-    dequant_linear_no_bias_pattern = generate_pattern_with_unary(
-        _may_generate_pattern_with_reshape(
-            CallFunction(
-                aten.mm.default,
-                x_pattern_with_reshape,
-                t_pattern,
-            ),
-            KeywordArg("output_reshape_size"),
-            input_dim_exceeds_two,
+    # Keep ReLU out of this shared subpattern so the external-add variant
+    # can attach bias before the activation.
+    dequant_linear_no_bias_pattern = _may_generate_pattern_with_reshape(
+        CallFunction(
+            aten.mm.default,
+            x_pattern_with_reshape,
+            t_pattern,
         ),
-        aten.relu.default if relu_fused else None,
+        KeywordArg("output_reshape_size"),
+        input_dim_exceeds_two,
     )
-    return dequant_linear_bias_pattern, dequant_linear_no_bias_pattern
+    # List bias patterns before the bias-free fallback for registration.
+    patterns = [dequant_linear_bias_pattern]
+    if input_dim_exceeds_two:
+        # (3) Linear may use matmul + add for a non-contiguous input, while
+        # matmul can still fold that input into a view. Its bias then follows
+        # the output reshape, rather than occupying an addmm input slot.
+        patterns.append(
+            generate_pattern_with_unary(
+                CallFunction(
+                    aten.add.Tensor,
+                    dequant_linear_no_bias_pattern,
+                    KeywordArg("b"),
+                ),
+                aten.relu.default if relu_fused else None,
+            )
+        )
+    # If an add cannot fuse, the no-ReLU variant can still replace the Linear
+    # part, leaving add and any following ReLU outside.
+    patterns.append(
+        generate_pattern_with_unary(
+            dequant_linear_no_bias_pattern,
+            aten.relu.default if relu_fused else None,
+        )
+    )
+    return patterns
 
 
 def _register_dequant_promotion():
@@ -1593,7 +1625,35 @@ def _register_linear_dynamic_fp16_weight_prepack_pass(
     relu_fused=False,
 ):
     def _extra_check_fn(match: Match):
-        return match.kwargs["dtype_fp16"] == torch.float16
+        if match.kwargs["dtype_fp16"] != torch.float16:
+            return False
+        x = match.kwargs["x"].meta["val"]
+        weight = match.kwargs["w"].meta["val"]
+        output = match.output_node().meta["val"]
+        # oneDNN Linear preserves x's leading dimensions. Reshapes or bias
+        # broadcasting in the matched graph must not change that shape.
+        expected_shape = (*x.shape[:-1], weight.shape[0])
+        if not statically_known_true(sym_eq(output.shape, expected_shape)):
+            return False
+        add_nodes = filter_nodes(match.nodes, aten.add.Tensor)
+        if add_nodes:
+            # For both mm and bmm, only fuse an unscaled FP32 channel bias.
+            # Leave other adds outside Linear to preserve their semantics.
+            add_node = add_nodes[0]
+            if add_node.kwargs.get("alpha", 1) != 1:
+                return False
+            bias_node = match.kwargs["b"]
+            if not isinstance(bias_node, torch.fx.Node):
+                return False
+            bias = bias_node.meta["val"]
+            return (
+                isinstance(bias, torch.Tensor)
+                and bias.ndim in (1, 2)
+                and (bias.ndim == 1 or bias.shape[0] == 1)
+                and bias.shape[-1] == weight.shape[0]
+                and bias.dtype == torch.float32
+            )
+        return True
 
     @register_freezing_graph_pattern(
         pattern,
@@ -1602,14 +1662,25 @@ def _register_linear_dynamic_fp16_weight_prepack_pass(
     )
     def linear_dynamic_fp16_weight_prepack(match: Match, *args, **kwargs):
         """
-        Match the pattern:
+        Match one of these patterns (parentheses denote optional nodes).
+        These describe common Linear decompositions; explicit reshapes can
+        produce the same patterns for other input ranks.
+
+        (1) 2D input, or a higher-rank input folded to 2D. Bias, when
+        included in this pattern, is an addmm input.
+
         fp32 activation
+          |
+        (reshape)
           |
         mm/addmm <- t <- to_fp32 <- to_fp16 <- weight
           |
-        (reshape) <- (relu)
+        (reshape) -> (relu)
 
         OR
+
+        (2) A 3D or higher-rank input that is not suitable for folding to 2D.
+        Bias, if present, is a separate add after bmm.
 
         fp32 activation
           |
@@ -1617,7 +1688,20 @@ def _register_linear_dynamic_fp16_weight_prepack_pass(
           |
          bmm <- expand <- t <- to_fp32 <- to_fp16 <- weight
           |
-        (add) <- (relu)
+        (add) -> (relu)
+
+        OR
+
+        (3) A foldable 3D or higher-rank input on the matmul + bias path.
+        Bias follows the output reshape, rather than occupying an addmm slot.
+
+        fp32 activation
+          |
+        reshape
+          |
+         mm <- t <- to_fp32 <- to_fp16 <- weight
+          |
+        reshape -> add -> (relu)
 
         Insert weight prepack node and change the pattern to:
         fp32 activation
@@ -1662,6 +1746,9 @@ def _register_linear_dynamic_fp16_weight_prepack_pass(
                 t_node = linear_node.args[weight_index]
                 output_reshape_node = next(iter(linear_node.users))
                 assert output_reshape_node.target is aten.reshape.default
+                if bias is not None and linear_node.target is aten.mm.default:
+                    add_bias_node = next(iter(output_reshape_node.users))
+                    assert add_bias_node.target is aten.add.Tensor
             else:
                 expand_x_node = linear_node.args[input_index]
                 expand_w_node = linear_node.args[weight_index]
@@ -1722,10 +1809,10 @@ def _register_linear_dynamic_fp16_weight_prepack_pass(
             new_linear_node.meta.update(out_node.meta)
             if relu_node is not None:
                 graph.erase_node(relu_node)
-            if output_reshape_node is not None:
-                graph.erase_node(output_reshape_node)
             if add_bias_node is not None:
                 graph.erase_node(add_bias_node)
+            if output_reshape_node is not None:
+                graph.erase_node(output_reshape_node)
             graph.erase_node(linear_node)
             if act_reshape_node is not None:
                 assert isinstance(act_reshape_node, torch.fx.node.Node)
