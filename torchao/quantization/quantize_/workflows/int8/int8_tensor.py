@@ -308,13 +308,13 @@ def _(func, types, args, kwargs):
         w_scales = weight_tensor.scale
 
         tmp = x_vals_int8.reshape(-1, x_vals_int8.shape[-1])
-        # Cast FP16 scale to float to avoid overflow in _int_scaled_matmul
+        # Cast FP16/BF16 scale to float to avoid overflow in _int_scaled_matmul and cancellation in zp_correction
         intermediate_dtype = (
-            torch.float if x_scales.dtype == torch.half else x_scales.dtype
+            torch.float if x_scales.dtype in (torch.half, torch.bfloat16) else x_scales.dtype
         )
         y_dot_scaled = _int_scaled_matmul(
             tmp, w_vals_int8_t, x_scales.reshape(-1, 1).to(intermediate_dtype)
-        ).to(output_dtype)
+        )
 
         # Asymmetric activation zero_point correction:
         # Y = (X_int @ W_int^T) * s_x * s_w - zp_x * s_x * row_sum(W_int)^T * s_w
@@ -327,7 +327,7 @@ def _(func, types, args, kwargs):
             zp_x = activation_tensor.zero_point.reshape(-1, 1).to(intermediate_dtype)
             x_scales_flat = x_scales.reshape(-1, 1).to(intermediate_dtype)
             zp_correction = (zp_x * x_scales_flat) * w_row_sums.to(intermediate_dtype)
-            y_dot_scaled = y_dot_scaled - zp_correction.to(output_dtype)
+            y_dot_scaled = y_dot_scaled - zp_correction
 
         y = (y_dot_scaled * w_scales.flatten()).reshape(
             *x_vals_int8.shape[:-1], y_dot_scaled.shape[-1]

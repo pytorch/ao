@@ -510,6 +510,41 @@ class TestInt8StaticQuant(TorchAOIntegrationTestCase):
         sqnr = compute_error(output_baseline, output)
         self.assertGreater(sqnr, 40, f"SQNR too low: {sqnr}")
 
+    @common_utils.parametrize("dtype", [torch.float16, torch.bfloat16])
+    @common_utils.parametrize("device", get_available_devices())
+    def test_asymmetric_activation_numerical_accuracy(self, dtype, device):
+        """Verify that asymmetric activation quantization maintains numerical precision
+        and avoids NaN/Inf overflow on one-signed/post-ReLU activations and outliers (#5026)."""
+        if device == "cpu" and is_ROCM():
+            self.skipTest("Don't test CPU for ROCM version of torch")
+
+        torch.manual_seed(0)
+        M, K, N = 32, 256, 128
+        # Test both post-ReLU (one-signed, zp = -128) and one-signed with outliers
+        x_relu = torch.randn(M, K, device=device, dtype=dtype).relu()
+        x_outliers = x_relu.clone()
+        x_outliers[:, :4] = 40.0
+
+        for input_tensor in (x_relu, x_outliers):
+            model = torch.nn.Linear(K, N, bias=False).eval().to(device=device, dtype=dtype)
+            model_baseline = copy.deepcopy(model)
+            model_out_baseline = model_baseline(input_tensor)
+
+            config = Int8DynamicActivationInt8WeightConfig(
+                version=2,
+                granularity=PerTensor(),
+                act_mapping_type=MappingType.ASYMMETRIC,
+            )
+            quantize_(model, config)
+            out = model(input_tensor)
+
+            # Output must be finite (no NaN or Inf from intermediate fp16 overflow)
+            self.assertTrue(torch.isfinite(out).all().item(), "Output contains NaN or Inf values")
+
+            # Check SQNR against baseline
+            sqnr = compute_error(model_out_baseline, out)
+            self.assertGreater(sqnr, 20.0, f"SQNR too low: {sqnr}")
+
 
 if __name__ == "__main__":
     common_utils.run_tests()
