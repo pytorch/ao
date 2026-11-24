@@ -7,12 +7,12 @@ Specifically, we quantize the matrix multiplies in the forward and backward of a
 # high precision (baseline)
      output_bf16 =       input_bf16 @ weight_bf16.t()
  grad_input_bf16 = grad_output_bf16 @ weight_bf16
-grad_weight_bf16 =   input_bf16.t() @ grad_output_bf16
+grad_weight_bf16 = grad_output_bf16.t() @ input_bf16
 
 # quantized (via torchao APIs, shown for fp8_rowwise, pseudocode)
      output_bf16 =       to_fp8(input_bf16) @ to_fp8(weight_bf16.t())
  grad_input_bf16 = to_fp8(grad_output_bf16) @ to_fp8(weight_bf16)
-grad_weight_bf16 =   to_fp8(input_bf16.t()) @ to_fp8(grad_output_bf16)
+grad_weight_bf16 =   to_fp8(grad_output_bf16.t()) @ to_fp8(input_bf16)
 ```
 
 We have various quantized training workflows:
