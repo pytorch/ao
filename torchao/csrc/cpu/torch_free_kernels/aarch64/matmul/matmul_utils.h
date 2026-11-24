@@ -16,7 +16,7 @@
 namespace torchao::kernels::cpu::aarch64::quantized_matmul {
 namespace utils {
 
-TORCHAO_ALWAYS_INLINE static void transpose_scales_and_zero_points(
+TORCHAO_ALWAYS_INLINE static inline void transpose_scales_and_zero_points(
     const int8_t* zero_points,
     const float* scales,
     int8_t* zero_points_transposed,

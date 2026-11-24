@@ -23,6 +23,14 @@ target_link_libraries(
     PRIVATE
     GTest::gtest_main
 )
+if (TORCHAO_BUILD_CPU_AARCH64)
+  # On aarch64, weight_packing.h uses the aarch64 compute_sum.
+  target_link_libraries(
+      ${TEST_TARGET_PREFIX}test_linear
+      PRIVATE
+      torchao_kernels_aarch64
+  )
+endif()
 
 include(GoogleTest)
 gtest_discover_tests(${TEST_TARGET_PREFIX}test_bitpacking)
