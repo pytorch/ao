@@ -10,7 +10,11 @@ import importlib.util
 
 import torch
 
-from torchao.utils import is_cuda_version_at_least, is_sm_at_least_100
+from torchao.utils import (
+    _lazy_device_check,
+    is_cuda_version_at_least,
+    is_sm_at_least_100,
+)
 
 # Import name -> pip package name for the required runtime packages.
 _CUTEDSL_RUNTIME_PACKAGES = {
@@ -36,6 +40,7 @@ def _missing_cutedsl_runtime_packages() -> list:
     return missing
 
 
+@_lazy_device_check
 def _cutedsl_runtime_available() -> bool:
     """True iff the cuda-python + nvidia-cutlass-dsl + apache-tvm-ffi packages are importable."""
     return len(_missing_cutedsl_runtime_packages()) == 0

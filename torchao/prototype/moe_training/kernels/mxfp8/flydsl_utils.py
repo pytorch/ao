@@ -27,6 +27,8 @@ import importlib.util
 
 import torch
 
+from torchao.utils import _lazy_device_check
+
 # -----------------------------------------------------------------------------
 # Runtime detection
 # -----------------------------------------------------------------------------
@@ -50,6 +52,7 @@ def _missing_flydsl_runtime_packages() -> list[str]:
     return missing
 
 
+@_lazy_device_check
 def _flydsl_runtime_available() -> bool:
     return len(_missing_flydsl_runtime_packages()) == 0
 

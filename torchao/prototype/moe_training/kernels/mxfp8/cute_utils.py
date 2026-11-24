@@ -9,6 +9,8 @@
 import importlib.util
 import inspect
 
+from torchao.utils import _lazy_device_check
+
 # Runtime package detection
 _CUTEDSL_RUNTIME_PACKAGES = {
     "cuda.bindings.driver": "cuda-python",
@@ -38,6 +40,7 @@ def _missing_cutedsl_runtime_packages() -> list[str]:
     return missing
 
 
+@_lazy_device_check
 def _cutedsl_runtime_available() -> bool:
     """Check if all CuTeDSL runtime packages are available.
 
