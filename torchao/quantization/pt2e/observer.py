@@ -192,6 +192,29 @@ class ObserverBase(ABC, nn.Module):
     def calculate_qparams(self, **kwargs):
         pass
 
+    def convert(
+        self,
+        model: torch.fx.GraphModule,
+        observer_node: Node,
+        *,
+        attr_prefix: str = "",
+        model_device: Optional[torch.device] = None,
+    ) -> None:
+        """Replace ``observer_node`` with ``quantized_decomposed`` q/dq nodes.
+
+        Subclasses can override this to emit their own ops; an override is
+        called as ``convert(model, observer_node)``.
+        """
+        from torchao.quantization.pt2e._decomposed_qdq import _insert_decomposed_qdq
+
+        _insert_decomposed_qdq(
+            self,
+            model,
+            observer_node,
+            attr_prefix=attr_prefix,
+            model_device=model_device,
+        )
+
     with_args = classmethod(_with_args)
     with_callable_args = classmethod(_with_callable_args)
 

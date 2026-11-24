@@ -223,3 +223,67 @@ EXPECTED = {
 @pytest.mark.parametrize("name", sorted(CASES))
 def test_converted_graph_unchanged(name):
     assert _qdq_signature(_convert_case(name)) == EXPECTED[name]
+
+
+def test_default_convert_detection():
+    from torchao.quantization import MappingType, PerTensor
+    from torchao.quantization.pt2e._affine_quantization import (
+        AffineQuantizedMinMaxObserver,
+    )
+    from torchao.quantization.pt2e._decomposed_qdq import _uses_default_convert
+    from torchao.quantization.pt2e.fake_quantize import (
+        AffineFakeQuantize,
+        FakeQuantize,
+    )
+    from torchao.quantization.pt2e.observer import MinMaxObserver
+
+    class MyMinMax(MinMaxObserver):
+        pass
+
+    assert _uses_default_convert(MinMaxObserver())
+    assert _uses_default_convert(MyMinMax())
+    assert _uses_default_convert(FakeQuantize())
+    assert not _uses_default_convert(
+        AffineFakeQuantize(
+            observer=AffineQuantizedMinMaxObserver,
+            mapping_type=MappingType.ASYMMETRIC,
+            target_dtype=torch.uint8,
+            granularity=PerTensor(),
+        )
+    )
+
+
+class _ObserverLeafTracer(torch.fx.Tracer):
+    def is_leaf_module(self, m, module_qualified_name):
+        return isinstance(m, observer.ObserverBase) or super().is_leaf_module(
+            m, module_qualified_name
+        )
+
+
+class _Observed(torch.nn.Module):
+    def __init__(self, obs):
+        super().__init__()
+        self.obs = obs
+
+    def forward(self, x):
+        return self.obs(x) * 2
+
+
+def test_observer_convert_uses_attr_prefix():
+    obs = observer.PerChannelMinMaxObserver(ch_axis=0, dtype=torch.qint8)
+    root = _Observed(obs)
+    gm = torch.fx.GraphModule(root, _ObserverLeafTracer().trace(root))
+    gm(torch.randn(4, 3))
+    (obs_node,) = [n for n in gm.graph.nodes if n.op == "call_module"]
+
+    obs.convert(gm, obs_node, attr_prefix="lin_input")
+
+    get_attrs = [n.target for n in gm.graph.nodes if n.op == "get_attr"]
+    assert any(t.startswith("lin_input_scale_") for t in get_attrs), get_attrs
+    assert any(t.startswith("lin_input_zero_point_") for t in get_attrs), get_attrs
+    targets = [n.target for n in gm.graph.nodes if n.op == "call_function"]
+    assert targets[:2] == [
+        torch.ops.quantized_decomposed.quantize_per_channel.default,
+        torch.ops.quantized_decomposed.dequantize_per_channel.default,
+    ]
+    assert not [n for n in gm.graph.nodes if n.op == "call_module"]
