@@ -363,6 +363,198 @@ class TestQuantizePT2E(PT2EQuantizationTestCase):
             )
         )
 
+    @staticmethod
+    def _random_batch_norm(bn_cls, channels, affine=True):
+        bn = bn_cls(channels, affine=affine)
+        bn.running_mean = torch.rand(channels) - 0.5
+        bn.running_var = torch.rand(channels) + 0.5
+        if affine:
+            bn.weight = torch.nn.Parameter(torch.randn(channels))
+            bn.bias = torch.nn.Parameter(torch.randn(channels))
+        return bn
+
+    def test_bn_conv_fusion(self):
+        """prepare_pt2e folds a batch norm into the unpadded conv it feeds, such
+        as an input normalization before a model's first conv."""
+        torch.manual_seed(0)
+        batch_norm = self._random_batch_norm
+        batch_norm_targets = {
+            torch.ops.aten._native_batch_norm_legit_no_training.default,
+            torch.ops.aten.batch_norm.default,
+        }
+        cases = [
+            (
+                "conv1d",
+                torch.nn.Sequential(
+                    batch_norm(torch.nn.BatchNorm1d, 3), torch.nn.Conv1d(3, 4, 3)
+                ),
+                (2, 3, 16),
+                False,
+            ),
+            (
+                "conv2d_stride_2",
+                torch.nn.Sequential(
+                    batch_norm(torch.nn.BatchNorm2d, 3),
+                    torch.nn.Conv2d(3, 4, 3, stride=2),
+                ),
+                (2, 3, 8, 8),
+                False,
+            ),
+            (
+                "conv2d_without_bias_after_non_affine_bn",
+                torch.nn.Sequential(
+                    batch_norm(torch.nn.BatchNorm2d, 3, affine=False),
+                    torch.nn.Conv2d(3, 4, 3, bias=False),
+                ),
+                (2, 3, 8, 8),
+                False,
+            ),
+            (
+                "conv3d",
+                torch.nn.Sequential(
+                    batch_norm(torch.nn.BatchNorm3d, 3), torch.nn.Conv3d(3, 4, 3)
+                ),
+                (1, 3, 6, 6, 6),
+                False,
+            ),
+            (
+                "decomposed_convolution",
+                torch.nn.Sequential(
+                    batch_norm(torch.nn.BatchNorm2d, 3), torch.nn.Conv2d(3, 4, 3)
+                ),
+                (2, 3, 8, 8),
+                True,
+            ),
+            (
+                "batch_norms_on_both_sides",
+                torch.nn.Sequential(
+                    batch_norm(torch.nn.BatchNorm2d, 3),
+                    torch.nn.Conv2d(3, 4, 3),
+                    batch_norm(torch.nn.BatchNorm2d, 4),
+                ),
+                (2, 3, 8, 8),
+                False,
+            ),
+        ]
+        for name, m, shape, decompose in cases:
+            with self.subTest(name):
+                m.eval()
+                example_inputs = (torch.randn(shape),)
+                ref_outputs = m(*example_inputs)
+                exported = torch.export.export(m, example_inputs, strict=True)
+                if decompose:
+                    exported = exported.run_decompositions()
+                prepared_model = prepare_pt2e(exported.module(), XNNPACKQuantizer())
+
+                torch.testing.assert_close(
+                    prepared_model(*example_inputs), ref_outputs, atol=1e-5, rtol=1e-5
+                )
+                self.assertFalse(
+                    any(
+                        node.target in batch_norm_targets
+                        for node in prepared_model.graph.nodes
+                    ),
+                    str(prepared_model.graph),
+                )
+
+    def test_bn_conv_fusion_is_skipped(self):
+        """A batch norm feeding a padded, grouped or transposed conv, anything
+        besides the conv, a conv whose weight something else reads, or with
+        running stats computed in the graph is left unfolded."""
+
+        class BatchNormWithTwoConsumers(torch.nn.Module):
+            def __init__(self, bn: torch.nn.Module) -> None:
+                super().__init__()
+                self.bn = bn
+                self.conv = torch.nn.Conv2d(3, 4, 3)
+
+            def forward(self, x):
+                y = self.bn(x)
+                return self.conv(y).sum() + y.sum()
+
+        class ConvWithSharedWeight(torch.nn.Module):
+            def __init__(self, bn: torch.nn.Module) -> None:
+                super().__init__()
+                self.bn = bn
+                self.conv = torch.nn.Conv2d(3, 4, 3)
+
+            def forward(self, x):
+                return self.conv(self.bn(x)) + self.conv(x)
+
+        class ComputedRunningStats(torch.nn.Module):
+            def __init__(self) -> None:
+                super().__init__()
+                self.register_buffer("running_mean", torch.rand(3) - 0.5)
+                self.register_buffer("running_var", torch.rand(3) + 0.5)
+                self.conv = torch.nn.Conv2d(3, 4, 3)
+
+            def forward(self, x):
+                y = torch.nn.functional.batch_norm(
+                    x, self.running_mean * 2, self.running_var * 2, training=False
+                )
+                return self.conv(y)
+
+        torch.manual_seed(0)
+        batch_norm = self._random_batch_norm
+        batch_norm_targets = {
+            torch.ops.aten._native_batch_norm_legit_no_training.default,
+            torch.ops.aten.batch_norm.default,
+        }
+        cases = [
+            (
+                "padded",
+                torch.nn.Sequential(
+                    batch_norm(torch.nn.BatchNorm2d, 3),
+                    torch.nn.Conv2d(3, 4, 3, padding=1),
+                ),
+                (2, 3, 8, 8),
+            ),
+            (
+                "grouped",
+                torch.nn.Sequential(
+                    batch_norm(torch.nn.BatchNorm2d, 4),
+                    torch.nn.Conv2d(4, 4, 3, groups=2),
+                ),
+                (2, 4, 8, 8),
+            ),
+            (
+                "transposed",
+                torch.nn.Sequential(
+                    batch_norm(torch.nn.BatchNorm2d, 3),
+                    torch.nn.ConvTranspose2d(3, 4, 3),
+                ),
+                (2, 3, 8, 8),
+            ),
+            (
+                "two_consumers",
+                BatchNormWithTwoConsumers(batch_norm(torch.nn.BatchNorm2d, 3)),
+                (2, 3, 8, 8),
+            ),
+            (
+                "shared_conv_weight",
+                ConvWithSharedWeight(batch_norm(torch.nn.BatchNorm2d, 3)),
+                (2, 3, 8, 8),
+            ),
+            ("computed_running_stats", ComputedRunningStats(), (2, 3, 8, 8)),
+        ]
+        for name, m, shape in cases:
+            with self.subTest(name):
+                m.eval()
+                example_inputs = (torch.randn(shape),)
+                ref_outputs = m(*example_inputs)
+                traced_model = torch.export.export(
+                    m, example_inputs, strict=True
+                ).module()
+                prepared_model = prepare_pt2e(traced_model, XNNPACKQuantizer())
+
+                torch.testing.assert_close(prepared_model(*example_inputs), ref_outputs)
+                self.assertTrue(
+                    any(
+                        node.target in batch_norm_targets
+                        for node in prepared_model.graph.nodes
+                    )
+                )
+
     def test_linear_bn_fusion(self):
         N = 8
         for M in [16, 32]:
