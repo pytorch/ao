@@ -9,7 +9,7 @@ import copy
 import logging
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Optional, Tuple
+from typing import Any, Optional, Tuple, Union
 
 import torch
 
@@ -114,7 +114,7 @@ class QATConfig(AOBaseConfig):
             config for weights. Must be None if `base_config` is used.
 
     Keyword args:
-        step (str): One of "prepare" or "convert", determines the QAT phase
+        step (Union[QATStep, str]): One of "prepare" or "convert", determines the QAT phase
 
     Raises:
         ValueError: If `base_config` and `activation_config` are both specified
@@ -143,7 +143,7 @@ class QATConfig(AOBaseConfig):
         activation_config: Optional[FakeQuantizeConfigBase] = None,
         weight_config: Optional[FakeQuantizeConfigBase] = None,
         *,
-        step: QATStep = "prepare",
+        step: Union[QATStep, str] = QATStep.PREPARE,
     ):
         self.base_config = base_config
         self.activation_config = activation_config

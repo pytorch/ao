@@ -3872,27 +3872,29 @@ class TestQAT(TestCase):
 instantiate_parametrized_tests(TestQAT)
 
 
-class TestQATConfigStep(unittest.TestCase):
+class TestQATConfigStep(TestCase):
     def test_step_enum_identity_preserved(self):
         """`step` must keep its `QATStep` enum identity after construction.
 
         `__post_init__` lower-cases the input for validation; it must not
         replace the field with a plain string.
         """
-        config = QATConfig(
-            weight_config=IntxFakeQuantizeConfig(torch.int8, PerTensor()),
-            step=QATStep.PREPARE,
-        )
-        self.assertIs(config.step, QATStep.PREPARE)
-
-        config = QATConfig(
-            weight_config=IntxFakeQuantizeConfig(torch.int8, PerTensor()),
-            step="prepare",
-        )
-        self.assertIs(config.step, QATStep.PREPARE)
-
-        config = QATConfig(step="convert")
-        self.assertIs(config.step, QATStep.CONVERT)
+        cases = [
+            (QATStep.PREPARE, QATStep.PREPARE),
+            ("prepare", QATStep.PREPARE),
+            ("CONVERT", QATStep.CONVERT),
+            ("convert", QATStep.CONVERT),
+        ]
+        for step_input, expected in cases:
+            with self.subTest(step=step_input):
+                if expected == QATStep.CONVERT:
+                    config = QATConfig(step=step_input)
+                else:
+                    config = QATConfig(
+                        weight_config=IntxFakeQuantizeConfig(torch.int8, PerTensor()),
+                        step=step_input,
+                    )
+                self.assertIs(config.step, expected)
 
     def test_step_invalid_value_still_raises(self):
         with self.assertRaisesRegex(ValueError, "`step` must be one of"):
