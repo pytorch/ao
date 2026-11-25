@@ -320,6 +320,53 @@ class TestFloat8Linear:
         if m_ref.bias is not None:
             torch.testing.assert_close(m_ref.bias.grad, m_fp8.bias.grad)
 
+    def test_backward_disabled_grad_input_dtype_mismatch(self):
+        """
+        Regression test for https://github.com/pytorch/ao/issues/4616.
+
+        matmul_with_hp_or_float8_args.backward's grad_input calculation, when
+        cast_config_weight_for_grad_input.scaling_type is DISABLED, used the
+        saved high precision weight (weight_hp_t) as-is in torch.mm against
+        grad_output. Under autocast, Float8Linear.forward casts its input
+        (and therefore the output, and therefore grad_output during
+        backward) to the autocast dtype (e.g. bf16), while weight_hp_t - the
+        fp32 master weight - is saved untouched. torch.mm does not promote
+        dtypes, so this crashed with:
+            RuntimeError: expected m1 and m2 to have the same dtype, ...
+
+        This reproduces the dtype mismatch directly via
+        matmul_with_hp_or_float8_args, without needing autocast or CUDA:
+        constructing input_hp as bf16 (mirroring what an autocast region
+        would produce) and weight_hp_t as fp32 (the master weight) is
+        sufficient to trigger the same mismatch on any device.
+        """
+        from torchao.float8.float8_linear import matmul_with_hp_or_float8_args
+
+        disabled = CastConfig(scaling_type=ScalingType.DISABLED)
+        config = Float8LinearConfig(
+            emulate=True,
+            cast_config_grad_output=disabled,
+            cast_config_weight_for_grad_input=disabled,
+            cast_config_input_for_grad_weight=disabled,
+            cast_config_grad_output_for_grad_weight=disabled,
+        )
+
+        input_hp = torch.randn(8, 64, dtype=torch.bfloat16, requires_grad=True)
+        weight_hp_t = torch.randn(64, 64, dtype=torch.float32, requires_grad=True)
+
+        y = matmul_with_hp_or_float8_args.apply(
+            input_hp, weight_hp_t, LinearMMConfig(), config
+        )
+        assert y.dtype == torch.bfloat16
+        # Used to raise:
+        #   RuntimeError: expected m1 and m2 to have the same dtype, but
+        #   got: c10::BFloat16 != float
+        y.sum().backward()
+        assert input_hp.grad is not None
+        assert input_hp.grad.dtype == torch.bfloat16
+        assert weight_hp_t.grad is not None
+        assert weight_hp_t.grad.dtype == torch.float32
+
     @pytest.mark.parametrize(
         "emulate",
         [True, False] if is_sm_at_least_89() or torch.xpu.is_available() else [True],
