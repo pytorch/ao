@@ -135,7 +135,7 @@ def _(func, types, args, kwargs):
         # qmap should be the same, don't need to copy
 
     elif isinstance(dst, OptimState8bit):
-        scaled_src, scale = scale_tensor(src, dst.block_size)
+        scaled_src, scale = scale_tensor(src.expand(dst.shape), dst.block_size)
         codes = quantize_8bit_with_qmap(scaled_src, dst.qmap)
         dst.codes.copy_(codes)
         dst.scale.copy_(scale)
