@@ -639,6 +639,25 @@ class TestQuantFlow(TestCase):
         assert isinstance(model.linear1.weight, Float8Tensor)
         assert not isinstance(model.linear2.weight, Float8Tensor)
 
+    def test_fqn_to_config_multiple_none_parameters(self):
+        """Test that multiple parameter FQNs set to None do not cause IndexError (#4818)."""
+
+        class TestModel(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.lin = torch.nn.Linear(4, 4)
+
+        model = TestModel()
+        cfg = FqnToConfig(
+            {
+                "lin.weight": None,
+                "lin.bias": None,
+            }
+        )
+        quantize_(model, cfg, filter_fn=None)
+        self.assertFalse(hasattr(model.lin.weight, "qparams"))
+        self.assertFalse(hasattr(model.lin.bias, "qparams"))
+
 
 common_utils.instantiate_parametrized_tests(TestQuantFlow)
 
