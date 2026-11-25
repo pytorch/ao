@@ -34,12 +34,15 @@ from torchao.prototype.quantized_training import (
     quantize_int8_rowwise,
 )
 from torchao.quantization.quant_api import quantize_
-from torchao.utils import torch_version_at_least
+from torchao.utils import (
+    get_available_devices,
+    torch_version_at_least,
+)
 
 if common_utils.SEED is None:
     common_utils.SEED = 1234
 
-_DEVICES = ["cpu"] + (["cuda"] if torch.cuda.is_available() else [])
+_DEVICES = get_available_devices()
 
 
 def _reset():
