@@ -26,8 +26,6 @@ class BlockwiseQuantLinear(nn.Module):
         dtype (torch.dtype): Data type for the weights. Defaults to torch.float8_e4m3fn.
     """
 
-    dtype = torch.bfloat16
-
     def __init__(
         self,
         in_features: int,
@@ -51,7 +49,7 @@ class BlockwiseQuantLinear(nn.Module):
             torch.empty(scale_out_features, scale_in_features, dtype=torch.float32)
         )
         self.block_size = block_size
-        self.dtype
+        self.dtype = dtype
 
         if bias:
             self.bias = nn.Parameter(torch.empty(out_features))
