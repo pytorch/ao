@@ -148,8 +148,13 @@ def _to_fp8_row_major_t(
         block_col_offs[:, None] * output_stride_row
         + block_row_offs[None, :] * output_stride_col
     )
-    out_mask = (block_row_offs[:, None] < output_num_rows) & (
-        block_col_offs[None, :] < output_num_cols
+    # `out_offs`'s first axis is indexed by `block_col_offs` (it addresses the
+    # output *row*) and its second axis by `block_row_offs` (output *col*), so
+    # the bounds mask must check the same axes against the same bounds,
+    # otherwise it silently masks off/overruns whole tiles for rectangular or
+    # non-tile-aligned inputs.
+    out_mask = (block_col_offs[:, None] < output_num_rows) & (
+        block_row_offs[None, :] < output_num_cols
     )
     tl.store(out_ptr + out_offs, fp8_vals.trans(1, 0), mask=out_mask)
 
