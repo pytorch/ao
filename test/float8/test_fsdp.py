@@ -46,7 +46,9 @@ def setup(rank, world_size):
     os.environ["MASTER_PORT"] = "12355"
 
     # initialize the process group
-    dist.init_process_group("nccl", rank=rank, world_size=world_size)
+    device_type = torch.accelerator.current_accelerator().type
+    backend = dist.get_default_backend_for_device(device_type)
+    dist.init_process_group(backend, rank=rank, world_size=world_size)
 
 
 def cleanup():
@@ -67,11 +69,13 @@ def get_model(K, N, base_dtype=torch.float32):
 # and modified
 def fsdp_main(rank, world_size, args):
     setup(rank, world_size)
-    torch.cuda.set_device(rank)
+    device_type = torch.accelerator.current_accelerator().type
+    torch.accelerator.set_device_index(rank)
+    device = f"{device_type}:{rank}"
     print("args", args)
 
     emulate, base_dtype, compile = args
-    model = get_model(K, N, base_dtype=base_dtype).to(rank)
+    model = get_model(K, N, base_dtype=base_dtype).to(device)
     model_fp8 = copy.deepcopy(model)
 
     config = Float8LinearConfig()
@@ -97,12 +101,12 @@ def fsdp_main(rank, world_size, args):
     # populate the buffers
     # TODO(future PR): delete ^, since we deleted delayed scaling
     ref_input_global = [
-        torch.randn(B, M, K).cuda().to(base_dtype),
-        torch.randn(B, M, K).cuda().to(base_dtype),
+        torch.randn(B, M, K).to(device).to(base_dtype),
+        torch.randn(B, M, K).to(device).to(base_dtype),
     ]
     ref_grad_global = [
-        torch.randn(B, M, N).cuda().to(base_dtype),
-        torch.randn(B, M, N).cuda().to(base_dtype),
+        torch.randn(B, M, N).to(device).to(base_dtype),
+        torch.randn(B, M, N).to(device).to(base_dtype),
     ]
     ref_input_local = []
     ref_grad_local = []
@@ -113,10 +117,10 @@ def fsdp_main(rank, world_size, args):
     bsz_local_end = int((rank + 1) / world_size * B)
     for idx in range(N_ITER):
         ref_input_local.append(
-            ref_input_global[idx][bsz_local_start:bsz_local_end].to(rank)
+            ref_input_global[idx][bsz_local_start:bsz_local_end].to(device)
         )
         ref_grad_local.append(
-            ref_grad_global[idx][bsz_local_start:bsz_local_end].to(rank)
+            ref_grad_global[idx][bsz_local_start:bsz_local_end].to(device)
         )
 
     def forward_backward(model, optim, is_fp8, i):
@@ -140,13 +144,13 @@ def fsdp_main(rank, world_size, args):
 
     # get global y
     y_global = [
-        torch.zeros(*y_local.shape, dtype=base_dtype).to(rank)
+        torch.zeros(*y_local.shape, dtype=base_dtype).to(device)
         for r in range(world_size)
     ]
     dist.all_gather(y_global, y_local)
     y_global = torch.cat(y_global, dim=0)
     y_global_fp8 = [
-        torch.zeros(*y_local_fp8.shape, dtype=base_dtype).to(rank)
+        torch.zeros(*y_local_fp8.shape, dtype=base_dtype).to(device)
         for r in range(world_size)
     ]
     dist.all_gather(y_global_fp8, y_local_fp8)
@@ -177,16 +181,16 @@ def run(compile_fsdp: bool = False):
     base_dtype = torch.bfloat16
 
     emulate = False
-    if not torch.cuda.is_available():
-        warnings.warn("CUDA not available, running in emulation_mode")
+    if not torch.accelerator.is_available():
+        warnings.warn("GPU not available, running in emulation_mode")
         emulate = True
-    elif torch.cuda.get_device_capability() < (8, 9):
+    elif torch.cuda.is_available() and torch.cuda.get_device_capability() < (8, 9):
         warnings.warn(
             f"CUDA capability {torch.cuda.get_device_capability()} < (8.9), running in emulation mode"
         )
         emulate = True
 
-    WORLD_SIZE = torch.cuda.device_count()
+    WORLD_SIZE = torch.accelerator.device_count()
     args = (emulate, base_dtype, compile_fsdp)
     mp.spawn(fsdp_main, args=(WORLD_SIZE, args), nprocs=WORLD_SIZE, join=True)
 
