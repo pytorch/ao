@@ -126,7 +126,7 @@ class mx_mm(torch.autograd.Function):
             block_size,
             scale_calculation_mode,
             kernel_preference,
-            mxfp8_dim0_cast_kernel_choice=mxfp8_dim0_cast_kernel_choice,
+            is_swizzled_scales=True, mxfp8_dim0_cast_kernel_choice=mxfp8_dim0_cast_kernel_choice,
         )
         weight_mx_dim0 = MXTensor.to_mx(
             weight_hp,
@@ -134,7 +134,7 @@ class mx_mm(torch.autograd.Function):
             block_size,
             scale_calculation_mode,
             kernel_preference,
-            mxfp8_dim0_cast_kernel_choice=mxfp8_dim0_cast_kernel_choice,
+            is_swizzled_scales=True, mxfp8_dim0_cast_kernel_choice=mxfp8_dim0_cast_kernel_choice,
         )
         output = torch.mm(input_mx_r_dim0, weight_mx_dim0.t())
         output = output.reshape(*input_orig_shape[:-1], output.shape[-1])
@@ -173,7 +173,7 @@ class mx_mm(torch.autograd.Function):
             block_size,
             scale_calculation_mode,
             kernel_preference,
-            mxfp8_dim0_cast_kernel_choice=mxfp8_dim0_cast_kernel_choice,
+            is_swizzled_scales=True, mxfp8_dim0_cast_kernel_choice=mxfp8_dim0_cast_kernel_choice,
         )
 
         if (
@@ -187,7 +187,7 @@ class mx_mm(torch.autograd.Function):
                 block_size,
                 kernel_preference=kernel_preference,
                 scaling_mode=scale_calculation_mode,
-                mxfp8_dim0_cast_kernel_choice=mxfp8_dim0_cast_kernel_choice,
+                is_swizzled_scales=True, mxfp8_dim0_cast_kernel_choice=mxfp8_dim0_cast_kernel_choice,
             )
         else:
             weight_mx_dim1 = _to_mxfp8_dim1_kernel_wrapper(
@@ -228,7 +228,7 @@ class mx_mm(torch.autograd.Function):
                     block_size,
                     kernel_preference=kernel_preference,
                     scaling_mode=scale_calculation_mode,
-                    mxfp8_dim0_cast_kernel_choice=mxfp8_dim0_cast_kernel_choice,
+                    is_swizzled_scales=True, mxfp8_dim0_cast_kernel_choice=mxfp8_dim0_cast_kernel_choice,
                 )
 
             if mxfp8_dim1_cast_kernel_choice != MXFP8Dim1CastKernelChoice.TORCH:
@@ -249,7 +249,7 @@ class mx_mm(torch.autograd.Function):
                     block_size,
                     kernel_preference=kernel_preference,
                     scaling_mode=scale_calculation_mode,
-                    mxfp8_dim0_cast_kernel_choice=mxfp8_dim0_cast_kernel_choice,
+                    is_swizzled_scales=True, mxfp8_dim0_cast_kernel_choice=mxfp8_dim0_cast_kernel_choice,
                 )
                 input_t_mx_dim0 = input_t_mx_dim0_tmp.t()
             grad_weight = torch.mm(grad_output_mx_dim1, input_t_mx_dim0)
