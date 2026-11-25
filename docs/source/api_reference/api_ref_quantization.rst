@@ -16,6 +16,10 @@ Main Quantization APIs
     quantize_
     FqnToConfig
 
+Set parameter FQNs to ``None`` in ``FqnToConfig`` to leave those parameters
+unquantized. Multiple parameters, such as a linear layer's weight and bias,
+can be excluded together.
+
 Workflow Configs
 ----------------
 

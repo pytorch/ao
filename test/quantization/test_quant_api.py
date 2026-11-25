@@ -640,6 +640,17 @@ class TestQuantFlow(TestCase):
         assert not isinstance(model.linear2.weight, Float8Tensor)
 
 
+class TestFqnToConfigMultiNoneCPU(TestCase):
+    def test_fqn_to_config_multiple_none_does_not_raise_indexerror(self):
+        """FqnToConfig can exclude both weight and bias of one module."""
+        model = torch.nn.Linear(16, 8)
+        weight, bias = model.weight, model.bias
+        config = FqnToConfig(fqn_to_config={"weight": None, "bias": None})
+        quantize_(model, config, filter_fn=None)
+        self.assertIs(model.weight, weight)
+        self.assertIs(model.bias, bias)
+
+
 common_utils.instantiate_parametrized_tests(TestQuantFlow)
 
 
