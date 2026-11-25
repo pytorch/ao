@@ -161,7 +161,8 @@ def _(A: Tensor, B: Tensor, row_scale: Tensor, col_scale: Tensor):
 
 
 @torch.library.impl(lib, "scaled_int8_mm", "CUDA")
-def scaled_int8_mm_cuda(A: Tensor, B: Tensor, row_scale: Tensor, col_scale: Tensor):
+@torch.library.impl(lib, "scaled_int8_mm", "XPU")
+def scaled_int8_mm_gpu(A: Tensor, B: Tensor, row_scale: Tensor, col_scale: Tensor):
     M, K = A.shape
     _, N = B.shape
     C = torch.empty(M, N, device=A.device, dtype=row_scale.dtype)
