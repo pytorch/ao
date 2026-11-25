@@ -4,6 +4,7 @@
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
 import unittest
+import warnings
 from copy import deepcopy
 
 import torch
@@ -584,8 +585,9 @@ class SmoothQuantObserverTest(unittest.TestCase):
         self.assertGreater(running_scale.item(), 0)
         self.assertIsNotNone(running_zp)
 
-    def test_no_second_pass_returns_none_scale(self):
-        """Without second pass, calculate_qparams should return None for activation scale."""
+    def test_single_pass_computes_analytical_scale(self):
+        """In single-pass mode, calculate_qparams should compute analytical activation scale
+        matching the two-pass empirical scale."""
         torch.manual_seed(42)
         in_features = 64
         out_features = 32
@@ -593,23 +595,33 @@ class SmoothQuantObserverTest(unittest.TestCase):
         weight = torch.randn(out_features, in_features)
         batches = [torch.randn(8, in_features) for _ in range(5)]
 
-        running_obs = RunningAbsMaxSmoothQuantObserver(weight=weight, alpha=0.5)
-
-        # Only first pass
-        for batch in batches:
-            running_obs(batch)
-
         weight_quant_kwargs = {
             "quant_min": -128,
             "quant_max": 127,
             "qscheme": torch.per_tensor_symmetric,
         }
 
-        sf, scale, zp = running_obs.calculate_qparams(weight_quant_kwargs)
+        # 1-pass observer
+        obs_1pass = RunningAbsMaxSmoothQuantObserver(weight=weight, alpha=0.5)
+        for batch in batches:
+            obs_1pass(batch)
+        sf1, scale1, zp1 = obs_1pass.calculate_qparams(weight_quant_kwargs)
 
-        self.assertIsNotNone(sf)
-        self.assertIsNone(scale)
-        self.assertIsNone(zp)
+        # 2-pass observer
+        obs_2pass = RunningAbsMaxSmoothQuantObserver(weight=weight, alpha=0.5)
+        for batch in batches:
+            obs_2pass(batch)
+        obs_2pass.compute_smoothing_factor()
+        for batch in batches:
+            obs_2pass(batch)
+        sf2, scale2, zp2 = obs_2pass.calculate_qparams(weight_quant_kwargs)
+
+        self.assertIsNotNone(sf1)
+        self.assertIsNotNone(scale1)
+        self.assertIsNotNone(zp1)
+        torch.testing.assert_close(sf1, sf2)
+        torch.testing.assert_close(scale1, scale2)
+        torch.testing.assert_close(zp1, zp2)
 
     def test_compute_smoothing_factor_resets_state(self):
         """compute_smoothing_factor should reset second pass state."""
@@ -730,6 +742,274 @@ class SmoothQuantObserverTest(unittest.TestCase):
         self.assertGreater(running_scale.item(), 0)
         self.assertIsNotNone(running_zp)
 
+    def test_calculate_qparams_quantize_tensor_kwargs(self):
+        """Test calculate_qparams with QuantizeTensorToInt8Kwargs."""
+        from torchao.quantization.quant_primitives import MappingType
+        from torchao.quantization.quantize_.workflows import QuantizeTensorToInt8Kwargs
+
+        torch.manual_seed(42)
+        weight = torch.randn(64, 32)
+        x = torch.randn(10, 32)
+
+        for mapping in [MappingType.SYMMETRIC, MappingType.ASYMMETRIC]:
+            for reduce_range in [False, True]:
+                obs = RunningAbsMaxSmoothQuantObserver(weight=weight, alpha=0.5)
+                obs(x)
+                obs.compute_smoothing_factor()
+                obs(x)
+
+                kwargs = QuantizeTensorToInt8Kwargs(
+                    granularity=PerTensor(),
+                    mapping_type=mapping,
+                    reduce_range=reduce_range,
+                )
+                sf, scale, zp = obs.calculate_qparams(kwargs)
+
+                self.assertIsNotNone(sf)
+                self.assertIsNotNone(scale)
+                self.assertIsNotNone(zp)
+                self.assertEqual(scale.shape, (1, 1))
+                self.assertEqual(zp.shape, (1, 1))
+                self.assertEqual(zp.dtype, torch.int8)
+
+    def test_static_smoothquant_convert_and_multidim_inference(self):
+        """Test static SmoothQuant convert with running absmax and 2D/3D inference."""
+        from torchao.quantization.quant_primitives import MappingType
+
+        torch.manual_seed(42)
+        for mapping in [MappingType.SYMMETRIC, MappingType.ASYMMETRIC]:
+            for reduce_range in [False, True]:
+                model = torch.nn.Sequential(torch.nn.Linear(32, 64))
+                base_config = Int8StaticActivationInt8WeightConfig(
+                    granularity=PerTensor(),
+                    act_mapping_type=mapping,
+                    reduce_range=reduce_range,
+                )
+                quantize_(
+                    model,
+                    SmoothQuantConfig(
+                        base_config=base_config,
+                        step=QuantizationStep.PREPARE,
+                        use_running_absmax=True,
+                    ),
+                )
+                calib_data = torch.randn(8, 32)
+                model(calib_data)
+
+                quantize_(
+                    model,
+                    SmoothQuantConfig(
+                        base_config=base_config,
+                        step=QuantizationStep.PREPARE_FOR_SMOOTHQUANT_SMOOTHING_FACTOR,
+                        use_running_absmax=True,
+                    ),
+                )
+                model(calib_data)
+
+                quantize_(
+                    model,
+                    SmoothQuantConfig(
+                        base_config=base_config,
+                        step=QuantizationStep.CONVERT,
+                        use_running_absmax=True,
+                    ),
+                )
+
+                # Check act_quant_scale shape
+                self.assertEqual(model[0].weight.act_quant_scale.shape, (1, 1))
+
+                # 2D inference
+                out2d = model(torch.randn(4, 32))
+                self.assertEqual(out2d.shape, (4, 64))
+
+                # 3D inference (e.g. sequence input [batch, seq, hidden])
+                out3d = model(torch.randn(2, 5, 32))
+                self.assertEqual(out3d.shape, (2, 5, 64))
+
+    def test_single_pass_static_smoothquant_convert_and_multidim_inference(self):
+        """Test single-pass static SmoothQuant without PREPARE_FOR_SMOOTHQUANT_SMOOTHING_FACTOR."""
+        from torchao.quantization.quant_primitives import MappingType
+
+        torch.manual_seed(42)
+        for mapping in [MappingType.SYMMETRIC, MappingType.ASYMMETRIC]:
+            for reduce_range in [False, True]:
+                model = torch.nn.Sequential(torch.nn.Linear(32, 64))
+                base_config = Int8StaticActivationInt8WeightConfig(
+                    granularity=PerTensor(),
+                    act_mapping_type=mapping,
+                    reduce_range=reduce_range,
+                )
+                # 1. PREPARE
+                quantize_(
+                    model,
+                    SmoothQuantConfig(
+                        base_config=base_config,
+                        step=QuantizationStep.PREPARE,
+                    ),
+                )
+                calib_data = torch.randn(8, 32)
+                # Single calibration pass only (no second pass!)
+                model(calib_data)
+
+                # 2. CONVERT directly
+                quantize_(
+                    model,
+                    SmoothQuantConfig(
+                        base_config=base_config,
+                        step=QuantizationStep.CONVERT,
+                    ),
+                )
+
+                # Check act_quant_scale shape
+                self.assertEqual(model[0].weight.act_quant_scale.shape, (1, 1))
+
+                # 2D inference with different batch size
+                out2d = model(torch.randn(4, 32))
+                self.assertEqual(out2d.shape, (4, 64))
+
+                # 3D inference (e.g. sequence input [batch, seq, hidden])
+                out3d = model(torch.randn(2, 5, 32))
+                self.assertEqual(out3d.shape, (2, 5, 64))
+
+    def test_static_smoothquant_safetensors_roundtrip(self):
+        """Test safetensors serialization and unflattening of static SmoothQuant model."""
+        import json
+        import struct
+        import tempfile
+
+        from safetensors.torch import load_file, save_file
+
+        from torchao.prototype.safetensors.safetensors_support import (
+            flatten_tensor_state_dict,
+            unflatten_tensor_state_dict,
+        )
+
+        def _load_data(file_path: str, device: str = "cpu"):
+            loaded = load_file(file_path, device)
+            with open(file_path, "rb") as f:
+                header_size = struct.unpack("<Q", f.read(8))[0]
+                header = json.loads(f.read(header_size))
+                meta = header.get("__metadata__", {})
+            return loaded, meta
+
+        torch.manual_seed(42)
+        model = torch.nn.Sequential(
+            torch.nn.Linear(32, 64),
+            torch.nn.ReLU(),
+            torch.nn.Linear(64, 32),
+        )
+        base_config = Int8StaticActivationInt8WeightConfig(granularity=PerTensor())
+        quantize_(
+            model,
+            SmoothQuantConfig(base_config=base_config, step=QuantizationStep.PREPARE),
+        )
+        calib_data = torch.randn(8, 32)
+        model(calib_data)
+        quantize_(
+            model,
+            SmoothQuantConfig(base_config=base_config, step=QuantizationStep.CONVERT),
+        )
+
+        x_test = torch.randn(4, 32)
+        ref_out = model(x_test)
+
+        with tempfile.NamedTemporaryFile() as f:
+            tensors_data, metadata = flatten_tensor_state_dict(model.state_dict())
+            save_file(tensors_data, f.name, metadata=metadata)
+            loaded_tensors, loaded_metadata = _load_data(f.name)
+            reconstructed, leftover = unflatten_tensor_state_dict(
+                loaded_tensors, loaded_metadata
+            )
+            self.assertEqual(len(leftover), 0)
+
+        new_model = torch.nn.Sequential(
+            torch.nn.Linear(32, 64),
+            torch.nn.ReLU(),
+            torch.nn.Linear(64, 32),
+        )
+        new_model.load_state_dict(reconstructed, assign=True)
+        new_out = new_model(x_test)
+        torch.testing.assert_close(new_out, ref_out)
+
+
+
+
+
+class SmoothQuantConfigTest(unittest.TestCase):
+    """Tests for SmoothQuantConfig options and defaults."""
+
+    def test_default_use_running_absmax(self):
+        """SmoothQuantConfig should default to use_running_absmax=True without warning."""
+        with warnings.catch_warnings(record=True) as recorded_warnings:
+            warnings.simplefilter("always")
+            config = SmoothQuantConfig(
+                base_config=Int8DynamicActivationInt8WeightConfig(),
+                step=QuantizationStep.PREPARE,
+            )
+            self.assertTrue(config.use_running_absmax)
+            user_warnings = [
+                w for w in recorded_warnings if issubclass(w.category, UserWarning)
+            ]
+            self.assertEqual(len(user_warnings), 0)
+
+    def test_warning_when_use_running_absmax_false(self):
+        """Setting use_running_absmax=False should emit a UserWarning."""
+        with warnings.catch_warnings(record=True) as recorded_warnings:
+            warnings.simplefilter("always")
+            config = SmoothQuantConfig(
+                base_config=Int8DynamicActivationInt8WeightConfig(),
+                step=QuantizationStep.PREPARE,
+                use_running_absmax=False,
+            )
+            self.assertFalse(config.use_running_absmax)
+            user_warnings = [
+                w for w in recorded_warnings if issubclass(w.category, UserWarning)
+            ]
+            self.assertTrue(
+                any("use_running_absmax=False" in str(w.message) for w in user_warnings)
+            )
+
+    def test_no_warning_when_use_running_absmax_true(self):
+        """Explicitly setting use_running_absmax=True should not emit a warning."""
+        with warnings.catch_warnings(record=True) as recorded_warnings:
+            warnings.simplefilter("always")
+            config = SmoothQuantConfig(
+                base_config=Int8DynamicActivationInt8WeightConfig(),
+                step=QuantizationStep.PREPARE,
+                use_running_absmax=True,
+            )
+            self.assertTrue(config.use_running_absmax)
+            user_warnings = [
+                w for w in recorded_warnings if issubclass(w.category, UserWarning)
+            ]
+            self.assertEqual(len(user_warnings), 0)
+
+    def test_default_config_uses_running_absmax_observer(self):
+        """Quantizing with default SmoothQuantConfig should insert RunningAbsMaxSmoothQuantObserver."""
+        m = torch.nn.Sequential(torch.nn.Linear(16, 16))
+        config = SmoothQuantConfig(
+            base_config=Int8DynamicActivationInt8WeightConfig(),
+            step=QuantizationStep.PREPARE,
+        )
+        quantize_(m, config)
+        self.assertIsInstance(m[0], SmoothQuantObservedLinear)
+        self.assertIsInstance(m[0].obs, RunningAbsMaxSmoothQuantObserver)
+
+    def test_config_use_running_absmax_false_uses_legacy_observer(self):
+        """Quantizing with use_running_absmax=False should insert legacy SmoothQuantObserver."""
+        m = torch.nn.Sequential(torch.nn.Linear(16, 16))
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", UserWarning)
+            config = SmoothQuantConfig(
+                base_config=Int8DynamicActivationInt8WeightConfig(),
+                step=QuantizationStep.PREPARE,
+                use_running_absmax=False,
+            )
+        quantize_(m, config)
+        self.assertIsInstance(m[0], SmoothQuantObservedLinear)
+        self.assertIsInstance(m[0].obs, SmoothQuantObserver)
+
 
 if __name__ == "__main__":
     unittest.main()
+
