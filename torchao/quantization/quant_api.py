@@ -235,7 +235,10 @@ def _get_subclass_inserter(cls, enable_parametrization=False, **kwargs):
 
 def swap_conv2d_1x1_to_linear(model, filter_fn=None):
     """
-    Changes all conv2d 1x1 modules to equivalent linear modules so that they can then be quantized.
+    Replace spatially pointwise, ungrouped 1x1 convolutions with linear modules.
+
+    Convolutions with non-unit stride, nonzero padding, or groups are retained
+    because a pointwise linear operation cannot reproduce their behavior.
     """
 
     class PermuteSandwich(torch.nn.Module):
@@ -244,23 +247,31 @@ def swap_conv2d_1x1_to_linear(model, filter_fn=None):
             self.mod = mod
 
         def forward(self, *args):
-            return self.mod(args[0].permute(0, 2, 3, 1)).permute(-0, 3, 1, 2)
+            return self.mod(args[0].movedim(-3, -1)).movedim(-1, -3)
 
     def replace_conv2d_1x1(conv):
         assert conv.kernel_size == (1, 1)
+        if (
+            conv.stride != (1, 1)
+            or conv.padding not in ((0, 0), "same", "valid")
+            or conv.groups != 1
+        ):
+            return conv
         lin = torch.nn.Linear(
             conv.in_channels, conv.out_channels, bias=(conv.bias is None)
         )
-        lin.weight = torch.nn.Parameter(conv.weight.squeeze(-1, -2))
+        lin.weight = torch.nn.Parameter(
+            conv.weight.squeeze(-1, -2), requires_grad=conv.weight.requires_grad
+        )
         lin.bias = conv.bias
-        return PermuteSandwich(lin)
+        return PermuteSandwich(lin).train(conv.training)
 
     if filter_fn is None:
         filter_fn = lambda mod, *args: isinstance(
             mod, torch.nn.Conv2d
         ) and mod.kernel_size == (1, 1)
 
-    _replace_with_custom_fn_if_matches_filter(
+    return _replace_with_custom_fn_if_matches_filter(
         model, replace_conv2d_1x1, filter_fn=filter_fn
     )
 
