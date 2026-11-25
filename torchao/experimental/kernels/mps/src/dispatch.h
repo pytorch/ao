@@ -48,4 +48,34 @@ inline void dispatch_qmv(
       threadsPerThreadgroup:MTLSizeMake(32, 2, 1)];
 }
 
+// Dispatch for the generalized intN GEMM kernel (intNgemm_mm).
+// Uses 32x64 output tiles with 128 threads per threadgroup (4 simdgroups).
+// Threadgroups: ceil(M/32) x ceil(N/64)
+// Threadgroup memory: 12288 bytes (8192 for A + 4096 for B). The result
+// matrix reuses the A region after the K-loop (see intNgemm.metal for the
+// threadgroup_barrier that makes this safe).
+inline void dispatch_gemm(
+    id<MTLComputeCommandEncoder> encoder,
+    int32_t maxThreadsPerGroup,
+    int32_t M,
+    int32_t N,
+    int32_t K) {
+  (void)K;
+  if (maxThreadsPerGroup < 128) {
+    throw std::runtime_error("Can't dispatch GEMM: need at least 128 threads per threadgroup");
+  }
+  // Set threadgroup memory length for the dynamic shared_memory allocation.
+  // A: 8192 bytes (over-allocated; 32*32*4=4096 used but 8192 required —
+  // same quirk as PyTorch's kernel_mul_mm, see intNgemm.metal comment),
+  // B: 4096 bytes (64*32*2).
+  // Results reuse the A region after the K-loop completes (requires
+  // threadgroup_barrier, see kernel comment). Total: 12288 bytes.
+  // Within Apple Silicon's 32KB threadgroup memory limit (Apple WWDC22
+  // "Scale compute workloads across Apple GPUs": "threads can share up to
+  // 32K of threadgroup memory" on all Apple GPUs).
+  [encoder setThreadgroupMemoryLength:12288 atIndex:0];
+  [encoder dispatchThreadgroups:MTLSizeMake((M + 31) / 32, (N + 63) / 64, 1)
+      threadsPerThreadgroup:MTLSizeMake(128, 1, 1)];
+}
+
 } // namespace torchao::kernels::mps::lowbit::dispatch

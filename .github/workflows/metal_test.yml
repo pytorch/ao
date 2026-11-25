@@ -3,11 +3,11 @@ on:
   push:
     branches:
       - main
-      - 'gh/**'
+      - "gh/**"
   pull_request:
     branches:
       - main
-      - 'gh/**'
+      - "gh/**"
 
 jobs:
   test-mps-ops:
@@ -15,8 +15,8 @@ jobs:
     uses: pytorch/test-infra/.github/workflows/macos_job.yml@main
     with:
       runner: macos-m1-stable
-      python-version: '3.11'
-      submodules: 'recursive'
+      python-version: "3.11"
+      submodules: "recursive"
       ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
       timeout: 90
       script: |
@@ -40,4 +40,8 @@ jobs:
 
         echo "::group::Run quantizer tests"
         ${CONDA_RUN} python -m pytest torchao/experimental/ops/mps/test/test_quantizer.py
+        echo "::endgroup::"
+
+        echo "::group::Run intN GEMM tests"
+        ${CONDA_RUN} python -m pytest torchao/experimental/ops/mps/test/test_intNgemm.py
         echo "::endgroup::"
