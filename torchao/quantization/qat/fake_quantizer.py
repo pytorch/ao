@@ -249,13 +249,11 @@ class IntxFakeQuantizer(FakeQuantizerBase):
         """
         Perform per token fake quantization on the tensor.
         """
-        if self.config.is_symmetric:
-            raise NotImplementedError("Symmetric per token is not supported yet")
         qmin, qmax = self.config.quant_min, self.config.quant_max
         if self._should_compute_qparams():
             self.scale, self.zero_point = choose_qparams_affine(
                 x,
-                mapping_type=MappingType.ASYMMETRIC,
+                mapping_type=self.config.mapping_type,
                 block_size=_get_per_token_block_size(x),
                 target_dtype=self.config.dtype,
                 quant_min=qmin,
