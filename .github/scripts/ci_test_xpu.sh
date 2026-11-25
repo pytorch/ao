@@ -19,6 +19,7 @@ python -m pip install pytest expecttest parameterized accelerate hf_transfer 'mo
 pytest -v -s -k "not (bf16_stochastic_round_device_xpu)" \
         --ignore=torchao/test/quantization/pt2e/test_x86inductor_fusion.py \
         --ignore=torchao/test/prototype/moe_training/nvfp4_training/test_group_weight_amax.py \
+        torchao/test/test_low_bit_optim.py \
         torchao/test/quantization/pt2e/ \
         torchao/test/quantization/*.py \
         torchao/test/dtypes/ \
