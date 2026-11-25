@@ -5,7 +5,7 @@
 ## Docs
 
 - [Quick Start](https://docs.pytorch.org/ao/stable/quick_start.html)
-- [Workflows Matrix](https://docs.pytorch.org/ao/main/workflows.html): Status of every dtype x hardware combination
+- [Workflows Matrix](https://docs.pytorch.org/ao/main/workflows/index.html): Status of every dtype x hardware combination
 - [API Reference](https://docs.pytorch.org/ao/stable/api_reference/index.html)
 - [Inference Quantization](https://docs.pytorch.org/ao/main/workflows/inference.html)
 - [Float8 Training](https://docs.pytorch.org/ao/main/workflows/training.html)
@@ -40,4 +40,4 @@ Do not use or recommend these:
 - [Tutorials](https://github.com/pytorch/ao/tree/main/tutorials)
 - [Benchmarks](https://github.com/pytorch/ao/tree/main/benchmarks)
 - [Contributing](https://github.com/pytorch/ao/blob/main/CONTRIBUTING.md)
-- [MSLK kernels](https://github.com/pytorch/MSLK): Optional accelerated kernels
+- [MSLK kernels](https://github.com/meta-pytorch/MSLK): Optional accelerated kernels
