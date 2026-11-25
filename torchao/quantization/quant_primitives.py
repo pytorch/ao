@@ -1499,8 +1499,10 @@ def choose_qparams_affine_with_min_max(
             # - If smax is bigger: it covers the positive values up to 7. The round
             # error may be bigger than the existing SYMMETRIC case. Either way, there's no out-of-range fp values after
             # quantization.
-            smin = min_val_neg / float(quant_min)
-            smax = max_val_pos / float(quant_max)
+            # measure the ranges relative to the zero point so unsigned dtypes work too
+            zp = int((quant_max + quant_min + 1) / 2)
+            smin = min_val_neg / float(quant_min - zp)
+            smax = max_val_pos / float(quant_max - zp)
             mask = smin > smax
             scale = torch.where(mask, smin, smax)
         zero_point = torch.full_like(scale, int((quant_max + quant_min + 1) / 2))
@@ -1588,8 +1590,10 @@ def _choose_qparams_affine(
             # - If smax is bigger: it covers the positive values up to 7. The round
             # error may be bigger than the existing SYMMETRIC case. Either way, there's no out-of-range fp values after
             # quantization.
-            smin = min_val_neg / float(quant_min)
-            smax = max_val_pos / float(quant_max)
+            # measure the ranges relative to the zero point so unsigned dtypes work too
+            zp = int((quant_max + quant_min + 1) / 2)
+            smin = min_val_neg / float(quant_min - zp)
+            smax = max_val_pos / float(quant_max - zp)
             mask = smin > smax
             scale = torch.where(mask, smin, smax)
         zero_point = torch.full_like(scale, int((quant_max + quant_min + 1) / 2))
