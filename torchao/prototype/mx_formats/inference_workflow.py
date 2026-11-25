@@ -120,7 +120,6 @@ class MXDynamicActivationMXWeightConfig(AOBaseConfig):
             "For now - we only support matching input/weight dtypes."
         )
         _validate_elem_dtype(self.activation_dtype)
-        _validate_elem_dtype(self.weight_dtype)
 
 
 def _linear_extra_repr(self):
