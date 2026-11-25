@@ -96,6 +96,25 @@ def test_asymmetric_linear_single_rounding(dtype, bias, scale_dtype, execution):
     assert error <= floor * 1.05 + 1e-6
 
 
+@pytest.mark.parametrize("device", ["cpu", "cuda"])
+def test_asymmetric_fp16_zero_point_correction_stays_finite(device):
+    if device == "cuda" and not torch.cuda.is_available():
+        pytest.skip("CUDA required")
+    torch.manual_seed(0)
+    model = torch.nn.Linear(4096, 64, bias=False).to(device=device, dtype=torch.float16)
+    # Outliers push both terms above fp16 max before the zero-point subtraction.
+    x = torch.randn(8, 4096).relu()
+    x[:, :6] = 40.0
+    x = x.to(device=device, dtype=torch.float16)
+    quantize_(
+        model,
+        Int8DynamicActivationInt8WeightConfig(act_mapping_type=MappingType.ASYMMETRIC),
+    )
+    with torch.no_grad():
+        y = model(x)
+    assert torch.isfinite(y).all()
+
+
 def test_symmetric_linear_preserves_early_rounding(execution):
     from torchao.quantization.quantize_.workflows.int8.kernels import (
         _int_scaled_matmul,
