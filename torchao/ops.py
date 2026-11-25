@@ -217,9 +217,13 @@ def _(
     # No checks here, as detailed checks are performed by the
     # operator itself.
 
+    rows, cols = weight.shape
+    compressed_cols = (((cols + 31) // 32) * 32) // 2
+    metadata_rows = ((rows + 63) // 64) * 64
+    metadata_cols = (((cols + 127) // 128) * 128) // 8
     return (
-        weight.new_empty(weight[0], weight[1] // 2),
-        weight.new_empty(weight[0], max(weight[1] // 8, 16), dtype=torch.char),
+        weight.new_empty((rows, compressed_cols)),
+        weight.new_empty((metadata_rows, metadata_cols), dtype=torch.uint8),
     )
 
 

@@ -105,7 +105,7 @@ from torchao.quantization import (
     quantize_,
 )
 
-from . import optim, quantization, testing
+from . import ops, optim, quantization, testing
 
 __all__ = [
     "optim",
