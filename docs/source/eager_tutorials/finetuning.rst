@@ -290,20 +290,7 @@ such as regular INT4 or even newer `MXFP4 or NVFP4 <https://github.com/pytorch/a
 targeting Blackwell GPUs to reap similar memory benefits with
 varying tradeoffs.
 
-Option 1: TorchTune Integration
-===============================
-
-TorchTune incorporates the `NF4Tensor` in its QLoRA fine-tuning
-recipe through their implementation of `LoRALinear <https://github.com/pytorch/torchtune/blob/a6290a5b40758f13bca61c386bc8756a49ef417e/torchtune/modules/peft/lora.py#L19>`__.
-You can also try it out by running the following command,
-or refer to their `QLoRA tutorial <https://docs.pytorch.org/torchtune/stable/tutorials/qlora_finetune.html>`__
-for more details.
-
-.. code::
-
-  tune run lora_finetune_single_device --config llama3_2/3B_qlora_single_device.yaml
-
-Option 2: HuggingFace PEFT Integration
+Option 1: HuggingFace PEFT Integration
 ======================================
 
 `HuggingFace PEFT <https://huggingface.co/docs/peft/main/en/developer_guides/quantization#torchao-pytorch-architecture-optimization>`__
@@ -332,18 +319,8 @@ Float8 Quantized Fine-tuning
 Similar to `pre-training <pretraining.html>`__, we can also
 leverage float8 in fine-tuning for higher training throughput
 with no accuracy degradation and no increase in memory usage.
-Float8 training is integrated into TorchTune's distributed
-full fine-tuning recipe, leveraging the same APIs as our
-integration with TorchTitan. Users can invoke this fine-tuning
-recipe as follows:
-
-.. code::
-
-  tune run --nnodes 1 --nproc_per_node 4 full_finetune_distributed --config llama3_2/3B_full
-    enable_fp8_training=true \
-    fp8_recipe_name=tensorwise \
-    compile=True
-
+Float8 fine-tuning leverages the same float8 training APIs as our
+integration with `TorchTitan <https://github.com/pytorch/torchtitan>`__.
 Initial experiments saw up to 16.5% throughput improvement
 for fine-tuning Llama3.2-3B in float8:
 
