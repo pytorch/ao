@@ -730,6 +730,90 @@ class SmoothQuantObserverTest(unittest.TestCase):
         self.assertGreater(running_scale.item(), 0)
         self.assertIsNotNone(running_zp)
 
+    def test_calculate_qparams_quantize_tensor_kwargs(self):
+        """Test calculate_qparams with QuantizeTensorToInt8Kwargs."""
+        from torchao.quantization.quant_primitives import MappingType
+        from torchao.quantization.quantize_.workflows import QuantizeTensorToInt8Kwargs
+
+        torch.manual_seed(42)
+        weight = torch.randn(64, 32)
+        x = torch.randn(10, 32)
+
+        for mapping in [MappingType.SYMMETRIC, MappingType.ASYMMETRIC]:
+            for reduce_range in [False, True]:
+                obs = RunningAbsMaxSmoothQuantObserver(weight=weight, alpha=0.5)
+                obs(x)
+                obs.compute_smoothing_factor()
+                obs(x)
+
+                kwargs = QuantizeTensorToInt8Kwargs(
+                    granularity=PerTensor(),
+                    mapping_type=mapping,
+                    reduce_range=reduce_range,
+                )
+                sf, scale, zp = obs.calculate_qparams(kwargs)
+
+                self.assertIsNotNone(sf)
+                self.assertIsNotNone(scale)
+                self.assertIsNotNone(zp)
+                self.assertEqual(scale.shape, (1, 1))
+                self.assertEqual(zp.shape, (1, 1))
+                self.assertEqual(zp.dtype, torch.int8)
+
+    def test_static_smoothquant_convert_and_multidim_inference(self):
+        """Test static SmoothQuant convert with running absmax and 2D/3D inference."""
+        from torchao.quantization.quant_primitives import MappingType
+
+        torch.manual_seed(42)
+        for mapping in [MappingType.SYMMETRIC, MappingType.ASYMMETRIC]:
+            for reduce_range in [False, True]:
+                model = torch.nn.Sequential(torch.nn.Linear(32, 64))
+                base_config = Int8StaticActivationInt8WeightConfig(
+                    granularity=PerTensor(),
+                    act_mapping_type=mapping,
+                    reduce_range=reduce_range,
+                )
+                quantize_(
+                    model,
+                    SmoothQuantConfig(
+                        base_config=base_config,
+                        step=QuantizationStep.PREPARE,
+                        use_running_absmax=True,
+                    ),
+                )
+                calib_data = torch.randn(8, 32)
+                model(calib_data)
+
+                quantize_(
+                    model,
+                    SmoothQuantConfig(
+                        base_config=base_config,
+                        step=QuantizationStep.PREPARE_FOR_SMOOTHQUANT_SMOOTHING_FACTOR,
+                        use_running_absmax=True,
+                    ),
+                )
+                model(calib_data)
+
+                quantize_(
+                    model,
+                    SmoothQuantConfig(
+                        base_config=base_config,
+                        step=QuantizationStep.CONVERT,
+                        use_running_absmax=True,
+                    ),
+                )
+
+                # Check act_quant_scale shape
+                self.assertEqual(model[0].weight.act_quant_scale.shape, (1, 1))
+
+                # 2D inference
+                out2d = model(torch.randn(4, 32))
+                self.assertEqual(out2d.shape, (4, 64))
+
+                # 3D inference (e.g. sequence input [batch, seq, hidden])
+                out3d = model(torch.randn(2, 5, 32))
+                self.assertEqual(out3d.shape, (2, 5, 64))
+
 
 if __name__ == "__main__":
     unittest.main()
