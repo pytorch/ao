@@ -33,7 +33,9 @@ class PrototypeInt4WeightOnlyConfig(AOBaseConfig):
     Configuration for int4 weight only quantization, only groupwise quantization is supported right now.
 
     Args:
-        `group_size`: parameter for quantization, controls the granularity of quantization, smaller size is more fine grained, choices are [256, 128, 64, 32]
+        `group_size`: parameter for quantization, controls the granularity of quantization, smaller
+         size is more fine grained, choices are [256, 128, 64, 32]. The last dimension of the
+         weight tensor (``in_features`` for ``Linear``) must be divisible by ``group_size``.
         `int4_choose_qparams_algorithm`: variants of choose qparams algorithm to use for int4, currently support TINYGEMM ("tinygemm") and HQQ ("hqq")
         `set_inductor_config`: if True, adjusts `torchinductor` settings to recommended values
     """
@@ -54,11 +56,11 @@ def _int4_weight_only_opaque_tensor_quantize(weight, config):
     group_size = config.group_size
     int4_choose_qparams_algorithm = config.int4_choose_qparams_algorithm
 
-    if weight.shape[-1] % group_size != 0:
-        logger.info(
-            f"Skipping quantizing weight with int4 weight only quantization because the shape of weight {weight.shape} is not compatible with group_size {group_size}"
+    in_features = weight.shape[-1]
+    if in_features % group_size != 0:
+        raise ValueError(
+            f"in_features={in_features} must be divisible by group_size={group_size}"
         )
-        return weight
 
     block_size = tuple([1 for _ in range(weight.ndim - 1)] + [group_size])
 
