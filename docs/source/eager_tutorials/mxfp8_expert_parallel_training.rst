@@ -31,7 +31,7 @@ These are all differentiable autograd functions which can be chained together:
 * :code:`permute_mxfp8_fwd_hp_bwd`: Permute and pad tokens for MXFP8 computation (MXFP8 forward pass, BF16 backward pass)
 * :code:`_to_mxfp8_then_scaled_grouped_mm`: MXFP8 grouped GEMM for routed expert computation (accepts pre-quantized inputs, or dynamically quantizes high precision inputs). Produces bfloat16 output.
 * :code:`unpermute_hp_fwd_mxfp8_bwd`: Unpermute tokens back to original order (BF16 forward pass, MXFP8 backward pass)
-* :code:`a2a_combine_hp_fwd_mxfp8_bwd`: All-to-all token combine (BF16 forward pass, MXFP8 backward pass). Note the actual combine/aggregation op does not happen here, the naming is just to indicate it is intended to be used for the all2all immediatley preceding the aggregation.
+* :code:`a2a_combine_hp_fwd_mxfp8_bwd`: All-to-all token combine (BF16 forward pass, MXFP8 backward pass). Note the actual combine/aggregation op does not happen here, the naming is just to indicate it is intended to be used for the all2all immediately preceding the aggregation.
 
 
 These autograd functions handle the communication and quantization patterns needed for efficient expert parallel training.

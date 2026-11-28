@@ -258,7 +258,7 @@ def check_submodules():
             end = time.time()
             print(f" --- Submodule initialization took {end - start:.2f} sec")
         except Exception:
-            print(" --- Submodule initalization failed")
+            print(" --- Submodule initialization failed")
             print("Please run:\n\tgit submodule update --init --recursive")
             sys.exit(1)
     for folder in folders:
